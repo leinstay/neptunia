@@ -309,6 +309,18 @@ test('runOwnCommand: only her own expressive operations, without the requester\'
   assert.equal(own.status, 'ok', 'an owner-only diary read, for her, whoever asked');
 });
 
+test('executeCall: on her own initiative the operation hears it, and the inner turn\'s chain; a turn somebody asked carries neither', async () => {
+  const { admin, port } = makeAdmin({});
+  const contexts = [];
+  const capture = async (key, args, context) => (contexts.push(context), { status: 'ok', code: 'ok', summary: 'ok', data: null });
+  const resolved = resolve('lore.list', {});
+  assert.equal(resolved.ok, true);
+  const initiative = Object.freeze({ actor: 'persona', requester: null, mixed: false, invocationId: 'inv-2', originChannelId: HERE, ownInitiative: true, chainId: 'chain:k' });
+  await executeCall(resolved, deps(admin, port, { envelope: initiative, runInitiativeCommand: capture }));
+  await executeCall(resolved, deps(admin, port, { runCommand: capture }));
+  assert.deepEqual(contexts.map((c) => [c.ownInitiative ?? null, c.chainId ?? null]), [[true, 'chain:k'], [null, null]]);
+});
+
 test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {
   const long = { status: 'ok', data: { text: 'λ'.repeat(500) } };
   const block = skillResultBlock({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });

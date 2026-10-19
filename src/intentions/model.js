@@ -18,6 +18,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS } from '../time.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { foldText as foldName } from '../memory/recent.js';
+import { externalOrigin } from './sources.js';
 
 /** Every status an intention may have. */
 export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired']);
@@ -179,6 +180,11 @@ export function createIntention({ purpose, provenance, dueAt = null, expiresAt =
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
+      // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
+      // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
+      ...(candidate ? { origin: provenance.origin === 'external' ? 'external' : 'own' } : {}),
+      ...(candidate && provenance.origin === 'external' && typeof provenance.originReason === 'string' ? { originReason: provenance.originReason } : {}),
+      ...(candidate && provenance.bornInner === true ? { bornInner: true, ...(line(provenance.innerChainId, CHAIN_CHARS + 16) ? { innerChainId: line(provenance.innerChainId, CHAIN_CHARS + 16) } : {}) } : {}),
     },
     status,
     createdAt: now,
@@ -193,6 +199,27 @@ export function createIntention({ purpose, provenance, dueAt = null, expiresAt =
     history: [{ at: now, to: status, by }],
   };
   return { ok: true, intention };
+}
+
+/**
+ * Why the persona may not accept candidate `record` (move it `proposed` -> `pending`) from where her
+ * call comes, or null: `candidate-same-turn` (the turn that wrote the line it came from: an accept
+ * comes in a later turn), and from an inner turn (`initiative`) `candidate-external` (its words came
+ * from outside material: only an ordinary turn of hers accepts it) and `candidate-same-chain` (it
+ * was born in an inner turn of the very chain asking). An owner's command (`by` not `persona`) is
+ * never refused here. Pure.
+ * @param {object} record
+ * @param {{ by?: string, initiative?: boolean, chainId?: string|null, turnId?: string|null }} caller
+ * @returns {'candidate-same-turn'|'candidate-external'|'candidate-same-chain'|null}
+ */
+export function acceptRefusal(record, { by = 'persona', initiative = false, chainId = null, turnId = null } = {}) {
+  if (record?.status !== 'proposed' || by !== 'persona') return null;
+  const provenance = record.provenance ?? {};
+  if (turnId && provenance.turnId && String(provenance.turnId) === String(turnId)) return 'candidate-same-turn';
+  if (!initiative) return null;
+  if (provenance.origin === 'external') return 'candidate-external';
+  if (provenance.bornInner === true && chainId && provenance.innerChainId === String(chainId)) return 'candidate-same-chain';
+  return null;
 }
 
 /**
@@ -316,14 +343,19 @@ export function duplicates(candidate, records) {
  * that line's id, channel and time, and the other authors of that channel in the batch
  * (`participants`, left out when none); a span found in none of her lines is dropped (`unanchored`),
  * and one that also occurs in another author's line of the batch is dropped as a quote of
- * someone else (`quoted`). At most `max` are kept (`over`). Never throws.
+ * someone else (`quoted`). At most `max` are kept (`over`). Each kept one carries its `origin`
+ * (src/intentions/sources.js#externalOrigin over the line and its note, `sourcesOf(line)`, the
+ * line's own `sources` by default; `strict`: a line of hers with no note counts as external):
+ * `external` with its `originReason`, else `own`; and the turn that wrote the line (`turnId`), and
+ * whether it was an inner turn of which chain (`bornInner`, `innerChainId`). Never throws.
  * @param {unknown} raw
  * @param {object[]} messages
- * @param {{ max: number }} options
- * @returns {{ candidates: { purpose: string, span: string, messageId: string, channelId: string|null, ts: number|null, participants?: string[] }[],
+ * @param {{ max: number, sourcesOf?: ((line: object) => object|null)|null, strict?: boolean }} options
+ * @returns {{ candidates: { purpose: string, span: string, messageId: string, channelId: string|null, ts: number|null, participants?: string[],
+ *   origin: 'own'|'external', originReason?: string, turnId: string|null, bornInner?: true, innerChainId?: string }[],
  *   dropped: { invalid: number, unanchored: number, quoted: number, over: number } }}
  */
-export function candidatesFromAnswer(raw, messages, { max }) {
+export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, strict = false }) {
   const dropped = { invalid: 0, unanchored: 0, quoted: 0, over: 0 };
   const candidates = [];
   const list = Array.isArray(raw) ? raw : [];
@@ -355,7 +387,26 @@ export function candidatesFromAnswer(raw, messages, { max }) {
       continue;
     }
     const participants = membersOf(own);
-    candidates.push({ purpose, span, messageId: String(own.id), channelId: own.channelId ? String(own.channelId) : null, ts: Number.isFinite(own.ts) ? own.ts : null, ...(participants.length > 0 ? { participants } : {}) });
+    let sources = null;
+    try {
+      sources = (typeof sourcesOf === 'function' ? sourcesOf(own) : null) ?? own.sources ?? null;
+    } catch {
+      sources = null;
+    }
+    const reason = externalOrigin({ span, purpose }, own, sources, { strict });
+    const turnId = idOrNull(sources?.turnId) ?? idOrNull(own.inner?.turnId);
+    candidates.push({
+      purpose,
+      span,
+      messageId: String(own.id),
+      channelId: own.channelId ? String(own.channelId) : null,
+      ts: Number.isFinite(own.ts) ? own.ts : null,
+      ...(participants.length > 0 ? { participants } : {}),
+      origin: reason ? 'external' : 'own',
+      ...(reason ? { originReason: reason } : {}),
+      turnId,
+      ...(sources?.inner === true || own.inner ? { bornInner: true, ...(idOrNull(sources?.chainId) ? { innerChainId: idOrNull(sources.chainId) } : {}) } : {}),
+    });
   }
   return { candidates, dropped };
 }

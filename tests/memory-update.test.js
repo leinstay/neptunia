@@ -2644,6 +2644,21 @@ test('observe: ignores other bots entirely', () => {
   });
 });
 
+test('observe: her own line keeps the note of where it came from (lineSourcesOf); nobody else\'s line and no private line asks', () => {
+  withStore((store) => {
+    const hot = { config: makeConfig() };
+    const asked = [];
+    const lineSourcesOf = (id) => (asked.push(id), id === 'm2' ? { turnId: 't2', read: true } : null);
+    const updater = createMemoryUpdater({ hot, store, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept', lineSourcesOf });
+    updater.observe('g1', slimMessage({ id: 'm1', content: 'γεια' }));
+    updater.observe('g1', slimMessage({ id: 'm2', self: true, content: 'θα το κοιτάξω' }));
+    updater.observe('g1', slimMessage({ id: 'm3', self: true, content: 'κι αυτό' }));
+    updater.observe('g1', slimMessage({ id: 'm4', self: true, content: 'ιδιωτικά' }), { private: 'u7' });
+    assert.deepEqual(asked, ['m2', 'm3']);
+    assert.deepEqual(store.getBuffer('g1').map((line) => line.sources ?? null), [null, { turnId: 't2', read: true }, null]);
+  });
+});
+
 test('observe: strips attachment/link urls before buffering, keeps the item id for description-cache lookups', () => {
   withStore((store) => {
     const hot = { config: makeConfig() };

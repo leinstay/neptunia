@@ -82,6 +82,7 @@ import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall }
 import { IN_TURN_TOOLS, firstLinkIn, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { POSTING_SKILLS, innerSettings } from './inner.js';
+import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
 import { wakeBlockText } from './wake.js';
 
 /**
@@ -1202,7 +1203,7 @@ export function continuationHistory({ history, fetched = [], own = [], selfName 
  * same call made twice queues one errand (src/errands/store.js#add).
  * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
-function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null, ownInitiative = false }) {
+function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null, ownInitiative = false, chainId = null }) {
   const requester = asked?.id ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] } : requesterOf(trigger, channel);
   const authors = new Set((Array.isArray(missed) ? missed : []).map((line) => line?.author).filter((author) => typeof author === 'string' && author));
   const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])].filter(Boolean).map(String);
@@ -1216,8 +1217,9 @@ function callEnvelope({ trigger, channel, added = null, missed = null, requester
     // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
     ...(turnId ? { turnId: String(turnId) } : {}),
     ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
-    // An inner turn: her own initiative, nobody asked (src/skills/executors.js#executeCall).
-    ...(ownInitiative ? { ownInitiative: true } : {}),
+    // An inner turn: her own initiative, nobody asked (src/skills/executors.js#executeCall), and
+    // its causal chain (which of her candidates it may accept, src/intentions/model.js#acceptRefusal).
+    ...(ownInitiative ? { ownInitiative: true, ...(chainId ? { chainId: String(chainId) } : {}) } : {}),
   });
 }
 
@@ -1893,6 +1895,8 @@ export function createTurnRunner({
 
   /**
    * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
+   * once the day's dollars are spent (`spendAllowed`, asked now: the real reported spend, this
+   * turn's so far included) every call is refused (`inner-usd-cap`); otherwise
    * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
    * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`), and a
    * public post (POSTING_SKILLS in a server channel) past the day's cap (`postAllowed`) is refused
@@ -1901,6 +1905,8 @@ export function createTurnRunner({
    */
   function innerVerdict(inner, skill, { channel, args }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
+    // The day's dollars spent (what was really reported, this turn's so far included): no call more.
+    if (typeof inner.spendAllowed === 'function' && !inner.spendAllowed()) return { refusal: { code: 'inner-usd-cap', reason: 'innerLife.caps.usdPerDay' } };
     if (effects === 'read') return null;
     if (inner.shadow) return { proposed: true };
     if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
@@ -1967,6 +1973,8 @@ export function createTurnRunner({
         });
       }
     }
+    // What a read of hers returned is outside material her later lines of the turn may repeat.
+    if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') noteSeen(draft, result.data.text, { read: true });
     if (inner) {
       (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}) });
       // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
@@ -1996,6 +2004,7 @@ export function createTurnRunner({
       if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
       if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
       if (skill === 'message.create') {
+        noteLineSources(draft, posted.id, args.text);
         recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: rendered?.userIds ?? [] });
       }
     }
@@ -2426,6 +2435,12 @@ export function createTurnRunner({
       const seen = results.filter((result) => result.followUp);
       if (seen.length === 0) break;
       outcomes.push(...seen);
+      // An inner turn past the day's dollars (src/behavior/inner.js, asked now): no further request.
+      if (typeof draft?.inner?.spendAllowed === 'function' && !draft.inner.spendAllowed()) {
+        log.info('skills: loop cap', { channel: channel.id, reason: 'usd', step: steps, dropped: 0 });
+        draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: 0, detail: 'usd' });
+        break;
+      }
       steps += 1;
       const stepsSpent = steps >= settings.maxSteps;
       const timeSpent = clock() - startedAt >= settings.timeBudgetMs;
@@ -2488,6 +2503,35 @@ export function createTurnRunner({
   // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest
   // links go first past TRIGGER_LINKS_MAX. Her transcript lines read it (linkTriggers).
   const triggerLinks = new Map();
+
+  /**
+   * Outside text the attempt `draft` has seen (src/intentions/sources.js): someone's message, the
+   * retrieved memory, a read's result; `read` marks outside material (a read, a page, a lookup, an
+   * errand's result). At most SOURCE_CHARS_MAX characters in all.
+   */
+  function noteSeen(draft, value, { read = false } = {}) {
+    if (!draft) return;
+    const left = SOURCE_CHARS_MAX - (draft.seenChars ?? 0);
+    const texts = left > 0 ? textsOf(value, left) : [];
+    if (texts.length === 0) return;
+    (draft.seenTexts ??= []).push(...texts);
+    draft.seenChars = (draft.seenChars ?? 0) + texts.reduce((sum, text) => sum + text.length, 0);
+    if (read) draft.seenRead = true;
+  }
+
+  /**
+   * Where her line `postedId` (its `text` as she wrote it) came from, noted with the intention
+   * service for the candidates the analyzer may find in it (src/intentions/sources.js#lineSourcesOf:
+   * what the turn had seen before it went out, its turn, an inner turn's chain). Never throws.
+   */
+  function noteLineSources(draft, postedId, text) {
+    if (typeof intentions?.noteLine !== 'function' || typeof postedId !== 'string' || !postedId) return;
+    try {
+      intentions.noteLine(postedId, lineSourcesOf({ text, external: draft?.seenTexts ?? [], read: draft?.seenRead === true, turnId: draft?.started?.turnId ?? draft?.turnKey?.turnId ?? null, inner: Boolean(draft?.inner), chainId: draft?.inner?.wake?.chainId ?? null }));
+    } catch (err) {
+      log.warn('turn: line sources not noted', { error: err });
+    }
+  }
 
   /** Remember that `postedId` was posted by the turn `triggerId` started (a newer link wins). */
   function noteTrigger(postedId, triggerId) {
@@ -3604,6 +3648,7 @@ export function createTurnRunner({
       const posted = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: posted.id });
       recordSaid({ guildId, channel, privateChat, trigger, draft, op, posted, text: message.text, replyId, repliedAuthorId, userIds });
+      noteLineSources(draft, posted?.id, message.text);
       delivered = true;
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());
@@ -4989,7 +5034,7 @@ export function createTurnRunner({
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
    * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean,
-   *   onPosted?: () => void }|null} [params.inner]  An inner turn (src/behavior/inner.js,
+   *   onPosted?: () => void, spendAllowed?: () => boolean }|null} [params.inner]  An inner turn (src/behavior/inner.js,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
    *   request carries `<wake>` (src/behavior/wake.js over `wake`) and the task `prompts.inner`, its
    *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
@@ -4998,7 +5043,9 @@ export function createTurnRunner({
    *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
    *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
    *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
-   *   and a public post needs `postAllowed()` (then `onPosted()`). An answer with no action ends
+   *   and a public post needs `postAllowed()` (then `onPosted()`); in either mode, once
+   *   `spendAllowed()` says the day's dollars are spent, every further call is refused
+   *   (`inner-usd-cap`) and the tool loop makes no further request. An answer with no action ends
    *   `skip` with `reason: 'nothing-to-do'`. The result carries `inner: { actions, stray, turnId,
    *   episode }` (`shadow: true` in shadow mode; `episode`: innerEpisodeOf's, for her memory). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
@@ -6200,6 +6247,13 @@ export function createTurnRunner({
           : { status: 'timeout', basis: prefetching.lanes.map((lane) => lane.kind), excerpts: [] }
         : null;
       prep.take('prefetch', prefetchResult !== null);
+      // What the turn has in front of it from outside, for where her lines came from (noteSeen):
+      // someone's message she answers, the retrieved memory, pages read, a lookup, an errand's result.
+      if (trigger && String(trigger.authorId ?? '') !== String(selfId)) noteSeen(draft, trigger.content);
+      noteSeen(draft, prefetchResult?.excerpts);
+      noteSeen(draft, reads, { read: true });
+      noteSeen(draft, lookupResult, { read: true });
+      noteSeen(draft, taskResult?.result, { read: true });
       // The journal: which preparation steps reached the request (the rest close as not delivered).
       prep.take('captions', Boolean(captions?.done));
       prep.take('videos', Boolean(videoStage?.done));
@@ -6686,7 +6740,7 @@ export function createTurnRunner({
       const envelopeOf = () => {
         const index = draft.callCount ?? 0;
         draft.callCount = index + 1;
-        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner) });
+        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner), chainId: draft.inner?.wake?.chainId ?? null });
       };
       const callPlan = parsed.call && !looping
         ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })

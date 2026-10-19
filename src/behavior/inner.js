@@ -11,9 +11,11 @@
 //
 // Bounds are code, not prose (`innerLife.caps`, a ceiling the owner accepted): inner turns per
 // local day and per rolling hour, per causal chain (an intention's `chainId`, else the intention
-// itself; a review is its day's chain), dollars per local day (the turn's estimate reserved
-// before it runs, then what it actually cost -- every `llm: usage` and `images: generated` line
-// logged inside it -- and the errands it handed off when they end), public posts per local day.
+// itself; a review is its day's chain), dollars per local day (a reservation held while the turn
+// runs -- the estimate, or the costliest recent inner turn's real cost when more -- then what it
+// actually cost -- every `llm: usage` and `images: generated` line logged inside it -- and the
+// errands it handed off when they end; a turn reaching the ceiling mid-way makes no further call
+// or request), public posts per local day.
 // Over a cap no turn runs and the refusal is journalled once per wake. What is left and when it
 // resets reach her as facts in `<wake>`, never as a rule.
 //
@@ -293,8 +295,19 @@ export function chainBudget(state, chainId, cap) {
 }
 
 /**
- * The cap an inner turn would break now, or null: `per-day`, `per-hour`, `usd-per-day` (what is
- * spent and reserved today plus `estimate` over the ceiling), `per-chain`.
+ * What an inner turn reserves of the day's dollars before it runs: `innerLife.estimatedTurnUsd`,
+ * or what the costliest inner turn of the kept window (the last two days) really cost when that was
+ * more, so a turn that cost more than the estimate raises the next turns' reservation. Pure.
+ */
+export function turnReserve(state, settings) {
+  const real = list(state?.turns).reduce((most, turn) => (Number.isFinite(turn?.usd) && turn.usd > most ? turn.usd : most), 0);
+  return Math.max(settings.estimatedTurnUsd, real);
+}
+
+/**
+ * The cap an inner turn would break now, or null: `per-day`, `per-hour`, `usd-per-day` (what was
+ * really spent today and what running turns hold reserved, plus this turn's reservation
+ * `estimate` -- turnReserve's -- over the ceiling), `per-chain`.
  */
 export function capRefusal(budgets, chain, estimate) {
   if (budgets.day.left <= 0) return 'per-day';
@@ -307,28 +320,42 @@ export function capRefusal(budgets, chain, estimate) {
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
  * `cost`; a `voice` role counted apart) and `images: generated` line logged in its async context
- * (AsyncLocalStorage over the log listeners, src/log.js#onLog), helpers it starts included.
+ * (AsyncLocalStorage over the log listeners, src/log.js#onLog), helpers it starts included;
+ * `running()`, asked inside it, says what it has cost so far and its costliest single request.
  * @param {{ subscribe?: (listener: Function) => Function }} [options]
  */
 export function createCostMeter({ subscribe = onLog } = {}) {
   const scope = new AsyncLocalStorage();
+  const round = (value) => Math.round(value * 1_000_000) / 1_000_000;
   const amount = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
   subscribe((entry) => {
     const box = scope.getStore();
     if (!box || !entry || typeof entry !== 'object') return;
     if (entry.msg === 'llm: usage') {
-      box.usd += amount(typeof entry.upstreamCost === 'number' ? entry.upstreamCost : entry.cost);
+      const usd = amount(typeof entry.upstreamCost === 'number' ? entry.upstreamCost : entry.cost);
+      box.usd += usd;
+      box.peak = Math.max(box.peak, usd);
       box.requests += 1;
       if (entry.role === 'voice') box.voice += 1;
     } else if (entry.msg === 'images: generated') {
-      box.usd += amount(entry.cost);
+      const usd = amount(entry.cost);
+      box.usd += usd;
+      box.peak = Math.max(box.peak, usd);
     }
   });
   return {
     async run(fn) {
-      const box = { usd: 0, requests: 0, voice: 0 };
+      const box = { usd: 0, peak: 0, requests: 0, voice: 0 };
       const result = await scope.run(box, fn);
-      return { result, usd: Math.round(box.usd * 1_000_000) / 1_000_000, requests: box.requests, voice: box.voice };
+      return { result, usd: round(box.usd), requests: box.requests, voice: box.voice };
+    },
+    /**
+     * What the `run` whose async context this is has cost so far (`usd`) and its costliest single
+     * request or picture (`peak`); zeros outside one.
+     */
+    running() {
+      const box = scope.getStore();
+      return box ? { usd: round(box.usd), peak: round(box.peak) } : { usd: 0, peak: 0 };
     },
   };
 }
@@ -655,7 +682,8 @@ export function createInnerLife({
     const timezone = timezoneOf();
     const budgets = budgetsOf(state, settings, { now: at, timezone, reserved: reserved.get(String(guildId)) ?? 0 });
     const chain = chainBudget(state, chainId, settings.caps.perChain);
-    const refusal = capRefusal(budgets, chain, settings.estimatedTurnUsd);
+    const reserve = turnReserve(state, settings);
+    const refusal = capRefusal(budgets, chain, reserve);
     if (refusal) {
       let fresh = 0;
       for (const wake of group) {
@@ -696,7 +724,16 @@ export function createInnerLife({
       chainId,
     };
     const key = String(guildId);
-    reserved.set(key, (reserved.get(key) ?? 0) + settings.estimatedTurnUsd);
+    reserved.set(key, (reserved.get(key) ?? 0) + reserve);
+    // Asked before each of her calls and tool-loop steps: the day's real spend, what other running
+    // turns hold reserved, what this turn has really cost so far, and one more request as costly as
+    // its costliest so far, within the ceiling.
+    const spendAllowed = () => {
+      const others = Math.max(0, (reserved.get(key) ?? 0) - reserve);
+      const usd = budgetsOf(stateOf(guildId), innerSettings(hot.config), { now: now(), timezone: timezoneOf(), reserved: others }).usd;
+      const so = typeof costs.running === 'function' ? costs.running() : null;
+      return usd.used + (so?.usd ?? 0) + (so?.peak ?? 0) <= usd.cap + 1e-9;
+    };
     for (const wake of group) running.add(wake.id);
     let measured;
     try {
@@ -710,6 +747,7 @@ export function createInnerLife({
             wake: info,
             shadow,
             mayAct: () => mayAct(guildId),
+            spendAllowed,
             postAllowed: () => posts().left > 0,
             onPosted: () => {
               stateOf(guildId).posts.push(now());
@@ -722,7 +760,7 @@ export function createInnerLife({
       log.warn('inner: turn failed', { guildId, error: err });
       measured = { result: { outcome: 'error' }, usd: 0, requests: 0, voice: 0 };
     } finally {
-      reserved.set(key, Math.max(0, (reserved.get(key) ?? 0) - settings.estimatedTurnUsd));
+      reserved.set(key, Math.max(0, (reserved.get(key) ?? 0) - reserve));
       for (const wake of group) running.delete(wake.id);
     }
     const result = measured.result ?? { outcome: 'error' };
@@ -767,7 +805,7 @@ export function createInnerLife({
       coalesced: group.map((wake) => wake.id),
       actions,
       stray: result.inner?.stray ?? null,
-      cost: { usd: measured.usd, requests: measured.requests, voice: measured.voice, reservedUsd: settings.estimatedTurnUsd },
+      cost: { usd: measured.usd, requests: measured.requests, voice: measured.voice, reservedUsd: reserve },
     });
     return { outcome, wakes: group.length, usd: measured.usd };
   }

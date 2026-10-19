@@ -3025,8 +3025,12 @@ function namedIds(ids, texts) {
  *   With `features.intentions` exactly true (read at the moment of use), a guild batch's answer
  *   `intentions` and the lines the model saw (src/intentions/service.js#addCandidates); not awaited,
  *   its failure logged.
+ * @param {((messageId: string) => object|null)|null} [deps.lineSourcesOf]  Where a line of the
+ *   persona's came from (src/intentions/sources.js, the intention service's `lineSources`): taken
+ *   with her line into the buffer as its `sources`, so her intention candidates are judged by it
+ *   after a restart too.
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null, onIntentionCandidates = null }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null, onIntentionCandidates = null, lineSourcesOf = null }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -3242,6 +3246,16 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     }
 
     const slim = slimMessage(normalized, direct);
+    // Her own line keeps where it came from (src/intentions/sources.js): her intention candidates
+    // are judged by it. Never on a private line (no candidates come from a private chat).
+    if (normalized.self === true && !privateUserId && typeof lineSourcesOf === 'function') {
+      try {
+        const sources = lineSourcesOf(String(normalized.id ?? ''));
+        if (sources) slim.sources = sources;
+      } catch {
+        // No note: the candidate check asks again, and counts a line with none as external.
+      }
+    }
     const cfg = hot.config.memory;
     // The cap drops the oldest buffered messages before any analyzer saw them (the analyzer
     // is failing or backed off): say so, with the count only. A private line never names the member.

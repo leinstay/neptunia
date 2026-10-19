@@ -469,6 +469,9 @@ export async function executeCall(resolved, deps) {
       // call cannot queue a second one (src/errands/store.js#add).
       ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
       ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
+      // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
+      // may accept (src/intentions/model.js#acceptRefusal).
+      ...(initiative ? { ownInitiative: true, ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}) } : {}),
       // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
       ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),

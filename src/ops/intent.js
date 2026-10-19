@@ -7,7 +7,8 @@
 // candidate), `intent.list`. Her own state, so her own calls run on her grant alone
 // (src/ops/effects.js#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
-// names only an errand the task store holds, and a destination is only recorded. Off unless
+// names only an errand the task store holds, and a destination is only recorded; a candidate is
+// accepted only where its origin allows (src/intentions/model.js#acceptRefusal). Off unless
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
 // `<n>m`, `<n>h`, `<n>d` from now or an ISO date-time (src/intentions/model.js#parseWhen).
 // Answers are operator lines (ids, states, times), the purpose cut to one short line.
@@ -157,6 +158,8 @@ const handlers = perEnv((env) => {
       ...(state ? { state } : {}),
       turnId: from.turnId,
       by: from.by,
+      // An inner turn's call (her own initiative) and its chain: which candidates it may accept.
+      ...(context?.ownInitiative === true ? { initiative: true, callerChain: context?.chainId ? String(context.chainId) : null } : {}),
       ...whereOf(context),
     });
     return answer(result, 'updated');

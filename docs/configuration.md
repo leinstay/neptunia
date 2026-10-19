@@ -1021,13 +1021,13 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `tickSeconds` | `60` | How often the scheduler looks at what is due (seconds); ticks missed while the bot was down coalesce into the first one after it |
 | `queueMax` | `20` | At most this many wakes wait at once; one more is journalled as an overflow and not queued |
 | `chatMessages` | `30` | How many of the conversation's last messages an inner turn reads |
-| `estimatedTurnUsd` | `0.15` | The cost reserved against `caps.usdPerDay` before an inner turn runs; replaced by what it actually cost when it ends |
+| `estimatedTurnUsd` | `0.15` | The cost reserved against `caps.usdPerDay` before an inner turn runs (or what the costliest inner turn of the last two days really cost, when that was more); replaced by what it actually cost when it ends |
 | `review.enabled` | `true` | Whether she has a daily review at all |
 | `review.historyDays` | `14` | How many days of her own lines in the record decide her active hours (when she usually speaks) for the review's random moment |
 | `caps.perDay` | `24` | Inner turns per local day (`bot.timezone`) |
 | `caps.perHour` | `4` | Inner turns per rolling hour |
 | `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. A spent chain's wakes are dropped |
-| `caps.usdPerDay` | `4` | Dollars per local day for inner turns: their requests (voice and helpers) as reported, plus the errands they handed off when those end |
+| `caps.usdPerDay` | `4` | Dollars per local day for inner turns: their requests (voice and helpers) as reported, plus the errands they handed off when those end. A turn starts only when the real spend, the reservations held and its own fit under it; a turn that reaches it makes no further call or request (`inner-usd-cap`) |
 | `caps.publicPostsPerDay` | `2` | Posts in server channels her inner turns may make per local day (live mode); one more is refused |
 | `memory.enabled` | `true` | What an inner turn's reads found, with her thinking, goes to the memory analyzer as lines of hers ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)); shadow turns too. `false`: no episode is buffered |
 | `memory.thinkChars` | `1200` | The end of her thinking kept in an episode (characters) |
