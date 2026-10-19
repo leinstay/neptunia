@@ -729,3 +729,12 @@ test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
   assert.equal(bare.split('\n')[1], labels.wake.kinds.feedback);
   assert.ok(!bare.includes('web.search'));
 });
+
+test('wakeBlockText: a retried wake is followed by its delayed line with the minutes and the code; none without the label', () => {
+  const wake = { items: [{ kind: 'review', intentionIds: [], delayed: { minutes: 7, code: 'timeout' } }, { kind: 'review', intentionIds: [] }], now: NOW, timezone: 'UTC' };
+  const lines = wakeBlockText(wake, labels).split('\n');
+  assert.equal(lines.filter((line) => line === 'delayed 7 timeout').length, 1);
+  assert.equal(lines[lines.indexOf('delayed 7 timeout') - 1], labels.wake.kinds.review);
+  const bare = { wake: { ...labels.wake, delayed: undefined } };
+  assert.equal(wakeBlockText(wake, { ...labels, ...bare }).includes('delayed'), false);
+});

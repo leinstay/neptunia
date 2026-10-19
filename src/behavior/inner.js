@@ -95,12 +95,15 @@ export const INNER_DEFAULTS = Object.freeze({
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
+  retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
 });
 
 /** The orders the places view knows (`places.list` `sort=`). */
 export const PLACE_SORTS = Object.freeze(['recent', 'name', 'lines']);
 /** The wake id prefix of an attend wake (its intention and newest line follow). */
 const ATTEND_PREFIX = 'inner.wake:attend:';
+/** The outcomes of a wake the engine dropped, told to her once at her next turn (`wakeDropped`'s code is the outcome). */
+const DROP_TOLD = new Set(['no-channel', 'provider']);
 /** How far behind the last scan the record is read again (a line appended late is still seen; ids de-duplicate). */
 const SCAN_LAG_MS = 5 * MINUTE_MS;
 
@@ -210,6 +213,7 @@ export function innerSettings(config) {
   const review = raw.review ?? {};
   const attention = raw.attention ?? {};
   const loop = raw.loop ?? {};
+  const retry = raw.retry ?? {};
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -238,6 +242,11 @@ export function innerSettings(config) {
       timeBudgetMs: positive(loop.timeBudgetMs, d.loop.timeBudgetMs),
       maxCallsPerStep: whole(loop.maxCallsPerStep, d.loop.maxCallsPerStep),
       callTimeoutMs: positive(loop.callTimeoutMs, d.loop.callTimeoutMs),
+    },
+    // A failed turn's wakes come back after the next of these delays while the first failure is younger than maxHours.
+    retry: {
+      delaysMinutes: Array.isArray(retry.delaysMinutes) && retry.delaysMinutes.length > 0 && retry.delaysMinutes.every((m) => positive(m, 0) > 0) ? [...retry.delaysMinutes] : [...d.retry.delaysMinutes],
+      maxHours: positive(retry.maxHours, d.retry.maxHours),
     },
   };
 }
@@ -491,6 +500,7 @@ export function drawReviewAt({ day, weights, timezone, rng, notBefore = -Infinit
  * The wakes of `queue` that run together, the earliest due first: the first wake that is not a
  * review is the anchor; every wake of the same conversation (and the same private-or-server kind)
  * joins it, and the day's review joins any server anchor. With only reviews queued, they go alone.
+ * A retried wake (`retry`) joins only the wakes of its own failed group.
  * @param {object[]} queue
  * @returns {object[]}
  */
@@ -498,9 +508,15 @@ export function coalesceGroup(queue) {
   const sorted = [...list(queue)].sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
   if (sorted.length === 0) return [];
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
-  if (!anchor) return sorted;
-  return sorted.filter((wake) => (wake.kind === 'review' ? !anchor.privateChat : wake.channelId === anchor.channelId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)));
+  // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
+  const key = retryKey(anchor ?? sorted[0]);
+  const same = sorted.filter((wake) => retryKey(wake) === key);
+  if (!anchor) return same;
+  return same.filter((wake) => (wake.kind === 'review' ? !anchor.privateChat : wake.channelId === anchor.channelId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)));
 }
+
+/** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
+const retryKey = (wake) => (wake?.retry ? `${wake.retry}:${wake.firstFailedAt ?? ''}` : '');
 
 /** The start of the local day of `now` and of the next one. */
 function dayBounds(now, timezone) {
@@ -518,8 +534,10 @@ function dayBounds(now, timezone) {
 export function budgetsOf(state, settings, { now, timezone, reserved = 0 }) {
   const { start, next } = dayBounds(now, timezone);
   const caps = settings.caps;
-  const today = state.turns.filter((turn) => turn.at >= start);
-  const hour = state.turns.filter((turn) => turn.at > now - HOUR_MS);
+  // A turn that ended in a provider or engine error (`failed`) is no turn against the day and hour caps: its wakes retry.
+  const counted = state.turns.filter((turn) => turn.failed !== true);
+  const today = counted.filter((turn) => turn.at >= start);
+  const hour = counted.filter((turn) => turn.at > now - HOUR_MS);
   const spent = state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) + reserved + heldUsd(state, now);
   const posts = state.posts.filter((at) => at >= start).length;
   const round = (value) => Math.round(value * 10000) / 10000;
@@ -529,6 +547,21 @@ export function budgetsOf(state, settings, { now, timezone, reserved = 0 }) {
     usd: { used: round(spent), cap: caps.usdPerDay, left: round(Math.max(0, caps.usdPerDay - spent)), resetAt: next },
     posts: { used: posts, cap: caps.publicPostsPerDay, left: Math.max(0, caps.publicPostsPerDay - posts), resetAt: next },
   };
+}
+
+/**
+ * What becomes of the wakes of `group` after a turn that ended in an error at `at`: `requeue` with
+ * the next delay of `settings.retry.delaysMinutes` (the last one repeats) as long as the first
+ * failure is younger than `retry.maxHours`, else `drop`. `n` is the attempt number that failed.
+ * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
+ */
+export function planRetry(group, at, settings, code = 'error') {
+  const n = group.reduce((most, wake) => Math.max(most, Number.isInteger(wake.retry) ? wake.retry : 0), 0) + 1;
+  const firstFailedAt = group.reduce((first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at), at);
+  const { delaysMinutes, maxHours } = settings.retry;
+  if (at - firstFailedAt >= maxHours * HOUR_MS) return { action: 'drop', n, firstFailedAt, notBefore: null, code };
+  const delay = delaysMinutes[Math.min(n - 1, delaysMinutes.length - 1)] * MINUTE_MS;
+  return { action: 'requeue', n, firstFailedAt, notBefore: at + delay, code };
 }
 
 /** How many inner turns chain `chainId` has had, and how many are left under `cap`. */
@@ -741,7 +774,7 @@ export function createInnerLife({
         outcome,
         ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}),
         // A drop she is told about at her next turn (feedbackFacts' `wakeDropped`): what the fact needs.
-        ...(outcome === 'no-channel' ? { kind: wake.kind, intentionIds: list(wake.intentionIds), told: false } : {}),
+        ...(DROP_TOLD.has(outcome) ? { kind: wake.kind, intentionIds: list(wake.intentionIds), told: false } : {}),
       };
     }
     const ids = new Set(wakes.map((wake) => wake.id));
@@ -792,6 +825,7 @@ export function createInnerLife({
       dueAt: wake.dueAt ?? null,
       intentionIds: wake.intentionIds ?? [],
       chainId: wake.chainId ?? null,
+      ...(wake.retry ? { retry: wake.retry, firstFailedAt: wake.firstFailedAt ?? null, notBefore: wake.notBefore ?? null } : {}),
       ...(wake.taskId ? { taskId: wake.taskId } : {}),
       ...(wake.attend ? { place: wake.attend.place, lines: wake.attend.lines, people: wake.attend.people.length } : {}),
       ...(wake.kind === 'feedback' ? { turnId: wake.turnId ?? null, facts: list(wake.facts) } : {}),
@@ -1239,8 +1273,9 @@ export function createInnerLife({
       save(guildId);
       log.info('inner: capped', { guildId, cap: 'attend-per-day', wakes: heldFresh });
     }
-    const eligible = state.queue.filter((wake) => !held.includes(wake));
-    if (eligible.length === 0) return { refused: 'attend-per-day' };
+    // A wake of a failed turn waits for its retry time (`notBefore`).
+    const eligible = state.queue.filter((wake) => !held.includes(wake) && !(wake.notBefore > at));
+    if (eligible.length === 0) return held.length > 0 ? { refused: 'attend-per-day' } : { deferred: 'retry' };
 
     const group = coalesceGroup(eligible);
     const anchor = group.find((wake) => wake.kind !== 'review') ?? group[0];
@@ -1314,7 +1349,7 @@ export function createInnerLife({
     const current = currentChannelOf(group, records);
     const info = {
       kind: anchor.kind,
-      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
+      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.retry ? { delayed: { minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)), code: wake.lastCode ?? 'error' } } : {}), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
       intentions: records,
       ...(Object.keys(notes).length > 0 ? { notes } : {}),
       ...(expired && expired.items.length > 0 ? { expired } : {}),
@@ -1397,17 +1432,31 @@ export function createInnerLife({
     }
     const ended = now();
     const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : 'error') : null;
-    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode } : {}) });
+    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode, failed: true } : {}) });
     // Each attention woken for counts the wake on its day (its own per-day bound).
     if (typeof intentions?.countAttendWake === 'function') {
       for (const id of new Set(group.filter((wake) => wake.kind === 'attend').flatMap((wake) => wake.intentionIds))) intentions.countAttendWake(guildId, id);
     }
     if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
-    after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
+    // A failed attempt is no turn of the chain either: its wakes come back.
+    if (!errorCode) after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
-    if (isReview && after.review) after.review = { ...after.review, done: true };
-    markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [] });
+    const retry = errorCode && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
+    if (retry?.action === 'requeue') {
+      const ids = new Set(group.map((wake) => wake.id));
+      for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, { retry: retry.n, firstFailedAt: retry.firstFailedAt, notBefore: retry.notBefore, lastCode: errorCode });
+      log.info('inner: turn failed, wakes retried', { guildId, code: errorCode, retry: retry.n, wakes: group.length, notBefore: retry.notBefore });
+      note(guildId, { event: 'retry', code: errorCode, retry: retry.n, notBefore: retry.notBefore, wakes: group.map(wakeFields) });
+    } else {
+      if (isReview && after.review) after.review = { ...after.review, done: true };
+      if (retry?.action === 'drop') {
+        markHandled(after, group, 'provider', ended, { guildId });
+        log.warn('inner: turn failed, wakes dropped', { guildId, code: errorCode, retry: retry.n, wakes: group.length });
+      } else {
+        markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [] });
+      }
+    }
     // What did not go through (feedbackFacts): a feedback turn's own misses are journalled only;
     // any other turn's queue one feedback wake in its chain and conversation, due at the next tick.
     const isFeedback = anchor.kind === 'feedback';
@@ -1461,8 +1510,8 @@ export function createInnerLife({
     const wakes = [];
     if (!isFeedback) {
       for (const [id, entry] of Object.entries(state.handled)) {
-        if (entry?.outcome !== 'no-channel' || entry.told !== false) continue;
-        wakes.push({ id, kind: entry.kind ?? null, code: 'no-channel', intentionIds: list(entry.intentionIds) });
+        if (!DROP_TOLD.has(entry?.outcome) || entry.told !== false) continue;
+        wakes.push({ id, kind: entry.kind ?? null, code: entry.outcome, intentionIds: list(entry.intentionIds) });
         entry.told = true;
       }
       for (const wake of state.queue) {
@@ -1539,7 +1588,7 @@ export function createInnerLife({
   /** The earliest moment something will wake her (null when nothing is known), and what: `queue`, `intention` or `review`. */
   function nextWakeOf(state, open, at) {
     const found = [];
-    for (const wake of state.queue) if (Number.isFinite(wake.dueAt)) found.push({ at: wake.dueAt, kind: 'queue' });
+    for (const wake of state.queue) if (Number.isFinite(wake.notBefore ?? wake.dueAt)) found.push({ at: wake.notBefore ?? wake.dueAt, kind: 'queue' });
     // A time already past that she handled counts no more; one not yet handled wakes her at the next tick.
     const upcoming = (record, reason, when) => Number.isFinite(when) && (when > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
     for (const record of open) {

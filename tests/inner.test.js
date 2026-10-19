@@ -1285,3 +1285,95 @@ test('inner: a turn that ended error journals its code and the status shows the 
   assert.equal(fine.journal.find((r) => r.event === 'turn').error, undefined);
   assert.equal(fine.inner.status(GUILD).lastError, null);
 });
+
+/** A turn runner failing with `code` the first `fails` runs, then answering a silent skip. */
+function failingTurns(fails, code = 'provider-limit') {
+  let runs = 0;
+  return fakeTurns({ answer: () => (++runs <= fails ? { outcome: 'error', reason: code } : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: `t-${runs}` } }) });
+}
+
+test('inner retry: a turn ending error re-queues its wakes after the first delay, not handled, the caps and the chain untouched', async () => {
+  const run = setup({ records: [intention('i1')], turns: failingTurns(1) });
+  await run.inner.tick();
+  const status = run.inner.status(GUILD);
+  assert.equal(status.queue.length, 1);
+  assert.equal(status.queue[0].dueAt, NOW - MINUTE_MS, 'the original due time stays');
+  const queued = run.inner.state(GUILD).queue[0];
+  assert.equal(queued.retry, 1);
+  assert.equal(queued.firstFailedAt, NOW);
+  assert.equal(queued.notBefore, NOW + MINUTE_MS);
+  assert.equal(queued.lastCode, 'provider-limit');
+  assert.equal(run.inner.state(GUILD).handled[queued.id], undefined);
+  assert.equal(status.budgets.day.used, 0);
+  assert.equal(status.budgets.hour.used, 0);
+  assert.equal(run.inner.state(GUILD).chains[queued.chainId], undefined);
+  assert.equal(run.journal.find((r) => r.event === 'retry').retry, 1);
+  // Before the delay nothing runs; the wake is not woken twice either.
+  clock.t = NOW + 30_000;
+  assert.deepEqual((await run.inner.tick()).drained, { deferred: 'retry' });
+  assert.equal(run.turns.calls.length, 1);
+});
+
+test('inner retry: the second failure waits the second delay; a success after a retry shows the delayed line data and clears the queue', async () => {
+  const run = setup({ records: [intention('i1')], turns: failingTurns(2) });
+  await run.inner.tick();
+  clock.t = NOW + MINUTE_MS;
+  await run.inner.tick();
+  const queued = run.inner.state(GUILD).queue[0];
+  assert.equal(queued.retry, 2);
+  assert.equal(queued.firstFailedAt, NOW);
+  assert.equal(queued.notBefore, NOW + MINUTE_MS + 5 * MINUTE_MS);
+  clock.t = NOW + 6 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 3);
+  const info = run.turns.calls[2].inner.wake;
+  assert.deepEqual(info.items[0].delayed, { minutes: 7, code: 'provider-limit' });
+  assert.equal(run.turns.calls[0].inner.wake.items[0].delayed, undefined);
+  assert.equal(run.inner.state(GUILD).queue.length, 0);
+  assert.equal(run.inner.state(GUILD).handled[queued.id].outcome, 'skip');
+  assert.equal(run.inner.status(GUILD).budgets.day.used, 1, 'only the turn that ran counts');
+});
+
+test('inner retry: the last delay repeats; past retry.maxHours the wake is dropped provider and she is told at her next turn', async () => {
+  const hot = hotWith({ innerLife: { retry: { delaysMinutes: [1, 2], maxHours: 1 } } });
+  const run = setup({ records: [intention('i1')], turns: failingTurns(99), hot });
+  await run.inner.tick();
+  clock.t = NOW + MINUTE_MS;
+  await run.inner.tick();
+  clock.t = NOW + 3 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.inner.state(GUILD).queue[0].retry, 3);
+  assert.equal(run.inner.state(GUILD).queue[0].notBefore, NOW + 5 * MINUTE_MS, 'the second delay repeats');
+  clock.t = NOW + 61 * MINUTE_MS;
+  const before = run.turns.calls.length;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, before + 1);
+  const state = run.inner.state(GUILD);
+  const dropped = Object.values(state.handled).find((entry) => entry.outcome === 'provider');
+  assert.ok(dropped, 'handled with outcome provider');
+  assert.equal(dropped.told, true, 'told in the feedback wake at once');
+  const feedback = run.journal.filter((r) => r.event === 'turn').at(-1).feedback.facts;
+  assert.equal(feedback[0].kind, 'wakeDropped');
+  assert.equal(feedback[0].code, 'provider');
+});
+
+test('inner retry: a retried wake is not coalesced with a fresh wake of the same conversation', async () => {
+  const run = setup({ records: [intention('i1', { dueAt: NOW - 5 * MINUTE_MS })], turns: failingTurns(1) });
+  await run.inner.tick();
+  clock.t = NOW + 2 * MINUTE_MS;
+  run.intentions.records.push(intention('i2', { dueAt: NOW + MINUTE_MS }));
+  await run.inner.tick();
+  await run.inner.tick();
+  const groups = run.turns.calls.slice(1).map((call) => call.inner.wake.items.map((item) => item.intentionIds[0]));
+  assert.deepEqual(groups, [['i1'], ['i2']]);
+});
+
+test('inner retry: coalesceGroup keeps a retry group apart from fresh wakes', () => {
+  const base = { kind: 'intention_due', channelId: 'c1', chainId: 'a', intentionIds: ['x'] };
+  const retried = { ...base, id: 'w1', dueAt: 1, retry: 1, firstFailedAt: 5 };
+  const fresh = { ...base, id: 'w2', dueAt: 2, intentionIds: ['y'] };
+  assert.deepEqual(coalesceGroup([fresh, retried]).map((wake) => wake.id), ['w1']);
+  assert.deepEqual(coalesceGroup([fresh]).map((wake) => wake.id), ['w2']);
+  const mate = { ...base, id: 'w3', dueAt: 3, retry: 1, firstFailedAt: 5 };
+  assert.deepEqual(coalesceGroup([mate, retried, fresh]).map((wake) => wake.id), ['w1', 'w3']);
+});

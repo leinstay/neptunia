@@ -542,6 +542,7 @@ export const labels = {
   wake: {
     header: 'wake:',
     kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:' },
+    delayed: 'delayed {minutes} {code}',
     feedbackItem: '* {fact}',
     feedback: {
       callFailed: 'call {skill} {status} {code}',

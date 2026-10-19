@@ -518,6 +518,7 @@
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
       "feedback": "Your previous turn: not everything went through."
     },
+    "delayed": "TODO(writer): delayed wake, {minutes} minutes since due, {code}",
     "feedbackItem": "- {fact}",
     "feedback": {
       "callFailed": "Your {skill} call ended {status} ({code})",
