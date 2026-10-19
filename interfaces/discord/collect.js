@@ -344,7 +344,7 @@ function replyPingUserId(message, mentionedUserIds) {
  * video attachment (embedded or typed) becomes a `video` attachment after the
  * real ones, not a link, with its URL stripped from `content` (see
  * cdnVideoAttachments), so it is labelled, watched and cached like an upload.
- * `reactions` lists the message's reactions (see normalizeReactions), `[]`
+ * `editedAt` is the edit stamp (epoch ms) or null. `reactions` lists the message's reactions (see normalizeReactions), `[]`
  * when it has none. `mentionedChannelIds` lists the channel ids of the raw
  * channel mentions `<#id>` in the message's own text (see
  * extractChannelIds; `[]` when there are none; forwarded snapshots are not
@@ -393,6 +393,9 @@ export function normalizeMessage(message, selfId, options = {}) {
     bot: message.author.bot && message.author.id !== selfId,
     content,
     ts: message.createdTimestamp,
+    // When the message was last edited (Discord `editedTimestamp`), null for one never edited: the
+    // transcript marks such a line (labels.transcript.edited).
+    editedAt: Number.isFinite(message.editedTimestamp) && message.editedTimestamp > 0 ? message.editedTimestamp : null,
     // Real mentions -- the strongest signal for who this message names, see
     // src/behavior/prompt.js's <people> "asked about" window. `content`
     // above is `cleanContent`-derived and already reads "@DisplayName", so
@@ -524,6 +527,7 @@ export function toEvent(message, selfId, options = {}) {
       author: { id: normalized.authorId, name: normalized.authorName, self: normalized.self, bot: normalized.bot },
       content: normalized.content,
       at: normalized.ts,
+      editedAt: normalized.editedAt,
       replyToId: normalized.replyToId,
       replyPingUserId: normalized.replyPingUserId,
       forwardedFrom: normalized.forwardedFrom,
@@ -568,6 +572,7 @@ export function normalizedOf(event) {
     bot: message.author.bot,
     content: message.content,
     ts: message.at,
+    editedAt: message.editedAt ?? null,
     mentionedUserIds: addressing.mentionedUserIds,
     mentionedChannelIds: addressing.mentionedConversationIds,
     replyToId: message.replyToId,

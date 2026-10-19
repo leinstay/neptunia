@@ -256,7 +256,7 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off.",
+    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text.",
     "whenNotToUse": "Only in conversations you may write in."
   },
   "message.edit": {
@@ -301,7 +301,7 @@
   },
   "web.search": {
     "title": "Search the web",
-    "whenToUse": "A fact you need for this answer. Write the query (body or query=), optionally what it should establish (goal=). Raw search results come back in this same turn (title, link, snippet, site); the pages are not opened.",
+    "whenToUse": "A fact you need for this answer. Write the query (query= or body; both are joined, query= first), optionally what it should establish (goal=). Raw search results come back in this same turn (title, link, snippet, site); the pages are not opened.",
     "whenNotToUse": "Not for finding or downloading files, comparing options in depth, or deep research: use task.run with the web agent."
   },
   "web.read": {
@@ -311,12 +311,12 @@
   },
   "media.look": {
     "title": "Look more closely",
-    "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (body or question=), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
+    "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (question= or body; both are joined, question= first), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
     "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
   },
   "memory.search": {
     "title": "Search this server's messages",
-    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (body or question=), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
+    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
   },
   "intent.set": {

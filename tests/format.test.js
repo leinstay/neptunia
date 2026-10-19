@@ -1607,3 +1607,19 @@ test('withCalls: marking lines again replaces the marks, never doubles them', ()
   const cleared = withCalls(once, { calls: [] }, resolvers);
   assert.deepEqual(formatTranscript(cleared, offsetOptions), formatTranscript(callScene(), offsetOptions));
 });
+
+test('formatTranscript: an edited line ends with the edited mark; a deleted placeholder is numbered, keeps its place and shows no text', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const messages = [
+    msg('a', t0, { editedAt: t0 + 1000 }),
+    msg('b', t0 + MIN, { deleted: true, content: 'must not show', authorName: 'Zoë' }),
+    msg('c', t0 + 2 * MIN, { replyToId: 'b' }),
+  ];
+  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  assert.ok(items[0].text.endsWith(` ${labels.transcript.edited}`), items[0].text);
+  assert.ok(items[1].text.startsWith('#2 '), items[1].text);
+  assert.ok(items[1].text.endsWith(`Zoë: ${labels.transcript.deleted}`), items[1].text);
+  assert.ok(!items[1].text.includes('must not show'));
+  assert.ok(items[2].text.includes('#2'), 'a reply to the placeholder still names its number');
+  assert.ok(!items[2].text.includes(labels.transcript.edited));
+});

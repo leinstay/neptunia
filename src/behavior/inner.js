@@ -134,7 +134,9 @@ const WAKE_HELD_MS = HOUR_MS;
  * `{ outcome, inner: { actions, intentIds, stray, loop } }`), as a list of facts, each
  * `{ kind, ... }` (FEEDBACK_KINDS), in this order: `dropped` (output written outside a call and
  * lost: `messages`, `reactions`, `gif`, `draw` counts and `lines`, the first lines of the dropped
- * messages the turn kept); one `callFailed` per call that ended `unknown`, `timeout` or refused
+ * messages the turn kept; when an executed `message.create` came after the latest stray output
+ * (`stray.beforeAction`, set by the turn), the messages and lines are left out, an item with every
+ * count at zero is no fact); one `callFailed` per call that ended `unknown`, `timeout` or refused
  * (`skill`, `status`, `code`); one `doneWithoutDelivery` per intention an executed `intent.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
@@ -158,8 +160,12 @@ export function feedbackFacts(turnResult, { wakes = [], named = null, posting = 
   };
   const stray = inner.stray;
   const strayCount = (key) => (Number.isFinite(stray?.[key]) && stray[key] > 0 ? stray[key] : 0);
-  if (stray && strayCount('messages') + strayCount('reactions') + strayCount('gif') + strayCount('draw') > 0) {
-    facts.push({ kind: 'dropped', messages: strayCount('messages'), reactions: strayCount('reactions'), gif: strayCount('gif'), draw: strayCount('draw'), lines: list(stray.lines).filter((line) => typeof line === 'string' && line).slice() });
+  // The text went out after all when an executed `message.create` came after the latest stray
+  // output (`stray.beforeAction`, the number of actions recorded before it): only the rest was lost.
+  const reposted = Number.isInteger(stray?.beforeAction) && actions.some((action, index) => index >= stray.beforeAction && action?.skill === 'message.create' && action.status === 'executed');
+  const droppedMessages = reposted ? 0 : strayCount('messages');
+  if (stray && droppedMessages + strayCount('reactions') + strayCount('gif') + strayCount('draw') > 0) {
+    facts.push({ kind: 'dropped', messages: droppedMessages, reactions: strayCount('reactions'), gif: strayCount('gif'), draw: strayCount('draw'), lines: reposted ? [] : list(stray.lines).filter((line) => typeof line === 'string' && line).slice() });
   }
   for (const action of actions) {
     if (!action || typeof action.skill !== 'string') continue;

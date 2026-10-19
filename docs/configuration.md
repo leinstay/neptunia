@@ -262,6 +262,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `askedAboutEpisodes` | `3` | Episodes shown per member who is asked about. `0` hides episodes for asked-about members. In a private chat, shown when `features.privateLikeServer` is on (the default); hidden otherwise |
 | `attitudes` | `6` | Members shown in the `<attitudes>` block, ranked by attitude score strength, warm and cool mixed. `0` turns the block off |
 | `around.maxTokens` | `400` | Token cap of the `<people_now>` entries of the people sitting in a voice channel who have no profile in the request (`features.around`), one entry each (about 40 to 60 tokens), by name; over the cap the last names go first, `0` shows none. They are the lowest priority of the request, so they never push out anything else. The entries of the people the request has a profile for are not under this cap: the speaker's is never cut, and anyone else's is kept or dropped together with their profile |
+| `deletedLinesMax` | `10` | At most this many placeholder lines for messages deleted since the window starts appear per chat window, the newest first. Each placeholder takes the place of the deleted message, numbered like any line, with the author and the time but no text. A skill call on such a line is refused `message-deleted`. `0` turns placeholders off |
 | `tempo.liveMessages10min` | `4` | Messages in 10 min = "live" |
 | `tempo.deadSilenceMinutes` | `45` | Silence minutes = "dead" |
 | `caps.interlocutor` | `6000` | Token cap: caller's profile with episodes |

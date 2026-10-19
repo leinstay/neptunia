@@ -7935,7 +7935,8 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   assert.equal(appended[0].guildId, 'g1');
   assert.equal(deleted.kind, 'deleted');
   assert.equal(deleted.messageId, 'm1');
-  assert.equal(deleted.occurredAt, new Date(at).toISOString());
+  assert.equal(deleted.occurredAt, new Date(at - 60_000).toISOString(), 'dated by the message itself');
+  assert.equal(deleted.recordedAt, new Date(at).toISOString(), 'the deletion time is kept as the write time');
   assert.deepEqual(deleted.scope, { channel: 'c1' });
   assert.deepEqual(deleted.participants, ['u1']);
   assert.equal('text' in deleted, false);

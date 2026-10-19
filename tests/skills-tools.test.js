@@ -289,3 +289,8 @@ test('runMediaLook: the statuses -- arguments, message, media, switches, the tur
   const throwing = { relookImage: async () => { throw new Error('boom'); } };
   assert.deepEqual(await run({ describer: throwing }), ['failed', 'error']);
 });
+
+test('runMediaLook: a placeholder of a deleted message is refused as unknown-message with the reason message-deleted', async () => {
+  const result = await runMediaLook({ describer: {}, config: LOOK_ON, labels, guildId: 'g1', args: { message: 'm7', question: 'τι;' }, mediaOf: () => ({ id: 'm7', deleted: true, attachments: [] }) });
+  assert.deepEqual([result.status, result.code, result.reason], ['invalid', 'unknown-message', 'message-deleted']);
+});

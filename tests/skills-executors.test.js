@@ -159,8 +159,8 @@ test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, 
   assert.equal(refusalStatus(agentless.code), 'invalid');
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] });
   assert.equal(resolve('task.run', { goal }).code, 'agent-required', 'with the goal on the tag too');
-  // The goal given both ways is refused as any argument given twice; on the tag alone, as before.
-  assert.equal(resolve('task.run', { agent: 'web', goal: 'one' }, 'two').reason, 'args.goal:twice');
+  // The goal given both ways with different texts is the tag's, a line break, the body (a note beside it); on the tag alone, as before.
+  assert.equal(resolve('task.run', { agent: 'web', goal: 'one' }, 'two').args.goal, 'one\ntwo');
   assert.deepEqual(resolve('task.run', { agent: 'web', goal }, goal).args, { agent: 'web', goal }, 'the same goal both ways is one value');
   const tagged = resolve('task.run', { agent: 'web', goal });
   assert.deepEqual([tagged.ok, tagged.args, 'bodyArg' in tagged], [true, { agent: 'web', goal }, false]);
@@ -396,6 +396,105 @@ test('executeCall: message.create posts her own text where she may, the reply no
   port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
   const lost = await executeCall(resolve('message.create', {}, 'ξανά'), deps(admin, port));
   assert.deepEqual([lost.status, lost.code], ['unknown', 'timeout']);
+});
+
+test('resolveCall: a note beside a question, a query or a goal is joined to it; a post or a stored text given twice is still refused', () => {
+  // The body argument on the tag and a different body: the attribute, a line break, the body.
+  const look = resolve('media.look', { message: '#2', question: 'τι γράφει;' }, 'τρίτη ματιά');
+  assert.deepEqual([look.ok, look.args.question, look.bodyArg], [true, 'τι γράφει;\nτρίτη ματιά', 'question']);
+  assert.equal(resolve('web.search', { query: 'γάτες' }, 'για το σαββατοκύριακο').args.query, 'γάτες\nγια το σαββατοκύριακο');
+  assert.equal(resolve('task.run', { agent: 'web', goal: 'βρες γάτες' }, 'με φωτογραφίες').args.goal, 'βρες γάτες\nμε φωτογραφίες');
+  // The same text both ways stays one value.
+  assert.equal(resolve('web.search', { query: ' γάτες ' }, 'γάτες').args.query, 'γάτες');
+  // `text` is a post: said twice it is ambiguous.
+  assert.equal(resolve('message.create', { text: 'ένα' }, 'δύο').reason, 'args.text:twice');
+  assert.equal(resolve('rule.add', { text: 'ένα' }, 'δύο').reason, 'args.text:twice');
+});
+
+test('resolveCall: a deleted message is refused as message-deleted -- a placeholder line by its number, a raw id or a link by the record\'s ids; its detail is its own kind', () => {
+  const placeholder = { id: '2001', conversationId: HERE, authorId: MEMBER, deleted: true };
+  const gone = { messageAt: (n) => (n === 5 ? placeholder : view().messageAt(n)), deletedIds: new Set(['1500000000000000001', '1500000000000000002']) };
+  for (const [skill, args] of [['media.look', { message: '#5', question: 'τι;' }], ['message.react.add', { message: '#5', emoji: '👍' }], ['message.create', { reply: '#5' }]]) {
+    const refused = resolve(skill, args, skill === 'message.create' ? 'γεια' : '', gone);
+    assert.deepEqual([refused.ok, refused.code, refused.reason], [false, 'unknown-message', 'message-deleted'], skill);
+  }
+  assert.equal(resolve('media.look', { message: '1500000000000000002', question: 'τι;' }, '', gone).reason, 'message-deleted', 'a raw id');
+  assert.equal(resolve('media.look', { message: `https://discord.com/channels/111/222/1500000000000000001`, question: 'τι;' }, '', gone).reason, 'message-deleted', 'a link');
+  assert.equal(resolve('media.look', { message: '#2', question: 'τι;' }, '', gone).ok, true, 'a line in view is still fine');
+  assert.equal(resolve('media.look', { message: '1500000000000000003', question: 'τι;' }, '', gone).ok, true, 'an id the record does not hold as deleted passes on');
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: 'unknown-message', reason: 'message-deleted' }), { kind: 'message-deleted', code: 'unknown-message', arg: null });
+});
+
+/** A library of two GIFs for the gif option: a link GIF `g1`, an attached one `g2`; the daily count and the own-post stamps are recorded. */
+function gifLibrary(over = {}) {
+  const entries = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' }, g2: { key: 'k2', id: 'g2', kind: 'attachment', url: 'https://cdn.example/old.gif' } };
+  const stamped = [];
+  return {
+    stamped,
+    patch: (store) => {
+      store.findGif = (guildId, handle) => entries[handle] ?? null;
+      store.recordOwnGif = (guildId, key, ts) => stamped.push(key);
+      Object.assign(store.state, { markDirty() {} });
+    },
+    ...over,
+  };
+}
+
+test('message.create gif=: the GIF follows the text, goes alone without one, and counts like a <gif>; unknown handle and the daily cap refuse before anything is posted', async () => {
+  const library = gifLibrary();
+  const cfg = config();
+  cfg.gifs = { ...(cfg.gifs ?? {}), maxPerDay: 2 };
+  const { admin, store, port } = makeAdmin({ cfg });
+  library.patch(store);
+  const mine = () => port.messagesIn(HERE).filter((message) => message.authorId === SELF).map((message) => message.text);
+
+  // text and GIF: two posts, the text first, one result with the text's reference
+  const both = await executeCall(resolve('message.create', { gif: 'g1' }, 'νιάου'), deps(admin, port));
+  assert.equal(both.status, 'ok');
+  assert.deepEqual(mine(), ['νιάου', 'https://tenor.example/cat']);
+  assert.equal(store.state.data.gifCount, 1);
+  assert.deepEqual(library.stamped, ['k1']);
+
+  // the GIF alone: no text needed
+  const alone = resolve('message.create', { gif: 'g1' });
+  assert.equal(alone.ok, true);
+  const gate = checkSkill({ skill: 'message.create', args: alone.args, principal: { kind: 'persona' }, requester: { id: OWNER, roleIds: [] }, audience: { conversationId: HERE }, context: { config: cfg, selfId: SELF } });
+  assert.equal(gate.ok, true, `the schema takes a GIF-only post: ${gate.reason}`);
+  const aloneResult = await executeCall(alone, deps(admin, port));
+  assert.equal(aloneResult.status, 'ok');
+  assert.equal(mine().at(-1), 'https://tenor.example/cat');
+  assert.equal(store.state.data.gifCount, 2);
+
+  // over gifs.maxPerDay: refused before anything is posted, the text included
+  const before = mine().length;
+  const capped = await executeCall(resolve('message.create', { gif: 'g1' }, 'άλλο ένα'), deps(admin, port));
+  assert.deepEqual([capped.status, capped.code], ['invalid', 'gif-cap']);
+  assert.equal(store.state.data.gifCount, 2);
+  const cappedAlone = await executeCall(resolve('message.create', { gif: 'g1' }), deps(admin, port));
+  assert.deepEqual([cappedAlone.status, cappedAlone.code], ['invalid', 'gif-cap']);
+  assert.equal(mine().length, before);
+
+  // an unknown handle: refused, the text not posted
+  const unknown = await executeCall(resolve('message.create', { gif: 'g9' }, 'δεν θα σταλεί'), deps(admin, port));
+  assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-gif']);
+  assert.equal(mine().length, before);
+});
+
+test('message.create gif=: an attached GIF posts a fresh URL of its attachment; with a file the order is text and file, then the GIF', async () => {
+  const library = gifLibrary();
+  const channels = clientChannels();
+  const here = channels.get(HERE) ?? textChannel(HERE);
+  here.messages = { fetch: async () => ({ attachments: new Map([['item-2', { url: 'https://cdn.example/fresh.gif' }]]) }) };
+  channels.set(HERE, here);
+  const { admin, store, port } = makeAdmin({ channels });
+  library.patch(store);
+  const entry = store.findGif('g1', 'g2');
+  Object.assign(entry, { messageId: 'm-src', channelId: HERE, itemId: 'item-2' });
+  store.findGif = (guildId, handle) => (handle === 'g2' ? entry : null);
+  const result = await executeCall(resolve('message.create', { gif: 'g2' }), deps(admin, port));
+  assert.equal(result.status, 'ok');
+  assert.equal(port.messagesIn(HERE).filter((message) => message.authorId === SELF).at(-1).text, 'https://cdn.example/fresh.gif');
+  assert.deepEqual(library.stamped, ['k2']);
 });
 
 test('resolveCall and executeCall: a file handle of one of her errands attaches its file; an unknown handle or a file too large is refused', async () => {

@@ -1939,7 +1939,8 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
   const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
   const reasons = isPlainObject(words.reasons) ? words.reasons : {};
   const code = typeof result.code === 'string' && result.code ? result.code : '';
-  const reason = reasons[code] ?? reasons.other ?? code;
+  // A deleted message is its own reason of `unknown-message` (the machine reason names it).
+  const reason = (result.reason === 'message-deleted' ? reasons[result.reason] : undefined) ?? reasons[code] ?? reasons.other ?? code;
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
   const lead = typeof word === 'string' ? fill(word, { reason }) : '';
   let data = '';

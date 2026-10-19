@@ -1063,6 +1063,23 @@ function lostTurn(turnId = 't-1') {
   };
 }
 
+test('feedbackFacts: a message.create executed after the stray output takes its messages and lines out; the GIF stays; nothing left is no fact', () => {
+  const stray = (extra) => ({ messages: 2, reactions: 0, gif: 1, draw: 0, lines: ['one', 'two'], beforeAction: 1, ...extra });
+  const post = (status = 'executed') => ({ skill: 'message.create', status, result: 'ok', target: {} });
+  const read = { skill: 'lore.list', status: 'executed', result: 'ok', target: {} };
+  // posted after the stray output: the GIF alone is left
+  assert.deepEqual(feedbackFacts({ inner: { actions: [read, post()], stray: stray() } }), [{ kind: 'dropped', messages: 0, reactions: 0, gif: 1, draw: 0, lines: [] }]);
+  // a post before the stray output, a refused or proposed one after it, or no marker: all counted as before
+  for (const actions of [[post(), read], [read, post('refused')], [read, post('proposed')]]) {
+    assert.deepEqual(feedbackFacts({ inner: { actions, stray: stray() } }).filter((fact) => fact.kind === 'dropped'), [{ kind: 'dropped', messages: 2, reactions: 0, gif: 1, draw: 0, lines: ['one', 'two'] }], JSON.stringify(actions.map((a) => a.status)));
+  }
+  assert.equal(feedbackFacts({ inner: { actions: [post()], stray: stray({ beforeAction: undefined }) } })[0].messages, 2);
+  // reactions and drawings stay counted
+  assert.deepEqual(feedbackFacts({ inner: { actions: [read, post()], stray: stray({ gif: 0, reactions: 1, draw: 1 }) } }), [{ kind: 'dropped', messages: 0, reactions: 1, gif: 0, draw: 1, lines: [] }]);
+  // only messages were lost and they were posted after all: no fact, so no feedback wake
+  assert.deepEqual(feedbackFacts({ inner: { actions: [read, post()], stray: stray({ gif: 0 }) } }), []);
+});
+
 test('feedbackFacts: dropped output, a call that ended unknown or refused, an intention closed with nothing delivered, the loop cut, a wake dropped or held; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
   assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'task.run', 'diary.post']);

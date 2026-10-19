@@ -6531,11 +6531,11 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   const { logs } = await running;
 
   const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.deepEqual(Object.keys(timings.stages), ['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled', 'participation']);
+  assert.deepEqual(Object.keys(timings.stages), ['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled', 'participation', 'record']);
   assert.equal(timings.stages.history, 100);
   assert.equal(timings.stages.captions, 1000);
   for (const name of ['previews', 'links', 'neighbors', 'pulled']) assert.equal(typeof timings.stages[name], 'number', name);
-  for (const name of ['videos', 'rewatch', 'lookup', 'participation']) assert.equal(timings.stages[name], null, name);
+  for (const name of ['videos', 'rewatch', 'lookup', 'participation', 'record']) assert.equal(timings.stages[name], null, name);
   assert.deepEqual(
     [timings.channel, timings.mode, timings.triggerKind, timings.prepareMs, timings.replyMs, timings.totalMs, timings.late],
     ['c1', 'reply', 'mention', 1100, 2000, 3100, []],
@@ -9504,3 +9504,39 @@ test('turn: a skill follow-up cut off with nothing complete ends error cut-off w
   assert.deepEqual(kept.sends.map((send) => send.text), ['τίποτα']);
   assert.ok(kept.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === true));
 });
+
+test('createTurnRunner: a message the record holds as deleted appears in the window as a numbered placeholder at its own place; the cap and the timings.record stage hold', async () => {
+  const first = rawMessage({ id: 'm1', ts: NOW - 9000, content: 'πρώτο' });
+  const last = rawMessage({ id: 'm3', ts: NOW - 1000, content: 'τελευταίο' });
+  const iso = (ts) => new Date(ts).toISOString();
+  const lines = [
+    { kind: 'seen', messageId: 'd1', occurredAt: iso(NOW - 6000), by: 'u2', scope: { channel: 'c1' } },
+    { kind: 'deleted', messageId: 'd1', occurredAt: iso(NOW - 500), participants: ['u2'], scope: { channel: 'c1' } },
+    { kind: 'seen', messageId: 'd2', occurredAt: iso(NOW - 4000), by: 'u2', scope: { channel: 'c1' } },
+    { kind: 'deleted', messageId: 'd2', occurredAt: iso(NOW - 400), participants: ['u2'], scope: { channel: 'c1' } },
+  ];
+  const queries = [];
+  const record = { async *iterate(guildId, query) { queries.push(query); yield* lines; }, append: async () => ({ written: 1 }) };
+  const run = async (deletedLinesMax) => {
+    const hot = fakeHot({ record: true });
+    hot.config.context.deletedLinesMax = deletedLinesMax;
+    const channel = fakeTurnChannel({ historyMessages: [first, last] });
+    const llm = fakeLlm('<msg>ok</msg>');
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), record });
+    const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' }));
+    return { result, logs, userMessage: textOf(llm.calls[0]?.[1].content) };
+  };
+  const both = await run(10);
+  assert.equal(queries[0].channelIds.length, 1, 'one channel');
+  assert.ok(queries[0].from, 'the read starts at the window\'s oldest line');
+  const text = both.userMessage;
+  const at = (needle) => text.indexOf(needle);
+  assert.ok(at('πρώτο') < at(`${labels.transcript.deleted}`) && at(labels.transcript.deleted) < at('τελευταίο'), 'the placeholders sit between the lines');
+  assert.equal(text.split(labels.transcript.deleted).length - 1, 2);
+  assert.ok(/#3 \[[^\]]+\] [^\n]*: message deleted/.test(text) || /#\d \[[^\]]+\] [^\n]*: message deleted/.test(text), 'numbered like a line');
+  const timings = both.logs.find((entry) => entry.msg === 'turn: timings');
+  assert.equal(typeof timings.stages.record, 'number');
+  const capped = await run(1);
+  assert.equal(capped.userMessage.split(labels.transcript.deleted).length - 1, 1, 'the newest one only');
+});
+

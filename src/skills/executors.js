@@ -29,6 +29,9 @@ const FILE_OPTIONS = Object.freeze(['file']);
 /** A whole errand file handle, as src/errands/store.js reads one. */
 const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
 
+/** The body arguments that take the attribute's text and a different body joined, a line break between: a question or a goal with a note beside it. */
+const JOINED_BODY_ARGS = Object.freeze(['question', 'query', 'goal']);
+
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
@@ -236,7 +239,7 @@ export function bodyTokens(body, names) {
  * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, the
  * text given twice, a channel or role nobody has), `agent-required` (an errand without its agent),
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
- * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
+ * name, or several), `unknown-message` (a `#N` not in this turn's transcript, a message the record holds as deleted -- reason `message-deleted` -- or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
  * is not hers), `unknown-file` (a `file` handle that names no file of an errand of hers this
  * conversation may see, `view.fileOf`), `file-elsewhere` (an errand's file bound for a channel
@@ -306,9 +309,12 @@ export function resolveCall(call, view) {
   const bodyText = Boolean(body) && Boolean(command.body) && !fromTokens;
   let fileFromBody = false;
   if (bodyText) {
-    // The argument on the tag too: refused unless it is the same text (then one value, the body's).
-    if (Object.hasOwn(given, command.body) && String(given[command.body] ?? '').trim() !== body) return refused('invalid-args', `args.${command.body}:twice`);
-    given[command.body] = body;
+    // The argument on the tag too: the same text is one value (the body's); a different one is her
+    // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
+    const attribute = Object.hasOwn(given, command.body) ? String(given[command.body] ?? '').trim() : null;
+    const joined = JOINED_BODY_ARGS.includes(command.body);
+    if (attribute !== null && attribute !== body && !joined) return refused('invalid-args', `args.${command.body}:twice`);
+    given[command.body] = joined && attribute && attribute !== body ? `${attribute}\n${body}` : body;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
     if (byName.has('file') && !Object.hasOwn(given, 'file')) {
@@ -387,17 +393,22 @@ export function resolveCall(call, view) {
         const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
         // A message link (in angle brackets too) names the message and its channel.
         const link = MESSAGE_OPTIONS.includes(option) && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
+        // A message the record holds as deleted and the history does not: refused as deleted.
+        const deletedHere = (id) => MESSAGE_OPTIONS.includes(option) && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
+          if (deletedHere(link[2])) return refused('unknown-message', 'message-deleted');
           linked[option] = link[1];
           args[option] = link[2];
           break;
         }
         if (n === null) {
+          if (deletedHere(text)) return refused('unknown-message', 'message-deleted');
           args[option] = raw;
           break;
         }
         const line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
         if (!line) return refused('unknown-message', option);
+        if (line.deleted === true) return refused('unknown-message', 'message-deleted');
         lines[option] = line;
         args[option] = String(line.id);
       }
@@ -596,7 +607,9 @@ const ARG_RULE_KINDS = Object.freeze({
  * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
  * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,
- * or is `message-elsewhere` when that message lives in another channel than the one named;
+ * or is `message-elsewhere` when that message lives in another channel than the one named, or
+ * `message-deleted` when the record holds it as deleted (a `#N` of a placeholder line, or an id or
+ * link of one: `view.deletedIds`);
  * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`;
  * `agent-required` names `agent` and carries the agents its reason lists (`values`; the mark words
  * it through `labels.skills.refusals.agentRequired`).
@@ -628,6 +641,7 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   }
   if (code === 'unknown-message') {
     if (reason === 'conversation') return of('message-elsewhere');
+    if (reason === 'message-deleted') return of('message-deleted');
     return MESSAGE_OPTIONS.includes(reason) ? of(code, reason) : of(code);
   }
   if (code === 'not-own-message') return of(code, 'message');

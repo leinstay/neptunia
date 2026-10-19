@@ -69,6 +69,8 @@ import { createParticipationPicker, participationEpisodeOffer } from './particip
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
 import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
+import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lines.js';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
@@ -1063,7 +1065,7 @@ export function requesterOf(trigger, channel) {
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, memberHandles = null, fileOf = null, triggerText = null }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, memberHandles = null, fileOf = null, triggerText = null, deletedIds = null }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1091,12 +1093,14 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
       const id = idByIndex?.get(n);
       if (!id) return null;
       const line = (lines ?? []).find((entry) => entry.id === id);
-      return { id: String(id), conversationId: String(pulledIds?.get(id) ?? channel.id), authorId: line?.authorId ?? null, self: line?.self === true };
+      return { id: String(id), conversationId: String(pulledIds?.get(id) ?? channel.id), authorId: line?.authorId ?? null, self: line?.self === true, ...(line?.deleted === true ? { deleted: true } : {}) };
     },
     members: memoryOn && guildId && typeof store?.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [],
     selfId: selfId ?? null,
     roles,
     skills,
+    // Messages the record holds as deleted that the history lacks (their ids or links are refused as deleted).
+    ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds } : {}),
     // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
     // The trigger message's text: a channel it names may take an errand's file.
@@ -1850,9 +1854,9 @@ export function createTurnRunner({
   }
 
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
-  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, memberHandles = null, trigger = null }) {
+  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, memberHandles = null, trigger = null, deletedIds = null }) {
     const fileOf = typeof errands?.fileOf === 'function' ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) }) : null;
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, memberHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null });
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, memberHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null, deletedIds });
   }
 
   /**
@@ -3351,7 +3355,7 @@ export function createTurnRunner({
 
   /** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day). */
   function countGif() {
-    bumpDaily(store.state.data, { dayKey: 'gifDay', countKey: 'gifCount' }, clock());
+    countGifPost(store.state.data, clock());
     store.state.markDirty();
   }
 
@@ -3386,21 +3390,7 @@ export function createTurnRunner({
    * message itself or in a forwarded snapshot. Null when anything fails.
    */
   async function freshAttachmentUrl(channel, entry) {
-    if (!entry.messageId) return null;
-    try {
-      const source = entry.channelId && entry.channelId !== channel.id ? await client.channels.fetch(entry.channelId) : channel;
-      const message = await source?.messages?.fetch(entry.messageId);
-      const own = message?.attachments?.get?.(entry.itemId);
-      if (own?.url) return own.url;
-      for (const snapshot of message?.messageSnapshots?.values?.() ?? []) {
-        const forwarded = snapshot?.attachments?.get?.(entry.itemId);
-        if (forwarded?.url) return forwarded.url;
-      }
-      return null;
-    } catch (err) {
-      log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err });
-      return null;
-    }
+    return sharedFreshAttachmentUrl({ client, channel, entry, onError: (err) => log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err }) });
   }
 
   /**
@@ -3426,7 +3416,7 @@ export function createTurnRunner({
     let op = NO_OP;
     try {
       const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
-      const text = withLink(fresh ?? entry.url, link, hot.prompts?.labels);
+      const text = withLink(gifPostUrl(entry, fresh), link, hot.prompts?.labels);
       if (!checkEffect('message.create', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
@@ -6398,6 +6388,17 @@ export function createTurnRunner({
       const timings = { history: historyMs };
       for (const name of PREPARE_STAGES.slice(1)) timings[name] = stages.get(name)?.done ? stages.get(name).ms : null;
       history = previewed();
+      // Messages deleted inside the window: the record's `deleted` lines over its span in this one
+      // channel, each the history lacks put back as a placeholder at its own place (never in a
+      // private chat); its read takes `timings.record`.
+      timings.record = null;
+      if (!isPrivate && record && features.record === true && typeof record.iterate === 'function') {
+        const found = await deletedLinesOf({ record, guildId, channelId: channel.id, history, selfId, selfName, nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null, max: deletedLinesMax(config.context), clock });
+        timings.record = found.ms;
+        if (found.failed) log.warn('turn: deleted lines failed', { channel: channel.id });
+        draft.deletedIds = found.deletedIds;
+        history = withDeletedLines(history, found.placeholders);
+      }
       // A text attachment cut at media.filePreviewChars (interfaces/discord/collect.js#withTextPreviews).
       for (const message of history) {
         for (const attachment of message.attachments ?? []) {
@@ -6693,6 +6694,9 @@ export function createTurnRunner({
           stray.reactions += parsed.reactions.length;
           stray.gif += parsed.gif ? 1 : 0;
           stray.draw += parsed.draw || parsed.draws?.length ? 1 : 0;
+          // Where this stray output sits among the turn's actions (the calls recorded so far came
+          // before it): the feedback facts drop its messages when a later `message.create` went out.
+          if (parsed.messages.length + parsed.reactions.length > 0 || parsed.gif || parsed.draw || (parsed.draws?.length ?? 0) > 0) stray.beforeAction = (draft.innerActions ?? []).length;
           draft.innerStray = stray;
           // This answer's stray output, for the one stray follow-up step (toolLoop).
           parsed.innerStray = parsed.messages.length + parsed.reactions.length > 0 || Boolean(parsed.gif) || Boolean(parsed.draw) || (parsed.draws?.length ?? 0) > 0;
@@ -6883,10 +6887,10 @@ export function createTurnRunner({
         return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner), chainId: draft.inner?.wake?.chainId ?? null });
       };
       const callPlan = parsed.call && !looping
-        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger }) })
+        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds }) })
         : null;
       const loopPlans = looping && parsed.calls.length > 0
-        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger }), envelopeOf })
+        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds }), envelopeOf })
         : [];
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.

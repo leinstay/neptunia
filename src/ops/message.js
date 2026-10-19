@@ -18,11 +18,16 @@
 // never retried. Her post may carry one file an errand of hers brought back (`file`, a handle
 // `file:<task id>/<name>`, src/errands/store.js): read from the agent's out directory, refused
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
-// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`).
+// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
+// carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
+// reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`; both refuse before anything is posted).
 
 import fsp from 'node:fs/promises';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
+import { gifPostsToday } from '../memory/gif-watch.js';
+import { utcDay } from '../time.js';
 
 /** How far back `last` looks for her own message: Discord's most messages per history request. */
 const LAST_LOOKBACK = 100;
@@ -34,6 +39,7 @@ function isLast(value) {
 
 const handlers = perEnv((env) => {
   const { hot, store, client, discord, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
+  const clock = typeof env.now === 'function' ? env.now : Date.now;
 
   /** True when member `userId` turned pings off here. */
   function pingsOff(context, userId) {
@@ -66,26 +72,80 @@ const handlers = perEnv((env) => {
     return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
   }
 
-  /** The persona's own text posted as hers: the channel checked, the reply target in it. */
+  /**
+   * The library entry of a post's `gif` handle in `guildId`, or null without a handle: unknown
+   * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
+   */
+  function gifEntry(args, guildId) {
+    const handle = String(args?.gif ?? '').trim();
+    if (!handle) return null;
+    const entry = hot.config.features?.gifs === false || typeof store?.findGif !== 'function' ? null : store.findGif(guildId, handle);
+    if (!entry) throw invalid(`no GIF ${handle} in the library`, 'unknown-gif');
+    return entry;
+  }
+
+  /** Whether today's GIF posts are spent against `gifs.maxPerDay` (read now). */
+  function gifCapSpent() {
+    const posts = gifPostsToday(store.state.data, hot.config, utcDay(clock()));
+    return posts.used >= posts.cap;
+  }
+
+  /**
+   * The persona's own text posted as hers: the channel checked, the reply target in it. A `gif`
+   * (her library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
+   * of a reply turn does (src/media/gif-post.js): the entry's URL as the text of a message of
+   * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
+   * `gif-cap` before anything is posted.
+   */
   async function post(args, context) {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
-    // A file-only post: an errand's file with no text.
-    if (!text && !String(args?.file ?? '').trim()) throw invalid('text is required');
+    // A file-only or GIF-only post: an errand's file or a GIF of hers with no text.
+    if (!text && !String(args?.file ?? '').trim() && !String(args?.gif ?? '').trim()) throw invalid('text is required');
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
     const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
+    const guildId = resolvedGuildId(context);
+    const entry = gifEntry(args, guildId);
+    const capped = entry ? gifCapSpent() : false;
+    // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
+    if (capped) throw invalid('the GIF limit for today is used up', 'gif-cap');
     const attachment = await errandFile(args, context, channelId, p);
+    const to = { iface: p.iface, conversationId: channelId };
     const content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
       ...(reply ? { replyTo: { iface: p.iface, conversationId: channelId, messageId: reply.messageId } } : {}),
       mentions: { users: mentionedUsers(context), repliedUser },
     };
-    const result = await p.send({ iface: p.iface, conversationId: channelId }, content);
-    return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
+    let result = null;
+    if (text || attachment) {
+      result = await p.send(to, content);
+      if (result?.status !== 'ok' || !entry) return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
+    }
+    const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
+    if (sent?.status !== 'ok') return text || attachment ? { status: 'failed', code: String(sent?.error?.code ?? sent?.status ?? 'error'), summary: 'message.create: the text went out, the GIF did not', data: { unknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');
+    const ref = result?.ref ?? sent.ref;
+    return { text: `sent in ${channelId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`, ref: ref ?? null, at: (result ?? sent).at };
+  }
+
+  /**
+   * One library GIF as a message of hers: its stored URL, a fresh one first when it is an
+   * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
+   * and mentions (`lead`); one after a text carries none.
+   */
+  async function postGif(p, to, entry, guildId, channelId, lead) {
+    const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl({ client, channel: (await channelById(client, channelId)) ?? { id: channelId }, entry }) : null;
+    const content = lead ? { ...lead, text: gifPostUrl(entry, fresh) } : { text: gifPostUrl(entry, fresh), mentions: { users: [], repliedUser: false } };
+    const sent = await p.send(to, content);
+    if (sent?.status === 'ok') {
+      countGifPost(store.state.data, clock());
+      store.state.markDirty();
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
+    }
+    return sent;
   }
 
   /** One turn of hers in the channel, now, for a person: an answer to the named message, else her own pick. */
