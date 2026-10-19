@@ -41,11 +41,11 @@ A call that does not work (refused by the resolution or the gateway, in either m
 
 ## Feedback on her own turn
 
-What happens after her last answer of an inner turn reached nobody until now: text she wrote outside a call was dropped, a call ended `unknown` after her last step, the loop cut her remaining calls, she closed an intention as done while nothing went out. When an inner turn of any kind ends, the scheduler lists from the turn's result what did not go through (`feedbackFacts` in `src/behavior/inner.js`, pure), in this order:
+When an inner turn ends, some of what she did may not have gone through: text she wrote outside a call was dropped, a call ended `unknown` or timed out after her last step, the loop cut her remaining calls, or she closed an intention as done while nothing was delivered. The scheduler lists what did not go through from the turn's result (`feedbackFacts` in `src/behavior/inner.js`, pure), in this order:
 
-- `dropped`: output written outside a call and dropped: the counts of messages, reactions, GIFs and pictures, and the first line of each dropped message (at most three, each cut to 200 characters; the turn result carries them as `inner.stray.lines`);
+- `dropped`: the counts of messages, reactions, GIFs and pictures written outside a call, and the first line of each dropped message (at most three, each cut to 200 characters; the turn result carries them as `inner.stray.lines`);
 - `callFailed`: one per call that ended `unknown` (a timeout is `timeout`) or was refused, with its skill and code;
-- `doneWithoutDelivery`: one per intention an executed `intent.update state=done` of the turn closed while no delivery call -- `message.create`, `draw.create`, `task.run`, `diary.post` -- was executed in that turn (a shadow turn's proposed `done` closed nothing and is no fact);
+- `doneWithoutDelivery`: one per intention closed by an executed `intent.update state=done` of the turn while no delivery call (`message.create`, `draw.create`, `task.run`, `diary.post`) ran in that turn (a shadow turn's proposed `done` closed nothing and is no fact);
 - `loopCut`: the loop ended on its step or time bound (`inner.loop`: `steps`, `cut`, `droppedCalls`) with calls dropped;
 - `wakeDropped`: a wake of hers the engine dropped as `no-channel`, or one still queued on a cap (`capped`) with its due time more than an hour past; each is told once (marked `told` on the state).
 
