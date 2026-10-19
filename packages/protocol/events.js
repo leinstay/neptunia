@@ -1,10 +1,11 @@
-// The inbound half of the protocol: what an interface tells the core. Five kinds, each a plain
+// The inbound half of the protocol: what an interface tells the core. Eight kinds, each a plain
 // serialisable object -- no platform object survives into it, every id is an opaque string the
 // adapter alone knows how to build -- with `kind`, `iface` (the adapter's namespace), `at` (ms
 // since the epoch), `id` (an opaque event id for dedup) and, for what happens in a conversation,
 // `conversation`. A direct chat is a conversation of kind `dm`, never a separate event; a mention
-// of the persona is the `addressing` of a message, never a second event. `scheduler.tick` and
-// `task.completed` are the core's own (its clock and its errands): an adapter never sends them.
+// of the persona is the `addressing` of a message, never a second event. `scheduler.tick`,
+// `task.completed` and `inner.wake` are the core's own (its clock, its errands and its inner-life
+// scheduler): an adapter never sends them.
 // Contracts only: the shapes are checked by validate.js; building them is the adapter's job.
 
 /** The message kind: a new message, an edit (`edit`), or a deletion (`deleted`). */
@@ -21,12 +22,14 @@ export const VOICE_CHANGED = 'voice.changed';
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
 export const TASK_COMPLETED = 'task.completed';
+/** The inner-life scheduler found something due for the persona (src/behavior/inner.js). */
+export const INNER_WAKE = 'inner.wake';
 
 /** Every inbound event kind. */
-export const EVENT_KINDS = Object.freeze([MESSAGE_RECEIVED, REACTION_CHANGED, COMMAND_REQUESTED, SCHEDULER_TICK, TASK_COMPLETED, MEMBERSHIP_CHANGED, VOICE_CHANGED]);
+export const EVENT_KINDS = Object.freeze([MESSAGE_RECEIVED, REACTION_CHANGED, COMMAND_REQUESTED, SCHEDULER_TICK, TASK_COMPLETED, MEMBERSHIP_CHANGED, VOICE_CHANGED, INNER_WAKE]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
-export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED]);
+export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED, INNER_WAKE]);
 
 /** Every conversation kind. */
 export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
@@ -134,5 +137,13 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  */
 
 /**
- * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged} InboundEvent
+ * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.js) found something due: an
+ * intention, a deadline of an errand she waits for, or her daily review. `id` is always given
+ * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
+ * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`).
+ * @typedef {{ kind: 'inner.wake', at: number, id: string, guildId?: string|null, wake: { kind: string } }} InnerWake
+ */
+
+/**
+ * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged|InnerWake} InboundEvent
  */

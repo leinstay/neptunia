@@ -219,7 +219,7 @@ export const labels = {
   prefetch: {
     header: '[retrieved]',
     basis: '[basis {basis}]',
-    lanes: { message: 'message', reply: 'reply', recent: 'recent' },
+    lanes: { message: 'message', reply: 'reply', recent: 'recent', wake: 'wake' },
     caution: '[candidates only]',
     excerpt: '[{n} {source} {date} #{channel} {id}]',
     memoryExcerpt: '[{n} {source} {date} {who} {id}]',
@@ -369,6 +369,8 @@ export const labels = {
     continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',
     continueTools: 'continue this turn after your {skill} call; results above; another call may run',
     continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
+    continueInner: 'continue this inner turn after your {skill} call; results above; another call may run',
+    continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, no call runs',
   },
   tasks: {
     header: 'your errands:',
@@ -511,5 +513,13 @@ export const labels = {
     activityTrack: '{activity}: {track} - {artist}',
     attitude: '{score} ({band}) — {reason}',
     move: 'move {delta} on {date}: {reason}',
+  },
+  wake: {
+    header: 'wake:',
+    kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}' },
+    now: 'now: {now} [{timezone}]',
+    channels: 'recent channels: {channels}',
+    budgets: 'budgets:',
+    budget: { day: 'day {left}/{cap} until {reset}', hour: 'hour {left}/{cap} until {reset}', chain: 'chain {left}/{cap}', usd: 'usd {left}/{cap} until {reset}', posts: 'posts {left}/{cap} until {reset}' },
   },
 };

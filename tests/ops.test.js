@@ -39,6 +39,7 @@ const AGREED = new Set([
   'task.run', 'task.status', 'task.cancel', 'task.list',
   'web.search', 'web.read', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
+  'inner.stop', 'inner.start', 'inner.status',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */
@@ -46,6 +47,7 @@ const OWNER_ONLY = [
   'access.grant', 'access.revoke', 'access.list',
   'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'memory.journal.read', 'memory.snapshot', 'memory.forget', 'memory.wipe', 'memory.archive.read', 'memory.restore',
+  'inner.stop', 'inner.start', 'inner.status',
 ];
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {
@@ -145,7 +147,7 @@ test('ops: an exception becomes failed with its code', async () => {
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
   // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'] };
+  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'], 'task.inner': ['stop', 'start', 'status'] };
   const KINDS = { 'memory.refresh': ['user', 'channel', 'server'] };
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
@@ -386,4 +388,26 @@ test('status costs.agents: thinker, dev and writer from the ledger beside the er
     assert.deepEqual(await field({ costs: async () => { throw new Error('boom'); } }), fallback, 'a throwing ledger never fails the field');
   });
   assert.deepEqual(await field(null), fallback, 'no ledger mirror');
+});
+
+test('ops: /nep task inner stops, starts and reports the inner life for an owner only', async () => {
+  const calls = [];
+  const inner = {
+    stop: (guildId, { by }) => (calls.push(['stop', guildId, by]), { ok: true, already: false, dropped: 2 }),
+    start: (guildId, { by }) => (calls.push(['start', guildId, by]), { ok: true, already: false }),
+    status: () => ({ on: true, mode: 'shadow', stopped: false, stoppedAt: null, queue: [{ id: 'w', kind: 'review', dueAt: 0, capped: null }], review: { day: '2026-10-19', at: 0, done: false }, budgets: { day: { used: 1, cap: 24, resetAt: 0 }, hour: { used: 1, cap: 4 }, usd: { used: 0.1, cap: 4 }, posts: { used: 0, cap: 2 } } }),
+  };
+  const env = { ...makeEnv(), inner };
+  const owner = { env, userId: '42', guildId: 'g1' };
+  const stopped = await runOp('inner.stop', {}, owner);
+  assert.equal(stopped.status, 'ok');
+  assert.match(stopped.summary, /stopped; 2 queued wakes dropped/);
+  assert.equal((await runOp('inner.start', {}, owner)).status, 'ok');
+  const status = await runOp('inner.status', {}, owner);
+  assert.match(status.summary, /mode shadow, running/);
+  assert.match(status.summary, /queue: 1 \(review/);
+  assert.deepEqual(calls.map((call) => call[0]), ['stop', 'start']);
+  const member = await runOp('inner.stop', {}, { env, userId: '7', guildId: 'g1' });
+  assert.equal(member.status, 'denied');
+  assert.equal(member.code, 'owner-only');
 });

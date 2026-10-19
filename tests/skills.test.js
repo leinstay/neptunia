@@ -309,10 +309,11 @@ test('skills access: default deny; only a grant naming her user id opens a skill
 });
 
 test('skills access: the irreversible and administrative operations are never open to her, whatever is stored', () => {
-  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'model.set', 'route.remove', 'route.set', 'rule.remove']);
+  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'inner.start', 'inner.stop', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'model.set', 'route.remove', 'route.set', 'rule.remove']);
   assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
-    assert.deepEqual(skillAccess({ skill: skillRegistry().get(name), config: granting([name]), selfId: SELF }), { allowed: false, reason: 'not-grantable' }, name);
+    // The inner life's switch on, so its kill switch exists to be refused (src/skills/access.js#FEATURE_SKILLS).
+    assert.deepEqual(skillAccess({ skill: skillRegistry().get(name), config: granting([name], config({ features: { innerLife: true } })), selfId: SELF }), { allowed: false, reason: 'not-grantable' }, name);
   }
   assert.deepEqual(check({ skill: 'memory.wipe', args: { confirm: 'Σπίτι' }, granted: ['memory.wipe'] }), { ok: false, code: 'not-grantable', reason: 'memory.wipe' });
 });

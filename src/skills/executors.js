@@ -410,7 +410,9 @@ function fromPort(result) {
  * channel links; src/behavior/turn.js#renderPost), the members it mentions handed to the
  * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runCommand(key, args, context)`
  * (src/admin.js#runCommand) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
- * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right) -- on
+ * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right), and on
+ * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
+ * `deps.runInitiativeCommand` (src/admin.js#runInitiativeCommand, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
@@ -450,11 +452,13 @@ export async function executeCall(resolved, deps) {
     }
     const call = resolved.command.toCall(args);
     if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
-    // Her own expressive operations run on her grant alone; any other on the requester's right too.
-    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : deps.runCommand;
-    if (typeof run !== 'function') return { status: 'not_configured', code: 'unsupported' };
+    // Her own expressive operations run on her grant alone; any other on the requester's right too,
+    // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
+    const initiative = envelope.ownInitiative === true && !requester;
+    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : initiative ? deps.runInitiativeCommand : deps.runCommand;
+    if (typeof run !== 'function') return { status: 'not_configured', code: 'unsupported' };
     const result = await withTimeout(run(call.key, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,

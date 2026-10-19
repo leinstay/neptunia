@@ -2772,6 +2772,8 @@ export function createMessageHandler({
     pendingList = [];
     clearSettles('paused');
   };
+  /** How many direct pings wait for the attention (src/behavior/inner.js lets people go first). */
+  onMessage.pendingCount = () => pendingList.length;
   /** Clear every settle wait without answering its call (shutdown): none starts a turn on a client going down. */
   onMessage.stop = () => {
     clearSettles(null);

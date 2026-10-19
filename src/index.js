@@ -64,6 +64,7 @@ import {
   toEvent,
 } from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
+import { createInnerLife } from './behavior/inner.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
 import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
@@ -388,6 +389,8 @@ const turns = createTurnRunner({
   runCommand: (key, args, context) => admin.runCommand(key, args, context),
   // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
   runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
+  // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
+  runInitiativeCommand: (key, args, context) => admin.runInitiativeCommand(key, args, context),
   // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
   errands,
   // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
@@ -423,6 +426,27 @@ const memory = createMemoryUpdater({
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
 const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
+// The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
+// that lists what is due for her (her intentions, waits past their deadline, one daily review),
+// hands each as an `inner.wake` event through the door, and runs an inner turn when the one
+// attention is free and no cap refuses. Its own timer; a no-op with the switch off.
+const inner = createInnerLife({
+  hot,
+  dataDir,
+  turns,
+  intentions,
+  record,
+  journal,
+  client,
+  discord,
+  store,
+  getGuildId,
+  isWarmingUp,
+  // People's turns first: an inner turn waits while a direct ping is queued.
+  peopleWaiting: () => onMessage.pendingCount() > 0,
+  submit: (event) => door.submit(event),
+  log,
+});
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -503,6 +527,8 @@ const admin = createAdmin({
   errands,
   // /nep task intent: her intentions.
   intentions,
+  // /nep task inner: the inner life's kill switch and status.
+  inner,
   spontaneous,
   // /nep diary: the day plan, a forced post.
   diary,
@@ -728,6 +754,8 @@ client.once(Events.ClientReady, async () => {
   // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
   every(30_000, () => spontaneous.tick(), 'spontaneous.tick');
   every(30_000, () => diary.tick(), 'diary.tick');
+  // The inner life's tick, every innerLife.tickSeconds (read before each wait).
+  inner.startTimer();
   // The tick still runs on schedule even with the switch off, so flipping it
   // back on later needs no restart; it is the wrapper here that no-ops.
   every(60_000, () => (hot.config.features?.memory !== false ? memory.tick() : undefined), 'memory.tick');
@@ -877,7 +905,12 @@ const door = createEventDoor({
       return event.edit ? onMessage.onMessageUpdate(event) : onMessage(event);
     },
     'reaction.changed': (event) => feedReactors('add', event.raw),
-    'task.completed': (event) => taskTurns.onEvent(event),
+    'task.completed': (event) => {
+      // An errand an inner turn handed off counts its cost against the inner life's dollars.
+      inner.onTaskFinished(event?.raw?.task ?? errands.store?.(event?.guildId ?? null)?.get?.(event?.taskId) ?? null, event?.guildId ?? instance.guildId);
+      return taskTurns.onEvent(event);
+    },
+    'inner.wake': (event) => inner.onWake(event),
   },
   log,
 });
@@ -976,6 +1009,7 @@ async function shutdown(signal) {
   missed.stop();
   errandClient.close();
   taskTurns.stop();
+  inner.stopTimer();
   await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
   // The embedding queue flushes what waits once (a short wait at most), before the stores close.
   await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));

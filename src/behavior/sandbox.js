@@ -146,6 +146,7 @@ export const SANDBOX_OMITS = Object.freeze({
   skillsTools: 'no core tools: a replay runs no tool loop (features.coreTools), so no <skills_tools> block',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
+  wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
 
@@ -778,6 +779,8 @@ export function sandboxRequestInput({
     errands: resultText ? { tasks: '', result: resultText } : null,
     // No intention store (SANDBOX_OMITS): no <intentions> block.
     intentions: null,
+    // Not an inner turn (SANDBOX_OMITS): no <wake> block.
+    wake: null,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
   };

@@ -15,6 +15,7 @@ import {
   CONVERSATION_KINDS,
   CORE_KINDS,
   EVENT_KINDS,
+  INNER_WAKE,
   MEMBERSHIP_CHANGES,
   MEMBERSHIP_CHANGED,
   MESSAGE_RECEIVED,
@@ -149,6 +150,13 @@ function checkTaskCompleted(event) {
   need(event.guildId, 'guildId', isNullableString, { required: false });
 }
 
+function checkInnerWake(event) {
+  need(event.id, 'id', isId);
+  need(event.guildId, 'guildId', isNullableString, { required: false });
+  need(event.wake, 'wake', isObject);
+  need(event.wake.kind, 'wake.kind', isId);
+}
+
 function checkMembershipChanged(event) {
   need(event.guildId, 'guildId', isId);
   need(event.userId, 'userId', isId);
@@ -176,6 +184,7 @@ const EVENT_CHECKS = {
   [TASK_COMPLETED]: checkTaskCompleted,
   [MEMBERSHIP_CHANGED]: checkMembershipChanged,
   [VOICE_CHANGED]: checkVoiceChanged,
+  [INNER_WAKE]: checkInnerWake,
 };
 
 /**

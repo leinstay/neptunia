@@ -72,7 +72,8 @@
     "offlineCatchUp": true,
     "around": true,
     "avatars": false,
-    "intentions": false
+    "intentions": false,
+    "innerLife": false
   },
   "discord": {
     "intents": { "presences": false, "members": false }
@@ -508,6 +509,15 @@
     "maxCandidates": 5,
     "candidateExpiresHours": 48,
     "waitHours": 2
+  },
+  "innerLife": {
+    "mode": "shadow",
+    "tickSeconds": 60,
+    "queueMax": 20,
+    "chatMessages": 30,
+    "estimatedTurnUsd": 0.15,
+    "review": { "enabled": true, "historyDays": 14 },
+    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 }
   },
   "appendStore": {
     "fsyncMs": 500,

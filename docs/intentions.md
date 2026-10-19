@@ -2,7 +2,8 @@
 
 The persona's intentions: things she means to do later, kept across restarts in `data/guilds/<id>/intentions.json`.
 Behind `features.intentions` (off by default). This is step 1: the data, her skills, the candidates and the
-`<intentions>` block. Nothing wakes her for an intention yet; she sees them on her next ordinary turn.
+`<intentions>` block. She sees them on every turn; with the [inner life](inner-life.md) on, one that comes due (or a wait
+past its deadline) wakes her for an inner turn.
 
 ## Where they come from
 
@@ -61,4 +62,4 @@ from, cut to `context.caps.intentions` tokens. See the [prompt contract](prompt-
 
 Set `features.intentions` to `true`, and grant her the skills by name (`/nep access grant` with her as the user:
 `intent.set`, `intent.update`, `intent.cancel`, `intent.list`). Her own calls run on her grant alone, under the rules
-on who asked: a turn nobody asked for (a spontaneous one) cannot write them yet.
+on who asked: a turn nobody asked for (a spontaneous one) cannot write them; an inner turn, her own initiative, can.

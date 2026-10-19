@@ -35,7 +35,7 @@ Every event has `kind`, `iface` (the adapter's namespace), `at` (milliseconds si
 | `name`, `topic`, `category` | what the people in it see; null or absent when unknown |
 | `parentId` | the conversation a thread belongs to; absent or null for any other kind |
 
-There are seven event kinds:
+There are eight event kinds:
 
 | Kind | Sent by | Payload |
 |---|---|---|
@@ -46,6 +46,7 @@ There are seven event kinds:
 | `voice.changed` | the adapter | `guildId`, `userId`, `conversationId` (the voice conversation the member is in now, null when none), `previousId` (the one they were in, null when none), optional flags `muted`, `deafened`, `streaming`. No adapter sends this kind yet: voice updates still go straight to their stores |
 | `scheduler.tick` | the core | `at` only: the core's own clock. An adapter never sends this kind; `iface`, `id` and `conversation` are not required |
 | `task.completed` | the core | `taskId`, `status`, `result` (as `src/errands` defines them); `iface`, `id` and `conversation` are not required |
+| `inner.wake` | the core | `id` (always given: the wake's own), `guildId`, `wake` (the inner-life scheduler's record, `kind` one of `intention_due`, `review`, `errand_deadline`; [Inner life](inner-life.md)); `iface` and `conversation` are not required |
 
 `message`:
 
@@ -86,7 +87,7 @@ Every inbound event enters the core through one door (`src/interface/door.js`). 
 
 The core's own events carry no id. The door derives one from the fields that make the event that event: an errand's end (`task.completed`) is identified by its task id and status, so a second delivery of the same end is the same event; a scheduler tick is identified by its time.
 
-What enters through the door today: a new message, an edit and a deletion (`message.received`), a reaction put on (`reaction.changed`, `added: true`), and an errand's end (`task.completed`). An edit's event id includes the time the adapter received it, because Discord re-sends an edited message with the same edit stamp when it attaches an embed, and the door must treat that as a new event.
+What enters through the door today: a new message, an edit and a deletion (`message.received`), a reaction put on (`reaction.changed`, `added: true`), an errand's end (`task.completed`), and an inner-life wake (`inner.wake`). An edit's event id includes the time the adapter received it, because Discord re-sends an edited message with the same edit stamp when it attaches an embed, and the door must treat that as a new event.
 
 The wire envelope wraps these events for when the interface runs as a separate process (not yet the case). Its shape is `{ v, id, type, replyTo, body }`: `v` is the envelope version (1), `id` an opaque string unique to the sender (an event's envelope carries the event's own id, so a redelivery is the same envelope), `type` one of six values, `replyTo` the id of the envelope this one answers (null for an unsolicited message), and `body` the payload for the type.
 

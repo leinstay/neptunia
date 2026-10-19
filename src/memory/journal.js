@@ -125,6 +125,8 @@ export function journalLine(record) {
     short = words(record.event ?? '-', record.by, record.note);
   } else if (kind === 'answer') {
     short = words(record.event ?? '-', record.reason, record.verdict, record.outcome);
+  } else if (kind === 'inner') {
+    short = words(record.event ?? '-', record.wake?.kind, record.cap, record.outcome, record.reason, Array.isArray(record.actions) ? `${record.actions.length} actions` : null);
   } else {
     short = '';
   }
@@ -383,8 +385,10 @@ export function callMarksOf(records) {
     else if (record.kind === 'action') addPosted(record.turnId, succeededIdOf(record));
   }
   const ops = new Map(); // opId -> what its lines said
+  // A call an inner turn only proposed (shadow mode, src/behavior/inner.js) never ran: no mark.
+  const shadowOps = new Set(list.filter((record) => record.kind === 'action' && record.shadow === true && text(record.opId)).map((record) => record.opId));
   for (const record of list) {
-    if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId)) continue;
+    if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId) || shadowOps.has(record.opId)) continue;
     const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, code: null, reason: null, postedId: null, at: null };
     op.turnId = text(record.turnId) ?? op.turnId;
     op.channelId = text(record.scope?.channel) ?? op.channelId;
@@ -691,6 +695,10 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
   const memory = (guildId, record) => write(guildId, 'memory', { ...record, channelId: null });
   const system = (guildId, record) => write(guildId, 'system', { ...record, channelId: null });
   const answer = (guildId, record) => write(guildId, 'answer', record);
+  // The inner life's scheduler and turns (src/behavior/inner.js): `event` `wake`, `turn`,
+  // `capped`, `overflow`, `stale`, `no-channel`, `review-drawn`, `review-missed`, `errand-cost`,
+  // `stopped`, `started`. Ids, codes, counts and costs only.
+  const inner = (guildId, record) => write(guildId, 'inner', record);
 
   /** The names of `dir` (none when it is absent). */
   async function namesIn(dir) {
@@ -1248,6 +1256,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     memory,
     system,
     answer,
+    inner,
     read,
     timeline,
     triggerLinks,

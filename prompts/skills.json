@@ -329,6 +329,21 @@
     "whenToUse": "Drop an intention by id=: one you no longer mean to do, or a proposed one you reject.",
     "whenNotToUse": "One you finished goes through intent.update state=done."
   },
+  "inner.stop": {
+    "title": "Stop the inner life",
+    "whenToUse": "Stop the persona's own wake-ups and drop the queued ones.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "inner.start": {
+    "title": "Start the inner life",
+    "whenToUse": "Let the persona's own wake-ups run again after a stop.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "inner.status": {
+    "title": "Inner life status",
+    "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
   "intent.list": {
     "title": "List intentions",
     "whenToUse": "Read your open intentions with their states and due times.",

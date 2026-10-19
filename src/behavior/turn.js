@@ -80,7 +80,9 @@ import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { IN_TURN_TOOLS, firstLinkIn, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
-import { prefetchLanes, prefetchOn } from './prefetch.js';
+import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
+import { POSTING_SKILLS, innerSettings } from './inner.js';
+import { wakeBlockText } from './wake.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -94,8 +96,8 @@ import { prefetchLanes, prefetchOn } from './prefetch.js';
 
 /**
  * The `reason` codes of a `skip` outcome, journaled with the turn: she chose not to speak (an
- * explicit skip, or an answer with nothing to act on), or an inner or wake turn had nothing to
- * act on (reserved: no code path sets it until north star E step 2).
+ * explicit skip, or an answer with nothing to act on), or an inner turn (mode `inner`,
+ * src/behavior/inner.js) ended with no action of hers -- silence is a valid answer there.
  */
 export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
@@ -1200,7 +1202,7 @@ export function continuationHistory({ history, fetched = [], own = [], selfName 
  * same call made twice queues one errand (src/errands/store.js#add).
  * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
-function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null }) {
+function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null, ownInitiative = false }) {
   const requester = asked?.id ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] } : requesterOf(trigger, channel);
   const authors = new Set((Array.isArray(missed) ? missed : []).map((line) => line?.author).filter((author) => typeof author === 'string' && author));
   const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])].filter(Boolean).map(String);
@@ -1214,6 +1216,8 @@ function callEnvelope({ trigger, channel, added = null, missed = null, requester
     // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
     ...(turnId ? { turnId: String(turnId) } : {}),
     ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
+    // An inner turn: her own initiative, nobody asked (src/skills/executors.js#executeCall).
+    ...(ownInitiative ? { ownInitiative: true } : {}),
   });
 }
 
@@ -1604,7 +1608,8 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * again right before, then run by src/skills/executors.js through `runCommand(key, args,
  * context)` -- src/admin.js#runCommand, the command's own path, the requester's rights checked
  * again; absent, a call is `not_configured`; her own expressive operations through
- * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone). An operation's answer -- an error or a refusal
+ * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone; an inner turn's calls through
+ * `runInitiativeCommand`, src/admin.js#runInitiativeCommand, her grant alone). An operation's answer -- an error or a refusal
  * included -- or any call that did not succeed (never under features.skills off) brings one
  * follow-up request that continues the turn (followUp, features.followUpContinuation; a missing
  * key counts as on): the turn's request rebuilt over the channel as it stands then -- her posts of
@@ -1655,6 +1660,7 @@ export function createTurnRunner({
   skills = null,
   runCommand = null,
   runOwnCommand = null,
+  runInitiativeCommand = null,
   around = null,
   reactors = null,
   errands = null,
@@ -1817,7 +1823,7 @@ export function createTurnRunner({
    * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
    * `skill: refused`.
    */
-  function checkCall(resolved, { channel, envelope }) {
+  function checkCall(resolved, { channel, envelope, draft = null }) {
     const verdict = checkSkill({
       skill: resolved.skill,
       args: resolved.args,
@@ -1829,6 +1835,8 @@ export function createTurnRunner({
         selfId: client?.user?.id ?? null,
         registry: skills ?? defaultSkills(),
         mixedRequesters: envelope.mixed,
+        // An inner turn is her own initiative: nobody asked, her grants alone decide.
+        ...(draft?.inner ? { ownInitiative: true } : {}),
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
@@ -1852,7 +1860,8 @@ export function createTurnRunner({
    * `skills: body read as arguments` (`skill`, `count`, never the values). Nothing runs here.
    */
   async function planCall({ call, channel, envelope, draft, view }) {
-    const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId } });
+    // A call of an inner turn in shadow mode is only proposed: its lines say so (no call mark is drawn from them).
+    const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId }, ...(draft?.inner?.shadow ? { shadow: true } : {}) });
     if (op.opId) await op.proposed({ input: { skill: call.skill, invocationId: envelope.invocationId, args: Object.keys(call.args ?? {}), body: Boolean(call.body) } });
     const resolved = resolveCall(call, view);
     if (!resolved.ok) {
@@ -1871,7 +1880,7 @@ export function createTurnRunner({
     if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: 'moved', textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
-    const verdict = checkCall(resolved, { channel, envelope });
+    const verdict = checkCall(resolved, { channel, envelope, draft });
     return { call, op, envelope, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
   }
 
@@ -1880,6 +1889,24 @@ export function createTurnRunner({
     const out = {};
     for (const key of ['channel', 'message', 'reply', 'user']) if (typeof args?.[key] === 'string') out[key] = args[key];
     return out;
+  }
+
+  /**
+   * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
+   * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
+   * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`), and a
+   * public post (POSTING_SKILLS in a server channel) past the day's cap (`postAllowed`) is refused
+   * (`inner-post-cap`). `public` says whether a call that runs is a public post.
+   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean }|null}
+   */
+  function innerVerdict(inner, skill, { channel, args }) {
+    const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
+    if (effects === 'read') return null;
+    if (inner.shadow) return { proposed: true };
+    if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
+    const isPublic = POSTING_SKILLS.includes(skill) && (Boolean(channel.guild) || typeof args?.channel === 'string');
+    if (isPublic && typeof inner.postAllowed === 'function' && !inner.postAllowed()) return { refusal: { code: 'inner-post-cap', reason: 'innerLife.caps.publicPostsPerDay' } };
+    return { public: isPublic };
   }
 
   /**
@@ -1907,12 +1934,22 @@ export function createTurnRunner({
     let result;
     // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
     const refusedWith = (refusal) => ({ status: refusalStatus(refusal.code), code: refusal.code, ...(refusal.reason ? { reason: refusal.reason } : {}) });
+    // An inner turn (src/behavior/inner.js): anything but a read is only proposed in shadow mode,
+    // refused once the kill switch stopped it (asked right here, before the action), and a public
+    // post past the day's cap is refused too.
+    const inner = draft?.inner ?? null;
+    const innerGate = inner && !plan.refusal ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {} }) : null;
+    // Whether the call was dispatched (its operation ran, whatever it answered).
+    let ran = false;
     if (plan.refusal) result = refusedWith(plan.refusal);
+    else if (innerGate?.proposed) result = { status: 'ok', code: 'shadow' };
+    else if (innerGate?.refusal) result = refusedWith(innerGate.refusal);
     else {
-      const verdict = checkCall(plan.resolved, { channel, envelope });
+      const verdict = checkCall(plan.resolved, { channel, envelope, draft });
       if (!verdict.ok) result = refusedWith(verdict);
       else {
         if (op.opId) await op.started({ target: callTarget(plan.resolved.args) });
+        ran = true;
         // A destructive call counts from its dispatch, whatever comes back.
         if (plan.resolved.command && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive') destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         result = await executeCall(plan.resolved, {
@@ -1922,11 +1959,21 @@ export function createTurnRunner({
           envelope,
           runCommand,
           runOwnCommand,
+          runInitiativeCommand,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
           timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),
         });
+      }
+    }
+    if (inner) {
+      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}) });
+      if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
+      // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
+      if (innerGate?.proposed) {
+        log.info('skills: proposed', { channel: channel.id, skill, shadow: true });
+        return { skill, ...result, followUp: false };
       }
     }
     if (op.opId) {
@@ -1949,7 +1996,8 @@ export function createTurnRunner({
       }
     }
     const idText = (value) => (typeof value === 'string' && value ? value : null);
-    noteCall({
+    // A shadow inner turn leaves no mark on her transcript: nobody saw it.
+    if (!inner?.shadow) noteCall({
       channelId: String(channel.id),
       at: clock(),
       skill,
@@ -1973,10 +2021,11 @@ export function createTurnRunner({
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
    * fetched within `context.reactions.fetchTimeoutMs`.
    */
-  function historyOptions(config) {
+  function historyOptions(config, inner = false) {
     const namesOn = reactors && config.features?.reactionNames !== false && config.features?.seeReactions !== false;
     return {
-      limit: config.context.channelMessages,
+      // An inner turn reads a bounded recent slice (innerLife.chatMessages).
+      limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       selfId: client.user.id,
       embedTextChars: config.media?.embedTextChars,
       videoSites: config.media?.video?.sites,
@@ -2038,7 +2087,7 @@ export function createTurnRunner({
     const { input, history, shownLines = [], pictures } = continuation;
     let fetched = [];
     try {
-      fetched = await fetchHistory(channel, historyOptions(hot.config));
+      fetched = await fetchHistory(channel, historyOptions(hot.config, input.mode === 'inner'));
     } catch (err) {
       log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
     }
@@ -2185,16 +2234,18 @@ export function createTurnRunner({
    * `status`, `excerpts`, `ms`) when it starts. Resolves never rejecting. Null when nothing runs,
    * else `{ lanes, pending }`.
    */
-  function startPrefetch({ config, channel, guildId, guild, partner, trigger, candidate, triggerKind, mode, history, selfId, selfName, nameOf, journalStep }) {
+  function startPrefetch({ config, channel, guildId, guild, partner, trigger, candidate, triggerKind, mode, history, selfId, selfName, nameOf, journalStep, wake = null }) {
     if (!prefetchOn(config) || typeof recall?.prefetch !== 'function' || !guild) return null;
     const settings = recallSettings(config)?.prefetch;
     if (!settings) return null;
-    const { lanes, skip } = prefetchLanes({ trigger, candidate, triggerKind, mode, history, settings, selfId, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+    // An inner turn has no message: its lane is the purposes of the intentions it woke for.
+    const purposes = mode === 'inner' ? (wake?.intentions ?? []).map((record) => record?.purpose) : null;
+    const { lanes, skip } = purposes ? wakeLanes(purposes) : prefetchLanes({ trigger, candidate, triggerKind, mode, history, settings, selfId, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
     if (skip) {
       if (skip !== 'no-trigger') log.info('recall: prefetch skipped', { channel: channel.id, reason: skip });
       return null;
     }
-    const key = `${channel.id}:${trigger.id}:${candidate?.content ?? ''}`;
+    const key = purposes ? `${channel.id}:inner:${lanes[0]?.text ?? ''}` : `${channel.id}:${trigger.id}:${candidate?.content ?? ''}`;
     if (prefetchMemo.has(key)) return { lanes, pending: prefetchMemo.get(key) };
     const basis = lanes.map((lane) => lane.kind);
     const op = journalStep?.('prefetch', 'memory-prefetch', { input: { lanes: basis } }, (result) => result.excerpts > 0) ?? null;
@@ -2277,7 +2328,10 @@ export function createTurnRunner({
     let completion;
     try {
       if (continued) {
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label: final ? 'continueToolsLast' : 'continueTools' }));
+        // An inner turn continues under its own labels (no message started it, none of hers went out).
+        const innerTurn = continuation.input?.mode === 'inner';
+        const label = innerTurn ? (final ? 'continueInnerLast' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const maxChars = hot.config.skills?.resultMaxChars ?? 4500;
@@ -4921,8 +4975,22 @@ export function createTurnRunner({
    * @param {import('discord.js').TextBasedChannel} params.channel
    * @param {string} [params.guildId]  The served guild, used when `channel` has no guild (a
    *   private chat); a server channel always uses its own guild. Neither -> throws.
-   * @param {'reply'|'interject'|'initiate'|'auto'} params.mode  'auto' lets `chooseMode` pick
-   *   between interject/initiate/nothing once the history is known (spontaneous turns).
+   * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
+   *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
+   *   is an inner turn (with `params.inner`).
+   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean,
+   *   onPosted?: () => void }|null} [params.inner]  An inner turn (src/behavior/inner.js,
+   *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
+   *   request carries `<wake>` (src/behavior/wake.js over `wake`) and the task `prompts.inner`, its
+   *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
+   *   purposes of the intentions it woke for, no planner runs. What she writes outside a call
+   *   (a `<msg>`, a reaction, a GIF, a picture) reaches nobody (counted as `stray`); her calls pass
+   *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
+   *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
+   *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
+   *   and a public post needs `postAllowed()` (then `onPosted()`). An answer with no action ends
+   *   `skip` with `reason: 'nothing-to-do'`. The result carries `inner: { actions, stray, turnId }`
+   *   (`shadow: true` in shadow mode).
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
    *   overheard line).
    * @param {TriggerKind} [params.triggerKind]
@@ -5238,7 +5306,7 @@ export function createTurnRunner({
       result = await runTurnAttempt(args, draft);
       // The finished errands her request showed are seen once a turn of hers ran with them
       // (spoke or chose silence), never on a rehearsal.
-      if (draft.tasksShown?.length > 0 && (result?.outcome === 'spoke' || result?.outcome === 'skip') && result?.dryRun !== true) {
+      if (draft.tasksShown?.length > 0 && (result?.outcome === 'spoke' || result?.outcome === 'skip') && result?.dryRun !== true && args.inner?.shadow !== true) {
         errands?.markSeen?.({ guildId: draft.tasksGuildId, ids: draft.tasksShown });
       }
     } finally {
@@ -5250,7 +5318,9 @@ export function createTurnRunner({
         if (typeof draft.reason === 'string') args.turnEnds.reasons.push(draft.reason);
       }
     }
-    return draft.started ? { ...result, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : result;
+    // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 
   /** runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord). */
@@ -5280,6 +5350,7 @@ export function createTurnRunner({
     stillDue = null,
     requester: requesterParam = null,
     taskResult = null,
+    inner = null,
   }, draft = {}) {
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
@@ -5292,6 +5363,8 @@ export function createTurnRunner({
       return op.opId ? prep.step(stage, op, offeredOf) : null;
     };
     const isPrivate = !channel.guild;
+    // An inner turn (mode `inner`, src/behavior/inner.js): her calls pass its gate (innerVerdict).
+    if (inner && mode === 'inner') draft.inner = inner;
     // Set when this turn hands off to a drawFailed turn: runTurn notifies after it.
     let handOff = false;
     // Set when this turn hands its message to a chain of parts: the chain keeps the attention.
@@ -5324,7 +5397,7 @@ export function createTurnRunner({
       draft.started = journal.start(guildId, {
         channelId: channel.id,
         mode: journalMode(mode, triggerKind),
-        trigger: trigger ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null } : null,
+        trigger: trigger ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null } : draft.inner ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null } : null,
         participants: trigger?.authorId ? [trigger.authorId] : [],
         sourceMessageIds: trigger?.id ? [trigger.id] : [],
         privateUserId: draft.privateUserId,
@@ -5432,7 +5505,7 @@ export function createTurnRunner({
         linkTriggers(
           reuseHistory ??
             (await beforeBar(
-              fetchHistory(channel, historyOptions(config)).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config, discord })),
+              fetchHistory(channel, historyOptions(config, Boolean(draft.inner))).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config, discord })),
             )),
         ),
         { channel, guildId },
@@ -5464,6 +5537,7 @@ export function createTurnRunner({
         selfName,
         nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
         journalStep: prepStep,
+        wake: draft.inner?.wake ?? null,
       });
       // A diary post plans itself first (prepareDiary), alongside the preparation below; settled
       // into a value or an error so a refusal waits for its turn to be thrown.
@@ -5487,7 +5561,7 @@ export function createTurnRunner({
       // re-watch and the search classifier, none of which is asked then. It starts in the pull's
       // route step on a turn that waits for its pull (a source, or a mode still to choose), else
       // once the file previews are in (below), like the search classifier did.
-      planner = plannerOn(config) && !answersDrawFailure
+      planner = plannerOn(config) && !answersDrawFailure && !draft.inner
         ? createTurnPlan({ config, channelId: channel.id, selfName, triggerKind, limits: draft.limits ?? null, early: Boolean(source) || mode === 'auto' })
         : null;
       // The planner's `skills:` line, once it answered (skills discovery, read when the request is built).
@@ -6237,6 +6311,8 @@ export function createTurnRunner({
         errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels }),
+        // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
+        wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : null,
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
@@ -6371,6 +6447,22 @@ export function createTurnRunner({
         }
         // No image client, drawing off, no Attach Files, or already answering a failed picture: the <draw> is dropped.
         if (!drawOn) parsed.draw = null;
+        // An inner turn posts only through an explicit call (message.create and the like): what she
+        // wrote outside a call reaches nobody; it is counted for the journal, never kept.
+        if (draft.inner) {
+          const stray = draft.innerStray ?? { messages: 0, reactions: 0, gif: 0, draw: 0 };
+          stray.messages += parsed.messages.length;
+          stray.reactions += parsed.reactions.length;
+          stray.gif += parsed.gif ? 1 : 0;
+          stray.draw += parsed.draw || parsed.draws?.length ? 1 : 0;
+          draft.innerStray = stray;
+          if (parsed.messages.length + parsed.reactions.length > 0 || parsed.gif || parsed.draw) log.info('turn: inner output dropped', { channel: channel.id, messages: parsed.messages.length, reactions: parsed.reactions.length });
+          parsed.messages = [];
+          parsed.reactions = [];
+          parsed.gif = null;
+          parsed.draw = null;
+          parsed.draws = [];
+        }
         // Every `<call>` past the first, and a malformed first one, is ignored (src/llm/parse.js);
         // the tool loop (features.coreTools, never a diary post) runs several (planCalls).
         if (parsed.extraCalls > 0 && !(loopOn && !diaryPrep)) log.info('skills: extra-call', { channel: channel.id, count: parsed.extraCalls });
@@ -6456,7 +6548,8 @@ export function createTurnRunner({
       }
       if (parsed.skip || nothingToDo) {
         stampShownCalls({ shown: serverShown, pulled, answered: new Set(), exceptId: ownCallId });
-        return { outcome: 'skip', mode: finalMode, reason: SKIP_SILENCE };
+        // An inner turn that ends with no action: nothing to do, journalled as such.
+        return { outcome: 'skip', mode: finalMode, reason: draft.inner ? SKIP_NOTHING_TO_DO : SKIP_SILENCE };
       }
 
       const idByIndex = request.idByIndex;
@@ -6542,7 +6635,7 @@ export function createTurnRunner({
       const envelopeOf = () => {
         const index = draft.callCount ?? 0;
         draft.callCount = index + 1;
-        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}` });
+        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner) });
       };
       const callPlan = parsed.call && !looping
         ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
@@ -6652,7 +6745,9 @@ export function createTurnRunner({
           ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, parsed, acted, set: Boolean(set) }) }
           : {};
       const callDelivered = loopDelivered || (called?.status === 'ok' && !called.followUp);
-      const spoke = { outcome: 'spoke', mode: finalMode, delivered: acted.delivered === true || followed?.delivered === true || callDelivered, ...recorded };
+      // An inner turn in shadow mode delivers nothing, whatever it proposed.
+      const delivered = (acted.delivered === true || followed?.delivered === true || callDelivered) && draft.inner?.shadow !== true;
+      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded };
       if (!acted.drawFailed) return spoke;
       // The same predicate as runTurn's hand-off: an unasked turn notifies right here.
       handOff = asked;
