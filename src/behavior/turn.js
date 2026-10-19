@@ -1969,6 +1969,10 @@ export function createTurnRunner({
     }
     if (inner) {
       (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}) });
+      // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
+      if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
+        (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
+      }
       if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
       // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
       if (innerGate?.proposed) {
@@ -1996,8 +2000,11 @@ export function createTurnRunner({
       }
     }
     const idText = (value) => (typeof value === 'string' && value ? value : null);
-    // A shadow inner turn leaves no mark on her transcript: nobody saw it.
-    if (!inner?.shadow) noteCall({
+    // A shadow inner turn leaves no lasting mark on her transcript (nobody saw it); its calls that
+    // did not work are marked for the rest of this turn only (`draft.turnMarks`), so she hears why
+    // and may correct the call within the loop.
+    const markCall = inner?.shadow ? (mark) => (draft.turnMarks ??= []).push(mark) : noteCall;
+    markCall({
       channelId: String(channel.id),
       at: clock(),
       skill,
@@ -2006,7 +2013,7 @@ export function createTurnRunner({
       // without a specific phrase, the operation's own message before the generic one: one line,
       // skills.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
       // never that message.
-      detail: outcomeDetail(result, { textChars: hot.config.skills?.markTextMaxChars ?? 200 }),
+      detail: outcomeDetail(result, { textChars: hot.config.skills?.markTextMaxChars ?? 200, argNames: (skills ?? defaultSkills()).get(skill)?.command?.options?.map((option) => option.name) ?? null }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
@@ -2083,7 +2090,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null }) {
     const { input, history, shownLines = [], pictures } = continuation;
     let fetched = [];
     try {
@@ -2095,7 +2102,7 @@ export function createTurnRunner({
     // and its own task label; the one follow-up after a call hands the call alone.
     const outcomes = results ?? [called];
     const skillNames = [...new Set(outcomes.map((outcome) => outcome.skill))].join(', ');
-    const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId });
+    const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
     const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}) } });
     const labels = input.prompts?.labels ?? {};
     const resultMaxChars = hot.config.skills?.resultMaxChars ?? 4500;
@@ -2138,7 +2145,7 @@ export function createTurnRunner({
     let routing = null;
     let completion;
     try {
-      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation }));
+      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null }));
       else {
         const labels = hot.prompts?.labels ?? {};
         const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500, posted: firstPass(acted, labels) });
@@ -2331,7 +2338,7 @@ export function createTurnRunner({
         // An inner turn continues under its own labels (no message started it, none of hers went out).
         const innerTurn = continuation.input?.mode === 'inner';
         const label = innerTurn ? (final ? 'continueInnerLast' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label }));
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const maxChars = hot.config.skills?.resultMaxChars ?? 4500;
@@ -2345,6 +2352,8 @@ export function createTurnRunner({
     }
     dumpTurnRequest(guildId, draft, messages, completion, step);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
+    // An inner turn keeps each step's think for its memory episode.
+    if (draft?.inner && parsed.think) (draft.innerThinks ??= []).push(parsed.think);
     const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
     if (parsed.callError) log.info('skills: bad-call', { channel: channel.id, reason: parsed.callError, loop: true });
     parsed.call = null;
@@ -2525,13 +2534,14 @@ export function createTurnRunner({
    * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
    * features.callMarkers off (a missing key counts as on, read now).
    */
-  function linkCalls(lines, { channel, guildId }) {
+  function linkCalls(lines, { channel, guildId, extra = null }) {
     if (hot.config.features?.callMarkers === false) return lines;
-    if (callMarks.length === 0 && postedFromLinks.size === 0) return lines;
+    const turnMarks = Array.isArray(extra) ? extra : [];
+    if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
     const privateId = channel.guild ? null : String(channel.id);
     return withCalls(
       lines,
-      { calls: callMarks, postedFrom: postedFromLinks },
+      { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
       {
         nameOf: liveChannelName(channel),
         linkOf: (channelId, messageId) => messageLink(channelId === privateId ? '@me' : guildId, channelId, messageId),
@@ -4989,8 +4999,9 @@ export function createTurnRunner({
    *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
    *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
    *   and a public post needs `postAllowed()` (then `onPosted()`). An answer with no action ends
-   *   `skip` with `reason: 'nothing-to-do'`. The result carries `inner: { actions, stray, turnId }`
-   *   (`shadow: true` in shadow mode).
+   *   `skip` with `reason: 'nothing-to-do'`. The result carries `inner: { actions, stray, turnId,
+   *   episode }` (`shadow: true` in shadow mode; `episode`: innerEpisodeOf's, for her memory). A
+   *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
    *   overheard line).
    * @param {TriggerKind} [params.triggerKind]
@@ -5319,8 +5330,46 @@ export function createTurnRunner({
       }
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
+  }
+
+  /**
+   * What an inner turn (`args.inner`) did and found, for her memory (src/memory/inner-episode.js,
+   * src/memory/update.js#observeInner): her thinks, what her reads found (`draft.innerFindings`:
+   * skill, arguments, result text), her other calls with how each went, where it happened and
+   * whether it was shadow. Null when no read of hers found anything, or for a private chat whose
+   * partner is unknown (a private finding never goes to the server's memory). No wording here.
+   */
+  function innerEpisodeOf(args, draft, turnId) {
+    const findings = Array.isArray(draft.innerFindings) ? draft.innerFindings : [];
+    const channel = args.channel;
+    if (!args.inner || findings.length === 0 || !channel) return null;
+    const privateChat = !channel.guild;
+    const privateUserId = privateChat ? (draft.privateUserId ?? channel.recipientId ?? null) : null;
+    if (privateChat && !privateUserId) return null;
+    const registry = skills ?? defaultSkills();
+    const guildId = args.guildId ?? channel.guild?.id ?? null;
+    let selfName = null;
+    try {
+      selfName = guildId ? getSelfName(guildId) : null;
+    } catch {
+      selfName = null;
+    }
+    return {
+      turnId: turnId ?? null,
+      at: clock(),
+      shadow: args.inner.shadow === true,
+      channelId: String(channel.id),
+      channelName: typeof channel.name === 'string' ? channel.name : null,
+      privateUserId: privateUserId ? String(privateUserId) : null,
+      selfId: client?.user?.id ?? null,
+      selfName,
+      thinks: Array.isArray(draft.innerThinks) ? [...draft.innerThinks] : [],
+      findings: findings.map((finding) => ({ ...finding })),
+      actions: (draft.innerActions ?? []).filter((action) => registry.get(action.skill)?.effects !== 'read').map((action) => ({ skill: action.skill, status: action.status })),
+    };
   }
 
   /** runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord). */
@@ -6498,6 +6547,8 @@ export function createTurnRunner({
         draft.think = parsed.think;
         draft.usage = journalUsage(completion);
       }
+      // An inner turn keeps its think for its memory episode (each step's too, loopStep).
+      if (draft.inner && parsed.think) draft.innerThinks = [parsed.think];
       const thinkField = journalOn() ? { thinkChars: Array.from(parsed.think ?? '').length } : { think: parsed.think };
 
       log.info('turn: model answered', {

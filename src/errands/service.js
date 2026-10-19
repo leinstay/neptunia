@@ -209,7 +209,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
       return [];
     }
     const lines = (Array.isArray(buffer) ? buffer : [])
-      .filter((message) => message && String(message.channelId ?? '') === String(channelId))
+      // Her inner-turn lines (src/memory/inner-episode.js) are no chat: never an errand's context.
+      .filter((message) => message && !message.inner && String(message.channelId ?? '') === String(channelId))
       .map((message) => ({ author: clampChars(oneLine(message.authorName ?? ''), RECENT_CHARS), text: clampChars(oneLine(message.content ?? ''), RECENT_CHARS) }))
       .filter((line) => line.text);
     return lines.slice(-count);

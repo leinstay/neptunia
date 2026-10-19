@@ -693,6 +693,10 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   // resolveCall's own reasons, as it gives them.
   const of = (refusal) => outcomeDetail({ status: refusalStatus(refusal.code), code: refusal.code, reason: refusal.reason });
   assert.deepEqual(of(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια')), { kind: 'unknown-arg', code: 'invalid-args', arg: 'who' });
+  // An argument the skill does not take, with the ones it does: the mark can name them.
+  const diaryCall = resolve('diary.post', { channel: '#νέα' }, 'δεν μπορώ να κοιμηθώ');
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: diaryCall.code, reason: diaryCall.reason }, { argNames: ['kind', 'topic'] }), { kind: 'unknown-arg', code: 'invalid-args', arg: 'channel', values: ['kind', 'topic'] });
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: 'invalid-args', reason: 'args.text:max-length' }, { argNames: ['text'] }), { kind: 'too-long', code: 'invalid-args', arg: 'text' }, 'only an unknown argument lists them');
   assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
   assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });

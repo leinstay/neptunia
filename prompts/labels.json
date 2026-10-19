@@ -374,7 +374,15 @@
   "memory": {
     "privateNote": "This batch is a private conversation with one person. Judge only this person — everything learned here is private and must not describe the server or other people. Output users for this person's id only; guild, channels, lore and self are empty.",
     "privateChannel": "private chat",
-    "redaction": "someone"
+    "redaction": "someone",
+    "inner": {
+      "think": "[on my own, nobody saw this] What I was thinking: {text}",
+      "done": "What I did: {skills}",
+      "notDone": "What I considered but did not do: {skills}",
+      "found": "[on my own, nobody saw this] I used {skill}{asked} and found: {text}",
+      "asked": " ({text})",
+      "sources": "Sources: {links}"
+    }
   },
   "limits": {
     "notice": "...but nobody came ({limit}, {used}/{cap})",
@@ -587,7 +595,8 @@
       }
     },
     "refusals": {
-      "agentRequired": "{arg} was not given; name one of: {agents}"
+      "agentRequired": "{arg} was not given; name one of: {agents}",
+      "unknownArg": "the skill takes no {arg}; it takes only: {args}"
     }
   },
   "peopleNow": {

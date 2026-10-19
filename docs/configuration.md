@@ -1029,6 +1029,12 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. A spent chain's wakes are dropped |
 | `caps.usdPerDay` | `4` | Dollars per local day for inner turns: their requests (voice and helpers) as reported, plus the errands they handed off when those end |
 | `caps.publicPostsPerDay` | `2` | Posts in server channels her inner turns may make per local day (live mode); one more is refused |
+| `memory.enabled` | `true` | What an inner turn's reads found, with her thinking, goes to the memory analyzer as lines of hers ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)); shadow turns too. `false`: no episode is buffered |
+| `memory.thinkChars` | `1200` | The end of her thinking kept in an episode (characters) |
+| `memory.resultChars` | `1500` | Each read's result is cut to this many characters in an episode |
+| `memory.maxFindings` | `5` | At most this many reads per episode, in the order she made them |
+| `memory.maxSources` | `10` | At most this many links of one read listed as its sources |
+| `memory.skills` | `["web.search", "web.read", "memory.search", "task.status", "task.list"]` | The read skills whose results make an episode; a turn whose reads are all of other skills buffers nothing |
 
 ## `appendStore`
 

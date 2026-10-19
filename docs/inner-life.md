@@ -34,6 +34,19 @@ What she writes outside a call reaches nobody (counted in the journal as `stray`
 
 **Live mode** (`"live"`): her calls run through the gateway. Right before each action the kill switch is asked again; a public post past `innerLife.caps.publicPostsPerDay` is refused (`inner-post-cap`).
 
+A call that does not work (refused by the resolution or the gateway, in either mode) comes back to her in the next step of the loop with the reason on its mark, as on any turn; an argument the skill does not take names the ones it does (`labels.skills.refusals.unknownArg`), so she can correct the call within the turn. In shadow mode that mark lives only for the rest of the turn: nothing of a shadow turn is marked on her transcript for later turns.
+
+## What she found goes to her memory
+
+Memory is built from chat batches by the memory analyzer ([Messages and memory](messages-and-memory.md#analyzer)); what she reads on her own in an inner turn joins that same path, with no request or model role of its own. When an inner turn ends and at least one of her reads returned something, the turn hands an episode to the analyzer's buffer: lines of hers, in the first person, worded only by `labels.memory.inner`:
+
+- one line with the end of her thinking (her `<think>` of every step, the last `innerLife.memory.thinkChars` characters), the calls she made that ran (`done`) and the ones that were only proposed or were refused (`notDone`);
+- one line per read whose skill is in `innerLife.memory.skills` (by default `web.search`, `web.read`, `memory.search`, and `task.status` / `task.list`, which carry her errands' results), at most `innerLife.memory.maxFindings`: the skill, what she asked (the query, the url, the question), what it returned cut to `innerLife.memory.resultChars`, and the links in it (`innerLife.memory.maxSources`) as its sources.
+
+Each line is marked with its provenance `inner` (the turn id, whether the turn was shadow, its sources): her own experience, not something a person said. Where it belongs decides where it goes: an inner turn in a server channel buffers it with that server's lines; one in a private chat (a private intention's conversation) buffers it in that member's private buffer only, so it lands in that member's private layer and never in the server's memory; a private chat whose member is unknown buffers nothing. The next analyzer batch reads the lines like any line of hers (self facts, lore, recent notes, and with `features.intentions` an intention candidate she must still accept). The record keeps chat only, so the lines never reach it; nor do they count as anyone being addressed, nor reach an errand's context.
+
+**Shadow turns count.** A shadow turn's reads really ran, so what they found is a fact of her day and enters her memory the same way, marked `shadow` on the buffered lines (the analyzer's journal record names them by their `inner:<turnId>:<n>` ids). What a shadow turn only proposed is no fact: it is listed as not done, never as done. `innerLife.memory.enabled: false` turns the episodes off; the memory pause (`/nep pause`) buffers none. The log line `memory: inner episode buffered` carries counts only.
+
 ## Bounds
 
 Code enforces them; she reads what is left as facts in `<wake>`. Defaults (a ceiling, the owner's word):
@@ -84,4 +97,4 @@ Each run reports every wake, every inner turn (its wakes coalesced, outcome, act
 
 ## Not yet
 
-The spontaneous timers and the diary planner run beside it; they are retired later, each after a shadow comparison. Inner-turn findings do not yet reach the memory analyzer (memory is built from chat).
+The spontaneous timers and the diary planner run beside it; they are retired later, each after a shadow comparison.

@@ -59,6 +59,7 @@ import { videoStateFromCache } from './describe.js';
 import { isVideoVisionOn } from './youtube-check.js';
 import { block, fillPromptTemplate, hasRequiredLabels, renderProfile } from '../behavior/prompt.js';
 import { intentionSettings } from '../intentions/model.js';
+import { innerEpisodeLines, innerMemorySettings } from './inner-episode.js';
 import { effectiveAffinity } from '../behavior/private.js';
 import {
   applyVoiceItems,
@@ -3114,7 +3115,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    */
   function recordAddressingSafely(guildId, consumed) {
     try {
-      return recordAddressing(store, guildId, consumed, hot.config.memory ?? {});
+      // Her inner-turn lines (src/memory/inner-episode.js) are no chat: no name in them is an address.
+      return recordAddressing(store, guildId, consumed.filter((message) => !message?.inner), hot.config.memory ?? {});
     } catch (err) {
       log.warn('memory: address count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
       return 0;
@@ -3249,6 +3251,35 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     } else {
       const dropped = store.pushBuffer(guildId, slim, cfg.batchMessages * 3);
       if (dropped > 0) log.info('memory: buffer trimmed', { guildId, dropped });
+    }
+  }
+
+  /**
+   * What the persona did and found on her own in an inner turn (`episode`:
+   * src/behavior/turn.js#innerEpisodeOf, handed over by src/behavior/inner.js), as lines of hers in
+   * the memory buffer (src/memory/inner-episode.js#innerEpisodeLines, `innerLife.memory` and
+   * `labels.memory.inner` read now): the next analyzer batch builds memory from them like from
+   * any line of hers. A private chat's episode goes to that member's private buffer only, never
+   * the server's. Nothing while paused, with `innerLife.memory.enabled` false or nothing found.
+   * Logs counts only. Never throws.
+   * @returns {number}  The lines buffered.
+   */
+  function observeInner(guildId, episode) {
+    try {
+      if (store.state.data.paused || !guildId || !episode) return 0;
+      const lines = innerEpisodeLines(episode, { labels: hot.prompts?.labels ?? {}, settings: innerMemorySettings(hot.config), maxChars: hot.config.context?.maxMessageChars ?? 0 });
+      if (lines.length === 0) return 0;
+      const batch = hot.config.memory?.batchMessages;
+      const cap = Number.isFinite(batch) && batch > 0 ? batch * 3 : Infinity;
+      const privateUserId = episode.privateUserId ? String(episode.privateUserId) : null;
+      let dropped = 0;
+      for (const line of lines) dropped += privateUserId ? store.pushPrivateBuffer(guildId, privateUserId, line, cap) : store.pushBuffer(guildId, line, cap);
+      const sources = lines.reduce((sum, line) => sum + (line.inner?.sources?.length ?? 0), 0);
+      log.info('memory: inner episode buffered', { guildId, lines: lines.length, sources, shadow: episode.shadow === true, ...(privateUserId ? { private: true } : {}), ...(dropped > 0 ? { dropped } : {}) });
+      return lines.length;
+    } catch (err) {
+      log.warn('memory: inner episode left out', { guildId, error: errorNameOf(err) });
+      return 0;
     }
   }
 
@@ -3782,6 +3813,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * @returns {Promise<boolean>}
    */
   async function recordBatch(guildId, messages, buffer, privateUserId = null) {
+    // The record keeps the chat: her inner-turn lines (src/memory/inner-episode.js) were never said.
+    messages = messages.filter((message) => !message?.inner);
     if (!record || hot.config.features?.record !== true || messages.length === 0) return true;
     const authors = new Map();
     for (const message of buffer) if (message?.id != null) authors.set(String(message.id), message.authorId ?? null);
@@ -4429,5 +4462,5 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     return running.size === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve));
   }
 
-  return { observe, tick, run, runPrivate, runVoice, analyze, analyzePrivate, waitIdle };
+  return { observe, observeInner, tick, run, runPrivate, runVoice, analyze, analyzePrivate, waitIdle };
 }
