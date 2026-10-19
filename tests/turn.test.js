@@ -1687,7 +1687,7 @@ function rewatchHot(features = {}, video = {}, config = {}) {
     { mediaDescriptions: true, videoDescriptions: true, vision: false, ...features },
     {},
     {
-      models: { base: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
+      models: { helpers: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
       media: {
         maxPerTurn: 6,
         filePreviewChars: 500,
@@ -1750,11 +1750,11 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
 });
 
-test('createTurnRunner: rewatch -- the classifier model is models.base.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+test('createTurnRunner: rewatch -- the classifier model is models.helpers.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
+  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { helpers: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withText.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { helpers: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withOld.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'its own default: never the vision model or a deprecated key');
   const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: {} });
@@ -2353,7 +2353,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, vision: false, ...features },
     {},
     {
-      models: { base: { analyzer: 'x/text', extractor: 'x/extract' } },
+      models: { helpers: { analyzer: 'x/text', extractor: 'x/extract' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -3852,7 +3852,7 @@ test('createTurnRunner: only a custom reaction the index does not know means out
 // Provider routing: every request says which role makes it (llm.providerByModel
 // keys of the form "<prefix>@<role>").
 
-test('createTurnRunner: the persona turn is requested as role voice, purpose reply', async () => {
+test('createTurnRunner: the persona turn is requested as role core, purpose reply', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<skip/>');
@@ -3862,7 +3862,7 @@ test('createTurnRunner: the persona turn is requested as role voice, purpose rep
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
-  assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: models.base.voice and every other setting stay the defaults');
+  assert.deepEqual(llm.optionCalls[0], { role: 'core', purpose: 'reply' }, 'only the role and the purpose: models.core and every other setting stay the defaults');
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
 });
 
@@ -3878,16 +3878,16 @@ test('createTurnRunner: the text-only retry after a 4xx image error is requested
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher() });
   await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
   assert.equal(llm.optionCalls.length, 2);
-  assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['voice', 'reply'], ['voice', 'reply']]);
+  assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['core', 'reply'], ['core', 'reply']]);
 });
 
-test('createTurnRunner: the rewatch classifier and the lookup are requested as analyzer, the turn as voice', async () => {
+test('createTurnRunner: the rewatch classifier and the lookup are requested as analyzer, the turn as core', async () => {
   const rewatch = await runRewatch();
   assert.equal(rewatch.llm.classifierCalls[0].options.role, 'analyzer');
-  assert.equal(rewatch.llm.turnCalls[0].options.role, 'voice');
+  assert.equal(rewatch.llm.turnCalls[0].options.role, 'core');
   const lookup = await runLookupTurn();
   assert.equal(lookup.llm.classifierCalls[0].options.role, 'analyzer');
-  assert.equal(lookup.llm.turnCalls[0].options.role, 'voice');
+  assert.equal(lookup.llm.turnCalls[0].options.role, 'core');
 });
 
 /** A store with one link GIF `g1` in the library (no other GIF state). */
@@ -6825,7 +6825,7 @@ test('runTurn: an answer in hand just before pace.dropAfterMs is posted, the rep
   assert.equal(scene.channel.sent.length, 1);
   assert.equal(logs.some((l) => l.msg === 'turn: dropped'), false);
   const [options] = llm.optionCalls;
-  assert.equal(options.role, 'voice');
+  assert.equal(options.role, 'core');
   assert.equal(options.purpose, 'reply');
   assert.equal(options.timeoutMs, BAR_MS, 'the smaller of llm.timeoutMs and the time left');
   assert.equal(options.signal.aborted, false);
@@ -6936,7 +6936,7 @@ test('runTurn: an initiate turn with pace.unpromptedWaits on has no bar, so its 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'initiate' }));
 
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(llm.optionCalls, [{ role: 'voice', purpose: 'reply' }]);
+  assert.deepEqual(llm.optionCalls, [{ role: 'core', purpose: 'reply' }]);
 });
 
 test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, the request as before', async () => {
@@ -6951,7 +6951,7 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(scene.channel.sent.length, 1);
-  assert.deepEqual(llm.optionCalls, [{ role: 'voice', purpose: 'reply' }]);
+  assert.deepEqual(llm.optionCalls, [{ role: 'core', purpose: 'reply' }]);
   assert.equal(logs.some((l) => l.msg === 'turn: dropped'), false);
   assert.ok(scene.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs), 'only the preparation deadline');
 });
@@ -7424,7 +7424,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
     {},
     {
       gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { helpers: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     },
   );
@@ -8489,7 +8489,7 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     {
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
       participation: { shown: 1 },
-      models: { base: { vision: 'x/haiku', analyzer: 'x/reason' } },
+      models: { helpers: { vision: 'x/haiku', analyzer: 'x/reason' } },
     },
   );
   Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });

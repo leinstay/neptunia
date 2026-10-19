@@ -139,9 +139,9 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
   const agents = ['web', 'server', 'thinker', 'dev', 'writer'];
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, ...agents, 'drawing'], 'the chat and embedding roles (models.base), then the agents\' roles (models.agents), drawing last');
+  assert.deepEqual(values(setRole), [...MODEL_ROLES, ...agents, 'drawing'], 'the core and the helper roles (models.core, models.helpers), then the agents\' roles (models.agents), drawing last');
   assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, ...agents, 'drawing']);
-  assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
+  assert.ok(MODEL_ROLES.includes('core') && !MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
   assert.ok(MODEL_ROLES.includes('analyzer') && MODEL_ROLES.includes('embedding') && !MODEL_ROLES.includes('reasoner'), 'the helper and the embedding roles are set and routed like the others; the reasoner is merged into the analyzer');
   assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
   const route = findOption(command.options, 'route');
@@ -1288,7 +1288,7 @@ test('autocomplete: the route model option offers the route prefixes and the mod
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
-      models: { base: { voice: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x' }, agents: { drawing: 'openai/gpt-image-x' } },
+      models: { core: 'anthropic/claude-opus-4.6', helpers: { analyzer: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x' }, agents: { drawing: 'openai/gpt-image-x' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
@@ -1316,7 +1316,7 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: {} },
-      models: { base: { voice: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash' } },
+      models: { core: 'anthropic/claude-opus-4.6', helpers: { vision: 'google/gemini-3.8-flash' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });

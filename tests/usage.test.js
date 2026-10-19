@@ -124,11 +124,11 @@ test('keyCostsLines: a failed read of the key says why', () => {
 
 test('roleCostsLines: one line per role in the given order, no header and no total; the empty day says so', () => {
   const rows = [
-    { role: 'voice', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 },
+    { role: 'core', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 },
     { role: 'analyzer', requests: 12, promptTokens: 51_200, cachedTokens: 0, completionTokens: 812, cost: 0.2 },
   ];
   assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
-    'voice 38 in 974k c 342k out 9.3k = 4.03',
+    'core 38 in 974k c 342k out 9.3k = 4.03',
     'analyzer 12 in 51k c 0 out 812 = 0.20',
   ]);
   assert.deepEqual(roleCostsLines({ rows: [], labels: LABELS }), ['by role: nothing']);
@@ -195,13 +195,13 @@ test('usage: requests add up per role, the cost is the upstream cost when there 
   const usage = createUsage({ dataDir: tmpDir(), now: clock() });
   const tap = usageTap(usage);
   tap({ msg: 'llm: usage', role: 'analyzer', promptTokens: 1000, cachedTokens: null, completionTokens: 50, cost: 0.01, upstreamCost: null });
-  tap({ msg: 'llm: usage', role: 'voice', promptTokens: 20000, cachedTokens: 8000, completionTokens: 300, cost: 0.002, upstreamCost: 0.5, byok: true });
-  tap({ msg: 'llm: usage', role: 'voice', promptTokens: 10000, cachedTokens: 2000, completionTokens: 100, cost: 0.3 });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 20000, cachedTokens: 8000, completionTokens: 300, cost: 0.002, upstreamCost: 0.5, byok: true });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 10000, cachedTokens: 2000, completionTokens: 100, cost: 0.3 });
   tap({ msg: 'llm: usage', role: null, promptTokens: 5 });
-  tap({ msg: 'turn: sent', role: 'voice', promptTokens: 999 });
+  tap({ msg: 'turn: sent', role: 'core', promptTokens: 999 });
   tap(null);
   assert.deepEqual(usage.byRole(), [
-    { role: 'voice', requests: 2, promptTokens: 30000, cachedTokens: 10000, completionTokens: 400, cost: 0.8 },
+    { role: 'core', requests: 2, promptTokens: 30000, cachedTokens: 10000, completionTokens: 400, cost: 0.8 },
     { role: 'analyzer', requests: 1, promptTokens: 1000, cachedTokens: 0, completionTokens: 50, cost: 0.01 },
     { role: 'other', requests: 1, promptTokens: 5, cachedTokens: 0, completionTokens: 0, cost: 0 },
   ]);
@@ -212,21 +212,21 @@ test('usage: a generated picture counts under drawing with its cost and no token
   const tap = usageTap(usage);
   tap({ msg: 'images: generated', model: 'x/img', family: 'openai', seconds: 12.5, cost: 0.04, bytes: 1000, reference: true });
   tap({ msg: 'images: generated', model: 'x/img', cost: null, bytes: 900 });
-  tap({ msg: 'llm: usage', role: 'voice', promptTokens: 100, completionTokens: 5, cost: 0.01 });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 100, completionTokens: 5, cost: 0.01 });
   assert.deepEqual(usage.byRole(), [
     { role: 'drawing', requests: 2, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.04 },
-    { role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+    { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
   ]);
 });
 
 test('roleCostsLines: a role with no tokens shows them as -', () => {
   const rows = [
     { role: 'drawing', requests: 3, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.12 },
-    { role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+    { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
   ];
   assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
     'drawing 3 in - c - out - = 0.12',
-    'voice 1 in 100 c 0 out 5 = 0.01',
+    'core 1 in 100 c 0 out 5 = 0.01',
   ]);
 });
 
@@ -240,21 +240,21 @@ test('usage: the UTC day rolls over at midnight; the last 31 days are kept and d
   const dataDir = tmpDir();
   const now = clock(Date.parse('2026-10-14T23:00:00.000Z'));
   const usage = createUsage({ dataDir, now });
-  usage.record({ role: 'voice', promptTokens: 10, cost: 1 });
+  usage.record({ role: 'core', promptTokens: 10, cost: 1 });
   now.advance(2 * HOUR);
   assert.deepEqual(usage.byRole(), [], 'a new day starts empty');
-  usage.record({ role: 'voice', promptTokens: 20, cost: 2 });
+  usage.record({ role: 'core', promptTokens: 20, cost: 2 });
   assert.equal(usage.byRole()[0].promptTokens, 20);
   await usage.save({ force: true });
   const daysOnDisk = () => Object.keys(JSON.parse(fs.readFileSync(path.join(dataDir, USAGE_FILE), 'utf8')).days).sort();
   assert.deepEqual(daysOnDisk(), ['2026-10-14', '2026-10-15']);
   assert.equal(KEEP_DAYS, 31);
   now.advance(29 * 24 * HOUR); // 2026-11-13: 2026-10-14 is day 31 counting today
-  usage.record({ role: 'voice', cost: 3 });
+  usage.record({ role: 'core', cost: 3 });
   await usage.save({ force: true });
   assert.deepEqual(daysOnDisk(), ['2026-10-14', '2026-10-15', '2026-11-13']);
   now.advance(24 * HOUR); // 2026-11-14: 2026-10-14 is day 32
-  usage.record({ role: 'voice', cost: 4 });
+  usage.record({ role: 'core', cost: 4 });
   await usage.save({ force: true });
   assert.deepEqual(daysOnDisk(), ['2026-10-15', '2026-11-13', '2026-11-14']);
 });
@@ -262,7 +262,7 @@ test('usage: the UTC day rolls over at midnight; the last 31 days are kept and d
 test('usage: a file of the older two-day format loads; days beyond the window or after today are dropped', () => {
   const dataDir = tmpDir();
   const row = { requests: 1, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 1 };
-  const days = { '2026-10-14': { voice: row }, '2026-10-15': { voice: row }, '2026-09-01': { voice: row }, '2026-10-16': { voice: row }, junk: { voice: row } };
+  const days = { '2026-10-14': { core: row }, '2026-10-15': { core: row }, '2026-09-01': { core: row }, '2026-10-16': { core: row }, junk: { core: row } };
   fs.writeFileSync(path.join(dataDir, USAGE_FILE), JSON.stringify({ v: 1, days }));
   const usage = createUsage({ dataDir, now: clock() });
   const sum = usage.sumDays(30);
@@ -273,16 +273,16 @@ test('usage: a file of the older two-day format loads; days beyond the window or
 test('usage: sumDays sums the last N days per role, filtered by only or except, with the first day covered', () => {
   const now = clock(Date.parse('2026-10-01T12:00:00.000Z'));
   const usage = createUsage({ dataDir: tmpDir(), now });
-  usage.record({ role: 'voice', cost: 1, promptTokens: 10 }); // 2026-10-01, outside the 7 days of 10-15
+  usage.record({ role: 'core', cost: 1, promptTokens: 10 }); // 2026-10-01, outside the 7 days of 10-15
   now.advance(10 * 24 * HOUR); // 2026-10-11
-  usage.record({ role: 'voice', cost: 2 });
+  usage.record({ role: 'core', cost: 2 });
   usage.record({ role: 'analyzer', cost: 0.5 });
   now.advance(4 * 24 * HOUR); // 2026-10-15
   usage.record({ role: 'vision', cost: 0.25 });
-  usage.record({ role: 'voice', cost: 0.75 });
+  usage.record({ role: 'core', cost: 0.75 });
 
   const week = usage.sumDays(7);
-  assert.deepEqual(week.rows.map((row) => [row.role, row.requests, row.cost]), [['voice', 2, 2.75], ['analyzer', 1, 0.5], ['vision', 1, 0.25]]);
+  assert.deepEqual(week.rows.map((row) => [row.role, row.requests, row.cost]), [['core', 2, 2.75], ['analyzer', 1, 0.5], ['vision', 1, 0.25]]);
   assert.equal(week.total.cost, 3.5);
   assert.equal(week.total.requests, 4);
   assert.deepEqual([week.since, week.partial], ['2026-10-09', false], 'the accumulator reaches back further: the whole window');
@@ -292,8 +292,8 @@ test('usage: sumDays sums the last N days per role, filtered by only or except, 
   assert.equal(month.total.promptTokens, 10);
   assert.deepEqual([month.since, month.partial], ['2026-10-01', true], 'fewer days than the window: since the first recorded day');
 
-  assert.equal(usage.sumDays(30, { only: ['voice'] }).total.cost, 3.75);
-  assert.deepEqual(usage.sumDays(7, { except: ['voice', 'vision'] }).rows.map((row) => row.role), ['analyzer']);
+  assert.equal(usage.sumDays(30, { only: ['core'] }).total.cost, 3.75);
+  assert.deepEqual(usage.sumDays(7, { except: ['core', 'vision'] }).rows.map((row) => row.role), ['analyzer']);
   assert.deepEqual(usage.sumDays(7, { only: [] }).rows, [], 'a key with no role sums nothing');
 });
 
@@ -307,13 +307,13 @@ test('usage: the day survives a restart through the file; a broken file starts e
   const dataDir = tmpDir();
   const now = clock();
   const first = createUsage({ dataDir, now });
-  first.record({ role: 'voice', promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 });
+  first.record({ role: 'core', promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 });
   assert.equal(await first.save(), true);
   assert.equal(await first.save(), false, 'nothing new, no write');
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, USAGE_FILE), 'utf8'));
-  assert.deepEqual(saved, { v: 1, days: { '2026-10-15': { voice: { requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 } } } });
+  assert.deepEqual(saved, { v: 1, days: { '2026-10-15': { core: { requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 } } } });
   const second = createUsage({ dataDir, now });
-  assert.deepEqual(second.byRole(), [{ role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 }]);
+  assert.deepEqual(second.byRole(), [{ role: 'core', requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 }]);
 
   fs.writeFileSync(path.join(dataDir, USAGE_FILE), '{not json');
   const warnings = [];
@@ -325,9 +325,9 @@ test('usage: the day survives a restart through the file; a broken file starts e
 test('usage: a save within a minute of the last waits unless forced', async () => {
   const now = clock();
   const usage = createUsage({ dataDir: tmpDir(), now });
-  usage.record({ role: 'voice', cost: 1 });
+  usage.record({ role: 'core', cost: 1 });
   assert.equal(await usage.save(), true);
-  usage.record({ role: 'voice', cost: 1 });
+  usage.record({ role: 'core', cost: 1 });
   assert.equal(await usage.save(), false);
   assert.equal(await usage.save({ force: true }), true);
 });
@@ -385,7 +385,7 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
     labels,
     windows: { last7: window(5), last30: window(6) },
     roleKeys: [
-      { roles: ['video', 'voice'], key: ok({ limit: 200, limit_remaining: 10, usage_daily: 2 }), windows: { last7: window(7), last30: window(8) } },
+      { roles: ['video', 'core'], key: ok({ limit: 200, limit_remaining: 10, usage_daily: 2 }), windows: { last7: window(7), last30: window(8) } },
       { roles: ['vision'], key: { ok: false, reason: 'http', status: 401 }, windows: { last7: window(0.5), last30: window(0.5) } },
     ],
   });
@@ -393,14 +393,14 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
     'main 10.00/30.00',
     'usage D 1.00 | L7 5.00 | L30 6.00',
     'sim: not set',
-    'video+voice key 190.00/200.00',
+    'video+core key 190.00/200.00',
     'usage D 2.00 | L7 7.00 | L30 8.00',
     'vision key unavailable: http 401',
     'usage L7 0.50 | L30 0.50',
   ]);
   const noLead = { status: { costs: { ...labels.status.costs, roleKeyLead: undefined } } };
-  const without = keyCostsLines({ key: ok({}), labels: noLead, roleKeys: [{ roles: ['voice'], key: ok({}) }] });
-  assert.equal(without.some((text) => text.includes('voice')), false, 'no lead label, no role key line');
+  const without = keyCostsLines({ key: ok({}), labels: noLead, roleKeys: [{ roles: ['core'], key: ok({}) }] });
+  assert.equal(without.some((text) => text.includes('core')), false, 'no lead label, no role key line');
 });
 
 test('keyCostsLines: roleNames names the roles of an extra key, each name once, so the agents key is one word', () => {
@@ -410,10 +410,10 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
     labels,
     roleKeys: [
       { roles: ['dev', 'server', 'web'], key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }), windows: { last7: window(0), last30: window(0) } },
-      { roles: ['web', 'voice'], key: ok({ limit: 5, limit_remaining: 5 }) },
+      { roles: ['web', 'core'], key: ok({ limit: 5, limit_remaining: 5 }) },
     ],
   });
-  assert.deepEqual(lines.slice(3), ['agents key 1.00/10.00', 'usage D 0.50 | L7 0.00 | L30 0.00', 'agents+voice key 0.00/5.00']);
+  assert.deepEqual(lines.slice(3), ['agents key 1.00/10.00', 'usage D 0.50 | L7 0.00 | L30 0.00', 'agents+core key 0.00/5.00']);
   const shipped = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'prompts', 'labels.json'), 'utf8')).status.costs;
   const five = keyCostsLines({
     key: ok({}),
@@ -433,12 +433,12 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
 test('roleCostsLines: the role lines carry the average cost per request, left out with no request or no label', () => {
   const labels = { status: { costs: { ...LABELS.status.costs, role: '{role} {requests} = {cost}{avg}', avg: ' avg {usd}' } } };
   const rows = [
-    { role: 'voice', requests: 4, promptTokens: 150_000, cachedTokens: 57_000, completionTokens: 635, cost: 0.61 },
+    { role: 'core', requests: 4, promptTokens: 150_000, cachedTokens: 57_000, completionTokens: 635, cost: 0.61 },
     { role: 'idle', requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0 },
   ];
-  assert.deepEqual(roleCostsLines({ rows, labels }), ['voice 4 = 0.61 avg 0.153', 'idle 0 = 0.00']);
+  assert.deepEqual(roleCostsLines({ rows, labels }), ['core 4 = 0.61 avg 0.153', 'idle 0 = 0.00']);
   const noAvg = { status: { costs: { ...labels.status.costs, avg: undefined } } };
-  assert.equal(roleCostsLines({ rows, labels: noAvg })[0], 'voice 4 = 0.61');
+  assert.equal(roleCostsLines({ rows, labels: noAvg })[0], 'core 4 = 0.61');
 });
 
 // ---- the management key's activity ---------------------------------------------------------
@@ -476,7 +476,7 @@ test('keyCostsLines: with the activity of a key its usage line is today, then to
     simActivity: { last7: 0.25, last30: 0.75 },
     labels,
     roleKeys: [
-      { roles: ['voice'], key: ok({ limit: 200, limit_remaining: 100, usage_daily: 3 }), activity: { last7: 1, last30: 2 }, windows: { last7: window(99), last30: window(99) } },
+      { roles: ['core'], key: ok({ limit: 200, limit_remaining: 100, usage_daily: 3 }), activity: { last7: 1, last30: 2 }, windows: { last7: window(99), last30: window(99) } },
       { roles: ['vision'], key: ok({ limit: 10, limit_remaining: 10, usage_daily: 0 }), activity: null, windows: { last7: window(4), last30: window(6) } },
     ],
   });
@@ -485,7 +485,7 @@ test('keyCostsLines: with the activity of a key its usage line is today, then to
     'usage D 1.00 | L7 3.00 | L30 6.00',
     'sim 0.00/5.00',
     'usage D 0.50 | L7 0.75 | L30 1.25',
-    'voice key 100.00/200.00',
+    'core key 100.00/200.00',
     'usage D 3.00 | L7 4.00 | L30 5.00',
     'vision key 0.00/10.00',
     'usage D 0.00 | L7 4.00 | L30 6.00',
@@ -499,8 +499,8 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   const state = { data: {}, markDirty() {} };
   const llm = createLlm({
     apiKey: 'k-test',
-    env: { OPENROUTER_VOICE_KEY: 'k-voice' },
-    getConfig: () => ({ llm: { baseUrl: 'https://openrouter.ai/api/v1', timeoutMs: 5000, maxRequestsPerDay: 1, keyByRole: { voice: 'OPENROUTER_VOICE_KEY' } } }),
+    env: { OPENROUTER_VOICE_KEY: 'k-core' },
+    getConfig: () => ({ llm: { baseUrl: 'https://openrouter.ai/api/v1', timeoutMs: 5000, maxRequestsPerDay: 1, keyByRole: { core: 'OPENROUTER_VOICE_KEY' } } }),
     calibrator: { observe() {} },
     state,
     fetchImpl: async (url, init) => {
@@ -511,10 +511,10 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
   assert.equal(keyHashOf('k-test'), sha('k-test'));
   assert.equal(llm.keyHash(), sha('k-test'));
-  assert.equal(llm.keyHash({ role: 'voice' }), sha('k-voice'));
-  assert.deepEqual(await llm.activity({ apiKey: 'mgmt-test', keyHash: sha('k-voice'), timeoutMs: 1234 }), { ok: true, status: 200, json: { data: [] } });
+  assert.equal(llm.keyHash({ role: 'core' }), sha('k-core'));
+  assert.deepEqual(await llm.activity({ apiKey: 'mgmt-test', keyHash: sha('k-core'), timeoutMs: 1234 }), { ok: true, status: 200, json: { data: [] } });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, `https://openrouter.ai/api/v1/activity?api_key_hash=${sha('k-voice')}`);
+  assert.equal(calls[0].url, `https://openrouter.ai/api/v1/activity?api_key_hash=${sha('k-core')}`);
   assert.equal(calls[0].init.method, 'GET');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer mgmt-test');
   assert.deepEqual(state.data, {}, 'nothing counted');

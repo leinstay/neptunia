@@ -1,7 +1,7 @@
-// Tests for src/llm/roles.js (the model roles: `models.base` for the core's own requests,
-// `models.agents` for the OpenCode workers and the drawing model; one resolver, no cross-role
-// fallback) and src/config.js#adaptLegacyModelKeys (a config.local.json written under the old
-// model keys),
+// Tests for src/llm/roles.js (the model roles: `models.core` for the persona's own model,
+// `models.helpers` for the helper roles, `models.agents` for the OpenCode workers and the drawing
+// model; one resolver, no cross-role fallback) and src/config.js#adaptLegacyModelKeys (a
+// config.local.json written under the old model keys, `models.base` and the role `voice` included),
 // plus the rename check: every purpose resolves, under config.json and under a deployment that
 // still uses the old keys, to what the code before the rename produced.
 import { test } from 'node:test';
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AGENT_ROLES, BASE_ROLES, OPENCODE_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleConfigKeys, roleModel, roleSection } from '../src/llm/roles.js';
+import { AGENT_ROLES, CORE_ROLE, CORE_ROLES, HELPER_ROLES, OPENCODE_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleConfigKeys, roleModel, roleSection } from '../src/llm/roles.js';
 import { ConfigShapeError, adaptLegacyModelKeys, assertModelsShape, loadConfig, migrateModelsKeys } from '../src/config.js';
 import { MEMORY_VOICE_REQUEST, REPLY_REQUEST, cacheTtlFor, hedgeSettings, resolveProvider } from '../src/llm/openrouter.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -35,8 +35,8 @@ function loadWith(local, base) {
 
 // ---- roleModel ---------------------------------------------------------------
 
-test('roleModel: models.base.byPurpose for the purpose, else the role\'s own key, else the role default', () => {
-  const config = { models: { base: { analyzer: 'x/analyzer', byPurpose: { split: 'x/split' } } } };
+test('roleModel: models.byPurpose for the purpose, else the role\'s own key, else the role default', () => {
+  const config = { models: { helpers: { analyzer: 'x/analyzer' }, byPurpose: { split: 'x/split' } } };
   assert.equal(roleModel(config, 'analyzer', 'split'), 'x/split');
   assert.equal(roleModel(config, 'analyzer', 'address'), 'x/analyzer');
   assert.equal(roleModel(config, 'analyzer'), 'x/analyzer');
@@ -47,36 +47,37 @@ test('roleModel: models.base.byPurpose for the purpose, else the role\'s own key
 test('roles: the former reasoner purposes go out on the analyzer, each still pinnable by itself', () => {
   for (const purpose of ['lookup', 'planner', 'recall-summary', 'search-summary', 'read-link', 'diary-plan', 'web-search']) {
     assert.equal(PURPOSE_ROLES[purpose], 'analyzer', purpose);
-    assert.equal(roleModel({ models: { base: { analyzer: 'x/a', byPurpose: { [purpose]: 'x/pinned' } } } }, 'analyzer', purpose), 'x/pinned', purpose);
+    assert.equal(roleModel({ models: { helpers: { analyzer: 'x/a' }, byPurpose: { [purpose]: 'x/pinned' } } }, 'analyzer', purpose), 'x/pinned', purpose);
   }
   assert.equal(isRole('reasoner'), false);
   assert.equal(Object.hasOwn(ROLE_DEFAULTS, 'reasoner'), false);
 });
 
 test('roleModel: a byPurpose entry applies whatever the role, an empty or non-string one does not', () => {
-  const config = { models: { base: { voice: 'x/voice', byPurpose: { reply: 'x/reply', describe: '', relook: 7 } } } };
-  assert.equal(roleModel(config, 'voice', 'reply'), 'x/reply');
+  const config = { models: { core: 'x/core', byPurpose: { reply: 'x/reply', describe: '', relook: 7 } } };
+  assert.equal(roleModel(config, 'core', 'reply'), 'x/reply');
   assert.equal(roleModel(config, 'vision', 'describe'), ROLE_DEFAULTS.vision);
   assert.equal(roleModel(config, 'vision', 'relook'), ROLE_DEFAULTS.vision);
-  assert.equal(roleModel({ models: { base: { byPurpose: Object.create({ split: 'x/inherited' }) } } }, 'analyzer', 'split'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { byPurpose: Object.create({ split: 'x/inherited' }) } }, 'analyzer', 'split'), ROLE_DEFAULTS.analyzer);
 });
 
 test('roleModel: a byPurpose that is not a plain object, or an entry that is not a non-empty string, leaves the role model', () => {
   const base = { analyzer: 'x/analyzer' };
   for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
-    assert.equal(roleModel({ models: { base: { ...base, byPurpose } } }, 'analyzer', 'lookup'), 'x/analyzer', JSON.stringify(byPurpose));
+    assert.equal(roleModel({ models: { helpers: base, byPurpose } }, 'analyzer', 'lookup'), 'x/analyzer', JSON.stringify(byPurpose));
   }
-  assert.equal(roleModel({ models: { base: { byPurpose: { toString: 'x/proto' } } } }, 'analyzer', 'constructor'), ROLE_DEFAULTS.analyzer, 'own keys only');
+  assert.equal(roleModel({ models: { byPurpose: { toString: 'x/proto' } } }, 'analyzer', 'constructor'), ROLE_DEFAULTS.analyzer, 'own keys only');
 });
 
 test('roleModel: an unset role takes its own default, never another role\'s model', () => {
-  const config = { models: { base: { analyzer: 'x/analyzer', vision: 'x/vision', voice: 'x/voice' } } };
+  const config = { models: { core: 'x/core', helpers: { analyzer: 'x/analyzer', vision: 'x/vision' } } };
   for (const role of ['extractor', 'video', 'embedding', 'drawing']) {
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
   }
-  assert.equal(roleModel({ models: { base: { analyzer: null, extractor: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
-  assert.equal(roleModel({ models: { base: { analyzer: null, extractor: '' } } }, 'extractor'), ROLE_DEFAULTS.extractor);
-  assert.equal(roleModel(undefined, 'voice'), ROLE_DEFAULTS.voice);
+  assert.equal(roleModel({ models: { helpers: { analyzer: null, extractor: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { helpers: { analyzer: null, extractor: '' } } }, 'extractor'), ROLE_DEFAULTS.extractor);
+  assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
+  assert.equal(roleModel({ models: { core: { nested: 'x/no' } } }, 'core'), ROLE_DEFAULTS.core, 'models.core is a string, nothing else');
 });
 
 test('roleModel: the old model keys are never read at the moment of use', () => {
@@ -87,56 +88,66 @@ test('roleModel: the old model keys are never read at the moment of use', () => 
 test('roleModel: undefined for a name that is not a role, unless its purpose is pinned', () => {
   assert.equal(roleModel({}, 'classifier.text'), undefined);
   assert.equal(roleModel({}, 'constructor'), undefined);
-  assert.equal(roleModel({ models: { base: { byPurpose: { odd: 'x/odd' } } } }, 'nope', 'odd'), 'x/odd');
-  assert.equal(isRole('voice'), true);
+  assert.equal(roleModel({ models: { byPurpose: { odd: 'x/odd' } } }, 'nope', 'odd'), 'x/odd');
+  assert.equal(isRole('core'), true);
+  assert.equal(isRole('voice'), false, 'the role is core; voice is read as an alias by the config adapter only');
   assert.equal(isRole('talk'), false);
   assert.equal(isRole('byPurpose'), false);
   for (const old of ['agent.web', 'agent.server', 'agent.dev', 'agent.advice', 'advice']) assert.equal(isRole(old), false, old);
 });
 
 test('roleModel: the flat roles map is never read; each role reads its own section only', () => {
-  const flat = { roles: { voice: 'x/voice', 'agent.web': 'openrouter/x/web', web: 'openrouter/x/web2', drawing: 'x/draw', byPurpose: { reply: 'x/reply' } } };
+  const flat = { roles: { voice: 'x/voice', core: 'x/core', 'agent.web': 'openrouter/x/web', web: 'openrouter/x/web2', drawing: 'x/draw', byPurpose: { reply: 'x/reply' } } };
   for (const role of ROLES) assert.equal(roleModel(flat, role), ROLE_DEFAULTS[role], role);
-  assert.equal(roleModel(flat, 'voice', 'reply'), ROLE_DEFAULTS.voice, 'no byPurpose from the flat map');
-  const crossed = { models: { base: { web: 'openrouter/x/web', drawing: 'x/draw' }, agents: { voice: 'x/voice', byPurpose: { reply: 'x/reply' } } } };
+  assert.equal(roleModel(flat, 'core', 'reply'), ROLE_DEFAULTS.core, 'no byPurpose from the flat map');
+  const crossed = { models: { helpers: { web: 'openrouter/x/web', drawing: 'x/draw', core: 'x/core' }, agents: { core: 'x/core', analyzer: 'x/an', byPurpose: { reply: 'x/reply' } } } };
   assert.equal(roleModel(crossed, 'web'), ROLE_DEFAULTS.web, 'an agent role is read from models.agents only');
   assert.equal(roleModel(crossed, 'drawing'), ROLE_DEFAULTS.drawing);
-  assert.equal(roleModel(crossed, 'voice', 'reply'), ROLE_DEFAULTS.voice, 'a base role from models.base only, byPurpose too');
-  for (const models of [null, 'x', ['a'], { base: 'x', agents: [] }]) assert.equal(roleModel({ models }, 'voice'), ROLE_DEFAULTS.voice, JSON.stringify(models));
+  assert.equal(roleModel(crossed, 'core', 'reply'), ROLE_DEFAULTS.core, 'the core from models.core only, byPurpose from models.byPurpose only');
+  assert.equal(roleModel(crossed, 'analyzer'), ROLE_DEFAULTS.analyzer, 'a helper from models.helpers only');
+  const old = { models: { base: { voice: 'x/voice', analyzer: 'x/an', byPurpose: { reply: 'x/reply' } } } };
+  for (const role of ROLES) assert.equal(roleModel(old, role), ROLE_DEFAULTS[role], `${role}: models.base is not read here (the config adapter moves it)`);
+  assert.equal(roleModel(old, 'core', 'reply'), ROLE_DEFAULTS.core);
+  for (const models of [null, 'x', ['a'], { core: 7, helpers: 'x', agents: [] }]) assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
 });
 
 test('roleSection / roleConfigKeys: each role\'s section and config keys', () => {
-  for (const role of BASE_ROLES) {
-    assert.equal(roleSection(role), 'base', role);
-    assert.deepEqual(roleConfigKeys(role), ['models', 'base', role]);
+  assert.equal(roleSection(CORE_ROLE), 'core');
+  assert.deepEqual(roleConfigKeys(CORE_ROLE), ['models', 'core']);
+  for (const role of HELPER_ROLES) {
+    assert.equal(roleSection(role), 'helpers', role);
+    assert.deepEqual(roleConfigKeys(role), ['models', 'helpers', role]);
   }
   for (const role of AGENT_ROLES) {
     assert.equal(roleSection(role), 'agents', role);
     assert.deepEqual(roleConfigKeys(role), ['models', 'agents', role]);
   }
-  for (const name of ['byPurpose', 'agent.web', 'talk', undefined]) {
+  for (const name of ['byPurpose', 'agent.web', 'talk', 'voice', 'base', 'helpers', undefined]) {
     assert.equal(roleSection(name), undefined, String(name));
     assert.equal(roleConfigKeys(name), undefined, String(name));
   }
 });
 
-test('roles: the built-in defaults equal config.json\'s models.base and models.agents, and every role has one', () => {
+test('roles: the built-in defaults equal config.json\'s models.core, models.helpers and models.agents, and every role has one', () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.equal(Object.hasOwn(shipped, 'roles'), false, 'no flat roles map');
-  assert.deepEqual(Object.keys(shipped.models), ['base', 'agents']);
-  const { byPurpose, ...base } = shipped.models.base;
-  assert.deepEqual(Object.keys(base), [...BASE_ROLES]);
+  assert.equal(Object.hasOwn(shipped.models, 'base'), false, 'no models.base: the core and the helpers have their own keys');
+  assert.deepEqual(Object.keys(shipped.models), ['core', 'helpers', 'byPurpose', 'agents']);
+  assert.equal(typeof shipped.models.core, 'string', 'the core is one model id, not a section');
+  assert.deepEqual(Object.keys(shipped.models.helpers), [...HELPER_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.agents), [...AGENT_ROLES]);
-  assert.deepEqual({ ...base, ...shipped.models.agents }, { ...ROLE_DEFAULTS });
-  assert.deepEqual(byPurpose, {});
+  assert.deepEqual({ core: shipped.models.core, ...shipped.models.helpers, ...shipped.models.agents }, { ...ROLE_DEFAULTS });
+  assert.deepEqual(shipped.models.byPurpose, {});
   assert.deepEqual(Object.keys(ROLE_DEFAULTS), [...ROLES]);
-  assert.deepEqual([...ROLES], [...BASE_ROLES, ...AGENT_ROLES]);
+  assert.deepEqual([...ROLES], [...CORE_ROLES, ...AGENT_ROLES]);
   assert.deepEqual([...MODEL_SET_ROLES], [...ROLES], '/nep model set offers every role');
   for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
 });
 
-test('roles: the agents\' roles follow the base roles, the OpenCode ones with OpenCode model ids, resolved like any role, no purpose on them', () => {
-  assert.deepEqual([...BASE_ROLES], ['voice', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
+test('roles: the agents\' roles follow the core and the helpers, the OpenCode ones with OpenCode model ids, resolved like any role, no purpose on them', () => {
+  assert.equal(CORE_ROLE, 'core');
+  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'extractor', 'vision', 'video', 'embedding']);
+  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
   assert.deepEqual([...AGENT_ROLES], ['web', 'server', 'thinker', 'dev', 'writer', 'drawing']);
   assert.deepEqual([...OPENCODE_ROLES], ['web', 'server', 'thinker', 'dev', 'writer']);
   assert.equal(Object.hasOwn(ROLE_DEFAULTS, 'agent.advice') || Object.hasOwn(ROLE_DEFAULTS, 'advice'), false, 'no advice role');
@@ -152,7 +163,7 @@ test('roles: the agents\' roles follow the base roles, the OpenCode ones with Op
     assert.equal(roleModel({ models: { agents: { [role]: 'openrouter/x/y' } } }, role), 'openrouter/x/y', role);
   }
   assert.equal(roleModel({ models: { agents: { web: 'openrouter/x/web' } } }, 'server'), ROLE_DEFAULTS.server, 'never another agent role\'s model');
-  assert.equal(roleModel({ models: { agents: { web: 'openrouter/x/web' }, base: { byPurpose: { web: 'x/pinned' } } } }, 'server'), ROLE_DEFAULTS.server);
+  assert.equal(roleModel({ models: { agents: { web: 'openrouter/x/web' }, byPurpose: { web: 'x/pinned' } } }, 'server'), ROLE_DEFAULTS.server);
   assert.ok(!Object.values(PURPOSE_ROLES).some((role) => AGENT_ROLES.includes(role)), 'no request purpose goes out on an agent role');
 });
 
@@ -163,12 +174,13 @@ test('roles: config.json carries none of the old model keys', () => {
   assert.equal(Object.hasOwn(shipped.memory, 'model'), false);
   assert.equal(Object.hasOwn(shipped.image, 'model'), false);
   assert.deepEqual(shipped.llm.hedge.roles, ['analyzer']);
-  assert.deepEqual(shipped.llm.cache.roles, ['voice']);
+  assert.deepEqual(shipped.llm.cache.roles, ['core']);
+  assert.equal(JSON.stringify([shipped.models, shipped.llm]).includes('voice'), false, 'no model key or role named voice (memory.voice is the memory-wording section, not a role)');
 });
 
 // ---- adaptLegacyModelKeys ----------------------------------------------------
 
-test('adaptLegacyModelKeys: each old model key moves to its models.base / models.agents key, listed by name only', () => {
+test('adaptLegacyModelKeys: each old model key moves to its models.core / models.helpers / models.agents key, listed by name only', () => {
   const { config, renamed } = adaptLegacyModelKeys({
     llm: { model: 'x/voice', temperature: 1 },
     classifier: { text: 'x/a', reason: 'x/r', media: 'x/v', video: 'x/vid', embed: 'x/e', byPurpose: { split: 'x/s' } },
@@ -180,31 +192,31 @@ test('adaptLegacyModelKeys: each old model key moves to its models.base / models
     memory: { batchMessages: 5 },
     image: { maxPerDay: 3 },
     models: {
-      base: { voice: 'x/voice', analyzer: 'x/a', extractor: 'x/ex', vision: 'x/v', video: 'x/vid', embedding: 'x/e', byPurpose: { split: 'x/s' } },
+      core: 'x/voice', helpers: { analyzer: 'x/a', extractor: 'x/ex', vision: 'x/v', video: 'x/vid', embedding: 'x/e' }, byPurpose: { split: 'x/s' },
       agents: { drawing: 'x/d' },
     },
   });
   assert.deepEqual(renamed, [
-    { key: 'llm.model', use: 'models.base.voice' },
-    { key: 'classifier.text', use: 'models.base.analyzer' },
-    { key: 'classifier.reason', use: 'models.base.analyzer' },
-    { key: 'memory.model', use: 'models.base.extractor' },
-    { key: 'classifier.media', use: 'models.base.vision' },
-    { key: 'classifier.video', use: 'models.base.video' },
-    { key: 'classifier.embed', use: 'models.base.embedding' },
+    { key: 'llm.model', use: 'models.core' },
+    { key: 'classifier.text', use: 'models.helpers.analyzer' },
+    { key: 'classifier.reason', use: 'models.helpers.analyzer' },
+    { key: 'memory.model', use: 'models.helpers.extractor' },
+    { key: 'classifier.media', use: 'models.helpers.vision' },
+    { key: 'classifier.video', use: 'models.helpers.video' },
+    { key: 'classifier.embed', use: 'models.helpers.embedding' },
     { key: 'image.model', use: 'models.agents.drawing' },
-    { key: 'classifier.byPurpose', use: 'models.base.byPurpose' },
+    { key: 'classifier.byPurpose', use: 'models.byPurpose' },
   ]);
   assert.equal(JSON.stringify(renamed).includes('x/'), false, 'never a value');
 });
 
 test('adaptLegacyModelKeys: a new key set too wins, the old one is dropped', () => {
-  const { config } = adaptLegacyModelKeys({ classifier: { text: 'x/old' }, image: { model: 'x/old-d' }, models: { base: { analyzer: 'x/new' }, agents: { drawing: 'x/new-d' } } });
-  assert.deepEqual(config, { image: {}, models: { base: { analyzer: 'x/new' }, agents: { drawing: 'x/new-d' } } });
+  const { config } = adaptLegacyModelKeys({ classifier: { text: 'x/old' }, image: { model: 'x/old-d' }, models: { helpers: { analyzer: 'x/new' }, agents: { drawing: 'x/new-d' } } });
+  assert.deepEqual(config, { image: {}, models: { helpers: { analyzer: 'x/new' }, agents: { drawing: 'x/new-d' } } });
 });
 
 test('adaptLegacyModelKeys: a current config passes unchanged, never mutated', () => {
-  const local = { models: { base: { analyzer: 'x/a' } }, llm: { cache: { roles: ['voice', 'analyzer'] }, providerByModel: { 'x/@analyzer': { only: ['p'] } } } };
+  const local = { models: { core: 'x/c', helpers: { analyzer: 'x/a' }, byPurpose: { reply: 'x/r' } }, llm: { keyByRole: { core: 'OPENROUTER_CORE_KEY' }, cache: { roles: ['core', 'analyzer'] }, providerByModel: { 'x/@analyzer': { only: ['p'] }, 'y/@core': { only: ['q'] } } } };
   const before = structuredClone(local);
   const { config, renamed } = adaptLegacyModelKeys(local);
   assert.deepEqual(config, before);
@@ -223,11 +235,12 @@ test('adaptLegacyModelKeys: old role names in the hedge and cache lists and the 
     },
   });
   assert.deepEqual(config.llm.hedge.roles, ['analyzer'], 'the reasoner is the analyzer now');
-  assert.deepEqual(config.llm.cache.roles, ['voice', 'analyzer', 'extractor']);
+  assert.deepEqual(config.llm.cache.roles, ['core', 'analyzer', 'extractor'], 'voice is the core now');
   assert.deepEqual(config.llm.providerByModel, { 'g/': { only: ['a'] }, 'g/@video': { only: ['b'] }, 'i/@drawing': { only: ['c'] }, 'o/@extractor': { only: ['d'] } });
   assert.deepEqual(renamed.slice(1), [
     { key: 'llm.hedge.roles: classifier.text', use: 'analyzer' },
     { key: 'llm.hedge.roles: classifier.reason', use: 'analyzer' },
+    { key: 'llm.cache.roles: voice', use: 'core' },
     { key: 'llm.cache.roles: classifier.text', use: 'analyzer' },
     { key: 'llm.cache.roles: analyzer', use: 'extractor' },
     { key: 'llm.providerByModel: g/@classifier.video', use: 'g/@video' },
@@ -262,9 +275,9 @@ test('adaptLegacyModelKeys: the flat roles map and the old agent role keys are n
 
 test('loadConfig: config.local.json is read through the adapter, config.json as it is', () => {
   const { config, renamed } = loadWith({ classifier: { text: 'x/a' }, memory: { model: 'x/e' } });
-  assert.equal(config.models.base.analyzer, 'x/a');
-  assert.equal(config.models.base.extractor, 'x/e');
-  assert.equal(config.models.base.voice, ROLE_DEFAULTS.voice);
+  assert.equal(config.models.helpers.analyzer, 'x/a');
+  assert.equal(config.models.helpers.extractor, 'x/e');
+  assert.equal(config.models.core, ROLE_DEFAULTS.core);
   assert.equal(config.classifier, undefined);
   assert.equal(Object.hasOwn(config.memory, 'model'), false);
   assert.deepEqual(renamed.map(({ key }) => key), ['classifier.text', 'memory.model']);
@@ -282,12 +295,12 @@ test('loadConfig: a config.local.json that still holds roles is refused with the
     assert.ok(err instanceof ConfigShapeError);
     assert.equal(err.name, 'ConfigShapeError');
     assert.match(err.message, /^config\.local\.json: /);
-    for (const key of ['models.base', 'models.agents', 'voice, analyzer, extractor, vision, video, embedding, byPurpose', 'web, server, thinker, dev, writer, drawing', '"reasoner" role (merged into "analyzer")']) {
+    for (const key of ['models.core', 'models.helpers', 'models.byPurpose', 'models.agents', 'analyzer, extractor, vision, video, embedding', 'web, server, thinker, dev, writer, drawing', '"reasoner" role (merged into "analyzer")']) {
       assert.ok(err.message.includes(key), key);
     }
     for (const move of [
-      '"roles.voice" -> "models.base.voice"',
-      '"roles.byPurpose" -> "models.base.byPurpose"',
+      '"roles.voice" -> "models.core"',
+      '"roles.byPurpose" -> "models.byPurpose"',
       '"roles.drawing" -> "models.agents.drawing"',
       '"roles.agent.web" -> "models.agents.web"',
       '"roles.agentDev" -> "models.agents.dev"',
@@ -308,18 +321,18 @@ test('loadConfig: a config.json that still holds roles is refused too; the migra
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   const { models, ...rest } = shipped;
   const { web, server, dev, drawing } = models.agents;
-  const old = { ...rest, roles: { ...models.base, drawing, 'agent.web': web, 'agent.server': server, 'agent.dev': dev, 'agent.advice': 'x/advice' } };
+  const old = { ...rest, roles: { voice: models.core, ...models.helpers, byPurpose: models.byPurpose, drawing, 'agent.web': web, 'agent.server': server, 'agent.dev': dev, 'agent.advice': 'x/advice' } };
   assert.throws(() => loadWith(undefined, old), (err) => err instanceof ConfigShapeError && /^config\.json: /.test(err.message));
   const migrated = migrateModelsKeys(old);
   assert.deepEqual(migrated.unknown, []);
   assert.deepEqual(migrated.conflicts, []);
-  assert.deepEqual(migrated.config.models, { base: models.base, agents: { drawing, web, server, dev } });
-  assert.deepEqual(loadWith({ models: { base: { voice: 'x/v' }, agents: { web: 'openrouter/x/w' } } }).config.models.agents.web, 'openrouter/x/w');
+  assert.deepEqual(migrated.config.models, { core: models.core, helpers: models.helpers, byPurpose: models.byPurpose, agents: { drawing, web, server, dev } });
+  assert.deepEqual(loadWith({ models: { core: 'x/v', agents: { web: 'openrouter/x/w' } } }).config.models.agents.web, 'openrouter/x/w');
   assert.equal(roleModel(loadWith(undefined, migrated.config).config, 'drawing'), ROLE_DEFAULTS.drawing);
 });
 
 test('assertModelsShape: a current layer, a non-object and the new keyByRole names pass', () => {
-  for (const layer of [undefined, null, [], 'x', {}, { models: { base: {} } }, { llm: { keyByRole: { web: 'K', server: 'K', dev: 'D', voice: 'V' } } }]) {
+  for (const layer of [undefined, null, [], 'x', {}, { models: {  } }, { llm: { keyByRole: { web: 'K', server: 'K', dev: 'D', core: 'V' } } }, { models: { base: { voice: 'x/v', analyzer: 'x/a' } }, llm: { keyByRole: { voice: 'V' }, cache: { roles: ['voice'] } } }]) {
     assert.doesNotThrow(() => assertModelsShape(layer, 'config.local.json'), JSON.stringify(layer));
   }
 });
@@ -342,28 +355,29 @@ test('migrateModelsKeys: every roles key to its new path, agent.advice dropped, 
   assert.deepEqual(config, {
     bot: { owners: [] },
     models: {
-      base: { voice: 'a/voice', analyzer: 'a/an', extractor: 'a/ex', vision: 'a/vi', video: 'a/vd', embedding: 'a/em', byPurpose: { lookup: 'a/lk' } },
+      core: 'a/voice', helpers: { analyzer: 'a/an', extractor: 'a/ex', vision: 'a/vi', video: 'a/vd', embedding: 'a/em' }, byPurpose: { lookup: 'a/lk' },
       agents: { drawing: 'a/dr', web: 'openrouter/a/web', server: 'openrouter/a/srv', dev: 'openrouter/a/dev' },
     },
-    llm: { temperature: 1, keyByRole: { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY', voice: 'OPENROUTER_VOICE_KEY' } },
+    llm: { temperature: 1, keyByRole: { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY', core: 'OPENROUTER_VOICE_KEY' } },
     features: {},
   });
   assert.deepEqual(Object.keys(config), ['bot', 'models', 'llm', 'features'], 'models where roles stood');
   assert.deepEqual(moves.find((move) => move.from === 'roles.agent.advice'), { from: 'roles.agent.advice', to: null });
   assert.deepEqual(moves.find((move) => move.from === 'llm.keyByRole.agentServer'), { from: 'llm.keyByRole.agentServer', to: 'llm.keyByRole.server' });
-  assert.deepEqual(moves.find((move) => move.from === 'models.base.reasoner'), { from: 'models.base.reasoner', to: null }, 'the reasoner on the analyzer\'s model goes');
-  assert.equal(moves.length, 13 + 1 + 4);
+  assert.deepEqual(moves.find((move) => move.from === 'models.helpers.reasoner'), { from: 'models.helpers.reasoner', to: null }, 'the reasoner on the analyzer\'s model goes');
+  assert.deepEqual(moves.find((move) => move.from === 'llm.keyByRole.voice'), { from: 'llm.keyByRole.voice', to: 'llm.keyByRole.core' });
+  assert.equal(moves.length, 13 + 1 + 5);
   assert.equal(JSON.stringify(moves).includes('a/'), false, 'never a value');
   assert.doesNotThrow(() => assertModelsShape(config, 'config.local.json'), 'the result loads');
   assert.deepEqual(migrateModelsKeys(config).moves, [], 'a second run moves nothing');
 });
 
 test('migrateModelsKeys: an unknown roles key or a move onto a set key is reported and left in place', () => {
-  const { config, moves, unknown, conflicts } = migrateModelsKeys({ models: { base: { voice: 'new/v' } }, roles: { voice: 'old/v', odd: 'x/o', analyzer: 'x/a' } });
+  const { config, moves, unknown, conflicts } = migrateModelsKeys({ models: { core: 'new/v' }, roles: { voice: 'old/v', odd: 'x/o', analyzer: 'x/a' } });
   assert.deepEqual(unknown, ['roles.odd']);
-  assert.deepEqual(conflicts, ['roles.voice -> models.base.voice']);
-  assert.deepEqual(moves, [{ from: 'roles.analyzer', to: 'models.base.analyzer' }]);
-  assert.deepEqual(config, { models: { base: { voice: 'new/v', analyzer: 'x/a' } }, roles: { voice: 'old/v', odd: 'x/o' } });
+  assert.deepEqual(conflicts, ['roles.voice -> models.core']);
+  assert.deepEqual(moves, [{ from: 'roles.analyzer', to: 'models.helpers.analyzer' }]);
+  assert.deepEqual(config, { models: { core: 'new/v', helpers: { analyzer: 'x/a' } }, roles: { voice: 'old/v', odd: 'x/o' } });
   assert.throws(() => assertModelsShape(config, 'config.local.json'), ConfigShapeError);
   const keys = migrateModelsKeys({ llm: { keyByRole: { web: 'A', 'agent.web': 'B' } } });
   assert.deepEqual(keys.conflicts, ['llm.keyByRole.agent.web -> llm.keyByRole.web']);
@@ -374,13 +388,16 @@ test('migrateModelsKeys: an unknown roles key or a move onto a set key is report
 
 test('migrateModelsKeys: the merged reasoner role -- dropped on the analyzer\'s model, a different model a conflict, its key renamed', () => {
   const same = migrateModelsKeys({ models: { base: { analyzer: 'x/a', reasoner: 'x/a' } }, llm: { keyByRole: { reasoner: 'OPENROUTER_C1' } } });
-  assert.deepEqual(same.config, { models: { base: { analyzer: 'x/a' } }, llm: { keyByRole: { analyzer: 'OPENROUTER_C1' } } });
-  assert.deepEqual(same.moves, [{ from: 'models.base.reasoner', to: null }, { from: 'llm.keyByRole.reasoner', to: 'llm.keyByRole.analyzer' }]);
+  assert.deepEqual(same.config, { models: { helpers: { analyzer: 'x/a' } }, llm: { keyByRole: { analyzer: 'OPENROUTER_C1' } } });
+  assert.deepEqual(same.moves, [{ from: 'models.base.reasoner', to: null }, { from: 'models.base.analyzer', to: 'models.helpers.analyzer' }, { from: 'llm.keyByRole.reasoner', to: 'llm.keyByRole.analyzer' }]);
   assert.deepEqual(same.conflicts, []);
   assert.deepEqual(migrateModelsKeys({ models: { base: { reasoner: ROLE_DEFAULTS.analyzer } } }).moves, [{ from: 'models.base.reasoner', to: null }], 'no analyzer in the layer: its default');
   const other = migrateModelsKeys({ models: { base: { analyzer: 'x/a', reasoner: 'x/r' } }, llm: { keyByRole: { reasoner: 'K1', analyzer: 'K2' } } });
-  assert.deepEqual(other.conflicts, ['models.base.reasoner -> models.base.analyzer', 'llm.keyByRole.reasoner -> llm.keyByRole.analyzer']);
-  assert.deepEqual(other.config.models.base, { analyzer: 'x/a', reasoner: 'x/r' }, 'left in place');
+  assert.deepEqual(other.conflicts, ['models.base.reasoner -> models.helpers.analyzer', 'llm.keyByRole.reasoner -> llm.keyByRole.analyzer']);
+  assert.deepEqual(other.config.models, { base: { reasoner: 'x/r' }, helpers: { analyzer: 'x/a' } }, 'the reasoner left in place, the analyzer moved');
+  const helpers = migrateModelsKeys({ models: { helpers: { analyzer: 'x/a', reasoner: 'x/a' } } });
+  assert.deepEqual(helpers.config, { models: { helpers: { analyzer: 'x/a' } } }, 'a reasoner under models.helpers goes the same way');
+  assert.deepEqual(helpers.moves, [{ from: 'models.helpers.reasoner', to: null }]);
 });
 
 test('loadConfig: a layer that still sets models.base.reasoner or keyByRole.reasoner is refused with the move', () => {
@@ -390,9 +407,82 @@ test('loadConfig: a layer that still sets models.base.reasoner or keyByRole.reas
     assert.equal(err.message.includes(ROLE_DEFAULTS.analyzer), false, 'never a value');
     return true;
   });
-  assert.throws(() => loadWith({ models: { base: { reasoner: 'x/other' } } }), /models\.base\.reasoner -> models\.base\.analyzer \(the new key is already set: keep one\)/);
+  assert.throws(() => loadWith({ models: { base: { reasoner: 'x/other' } } }), /models\.base\.reasoner -> models\.helpers\.analyzer \(the new key is already set: keep one\)/);
+  assert.throws(() => loadWith({ models: { helpers: { reasoner: 'x/other' } } }), /models\.helpers\.reasoner -> models\.helpers\.analyzer \(the new key is already set: keep one\)/);
   assert.throws(() => loadWith({ llm: { keyByRole: { reasoner: 'OPENROUTER_C1' } } }), /"llm\.keyByRole\.reasoner" -> "llm\.keyByRole\.analyzer"/);
   assert.doesNotThrow(() => loadWith({ llm: { cache: { roles: ['voice', 'reasoner'] }, hedge: { roles: ['reasoner'] } } }), 'a role list is read through currentRoleName, not refused');
+});
+
+// ---- models.base and the role voice: aliases, read under the new keys with one listing ----
+
+test('adaptLegacyModelKeys: models.base.* moves to models.core / models.helpers / models.byPurpose, the role voice to core, each listed by name only', () => {
+  const local = {
+    models: { base: { voice: 'x/v', analyzer: 'x/a', extractor: 'x/ex', vision: 'x/vi', video: 'x/vd', embedding: 'x/em', byPurpose: { lookup: 'x/lk' } }, agents: { web: 'openrouter/x/web' } },
+    llm: {
+      keyByRole: { voice: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_AGENT_KEY' },
+      cache: { roles: ['voice'] },
+      hedge: { roles: ['analyzer', 'voice'] },
+      providerByModel: { 'anthropic/@voice': { order: ['a'] }, 'openai/': { order: ['o'] } },
+    },
+  };
+  const before = structuredClone(local);
+  const { config, renamed } = adaptLegacyModelKeys(local);
+  assert.deepEqual(local, before, 'never mutated');
+  assert.deepEqual(config, {
+    models: { core: 'x/v', helpers: { analyzer: 'x/a', extractor: 'x/ex', vision: 'x/vi', video: 'x/vd', embedding: 'x/em' }, byPurpose: { lookup: 'x/lk' }, agents: { web: 'openrouter/x/web' } },
+    llm: {
+      keyByRole: { web: 'OPENROUTER_AGENT_KEY', core: 'OPENROUTER_VOICE_KEY' },
+      cache: { roles: ['core'] },
+      hedge: { roles: ['analyzer', 'core'] },
+      providerByModel: { 'openai/': { order: ['o'] }, 'anthropic/@core': { order: ['a'] } },
+    },
+  });
+  assert.equal(Object.hasOwn(config.models, 'base'), false, 'an emptied models.base goes');
+  assert.deepEqual(renamed, [
+    { key: 'models.base.voice', use: 'models.core' },
+    { key: 'models.base.analyzer', use: 'models.helpers.analyzer' },
+    { key: 'models.base.extractor', use: 'models.helpers.extractor' },
+    { key: 'models.base.vision', use: 'models.helpers.vision' },
+    { key: 'models.base.video', use: 'models.helpers.video' },
+    { key: 'models.base.embedding', use: 'models.helpers.embedding' },
+    { key: 'models.base.byPurpose', use: 'models.byPurpose' },
+    { key: 'llm.keyByRole.voice', use: 'llm.keyByRole.core' },
+    { key: 'llm.hedge.roles: voice', use: 'core' },
+    { key: 'llm.cache.roles: voice', use: 'core' },
+    { key: 'llm.providerByModel: anthropic/@voice', use: 'anthropic/@core' },
+  ]);
+  assert.equal(JSON.stringify(renamed).includes('x/'), false, 'never a value');
+  for (const role of ROLES) assert.equal(roleModel(config, role), role === 'web' ? 'openrouter/x/web' : ({ core: 'x/v', analyzer: 'x/a', extractor: 'x/ex', vision: 'x/vi', video: 'x/vd', embedding: 'x/em' }[role] ?? ROLE_DEFAULTS[role]), role);
+  assert.equal(roleModel(config, 'analyzer', 'lookup'), 'x/lk');
+});
+
+test('adaptLegacyModelKeys: the new key wins over its models.base alias; llm.model is older than models.base.voice', () => {
+  const { config, renamed } = adaptLegacyModelKeys({ models: { core: 'x/new', base: { voice: 'x/old', vision: 'x/old-v', byPurpose: { lookup: 'x/old-lk' } }, helpers: { vision: 'x/new-v' }, byPurpose: { lookup: 'x/new-lk' } }, llm: { model: 'x/oldest', keyByRole: { voice: 'OPENROUTER_VOICE_KEY', core: 'OPENROUTER_CORE_KEY' } } });
+  assert.deepEqual(config, { models: { core: 'x/new', helpers: { vision: 'x/new-v' }, byPurpose: { lookup: 'x/new-lk' } }, llm: { keyByRole: { core: 'OPENROUTER_CORE_KEY' } } });
+  assert.deepEqual(renamed.map(({ key }) => key), ['models.base.voice', 'models.base.vision', 'models.base.byPurpose', 'llm.model', 'llm.keyByRole.voice']);
+  const older = adaptLegacyModelKeys({ models: { base: { voice: 'x/base' } }, llm: { model: 'x/llm' } });
+  assert.equal(older.config.models.core, 'x/base', 'models.base.voice over llm.model');
+  const unknown = adaptLegacyModelKeys({ models: { base: { odd: 'x/o', voice: 'x/v' } } });
+  assert.deepEqual(unknown.config.models, { core: 'x/v', base: { odd: 'x/o' } }, 'a models.base key with no new home stays');
+});
+
+test('loadConfig: a config.local.json under models.base and the role voice is accepted, read under the new keys, the aliases listed once', () => {
+  const { config, renamed } = loadWith({ models: { base: { voice: 'x/v', extractor: 'x/ex' } }, llm: { keyByRole: { voice: 'OPENROUTER_VOICE_KEY' }, cache: { roles: ['voice'] } } });
+  assert.equal(roleModel(config, 'core'), 'x/v');
+  assert.equal(roleModel(config, 'core', 'reply'), 'x/v');
+  assert.equal(roleModel(config, 'extractor'), 'x/ex');
+  assert.equal(roleModel(config, 'analyzer'), ROLE_DEFAULTS.analyzer, 'config.json fills the other helpers');
+  assert.equal(Object.hasOwn(config.models, 'base'), false);
+  assert.deepEqual(config.llm.keyByRole.core, 'OPENROUTER_VOICE_KEY');
+  assert.equal(Object.hasOwn(config.llm.keyByRole, 'voice'), false);
+  assert.deepEqual(config.llm.cache.roles, ['core']);
+  assert.deepEqual(renamed, [
+    { key: 'models.base.voice', use: 'models.core' },
+    { key: 'models.base.extractor', use: 'models.helpers.extractor' },
+    { key: 'llm.keyByRole.voice', use: 'llm.keyByRole.core' },
+    { key: 'llm.cache.roles: voice', use: 'core' },
+  ]);
+  assert.equal(cacheTtlFor({ ...config, features: { promptCache: true } }, 'core', 'anthropic/claude-x'), '1h', 'the cache list names the core');
 });
 
 // ---- the rename keeps every purpose where it was -----------------------------
@@ -493,7 +583,7 @@ const OWNER_LOCAL = {
 
 /** Each old request role with its new name. */
 const NEW_ROLE = {
-  voice: 'voice',
+  voice: 'core',
   'classifier.text': 'analyzer',
   'classifier.reason': 'analyzer',
   analyzer: 'extractor',

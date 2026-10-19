@@ -215,13 +215,13 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const reads = [];
   const llm = {
-    roleKeys: () => [{ roles: ['voice'] }],
+    roleKeys: () => [{ roles: ['core'] }],
     async keyInfo(options) {
       reads.push(options.apiKey ?? options.role ?? 'main');
       const limit = options.apiKey ? 5 : options.role ? 200 : 30;
       return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
     },
-    keyHash: ({ role } = {}) => (role ? 'hash-voice' : 'hash-main'),
+    keyHash: ({ role } = {}) => (role ? 'hash-core' : 'hash-main'),
     async activity(options) {
       activity.push([options.apiKey, options.keyHash]);
       return { ok: false, status: 403, json: null };
@@ -234,10 +234,10 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
   assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['keys.base']);
   const value = result.data.embeds[0].fields[0].value;
-  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00'], 'a failed activity read: the lines as without it');
-  assert.deepEqual(reads.sort(), ['main', 'sim-test-key', 'voice']);
+  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'core key 0.00/200.00'], 'a failed activity read: the lines as without it');
+  assert.deepEqual(reads.sort(), ['core', 'main', 'sim-test-key']);
   const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
-  assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-voice'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
+  assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-core'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
 });
 
 test('status keys: a role on the simulator key (here the vision role) is shown on the simulator line, never on a line of its own', async () => {

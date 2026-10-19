@@ -479,7 +479,7 @@ test('createCostMeter: running() says what the run has cost so far and its costl
   const { meter, emit } = ownMeter();
   const seen = [];
   const out = await meter.run(async () => {
-    emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
+    emit({ msg: 'llm: usage', role: 'core', cost: 0.2 });
     seen.push(meter.running());
     emit({ msg: 'llm: usage', role: 'helper', upstreamCost: 0.05, cost: 9 });
     seen.push(meter.running());
@@ -493,8 +493,8 @@ test('inner: a turn that cost more than the estimate raises the next reservation
   const { meter, emit } = ownMeter();
   const turns = fakeTurns({
     answer: () => {
-      emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
-      emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 0.2 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 0.2 });
       return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: `t-${turns.calls.length}` } };
     },
   });
@@ -520,9 +520,9 @@ test('inner: inside a turn spendAllowed counts the day\'s real spend, the turn\'
   const turns = fakeTurns({
     answer: (params) => {
       asked.push(params.inner.spendAllowed());
-      emit({ msg: 'llm: usage', role: 'voice', cost: 0.3 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 0.3 });
       asked.push(params.inner.spendAllowed());
-      emit({ msg: 'llm: usage', role: 'voice', cost: 0.3 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 0.3 });
       asked.push(params.inner.spendAllowed());
       return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: `t-${turns.calls.length}` } };
     },

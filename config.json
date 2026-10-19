@@ -88,15 +88,15 @@
     "access": {}
   },
   "models": {
-    "base": {
-      "voice": "anthropic/claude-opus-4.6",
+    "core": "anthropic/claude-opus-4.6",
+    "helpers": {
       "analyzer": "openai/gpt-6.1-sol",
       "extractor": "openai/gpt-6.1-sol",
       "vision": "google/gemini-3.8-flash",
       "video": "google/gemini-3.8-flash",
-      "embedding": "openai/text-embedding-3-large",
-      "byPurpose": {}
+      "embedding": "openai/text-embedding-3-large"
     },
+    "byPurpose": {},
     "agents": {
       "web": "openrouter/openai/gpt-6.1-sol",
       "server": "openrouter/openai/gpt-6.1-sol",
@@ -120,7 +120,7 @@
     "provider": null,
     "providerByModel": {},
     "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" },
-    "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
+    "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["core"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
   "embed": {

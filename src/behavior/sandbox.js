@@ -811,11 +811,11 @@ export function sandboxRequestInput({
  * nothing is stored. Media render with their labels only, unless the caller
  * hands in what the persona saw of them (`descriptions` / `videos`, see
  * `replayMedia`): nothing is described or watched here. Every completion
- * passes `role: 'voice'`, `purpose: 'reply'` (`REPLY_REQUEST`), `origin:
+ * passes `role: 'core'`, `purpose: 'reply'` (`REPLY_REQUEST`), `origin:
  * 'replay'`, `countAgainstDailyCap: false` and `skipCalibration: true`; the
  * per-request token cap stays in force. With `samples` > 1 and a request the
  * llm client caches (src/llm/openrouter.js#cacheTtlFor: `features.promptCache`,
- * role `voice`, the model), the user message is one text part carrying a
+ * role `core`, the model), the user message is one text part carrying a
  * cache marker, so samples 2..N read the cache instead of paying for it again.
  * An answer's `gif` (a handle of the library, `features.gifs` on) and `draw`
  * (`features.imageGeneration` on) count as actions, as in a real turn; an

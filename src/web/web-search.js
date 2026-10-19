@@ -39,7 +39,7 @@ const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
  * The model the web agent searches with in `config` (the live engine config): the persona's own
- * web.search's, `models.base.analyzer` for the `web-search` purpose (src/llm/roles.js#roleModel).
+ * web.search's, `models.helpers.analyzer` for the `web-search` purpose (src/llm/roles.js#roleModel).
  * @param {object} config
  * @returns {string}
  */

@@ -639,7 +639,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const candidates = intentions.list(guildId).filter((r) => r.status === 'proposed').map((r) => r.id);
     const planned = stubVoice.plan({ items, records: wake.intentions ?? [], channelId: entry.channelId, day: entry.day, keyOf: (id) => world.ids.get(id) ?? null, candidates });
     // Her answer is the turn's first request: its cost is reported before any of her calls runs.
-    emit({ msg: 'llm: usage', role: 'voice', cost: fixture.stub.usdPerRequest });
+    emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
     const actions = [];
     // What her reads returned this turn: outside material her later posts may repeat.
     const seen = [];
@@ -668,7 +668,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       actions.push(action);
     }
     // The tool loop's step after her calls, unless the day's dollars are spent (turn.js#toolLoop).
-    if (planned.length > 0 && (typeof params.inner.spendAllowed !== 'function' || params.inner.spendAllowed())) emit({ msg: 'llm: usage', role: 'voice', cost: fixture.stub.usdPerRequest });
+    if (planned.length > 0 && (typeof params.inner.spendAllowed !== 'function' || params.inner.spendAllowed())) emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
     // What her reads found goes to her memory buffer as lines of hers marked `inner`.
     findings.forEach((text, n) => {
       if (!world.episodes.has(entry.channelId)) world.episodes.set(entry.channelId, []);

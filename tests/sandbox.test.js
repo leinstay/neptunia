@@ -49,7 +49,7 @@ function fakeConfig(featureOverrides = {}) {
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    models: { base: { voice: 'x/chat', extractor: 'x/memory' } },
+    models: { core: 'x/chat', helpers: { extractor: 'x/memory' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     memory: {
       maxOutputTokens: 4000,
@@ -575,7 +575,7 @@ test('answerReply: the sandbox never runs the server search, so <senses> never o
 test('answerReply: with the prompt cache on, samples 1 and 2 carry the same marked user part', async () => {
   const cachedHot = () => {
     const hot = fakeHot({ promptCache: true });
-    hot.config.models.base.voice = 'anthropic/claude-test';
+    hot.config.models.core = 'anthropic/claude-test';
     return hot;
   };
   const view = liveView({ hot: cachedHot(), store: fakeStore(), guildId: 'g1' });
@@ -602,7 +602,7 @@ test('answerReply: with the prompt cache on, samples 1 and 2 carry the same mark
 test('answerReply: every sample is sent as the replay\'s', async () => {
   const { llm } = await replay(storedMoment(), { samples: 2 });
   assert.equal(llm.calls.length, 2);
-  assert.ok(llm.calls.every((call) => call.options.origin === 'replay' && call.options.role === 'voice' && call.options.purpose === 'reply'));
+  assert.ok(llm.calls.every((call) => call.options.origin === 'replay' && call.options.role === 'core' && call.options.purpose === 'reply'));
 });
 
 // ---- the last hours: <recent> -------------------------------------------------

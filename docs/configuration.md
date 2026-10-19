@@ -130,19 +130,29 @@ The voice-state intent (the voice channels in `<people_now>`) is not privileged 
 
 ## `models`
 
-The model roles, in two sections: `models.base`, the core's own roles (thinking, seeing, speech), and `models.agents`, the agents' roles. Each role is set independently under `models.base.<name>` or `models.agents.<name>` with its own default, so no role ever takes another role's model. `models.base.byPurpose` pins a single purpose to a model of its own whatever its role.
+The model roles, in three places: `models.core`, the core (the one model that speaks and decides as the persona); `models.helpers`, the helper roles (thinking for it, seeing, extracting, embedding); and `models.agents`, the agents' roles. Each role is set independently (`models.core`, `models.helpers.<name>`, `models.agents.<name>`) with its own default, so no role ever takes another role's model. `models.byPurpose` pins a single purpose to a model of its own whatever its role.
 
-### `models.base`
+### `models.core`
 
 | Key | Default | What it does |
 |---|---|---|
-| `voice` | `"anthropic/claude-opus-4.6"` | Speaks as the persona: the reply and the memory texts worded in its voice (purposes `reply`, `memory-voice`) |
+| `core` | `"anthropic/claude-opus-4.6"` | A model id string, the persona's own model (role `core`): speaks as the persona, the reply and the memory texts worded in its voice (purposes `reply`, `memory-voice`). Formerly `models.base.voice` (role `voice`); see the alias note below |
+
+### `models.helpers`
+
+| Key | Default | What it does |
+|---|---|---|
 | `analyzer` | `"openai/gpt-6.1-sol"` | The core's helper model. Picks one of a few given options (address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick, missed), plans a search and turns sources into notes (lookup, planner, recall-summary, search-summary, read-link, diary-plan), and runs the persona's own `web.search` on the `openrouter` engine (web-search). Pin one purpose to another model with `byPurpose` |
 | `extractor` | `"openai/gpt-6.1-sol"` | Turns conversations into stored memory: analyzer batches, portraits, channel and server notes, warmup, backfill |
 | `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook, avatar) |
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
-| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
+
+### `models.byPurpose`
+
+| Key | Default | What it does |
+|---|---|---|
+| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search`) and whose values are model ids. A match on purpose wins over the role's model, the core's included. Not probed by `/nep status`. Formerly `models.base.byPurpose` |
 
 ### `models.agents`
 
@@ -157,11 +167,13 @@ The model roles, in two sections: `models.base`, the core's own roles (thinking,
 
 `web`, `server`, `thinker`, `dev` and `writer` run on [OpenCode](https://opencode.ai), not through the bot's own OpenRouter client: they take OpenCode model ids (`openrouter/<vendor>/<model>`: the provider first), unlike the other roles' bare OpenRouter ids (`<vendor>/<model>`). No request of the bot goes out on them, so `/nep status` does not probe them and `/nep route` cannot route them.
 
-**Migration from `roles`.** The models used to sit in one flat `roles` map, the agents under dotted names (`roles["agent.web"]`, earlier `roles.agentWeb`), with a fourth agent role `agent.advice`. A config file (`config.json` or `config.local.json`) that still holds `roles`, or an old agent role name (`agent.web`, `agentWeb`, `agent.advice`, ...) as a key of `llm.keyByRole`, is refused at load: the bot does not start (on a live reload the previous config stays in use), and the error lists every move. The moves: `roles.voice`, `analyzer`, `extractor`, `vision`, `video`, `embedding` and `byPurpose` to the same key under `models.base`; `roles.drawing` to `models.agents.drawing`; `roles["agent.web"]`, `roles["agent.server"]`, `roles["agent.dev"]` to `models.agents.web`, `server`, `dev`; `roles["agent.advice"]` is dropped; in `llm.keyByRole`, `agent.web`, `agent.server`, `agent.dev` become `web`, `server`, `dev` and `agent.advice` is dropped. `node tools/migrate-models-config.mjs <config.local.json>` prints the moves; with `--write` it makes them.
+**Aliases: `models.base` and the role `voice` (2026-10).** The core's roles used to sit together in `models.base`, the persona's model as `models.base.voice` (role `voice`). The old keys are still read, as aliases, not refused: a `config.local.json` that holds `models.base.voice` is read as `models.core`, `models.base.<helper>` as `models.helpers.<helper>`, `models.base.byPurpose` as `models.byPurpose`, `llm.keyByRole.voice` as `llm.keyByRole.core`, and `voice` in `llm.cache.roles`, `llm.hedge.roles` or as the role of an `llm.providerByModel` key (`"<prefix>@voice"`) as `core`. When both the old and the new key are set, the new one wins and the old one is dropped. The bot logs ONE warning at startup (`config: old model keys read under their new names`) listing the old keys with their new names, never a value, and again on a reload that changes the list. `/nep model show`, `/nep status`, `/nep route` and the usage lines say `core`. The key variable: a `llm.keyByRole.core` entry naming `OPENROUTER_CORE_KEY` falls back to `OPENROUTER_VOICE_KEY` while the new variable is unset, so a `.env` written for the old name keeps its key (one step; the main key after that). `node tools/migrate-models-config.mjs <config.local.json>` prints these moves too; with `--write` it makes them. `memory.voice.*` is not renamed: it is the settings section of the memory-wording stage (purpose `memory-voice`), not the role.
 
-**The `reasoner` role is merged into `analyzer`.** Its purposes (lookup, planner, recall-summary, search-summary, read-link, diary-plan) go out on the analyzer under their own names, so a `models.base.byPurpose` entry still pins one of them, and the usage lines and the costs count them under `analyzer` (earlier days keep their `reasoner` rows). A config file that still sets `models.base.reasoner`, or `reasoner` as a key of `llm.keyByRole`, is refused at load with the move: drop `models.base.reasoner` when it names the analyzer's model (to keep a different model for those purposes, pin them in `byPurpose` and drop it), rename `llm.keyByRole.reasoner` to `analyzer`; the migration tool makes the same moves and refuses a `reasoner` model that differs from the analyzer's. `reasoner` left in `llm.cache.roles`, `llm.hedge.roles` or as the role of an `llm.providerByModel` key is read as `analyzer`, with one startup warning.
+**Migration from `roles`.** The models used to sit in one flat `roles` map, the agents under dotted names (`roles["agent.web"]`, earlier `roles.agentWeb`), with a fourth agent role `agent.advice`. A config file (`config.json` or `config.local.json`) that still holds `roles`, or an old agent role name (`agent.web`, `agentWeb`, `agent.advice`, ...) as a key of `llm.keyByRole`, is refused at load: the bot does not start (on a live reload the previous config stays in use), and the error lists every move. The moves: `roles.voice` to `models.core`; `roles.analyzer`, `extractor`, `vision`, `video` and `embedding` to the same key under `models.helpers`; `roles.byPurpose` to `models.byPurpose`; `roles.drawing` to `models.agents.drawing`; `roles["agent.web"]`, `roles["agent.server"]`, `roles["agent.dev"]` to `models.agents.web`, `server`, `dev`; `roles["agent.advice"]` is dropped; in `llm.keyByRole`, `agent.web`, `agent.server`, `agent.dev` become `web`, `server`, `dev` and `agent.advice` is dropped. `node tools/migrate-models-config.mjs <config.local.json>` prints the moves; with `--write` it makes them.
 
-**Migration from older keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the entry it maps to. An old `classifier.text` maps to `models.base.analyzer`; an old `classifier.reason` to `models.base.analyzer` too (when `classifier.text` is set as well, that one wins); `classifier.media` to `models.base.vision`; `classifier.video` to `models.base.video`; `classifier.embed` to `models.base.embedding`; `classifier.byPurpose` to `models.base.byPurpose`; `memory.model` to `models.base.extractor`; `image.model` to `models.agents.drawing`; `llm.model` to `models.base.voice`. Move the values by hand and remove the old keys.
+**The `reasoner` role is merged into `analyzer`.** Its purposes (lookup, planner, recall-summary, search-summary, read-link, diary-plan) go out on the analyzer under their own names, so a `models.byPurpose` entry still pins one of them, and the usage lines and the costs count them under `analyzer` (earlier days keep their `reasoner` rows). A config file that still sets a `reasoner` model (`models.base.reasoner`, `models.helpers.reasoner`), or `reasoner` as a key of `llm.keyByRole`, is refused at load with the move: drop the `reasoner` model when it names the analyzer's model (to keep a different model for those purposes, pin them in `byPurpose` and drop it), rename `llm.keyByRole.reasoner` to `analyzer`; the migration tool makes the same moves and refuses a `reasoner` model that differs from the analyzer's. `reasoner` left in `llm.cache.roles`, `llm.hedge.roles` or as the role of an `llm.providerByModel` key is read as `analyzer`, with one startup warning.
+
+**Migration from older keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the entry it maps to. An old `classifier.text` maps to `models.helpers.analyzer`; an old `classifier.reason` to `models.helpers.analyzer` too (when `classifier.text` is set as well, that one wins); `classifier.media` to `models.helpers.vision`; `classifier.video` to `models.helpers.video`; `classifier.embed` to `models.helpers.embedding`; `classifier.byPurpose` to `models.byPurpose`; `memory.model` to `models.helpers.extractor`; `image.model` to `models.agents.drawing`; `llm.model` to `models.core`. Move the values by hand and remove the old keys.
 
 ## `llm`
 
@@ -179,10 +191,10 @@ The model roles, in two sections: `models.base`, the core's own roles (thinking,
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below. A route may carry `"byok": true` (never sent to OpenRouter): an answer to a request on that route that OpenRouter served from its own capacity instead of your provider account (`usage.is_byok` is `false`) is logged as `llm: not byok` and fails without a retry |
-| `keyByRole` | `{ "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" }` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `extractor`, `vision`, `video`, `embedding`, or an agent role `web`, `server`, `drawing`, `thinker`, `dev`, `writer`) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend. The agent roles have dedicated keys: `web`, `server` and `drawing` (the pictures, read at each request) on `OPENROUTER_AGENT_KEY` (the agents' key, shown on the card as the `agents` key), `thinker`, `dev` and `writer` on `OPENROUTER_DEV_KEY` (the development agents', shown as the `development` key). A role mapped to `OPENROUTER_SIM_KEY` is shown on the simulator key's line, with no line of its own. The old agent role names (`agent.web`, ...) are refused at load (see [Migration from `roles`](#models)). The bot sends no request of its own on them; with a variable unset in the bot's `.env` the card shows no line for it (the main key is never shown as theirs) |
+| `keyByRole` | `{ "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" }` | A separate OpenRouter key per model role: maps a role name (`core`, a helper role `analyzer`, `extractor`, `vision`, `video`, `embedding`, or an agent role `web`, `server`, `drawing`, `thinker`, `dev`, `writer`) to the NAME of a `.env` variable holding that key, e.g. `{ "core": "OPENROUTER_CORE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once); the one exception is `OPENROUTER_CORE_KEY`, which falls back to `OPENROUTER_VOICE_KEY` (its name while the role was `voice`) before the main key. The old key `voice` is read as `core` (see [Aliases](#models)). The owner's `/nep status` card shows each extra key's limit and rolling spend. The agent roles have dedicated keys: `web`, `server` and `drawing` (the pictures, read at each request) on `OPENROUTER_AGENT_KEY` (the agents' key, shown on the card as the `agents` key), `thinker`, `dev` and `writer` on `OPENROUTER_DEV_KEY` (the development agents', shown as the `development` key). A role mapped to `OPENROUTER_SIM_KEY` is shown on the simulator key's line, with no line of its own. The old agent role names (`agent.web`, ...) are refused at load (see [Migration from `roles`](#models)). The bot sends no request of its own on them; with a variable unset in the bot's `.env` the card shows no line for it (the main key is never shown as theirs) |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"`. Also the length of the bucket over which the stable prefix holds what memory changes (`<self_facts>`): a change shows at the next bucket edge |
 | `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
-| `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` to cache the helpers' stable parts too |
+| `cache.roles` | `["core"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` to cache the helpers' stable parts too |
 | `cache.models` | `["anthropic/"]` | Model id prefixes (case-sensitive) whose provider accepts the `cache_control` marker. A request to a model outside the list is sent without one |
 | `cache.promptIncludesCached` | `true` | Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens. Set once from a probe; the token calibration and the per-request cap use the full count either way |
 | `hedge.roles` | `["analyzer"]` | Request roles whose calls are hedged (two concurrent attempts, first to finish wins) |
@@ -485,7 +497,7 @@ Settings for the avatar descriptions (`features.avatars`). The queue scans every
 
 ## `media`
 
-Settings for the media describer (`features.mediaDescriptions`). The describer model is `models.base.vision`.
+Settings for the media describer (`features.mediaDescriptions`). The describer model is `models.helpers.vision`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -512,7 +524,7 @@ Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a G
 
 ### `media.video`
 
-Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `models.base.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
+Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `models.helpers.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -740,7 +752,7 @@ The messages posted while the bot was down (a deploy, a restart), read once at s
 
 The analyzer prompt reads these limits as placeholders, so raising a value takes effect on the next batch. Bigger profiles cost context tokens (`context.caps.people`, `context.caps.interlocutor`) and analyzer output (`memory.maxOutputTokens`).
 
-**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `models.base.voice`.
+**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `models.core`.
 
 ### `memory.voice`
 
@@ -1088,7 +1100,7 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine's own requests go out on the roles of `models.base` and on `models.agents.drawing`; the other agent roles (`web`, `server`, `thinker`, `dev`, `writer`) are run by OpenCode workers (see [`models`](#models)). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
+The engine's own requests go out on the core (`models.core`), the helper roles (`models.helpers`) and `models.agents.drawing`; the other agent roles (`web`, `server`, `thinker`, `dev`, `writer`) are run by OpenCode workers (see [`models`](#models)). Each is set independently, so the core can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
 
 ### Voice
 
