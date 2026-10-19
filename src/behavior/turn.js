@@ -93,6 +93,14 @@ import { prefetchLanes, prefetchOn } from './prefetch.js';
  */
 
 /**
+ * The `reason` codes of a `skip` outcome, journaled with the turn: she chose not to speak (an
+ * explicit skip, or an answer with nothing to act on), or an inner or wake turn had nothing to
+ * act on (reserved: no code path sets it until north star E step 2).
+ */
+export const SKIP_SILENCE = 'silence';
+export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
+
+/**
  * Why a reply turn runs: a `@mention`, a Discord reply to the persona, a
  * name trigger, a follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
@@ -1358,7 +1366,8 @@ function cutOffOf(completion, parsed, { channelId, empty, followUp }) {
 
 /**
  * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
- * draft and the result it returned: `reason` is the attempt's skip or refusal code, else null.
+ * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
+ * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
  */
 function journalTurnRecord(draft, result) {
   const seen = draft.seen ?? { messageIds: [], parents: [], parts: { images: [], filePreviews: [] } };
@@ -6447,7 +6456,7 @@ export function createTurnRunner({
       }
       if (parsed.skip || nothingToDo) {
         stampShownCalls({ shown: serverShown, pulled, answered: new Set(), exceptId: ownCallId });
-        return { outcome: 'skip', mode: finalMode };
+        return { outcome: 'skip', mode: finalMode, reason: SKIP_SILENCE };
       }
 
       const idByIndex = request.idByIndex;
