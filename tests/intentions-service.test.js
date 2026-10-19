@@ -222,6 +222,35 @@ test('intent.cancel: a cancelled intention is final; a restart reads every inten
   });
 });
 
+test('intent.update / intent.cancel: the id alone in the body counts as the id; any other body stays the purpose', async () => {
+  const { env, intentions } = makeEnv();
+  await withCapturedLogs(async () => {
+    const id = (await runOp('intent.set', { text: 'ένα' }, hers(env, 'T1'))).data.intention.id;
+    // The id in the body (`text`) and no `id=`: the update finds it and the purpose is untouched.
+    const done = await runOp('intent.update', { text: `${id}`, state: 'done' }, hers(env, 'T2'));
+    assert.equal(done.status, 'ok', done.summary);
+    assert.equal(done.data.intention.id, id);
+    const record = intentions.list('g1', { closed: true, all: true }).find((r) => r.id === id);
+    assert.equal(record.status, 'done');
+    assert.equal(record.purpose, 'ένα', 'the body was the id, not a new purpose');
+    // A body that is not one bare id is the purpose as before; without an id the call is invalid.
+    const other = (await runOp('intent.set', { text: 'δύο' }, hers(env, 'T3'))).data.intention.id;
+    assert.equal((await runOp('intent.update', { text: 'τρία' }, hers(env, 'T3'))).code, 'invalid-args');
+    assert.equal((await runOp('intent.update', { text: `${other} και κάτι` }, hers(env, 'T3'))).code, 'invalid-args');
+    const renamed = await runOp('intent.update', { id: other, text: 'τρία' }, hers(env, 'T3'));
+    assert.equal(renamed.status, 'ok');
+    assert.equal(intentions.list('g1').find((r) => r.id === other).purpose, 'τρία');
+    // An explicit id wins over a body that looks like one.
+    const third = (await runOp('intent.set', { text: 'τέσσερα' }, hers(env, 'T4'))).data.intention.id;
+    assert.equal((await runOp('intent.update', { id: third, text: other, state: 'done' }, hers(env, 'T4'))).data.intention.id, third);
+    // The cancel the same way, with surrounding blanks.
+    const cancelled = await runOp('intent.cancel', { text: ` ${other} ` }, hers(env, 'T5'));
+    assert.equal(cancelled.status, 'ok', cancelled.summary);
+    assert.equal(cancelled.data.intention.status, 'cancelled');
+    assert.equal((await runOp('intent.cancel', { text: 'no reason' }, hers(env, 'T5'))).code, 'invalid-args');
+  });
+});
+
 test('candidates: anchored to her own lines, turn looked up, de-duplicated, capped, accepted or rejected, expired when untouched', async () => {
   const journal = { findTurn: async (guildId, { messageId }) => (messageId === 'm2' ? { turn: { turnId: 'T9' } } : null) };
   const { env, intentions, clock } = makeEnv({ features: { intentions: true, journal: true }, intentions: { maxCandidates: 2, maxOpen: 1 }, journal });

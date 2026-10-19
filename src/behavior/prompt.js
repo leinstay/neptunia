@@ -3101,11 +3101,12 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
  *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
  *   The task of mode `inner` is `prompts.inner`, like any mode's.
- * @param {{ skill: string, label?: string }|null} [input.continuation]  The same turn continued after the
+ * @param {{ skill: string, label?: string, open?: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
  *   call's mark), and its task text is `labels.task.continue` (or `labels.task[<label>]`, the tool
- *   loop's, when it is set) with `{skill}` filled, alone -- no
+ *   loop's, when it is set) with `{skill}` filled -- and `{open}`, an inner turn's open-intentions
+ *   line (`open`; the placeholder and its line break are dropped when it is '') --, alone -- no
  *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
  *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
  *   missing or blank) -> the task as usual.
@@ -3409,8 +3410,12 @@ export function buildRequest(input) {
   // label missing or blank falls back to `labels.task.continue`.
   const loopLabel = typeof input.continuation?.label === 'string' ? labels.task?.[input.continuation.label] : undefined;
   const continueLabel = typeof loopLabel === 'string' && loopLabel.trim() ? loopLabel : labels.task?.continue;
+  // An inner turn's open-intentions line (`{open}`, src/behavior/turn.js#openIntentionsText):
+  // the placeholder and the line break before it go when the line is empty.
+  const openLine = typeof input.continuation?.open === 'string' ? input.continuation.open : '';
+  const continueTemplate = typeof continueLabel === 'string' && !openLine ? continueLabel.replace(/[ \t]*\n?[ \t]*\{open\}/g, '') : continueLabel;
   const continueTask =
-    input.continuation && typeof continueLabel === 'string' && continueLabel.trim() ? fill(continueLabel, { skill: input.continuation.skill ?? '' }) : '';
+    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine }) : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {

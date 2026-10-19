@@ -8,13 +8,15 @@
 // (src/ops/effects.js#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
 // names only an errand the task store holds, and a destination is only recorded; a candidate is
-// accepted only where its origin allows (src/intentions/model.js#acceptRefusal). Off unless
+// accepted only where its origin allows (src/intentions/model.js#acceptRefusal). An update or a
+// cancel without `id=` whose body is one bare intention id takes that as the id (isIntentionId);
+// any other body stays the update's purpose (or is ignored by the cancel). Off unless
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
 // `<n>m`, `<n>h`, `<n>d` from now or an ISO date-time (src/intentions/model.js#parseWhen).
 // Answers are operator lines (ids, states, times), the purpose cut to one short line.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { intentionsOn, parseWhen } from '../intentions/model.js';
+import { intentionsOn, isIntentionId, parseWhen } from '../intentions/model.js';
 import { isOwnerId } from './grants.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -58,6 +60,20 @@ const handlers = perEnv((env) => {
   function text(args, key) {
     const value = args?.[key];
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  }
+
+  /**
+   * The id of `intent.update` / `intent.cancel`: `id` when given, else the call's body (its
+   * `text`) when that is one bare token shaped like an intention id (isIntentionId): she wrote
+   * the id in the body and nothing else. Any other body stays what it is (the update's purpose).
+   * Returns `{ id, args }`, the args without the text that was the id.
+   */
+  function idOf(args) {
+    const id = text(args, 'id');
+    if (id) return { id, args };
+    const body = text(args, 'text');
+    if (body && isIntentionId(body)) return { id: body, args: { ...args, text: undefined } };
+    return { id: undefined, args };
   }
 
   /** The time of `ts` for an answer line (UTC, minutes). */
@@ -136,11 +152,11 @@ const handlers = perEnv((env) => {
     return answer(result, 'set');
   }
 
-  /** `intent.update id ...`. */
-  function cmdUpdate(args, context) {
+  /** `intent.update id ...` (the id alone in the body counts as `id`, idOf). */
+  function cmdUpdate(given, context) {
     const refused = off();
     if (refused) return refused;
-    const id = text(args, 'id');
+    const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
     const state = text(args, 'state');
     if (state !== undefined && state !== 'pending' && state !== 'done') throw invalid('state must be pending or done');
@@ -165,11 +181,11 @@ const handlers = perEnv((env) => {
     return answer(result, 'updated');
   }
 
-  /** `intent.cancel id`. */
-  function cmdCancel(args, context) {
+  /** `intent.cancel id` (the id alone in the body counts as `id`, idOf). */
+  function cmdCancel(given, context) {
     const refused = off();
     if (refused) return refused;
-    const id = text(args, 'id');
+    const { id } = idOf(given);
     if (!id) throw invalid('an id is required');
     return answer(intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by, ...whereOf(context) }), 'cancelled');
   }

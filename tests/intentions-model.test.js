@@ -16,6 +16,8 @@ import {
   duplicates,
   expireAt,
   intentionSettings,
+  isIntentionId,
+  newIntentionId,
   parseWhen,
   reconcileWait,
   transition,
@@ -222,4 +224,11 @@ test('acceptRefusal: never in the turn that wrote the line; an inner turn takes 
   assert.equal(acceptRefusal(bornInner, { initiative: true, turnId: 't2', chainId: 'chain:k' }), 'candidate-same-chain');
   assert.equal(acceptRefusal(bornInner, { initiative: true, turnId: 't2', chainId: 'review:2026-10-18' }), null, 'another chain may');
   assert.equal(acceptRefusal(mine(), { initiative: true, turnId: 't1' }), null, 'only a candidate is judged');
+});
+
+test('isIntentionId: one bare token of i + hex digits, as newIntentionId makes them; nothing else', () => {
+  assert.equal(isIntentionId(newIntentionId()), true);
+  assert.equal(isIntentionId(' i00000001 '), true, 'surrounding blanks are not the token');
+  assert.equal(isIntentionId('I0A1B2C3D'), true);
+  for (const bad of ['i', 'i1 done', 'done i1', 'x1', 'i00000001\nnote', '', null, 7, 'ig000000']) assert.equal(isIntentionId(bad), false, String(bad));
 });
