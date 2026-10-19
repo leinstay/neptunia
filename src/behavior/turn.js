@@ -1894,8 +1894,8 @@ export function createTurnRunner({
         selfId: client?.user?.id ?? null,
         registry: skills ?? defaultSkills(),
         mixedRequesters: envelope.mixed,
-        // An inner turn is her own initiative: nobody asked, her grants alone decide.
-        ...(draft?.inner ? { ownInitiative: true } : {}),
+        // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
+        ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
@@ -5693,6 +5693,9 @@ export function createTurnRunner({
     const isPrivate = !channel.guild;
     // An inner turn (mode `inner`, src/behavior/inner.js): her calls pass its gate (innerVerdict).
     if (inner && mode === 'inner') draft.inner = inner;
+    // The turn a finished errand of her own opens (asked in an inner turn: requester kind
+    // `persona`, no person behind it) is her own initiative too: her grants alone decide her calls.
+    if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.userId) draft.ownInitiative = true;
     // Set when this turn hands off to a drawFailed turn: runTurn notifies after it.
     let handOff = false;
     // Set when this turn hands its message to a chain of parts: the chain keeps the attention.
@@ -6947,7 +6950,7 @@ export function createTurnRunner({
       const envelopeOf = () => {
         const index = draft.callCount ?? 0;
         draft.callCount = index + 1;
-        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner), chainId: draft.inner?.wake?.chainId ?? null });
+        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true, chainId: draft.inner?.wake?.chainId ?? null });
       };
       const callPlan = parsed.call && !looping
         ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds }) })

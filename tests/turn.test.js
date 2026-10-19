@@ -8947,6 +8947,17 @@ test('skill call: edit and delete reach only her own message', async () => {
   }
 });
 
+test('skill call: the result turn of her own errand (requester kind persona, nobody behind it) is her own initiative: her grants decide, no requester-denied', async () => {
+  const task = { id: 'tabc', agent: 'web', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
+  const answer = '<call skill="message.create" channel="#🍡νέα">να το</call>';
+  // Without an origin message the turn is an interjection with a task result: her call runs.
+  const own = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });
+  assert.deepEqual(own.sends.map((send) => [send.to, send.text]), [['c9', 'να το']], own.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code));
+  // The same turn without the persona requester (the errand's origin lost its kind) is nobody's: a write is refused `no-requester`.
+  const nobody = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: { ...task, requester: { userId: null, kind: 'member' } } } });
+  assert.deepEqual(nobody.sends, [], 'no requester, no write');
+});
+
 test('skill call: a comment in the body of a skill that takes no text is left out -- the deletion runs with its attributes, logged without the text', async () => {
   const run = await callTurn({ answers: ['<call skill="message.delete" message="#1">σβήνω το δοκιμαστικό</call>', '<skip/>'], allowed: ['message.delete'] });
   assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
