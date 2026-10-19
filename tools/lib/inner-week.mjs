@@ -1385,7 +1385,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         ...(turn.places ? { places: { total: turn.places.total, more: turn.places.more, items: turn.places.items.map((p) => `${p.name}:${p.lines}/${p.people}${p.writable === false ? ' ro' : ''}${p.attended ? ' *' : ''}`) } } : {}),
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
-        ...(turn.result?.inner?.strayFollowUp === true ? { strayFollowUp: true } : {}),
+        ...(turn.result?.inner?.strayFollowUp === true ? { strayFollowUp: true, ...(Number.isInteger(turn.result.inner.strayFollowUps) ? { strayFollowUps: turn.result.inner.strayFollowUps } : {}) } : {}),
         ...(turn.result?.inner?.openFollowUp === true ? { openFollowUp: true } : {}),
         actions: actionsOf(turn).map((a) => ({ skill: a.skill, status: a.status, ...(a.code ? { code: a.code } : {}), ...(a.args ? { args: a.args } : {}), ...(a.target ? { target: a.target } : {}) })),
         ...(turn.voice === 'live' ? { steps: stepsOf(turn.result?.answers) } : {}),
@@ -1436,7 +1436,7 @@ export function renderReport(report) {
   for (const turn of report.turns) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
     const noted = turn.notes ? ` [${Object.entries(turn.notes).map(([id, code]) => `${id}: ${code}`).join(', ')}]` : '';
-    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))})${cell(noted)} | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ' +stray-follow-up' : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))})${cell(noted)} | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ` +stray-follow-up${turn.strayFollowUps > 1 ? ` x${turn.strayFollowUps}` : ''}` : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
   }
   const paged = report.turns.filter((turn) => turn.places);
   if (paged.length > 0) {

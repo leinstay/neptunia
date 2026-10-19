@@ -513,8 +513,8 @@ const USAGE =
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--spend <usd>]';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review']);
-/** An inner turn's requests at most: her answer and up to three tool-loop steps (skills.loop.maxSteps' default). */
-const INNER_REQUESTS = 4;
+/** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
+const INNER_REQUESTS = 5;
 /** An intention id (src/intentions/model.js#newIntentionId). */
 const INTENTION_ID = /^[A-Za-z0-9_-]{1,20}$/;
 /** The diary kinds a brief is asked of: the ones that draw. */
