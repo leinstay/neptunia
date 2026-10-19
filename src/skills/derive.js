@@ -50,6 +50,7 @@ export const BODY_ARGS = Object.freeze({
   'lore.add': 'text',
   'web.search': 'query',
   'web.read': 'url',
+  'media.look': 'question',
   'memory.search': 'question',
   'intent.set': 'text',
   'intent.update': 'text',

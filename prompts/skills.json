@@ -309,6 +309,11 @@
     "whenToUse": "Read the text of one page whose link you have: give the link (body or url=), or message=#N for a message that holds one. The page's own text comes back in this same turn, cut at a length; not a summary.",
     "whenNotToUse": "Not for files, pictures or videos, nor pages behind a login; for longer research use task.run with the web agent."
   },
+  "media.look": {
+    "title": "Look again at a picture or video",
+    "whenToUse": "Look again at a picture, GIF or video in a message you see, when its description does not answer what you need: give message=#N, your question (body or question=), and item= when the message holds several (1 is the first). The image or video model's answer comes back in this same turn.",
+    "whenNotToUse": "Not when the description in the chat already answers it; not for links to web pages (web.read)."
+  },
   "memory.search": {
     "title": "Search this server's messages",
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (body or question=), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",

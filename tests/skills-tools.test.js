@@ -3,7 +3,7 @@
 // that cannot run. Fakes only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { IN_TURN_TOOLS, firstLinkIn, memorySearchText, runMemorySearch, runWebRead, runWebSearch, webReadText, webSearchText } from '../src/skills/tools.js';
+import { IN_TURN_TOOLS, firstLinkIn, lookableMedia, mediaLookText, memorySearchText, runMediaLook, runMemorySearch, runWebRead, runWebSearch, webReadText, webSearchText } from '../src/skills/tools.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -29,8 +29,8 @@ function fakeLookup({ found = { query: 'q', results: [{ title: 'Ο τελικό�
   };
 }
 
-test('in-turn tools: the three skills that come back in the same turn', () => {
-  assert.deepEqual([...IN_TURN_TOOLS], ['web.search', 'web.read', 'memory.search']);
+test('in-turn tools: the four skills that come back in the same turn', () => {
+  assert.deepEqual([...IN_TURN_TOOLS], ['web.search', 'web.read', 'media.look', 'memory.search']);
 });
 
 test('webSearchText: her query and the evidence type first, what she wanted to establish, then each result raw: title, link, site and date, snippet', () => {
@@ -188,4 +188,105 @@ test('firstLinkIn: the first http(s) link written in a text, up to a space or an
   assert.equal(firstLinkIn('δες <https://exemple.fr/άρθρο?a=1> και http://b.example'), 'https://exemple.fr/άρθρο?a=1');
   assert.equal(firstLinkIn('ftp://x.example and www.example.com'), null);
   assert.equal(firstLinkIn(undefined), null);
+});
+
+// media.look: her own second look at a picture or a video, through the describer's second-look path.
+
+const LOOK_ON = { features: { vision: true, mediaDescriptions: true, videoDescriptions: true, coreTools: true }, media: { video: { sites: ['youtube.com'] } } };
+
+/** A normalized message with a picture, a GIF embed, a video attachment and a video-site link. */
+function mediaMessage() {
+  return {
+    id: 'm7',
+    content: 'δες',
+    attachments: [
+      { id: 'pa', kind: 'image', url: 'https://cdn.example.com/a.png', name: 'a.png' },
+      { id: 'va', kind: 'video', url: 'https://cdn.example.com/clip.mp4', name: 'clip.mp4', durationSec: 12, size: 1000 },
+    ],
+    links: [
+      { id: 'm7#e0', kind: 'gif', url: 'https://tenor.com/x', site: 'Tenor', title: '', thumbnailUrl: 'https://media.tenor.com/x.png', animationUrl: 'https://media.tenor.com/x.mp4' },
+      { id: 'm7#e1', kind: 'video', url: 'https://youtube.com/watch?v=abc', site: 'YouTube', title: 'Μια ταινία' },
+    ],
+    stickers: [],
+  };
+}
+
+function fakeDescriber({ answer = 'ένα κόκκινο ποδήλατο', caps = null } = {}) {
+  const calls = [];
+  const second = (method) => async (guildId, item, question) => {
+    calls.push({ method, guildId, itemId: item.itemId, question });
+    return answer ? { question, text: answer } : null;
+  };
+  return {
+    calls,
+    relookImage: second('relookImage'),
+    rewatchVideo: second('rewatchVideo'),
+    rewatchGif: second('rewatchGif'),
+    ...(caps ? { videoCapsLeft: () => caps } : {}),
+  };
+}
+
+test('lookableMedia: the pictures, GIFs and videos of one message in their order; a video once, as a video', () => {
+  const media = lookableMedia(mediaMessage(), { videoSites: ['youtube.com'] });
+  assert.deepEqual(media.map(({ kind, item }) => `${kind}:${item.itemId}`), ['image:pa', 'video:va', 'gif:m7#e0', 'video:m7#e1']);
+  assert.deepEqual(lookableMedia(mediaMessage()).map(({ kind }) => kind), ['image', 'video', 'gif'], 'no video site: the link is no video');
+  assert.deepEqual(lookableMedia({ id: 'm1', content: 'τίποτα', attachments: [], links: [], stickers: [] }), []);
+  assert.deepEqual(lookableMedia(null), []);
+});
+
+test('mediaLookText: the image or the video model named as the source with what was asked, then its answer as it gave it', () => {
+  const l = labels.skills.tools.look;
+  assert.equal(mediaLookText({ kind: 'image', name: 'a.png', question: 'τι χρώμα;', text: 'κόκκινο' }, { labels }), [fill(l.image, { name: 'a.png', question: 'τι χρώμα;' }), 'κόκκινο'].join('\n'));
+  assert.equal(mediaLookText({ kind: 'video', name: 'clip.mp4', question: 'ποιος μιλά;', text: 'η Zoë' }, { labels }), [fill(l.video, { name: 'clip.mp4', question: 'ποιος μιλά;' }), 'η Zoë'].join('\n'));
+  assert.equal(mediaLookText({ kind: 'gif', name: 'Tenor', question: 'τι κάνει;', text: 'χορεύει' }, { labels }), [fill(l.video, { name: 'Tenor', question: 'τι κάνει;' }), 'χορεύει'].join('\n'), 'a GIF is watched as a clip');
+  assert.equal(mediaLookText({ kind: 'image', name: 'a.png', question: 'q', text: 'απάντηση' }, { labels: {} }), 'απάντηση', 'a missing label adds nothing');
+});
+
+test('runMediaLook: her question goes to the second look of the item she names, the answer comes back labelled; the first item by default', async () => {
+  const describer = fakeDescriber();
+  const asked = [];
+  const mediaOf = (id) => (asked.push(id), id === 'm7' ? mediaMessage() : null);
+  const first = await runMediaLook({ describer, config: LOOK_ON, labels, guildId: 'g1', args: { message: 'm7', question: ' τι κρατά; ' }, mediaOf });
+  assert.equal(first.status, 'ok');
+  assert.deepEqual(describer.calls, [{ method: 'relookImage', guildId: 'g1', itemId: 'pa', question: 'τι κρατά;' }]);
+  assert.equal(first.data.text, mediaLookText({ kind: 'image', name: 'a.png', question: 'τι κρατά;', text: 'ένα κόκκινο ποδήλατο' }, { labels }));
+  for (const [item, method, itemId] of [[2, 'rewatchVideo', 'va'], ['3', 'rewatchGif', 'm7#e0'], [4, 'rewatchVideo', 'm7#e1']]) {
+    const one = fakeDescriber();
+    const result = await runMediaLook({ describer: one, config: LOOK_ON, labels, guildId: 'g1', args: { message: 'm7', question: 'τι;', item }, mediaOf });
+    assert.equal(result.status, 'ok', `item ${item}`);
+    assert.deepEqual(one.calls.map((call) => [call.method, call.itemId]), [[method, itemId]]);
+  }
+  assert.deepEqual([...new Set(asked)], ['m7']);
+});
+
+test('runMediaLook: the statuses -- arguments, message, media, switches, the turn cap and the daily second-look limits', async () => {
+  const run = async ({ args = { message: 'm7', question: 'τι;' }, config = LOOK_ON, describer = fakeDescriber(), message = mediaMessage(), takeTurnSlot = undefined } = {}) => {
+    const result = await runMediaLook({ describer, config, labels, guildId: 'g1', args, mediaOf: () => message, ...(takeTurnSlot ? { takeTurnSlot } : {}) });
+    return [result.status, result.code];
+  };
+  assert.deepEqual(await run({ args: { question: 'τι;' } }), ['invalid', 'invalid-args']);
+  assert.deepEqual(await run({ args: { message: 'm7' } }), ['invalid', 'invalid-args']);
+  assert.deepEqual(await run({ message: null }), ['invalid', 'unknown-message']);
+  assert.deepEqual(await run({ message: { id: 'm7', content: 'κείμενο', attachments: [], links: [], stickers: [] } }), ['invalid', 'no-media']);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 9 } }), ['invalid', 'invalid-args']);
+  assert.deepEqual(await run({ describer: null }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, vision: false } } }), ['not_configured', 'not-configured'], 'a picture without vision');
+  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, imageRelook: false } } }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 2 }, config: { ...LOOK_ON, features: { ...LOOK_ON.features, videoRewatch: false } } }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 2 }, config: { ...LOOK_ON, features: { ...LOOK_ON.features, mediaDescriptions: false } } }), ['not_configured', 'not-configured'], 'a video without video vision');
+  // The daily limits the second look already has: one second-look counter, a video slot for a video, a GIF watch slot for a GIF.
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } }) }), ['failed', 'daily-cap']);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 2 }, describer: fakeDescriber({ caps: { video: 0, rewatch: 5, gif: 5 } }) }), ['failed', 'daily-cap']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 0, rewatch: 5, gif: 0 } }) }), ['ok', undefined], 'a picture takes no video or GIF slot');
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 3 }, describer: fakeDescriber({ caps: { video: 5, rewatch: 5, gif: 0 } }) }), ['failed', 'daily-cap']);
+  // The turn's own cap: the slot is taken only once every other check passed.
+  let slots = 1;
+  const takeTurnSlot = () => (slots > 0 ? ((slots -= 1), true) : false);
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } }), takeTurnSlot }), ['failed', 'daily-cap']);
+  assert.equal(slots, 1, 'a refused look takes no slot of the turn');
+  assert.deepEqual(await run({ takeTurnSlot }), ['ok', undefined]);
+  assert.deepEqual(await run({ takeTurnSlot }), ['failed', 'turn-cap']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ answer: null }) }), ['failed', 'error'], 'the describer gave nothing back');
+  const throwing = { relookImage: async () => { throw new Error('boom'); } };
+  assert.deepEqual(await run({ describer: throwing }), ['failed', 'error']);
 });

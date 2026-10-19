@@ -24,7 +24,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
-function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
+function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot', attachments = new Map() }) {
   return {
     id,
     channelId: 'c1',
@@ -33,7 +33,7 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000
     cleanContent: content,
     createdTimestamp: ts,
     reference: null,
-    attachments: new Map(),
+    attachments,
     stickers: new Map(),
   };
 }
@@ -111,17 +111,23 @@ function personaGrants(names) {
   return Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }]));
 }
 
-/** An LLM answering `answers` in turn (the last one repeats); the search classifier answers `classifier` and is counted apart. */
+/** An LLM answering `answers` in turn (the last one repeats); the search classifier answers `classifier` and the re-watch classifier `none`, each counted apart. */
 function sequenceLlm(answers, classifier = 'none') {
   const calls = [];
   const classifierCalls = [];
+  const rewatchCalls = [];
   return {
     calls,
     classifierCalls,
+    rewatchCalls,
     complete: async (messages) => {
       if (messages[0].content.startsWith('Decide whether')) {
         classifierCalls.push(messages);
         return { text: classifier, usage: {}, estimated: 5 };
+      }
+      if (messages[0].content.startsWith('Pick a second look')) {
+        rewatchCalls.push(messages);
+        return { text: 'none', usage: {}, estimated: 5 };
       }
       calls.push(messages);
       const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
@@ -144,14 +150,15 @@ function journalOverMemory() {
  * `wrapCommand` wraps the admin's runCommand; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {} }) {
-  const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }), rawMessage({ id: 'm1', content })];
+async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {} }) {
+  const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },
     skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
     access: personaGrants(allowed),
     config,
   });
+  Object.assign(hot.prompts, prompts);
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'u2', messageId: 'm0', text: 'καλημέρα' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: content });
@@ -602,4 +609,109 @@ test('prefetch: a failing runner never fails the turn; the request says unavaila
   const run = await coreTurn({ answers: ['<msg>δεν ξέρω</msg>'], features: { recall: true }, config: WEB_CONFIG, runner: { recall }, content: 'θυμάσαι τη ζωγραφιά;' });
   assert.equal(run.result.outcome, 'spoke');
   assert.ok(requestText(run.llm, 0).includes(labels.prefetch.status.unavailable));
+});
+
+// media.look: her own second look, in place of the re-watch classifier.
+
+/** Zoë's message m0 carries two pictures. */
+const TWO_PICTURES = new Map([
+  ['pa', { id: 'pa', contentType: 'image/png', name: 'singes.png', url: 'https://cdn.discordapp.com/attachments/1/2/singes.png' }],
+  ['pb', { id: 'pb', contentType: 'image/png', name: 'chat.png', url: 'https://cdn.discordapp.com/attachments/1/2/chat.png' }],
+]);
+const LOOK_PROMPTS = { rewatch: 'Pick a second look for {{name}}.', 'rewatch-answer': 'Answer {{question}} in {{maxChars}}.' };
+const fakePictures = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }) };
+
+/** A describer whose second look at a picture answers `answer`, recording each call. */
+function lookDescriber({ answer = 'ένα κλειδί στο τραπέζι', caps = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    relookImage: async (guildId, item, question) => {
+      calls.push({ guildId, itemId: item.itemId, question });
+      return { question, text: answer };
+    },
+    ...(caps ? { videoCapsLeft: () => caps } : {}),
+  };
+}
+
+test('media.look off: the re-watch classifier is asked as before; on: it is not, and her call runs the second look with her question, the answer labelled as the image model\'s', async () => {
+  const off = await coreTurn({
+    coreTools: false,
+    answers: ['<msg>ok</msg>'],
+    allowed: ['media.look'],
+    content: 'τι κρατά στη φωτογραφία;',
+    features: { vision: true },
+    firstAttachments: TWO_PICTURES,
+    prompts: LOOK_PROMPTS,
+    runner: { describer: lookDescriber(), imageFetcher: fakePictures },
+  });
+  assert.equal(off.llm.rewatchCalls.length, 1, 'off: the classifier picks a second look as before');
+
+  const describer = lookDescriber();
+  const run = await coreTurn({
+    answers: ['<call skill="media.look" message="#1" item="2">τι κρατά η γάτα;</call>', '<msg>ένα κλειδί</msg>'],
+    allowed: ['media.look'],
+    content: 'τι κρατά στη φωτογραφία;',
+    features: { vision: true },
+    firstAttachments: TWO_PICTURES,
+    prompts: LOOK_PROMPTS,
+    runner: { describer, imageFetcher: fakePictures },
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.llm.rewatchCalls.length, 0, 'on: no classifier chooses for her');
+  assert.ok(run.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'core-tools'));
+  assert.deepEqual(describer.calls, [{ guildId: 'g1', itemId: 'pb', question: 'τι κρατά η γάτα;' }]);
+  const block = `<result skill="media.look" status="ok">\n${labels.skills.result.ok}\n${fill(labels.skills.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι\n</result>`;
+  assert.ok(requestText(run.llm, 1).includes(block), requestText(run.llm, 1));
+  assert.ok(!JSON.stringify(run.logs).includes('γάτα'), 'never her question in the log');
+  // The senses: her own second look in place of the classifier's.
+  const stable = userText([run.llm.calls[0][1].content[0]]);
+  assert.ok(stable.includes(labels.senses.lookTool) && !stable.includes(labels.senses.videoRewatch), stable);
+});
+
+test('media.look caps: at most media.look.maxPerTurn second looks in one turn, across the steps; the day\'s second-look limit refuses with daily-cap', async () => {
+  const describer = lookDescriber();
+  const run = await coreTurn({
+    answers: [
+      '<call skill="media.look" message="#1">τι είναι;</call><call skill="media.look" message="#1" item="2">και αυτό;</call>',
+      '<call skill="media.look" message="#1">ξανά;</call>',
+      '<msg>τέλος</msg>',
+    ],
+    allowed: ['media.look'],
+    features: { vision: true },
+    firstAttachments: TWO_PICTURES,
+    prompts: LOOK_PROMPTS,
+    config: { media: { maxPerTurn: 6, filePreviewChars: 500, look: { maxPerTurn: 2 } } },
+    runner: { describer, imageFetcher: fakePictures },
+  });
+  assert.equal(describer.calls.length, 2, 'two looks, the third refused');
+  const called = run.logs.filter((entry) => entry.msg === 'skills: called' && entry.skill === 'media.look').map((entry) => `${entry.status}:${entry.code ?? ''}`);
+  assert.deepEqual(called, ['ok:', 'ok:', 'failed:turn-cap']);
+  assert.ok(requestText(run.llm, 2).includes(labels.skills.result.reasons['turn-cap']), 'she hears why');
+
+  const spent = lookDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } });
+  const capped = await coreTurn({
+    answers: ['<call skill="media.look" message="#1">τι είναι;</call>', '<msg>ok</msg>'],
+    allowed: ['media.look'],
+    features: { vision: true },
+    firstAttachments: TWO_PICTURES,
+    prompts: LOOK_PROMPTS,
+    runner: { describer: spent, imageFetcher: fakePictures },
+  });
+  assert.equal(spent.calls.length, 0);
+  assert.ok(capped.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'media.look' && entry.status === 'failed' && entry.code === 'daily-cap'));
+});
+
+test('media.look is no skill of hers with the tool loop off: refused as switched off, never listed', async () => {
+  const describer = lookDescriber();
+  const run = await coreTurn({
+    coreTools: false,
+    answers: ['<call skill="media.look" message="#1">τι είναι;</call>', '<msg>ok</msg>'],
+    allowed: ['media.look'],
+    features: { vision: true },
+    firstAttachments: TWO_PICTURES,
+    runner: { describer, imageFetcher: fakePictures },
+  });
+  assert.equal(describer.calls.length, 0);
+  assert.ok(!userText(run.llm.calls[0][1].content).includes('media.look'));
 });

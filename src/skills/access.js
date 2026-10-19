@@ -59,6 +59,8 @@ export const FEATURE_SKILLS = Object.freeze({
   'inner.stop': 'innerLife',
   'inner.start': 'innerLife',
   'inner.status': 'innerLife',
+  // Her own second look at a picture or a video: a skill of her turn's tool loop only.
+  'media.look': 'coreTools',
 });
 
 /** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */

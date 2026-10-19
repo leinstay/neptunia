@@ -479,6 +479,21 @@ export const COMMAND_TABLE = Object.freeze([
         personaOptions: [{ type: STRING, name: 'message', description: 'A message whose link to read.', required: false, max_length: 100 }],
         args: (options) => ({ url: options.getString('url') ?? undefined, message: options.getString('message') ?? undefined }),
       },
+      {
+        // The persona's own second look at a picture or a video (src/ops/search.js, features.coreTools):
+        // her call names a message she sees as `#N`; the owner gives its id or link.
+        name: 'look',
+        description: 'Look again at a picture or video of a message, with a question.',
+        options: [
+          { type: STRING, name: 'message', description: 'The message id or link (in this channel).', required: true, max_length: 200 },
+          { type: STRING, name: 'question', description: 'What to look for.', required: true, max_length: 500 },
+          { type: INTEGER, name: 'item', description: 'Which picture or video of the message (default 1).', required: false, min_value: 1, max_value: 20 },
+        ],
+        args: (options) => {
+          const item = options.getInteger('item');
+          return { message: options.getString('message', true), question: options.getString('question', true), ...(item == null ? {} : { item }) };
+        },
+      },
     ],
   },
   {

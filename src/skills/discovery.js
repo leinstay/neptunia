@@ -16,7 +16,7 @@ import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn,
 import { describeSkill, skillNames } from './registry.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
-export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'memory.search']);
+export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search']);
 
 /**
  * Her own tools listed in full on every turn under features.coreTools: the in-turn tools, the errand
