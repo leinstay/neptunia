@@ -1106,7 +1106,9 @@ export async function fetchNeighbors(channel, config, selfId, now = Date.now(), 
  *   reads nothing the persona pulls, so it is no audience. A member is a bot
  *   when `guild.members.cache` holds it with `user.bot`; a member missing
  *   from the cache counts as a human (kept).
- * Member roles are not resolved (no member intent), and roles held only by
+ * `memberRoles` maps each member named by an overwrite to the ids of the
+ * roles he holds, read from `guild.members.cache` (a member missing from the
+ * cache has no entry, and the rail then proves nothing through roles). Roles held only by
  * bots stay in the audience: `Role#members` filters the member cache, which
  * without the member intent misses members, so "every holder is a bot"
  * cannot be told. Null for a channel
@@ -1115,7 +1117,7 @@ export async function fetchNeighbors(channel, config, selfId, now = Date.now(), 
  * audience never covers.
  * @param {object} channel  A discord.js channel.
  * @returns {{ everyone: boolean, roles: Set<string>, roleAllow: Set<string>, roleDeny: Set<string>,
- *   memberAllow: Set<string>, memberDeny: Set<string> }|null}
+ *   memberAllow: Set<string>, memberDeny: Set<string>, memberRoles: Map<string, Set<string>> }|null}
  */
 export function audienceOf(channel) {
   const guild = channel?.guild;
@@ -1142,6 +1144,12 @@ export function audienceOf(channel) {
     if (overwrite.allow?.has?.(view)) target.allow.add(overwrite.id);
     if (overwrite.deny?.has?.(view)) target.deny.add(overwrite.id);
   }
+  const memberRoles = new Map();
+  for (const id of [...sets[OverwriteType.Member].allow, ...sets[OverwriteType.Member].deny]) {
+    const held = guild.members?.cache?.get?.(id)?.roles?.cache;
+    if (!held?.keys) continue;
+    memberRoles.set(id, new Set(held.keys()));
+  }
   return {
     everyone: everyoneRole !== null && canView(everyoneRole),
     roles,
@@ -1149,5 +1157,6 @@ export function audienceOf(channel) {
     roleDeny: sets[OverwriteType.Role].deny,
     memberAllow: sets[OverwriteType.Member].allow,
     memberDeny: sets[OverwriteType.Member].deny,
+    memberRoles,
   };
 }

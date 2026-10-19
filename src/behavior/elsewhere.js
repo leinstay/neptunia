@@ -402,6 +402,8 @@ export function chooseElsewhereMode(messages, now, seenTs, cfg, { path } = {}) {
  * @property {Set<string>} roleDeny      ids of the roles whose overwrite denies ViewChannel
  * @property {Set<string>} memberAllow   members with an overwrite allowing ViewChannel
  * @property {Set<string>} memberDeny    members with an overwrite denying ViewChannel
+ * @property {Map<string, Set<string>>} [memberRoles]  for the members named by an overwrite, the ids of the roles
+ *                                       they hold (from the member cache); a member missing from it is unknown
  */
 
 /** Whether `value` has the Audience shape. */
@@ -444,14 +446,23 @@ function roleDeniesContained(dest, source) {
 
 /**
  * Whether a member allowed by name on the destination provably views the
- * source: allowed by name there too, or the source is viewable by @everyone,
- * denies no role and does not deny that member. With a role denied on the
- * source only the allow by name proves it: the member may hold the denied
- * role, and a member overwrite beats a role deny on its own channel only.
+ * source: allowed by name there too; else, with his roles known, not denied
+ * by name on the source, none of his roles denied there, and either the
+ * source is viewable by @everyone or one of his roles views it. With his
+ * roles unknown only the source's @everyone view with no role denied and no
+ * deny of that member proves it (he may hold a denied role).
+ * @param {string} memberId
+ * @param {Audience} source
+ * @param {Set<string>|undefined} [heldRoles]  the member's role ids, when known
  */
-function memberViewsSource(memberId, source) {
+function memberViewsSource(memberId, source, heldRoles) {
   if (source.memberAllow.has(memberId)) return true;
-  return source.everyone && source.roleDeny.size === 0 && !source.memberDeny.has(memberId);
+  if (source.memberDeny.has(memberId)) return false;
+  if (!(heldRoles instanceof Set)) return source.everyone && source.roleDeny.size === 0;
+  for (const role of heldRoles) if (source.roleDeny.has(role)) return false;
+  if (source.everyone) return true;
+  for (const role of heldRoles) if (source.roleAllow.has(role) || source.roles.has(role)) return true;
+  return false;
 }
 
 /**
@@ -470,8 +481,9 @@ function memberViewsSource(memberId, source) {
  * role and no member covers every destination through the full check: each
  * role's view starts from its own and @everyone's base permissions, so every
  * role views such a source, and the member step accepts the destination's
- * allows by name. Member roles are not resolved (no member intent), so the
- * check holds for any set of roles a member may hold. It may block a safe
+ * allows by name. A member's roles prove his view of the source only
+ * when the audience carries them (`memberRoles`, from the member cache);
+ * otherwise the check holds for any set of roles a member may hold. It may block a safe
  * pair (a role with Administrator views every channel, but nothing in the
  * shape says which role has it); it never covers a pair where some
  * combination of roles and overwrites shows the destination and hides the
@@ -485,7 +497,7 @@ export function audienceCovers(dest, source) {
   if (dest.everyone && !source.everyone) return false;
   if (!isSubset(dest.roles, source.roles)) return false;
   if (source.roleDeny.size > 0 && !roleDeniesContained(dest, source)) return false;
-  for (const memberId of dest.memberAllow) if (!memberViewsSource(memberId, source)) return false;
+  for (const memberId of dest.memberAllow) if (!memberViewsSource(memberId, source, dest.memberRoles?.get?.(memberId))) return false;
   return isSubset(source.memberDeny, dest.memberDeny);
 }
 

@@ -1160,7 +1160,7 @@ function audienceChannel({ roles = Object.values(ROLE), overwrites = [], thread 
       id: GUILD_ID,
       members: {
         me: meId ? { id: meId } : null,
-        ...(members ? { cache: new Map(members.map(({ id, bot }) => [id, { id, user: { id, bot } }])) } : {}),
+        ...(members ? { cache: new Map(members.map(({ id, bot, roleIds }) => [id, { id, user: { id, bot }, ...(roleIds ? { roles: { cache: new Map(roleIds.map((r) => [r, { id: r }])) } } : {}) }])) } : {}),
       },
       roles: { everyone, cache: new Map(all.map((role) => [role.id, role])) },
     },
@@ -1190,7 +1190,28 @@ test('audienceOf: reads everyone, roles and member overwrites for ViewChannel', 
     roleDeny: new Set([ROLE.muted]),
     memberAllow: new Set([MEMBER.zoe]),
     memberDeny: new Set([MEMBER.iason]),
+    memberRoles: new Map(),
   });
+});
+
+test('audienceOf: memberRoles holds the cached roles of the members named by an overwrite', () => {
+  const channel = audienceChannel({
+    overwrites: [
+      { id: MEMBER.zoe, type: OverwriteType.Member, allow: VIEW },
+      { id: MEMBER.iason, type: OverwriteType.Member, deny: VIEW },
+      { id: MEMBER.nefeli, type: OverwriteType.Member, allow: VIEW },
+    ],
+    members: [
+      { id: MEMBER.zoe, bot: false, roleIds: [ROLE.regular, ROLE.moderator] },
+      { id: MEMBER.iason, bot: false, roleIds: [] },
+      { id: 'unnamed', bot: false, roleIds: [ROLE.muted] },
+    ],
+  });
+  const { memberRoles } = audienceOf(channel);
+  assert.deepEqual(memberRoles.get(MEMBER.zoe), new Set([ROLE.regular, ROLE.moderator]));
+  assert.deepEqual(memberRoles.get(MEMBER.iason), new Set());
+  assert.equal(memberRoles.has(MEMBER.nefeli), false, 'a member missing from the cache has no entry');
+  assert.equal(memberRoles.has('unnamed'), false, 'a member no overwrite names has no entry');
 });
 
 // The audience rail blocks a role that views the destination but not the
