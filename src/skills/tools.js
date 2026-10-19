@@ -86,7 +86,7 @@ function cleanLink(raw) {
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
  * `<site> · <date>` (the date only when the engine gave one), its snippet cut at `snippetChars`
  * -- while the whole stays within `maxChars` (the first result always shows, its snippet cut to
- * fit); `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
+ * fit), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
  * missing label adds nothing. Pure.
  * @param {{ query?: string, results?: { title?: string, url?: string, site?: string, snippet?: string, age?: string }[] }} found
  * @param {{ goal?: string, labels: object, snippetChars?: number, maxChars?: number }} options
@@ -100,7 +100,9 @@ export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET
   const seen = new Set();
   const blocks = [];
   let used = lines.join('\n').length;
-  for (const result of Array.isArray(found?.results) ? found.results : []) {
+  const all = Array.isArray(found?.results) ? found.results : [];
+  let left = 0;
+  for (const [at, result] of all.entries()) {
     const link = cleanLink(result?.url);
     if (!link || seen.has(link.key)) continue;
     seen.add(link.key);
@@ -109,7 +111,16 @@ export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET
     if (where) head.push(where);
     const headText = head.join('\n');
     const room = maxChars - used - headText.length - 2;
-    if (blocks.length > 0 && room < 0) break;
+    if (blocks.length > 0 && room < 0) {
+      // This result and every one listed after it, left out for room.
+      left = 1 + all.slice(at + 1).filter((rest) => {
+        const next = cleanLink(rest?.url);
+        if (!next || seen.has(next.key)) return false;
+        seen.add(next.key);
+        return true;
+      }).length;
+      break;
+    }
     const limit = Math.min(snippetChars, room);
     const snippet = limit > 0 ? clampWithEllipsis(oneLine(result?.snippet), limit) : '';
     const block = snippet ? `${headText}\n${snippet}` : headText;
@@ -119,6 +130,15 @@ export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET
   if (blocks.length === 0) {
     if (l.none) lines.push(l.none);
     return lines.join('\n');
+  }
+  if (left > 0 && l.more) {
+    // The closing line takes room too: results give way to it until the whole fits (the first stays).
+    const closing = () => fill(l.more, { count: String(left) });
+    while (blocks.length > 1 && used + closing().length + 1 > maxChars) {
+      used -= blocks.pop().length + 1;
+      left += 1;
+    }
+    return [...lines, ...blocks, closing()].join('\n');
   }
   return [...lines, ...blocks].join('\n');
 }
@@ -220,7 +240,8 @@ function cutWindowLines(value, limit) {
  * summary), `args.goal` only echoed back with the result. `not_configured` (`not-configured`)
  * without the client, the feature (features.webLookup, read now) or a search engine; `invalid`
  * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
- * `error` when the search gave nothing back; else `ok` with webSearchText (cut by
+ * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
+ * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText (cut by
  * `web.search.snippetChars` and `web.search.resultsChars`, read now) as its `data.text`. Never
  * throws.
  * @param {{ lookup: object|null, config: object, labels: object, guildId: string|null, args: object }} input
@@ -235,6 +256,14 @@ export async function runWebSearch({ lookup, config, labels, guildId, args }) {
     if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: 'daily-cap' };
     const found = await lookup.searchResults(guildId, query);
     if (!found) return { status: 'failed', code: 'error' };
+    // The lookup's own coded failure (src/web/lookup.js#searchResults): said as it was.
+    if (found.failed) {
+      const { code, status } = found.failed;
+      if (code === 'not-configured') return { status: 'not_configured', code };
+      if (code === 'empty-query') return { status: 'invalid', code };
+      if (code === 'provider') return { status: 'failed', code, values: { status: status === undefined ? '' : String(status) } };
+      return { status: 'failed', code: code === 'cap' ? 'cap' : 'error' };
+    }
     const searchCfg = config?.web?.search ?? {};
     const shown = webSearchText({ ...found, query: found.query ?? query }, {
       goal: args?.goal,
@@ -338,7 +367,20 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (!plan) return { status: 'invalid', code: 'no-query' };
     const candidate = { id: null, content: text(args?.question) };
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
-    return { status: 'ok', data: { text: memorySearchText(found?.quotes ?? [], { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars }) } };
+    const outcome = found?.outcome ?? null;
+    const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
+    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars });
+    // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
+    if (outcome?.kind === 'daily-cap') return { status: 'denied', code: 'daily-cap' };
+    if (outcome?.kind === 'not-visible') return { status: 'denied', code: 'channel-not-visible' };
+    if (outcome?.kind === 'error') return { status: 'failed', code: 'error' };
+    if (outcome?.kind === 'timeout') return quotes.length > 0 ? { status: 'partial', code: 'timeout', data: { text: shown() } } : { status: 'failed', code: 'timeout' };
+    const l = toolLabels(labels, 'memory');
+    const lines = [];
+    if (outcome?.degraded === true && l.degraded) lines.push(l.degraded);
+    lines.push(shown());
+    if (outcome?.failed > 0 && l.partial) lines.push(fill(l.partial, { failed: String(outcome.failed), total: String(outcome.total) }));
+    return { status: 'ok', data: { text: lines.join('\n') } };
   } catch {
     return { status: 'failed', code: 'error' };
   }
@@ -419,6 +461,13 @@ const LOOKS = Object.freeze({
   gif: { method: 'rewatchGif', on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false },
 });
 
+/** The switch that keeps the second look of `kind` off, by its name (`features.<name>`, or the video vision's own); '' when none is, the describer lacking the method. */
+function switchOf(kind, features, config) {
+  if (kind === 'image') return features.imageRelook === false ? 'features.imageRelook' : '';
+  if (!isVideoVisionOn(config)) return 'video vision';
+  return features.videoRewatch === false ? 'features.videoRewatch' : '';
+}
+
 /**
  * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
  * order) of the message `args.message` names (an id her `#N` resolved to; `mediaOf(id)`, the
@@ -428,7 +477,7 @@ const LOOKS = Object.freeze({
  * message or a question, or with an item the message does not hold; `invalid`
  * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
- * kind, or while the kind's switches are off (read now); `failed` with `daily-cap` when the
+ * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.skills.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
  * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
  * count, asked only once every other check passed) refuses, with `error` when the second look
@@ -455,7 +504,12 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
     if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: 'invalid-args', reason: 'args.item:range' };
     const { kind, item } = media[n - 1];
     const look = LOOKS[kind];
-    if (!look.on(config?.features ?? {}, config) || typeof describer[look.method] !== 'function') return { status: 'not_configured', code: 'not-configured' };
+    if (!look.on(config?.features ?? {}, config) || typeof describer[look.method] !== 'function') {
+      // The switch that is off, by name (`labels.skills.tools.look.off`, as the call mark's op text).
+      const feature = switchOf(kind, config?.features ?? {}, config);
+      const off = toolLabels(labels, 'look').off;
+      return { status: 'not_configured', code: 'not-configured', ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}) };
+    }
     const slots = typeof describer.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
     if (slots && (!(slots.rewatch > 0) || (kind === 'video' && !(slots.video > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))) return { status: 'failed', code: 'daily-cap' };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: 'turn-cap' };

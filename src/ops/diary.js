@@ -138,6 +138,9 @@ const handlers = perEnv((env) => {
     if (invocationId) queued.add(invocationId);
     const guildId = resolvedGuildId(context);
     const afterTurn = typeof turns?.waitIdle === 'function' ? turns.waitIdle() : Promise.resolve();
+    // The post's outcome is written back once it ran (turns.noteDeferred): a post that did not go out
+    // is told to her at her next request in the channel, or as a feedback fact of her inner turn.
+    const writeBack = (code) => turns?.noteDeferred?.({ skill: 'diary.post', guildId, channelId: context?.channelId ? String(context.channelId) : null, ownInitiative: context?.ownInitiative === true, chainId: context?.chainId ? String(context.chainId) : null, code, id: invocationId || null });
     afterTurn
       .then(() => diary.force(request))
       .then(async (outcome) => {
@@ -145,8 +148,12 @@ const handlers = perEnv((env) => {
         const reason = outcome && typeof outcome === 'object' ? (outcome.reason ?? null) : null;
         log.info('diary: deferred post', { outcome: result ?? null, reason });
         await journalSystem(guildId, { event: 'skill-deferred', op: 'diary.post', invocationId: invocationId || null, outcome: result ?? null, reason });
+        if (!(result === 'spoke' || result === undefined || result === null)) writeBack(codeOf(outcome));
       })
-      .catch((err) => log.warn('diary: deferred post failed', { error: err }))
+      .catch((err) => {
+        log.warn('diary: deferred post failed', { error: err });
+        writeBack('error');
+      })
       .finally(() => queued.delete(invocationId));
     return answer;
   }
@@ -162,9 +169,15 @@ const handlers = perEnv((env) => {
     const line = `diary post${kind ? ` ${kind}` : ''}: ${text}${reason}`;
     const result = outcome && typeof outcome === 'object' ? outcome.outcome : outcome;
     if (result === 'spoke' || result === undefined || result === null) return line;
+    return { status: 'failed', code: codeOf(outcome), summary: line, data: null };
+  }
+
+  /** The code of a forced post's outcome that did not go out: `not-configured` without a channel or switched off, `daily-cap` for a cap, else the outcome itself. */
+  function codeOf(outcome) {
+    const result = outcome && typeof outcome === 'object' ? outcome.outcome : outcome;
+    const limit = outcome && typeof outcome === 'object' ? outcome.limit : null;
     const why = outcome && typeof outcome === 'object' ? outcome.reason : null;
-    const code = why === 'no-channel' || why === 'off' ? 'not-configured' : limit?.key ? 'daily-cap' : String(result);
-    return { status: 'failed', code, summary: line, data: null };
+    return why === 'no-channel' || why === 'off' ? 'not-configured' : limit?.key ? 'daily-cap' : String(result);
   }
 
   return { diaryKindKeys, diaryPlanLines, cmdDiarySet, cmdDiaryShow, cmdDiaryOff, cmdDiaryPost };

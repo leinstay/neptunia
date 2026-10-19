@@ -664,23 +664,27 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   /**
    * The persona's own web.search: one search on `query` whose results come back raw (see the
    * header): `{ query, results: [{ title, url, site, snippet, age? }], cached? }`, `results`
-   * empty when nothing was found; null when it cannot run (the feature, `web.search.enabled`, a
-   * blank query, no engine), when the day's web slots are spent, when an `openrouter` request
-   * would pass `llm.maxRequestsPerDay`, or when every engine tried failed. Shares the engines,
+   * empty when nothing was found; `{ failed: { code, status? } }` when it did not search:
+   * `not-configured` (the feature, `web.search.enabled`, no engine), `empty-query` (the cleaned
+   * query is blank), `cap` (the day's web slots are spent, or an `openrouter` request would pass
+   * `llm.maxRequestsPerDay`), `provider` (every engine tried failed; `status` the last HTTP
+   * status when it gave one). Shares the engines,
    * their fallbacks (the failures listed in the header) and the daily web slot with `search`;
    * never reads the search-summary prompt, never sends a summary request. A failure is never
    * cached.
    * @param {string} guildId
    * @param {string} query
-   * @returns {Promise<{ query: string, results: { title: string, url: string, site: string, snippet: string, age?: string }[], cached?: true }|null>}
+   * @returns {Promise<{ query: string, results: { title: string, url: string, site: string, snippet: string, age?: string }[], cached?: true }|{ failed: { code: string, status?: number } }>}
    */
   async function searchResults(guildId, query) {
     const config = hot.config;
-    if (!webOn(config)) return null;
+    const failedWith = (code, status) => ({ failed: { code, ...(status !== undefined ? { status } : {}) } });
+    if (!webOn(config)) return failedWith('not-configured');
     const searchCfg = config.web?.search ?? {};
-    if (searchCfg.enabled === false) return null;
+    if (searchCfg.enabled === false) return failedWith('not-configured');
     const asked = cleanQuery(query);
-    if (!asked || !hasSearch()) return null;
+    if (!asked) return failedWith('empty-query');
+    if (!hasSearch()) return failedWith('not-configured');
 
     const report = (outcome, reason = null, extra = {}) => log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
     const cache = store.getMediaCache(guildId);
@@ -702,17 +706,18 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     // Only the `openrouter` engine sends a model request: the cap matters when it comes first.
     if (engines[0] === 'openrouter' && capSpent()) {
       report('limit', 'daily-cap');
-      return null;
+      return failedWith('cap');
     }
     if (!reserveDaily()) {
       report('limit', 'daily');
-      return null;
+      return failedWith('cap');
     }
+    let last;
     for (let i = 0; i < engines.length; i += 1) {
       const meta = { engine: engines[i], fallback: i > 0 };
       if (engines[i] === 'openrouter' && i > 0 && capSpent()) {
         report('limit', 'daily-cap', meta);
-        return null;
+        return failedWith('cap');
       }
       const outcome = await rawAttempt(engines[i], asked, config);
       if (outcome.results) {
@@ -723,9 +728,10 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       }
       const { reason, status } = outcome.failure;
       report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
-      if (!fallsBack(outcome.failure)) return null;
+      last = status;
+      if (!fallsBack(outcome.failure)) return failedWith('provider', status);
     }
-    return null;
+    return failedWith('provider', last);
   }
 
   /**

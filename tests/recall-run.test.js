@@ -1764,3 +1764,85 @@ test('prefetch: a private chat without its partner reads nothing (unavailable); 
   const { result: none } = await withCapturedLogs(() => s.recaller.prefetch({ ...s.args, lanes: [] }));
   assert.equal(none, null);
 });
+
+// The persona's own memory.search (`quotes`): a run that did not search says so in its `outcome`.
+
+test('recall-run outcome: a spent daily limit is named, for the day count and for the request cap', async () => {
+  const day = scene({ recall: { maxPerDay: 3 }, state: { recallDay: '2026-10-05', recallCount: 3 } });
+  const first = await withCapturedLogs(() => day.recaller.run({ ...day.args, server: RABBIT_SERVER, quotes: true }));
+  assert.deepEqual(first.result.outcome, { kind: 'daily-cap' });
+  const spent = scene({ capLeft: 0 });
+  const second = await withCapturedLogs(() => spent.recaller.run({ ...spent.args, server: RABBIT_SERVER, quotes: true }));
+  assert.deepEqual(second.result.outcome, { kind: 'daily-cap' });
+  const other = await withCapturedLogs(() => scene().recaller.run({ ...scene().args, server: { forms: [], who: [], from: null, to: null }, quotes: true }));
+  assert.equal(other.result.outcome, undefined, 'a gate that is no news to her says nothing');
+});
+
+test('recall-run outcome: the run budget ending before the windows are read is a timeout; a throw is an error', async () => {
+  const timers = manualTimers();
+  const reading = deferred();
+  const s = scene({ lines: RANKED_LINES, answers: rankedAnswers, recall: BUDGET, timers });
+  for (const id of ['c1', 'c2']) {
+    s.args.guild.channels.cache.get(id).messages.fetch = () => {
+      reading.resolve();
+      return new Promise(() => {});
+    };
+  }
+  const { result } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER, quotes: true });
+    await reading.promise;
+    timers.fire(BUDGET.timeoutMs);
+    return running;
+  });
+  assert.deepEqual(result.outcome, { kind: 'timeout' });
+  assert.deepEqual(result.quotes ?? [], []);
+
+  const thrown = scene();
+  const server = { get forms() { throw new Error('boom'); }, who: [], from: null, to: null };
+  const failed = await withCapturedLogs(() => thrown.recaller.run({ ...thrown.args, server, quotes: true }));
+  assert.deepEqual(failed.result.outcome, { kind: 'error' });
+});
+
+test('recall-run outcome: a channel she names that the pull rail hides is not-visible, searched nowhere; a visible one is searched', async () => {
+  const s = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES, c4: PRIVATE_LINES }, answers: rabbitAnswers });
+  const hidden = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { ...RABBIT_SERVER, channelId: 'c4' }, quotes: true }));
+  assert.deepEqual(hidden.result.outcome, { kind: 'not-visible' });
+  assert.equal(searches(s.calls).length, 0, 'nothing was searched');
+  const open = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES }, answers: rabbitAnswers });
+  const seen = await withCapturedLogs(() => open.recaller.run({ ...open.args, server: { ...RABBIT_SERVER, channelId: 'c2' }, quotes: true }));
+  assert.equal(seen.result.outcome.kind, 'searched');
+  assert.ok(searches(open.calls).length > 0);
+});
+
+test('recall-run outcome: a failed meaning search says the words-only search; a working one does not', async () => {
+  const broken = meaningScene({ embed: fakeEmbed(() => Promise.reject(new Error('down'))) });
+  const down = await withCapturedLogs(() => broken.recaller.run({ ...broken.args, server: MEANING_SERVER, quotes: true }));
+  assert.equal(down.result.outcome.kind, 'searched');
+  assert.equal(down.result.outcome.degraded, true);
+  const fine = meaningScene();
+  const up = await withCapturedLogs(() => fine.recaller.run({ ...fine.args, server: MEANING_SERVER, quotes: true }));
+  assert.equal(up.result.outcome.degraded, false);
+  const off = meaningScene({ features: { meaningSearch: false } });
+  const none = await withCapturedLogs(() => off.recaller.run({ ...off.args, server: MEANING_SERVER, quotes: true }));
+  assert.equal(none.result.outcome.degraded, false, 'a switch that is off is not a failure');
+});
+
+test('recall-run outcome: searches cut at the time share are counted with the planned ones', async () => {
+  const timers = manualTimers();
+  const sent = deferred();
+  const s = scene({
+    recall: BUDGET,
+    timers,
+    answers: (route, query, signal) => {
+      sent.resolve();
+      return hangUntilAbort(signal);
+    },
+  });
+  const { result } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER, quotes: true });
+    await sent.promise;
+    timers.fire(BUDGET.timeoutMs * 0.6);
+    return running;
+  });
+  assert.deepEqual(result.outcome, { kind: 'searched', degraded: false, failed: 2, total: 2 });
+});

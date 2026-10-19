@@ -73,7 +73,8 @@ function setup({ history, context } = {}) {
   const turns = createTurnRunner({ discord: DISCORD, hot: hotWith(context), store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), now: () => clock.t });
   const run = (raw, triggerKind = 'mention') => withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: triggerOf(raw), triggerKind }));
   const taskOf = (call = calls.length - 1) => userText(calls[call][1].content).split('\n').filter((line) => line.startsWith('unanswered:'));
-  return { run, fail, calls, taskOf };
+  const diaryOf = (call = calls.length - 1) => userText(calls[call][1].content).split('\n').filter((line) => line.startsWith('diary post'));
+  return { run, fail, calls, taskOf, diaryOf, turns };
 }
 
 test.beforeEach(() => {
@@ -146,4 +147,32 @@ test('the entries stay when the request that showed them fails too; a retry of t
   await run(rawMessage({ id: '103', ts: NOW + 3 * MINUTE }));
   assert.equal(calls.length, 4);
   assert.deepEqual(taskOf(3), [], 'the retry that spoke or skipped cleared them');
+});
+
+test('a diary post she asked for that did not go out is told at the next addressed request there, once; an inner turn\'s goes to the inner life instead', async () => {
+  const first = rawMessage({ id: '101' });
+  const second = rawMessage({ id: '102', ts: NOW + MINUTE });
+  const { run, fail, diaryOf, turns } = setup({ history: [first, second] });
+  fail.on = false;
+  const handed = [];
+  turns.setOnDeferredFailure((note) => handed.push(note));
+  turns.noteDeferred({ skill: 'diary.post', channelId: '77', code: 'daily-cap', at: NOW });
+  turns.noteDeferred({ skill: 'message.create', channelId: '77', code: 'x', at: NOW });
+  turns.noteDeferred({ skill: 'diary.post', channelId: '77', ownInitiative: true, chainId: 'chain:k', code: 'busy', id: 'inv-3', at: NOW });
+  assert.deepEqual(handed, [{ guildId: null, channelId: '77', chainId: 'chain:k', skill: 'diary.post', code: 'busy', id: 'inv-3' }]);
+  clock.t = NOW + 5 * MINUTE;
+  await run(first);
+  assert.deepEqual(diaryOf(0), ['diary post 5 min ago failed (daily-cap)']);
+  await run(second);
+  assert.deepEqual(diaryOf(1), [], 'told once, then gone');
+});
+
+test('a diary post that failed is forgotten past 24 hours and kept at most context.failedTurnsKept', async () => {
+  const first = rawMessage({ id: '101' });
+  const { run, fail, diaryOf, turns } = setup({ history: [first], context: { failedTurnsKept: 2 } });
+  fail.on = false;
+  turns.noteDeferred({ skill: 'diary.post', channelId: '77', code: 'old', at: NOW - 30 * HOUR });
+  for (const code of ['a', 'b', 'c']) turns.noteDeferred({ skill: 'diary.post', channelId: '77', code, at: NOW });
+  await run(first);
+  assert.deepEqual(diaryOf(0).map((line) => line.match(/\((.+)\)/)[1]), ['b', 'c'], 'the newest two, none past 24 hours');
 });

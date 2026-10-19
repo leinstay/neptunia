@@ -126,7 +126,7 @@ const handlers = perEnv((env) => {
       if (result?.status !== 'ok' || !entry) return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
     }
     const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
-    if (sent?.status !== 'ok') return text || attachment ? { status: 'failed', code: String(sent?.error?.code ?? sent?.status ?? 'error'), summary: 'message.create: the text went out, the GIF did not', data: { unknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');
+    if (sent?.status !== 'ok') return text || attachment ? { status: 'partial', code: 'gif-failed', summary: 'message.create: the text went out, the GIF did not', data: { gifUnknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');
     const ref = result?.ref ?? sent.ref;
     return { text: `sent in ${channelId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`, ref: ref ?? null, at: (result ?? sent).at };
   }

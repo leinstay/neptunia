@@ -27,7 +27,7 @@ const handlers = perEnv((env) => {
    * through (`data.unknown` when it may have: never generated again).
    */
   async function cmdDraw(args, context) {
-    if (!images) return 'image generation is not available';
+    if (!images) return { status: 'failed', code: 'not-configured', summary: 'image generation is not available' };
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
@@ -36,7 +36,7 @@ const handlers = perEnv((env) => {
 
     const model = roleModel(hot.config, 'drawing');
     if (!images.familyOf(model)) {
-      return `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated`;
+      return { status: 'failed', code: 'not-configured', summary: `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated` };
     }
 
     const self = args?.self === true;

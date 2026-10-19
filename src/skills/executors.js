@@ -727,14 +727,15 @@ const ARG_RULE_KINDS = Object.freeze({
  * outcome or one without a code. Pure.
  * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
  * @param {{ textChars?: number, argNames?: string[]|null }} [options]
- * @returns {{ kind: string, code: string, arg: string|null, text?: string, values?: string[] }|null}
+ * @returns {{ kind: string, code: string, arg: string|null, text?: string, values?: string[], fields?: object }|null}
  */
 export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) {
   const code = typeof outcome?.code === 'string' ? outcome.code : '';
   if (!code || outcome.status === 'ok') return null;
   const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
   const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
-  const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}) });
+  const fields = outcome.values && typeof outcome.values === 'object' && !Array.isArray(outcome.values) ? { ...outcome.values } : null;
+  const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}), ...(fields ? { fields } : {}) });
   if (code === 'invalid-args') {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) {
