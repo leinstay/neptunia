@@ -2829,6 +2829,31 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
 }
 
 /**
+ * `text` without every sentence that holds `placeholder`: from the start of the text, of its
+ * line or after the previous sentence end (`.`, `!`, `?` and the space after it) up to and
+ * including the sentence's own end and the space after it. A label's optional sentence (the
+ * continuation's `{channel}`) goes whole when its value is missing. Pure.
+ * @param {string} text
+ * @param {string} placeholder
+ * @returns {string}
+ */
+export function withoutSentenceOf(text, placeholder) {
+  if (typeof text !== 'string' || !text.includes(placeholder)) return text;
+  const token = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // lead: the text start, a line break or the previous sentence's end; tail: the sentence's own
+  // end with the space or line break after it, or the text's end.
+  const re = new RegExp(`(^|\\n|[.!?][ \\t]+)[^.!?\\n]*${token}[^.!?\\n]*([.!?]+[ \\t]*\\n?|$)`, 'gu');
+  return text.replace(re, (all, lead, tail) => {
+    // A sentence on its own line goes with its line; one at the very end takes the space before it.
+    if (lead === '') return '';
+    if (lead === '\n') return '\n';
+    if (tail === '') return lead.trimEnd();
+    // After another sentence: that sentence keeps its end, and a line break after the dropped one stays.
+    return tail.endsWith('\n') ? `${lead.trimEnd()}\n` : lead;
+  });
+}
+
+/**
  * @param {object} input
  * @param {object} input.config            Live config.
  * @param {object} input.prompts           Live prompts keyed by file name.
@@ -3411,11 +3436,17 @@ export function buildRequest(input) {
   const loopLabel = typeof input.continuation?.label === 'string' ? labels.task?.[input.continuation.label] : undefined;
   const continueLabel = typeof loopLabel === 'string' && loopLabel.trim() ? loopLabel : labels.task?.continue;
   // An inner turn's open-intentions line (`{open}`, src/behavior/turn.js#openIntentionsText):
-  // the placeholder and the line break before it go when the line is empty.
+  // the placeholder and the line break before it go when the line is empty. `{channel}`: the
+  // handle of the conversation the turn runs in as `<channel_directory>` shows it (`#` included);
+  // without one (handles off, a channel the directory does not list, a private chat) the
+  // sentence holding the placeholder goes whole.
   const openLine = typeof input.continuation?.open === 'string' ? input.continuation.open : '';
-  const continueTemplate = typeof continueLabel === 'string' && !openLine ? continueLabel.replace(/[ \t]*\n?[ \t]*\{open\}/g, '') : continueLabel;
+  const ownHandle = channelHandleById && currentChannelId !== null ? channelHandleById.get(String(currentChannelId)) : undefined;
+  const channelToken = ownHandle ? `#${ownHandle}` : '';
+  let continueTemplate = typeof continueLabel === 'string' && !openLine ? continueLabel.replace(/[ \t]*\n?[ \t]*\{open\}/g, '') : continueLabel;
+  if (typeof continueTemplate === 'string' && !channelToken) continueTemplate = withoutSentenceOf(continueTemplate, '{channel}');
   const continueTask =
-    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine }) : '';
+    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }) : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {
