@@ -60,6 +60,8 @@ The analyzer writes at most `memory.maxNewRecent` (default 3) lines per batch, e
 
 The memory analyzer runs as a separate LLM call when enough messages accumulate (`memory.batchMessages`, `memory.minBatchMessages`, `memory.maxBatchAgeMinutes`). It receives the character card and judges each person through the character's eyes, returning attitude deltas, profile changes, channel observations, and server-level notes.
 
+Besides chat, the buffer takes what the persona found on her own in an inner turn (`features.innerLife`): her reads' results and her thinking as lines of hers, marked as her own experience, in the server's buffer or, for a private chat, that member's private buffer ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)).
+
 When a batch is too large for the token cap, the oldest lines that fit are analyzed and the rest are deferred for the next batch (the log reports `consumed`, `shown` and `deferred`). A quiet private buffer (no new messages for `memory.privateMaxAgeMinutes`, default 360) is analyzed even when it has not reached `minBatchMessages`. In-joke and self-fact lists make room for new entries by evicting the stalest existing one when the list is full. Lore evicts the stalest entry when `lore.maxEntries` is reached.
 
 A failed batch (truncated output, unparsable JSON, over the token limit) halves the batch size for the next attempt. When the batch is already at the floor (20 messages) and still fails, it backs off for 15 minutes instead of retrying at once (logged as `memory: update failed ... backing off` with `atFloor: true` and `backoffMs`). The buffer is kept either way.
@@ -111,7 +113,7 @@ The private analyzer (`analyzePrivate`) runs the same `memory.md` prompt with a 
 
 ## Record
 
-When `features.record` is on (the default), every message the memory buffer takes and every message the persona posts are written to a permanent file: `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`, one file per UTC day. Edits are written as new lines with the next revision; a deleted message gets a deletion line. Private chat lines go to `data/guilds/<id>/private/<userId>/record/` instead. The record is never trimmed: it grows as long as the bot runs.
+When `features.record` is on (the default), every message the memory buffer takes (her inner-turn lines excepted: they were never said) and every message the persona posts are written to a permanent file: `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`, one file per UTC day. Edits are written as new lines with the next revision; a deleted message gets a deletion line. Private chat lines go to `data/guilds/<id>/private/<userId>/record/` instead. The record is never trimmed: it grows as long as the bot runs.
 
 The record holds only ids, timestamps, channel, author, reply target, text, media kinds and mentions, and for a link with a preview its URL, title, description and site (at most 3 links, title and description cut to 200 characters), so a link post is found by what it shows. It stores no URL of an attachment, a sticker, a custom emoji or a GIF; a link someone posted stays in the text as it was posted, cut to `context.maxUrlChars`.
 

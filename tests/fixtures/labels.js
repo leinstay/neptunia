@@ -291,6 +291,14 @@ export const labels = {
     privateNote: 'Private batch: judge only this person.',
     privateChannel: 'direct chat',
     redaction: 'someone',
+    inner: {
+      think: '[inner] thinking: {text}',
+      done: 'done: {skills}',
+      notDone: 'not done: {skills}',
+      found: '[inner] {skill}{asked} found: {text}',
+      asked: ' ({text})',
+      sources: 'sources: {links}',
+    },
   },
   status: {
     probe: 'Reply with one word: pong',
@@ -465,6 +473,7 @@ export const labels = {
     },
     refusals: {
       agentRequired: '{arg} missing, pick one of: {agents}',
+      unknownArg: 'no argument {arg}; takes: {args}',
     },
   },
   peopleNow: {

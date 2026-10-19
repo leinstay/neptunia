@@ -91,7 +91,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null } = {}) {
   const journal = [];
   const intentions = fakeIntentions(records);
   let inner;
@@ -112,6 +112,7 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     meter: { run: async (fn) => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
     rng,
     now: () => clock.t,
+    onEpisode,
     log: SILENT,
   });
   return { inner, turns, journal, intentions, dataDir, door, hot };
@@ -437,4 +438,20 @@ test('inner: what one drain hands off (a stale wake, then a spent chain) is all 
   const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
   assert.deepEqual(onDisk.queue, []);
   assert.deepEqual(Object.values(onDisk.handled).map((entry) => entry.outcome).sort(), ['chain-cap', 'stale']);
+});
+
+test('inner: what a turn did and found is handed to her memory, shadow or not; a turn without an episode hands nothing', async () => {
+  const episode = { turnId: 't-1', shadow: true, channelId: 'c1', findings: [{ skill: 'web.search', args: {}, text: 'x' }] };
+  const handed = [];
+  const turns = fakeTurns({ answer: () => ({ outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], stray: null, turnId: 't-1', episode } }) });
+  const run = setup({ records: [intention('i1'), intention('i2', { channelId: 'c2' })], turns, onEpisode: (guildId, given) => handed.push({ guildId, given }) });
+  await run.inner.tick();
+  assert.deepEqual(handed, [{ guildId: GUILD, given: episode }]);
+  const quiet = setup({ records: [intention('i3')], onEpisode: (guildId, given) => handed.push({ guildId, given }) });
+  await quiet.inner.tick();
+  assert.equal(handed.length, 1);
+  // A memory that throws never breaks the inner life.
+  const broken = setup({ records: [intention('i4')], turns: fakeTurns({ answer: () => ({ outcome: 'skip', inner: { actions: [], turnId: 't-2', episode } }) }), onEpisode: () => { throw new Error('boom'); } });
+  const result = await broken.inner.tick();
+  assert.equal(result.ran, true);
 });

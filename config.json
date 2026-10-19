@@ -517,7 +517,15 @@
     "chatMessages": 30,
     "estimatedTurnUsd": 0.15,
     "review": { "enabled": true, "historyDays": 14 },
-    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 }
+    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 },
+    "memory": {
+      "enabled": true,
+      "thinkChars": 1200,
+      "resultChars": 1500,
+      "maxFindings": 5,
+      "maxSources": 10,
+      "skills": ["web.search", "web.read", "memory.search", "task.status", "task.list"]
+    }
   },
   "appendStore": {
     "fsyncMs": 500,

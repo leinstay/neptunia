@@ -445,6 +445,8 @@ const inner = createInnerLife({
   // People's turns first: an inner turn waits while a direct ping is queued.
   peopleWaiting: () => onMessage.pendingCount() > 0,
   submit: (event) => door.submit(event),
+  // What an inner turn did and found becomes lines of hers for the memory analyzer.
+  onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
   log,
 });
 const tagHistory = createTagHistory();

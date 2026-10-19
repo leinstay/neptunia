@@ -527,16 +527,18 @@ const ARG_RULE_KINDS = Object.freeze({
  * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`;
  * `agent-required` names `agent` and carries the agents its reason lists (`values`; the mark words
  * it through `labels.skills.refusals.agentRequired`).
+ * An `unknown-arg` refusal carries the arguments the skill does take (`values`, from `argNames`
+ * when given and not empty), so its mark can name them (`labels.skills.refusals.unknownArg`).
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
  * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
  * specific label words the kind, ahead of the generic phrase of the code. Null for an `ok`
  * outcome or one without a code. Pure.
  * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
- * @param {{ textChars?: number }} [options]
+ * @param {{ textChars?: number, argNames?: string[]|null }} [options]
  * @returns {{ kind: string, code: string, arg: string|null, text?: string, values?: string[] }|null}
  */
-export function outcomeDetail(outcome, { textChars = 0 } = {}) {
+export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) {
   const code = typeof outcome?.code === 'string' ? outcome.code : '';
   if (!code || outcome.status === 'ok') return null;
   const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
@@ -544,7 +546,11 @@ export function outcomeDetail(outcome, { textChars = 0 } = {}) {
   const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}) });
   if (code === 'invalid-args') {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
-    if (path) return of(ARG_RULE_KINDS[path[2]] ?? 'wrong-arg', path[1]);
+    if (path) {
+      const kind = ARG_RULE_KINDS[path[2]] ?? 'wrong-arg';
+      const known = kind === 'unknown-arg' && Array.isArray(argNames) ? argNames.filter((name) => typeof name === 'string' && name) : [];
+      return known.length > 0 ? { ...of(kind, path[1]), values: known } : of(kind, path[1]);
+    }
     return of(code);
   }
   if (code === 'unknown-message') {

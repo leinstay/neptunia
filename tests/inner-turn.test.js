@@ -3,7 +3,8 @@
 // nothing else does (proposed, journalled as shadow, no call mark), live her calls run through
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
 // cap refuses, text outside a call reaches nobody, and an ordinary turn's request is unchanged by
-// the switch. Over a real admin and the fake interface adapter; no network, no data/.
+// the switch; a refusal in shadow reaches her within the turn; what her reads found comes back as
+// the turn's episode for her memory. Over a real admin and the fake interface adapter; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -18,6 +19,7 @@ import { createAdmin } from '../src/admin.js';
 import { wakeBlockText } from '../src/behavior/wake.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
+import { fill } from '../src/format.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const DISCORD = createDiscordInterface().capabilities;
@@ -281,4 +283,37 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
 test('wakeLanes: the purposes of the intentions as one wake lane; none for a review alone', () => {
   assert.deepEqual(wakeLanes(['a', ' b ']), { lanes: [{ kind: 'wake', text: 'a\nb', words: 'a\nb' }], skip: null });
   assert.deepEqual(wakeLanes([]), { lanes: [], skip: 'no-trigger' });
+});
+
+test('inner turn, shadow: a diary.post with a channel she gave it is refused, and she hears why within the turn (no lasting mark)', async () => {
+  // The call shape of a recorded shadow review: an attribute diary.post does not take, her entry as the body.
+  const { journal, lines } = journalOverMemory();
+  const run = await innerTurn({
+    answers: ['<call skill="diary.post" channel="#general">δεν μπορώ να κοιμηθώ</call>', '<call skill="diary.post" topic="δεν μπορώ να κοιμηθώ"/>', '<skip/>'],
+    allowed: ['diary.post'],
+    journal,
+  });
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['diary.post:refused:invalid-args', 'diary.post:proposed:shadow']);
+  assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
+  const step = userText(run.llm.calls[1][1].content);
+  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'kind, topic' });
+  assert.ok(step.includes(reason), step);
+  assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
+});
+
+test('inner turn: what her reads found, her thinks and her other calls come back as the turn\'s episode, shadow marked', async () => {
+  const run = await innerTurn({ answers: ['<think>θα κοιτάξω τα λήμματα</think><call skill="lore.list"/><call skill="message.create">καλημέρα</call>', '<think>τίποτα καινούριο</think><skip/>'] });
+  const episode = run.result.inner.episode;
+  assert.ok(episode, 'an episode');
+  assert.equal(episode.shadow, true);
+  assert.equal(episode.channelId, 'c1');
+  assert.equal(episode.privateUserId, null);
+  assert.equal(episode.selfId, 'self-id');
+  assert.equal(episode.turnId, run.result.inner.turnId);
+  assert.deepEqual(episode.thinks, ['θα κοιτάξω τα λήμματα', 'τίποτα καινούριο']);
+  assert.deepEqual(episode.findings.map((f) => f.skill), ['lore.list']);
+  assert.ok(episode.findings[0].text.length > 0);
+  assert.deepEqual(episode.actions, [{ skill: 'message.create', status: 'proposed' }], 'reads are findings, not actions');
+  const silent = await innerTurn({ answers: ['<skip/>'] });
+  assert.equal(silent.result.inner.episode, null, 'nothing found: no episode');
 });

@@ -349,6 +349,8 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {() => boolean} [options.isWarmingUp]
  * @param {() => boolean} [options.peopleWaiting]  Calls queued for the attention (people first).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
+ * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
+ *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
  * @param {() => number} [options.rng]
  * @param {() => number} [options.now]
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
@@ -369,6 +371,7 @@ export function createInnerLife({
   isWarmingUp = () => false,
   peopleWaiting = () => false,
   meter = null,
+  onEpisode = null,
   rng = Math.random,
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -743,6 +746,14 @@ export function createInnerLife({
     if (group.some((wake) => wake.kind === 'review') && after.review) after.review = { ...after.review, done: true };
     markHandled(after, group, outcome, ended);
     save(guildId);
+    // What she did and found goes to her memory, shadow or live: her reads really ran.
+    if (result.inner?.episode && typeof onEpisode === 'function') {
+      try {
+        onEpisode(String(guildId), result.inner.episode);
+      } catch (err) {
+        log.warn('inner: episode not handed to memory', { guildId, error: err });
+      }
+    }
     const actions = result.inner?.actions ?? [];
     log.info('inner: turn', { guildId, outcome, reason: result.reason ?? null, wakes: group.length, shadow, actions: actions.length, usd: measured.usd, voice: measured.voice });
     note(guildId, {
