@@ -3060,7 +3060,7 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   -> no block.
  * @param {{ name: string, title: string, whenToUse: string, args?: object[] }[]|null} [input.skillsTools]
  *   Her own tools in full, granted to her (src/skills/discovery.js#coreToolRows: the in-turn tools
- *   `task.run` and the intent skills, her grants and the registry only): with `features.coreTools` exactly true and
+ *   `task.run`, and the intent skills, her grants and the registry only): with `features.coreTools` exactly true and
  *   discovery on, `<skills_tools>` in the stable part right after `<skills_granted>` --
  *   `labels.skills.tools.lead`, then one `labels.skills.line` per row (skillsInventoryText),
  *   fixed, never cut. Omitted, null or empty -> no block.
