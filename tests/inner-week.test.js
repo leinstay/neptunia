@@ -26,6 +26,10 @@ import {
   stubVerdict,
   unauthorizedActions,
   FixtureError,
+  gatesTable,
+  renderReport,
+  reportOf,
+  stepsOf,
 } from '../tools/lib/inner-week.mjs';
 import { effectsLookup, main, parseArgs, readFixture, scriptedHistory } from '../tools/inner-week.mjs';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
@@ -358,4 +362,55 @@ test('inner-week: the stub run keeps its state in its own data directory', async
   await runWeek({ fixture: fixture(), dataDir: dir, skills: { effectsOf } });
   const files = fs.readdirSync(path.join(dir, 'guilds', 'g-week')).sort();
   assert.deepEqual(files.filter((f) => !f.startsWith('.')), ['inner.json']);
+});
+
+// ---- live runs: her reasoning and the live-reasons gate ---------------------------
+
+const liveTurn = (at, answers) => ({ ...turnAt(at), voice: 'live', result: { outcome: 'spoke', inner: { actions: [], turnId: `t${at}` }, answers } });
+
+test('inner-week: stepsOf parses her raw answers into think, messages and calls, cut to size', () => {
+  const [step] = stepsOf(['<think>why</think><msg>hi</msg><call skill="intent.update" id="i1" reason="done it">body text</call>']);
+  assert.equal(step.think, 'why');
+  assert.deepEqual(step.messages, ['hi']);
+  assert.deepEqual(step.calls, [{ skill: 'intent.update', args: { id: 'i1', reason: 'done it' }, body: 'body text' }]);
+  assert.deepEqual(stepsOf(null), []);
+  const long = stepsOf([`<think>${'x'.repeat(2000)}</think>`])[0].think;
+  assert.equal(long.length, 1503);
+  assert.ok(long.endsWith('...'));
+});
+
+test('inner-week: in a live run the fixture gate is informational and live-reasons wants her reason on every due intention', () => {
+  const at = Date.parse('2026-11-02T10:00:00Z');
+  const fx = fixture();
+  const dueSeen = [{ id: 'w1', intentionId: 'i1' }, { id: 'w2', intentionId: 'i2' }];
+  const reasoned = '<call skill="intent.update" id="i1" reason="done it"/>';
+  const one = computeGates(bareRun({ dueSeen, turns: [liveTurn(at, [reasoned])] }), fx, effectsOf);
+  assert.equal(gate(one, 'fixture'), undefined);
+  assert.deepEqual([gate(one, 'fixture (stub expectations)').pass, gate(one, 'fixture (stub expectations)').info], [true, true]);
+  assert.equal(gate(one, 'live-reasons').pass, false);
+  assert.match(gate(one, 'live-reasons').detail, /i2/);
+  const thought = '<think>i2 can wait, nothing came of it</think><call skill="intent.cancel" id="i2"/>';
+  const both = computeGates(bareRun({ dueSeen, turns: [liveTurn(at, [reasoned, thought])] }), fx, effectsOf);
+  assert.equal(gate(both, 'live-reasons').pass, true);
+  assert.match(gate(both, 'live-reasons').detail, /^2 due intention/);
+  const stub = computeGates(bareRun({ dueSeen, turns: [turnAt(at)] }), fx, effectsOf);
+  assert.ok(gate(stub, 'fixture'));
+  assert.equal(gate(stub, 'live-reasons'), undefined);
+});
+
+test('inner-week: the report of a live run shows her steps and the informational gate', async () => {
+  const fx = readFixture('ordinary-talk', { dir: FIXTURES });
+  const { run } = await week(fx);
+  assert.ok(run.turns.length > 0);
+  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
+  const gates = computeGates(run, fx, effectsOf);
+  const report = reportOf(run, fx, gates, effectsOf);
+  assert.equal(report.turns[0].steps.length, 1);
+  assert.equal(report.turns[1]?.steps, undefined);
+  const md = renderReport(report);
+  assert.match(md, /\| fixture \(stub expectations\) \| info \|/);
+  assert.match(md, /## Live turns: her reasoning/);
+  assert.match(md, /- think: she asked twice/);
+  assert.match(md, /- call intent\.update/);
+  assert.match(gatesTable([report]), /info/);
 });

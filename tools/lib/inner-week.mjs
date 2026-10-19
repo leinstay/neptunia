@@ -45,6 +45,7 @@ import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { agentProfileOf } from '../../src/agent-runner/profiles.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
+import { parseOutput } from '../../src/llm/parse.js';
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
@@ -1095,8 +1096,41 @@ export function computeGates(run, fixture, effectsOf) {
   if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted) problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
   const accepted = acceptedCandidates(run).length;
   if (fixture.expect.accepted !== null && accepted !== fixture.expect.accepted) problems.push(`accepted candidates ${accepted} != ${fixture.expect.accepted}`);
-  gates.push({ name: 'fixture', pass: problems.length === 0, detail: problems.length === 0 ? 'exercised as expected' : problems.join('; ') });
+  const detail = problems.length === 0 ? 'exercised as expected' : problems.join('; ');
+  const live = run.turns.some((turn) => turn.voice === 'live');
+  if (live) {
+    // The expectations were written for the stub voice: shown, never a verdict on her.
+    gates.push({ name: 'fixture (stub expectations)', pass: true, info: true, detail });
+    const missing = liveReasonsMissing(run);
+    const total = run.dueSeen.filter((item) => item.intentionId).length;
+    gates.push({ name: 'live-reasons', pass: missing.length === 0, detail: missing.length === 0 ? `${total} due intention(s), each with a disposition and her reason recorded` : `no disposition with a reason for: ${missing.join(', ')}` });
+  } else {
+    gates.push({ name: 'fixture', pass: problems.length === 0, detail });
+  }
   return gates;
+}
+
+const THINK_CUT = 1500;
+const BODY_CUT = 500;
+const cut = (text, max) => { const t = String(text ?? ''); return t.length > max ? `${t.slice(0, max)}...` : t; };
+
+/** Her raw answers of a live turn as steps: her think (cut), her messages, each call with its args and cut body. */
+export function stepsOf(answers) {
+  return (Array.isArray(answers) ? answers : []).map((raw) => {
+    const parsed = parseOutput(raw);
+    return {
+      think: cut(parsed.think, THINK_CUT),
+      messages: parsed.messages.map((m) => cut(m.text, THINK_CUT)),
+      calls: parsed.calls.map((c) => ({ skill: c.skill, args: c.args, body: cut(c.body, BODY_CUT) })),
+    };
+  });
+}
+
+/** Ids of the week's due intentions with no live-turn call on them carrying her reason (a `reason` argument, a body, or the step's think). */
+function liveReasonsMissing(run) {
+  const due = [...new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => item.intentionId))];
+  const steps = run.turns.filter((turn) => turn.voice === 'live').flatMap((turn) => stepsOf(turn.result?.answers));
+  return due.filter((id) => !steps.some((step) => step.calls.some((call) => String(call.skill).startsWith('intent.') && String(call.args?.id ?? '') === String(id) && (String(call.args?.reason ?? '').trim() || call.body.trim() || step.think.trim()))));
 }
 
 // ---- the report ----------------------------------------------------------------------
@@ -1127,6 +1161,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
         actions: actionsOf(turn).map((a) => ({ skill: a.skill, status: a.status, ...(a.code ? { code: a.code } : {}), ...(a.args ? { args: a.args } : {}), ...(a.target ? { target: a.target } : {}) })),
+        ...(turn.voice === 'live' ? { steps: stepsOf(turn.result?.answers) } : {}),
         cost: { usd: cost.usd ?? 0, voice: cost.voice ?? 0, requests: cost.requests ?? 0 },
       };
     }),
@@ -1153,7 +1188,7 @@ const cell = (value) => String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g,
 /** One fixture's report as markdown. */
 export function renderReport(report) {
   const lines = [`# Virtual week: ${report.fixture}`, '', report.description, '', `Mode \`${report.mode}\`, ${report.week.start} to ${report.week.end} (${report.week.timezone}), ${report.week.ticks} ticks.`, '', '## Gates', '', '| Gate | Result | Detail |', '|---|---|---|'];
-  for (const gate of report.gates) lines.push(`| ${gate.name} | ${gate.pass ? 'pass' : 'FAIL'} | ${cell(gate.detail)} |`);
+  for (const gate of report.gates) lines.push(`| ${gate.name} | ${gate.info ? 'info' : gate.pass ? 'pass' : 'FAIL'} | ${cell(gate.detail)} |`);
   lines.push('', '## Per day', '', '| Day | Inner turns | Voice requests (info) | USD | Posts | Proposed | Cap refusals |', '|---|---|---|---|---|---|---|');
   for (const [day, d] of Object.entries(report.perDay)) lines.push(`| ${day} | ${d.turns} | ${d.requests} | ${d.usd} | ${d.posts} | ${d.proposed} | ${d.capped} |`);
   const c = report.commitments;
@@ -1164,6 +1199,19 @@ export function renderReport(report) {
   for (const turn of report.turns) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
     lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))}) | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+  }
+  const liveTurns = report.turns.filter((turn) => turn.steps);
+  if (liveTurns.length > 0) {
+    lines.push('', '## Live turns: her reasoning', '');
+    for (const turn of liveTurns) {
+      lines.push(`### ${turn.at} ${turn.kind} (${turn.outcome})`, '');
+      turn.steps.forEach((step, n) => {
+        lines.push(`Step ${n + 1}`, '', `- think: ${step.think || '-'}`);
+        for (const m of step.messages) lines.push(`- message: ${m}`);
+        for (const c of step.calls) lines.push(`- call ${c.skill} ${JSON.stringify(c.args)}${c.body ? ` body: ${c.body}` : ''}`);
+        lines.push('');
+      });
+    }
   }
   lines.push('', '## Cap refusals and drops', '');
   if (report.refusals.length + report.dropped.length === 0) lines.push('None.');
@@ -1199,7 +1247,7 @@ export function gatesTable(reports) {
     const maxTurns = Math.max(0, ...days.map((d) => d.turns));
     const cells = names.map((name) => {
       const gate = report.gates.find((g) => g.name === name);
-      return gate ? (gate.pass ? 'pass' : 'FAIL') : '-';
+      return gate ? (gate.info ? 'info' : gate.pass ? 'pass' : 'FAIL') : '-';
     });
     lines.push(`| ${report.fixture} | ${report.turns.length} | ${maxTurns} | ${maxReq} | ${usd} | ${cells.join(' | ')} |`);
   }
