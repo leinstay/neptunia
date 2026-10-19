@@ -4814,7 +4814,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
           channel: { id: channel.id, name: channel.name ?? null },
           memory: args.asOfMoment ? 'as-of-moment' : 'live',
           ...(hidden ? { hidden } : {}),
-          request: { system: textOfContent(systemMessage.content), user: userText(request.textFallback ?? userMessage.content) },
+          request: { system: textOfContent(systemMessage.content), user: userText(userMessage.content) },
         },
       };
     }

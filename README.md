@@ -184,7 +184,7 @@ See [`docs/messages-and-memory.md`](docs/messages-and-memory.md) for the pipelin
 
 ## Media
 
-The persona can see attached pictures, watch short video clips, read pages behind links, search the web and the server's own message history for facts they do not have, draw pictures on request through an image generation model, and post GIFs from a library built from what the chat shares. Each capability is a separate feature switch, off or capped by default, with its own daily limit. A `<senses>` block in each request tells the persona what is on; they never claim to have perceived anything beyond it. See [`docs/media.md`](docs/media.md) for pictures, video vision, link reading, search, drawing, tools, costs and privacy.
+The persona can see pictures through a vision helper model's captions, watch short video clips, read pages behind links, search the web and the server's own message history for facts they do not have, draw pictures on request through an image generation model, and post GIFs from a library built from what the chat shares. Each capability is a separate feature switch, off or capped by default, with its own daily limit. A `<senses>` block in each request tells the persona what is on; they never claim to have perceived anything beyond it. See [`docs/media.md`](docs/media.md) for pictures, video vision, link reading, search, drawing, tools, costs and privacy.
 
 ## Private chat
 

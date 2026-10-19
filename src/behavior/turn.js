@@ -42,7 +42,7 @@ import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
-import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
+import { DailyCapError, REPLY_REQUEST, TokenLimitError, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
@@ -55,7 +55,6 @@ import {
   collectReadableLinks,
   isDescribable,
   lateVideoStates,
-  selectPictures,
 } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { createDrawingTool, drawPicture, drawPromptOf } from '../errands/tools.js';
@@ -909,22 +908,15 @@ function splitForMirror(text, max) {
 
 /**
  * Describable pictures (image/gif/video/sticker/link-thumbnail, plus custom
- * emoji — see src/media/classify.js#isDescribable) of `history` that are NOT
- * among `picked` (the ones already attached as image_url parts), newest
+ * emoji — see src/media/classify.js#isDescribable) of `history`, newest
  * message first — so a per-turn cap spends its budget on what the persona
  * just saw. Pictures (collectPictures) come before that message's emoji.
- *
- * With `includePicked` (features.attachedDescriptions), the attached pictures
- * are candidates too and come FIRST, newest first: they are what the turn is
- * about. A picked `link` thumbnail stays out -- its attached form
- * (frameAttached) never shows a caption, so one would be spent for nothing.
  */
-function describableCandidates(history, picked, { includePicked = false } = {}) {
-  const pickedIds = new Set(picked.map((p) => p.itemId));
-  const out = includePicked ? [...picked].reverse().filter((item) => item.kind !== 'link' && isDescribable(item)) : [];
+function describableCandidates(history) {
+  const out = [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
     for (const item of [...collectPictures(history[i]), ...collectEmojiItems(history[i])]) {
-      if (pickedIds.has(item.itemId) || !isDescribable(item)) continue;
+      if (!isDescribable(item)) continue;
       out.push(item);
     }
   }
@@ -1398,7 +1390,7 @@ function cutOffOf(completion, parsed, { channelId, empty, followUp }) {
  * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
  */
 function journalTurnRecord(draft, result) {
-  const seen = draft.seen ?? { messageIds: [], parents: [], parts: { images: [], filePreviews: [] } };
+  const seen = draft.seen ?? { messageIds: [], parents: [], parts: { filePreviews: [] } };
   return {
     turnId: draft.started.turnId,
     attemptId: draft.started.attemptId,
@@ -2119,37 +2111,6 @@ export function createTurnRunner({
   }
 
   /**
-   * The user content of a continuation request (`request`, buildRequest's): its pictures as the
-   * turn's first request sent them (`pictures.urls`: each picture's URL -> the data: URL it was
-   * downloaded as), a picture it did not attach downloaded now (context.vision, read now); the
-   * text-only re-render when the first request went without pictures (`pictures.off`) or a
-   * download fails. The content as it is without pictures.
-   */
-  async function continuationContent(request, pictures) {
-    const content = request.messages[1].content;
-    if (!Array.isArray(content) || !content.some((part) => part?.type === 'image_url')) return content;
-    if (pictures.off) return request.textFallback;
-    const visionCfg = hot.config.context?.vision ?? {};
-    const out = [];
-    for (const part of content) {
-      if (part?.type !== 'image_url') {
-        out.push(part);
-        continue;
-      }
-      const url = part.image_url.url;
-      let dataUrl = pictures.urls.get(url);
-      if (!dataUrl) {
-        const downloaded = await imageFetcher.fetchAsDataUrl(url, { maxBytes: visionCfg.maxBytes, timeoutMs: visionCfg.fetchTimeoutMs });
-        if (!downloaded) return request.textFallback;
-        dataUrl = downloaded.dataUrl;
-        pictures.urls.set(url, dataUrl);
-      }
-      out.push({ type: 'image_url', image_url: { url: dataUrl } });
-    }
-    return out;
-  }
-
-  /**
    * The request that continues the turn after the persona's skill call (`called`, runCall's):
    * the turn's own request (`continuation.input`, buildRequest's input as the turn built it)
    * rebuilt over the channel as it stands now -- the turn's history, then a fresh fetch and her
@@ -2166,7 +2127,7 @@ export function createTurnRunner({
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
   async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null }) {
-    const { input, history, shownLines = [], pictures } = continuation;
+    const { input, history, shownLines = [] } = continuation;
     let fetched = [];
     try {
       fetched = await fetchHistory(channel, historyOptions(hot.config, input.mode === 'inner'));
@@ -2188,9 +2149,8 @@ export function createTurnRunner({
       .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultMaxChars }))
       .filter(Boolean)
       .join('\n\n');
-    const content = await continuationContent(request, pictures);
     return {
-      messages: withSkillResult([request.messages[0], { ...request.messages[1], content }], resultBlock),
+      messages: withSkillResult([request.messages[0], request.messages[1]], resultBlock),
       routing: { idByIndex: request.idByIndex, history: lines, lines: [...shownLines, ...lines], pulledIds: request.pulledIds ?? new Map(), handles: request.handles ?? null, channelHandles: request.channelHandles ?? null },
     };
   }
@@ -2199,7 +2159,7 @@ export function createTurnRunner({
    * The one follow-up request after a skill call (runCall's `called`, whose `followUp` is true).
    * With continuesTurn (features.followUpContinuation and the call marks on, read now; the
    * labels the turn's request was built with) and a `continuation` (the turn's request input,
-   * its history, the pulled lines it showed and its pictures) it continues the turn:
+   * its history and the pulled lines it showed) it continues the turn:
    * continuationRequest -- the channel as it stands now with this call's mark on her line, the
    * continue task, an `ok` call's data in `<result>` -- and act answers over that transcript.
    * Otherwise (the switch off: the earlier framing, kept to compare) the reply request as it was
@@ -6022,21 +5982,14 @@ export function createTurnRunner({
       const previews = track('previews', () => withTextPreviews(rawHistory, config.media?.filePreviewChars ?? 10000, fetchImpl));
       const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
-      // Pictures NOT selected to be attached as image_url may still get a
-      // helper's caption, newest first, capped at media.maxPerTurn; cached
-      // captions are free (see src/memory/describe.js). With
-      // features.attachedDescriptions (a missing key counts as on) the
-      // attached ones get one too, ahead of the rest, shown next to their
-      // attachment marker. Only this channel's pictures are attached, as
-      // buildRequest picks them: a routed call's own pictures are captioned
-      // with its pulled channel instead.
+      // The pictures of the window get a helper's caption, newest first, capped at
+      // media.maxPerTurn; cached captions are free (see src/memory/describe.js). The caption is
+      // the only way a picture reaches the persona: none goes into her request as an image. A
+      // routed call's own pictures are captioned with its pulled channel instead.
       let captions = null;
       let captionCandidates = [];
       if (features.mediaDescriptions === true && describer) {
-        const visionCfg = config.context.vision ?? {};
-        const picked = features.vision !== false ? selectPictures({ trigger, history: rawHistory, visionCfg, now, channelId: channel.id }) : [];
-        const includePicked = features.attachedDescriptions !== false;
-        captionCandidates = describableCandidates(rawHistory, picked, { includePicked });
+        captionCandidates = describableCandidates(rawHistory);
         const describeOp = captionCandidates.length > 0 ? prepStep('captions', 'describe', { input: { candidates: captionCandidates.length } }) : null;
         captions = track('captions', () =>
           journalled(describeOp, () => describer.describeMany(guildId, captionCandidates, { maxNew: config.media?.maxPerTurn ?? 6 }), (value) => {
@@ -6115,15 +6068,15 @@ export function createTurnRunner({
       // A second look when the trigger asks about a watched video or a posted picture: a
       // direct address only (never a spontaneous or an overheard turn, never the drawFailed
       // turn). Videos under features.videoRewatch (with the video stage), watched GIFs under
-      // features.videoRewatch and video vision, pictures under
-      // features.imageRelook and features.vision (a missing key counts as on, each), the
-      // persona's own posted drawings included.
+      // features.videoRewatch and video vision, pictures under features.imageRelook (a missing
+      // key counts as on, each; the look runs through the vision model), the persona's own
+      // posted drawings included.
       // A routed call asks about its source, whose media no turn looks at: the media
       // here belong to another conversation, so nothing is offered or retried.
       // It needs the videos' states and its transcript the file previews; it works on a
       // copy of the states, so a late re-watch never touches what the request was built from.
       const videoRewatchOn = Boolean(videoStage) && features.videoRewatch !== false && typeof describer.rewatchVideo === 'function';
-      const imageRelookOn = features.imageRelook !== false && features.vision !== false && typeof describer?.relookImage === 'function';
+      const imageRelookOn = features.imageRelook !== false && typeof describer?.relookImage === 'function';
       // Watched GIFs under features.videoRewatch and video vision (they are watched as clips);
       // the describer's watchedGifs offers none while GIFs are not watched (media.gif.watch).
       const gifRewatchOn =
@@ -6666,73 +6619,21 @@ export function createTurnRunner({
         budgetDrops(request.stats, draft.limits);
       }
 
-      // A Discord CDN image the provider cannot fetch must not cost the
-      // persona the reply -- the provider's own fetcher gets a 403 from
-      // Discord on some CDN hosts, so every image_url part is downloaded HERE
-      // and replaced by its data: URL before the model ever sees a Discord
-      // URL. Because the transcript text refers to attached pictures by
-      // number, a turn where ANY download failed is sent with
-      // request.textFallback and NO pictures at all -- simple and always
-      // consistent, rather than renumbering around a gap.
-      let messages = request.messages;
-      const userMessage = messages[1];
-      // What this request sent of its pictures, for a skill call's continuation (continuationContent).
-      const sentPictures = { urls: new Map(), off: false };
-      if (Array.isArray(userMessage?.content)) {
-        const visionCfg = config.context.vision ?? {};
-        let allDownloaded = true;
-        const resolvedContent = await beforeBar(
-          Promise.all(
-            userMessage.content.map(async (part) => {
-              if (part.type !== 'image_url') return part;
-              const downloaded = await imageFetcher.fetchAsDataUrl(part.image_url.url, {
-                maxBytes: visionCfg.maxBytes,
-                timeoutMs: visionCfg.fetchTimeoutMs,
-              });
-              if (!downloaded) {
-                allDownloaded = false;
-                return part;
-              }
-              sentPictures.urls.set(part.image_url.url, downloaded.dataUrl);
-              return { type: 'image_url', image_url: { url: downloaded.dataUrl } };
-            }),
-          ),
-        );
-        sentPictures.off = !allDownloaded;
-        messages = [messages[0], { ...userMessage, content: allDownloaded ? resolvedContent : request.textFallback }];
-        if (!allDownloaded && draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
-      }
+      // The request is text only (buildRequest never attaches a picture: the persona sees them
+      // through the describer's captions), so nothing is downloaded or resent here.
+      const messages = request.messages;
 
       let completion;
-      // What the client was last given, for the journal's request dump.
-      let sentMessages = messages;
+      // What the client was given, for the journal's request dump.
+      const sentMessages = messages;
       const replyStartedAt = clock();
       try {
         completion = await beforeBar(llm.complete(messages, replyOptions()));
       } catch (err) {
-        // The bar passed (or no time was left to ask): the turn is dropped, nothing is resent.
-        if (err === TOO_SLOW || bar.passed) throw TOO_SLOW;
-        // Second line of defence: the picture downloaded fine on our end but
-        // the provider still rejects the request for some 4xx reason.
-        // request.textFallback is a full re-render of the same user message
-        // with every imageAttached/frameAttached tag dropped back to its
-        // blind/described form -- resending the ORIGINAL text (still
-        // claiming a picture is attached) alongside no actual image would be
-        // worse than the error itself.
-        // A 408 or 429 (timeout, rate limit, quota) says nothing about the
-        // pictures and the client has already retried it (RETRY_STATUS): a
-        // resend would only double a doomed request while the persona's one
-        // attention waits, so it propagates like any error without pictures.
-        const aboutThePictures = err.statusCode >= 400 && err.statusCode < 500 && !RETRY_STATUS.has(err.statusCode);
-        if (Array.isArray(request.textFallback) && aboutThePictures) {
-          const textOnly = request.messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
-          if (draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
-          sentPictures.off = true;
-          sentMessages = textOnly;
-          completion = await beforeBar(llm.complete(textOnly, replyOptions()));
-        } else {
-          throw err;
-        }
+        // The bar passed, or no time is left under it by the time the error lands: the turn is
+        // dropped as too slow (an answer could not be asked for again), not reported as an error.
+        if (err === TOO_SLOW || bar.passed || bar.leftMs() === 0) throw TOO_SLOW;
+        throw err;
       } finally {
         // Where this turn's time went, answered or not: numbers and codes only.
         const end = clock();
@@ -7048,7 +6949,7 @@ export function createTurnRunner({
           shapeOutput,
           acted,
           actOn: (parsedAgain, again = null) => act({ ...actArgs, parsed: parsedAgain, set: null, ...(again ?? {}) }),
-          continuation: { input: requestInput, history, shownLines, pictures: sentPictures },
+          continuation: { input: requestInput, history, shownLines },
           planNext,
           stray: strayFollowUpDue,
         });
@@ -7066,7 +6967,7 @@ export function createTurnRunner({
             shapeOutput,
             acted,
             act: (parsedAgain, again = null) => act({ ...actArgs, parsed: parsedAgain, set: null, ...(again ?? {}) }),
-            continuation: { input: requestInput, history, shownLines, pictures: sentPictures },
+            continuation: { input: requestInput, history, shownLines },
           });
         }
       }

@@ -176,10 +176,9 @@ export function formatDuration(ms, units) {
  * One rendered tag per attachment/embed/sticker of `message`, most
  * informative form available (see docs/prompt-contract.md, "Media in
  * a transcript line" and src/media/classify.js#mediaLabelFor/stickerLabelFor):
- * attached to this request > described > blind, plus one extra tag per
- * distinct described custom emoji unless `context.emojiInline` is false (the
- * request describes them once elsewhere). `context.attachedIndex`/
- * `context.descriptions` are optional `Map`s keyed by the item's id (an
+ * described > blind, plus one extra tag per distinct described custom emoji
+ * unless `context.emojiInline` is false (the request describes them once
+ * elsewhere). `context.descriptions` is an optional `Map` keyed by the item's id (an
  * attachment's Discord id, a link's synthesized id, `sticker:<id>` or
  * `emoji:<id>` — see normalizeMessage). `context.videos` is an optional
  * `Map` of the same ids to a video state (see mediaLabelFor); it only takes
@@ -264,10 +263,6 @@ function mediaTags(message, labels, context = {}) {
     pushTag({ key, values });
     for (const tag of Array.isArray(extra) ? extra : extra ? [extra] : []) pushTag(tag);
   };
-  // An attached picture's caption (imageAttachedDescribed): a key blanked in
-  // prompts.local/labels.json switches this form off, the bare imageAttached
-  // renders instead.
-  const attachedCaptionOn = Boolean(labels.transcript.imageAttachedDescribed);
   // A library GIF's handle (gifKnown / gifKnownNoText): blanking the one
   // chosen switches it off, the plain GIF form renders instead.
   const handleOf = (item, kind) => (item.kind === 'gif' ? gifHandleOf(context.gifHandles, item, kind) : null);
@@ -287,18 +282,13 @@ function mediaTags(message, labels, context = {}) {
     return label;
   };
   for (const attachment of message.attachments ?? []) {
-    const attachedIndex = context.attachedIndex?.get(attachment.id) ?? null;
     const description = context.descriptions?.get(attachment.id) ?? null;
     const video = videoOf(attachment.id);
     const gifHandle = handleOf(attachment, 'attachment');
     const answer = answerOf(attachment);
-    const label = withGifFallback(mediaLabelFor(attachment, { attachedIndex, description, unknownDuration, video, gifHandle, gifFields: gifFieldsOf(attachment), answer }));
-    pushLabel(
-      label.key === 'imageAttachedDescribed' && !attachedCaptionOn ? { ...label, key: 'imageAttached', values: { n: label.values.n } } : label,
-    );
+    pushLabel(withGifFallback(mediaLabelFor(attachment, { description, unknownDuration, video, gifHandle, gifFields: gifFieldsOf(attachment), answer })));
   }
   for (const link of message.links ?? []) {
-    const attachedIndex = context.attachedIndex?.get(link.id) ?? null;
     // A plain 'link' (video-site preview) thumbnail description
     // (transcript.thumbnailDescribed): a key blanked in
     // prompts.local/labels.json switches this form off -- a 'gif' embed's
@@ -309,10 +299,9 @@ function mediaTags(message, labels, context = {}) {
     const read = readsOn ? (context.reads?.get(link.id) ?? null) : null;
     const gifHandle = handleOf(link, 'link');
     const answer = answerOf(link);
-    pushLabel(withGifFallback(mediaLabelFor(link, { attachedIndex, description, unknownDuration, video: videoOf(link.id), read, gifHandle, gifFields: gifFieldsOf(link), answer })));
+    pushLabel(withGifFallback(mediaLabelFor(link, { description, unknownDuration, video: videoOf(link.id), read, gifHandle, gifFields: gifFieldsOf(link), answer })));
   }
   for (const sticker of message.stickers ?? []) {
-    const attachedIndex = context.attachedIndex?.get(`sticker:${sticker.id}`) ?? null;
     const description = labels.transcript.stickerDescribed
       ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? null)
       : null;
@@ -321,7 +310,7 @@ function mediaTags(message, labels, context = {}) {
     // transcript tells a picture-format sticker from a Lottie one exactly
     // like a live chat transcript does.
     const url = sticker.url ?? stickerUrl(sticker.id, sticker.format);
-    pushLabel(stickerLabelFor({ ...sticker, url }, { attachedIndex, description }));
+    pushLabel(stickerLabelFor({ ...sticker, url }, { description }));
   }
   // `context.emojiInline === false`: the request lists the emoji once in its
   // `<emoji>` block (src/behavior/prompt.js), so the line keeps the bare `:name:`.
@@ -706,10 +695,6 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  * @param {'chat'|'memory'} [options.mode]  'memory' drops #indexes and adds user ids;
  *   a reply renders `transcript.replyToMemory` (`{author}`, `{quote}`, no `{index}`) in place
  *   of `transcript.replyTo`; it also groups by channel (see below).
- * @param {Map<string, number>} [options.attachedIndex]  Item id -> its 1-based
- *   position among this request's `image_url` parts (see
- *   src/behavior/prompt.js#selectPictures); renders `transcript.imageAttached`, or
- *   `transcript.imageAttachedDescribed` when `descriptions` also has a caption for it.
  * @param {Map<string, string>} [options.descriptions]  Item id -> a describer
  *   caption (src/memory/describe.js); renders the `*Described` label forms.
  * @param {Map<string, { state: 'watched'|'limit'|'error'|'pending', text?: string, reason?: string }>} [options.videos]
@@ -802,12 +787,12 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  * channel run, never across a channel switch.
  */
 export function formatTranscript(messages, options) {
-  const { timezone, gapMinutes, maxChars, selfName, labels, mode = 'chat', attachedIndex, descriptions, videos, reads, gifHandles, gifFields, imageAnswers } = options;
+  const { timezone, gapMinutes, maxChars, selfName, labels, mode = 'chat', descriptions, videos, reads, gifHandles, gifFields, imageAnswers } = options;
   const skip = typeof options.skip === 'function' ? options.skip : null;
   const seeReactions = options.seeReactions ?? true;
   const reactionsPerMessage = options.reactionsPerMessage ?? 6;
   const replyQuoteChars = options.replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS;
-  const mediaContext = { attachedIndex, descriptions, videos, reads, gifHandles, gifFields, imageAnswers, emojiInline: options.emojiInline !== false };
+  const mediaContext = { descriptions, videos, reads, gifHandles, gifFields, imageAnswers, emojiInline: options.emojiInline !== false };
   const locale = labels.locale;
   const selfLabel = fill(labels.self, { name: selfName });
   const indexOffset = options.indexOffset ?? 0;

@@ -1,13 +1,13 @@
 // The token limit buildRequest (src/behavior/prompt.js) fits a request under: `llm.safetyMargin`
-// read with the validated fallback of src/llm/budget.js#requestTokenLimit (0.9), and `context.vision.tokensPerImage`
-// with the same default the llm rail charges (400, src/llm/tokens.js#estimateMessages). Then where
+// read with the validated fallback of src/llm/budget.js#requestTokenLimit (0.9); a picture in the chat
+// reserves nothing (none is attached, the persona reads its caption). Then where
 // a pulled channel (`<channel_view>`) sits in that budget: capped by `context.caps.pulled`, after
 // the chat on an ordinary turn, before it on a routed one, never a reason to fail the request.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { estimateMessages, estimateTokens } from '../src/llm/tokens.js';
+import { estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -34,7 +34,7 @@ function input({ llm = {}, vision = {}, picture = false } = {}) {
         gapMarkerMinutes: 20,
         maxMessageChars: 800,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500, pulled: 4000 },
-        vision: { maxImages: 2, imageSize: 512, recentImages: 0, recentImageMinutes: 0, ...vision },
+        vision: { ...vision },
       },
       features: {},
       llm: { maxRequestTokens: 50000, ...llm },
@@ -65,15 +65,11 @@ test('buildRequest: a missing or unusable llm.safetyMargin is read as 0.9, a usa
   assert.equal(buildRequest(input({ llm: { safetyMargin: 1 } })).stats.limit, 50000 - TAG_OVERHEAD);
 });
 
-test('buildRequest: a picture reserves context.vision.tokensPerImage, 400 when unset -- what the llm rail charges for it', () => {
-  const unset = buildRequest(input({ llm: { safetyMargin: 0.9 }, picture: true }));
-  assert.equal(unset.stats.images, 1);
-  assert.equal(unset.stats.limit, Math.floor(50000 * 0.9) - 400 - TAG_OVERHEAD);
-  const pictureCost = estimateMessages([{ content: [{ type: 'image_url', image_url: { url: 'x' } }] }]) - estimateMessages([{ content: [] }]);
-  assert.equal(pictureCost, 400, 'the rail charges the same default');
-
-  const set = buildRequest(input({ llm: { safetyMargin: 0.9 }, vision: { tokensPerImage: 1000 }, picture: true }));
-  assert.equal(set.stats.limit, Math.floor(50000 * 0.9) - 1000 - TAG_OVERHEAD);
+test('buildRequest: a picture in the chat reserves nothing of the budget -- it is never attached, whatever tokensPerImage says', () => {
+  const withPicture = buildRequest(input({ llm: { safetyMargin: 0.9 }, vision: { tokensPerImage: 1000 }, picture: true }));
+  assert.equal(withPicture.stats.limit, Math.floor(50000 * 0.9) - TAG_OVERHEAD);
+  assert.ok(withPicture.messages[1].content.every((part) => part.type === 'text'));
+  assert.equal('images' in withPicture.stats, false);
 });
 
 // --- the pulled channel block (`<channel_view>`, budget section `pulled`) ----------------

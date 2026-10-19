@@ -904,7 +904,7 @@ function sandboxMessages(input, samples) {
   const config = input.view.config;
   const request = buildRequest(sandboxRequestInput(input));
   const [systemMessage, userMessage] = request.messages;
-  const userText = userTextOf(request.textFallback ?? userMessage.content);
+  const userText = userTextOf(userMessage.content);
   const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
   const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
   return { request, systemMessage, userMessage, userText, userContent, messages: [systemMessage, { ...userMessage, content: userContent }] };

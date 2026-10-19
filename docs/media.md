@@ -6,15 +6,13 @@ Transcript lines carry media markers in brackets: pictures, GIFs, videos, sticke
 
 ## Pictures
 
-`features.vision` attaches pictures from the calling message, from the message it replies to, and the newest few in the channel to the LLM request as images, downscaled through Discord's media proxy. The bot downloads every picture itself and sends it inline as data, because Discord refuses downloads coming from the model provider. Pictures larger than `context.vision.maxBytes` or slower than `context.vision.fetchTimeoutMs` are skipped. The persona sees these directly, with no helper needed.
-
-When `features.attachedDescriptions` is on (the default), the describer also runs for attached pictures. The persona still sees the picture directly; the helper's note catches what is easy to miss at a glance (who the characters are, what happened, what the joke is). The helper can be wrong, so the persona's own eyes come first. Needs both `vision` and `mediaDescriptions` on. Each attached picture costs one extra describer request within `media.maxPerTurn`.
+No picture ever goes into the persona's own request as an image: her eyes are the vision helper model. A picture reaches her as the describer's one-line caption in the transcript line, and, when she is asked about it, through a second look that answers the question (below). Pictures larger than `context.vision.maxBytes` or slower than `context.vision.fetchTimeoutMs` are skipped by those downloads.
 
 When `features.imageRelook` is on (the default) and someone addresses the persona with a question or a concrete claim about a picture, the re-watch classifier offers recent pictures alongside videos and the vision model looks at the picture again with that question. The answer appears in the transcript under the picture's line. Picture relooks share the daily `media.video.rewatch.maxPerDay` counter with video re-watches. Retry applies to videos only.
 
 `features.mediaDescriptions` (on by default) runs the `vision` role's model to write a one-line description for pictures, GIF frames, video posters, stickers, custom emoji and link thumbnails. Each attachment is described once and cached in `data/guilds/<id>/media.json`. Descriptions feed the chat transcript, the memory analyzer and the warmup. The describer's prompt is `prompts/describe.md`.
 
-Stickers and custom emoji recur constantly, so they are cached by id and cost nearly nothing after the first description. With `features.vision`, the sticker of the calling message is attached as a picture. Discord's built-in animated stickers are Lottie animations, not images, so they are never more than a name.
+Stickers and custom emoji recur constantly, so they are cached by id and cost nearly nothing after the first description. Discord's built-in animated stickers are Lottie animations, not images, so they are never more than a name.
 
 When `features.customEmoji` is on (the default), an `<emoji>` block lists the server's most-used custom emoji ranked by how often members use them (at most `context.customEmoji.max`, default 30). The persona can write `:name:` in a message or a reaction, and the engine turns known names into real emoji. Unknown names stay as plain text. At first startup the engine seeds the ranking by reading the last `context.customEmoji.backfillMessages` (default 500) messages of every readable channel (no model calls); `/nep media kind:emoji action:rescan` clears the ranking and recounts from scratch.
 
@@ -24,7 +22,7 @@ When `media.gif.watch` is on (the default, needs video vision on as well), a GIF
 
 When `features.gifPicker` is on (the default, needs `features.gifs` on and a non-empty library), a classifier on the `analyzer` role picks a GIF from the full library to replace a short first message. The picker runs when the persona's first outgoing message is at most `gifs.pick.maxChars` (default 160) characters and she chose no GIF herself; it sees the last few chat lines, that first message and every library entry with its caption. On a match the GIF replaces the first message and replies where it would have; the remaining messages follow in order. When the GIF fails to send, every message goes as written.
 
-Settings: `context.vision.*` for direct vision, `media.*` for the describer, `gifs.*` for the GIF library. See [Configuration](configuration.md#media) for every key.
+Settings: `context.vision.*` for the picture downloads and the rail's image estimate, `media.*` for the describer, `gifs.*` for the GIF library. See [Configuration](configuration.md#media) for every key.
 
 ## Video
 

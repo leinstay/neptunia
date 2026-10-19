@@ -67,7 +67,7 @@ function sceneHot({ coreTools, access = {} } = {}) {
   const features = {
     memory: true, reactions: true, multiMessage: true, typingSimulation: false, customEmoji: true, gifs: true,
     imageGeneration: true, channelPull: true, elsewhere: true, recent: true, videoRewatch: true, imageRelook: true,
-    videoDescriptions: true, attachedDescriptions: true, vision: false, privateLikeServer: true,
+    videoDescriptions: true, privateLikeServer: true,
     followUpContinuation: true, webLookup: true, recall: true,
   };
   if (coreTools !== undefined) features.coreTools = coreTools;

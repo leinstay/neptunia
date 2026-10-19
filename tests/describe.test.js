@@ -2104,7 +2104,7 @@ test('rewatchVideo: logs one describe: rewatch line -- never the question, the a
 
 /** rewatchHot with the picture switches on and the image settings the download reads. */
 function relookHot({ features = {}, rewatch = {}, prompts = {} } = {}) {
-  const hot = rewatchHot({ features: { vision: true, imageRelook: true, ...features }, rewatch, prompts });
+  const hot = rewatchHot({ features: { imageRelook: true, ...features }, rewatch, prompts });
   hot.config.media.imageSize = 512;
   return hot;
 }
@@ -2207,10 +2207,9 @@ test('relookImage: a spent llm.maxRequestsPerDay takes no slot; a failed downloa
   assert.deepEqual(Object.keys(failed.store.getMediaCache('g1')), []);
 });
 
-test('relookImage: imageRelook off, vision off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
+test('relookImage: imageRelook off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
   const cases = [
     { hot: relookHot({ features: { imageRelook: false } }), item: pictureItem('a1'), question: 'q?' },
-    { hot: relookHot({ features: { vision: false } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot({ prompts: { 'rewatch-answer': undefined } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot(), item: pictureItem('a1', { kind: 'gif' }), question: 'q?' },
     { hot: relookHot(), item: videoAttachment(), question: 'q?' },

@@ -50,8 +50,8 @@ const EXT_KIND = {
   js: 'text',
 };
 
-// Media "picture" kinds: the ones that can be attached to a request as an
-// image_url part (see selectPictures/collectPictures below).
+// Media "picture" kinds: the ones collectPictures (below) lists for the
+// describer.
 const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
 // Media kinds the describer (src/memory/describe.js) can produce a caption
 // for. 'sticker'/'emoji' are added here for the same reason a picture-format
@@ -528,23 +528,17 @@ function extraOf(...extras) {
 
 /**
  * Choose which `labels.transcript.*` key (and fill values) renders one media
- * item, in priority order: attached to this request (most informative) >
- * described > blind. `item` is a normalized attachment or link/embed item
- * (see interfaces/discord/collect.js): `{ kind, name?, site?, title?, text?,
- * durationSec?, previewText? }`.
+ * item, in priority order: described (the helper's caption, the only way a
+ * picture reaches the persona) > blind. `item` is a normalized attachment or
+ * link/embed item (see interfaces/discord/collect.js): `{ kind, name?, site?,
+ * title?, text?, durationSec?, previewText? }`.
  *
- * A plain image/thumbnail attached to the request renders as a bare
- * `imageAttached`, or as `imageAttachedDescribed` (`{ n, text }`: the marker
- * and the helper's caption together) when a caption exists -- with that key
- * blanked in prompts.local/labels.json, src/format.js falls back to
- * `imageAttached`. A video or gif whose still frame is attached keeps its
- * normal form (`video`/`videoDescribed`/`gif`/`gifDescribed` -- so the
- * persona still knows it WAS a video, its name, its duration) and carries a
- * second tag in `extra`: `frameAttached`, numbered the same way. A `link`
+ * A plain image renders as `imageDescribed` when a caption exists, else the
+ * blind `image`; a video or gif as `video`/`videoDescribed`/`gif`/`gifDescribed`
+ * (so the persona still knows it WAS a video, its name, its duration). A `link`
  * (a video-site embed, e.g. YouTube) never swaps its own tag: the plain
  * `link`/`linkText` form always stays, and ONE extra tag follows it —
- * `frameAttached` when its thumbnail is attached, else `thumbnailDescribed`
- * when a caption exists, else nothing.
+ * `thumbnailDescribed` when a caption exists, else nothing.
  *
  * `context.video` is the item's video state (see collectVideos and the video
  * describer): `{ state: 'watched', text }`, `{ state: 'limit', reason:
@@ -558,17 +552,15 @@ function extraOf(...extras) {
  * frame caption exists) or `videoNotWatched`, `values.reason` carrying the
  * reason CODE (`'length'|'size'|'daily'|'error'|'pending'`, never a label -- see
  * src/format.js). A `link` with a video state swaps its one extra for
- * `linkWatched` / `linkNotWatchedFrame` / `linkNotWatched`; when its
- * thumbnail is also attached, `extra` is an array: `frameAttached` first,
- * the video extra second. A watched video (attachment or link) whose state
+ * `linkWatched` / `linkNotWatchedFrame` / `linkNotWatched`. A watched video (attachment or link) whose state
  * carries `answer: { question, text }` (a second look on a question, see
  * src/memory/describe.js#rewatchVideo) appends `videoAnswered` after every
  * other tag of the item. Every other kind ignores `context.video`.
  *
  * `context.read` is the excerpt of a `link` page read by the web lookup
  * (src/web/lookup.js#readLink): it appends `linkRead` after every other extra
- * of the link (frameAttached, the video extra, videoAnswered or
- * thumbnailDescribed). Every other kind ignores it.
+ * of the link (the video extra, videoAnswered or thumbnailDescribed). Every
+ * other kind ignores it.
  *
  * `context.gifHandle` is the library handle (`g12`, see
  * src/memory/gifs.js#gifHandleOf) of a `gif` item the persona can post
@@ -587,13 +579,13 @@ function extraOf(...extras) {
  * ignores it (`gifDescribed` keeps the caption alone).
  *
  * `context.answer` is a picture's second look on a question (`{ question,
- * text }`, src/memory/describe.js#relookImage): an `image` item, attached or
- * not, appends `imageAnswered` after its own tag. A `gif` item takes a GIF's
+ * text }`, src/memory/describe.js#relookImage): an `image` item appends
+ * `imageAnswered` after its own tag. A `gif` item takes a GIF's
  * second look the same way (src/memory/describe.js#rewatchGif) and appends
  * `videoAnswered` instead: its clip was watched again, as a video's. Every
  * other kind ignores it (a video's answer lives in its state, `context.video.answer`).
  * @param {object} item
- * @param {{ attachedIndex?: number|null, description?: string|null, unknownDuration?: string,
+ * @param {{ description?: string|null, unknownDuration?: string,
  *   video?: { state: 'watched'|'limit'|'error'|'pending', text?: string, reason?: string, watchedSeconds?: number,
  *     totalSeconds?: number, answer?: { question: string, text: string } }|null, read?: string|null, gifHandle?: string|null,
  *   gifFields?: { reaction?: string, action?: string, screen?: string }|null,
@@ -604,7 +596,6 @@ function extraOf(...extras) {
 export function mediaLabelFor(
   item,
   {
-    attachedIndex = null,
     description = null,
     unknownDuration = '?',
     video = null,
@@ -614,26 +605,6 @@ export function mediaLabelFor(
     answer = null,
   } = {},
 ) {
-  // A `link`'s attached thumbnail is handled in its own case below.
-  if (attachedIndex != null && PICTURE_ATTACHMENT_KINDS.has(item.kind)) {
-    if (item.kind === 'video' || item.kind === 'gif') {
-      const gifOnly = item.kind === 'gif';
-      const base = mediaLabelFor(item, {
-        description,
-        unknownDuration,
-        video,
-        gifHandle,
-        gifFields: gifOnly ? gifFields : null,
-        answer: gifOnly ? answer : null,
-      });
-      return { ...base, extra: extraOf({ key: 'frameAttached', values: { n: attachedIndex } }, base.extra) };
-    }
-    const attached = description
-      ? { key: 'imageAttachedDescribed', values: { n: attachedIndex, text: description } }
-      : { key: 'imageAttached', values: { n: attachedIndex } };
-    return withExtra(attached, extraOf(imageAnsweredExtra(answer)));
-  }
-
   switch (item.kind) {
     case 'image': {
       const base = description ? { key: 'imageDescribed', values: { text: description } } : { key: 'image', values: {} };
@@ -691,14 +662,13 @@ export function mediaLabelFor(
       const base = item.text
         ? { key: 'linkText', values: { site: item.site ?? '', title: item.title ?? '', text: item.text } }
         : { key: 'link', values: { site: item.site ?? '', title: item.title ?? '' } };
-      const frame = attachedIndex != null && item.thumbnailUrl ? { key: 'frameAttached', values: { n: attachedIndex } } : null;
       const readExtra = read ? { key: 'linkRead', values: { text: read } } : null;
       if (video) {
         const videoExtra = linkVideoExtra(video, description, item);
-        return { ...base, extra: extraOf(frame, videoExtra, answeredExtra(video), readExtra) };
+        return { ...base, extra: extraOf(videoExtra, answeredExtra(video), readExtra) };
       }
-      const thumbnail = !frame && description ? { key: 'thumbnailDescribed', values: { text: description } } : null;
-      const extra = extraOf(frame, thumbnail, readExtra);
+      const thumbnail = description ? { key: 'thumbnailDescribed', values: { text: description } } : null;
+      const extra = extraOf(thumbnail, readExtra);
       return extra ? { ...base, extra } : base;
     }
     default:
@@ -709,21 +679,16 @@ export function mediaLabelFor(
 /**
  * Choose which `labels.transcript.*` key (and fill values) renders one
  * sticker item, mirroring `mediaLabelFor`'s priority for the picture-format
- * ones (PNG/APNG/GIF -- `sticker.url` is set, see stickerUrl): attached >
- * described > blind (plain `sticker`, name only). A Lottie sticker
- * (`sticker.url` is null) is never a picture: always the plain `sticker`
- * form, regardless of `attachedIndex`/`description` -- see
- * `senses.lottie`.
+ * ones (PNG/APNG/GIF -- `sticker.url` is set, see stickerUrl): described >
+ * blind (plain `sticker`, name only). A Lottie sticker (`sticker.url` is
+ * null) is never a picture: always the plain `sticker` form, regardless of
+ * `description` -- see `senses.lottie`.
  * @param {{ name: string, url: string|null }} sticker
- * @param {{ attachedIndex?: number|null, description?: string|null }} [context]
- * @returns {{ key: string, values: object, extra?: { key: string, values: object } }}
+ * @param {{ description?: string|null }} [context]
+ * @returns {{ key: string, values: object }}
  */
-export function stickerLabelFor(sticker, { attachedIndex = null, description = null } = {}) {
+export function stickerLabelFor(sticker, { description = null } = {}) {
   if (!sticker.url) return { key: 'sticker', values: { name: sticker.name } };
-  if (attachedIndex != null) {
-    const base = stickerLabelFor(sticker, { description });
-    return { ...base, extra: { key: 'frameAttached', values: { n: attachedIndex } } };
-  }
   return description
     ? { key: 'stickerDescribed', values: { name: sticker.name, text: description } }
     : { key: 'sticker', values: { name: sticker.name } };
@@ -734,8 +699,8 @@ export function stickerLabelFor(sticker, { attachedIndex = null, description = n
  * appear in it: the message itself, then every forwarded snapshot
  * (`message.forwarded`, see interfaces/discord/collect.js#normalizeSnapshot). A
  * snapshot has no id of its own, so each collector below stamps its items
- * with the OUTER message's id -- the one the history, the transcript and
- * selectPictures' ordering know. Item ids stay unique: attachment ids are
+ * with the OUTER message's id -- the one the history and the transcript
+ * know. Item ids stay unique: attachment ids are
  * Discord snowflakes, link ids are cache keys or built from the original
  * message id. Shared with the analyzer and the GIF library, which walk the
  * same parts.
@@ -819,10 +784,9 @@ export function collectPictures(message) {
 /**
  * Every custom emoji written in one normalized message's text (see
  * interfaces/discord/collect.js), the message's own first, then each forwarded
- * snapshot's, as a describable item -- never a vision picture
- * (too small a slot to spend an attached-image budget on, see
- * docs/prompt-contract.md), so this is kept apart from
- * collectPictures on purpose: nothing here is ever picked by selectPictures.
+ * snapshot's, as a describable item, kept apart from collectPictures on
+ * purpose (an emoji is not a picture of the chat: it is described once, see
+ * docs/prompt-contract.md).
  * @param {object} message  A normalized message (see interfaces/discord/collect.js).
  */
 export function collectEmojiItems(message) {
@@ -946,83 +910,3 @@ export function isDescribable(item) {
   return DESCRIBABLE_KINDS.has(item.kind);
 }
 
-/**
- * Select which pictures of a live turn are attached as `image_url` parts, in
- * priority order until `visionCfg.maxImages`: the trigger message's own
- * pictures, then the message it replies to, then the newest
- * `visionCfg.recentImages` pictures of the channel not older than
- * `visionCfg.recentImageMinutes` (measured from `now`). With no trigger
- * (a spontaneous turn) only the "recent" tier applies. The result is ordered
- * by where the picture actually sits in the transcript (oldest message
- * first, then item order within a message) — not by selection priority — so
- * the persona reads the numbering top-to-bottom as it reads the chat.
- *
- * A picture-format sticker (see collectPictures) is only ever eligible from
- * the TRIGGER's own message, at the same priority as its images -- never from
- * the message it replies to, nor from the "recent" tier, nor for a
- * spontaneous turn (no trigger at all).
- *
- * Only pictures of the channel the turn posts in are ever attached: a trigger
- * that sits in another channel (a call from a read-only channel answered in
- * the main one) gives neither its own pictures nor those of the message it
- * replies to -- another channel is shown as captions only. That is decided
- * when both `channelId` and the trigger's `channelId` are known and differ;
- * without either, the trigger counts as being in the turn's channel.
- * @param {object} params
- * @param {object|null} params.trigger   Normalized trigger message, or null.
- * @param {object[]} params.history      Normalized channel messages, oldest first.
- * @param {{ maxImages: number, recentImages: number, recentImageMinutes: number }} params.visionCfg
- * @param {number} params.now
- * @param {string|null} [params.channelId]  Id of the channel the turn posts in.
- */
-export function selectPictures({ trigger, history, visionCfg, now, channelId = null }) {
-  const maxImages = visionCfg?.maxImages ?? 0;
-  if (maxImages <= 0) return [];
-
-  const picked = [];
-  const seen = new Set();
-  const order = new Map(history.map((message, index) => [message.id, index]));
-
-  function addFrom(message, { allowStickers = false } = {}) {
-    if (!message || picked.length >= maxImages) return;
-    for (const item of collectPictures(message)) {
-      if (item.source === 'sticker' && !allowStickers) continue;
-      if (picked.length >= maxImages) break;
-      if (seen.has(item.itemId)) continue;
-      seen.add(item.itemId);
-      picked.push(item);
-    }
-  }
-
-  const triggerElsewhere = Boolean(channelId) && Boolean(trigger?.channelId) && trigger.channelId !== channelId;
-  if (trigger && !triggerElsewhere) {
-    addFrom(trigger, { allowStickers: true });
-    if (picked.length < maxImages && trigger.replyToId) {
-      addFrom(history.find((message) => message.id === trigger.replyToId));
-    }
-  }
-
-  if (picked.length < maxImages) {
-    const minTs = now - (visionCfg?.recentImageMinutes ?? 0) * 60_000;
-    const recentImages = visionCfg?.recentImages ?? 0;
-    let recentTaken = 0;
-    for (let i = history.length - 1; i >= 0 && recentTaken < recentImages && picked.length < maxImages; i -= 1) {
-      const message = history[i];
-      if (message.ts < minTs) break;
-      for (const item of collectPictures(message)) {
-        if (item.source === 'sticker') continue;
-        if (recentTaken >= recentImages || picked.length >= maxImages) break;
-        if (seen.has(item.itemId)) continue;
-        seen.add(item.itemId);
-        picked.push(item);
-        recentTaken += 1;
-      }
-    }
-  }
-
-  return picked.sort((a, b) => {
-    const orderA = order.get(a.messageId) ?? 0;
-    const orderB = order.get(b.messageId) ?? 0;
-    return orderA - orderB;
-  });
-}
