@@ -75,6 +75,7 @@ const EVENTS = {
     kind: 'voice.changed', iface: 'discord', at: 1000, id: 'discord:voice:g1:u1:1000', guildId: 'g1', userId: 'u1',
     conversationId: 'v1', previousId: null, muted: false, streaming: true,
   },
+  'inner.wake': { kind: 'inner.wake', at: 1000, id: 'inner.wake:review:2026-10-19', guildId: 'g1', wake: { kind: 'review' } },
 };
 
 const ref = { iface: 'fake', conversationId: 'c1' };
@@ -91,8 +92,8 @@ const ACTION_SAMPLES = {
 };
 
 test('protocol: the kinds, conversation kinds and actions are the contract', () => {
-  assert.deepEqual([...EVENT_KINDS], ['message.received', 'reaction.changed', 'command.requested', 'scheduler.tick', 'task.completed', 'membership.changed', 'voice.changed']);
-  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed']);
+  assert.deepEqual([...EVENT_KINDS], ['message.received', 'reaction.changed', 'command.requested', 'scheduler.tick', 'task.completed', 'membership.changed', 'voice.changed', 'inner.wake']);
+  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed', 'inner.wake']);
   assert.deepEqual([...CONVERSATION_KINDS], ['channel', 'dm', 'thread']);
   assert.deepEqual([...ACTIONS], [...Object.values(CAPABILITIES), COMMAND_RESULT]);
   assert.deepEqual(Object.keys(ACTION_SAMPLES).sort(), [...ACTIONS].sort());
@@ -109,6 +110,13 @@ test('protocol: the port re-exports the package, so its importers are unchanged'
 
 test('validateEvent: every kind is valid in its documented shape', () => {
   for (const [kind, event] of Object.entries(EVENTS)) assert.deepEqual(validateEvent(event), { ok: true }, kind);
+});
+
+test('validateEvent: an inner wake needs its own id and its wake record', () => {
+  const base = EVENTS['inner.wake'];
+  assert.deepEqual(validateEvent({ ...base, id: undefined }), { ok: false, reason: 'id:required' });
+  assert.deepEqual(validateEvent({ ...base, wake: undefined }), { ok: false, reason: 'wake:required' });
+  assert.deepEqual(validateEvent({ ...base, wake: {} }), { ok: false, reason: 'wake.kind:required' });
 });
 
 test('validateEvent: a direct chat, an edit, a deletion and a partial edit are message.received', () => {
