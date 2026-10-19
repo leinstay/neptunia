@@ -95,9 +95,13 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
 
 /**
  * `reaction.changed`: `emoji.name` is the emoji itself (a unicode one) or a custom emoji's name,
- * `emoji.id` a custom emoji's id.
+ * `emoji.id` a custom emoji's id. `authorId` is the author of the reacted message when the
+ * adapter knows it (null or absent otherwise). `cleared` marks a removal of many at once: `'emoji'`
+ * (every reaction of one emoji taken off) or `'all'` (every reaction taken off); then `added` is
+ * false, `userId` may be null or absent, and with `'all'` so may `emoji`.
  * @typedef {{ kind: 'reaction.changed', iface: string, at: number, id: string, conversation: Conversation,
- *   messageId: string, emoji: { name: string|null, id?: string }, userId: string, added: boolean }} ReactionChanged
+ *   messageId: string, emoji: { name: string|null, id?: string }|null, userId: string|null, added: boolean,
+ *   authorId?: string|null, cleared?: 'emoji'|'all' }} ReactionChanged
  */
 
 /**

@@ -161,6 +161,29 @@ export function reactionEventOf(kind, { reaction = null, user = null, message = 
 }
 
 /**
+ * The store's event shape (reactionEventOf's) of a `reaction.changed` protocol event, from its
+ * plain fields only: `cleared` 'all' is `removeAll`, 'emoji' `removeEmoji`, otherwise `added`
+ * tells `add` from `remove`. The emoji goes through reactionKey, so it matches the transcript's
+ * and the backfill's. Never throws.
+ * @param {{ conversation?: { guildId?: string|null }, messageId?: string, authorId?: string|null,
+ *   emoji?: { id?: string|null, name?: string|null }|null, userId?: string|null, added?: boolean,
+ *   cleared?: 'emoji'|'all' }} event  A `reaction.changed` event.
+ * @returns {ReturnType<typeof reactionEventOf>}
+ */
+export function reactionStoreEventOf(event) {
+  const text = (value) => (value === undefined || value === null ? null : String(value));
+  const kind = event?.cleared === 'all' ? 'removeAll' : event?.cleared === 'emoji' ? 'removeEmoji' : event?.added === true ? 'add' : 'remove';
+  return {
+    kind,
+    guildId: text(event?.conversation?.guildId),
+    messageId: text(event?.messageId),
+    authorId: text(event?.authorId),
+    emoji: event?.emoji ? reactionKey(event.emoji) : null,
+    userId: text(event?.userId),
+  };
+}
+
+/**
  * Apply one reaction event (reactionEventOf's) to `store`. Another guild's event, an event on a
  * message that is not hers, the persona's own reaction and an incomplete event are ignored. A
  * message whose author is known to be the persona becomes hers in the store.

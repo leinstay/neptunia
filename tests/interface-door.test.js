@@ -102,3 +102,23 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
   assert.deepEqual(await door.receive({ id: 'z', type: 'nope' }), ack('z', 'invalid', 'v:unsupported'));
   assert.deepEqual(await door.receive(null), ack('unknown', 'invalid', 'envelope:type'));
 });
+
+test('door: two removals of the same emoji at different times both pass; the same instant is a duplicate', async () => {
+  const { reactionEvent, reactionClearAllEvent, reactionClearEmojiEvent } = await import('../src/interface/discord.js');
+  const message = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: false, author: { id: 'a1' } };
+  const react = { message, emoji: { name: '\u{1F389}' } };
+  const user = { id: 'u1' };
+  const got = [];
+  const door = createEventDoor({ handlers: { 'reaction.changed': (event) => { got.push(event.cleared ?? (event.added ? 'add' : 'remove')); } }, log: quiet() });
+  const builds = [
+    (at) => reactionEvent(react, user, false, { now: () => at }),
+    (at) => reactionClearAllEvent(message, { now: () => at }),
+    (at) => reactionClearEmojiEvent(react, { now: () => at }),
+  ];
+  for (const build of builds) {
+    assert.equal((await door.submit(build(1000))).status, 'ok');
+    assert.equal((await door.submit(build(2000))).status, 'ok');
+    assert.equal((await door.submit(build(2000))).status, 'duplicate');
+  }
+  assert.deepEqual(got, ['remove', 'remove', 'all', 'all', 'emoji', 'emoji']);
+});

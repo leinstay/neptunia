@@ -74,6 +74,8 @@ function checkConversation(conversation) {
   for (const key of ['guildId', 'name', 'topic', 'category', 'parentId']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
 }
 
+/** The values of `reaction.changed`'s `cleared`. */
+const CLEARED = ['emoji', 'all'];
 const MESSAGE_LISTS = ['attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions'];
 
 function checkMessage(message) {
@@ -123,13 +125,22 @@ function checkMessageReceived(event) {
 function checkReactionChanged(event) {
   checkConversation(event.conversation);
   need(event.messageId, 'messageId', isId);
+  need(event.authorId, 'authorId', (value) => value === null || isId(value), { required: false });
+  need(event.cleared, 'cleared', (value) => CLEARED.includes(value), { required: false, problem: 'unknown' });
+  need(event.added, 'added', (value) => typeof value === 'boolean');
+  if (event.cleared !== undefined) {
+    // A clear is never a put-on; who cleared is not part of it, and clearing all names no emoji.
+    if (event.added !== false) throw new Refusal('added', 'cleared');
+    need(event.userId, 'userId', (value) => value === null || isId(value), { required: false });
+    if (event.cleared === 'all' && (event.emoji === undefined || event.emoji === null)) return;
+  } else {
+    need(event.userId, 'userId', isId);
+  }
   need(event.emoji, 'emoji', isObject);
   need(event.emoji.id, 'emoji.id', isId, { required: false });
   need(event.emoji.name, 'emoji.name', isNullableString);
   // A unicode emoji is its name; a custom one is known by its id even when its name is not.
   if (!isId(event.emoji.name) && !isId(event.emoji.id)) throw new Refusal('emoji', 'required');
-  need(event.userId, 'userId', isId);
-  need(event.added, 'added', (value) => typeof value === 'boolean');
 }
 
 function checkCommandRequested(event) {
