@@ -128,6 +128,9 @@ export const PINGS_MODES = Object.freeze(['on', 'off']);
 /** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/ops/task.js reads the same list). */
 export const TASK_AGENTS = Object.freeze(['web', 'server']);
 
+/** `/nep task intent`'s `action` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
+export const INTENT_ACTIONS = Object.freeze(['add', 'update', 'cancel', 'list']);
+
 // ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------
@@ -423,6 +426,34 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => ({ id: options.getString('id', true) }),
       },
       { name: 'list', description: 'The latest ten tasks.', args: none },
+      {
+        // The persona's intentions (src/ops/intent.js): one leaf, `action` picks the operation;
+        // each option is optional here, its operation says which it needs.
+        name: 'intent',
+        description: "The persona's intentions.",
+        options: [
+          { type: STRING, name: 'action', description: 'What to do.', required: true, choices: choicesOf(INTENT_ACTIONS) },
+          { type: STRING, name: 'text', description: 'Purpose.', required: false, max_length: 300 },
+          { type: STRING, name: 'id', description: 'Intention id.', required: false, max_length: 20 },
+          { type: STRING, name: 'due', description: 'When: 30m, 6h, 2d or ISO.', required: false, max_length: 40 },
+          { type: STRING, name: 'expires', description: 'Expiry, same form.', required: false, max_length: 40 },
+          { type: STRING, name: 'task', description: 'Errand id to wait for.', required: false, max_length: 20 },
+          { type: STRING, name: 'deadline', description: 'Wait until.', required: false, max_length: 40 },
+          { type: STRING, name: 'state', description: 'pending or done.', required: false, choices: choicesOf(['pending', 'done']) },
+          { type: STRING, name: 'chain', description: 'Chain id.', required: false, max_length: 64 },
+          { type: STRING, name: 'condition', description: 'Done when.', required: false, max_length: 300 },
+          channelOption('Destination.'),
+        ],
+        args: (options) => {
+          const out = { action: options.getString('action', true) };
+          for (const name of ['text', 'id', 'due', 'expires', 'task', 'deadline', 'state', 'chain', 'condition']) {
+            const value = options.getString(name);
+            if (value !== null && value !== undefined) out[name] = value;
+          }
+          const channelId = options.getChannel('channel')?.id;
+          return channelId ? { ...out, channelId } : out;
+        },
+      },
       {
         name: 'search',
         description: 'One quick web search (search snippets, pages not opened).',

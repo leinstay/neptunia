@@ -313,5 +313,25 @@
     "title": "Search this server's messages",
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (body or question=), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
+  },
+  "intent.set": {
+    "title": "Set an intention",
+    "whenToUse": "Record something you mean to do later. The purpose goes in the body. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off.",
+    "whenNotToUse": "Not for what you are doing in this turn."
+  },
+  "intent.update": {
+    "title": "Update an intention",
+    "whenToUse": "Change an intention by id=. state=pending accepts a proposed one; state=done marks it finished. task= and deadline= set it waiting for an errand.",
+    "whenNotToUse": "Rejecting a proposed one goes through intent.cancel."
+  },
+  "intent.cancel": {
+    "title": "Cancel an intention",
+    "whenToUse": "Drop an intention by id=: one you no longer mean to do, or a proposed one you reject.",
+    "whenNotToUse": "One you finished goes through intent.update state=done."
+  },
+  "intent.list": {
+    "title": "List intentions",
+    "whenToUse": "Read your open intentions with their states and due times.",
+    "whenNotToUse": "The intentions block already shows them on each turn."
   }
 }

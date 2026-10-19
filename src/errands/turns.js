@@ -13,7 +13,9 @@
 // as a `task.completed` event through the core's event door (src/interface/door.js): the service
 // calls `taskCompletedEvent(task, guildId)` and submits it, the door's handler is `onEvent`; the
 // task itself rides along in-process under `raw.task` (the event holds its id and status), and
-// when it does not, the task store of the event's guild is asked for it.
+// when it does not, the task store of the event's guild is asked for it. Before the result turn,
+// the end reaches the persona's intentions waiting on that errand (`intentions.onTaskFinished`,
+// src/intentions/service.js), so the turn already shows them back to pending with the outcome.
 
 import { log as defaultLog } from '../log.js';
 
@@ -45,12 +47,14 @@ const HELD = new Set(['busy', 'paused']);
  * @param {object} options.discord  The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of the message a result answers.
  * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
  * @param {{ markSeen: Function }} options.errands
+ * @param {{ onTaskFinished: Function }|null} [options.intentions]  The intention service: an errand's
+ *   end moves the intentions waiting on it first (idempotent; never throws).
  * @param {() => string|null} [options.getGuildId]
  * @param {() => number} [options.now]
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createTaskTurns({ hot, client, discord, turns, errands, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
+export function createTaskTurns({ hot, client, discord, turns, errands, intentions = null, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
   const { normalizeMessage } = discord;
   // conversation id -> when its last result turn started
   const lastAt = new Map();
@@ -153,8 +157,8 @@ export function createTaskTurns({ hot, client, discord, turns, errands, getGuild
   }
 
   /**
-   * The door's handler of `task.completed`: the result turn of the task the event names (never
-   * throws); null when the task cannot be found.
+   * The door's handler of `task.completed`: the intentions waiting on the task the event names
+   * moved first, then its result turn (never throws); null when the task cannot be found.
    * @param {ReturnType<typeof taskCompletedEvent>} event
    */
   function onEvent(event) {
@@ -163,6 +167,11 @@ export function createTaskTurns({ hot, client, discord, turns, errands, getGuild
     if (!task) {
       log.warn('errands: finished task not found', { id: event?.taskId ?? null });
       return Promise.resolve(null);
+    }
+    try {
+      intentions?.onTaskFinished?.(task, guildId);
+    } catch (err) {
+      log.warn('errands: intentions not reached', { id: task.id, error: err });
     }
     return onFinished(task, guildId);
   }

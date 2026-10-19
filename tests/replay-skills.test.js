@@ -13,7 +13,7 @@ import path from 'node:path';
 import '../src/ops/index.js';
 import { expandPersonaGrant } from '../src/ops/access.js';
 import { skillRegistry } from '../src/skills/registry.js';
-import { NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
+import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
@@ -201,7 +201,8 @@ test('scenarioInventory: the requester\'s catalogue as live discovery lists it: 
   const texts = { 'rule.add': { title: 'Add a rule', whenToUse: 'when asked' } };
   const input = { config, selfId: SELF, texts, conversationId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
-  assert.equal(whole.length, skillRegistry().size);
+  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   assert.deepEqual(whole.find((row) => row.name === 'rule.add'), { name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed', args: [{ name: 'text', required: true, body: true }] });
   assert.equal(scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } }).find((row) => row.name === 'rule.add').reason, 'requester-denied');
   const named = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] }, discovery: ['rule.add', 'rule.remove'] });

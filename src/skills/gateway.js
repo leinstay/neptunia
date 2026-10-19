@@ -13,7 +13,7 @@
 import { getOp as registryGetOp } from '../ops/registry.js';
 import { rightsRefusal } from '../ops/rights.js';
 import { skillRegistry, describeSkill } from './registry.js';
-import { CARRIED_OVER, skillAccess, skillsOn } from './access.js';
+import { CARRIED_OVER, skillAccess, skillFeatureOn, skillsOn } from './access.js';
 import { schemaError } from './schema.js';
 import { skillArgs } from './discovery.js';
 import { MINUTE_MS } from '../time.js';
@@ -163,7 +163,8 @@ export function checkReplyEffect({ skill, principal, config }) {
 
 /**
  * The catalogue as the persona would see it for `requester` in `audience`'s conversation (the
- * discovery step: what she can do is what is granted to her): one row per registry skill, in order, `{ name, title,
+ * discovery step: what she can do is what is granted to her): one row per registry skill whose
+ * feature switch is on (src/skills/access.js#skillFeatureOn), in order, `{ name, title,
  * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.skills`,
  * '' when missing). `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`,
  * `safe-mode`, `skills-off`), or `requester-denied` for an allowed skill this requester may not
@@ -177,6 +178,8 @@ export function checkReplyEffect({ skill, principal, config }) {
 export function listSkills({ config, selfId = null, texts, requester = null, audience = {}, registry = skillRegistry(), getOp }) {
   const rows = [];
   for (const skill of registry.values()) {
+    // A skill whose feature switch is off does not exist for her: no row.
+    if (!skillFeatureOn(skill.name, config)) continue;
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.conversationId ?? null;
     let { allowed, reason } = skillAccess({ skill, config, selfId, conversationId: current, currentConversationId: current });

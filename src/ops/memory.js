@@ -311,6 +311,8 @@ const handlers = perEnv((env) => {
         journal: journal ?? null,
         // The errands they asked for (src/errands/service.js#forgetUser), when the errands run.
         ...(typeof env.errands?.forgetUser === 'function' ? { errands: env.errands } : {}),
+        // Her intentions that concern them (src/intentions/service.js#forgetUser), when they run.
+        ...(typeof env.intentions?.forgetUser === 'function' ? { intentions: env.intentions } : {}),
         vaultDir: hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR,
         redaction: hot.prompts?.labels?.memory?.redaction ?? DEFAULT_REDACTION,
       });
@@ -327,7 +329,7 @@ const handlers = perEnv((env) => {
         `participation messages: ${n('participation')}, version files: ${n('versions')}`,
       `archive entries: ${n('archive')}, record lines: ${n('record')}, journal records: ${n('journal')}, request dumps: ${n('requests')}, ` +
         `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}, backfill candidates: ${n('backfill')}`,
-      `errands: ${n('errands')}, errand lines: ${n('errandLines')}`,
+      `errands: ${n('errands')}, errand lines: ${n('errandLines')}, intentions: ${n('intentions')}`,
     ].join('\n');
   }
 
@@ -581,7 +583,7 @@ const handlers = perEnv((env) => {
     if (confirm !== guildName) {
       return (
         'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, the errand tasks and their log, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
+        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, the errand tasks and their log, the intentions, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
         `To confirm, run again with confirm: ${guildName}`
       );
     }
@@ -604,7 +606,8 @@ const handlers = perEnv((env) => {
         }
       }
       const errands = typeof env.errands?.wipe === 'function' ? { errands: env.errands } : {};
-      return { counts: store.wipeGuild(guildId, { vault, vaultDir, ...errands }), journalLines, vault };
+      const intentions = typeof env.intentions?.wipe === 'function' ? { intentions: env.intentions } : {};
+      return { counts: store.wipeGuild(guildId, { vault, vaultDir, ...errands, ...intentions }), journalLines, vault };
     };
     const { counts, journalLines, vault } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(wipe) : await wipe();
     log.info('admin: memory wiped', { users: counts.users, channels: counts.channels, loreRemoved: counts.loreRemoved, snapshots: counts.snapshots ?? 0 });
@@ -619,6 +622,7 @@ const handlers = perEnv((env) => {
       `archive files removed: ${counts.archiveFiles ?? 0}`,
       `backfill files removed: ${counts.backfillFiles ?? 0}`,
       `errand files removed: ${counts.taskFiles ?? 0}`,
+      `intention files removed: ${counts.intentionFiles ?? 0}`,
       ...journalLines,
       `snapshots that lost this server: ${counts.snapshots ?? 0}`,
       `channels removed: ${counts.channels}`,

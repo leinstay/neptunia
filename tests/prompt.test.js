@@ -5317,3 +5317,15 @@ test('buildRequest: people_now -- a caller with no profile: no entry without liv
     ].join('\n\n'),
   );
 });
+
+test('buildRequest: <intentions> sits in the tail right after <task_result>, never cut; absent or empty, the request is as without it', () => {
+  const errands = { tasks: 'TASKS_BODY', result: 'RESULT_BODY' };
+  const without = buildRequest(baseInput({ errands }));
+  const empty = buildRequest(baseInput({ errands, intentions: '' }));
+  assert.deepEqual(empty.messages, without.messages);
+  const request = buildRequest(baseInput({ errands, intentions: 'INTENTIONS_BODY' }));
+  const parts = request.messages[1].content;
+  const tail = parts[parts.length - 1].text;
+  assert.ok(tail.includes('<task_result>\nRESULT_BODY\n</task_result>\n\n<intentions>\nINTENTIONS_BODY\n</intentions>'), tail);
+  for (const part of parts.slice(0, -1)) assert.ok(!part.text.includes('<intentions>'), 'never in a cached part');
+});

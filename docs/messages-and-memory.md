@@ -129,9 +129,9 @@ The persona sees only the open items. The closed list and the archive together k
 
 ## Forget and the vault
 
-`/nep memory forget <user>` deletes a member's public profile, their private DM file, their voice queue items, their version history, their entries in the record and archive, the errands they asked the persona for (`tasks.json`, and their lines in `tasks.jsonl`), and their lines in diary posts (replaced with a neutral token, `labels.memory.redaction`). Before deleting, it copies everything into a subdirectory of `memory.vaultDir` (default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back. To restore a member, copy their files by hand and remove the entry from `forgotten.json`.
+`/nep memory forget <user>` deletes a member's public profile, their private DM file, their voice queue items, their version history, their entries in the record and archive, the errands they asked the persona for (`tasks.json`, and their lines in `tasks.jsonl`), the persona's intentions that concern them (`intentions.json`, see [Intentions](intentions.md#privacy)), and their lines in diary posts (replaced with a neutral token, `labels.memory.redaction`). Before deleting, it copies everything into a subdirectory of `memory.vaultDir` (default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back. To restore a member, copy their files by hand and remove the entry from `forgotten.json`.
 
-`/nep memory wipe` does the same for the entire server's memory: profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, version history, diary history, the errands (`tasks.json`, `tasks.jsonl`) and the recall trace.
+`/nep memory wipe` does the same for the entire server's memory: profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, version history, diary history, the errands (`tasks.json`, `tasks.jsonl`), the persona's intentions (`intentions.json`) and the recall trace.
 
 ## Recall sources
 
