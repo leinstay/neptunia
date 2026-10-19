@@ -495,6 +495,24 @@ test('createHot: an old config that still sets features.vision or features.attac
   }
 });
 
+test('createHot: an old config that still sets innerLife.loop.strayFollowUps loads and warns once at startup', async () => {
+  const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { loop: { strayFollowUps: 2 } } }));
+  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && entry.msg === 'config: innerLife.loop.strayFollowUps is no longer read');
+  let hot;
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.equal(retired(started.logs).length, 1);
+    const again = await withCapturedLogs(() => hot.reloadConfig());
+    assert.equal(retired(again.logs).length, 0);
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
   const dir = makeRoot({ config: { models: { helpers: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');

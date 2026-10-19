@@ -384,7 +384,6 @@ export const labels = {
     continueTools: 'continue this turn after your {skill} call; results above; another call may run',
     continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
     continueInner: 'continue this inner turn after your {skill} call; results above; another call may run\n{open}',
-    continueInnerStray: 'continue this inner turn; what you wrote outside a call reached nobody; a post is a message.create call with the channel. You are in {channel}. Or end with <skip/>\n{open}',
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
     continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, only a post or an intention change still runs\n{open}',
   },
@@ -545,7 +544,6 @@ export const labels = {
     kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:' },
     feedbackItem: '* {fact}',
     feedback: {
-      dropped: 'dropped {messages}m {reactions}r {gifs}g {draws}d: {lines}',
       callFailed: 'call {skill} {status} {code}',
       doneWithoutDelivery: 'done without delivery {id} {purpose}',
       loopCut: 'loop cut {cut} after {steps} steps, {dropped} dropped',

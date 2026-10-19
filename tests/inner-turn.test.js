@@ -2,15 +2,14 @@
 // is fabricated, the request carries `<wake>` and the inner task, her reads run; in shadow mode
 // nothing else does (proposed, journalled as shadow, no call mark), live her calls run through
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
-// cap refuses, text outside a call reaches nobody, and an ordinary turn's request is unchanged by
+// cap refuses, her output tags (<msg>, <gif>, <draw>, <react to>) are lowered into the calls they
+// stand for in the current channel (a refusal when there is none or a reaction names no line),
+// and an ordinary turn's request is unchanged by
 // the switch; a refusal in shadow reaches her within the turn; what her reads found comes back as
 // the turn's episode for her memory. The loop's inner rules: the loop runs under innerLife.loop's
-// own bounds (a generous budget: nobody waits), text outside a call and no post gets a stray
-// follow-up step (task.continueInnerStray, up to innerLife.loop.strayFollowUps per turn, never past the steps), the
-// open-intentions line lists what she woke for and has not touched, and her last step still runs
-// one post or intention change; the stray step names the channel the turn runs in by its directory
-// handle, and a post that leaves nothing to show while a woken intention is untouched gets one open
-// follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
+// own bounds (a generous budget: nobody waits), the open-intentions line lists what she woke for
+// and has not touched, her last step still runs one post or intention change, and a post that
+// leaves nothing to show while a woken intention is untouched gets one open follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -556,11 +555,11 @@ test('inner turn, live: message.create with gif= posts the text then the GIF, an
 test('loopSettings: an inner turn\'s bounds are innerLife.loop\'s (config.json\'s when missing or unusable); an ordinary turn\'s stay skills.loop\'s', () => {
   const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   assert.deepEqual(loopSettings({}, { inner: true }), tracked.innerLife.loop);
-  assert.deepEqual(tracked.innerLife.loop, { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000, strayFollowUps: 2 });
-  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5, callTimeoutMs: 'x', strayFollowUps: -1 } } }, { inner: true }), tracked.innerLife.loop);
-  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500, strayFollowUps: 0 } } }, { inner: true }), { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500, strayFollowUps: 0 });
+  assert.deepEqual(tracked.innerLife.loop, { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 });
+  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5, callTimeoutMs: 'x' } } }, { inner: true }), tracked.innerLife.loop);
+  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 } } }, { inner: true }), { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 });
   // skills.loop never reaches an inner turn, innerLife.loop never an ordinary one.
-  const both = { skills: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } }, innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9, strayFollowUps: 9 } } };
+  const both = { skills: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } }, innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } } };
   assert.deepEqual(loopSettings(both, { inner: true }), both.innerLife.loop);
   assert.deepEqual(loopSettings(both), both.skills.loop);
   assert.deepEqual(loopSettings(both, { inner: false }), both.skills.loop);
@@ -625,7 +624,6 @@ test('inner turn, open follow-up: a post that leaves nothing to show while a wok
   assert.equal(taskOf(run, 1), `${INNER_LEAD('message.create')}\n${OPEN_LINE}`);
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:proposed', 'intent.update:proposed']);
   assert.equal(run.result.inner.openFollowUp, true);
-  assert.equal(run.result.inner.strayFollowUp, undefined);
   // Live, the same: the post went out, the intention was named on the extra step (without an
   // intention service the update's outcome comes back to her once more; she ends the turn).
   const live = await innerTurn({ answers: ['<call skill="message.create">καλημέρα σε όλους</call>', '<call skill="intent.update" id="i1" state="done"/>', '<skip/>'], shadow: false, allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
@@ -699,7 +697,6 @@ test('wakeBlockText: the current channel and why, or that there is none, follow 
 
 test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per fact, each worded by its kind\'s label; a fact without a label is left out', () => {
   const facts = [
-    { kind: 'dropped', messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'a second\nline'] },
     { kind: 'callFailed', skill: 'web.search', status: 'timeout', code: 'timeout' },
     { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
     { kind: 'loopCut', cut: 'steps', droppedCalls: 1, steps: 2 },
@@ -711,12 +708,11 @@ test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
   const lines = text.split('\n');
   assert.equal(lines[0], labels.wake.header);
   assert.equal(lines[1], labels.wake.kinds.feedback);
-  assert.equal(lines[2], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.dropped, { messages: '2', reactions: '0', gifs: '2', draws: '0', lines: 'here is the cat meme | a second line' }) }));
-  assert.equal(lines[3], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.callFailed, { skill: 'web.search', status: 'timeout', code: 'timeout' }) }));
-  assert.equal(lines[4], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.doneWithoutDelivery, { id: 'i1', purpose: 'send a cat meme' }) }));
-  assert.equal(lines[5], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.loopCut, { cut: 'steps', dropped: '1', steps: '2' }) }));
-  assert.equal(lines[6], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.wakeDropped, { kind: 'intention_due', code: 'no-channel', id: 'i7', purpose: 'announce' }) }));
-  assert.ok(lines[7].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
+  assert.equal(lines[2], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.callFailed, { skill: 'web.search', status: 'timeout', code: 'timeout' }) }));
+  assert.equal(lines[3], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.doneWithoutDelivery, { id: 'i1', purpose: 'send a cat meme' }) }));
+  assert.equal(lines[4], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.loopCut, { cut: 'steps', dropped: '1', steps: '2' }) }));
+  assert.equal(lines[5], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.wakeDropped, { kind: 'intention_due', code: 'no-channel', id: 'i7', purpose: 'announce' }) }));
+  assert.ok(lines[6].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
   assert.ok(!text.includes('{'), 'every placeholder filled');
   // Without the item label the facts are left out; the kind line stays.
   const bare = wakeBlockText(wake, { ...labels, wake: { ...labels.wake, feedbackItem: '' } });

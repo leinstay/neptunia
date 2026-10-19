@@ -53,12 +53,14 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
  * instead: `memory.voiceModel` (the memory wording runs on `models.core`, the persona's one model);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request any more: she sees through the describer's captions, `features.mediaDescriptions`, and
- * her second look, `features.imageRelook`, both on the `vision` helper model).
+ * her second look, `features.imageRelook`, both on the `vision` helper model); `innerLife.loop.strayFollowUps`
+ * (an inner turn's output tags act as calls now, so nothing is left to follow up).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'memory.voiceModel', use: 'models.core', read: (config) => config?.memory?.voiceModel },
   { key: 'features.vision', use: 'features.mediaDescriptions', read: (config) => config?.features?.vision },
   { key: 'features.attachedDescriptions', use: 'features.mediaDescriptions', read: (config) => config?.features?.attachedDescriptions },
+  { key: 'innerLife.loop.strayFollowUps', use: 'innerLife.loop.maxSteps', read: (config) => config?.innerLife?.loop?.strayFollowUps },
 ]);
 
 /** How many hex characters of the sha256 `hot.hashes` keeps. */

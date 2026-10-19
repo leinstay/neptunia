@@ -20,14 +20,9 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 /** A purpose's length on a wake line (characters). */
 export const WAKE_PURPOSE_CHARS = 200;
 
-/** The separator between the dropped lines of one `dropped` fact (data joined, not wording). */
-const LINES_JOIN = ' | ';
-
 /**
  * One feedback fact (src/behavior/inner.js#feedbackFacts) as a line: `l.feedback.<kind>` filled
- * -- `dropped`: `{messages}`, `{reactions}`, `{gifs}`, `{draws}` (counts) and `{lines}` (the first
- * lines of the dropped messages, each on one line cut to WAKE_PURPOSE_CHARS, joined by ` | `);
- * `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
+ * -- `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
  * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps` or `time`), `{dropped}`,
  * `{steps}`; `wakeDropped`: `{kind}` (the wake's), `{code}` (`no-channel` or the cap), `{id}`,
  * `{purpose}`. '' without the fact's label.
@@ -41,8 +36,6 @@ export function feedbackFactText(fact, l) {
   const n = (value) => String(Number.isFinite(value) ? value : 0);
   const purpose = clampWithEllipsis(oneLine(String(fact.purpose ?? '')), WAKE_PURPOSE_CHARS);
   switch (fact.kind) {
-    case 'dropped':
-      return fill(template, { messages: n(fact.messages), reactions: n(fact.reactions), gifs: n(fact.gif), draws: n(fact.draw), lines: (Array.isArray(fact.lines) ? fact.lines : []).map((line) => clampWithEllipsis(oneLine(String(line)), WAKE_PURPOSE_CHARS)).join(LINES_JOIN) });
     case 'callFailed':
       return fill(template, { skill: String(fact.skill ?? ''), status: String(fact.status ?? ''), code: String(fact.code ?? '') });
     case 'doneWithoutDelivery':
