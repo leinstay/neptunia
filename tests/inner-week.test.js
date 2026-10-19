@@ -543,3 +543,41 @@ test('inner-week: the fixture\'s people join the copied directory with their nam
   assert.deepEqual(addFixturePeople(store, 'g1', { Ivo: 'u-201' }, at), []);
   assert.equal(store.listUserProfiles('g1').length, 2);
 });
+
+// ---- recurring intentions -----------------------------------------------------------
+
+test('inner-week: the recurring fixture runs one daily intention through its occurrences -- closed, missed, noted as the last before its expiry -- and its gate counts the codes', async () => {
+  const fx = readFixture('recurring', { dir: FIXTURES });
+  assert.deepEqual(fx.events.find((e) => e.kind === 'intend').intention.every, { period: 'day', at: null });
+  const { run, gates } = await week(fx);
+  assert.deepEqual(gates.filter((g) => !g.pass), []);
+  const record = run.intentions.find((r) => run.keys['evening-memes'] === r.id);
+  assert.deepEqual(record.every, { period: 'day', at: '20:00' });
+  assert.equal(record.status, 'expired');
+  assert.deepEqual(record.history.map((h) => h.code ?? h.to), ['pending', 'done-occurrence', 'done-occurrence', 'missed', 'done-occurrence', 'done-occurrence', 'expired']);
+  const wakes = run.turns.filter((turn) => turn.kind === 'intention_due');
+  assert.equal(wakes.length, 5, 'one wake per occurrence, none past the expiry');
+  assert.deepEqual(wakes.map((turn) => turn.dayNumber), [1, 2, 3, 4, 5]);
+  assert.deepEqual(wakes.map((turn) => turn.notes), [null, null, null, null, { [record.id]: 'last-occurrence' }]);
+  assert.ok(new Set(wakes.map((turn) => turn.chainId)).size === 5, 'each occurrence is its own chain');
+  const report = reportOf(run, fx, gates, effectsOf);
+  assert.deepEqual(report.occurrences, { recurred: 0, missed: 1, 'done-occurrence': 4 });
+  const line = report.intentions.find((r) => r.id === record.id);
+  assert.equal(line.every, 'day');
+  assert.deepEqual(line.occurrences, { recurred: 0, missed: 1, 'done-occurrence': 4 });
+  const md = renderReport(report);
+  assert.match(md, /every day \(recurred 0, missed 1, done-occurrence 4\)/);
+  assert.match(md, /\[i\w+: last-occurrence\]/);
+  // The expectation bites: a fixture that declares other counts fails its gate.
+  const off = { ...fx, expect: { ...fx.expect, occurrences: { missed: 2 } } };
+  assert.equal(gate(computeGates(run, off, effectsOf), 'fixture').pass, false);
+  assert.match(gate(computeGates(run, off, effectsOf), 'fixture').detail, /missed 1 != 2/);
+});
+
+test('inner-week: a fixture intention takes every as her own argument; a bad one or one without a due time is refused', () => {
+  const base = { key: 'k', purpose: 'p', due: '1 10:00' };
+  assert.deepEqual(fixture({ intentions: [{ ...base, every: '12h' }] }).events[0].intention.every, { period: '12h', at: null });
+  assert.throws(() => fixture({ intentions: [{ ...base, every: 'hourly' }] }), /every: day, week/);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', every: 'day' }] }), /needs a due time/);
+  assert.deepEqual(fixture({ expect: { occurrences: { missed: 1, bogus: 2, recurred: 'x' } } }).expect.occurrences, { missed: 1 });
+});

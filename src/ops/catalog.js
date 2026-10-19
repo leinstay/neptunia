@@ -435,7 +435,8 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'action', description: 'What to do.', required: true, choices: choicesOf(INTENT_ACTIONS) },
           { type: STRING, name: 'text', description: 'Purpose.', required: false, max_length: 300 },
           { type: STRING, name: 'id', description: 'Intention id.', required: false, max_length: 20 },
-          { type: STRING, name: 'due', description: 'When: 30m, 6h, 2d or ISO.', required: false, max_length: 40 },
+          { type: STRING, name: 'due', description: 'When: 30m, 6h, 2d, 21:00, mon 20:00 or ISO.', required: false, max_length: 40 },
+          { type: STRING, name: 'every', description: 'Repeat: day, week, 12h, 3d; none clears.', required: false, max_length: 10 },
           { type: STRING, name: 'expires', description: 'Expiry, same form.', required: false, max_length: 40 },
           { type: STRING, name: 'task', description: 'Errand id to wait for.', required: false, max_length: 20 },
           { type: STRING, name: 'deadline', description: 'Wait until.', required: false, max_length: 40 },
@@ -446,7 +447,7 @@ export const COMMAND_TABLE = Object.freeze([
         ],
         args: (options) => {
           const out = { action: options.getString('action', true) };
-          for (const name of ['text', 'id', 'due', 'expires', 'task', 'deadline', 'state', 'chain', 'condition']) {
+          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition']) {
             const value = options.getString(name);
             if (value !== null && value !== undefined) out[name] = value;
           }

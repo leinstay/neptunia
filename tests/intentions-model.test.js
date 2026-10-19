@@ -7,6 +7,10 @@ import assert from 'node:assert/strict';
 import {
   DEFAULTS,
   acceptRefusal,
+  advanceOccurrence,
+  nextOccurrence,
+  parseEvery,
+  pinEvery,
   arrive,
   candidatesFromAnswer,
   checkInvariants,
@@ -24,6 +28,7 @@ import {
   waitOn,
 } from '../src/intentions/model.js';
 import { lineSourcesOf } from '../src/intentions/sources.js';
+import { zonedEpoch } from '../src/time.js';
 
 const T0 = Date.parse('2026-10-18T10:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -231,4 +236,129 @@ test('isIntentionId: one bare token of i + hex digits, as newIntentionId makes t
   assert.equal(isIntentionId(' i00000001 '), true, 'surrounding blanks are not the token');
   assert.equal(isIntentionId('I0A1B2C3D'), true);
   for (const bad of ['i', 'i1 done', 'done i1', 'x1', 'i00000001\nnote', '', null, 7, 'ig000000']) assert.equal(isIntentionId(bad), false, String(bad));
+});
+
+// ---- recurring intentions (`every`) ------------------------------------------------
+
+const ATHENS = 'Europe/Athens';
+/** The instant the wall clock of ATHENS reads `date` `HH:MM`. */
+const athens = (date, hhmm) => zonedEpoch(date, Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)), ATHENS);
+
+test('parseEvery: day, week, <n>h, <n>d as her words; none clears; anything else is bad-every', () => {
+  assert.deepEqual(parseEvery('day'), { ok: true, every: { period: 'day', at: null } });
+  assert.deepEqual(parseEvery(' Week '), { ok: true, every: { period: 'week', at: null } });
+  assert.deepEqual(parseEvery('12h'), { ok: true, every: { period: '12h', at: null } });
+  assert.deepEqual(parseEvery('3d'), { ok: true, every: { period: '3d', at: null } });
+  assert.deepEqual(parseEvery('none'), { ok: true, every: null });
+  for (const bad of ['', 'hourly', '0h', '2w', 'day 21:00', 7, null]) assert.deepEqual(parseEvery(bad), { ok: false, code: 'bad-every' }, String(bad));
+});
+
+test('parseWhen: a wall-clock time is the next such moment in the timezone; a weekday and time the next such weekday', () => {
+  // T0 is 2026-10-18 13:00 in Athens (EEST, UTC+3), a Sunday.
+  assert.equal(parseWhen('21:00', T0, { timezone: ATHENS }), athens('2026-10-18', '21:00'), 'later today');
+  assert.equal(parseWhen('09:30', T0, { timezone: ATHENS }), athens('2026-10-19', '09:30'), 'already past: tomorrow');
+  assert.equal(parseWhen('13:00', T0, { timezone: ATHENS }), athens('2026-10-19', '13:00'), 'exactly now counts as past');
+  assert.equal(parseWhen('mon 20:00', T0, { timezone: ATHENS }), athens('2026-10-19', '20:00'));
+  assert.equal(parseWhen('Sun 20:00', T0, { timezone: ATHENS }), athens('2026-10-18', '20:00'), 'today, still ahead');
+  assert.equal(parseWhen('sun 10:00', T0, { timezone: ATHENS }), athens('2026-10-25', '10:00'), 'today, already past: next week');
+  assert.equal(parseWhen('21:00', T0), T0 + 11 * HOUR, 'no timezone: UTC');
+  for (const bad of ['25:00', '21:60', 'mon', 'someday 20:00', 'mon 9']) assert.equal(parseWhen(bad, T0, { timezone: ATHENS }), null, bad);
+});
+
+test('nextOccurrence: a daily 21:00 keeps 21:00 across the autumn DST change; pinEvery takes the time from the first due', () => {
+  const first = athens('2026-10-23', '21:00');
+  const every = pinEvery(parseEvery('day').every, first, ATHENS);
+  assert.deepEqual(every, { period: 'day', at: '21:00' });
+  const record = { every, dueAt: first, expiresAt: first + 30 * DAY };
+  const d24 = nextOccurrence(record, first, ATHENS);
+  assert.equal(d24, athens('2026-10-24', '21:00'));
+  assert.equal(d24 - first, 24 * HOUR, 'still summer time');
+  const d25 = nextOccurrence(record, d24, ATHENS);
+  assert.equal(d25, athens('2026-10-25', '21:00'));
+  assert.equal(d25 - d24, 25 * HOUR, 'the clocks went back: 21:00 wall time is an hour later in UTC');
+  assert.equal(new Date(d25).toISOString(), '2026-10-25T19:00:00.000Z');
+  // After now, never at it: the occurrence due exactly now is this one, the next is tomorrow's.
+  assert.equal(nextOccurrence(record, d25, ATHENS), athens('2026-10-26', '21:00'));
+  assert.equal(nextOccurrence({ every: { period: 'day', at: null }, dueAt: first }, first, ATHENS), d24, 'no pinned time: the first due\'s wall clock');
+});
+
+test('nextOccurrence: a weekly mon 20:00 steps by seven days of the same weekday; 12h steps from the last due instant', () => {
+  const monday = parseWhen('mon 20:00', T0, { timezone: ATHENS });
+  const weekly = { every: pinEvery({ period: 'week', at: null }, monday, ATHENS), dueAt: monday };
+  const next = nextOccurrence(weekly, monday, ATHENS);
+  assert.equal(next, athens('2026-10-26', '20:00'));
+  assert.equal(new Date(next).getUTCDay(), 1);
+  assert.equal(next - monday, 7 * DAY + HOUR, 'the DST change lies between: the wall time holds');
+  assert.equal(nextOccurrence(weekly, monday + 3 * DAY, ATHENS), athens('2026-10-26', '20:00'));
+  assert.equal(nextOccurrence(weekly, monday + 10 * DAY, ATHENS), athens('2026-11-02', '20:00'), 'a week skipped');
+  const twelve = { every: { period: '12h', at: null }, dueAt: T0 };
+  assert.equal(nextOccurrence(twelve, T0, 'UTC'), T0 + 12 * HOUR);
+  assert.equal(nextOccurrence(twelve, T0 + 12 * HOUR, 'UTC'), T0 + 24 * HOUR);
+  assert.equal(nextOccurrence(twelve, T0 + 30 * HOUR, 'UTC'), T0 + 36 * HOUR, 'two steps skipped');
+  assert.equal(nextOccurrence({ every: { period: '3d', at: null }, dueAt: T0 }, T0 + 1, 'UTC'), T0 + 3 * DAY);
+  assert.equal(nextOccurrence({ every: null, dueAt: T0 }, T0, 'UTC'), null, 'a one-off has no next occurrence');
+});
+
+test('createIntention: a recurring one needs a due time, lives recurringExpiresDays and is never done; a bad every is refused', () => {
+  const every = { period: 'day', at: '21:00' };
+  const made = createIntention({ purpose: 'ψάξε για memes', provenance: { kind: 'self' }, dueAt: T0 + 8 * HOUR, every, now: T0, id: 'r1' });
+  assert.equal(made.ok, true, made.code);
+  assert.deepEqual(made.intention.every, every);
+  assert.equal(made.intention.expiresAt, T0 + DEFAULTS.recurringExpiresDays * DAY);
+  assert.equal(DEFAULTS.recurringExpiresDays, 30);
+  assert.equal(createIntention({ purpose: 'x', provenance: { kind: 'self' }, every, now: T0 }).code, 'every-without-due');
+  assert.equal(createIntention({ purpose: 'x', provenance: { kind: 'self' }, dueAt: T0 + HOUR, every: { period: 'hourly', at: null }, now: T0 }).code, 'bad-every');
+  assert.equal(createIntention({ purpose: 'x', provenance: { kind: 'self' }, dueAt: T0 + HOUR, every: 'day', now: T0 }).code, 'bad-every');
+  assert.equal(checkInvariants({ ...made.intention, dueAt: null }), 'every-without-due');
+  assert.equal(checkInvariants({ ...made.intention, status: 'done' }), 'recurring-done');
+  assert.equal(transition(made.intention, 'done', { now: T0 + 9 * HOUR }).code, 'recurring-done');
+  assert.equal(transition(made.intention, 'cancelled', { now: T0 + 9 * HOUR }).intention.status, 'cancelled', 'a cancel ends it');
+  assert.equal(expireAt(made.intention, made.intention.expiresAt).intention.status, 'expired', 'an expiry ends it');
+  const oneOff = createIntention({ purpose: 'x', provenance: { kind: 'self' }, dueAt: T0 + HOUR, every: null, now: T0 });
+  assert.equal(oneOff.intention.every, null);
+  assert.equal(oneOff.intention.expiresAt, T0 + DEFAULTS.expiresDays * DAY);
+  assert.equal(intentionSettings({ intentions: { recurringExpiresDays: 10 } }).recurringExpiresDays, 10);
+});
+
+test('advanceOccurrence: the due moves past now, skipping missed occurrences; the occurrence code goes to the history; done closes only the occurrence', () => {
+  const first = T0 + 8 * HOUR;
+  const record = createIntention({ purpose: 'ψάξε για memes', provenance: { kind: 'self' }, dueAt: first, every: { period: 'day', at: null }, now: T0, id: 'r1' }).intention;
+  const done = advanceOccurrence(record, { now: first + 5 * 60_000, timezone: 'UTC', code: 'done-occurrence' });
+  assert.equal(done.ok, true, done.code);
+  assert.equal(done.intention.status, 'pending', 'never done');
+  assert.equal(done.intention.dueAt, first + DAY);
+  assert.deepEqual(done.intention.history.at(-1), { at: first + 5 * 60_000, from: 'pending', to: 'pending', by: 'persona', code: 'done-occurrence' });
+  // Three days of silence: the occurrences in between are not replayed, the next one is after now.
+  const missed = advanceOccurrence(done.intention, { now: first + 3 * DAY + HOUR, timezone: 'UTC', code: 'missed', by: 'engine' });
+  assert.equal(missed.intention.dueAt, first + 4 * DAY);
+  assert.equal(missed.intention.history.at(-1).code, 'missed');
+  assert.equal(missed.intention.history.at(-1).by, 'engine');
+  // A waiting occurrence closes its wait on the way (the errand kept as lastTaskId).
+  const waiting = waitOn(record, { taskId: 'tabc', deadline: first + HOUR, now: first }).intention;
+  const closed = advanceOccurrence(waiting, { now: first + 10, timezone: 'UTC', code: 'done-occurrence' });
+  assert.equal(closed.intention.status, 'pending');
+  assert.equal(closed.intention.awaitingTaskId, null);
+  assert.equal(closed.intention.lastTaskId, 'tabc');
+  assert.equal(checkInvariants(closed.intention), null);
+  // A note of a past occurrence is cleared, an outcome kept only when asked (the wait's end).
+  const noted = { ...record, note: 'wait-deadline', outcome: { taskId: 'tabc', state: 'done', at: first } };
+  assert.equal(advanceOccurrence(noted, { now: first + 1, timezone: 'UTC', code: 'recurred' }).intention.note, null);
+  assert.equal(advanceOccurrence(noted, { now: first + 1, timezone: 'UTC', code: 'recurred' }).intention.outcome, null);
+  assert.deepEqual(advanceOccurrence(noted, { now: first + 1, timezone: 'UTC', code: 'recurred', keepWaitEnd: true }).intention.outcome, noted.outcome);
+  // Not for a one-off, nor out of a terminal status.
+  assert.equal(advanceOccurrence(mine({ dueAt: first }), { now: first + 1, timezone: 'UTC', code: 'recurred' }).code, 'not-recurring');
+  assert.equal(advanceOccurrence(transition(record, 'cancelled', { now: T0 }).intention, { now: first + 1, timezone: 'UTC', code: 'recurred' }).code, 'terminal');
+});
+
+test('advanceOccurrence: expiry wins over the next due -- the last occurrence before expiry advances past it and the clock expires the record', () => {
+  const first = T0 + HOUR;
+  const record = createIntention({ purpose: 'x', provenance: { kind: 'self' }, dueAt: first, every: { period: 'day', at: null }, expiresAt: first + 36 * HOUR, now: T0, id: 'r2' }).intention;
+  const second = advanceOccurrence(record, { now: first + 1, timezone: 'UTC', code: 'recurred' }).intention;
+  assert.equal(second.dueAt, first + DAY, 'the second occurrence lies before the expiry');
+  assert.ok(nextOccurrence(second, second.dueAt, 'UTC') > second.expiresAt, 'the second is the last occurrence');
+  const after = advanceOccurrence(second, { now: second.dueAt + 1, timezone: 'UTC', code: 'done-occurrence' }).intention;
+  assert.ok(after.dueAt > after.expiresAt);
+  assert.deepEqual(dueList([after], after.expiresAt - 1), [], 'nothing is due before the expiry');
+  assert.equal(expireAt(after, after.expiresAt).intention.status, 'expired');
+  assert.equal(expireAt(after, after.dueAt - HOUR).changed, true, 'the expiry comes first');
 });

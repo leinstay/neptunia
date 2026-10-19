@@ -24,6 +24,14 @@
 // Over a cap no turn runs and the refusal is journalled once per wake. What is left and when it
 // resets reach her as facts in `<wake>`, never as a rule.
 //
+// A recurring intention (`every`, src/intentions/model.js) is advanced to its next occurrence
+// whenever a wake naming it is marked handled -- her turn ended (whatever its outcome), or the
+// engine dropped the wake (`no-channel`, `overflow`, `stale`, the chain cap, the stop) --
+// through the intention service's `advance`: `recurred` when a call of the turn named it (the
+// turn result's `inner.intentIds`), `missed` otherwise. Without a chain of its own each occurrence
+// is its own chain (`intention:<id>:<dueAt>`), so the per-chain cap bounds one occurrence. The
+// last occurrence before its expiry carries the note `last-occurrence` on its `<wake>` line.
+//
 // `innerLife.mode`: `shadow` (the default) runs the turn with nothing leaving it -- her reads run,
 // every other call is recorded as proposed -- and `live` lets her calls run through the gateway on
 // her own grants. The kill switch (`/nep task inner action:stop`) is persisted with the state,
@@ -41,7 +49,7 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { intentionsOn } from '../intentions/model.js';
+import { intentionsOn, nextOccurrence } from '../intentions/model.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline']);
@@ -176,7 +184,8 @@ function targetOf(intention) {
  * The wake of one entry of src/intentions/model.js#dueList (`{ intention, reason, at }`): an
  * `errand_deadline` for a wait past its deadline (its id names the errand), else an
  * `intention_due` (its id names the due time), so the same due item is always the same wake and
- * a new due time is a new one. Its chain is the intention's `chainId`, else the intention.
+ * a new due time is a new one. Its chain is the intention's `chainId`, else the intention -- or,
+ * for a recurring intention (`every`), this occurrence of it: each occurrence is its own chain.
  */
 export function wakeOfDue({ intention, reason, at }) {
   const deadline = reason === 'wait-deadline';
@@ -188,7 +197,7 @@ export function wakeOfDue({ intention, reason, at }) {
     kind,
     reason: deadline ? 'wait-deadline' : 'due',
     intentionIds: [intention.id],
-    chainId: intention.chainId ? `chain:${intention.chainId}` : `intention:${intention.id}`,
+    chainId: intention.chainId ? `chain:${intention.chainId}` : intention.every && !deadline ? `intention:${intention.id}:${at}` : `intention:${intention.id}`,
     dueAt: at,
     channelId,
     privateChat,
@@ -492,10 +501,22 @@ export function createInnerLife({
     }
   }
 
-  function markHandled(state, wakes, outcome, at) {
+  /**
+   * `wakes` marked handled with `outcome` and taken off the queue; every recurring intention they
+   * name advances to its next occurrence (the service's `advance`: `recurred` for one in `named`,
+   * the ids her turn's calls named, else `missed`). A one-off, a waiting one and an occurrence she
+   * already closed or moved are left as they are by the service.
+   */
+  function markHandled(state, wakes, outcome, at, { guildId = null, named = null } = {}) {
     for (const wake of wakes) state.handled[wake.id] = { at, outcome };
     const ids = new Set(wakes.map((wake) => wake.id));
     state.queue = state.queue.filter((wake) => !ids.has(wake.id));
+    if (!guildId || typeof intentions?.advance !== 'function') return;
+    const touched = named instanceof Set ? named : new Set(Array.isArray(named) ? named.map(String) : []);
+    for (const id of new Set(wakes.flatMap((wake) => (Array.isArray(wake.intentionIds) ? wake.intentionIds : [])))) {
+      const result = intentions.advance(guildId, id, { named: touched.has(String(id)) });
+      if (result?.changed) note(guildId, { event: 'recurred', intentionId: String(id), code: result.intention?.history?.at?.(-1)?.code ?? null, dueAt: result.intention?.dueAt ?? null, outcome });
+    }
   }
 
   /**
@@ -514,7 +535,7 @@ export function createInnerLife({
     const at = now();
     const queued = { ...wake, id, queuedAt: at };
     if (state.queue.length >= innerSettings(hot.config).queueMax) {
-      markHandled(state, [queued], 'overflow', at);
+      markHandled(state, [queued], 'overflow', at, { guildId });
       save(guildId);
       log.warn('inner: queue overflow', { guildId, id, kind: wake.kind, queued: state.queue.length });
       note(guildId, { event: 'overflow', wake: wakeFields(queued), queued: state.queue.length });
@@ -798,7 +819,7 @@ export function createInnerLife({
     };
     const stale = state.queue.filter((wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id)));
     if (stale.length > 0) {
-      markHandled(state, stale, 'stale', at);
+      markHandled(state, stale, 'stale', at, { guildId });
       save(guildId);
       for (const wake of stale) note(guildId, { event: 'stale', wake: wakeFields(wake) });
       if (state.queue.length === 0) return { dropped: stale.length };
@@ -821,7 +842,7 @@ export function createInnerLife({
         note(guildId, { event: 'capped', cap: refusal, wake: wakeFields(wake) });
       }
       // A spent chain never comes back: its wakes are done with. The other caps reset.
-      if (refusal === 'per-chain') markHandled(state, group, 'chain-cap', at);
+      if (refusal === 'per-chain') markHandled(state, group, 'chain-cap', at, { guildId });
       if (fresh > 0 || refusal === 'per-chain') {
         save(guildId);
         log.info('inner: capped', { guildId, cap: refusal, wakes: group.length });
@@ -831,7 +852,7 @@ export function createInnerLife({
 
     const channel = await conversationFor(guildId, group);
     if (!channel) {
-      markHandled(state, group, 'no-channel', at);
+      markHandled(state, group, 'no-channel', at, { guildId });
       save(guildId);
       log.info('inner: no conversation', { guildId, wakes: group.length });
       for (const wake of group) note(guildId, { event: 'no-channel', wake: wakeFields(wake) });
@@ -839,12 +860,20 @@ export function createInnerLife({
     }
 
     const records = [...new Set(group.flatMap((wake) => wake.intentionIds))].map(openOf).filter(Boolean);
+    // A recurring intention whose next occurrence would fall past its expiry: this is its last one.
+    const notes = {};
+    for (const record of records) {
+      if (!record.every) continue;
+      const next = nextOccurrence(record, at, timezone);
+      if (!Number.isFinite(next) || next > record.expiresAt) notes[record.id] = 'last-occurrence';
+    }
     const shadow = settings.mode !== 'live';
     const posts = () => budgetsOf(stateOf(guildId), innerSettings(hot.config), { now: now(), timezone: timezoneOf() }).posts;
     const info = {
       kind: anchor.kind,
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null })),
       intentions: records,
+      ...(Object.keys(notes).length > 0 ? { notes } : {}),
       now: at,
       timezone,
       channels: group.some((wake) => wake.kind === 'review') ? channelNames(guildId) : [],
@@ -908,7 +937,7 @@ export function createInnerLife({
     if (HELD.has(outcome)) {
       // Stopped while it waited: its wakes go with the rest of the queue.
       if (after.stopped) {
-        markHandled(after, group, 'stopped', now());
+        markHandled(after, group, 'stopped', now(), { guildId });
         save(guildId);
       }
       log.info('inner: turn held', { guildId, outcome, wakes: group.length });
@@ -921,7 +950,7 @@ export function createInnerLife({
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
     if (group.some((wake) => wake.kind === 'review') && after.review) after.review = { ...after.review, done: true };
-    markHandled(after, group, outcome, ended);
+    markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [] });
     save(guildId);
     // What she did and found goes to her memory, shadow or live: her reads really ran.
     if (result.inner?.episode && typeof onEpisode === 'function') {
@@ -983,7 +1012,7 @@ export function createInnerLife({
     const at = now();
     const queued = state.queue.filter((wake) => !running.has(wake.id));
     const dropped = queued.length;
-    markHandled(state, queued, 'stopped', at);
+    markHandled(state, queued, 'stopped', at, { guildId });
     const already = state.stopped;
     state.stopped = true;
     state.stoppedAt = already ? state.stoppedAt : at;

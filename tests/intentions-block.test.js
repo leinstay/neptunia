@@ -23,6 +23,7 @@ const LABELS = {
     line: '{id}|{state}|{purpose}',
     states: { pending: 'P', waiting: 'W' },
     due: 'due {when}',
+    every: 'each {period}',
     waiting: 'wait {task} until {deadline}',
     outcome: 'got {task} {state}',
     notes: { 'wait-deadline': 'ran out {task}' },
@@ -43,15 +44,19 @@ test('intentionsBlockText: active lines with due, wait, outcome and note, then t
   const waiting = waitOn(own('i2'), { taskId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
   const back = transition(waitOn(own('i3'), { taskId: 't8', deadline: T0 + HOUR, now: T0 }).intention, 'pending', { now: T0 + HOUR, patch: { note: 'wait-deadline' } }).intention;
   const candidate = createIntention({ purpose: 'φέρε το', provenance: { kind: 'candidate', span: 'θα το φέρω' }, now: T0, id: 'i4' }).intention;
-  const text = intentionsBlockText([pending, back, waiting, candidate], LABELS, { channelNameOf: (id) => (id === 'c9' ? 'γενικά' : null) });
+  const daily = own('i5', { dueAt: T0 + 2 * HOUR, every: { period: 'day', at: '12:00' } });
+  const text = intentionsBlockText([pending, daily, back, waiting, candidate], LABELS, { channelNameOf: (id) => (id === 'c9' ? 'γενικά' : null) });
   assert.equal(text, [
     'H',
     `i1|P|σκοπός i1 · due ${at(T0 + HOUR)} · to #γενικά`,
+    `i5|P|σκοπός i5 · due ${at(T0 + 2 * HOUR)} · each day`,
     'i3|P|σκοπός i3 · ran out t8',
     `i2|W|σκοπός i2 · wait t7 until ${at(T0 + 2 * HOUR)}`,
     'C',
     'i4|φέρε το|"θα το φέρω"',
   ].join('\n'));
+  // Without the every label a recurring line shows its due time alone.
+  assert.equal(intentionsBlockText([daily], { intentions: { ...LABELS.intentions, every: undefined } }), `H\ni5|P|σκοπός i5 · due ${at(T0 + 2 * HOUR)}`);
 });
 
 test('intentionsBlockText: an external candidate carries labels.intentions.externalMarker as {marker}; her own carries none', () => {

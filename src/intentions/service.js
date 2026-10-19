@@ -8,8 +8,12 @@
 // given by id, or handed off in the same turn (a wait asked before the errand was queued is kept
 // as `waitRequested` on a `pending` intention and linked by `linkTurnTask` when that turn's
 // `task.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
-// idempotent: a second end of the same errand finds nothing waiting. Settings are read at the
-// moment of use (`intentions.*`, `features.intentions`); logs carry ids and codes, never text.
+// idempotent: a second end of the same errand finds nothing waiting. A recurring intention
+// (`every`, src/intentions/model.js) is advanced to its next occurrence when the scheduler disposes
+// of its wake (`advance`: `recurred` when a call of hers named it, `missed` otherwise), when her
+// `state=done` closes the occurrence (`done-occurrence`), and when a wait of its ends with the
+// errand (the outcome kept); its wall-clock time is pinned in `bot.timezone`. Settings are read at
+// the moment of use (`intentions.*`, `features.intentions`); logs carry ids and codes, never text.
 
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
@@ -18,6 +22,7 @@ import { isToolTask, isOpenState } from '../errands/store.js';
 import { createLineSources } from './sources.js';
 import {
   acceptRefusal,
+  advanceOccurrence,
   arrive,
   candidatesFromAnswer,
   createIntention,
@@ -28,6 +33,7 @@ import {
   intentionsOn,
   isOpen,
   newIntentionId,
+  pinEvery,
   reconcileWait,
   transition,
   waitOn,
@@ -64,6 +70,11 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
 
   function settings() {
     return intentionSettings(hot.config);
+  }
+
+  /** The bot's timezone, read now (the wall clock a recurrence is pinned to). */
+  function timezone() {
+    return hot.config?.bot?.timezone ?? 'UTC';
   }
 
   /** The errand `id` of the guild's task store (a tool agent's record is no errand), or null. */
@@ -122,9 +133,10 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-task`,
    * `task-ended`, `wait-without-task`, `bad-deadline`; `write-failed`).
    * @param {string|null} guildId
-   * @param {{ purpose: string, dueAt?: number|null, expiresAt?: number|null, destination?: string|null,
+   * @param {{ purpose: string, dueAt?: number|null, every?: { period: string, at?: string|null }|null, expiresAt?: number|null, destination?: string|null,
    *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
    *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', participants?: string[], by?: string }} input
+   *   `every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
    */
   function set(guildId, input) {
     const store = storeOf(guildId);
@@ -136,6 +148,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       purpose: input.purpose,
       provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
       dueAt: input.dueAt ?? null,
+      every: pinEvery(input.every ?? null, input.dueAt ?? null, timezone()),
       expiresAt: input.expiresAt ?? null,
       destination: input.destination ?? null,
       completionCondition: input.completionCondition ?? null,
@@ -165,7 +178,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   /**
    * Intention `id` changed: `state` `pending` accepts a candidate (it counts against `maxOpen`
    * and lives `expiresDays` from then unless `expiresAt` is given)
-   * or ends a wait by hand, `done` closes it; `purpose`, `dueAt`, `expiresAt`, `destination`,
+   * or ends a wait by hand, `done` closes it (a recurring one's occurrence only: it advances to the
+   * next, code `done-occurrence`); `purpose`, `dueAt`, `every` (parseEvery's shape; null makes it
+   * one-off; `every-without-due` without a due time), `expiresAt`, `destination`,
    * `completionCondition`, `chainId` edit an open one; `taskId` / `deadline` set it waiting (as in
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
@@ -201,6 +216,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       const fields = {};
       if (typeof patch.purpose === 'string' && patch.purpose.trim()) fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
       if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
+      if (patch.every !== undefined) fields.every = patch.every;
       if (patch.expiresAt !== undefined && patch.expiresAt !== null) {
         if (!(patch.expiresAt > at)) return { ok: false, code: 'bad-expiry' };
         fields.expiresAt = patch.expiresAt;
@@ -210,7 +226,11 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
       if (Object.keys(fields).length > 0) {
         next = { ...next, ...fields, updatedAt: at };
-        if (Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: 'due-after-expiry' };
+        if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: 'every-without-due' };
+        // A recurrence keeps the wall clock of its (new) first occurrence.
+        if (next.every && (fields.every !== undefined || fields.dueAt !== undefined)) next.every = pinEvery({ period: next.every.period, at: fields.every !== undefined ? (fields.every.at ?? null) : null }, next.dueAt, timezone());
+        // (A recurring one's next occurrence may already lie past its expiry: the expiry wins; only a new due or expiry is checked.)
+        if ((fields.dueAt !== undefined || fields.expiresAt !== undefined) && Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: 'due-after-expiry' };
         changed = true;
       }
       if (patch.state === 'pending' && next.status !== 'pending') {
@@ -229,7 +249,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         changed = changed || waited.changed;
       }
       if (patch.state === 'done') {
-        const moved = transition(next, 'done', { now: at, by, code: 'done' });
+        // A recurring one is never done: this closes the occurrence and sets the next.
+        const moved = next.every ? advanceOccurrence(next, { now: at, timezone: timezone(), code: 'done-occurrence', by }) : transition(next, 'done', { now: at, by, code: 'done' });
         if (!moved.ok) return moved;
         next = moved.intention;
         changed = true;
@@ -326,6 +347,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         if (record.status !== 'waiting' || record.awaitingTaskId !== String(task.id)) continue;
         const result = store.update(record.id, (current) => arrive(current, task, { now: now() }));
         if (result.ok && result.changed) moved += 1;
+        if (result.ok && result.changed) afterWait(store, result.intention);
       }
       if (moved > 0) log.info('intentions: errand arrived', { guildId: store.guildId, taskId: String(task.id), state: task.state, count: moved });
       return moved;
@@ -354,6 +376,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         if (note === 'task-missing') counts.missing += 1;
         else if (note === 'wait-deadline') counts.deadline += 1;
         else counts.arrived += 1;
+        // A passed deadline wakes her (an `errand_deadline` wake); that wake's disposition advances it.
+        if (note !== 'wait-deadline') afterWait(store, result.intention);
       }
       counts.expired = sweepExpired(store);
       if (counts.arrived + counts.missing + counts.deadline > 0) log.info('intentions: reconciled', { guildId: store.guildId, ...counts });
@@ -361,6 +385,39 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       log.warn('intentions: reconcile failed', { error: err });
     }
     return counts;
+  }
+
+  /**
+   * Recurring intention `id` advanced past its current occurrence (src/intentions/model.js#advanceOccurrence)
+   * when that occurrence is due or past (`dueAt <= now`) and the record is `pending`: the scheduler calls
+   * it when the occurrence's wake is disposed of (her turn ended, or the wake was dropped). `named`: a
+   * call of hers in that turn named it (code `recurred`), else `missed`. A one-off, a waiting one (its
+   * occurrence runs on until the wait ends), an occurrence already advanced (her `state=done`, a new
+   * due she set) and a closed record change nothing. Never throws; `{ ok, intention, changed }`.
+   */
+  function advance(guildId, id, { named = false, by = 'engine' } = {}) {
+    try {
+      const store = storeOf(guildId);
+      const current = store?.get(id) ?? null;
+      const at = now();
+      if (!current?.every || current.status !== 'pending' || !(Number.isFinite(current.dueAt) && current.dueAt <= at)) return { ok: true, intention: current, changed: false };
+      const code = named ? 'recurred' : 'missed';
+      const result = store.update(id, (record) => advanceOccurrence(record, { now: at, timezone: timezone(), code, by }));
+      if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(id), code, dueAt: result.intention.dueAt });
+      return result;
+    } catch (err) {
+      log.warn('intentions: advance failed', { id: String(id ?? ''), error: err });
+      return { ok: false, code: 'write-failed' };
+    }
+  }
+
+  /** A wait of recurring `record` just ended with its errand: the occurrence closes, the outcome kept. */
+  function afterWait(store, record) {
+    if (!record?.every || record.status !== 'pending') return;
+    const at = now();
+    if (!(Number.isFinite(record.dueAt) && record.dueAt <= at)) return;
+    const result = store.update(record.id, (current) => advanceOccurrence(current, { now: at, timezone: timezone(), code: 'recurred', by: 'engine', keepWaitEnd: true }));
+    if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: 'recurred', dueAt: result.intention.dueAt });
   }
 
   /** What is due now (src/intentions/model.js#dueList) for the guild, its expired swept first. */
@@ -469,5 +526,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, addCandidates, forgetUser, wipe, store: storeOf };
 }

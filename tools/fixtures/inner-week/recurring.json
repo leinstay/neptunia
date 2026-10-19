@@ -1,0 +1,104 @@
+{
+  "name": "recurring",
+  "description": "One recurring intention: every day at 20:00 she means to look for memes for the evening, set on day 1 and expiring on day 6 at midnight. The stub closes the occurrence (state=done) on four evenings and stays silent on day 3, which the engine records as missed; the day-5 wake is the last occurrence before the expiry and carries its note; on day 6 the intention expires with nothing more due.",
+  "start": "2026-11-02",
+  "days": 7,
+  "timezone": "UTC",
+  "seed": 41,
+  "channels": [
+    {
+      "id": "c-general",
+      "name": "general"
+    },
+    {
+      "id": "c-memes",
+      "name": "memes"
+    }
+  ],
+  "people": {
+    "Ivo": "u-201"
+  },
+  "history": {
+    "selfHours": [
+      13,
+      20,
+      21
+    ],
+    "channel": "c-memes"
+  },
+  "stub": {
+    "review": [
+      []
+    ]
+  },
+  "intentions": [
+    {
+      "key": "evening-memes",
+      "purpose": "look for memes for the evening",
+      "channel": "c-memes",
+      "at": "1 12:02",
+      "span": "good idea, I will look for memes every evening around eight",
+      "due": "1 20:00",
+      "every": "day",
+      "expires": "6 00:00",
+      "stub": {
+        "intention_due": [
+          [
+            {
+              "skill": "intent.update",
+              "args": {
+                "id": "$intention",
+                "state": "done"
+              }
+            }
+          ],
+          [
+            {
+              "skill": "intent.update",
+              "args": {
+                "id": "$intention",
+                "state": "done"
+              }
+            }
+          ],
+          [],
+          [
+            {
+              "skill": "intent.update",
+              "args": {
+                "id": "$intention",
+                "state": "done"
+              }
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "message",
+      "at": "1 12:00",
+      "channel": "c-memes",
+      "author": "Ivo",
+      "text": "this channel is dead in the evenings, could you drop a meme or two around eight?",
+      "addressed": true
+    },
+    {
+      "kind": "self",
+      "at": "1 12:01",
+      "channel": "c-memes",
+      "text": "good idea, I will look for memes every evening around eight"
+    }
+  ],
+  "expect": {
+    "occurrences": {
+      "done-occurrence": 4,
+      "missed": 1,
+      "recurred": 0
+    },
+    "turns": {
+      "min": 5
+    }
+  }
+}

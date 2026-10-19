@@ -1,7 +1,8 @@
 // The persona's view of her intentions in a request, as text: the `<intentions>` block's body
 // (src/behavior/prompt.js puts it in the per-turn tail right after `<tasks>` and `<task_result>`).
 // Her active intentions first (`pending`, then `waiting` with the errand it awaits and the wait's
-// deadline), each with its due time and, after a wait ended, the errand's outcome or the reason
+// deadline), each with its due time (the next occurrence of a recurring one, with its `every`
+// period as she wrote it) and, after a wait ended, the errand's outcome or the reason
 // the wait ended; then the candidates the analyzer proposed from her own lines, under their own
 // header, each with the line it came from (and a marker on one whose words came from outside
 // material, which only an ordinary turn of hers may accept). Cut to a token budget (`context.caps.intentions`):
@@ -30,11 +31,12 @@ function part(l, key, values) {
   return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
 }
 
-/** One active intention's line: its own, then its due time, its wait, its outcome or note. */
+/** One active intention's line: its own, then its due time and recurrence, its wait, its outcome or note. */
 function activeLine(record, l, { timezone, locale, channelNameOf }) {
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
   const pieces = [fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) })];
   if (Number.isFinite(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
+  if (typeof record.every?.period === 'string' && record.every.period) pieces.push(part(l, 'every', { period: record.every.period }));
   if (record.status === 'waiting') pieces.push(part(l, 'waiting', { task: record.awaitingTaskId, deadline: when(record.waitDeadline, timezone, locale) }));
   else if (record.outcome?.taskId) pieces.push(part(l, 'outcome', { task: record.outcome.taskId, state: record.outcome.state }));
   else if (record.note && typeof l.notes?.[record.note] === 'string') pieces.push(fill(l.notes[record.note], { task: record.lastTaskId ?? '' }));
