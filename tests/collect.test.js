@@ -1607,3 +1607,9 @@ test('reactionEvent: an unreadable emoji or a missing message never throws and f
   assert.equal(validateEvent(event).ok, false);
   assert.equal(validateEvent(reactionEvent({ message: { id: 'm1', channelId: 'c1', guildId: 'g1' }, emoji: { name: null } }, { id: 'u2' }, true)).ok, false);
 });
+
+test('normalizeMessage: editedAt is the edit stamp, null for a message never edited', () => {
+  assert.equal(normalizeMessage(rawMessage({ editedTimestamp: 5000 }), 'self').editedAt, 5000);
+  assert.equal(normalizeMessage(rawMessage({ editedTimestamp: null }), 'self').editedAt, null);
+  assert.equal(normalizeMessage(rawMessage(), 'self').editedAt, null);
+});

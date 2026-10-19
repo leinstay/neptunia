@@ -875,6 +875,15 @@ export function formatTranscript(messages, options) {
     const head = mode === 'memory' ? time : `#${index} ${time}`;
 
     const body = [];
+    // A message deleted since (a placeholder the turn put in its place): the author and the time only, no text.
+    if (message.deleted === true) {
+      const gone = labels.transcript.deleted;
+      parts.push(`${head} ${who}: ${typeof gone === 'string' ? fill(gone, { author: name }) : ''}`.trimEnd());
+      items.push({ id: message.id, index, ts: message.ts, text: parts.join('\n') });
+      previous = message;
+      previousChannelId = message.channelId;
+      continue;
+    }
     const marked = channelMarks ? withChannelHandles(message.content, message.mentionedChannelIds, channelMarks, channelLabel) : message.content;
     const content = linkNumbers ? numberMessageLinks(marked, (id) => indexById.get(id)) : marked;
     if (content) body.push(clipWithEllipsis(content, maxChars));
@@ -891,6 +900,8 @@ export function formatTranscript(messages, options) {
       body.push(renderForwarded(snapshot, labels, mediaContext, maxChars, message.forwardedFrom));
     }
     if (seeReactions) body.push(reactionsTag(message, labels, reactionsPerMessage, reactorNames));
+    // An edited message ends with the mark (chat mode, with `transcript.edited` set).
+    if (mode === 'chat' && message.editedAt && typeof labels.transcript.edited === 'string') body.push(labels.transcript.edited);
     // The skill calls of the turn that posted this line of hers (chat mode; see withCalls).
     if (callsOn && message.self) for (const mark of message.calls ?? []) body.push(callText(mark, indexById, labels));
 

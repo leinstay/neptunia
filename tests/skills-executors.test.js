@@ -411,6 +411,20 @@ test('resolveCall: a note beside a question, a query or a goal is joined to it; 
   assert.equal(resolve('rule.add', { text: 'ένα' }, 'δύο').reason, 'args.text:twice');
 });
 
+test('resolveCall: a deleted message is refused as message-deleted -- a placeholder line by its number, a raw id or a link by the record\'s ids; its detail is its own kind', () => {
+  const placeholder = { id: '2001', conversationId: HERE, authorId: MEMBER, deleted: true };
+  const gone = { messageAt: (n) => (n === 5 ? placeholder : view().messageAt(n)), deletedIds: new Set(['1500000000000000001', '1500000000000000002']) };
+  for (const [skill, args] of [['media.look', { message: '#5', question: 'τι;' }], ['message.react.add', { message: '#5', emoji: '👍' }], ['message.create', { reply: '#5' }]]) {
+    const refused = resolve(skill, args, skill === 'message.create' ? 'γεια' : '', gone);
+    assert.deepEqual([refused.ok, refused.code, refused.reason], [false, 'unknown-message', 'message-deleted'], skill);
+  }
+  assert.equal(resolve('media.look', { message: '1500000000000000002', question: 'τι;' }, '', gone).reason, 'message-deleted', 'a raw id');
+  assert.equal(resolve('media.look', { message: `https://discord.com/channels/111/222/1500000000000000001`, question: 'τι;' }, '', gone).reason, 'message-deleted', 'a link');
+  assert.equal(resolve('media.look', { message: '#2', question: 'τι;' }, '', gone).ok, true, 'a line in view is still fine');
+  assert.equal(resolve('media.look', { message: '1500000000000000003', question: 'τι;' }, '', gone).ok, true, 'an id the record does not hold as deleted passes on');
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: 'unknown-message', reason: 'message-deleted' }), { kind: 'message-deleted', code: 'unknown-message', arg: null });
+});
+
 /** A library of two GIFs for the gif option: a link GIF `g1`, an attached one `g2`; the daily count and the own-post stamps are recorded. */
 function gifLibrary(over = {}) {
   const entries = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' }, g2: { key: 'k2', id: 'g2', kind: 'attachment', url: 'https://cdn.example/old.gif' } };

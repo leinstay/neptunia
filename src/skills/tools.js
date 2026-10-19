@@ -379,7 +379,7 @@ const LOOKS = Object.freeze({
  * she wrote it through the describer's second look (relookImage, rewatchGif, rewatchVideo: their
  * daily counters, their cache, `llm.maxRequestsPerDay`). `invalid` (`invalid-args`) without a
  * message or a question, or with an item the message does not hold; `invalid`
- * (`unknown-message`) when the message is not one she sees, (`no-media`) when it holds nothing to
+ * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
  * kind, or while the kind's switches are off (read now); `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
@@ -399,6 +399,8 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
     if (!describer) return { status: 'not_configured', code: 'not-configured' };
     const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
     if (!message) return { status: 'invalid', code: 'unknown-message' };
+    // A placeholder line of a deleted message: gone, whatever it held.
+    if (message.deleted === true) return { status: 'invalid', code: 'unknown-message', reason: 'message-deleted' };
     const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
     if (media.length === 0) return { status: 'invalid', code: 'no-media' };
     const given = args?.item;

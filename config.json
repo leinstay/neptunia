@@ -131,6 +131,7 @@
   },
   "context": {
     "channelMessages": 100,
+    "deletedLinesMax": 10,
     "fetchReplyParents": true,
     "replyParentsFor": 3,
     "replyParentsMax": 4,
