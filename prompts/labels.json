@@ -464,6 +464,7 @@
     "continueToolsLast": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. This is your last step: answer from what you have now. A call here will not run.",
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
+    "callsDropped": "{count} of your calls did not run ({why}).",
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
@@ -524,12 +525,27 @@
       "feedback": "Your previous turn: not everything went through."
     },
     "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
+    "feedbackInTurn": "Kept for you and not told yet:",
     "feedbackItem": "- {fact}",
     "feedback": {
-      "callFailed": "Your {skill} call ended {status} ({code})",
+      "callFailed": "Your {skill} call ended {status} ({code}) {text}",
       "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture, errand or diary entry went through that turn",
       "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
-      "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}"
+      "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code} {why}",
+      "wakeDroppedKind": "Your {kind} wake did not run: {code} {why}",
+      "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held: {code}; it can run {until}",
+      "turnFailed": "Your {kind} turn failed: {code}",
+      "sendFailed": "A message did not go out ({code}); {n} of {total} went out",
+      "codes": {
+        "done": "the intention is done",
+        "cancelled": "the intention was cancelled",
+        "expired": "the intention expired",
+        "forgotten": "the intention is gone",
+        "dm-off": "private chats are off",
+        "not-writable": "you cannot write there",
+        "unavailable": "the place is not reachable",
+        "no-review-channel": "no channel to review in"
+      }
     },
     "here": "You are in #{channel} ({why})",
     "hereNone": "No current channel this wake",

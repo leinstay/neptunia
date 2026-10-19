@@ -1066,9 +1066,10 @@ export function countsPerDay(run) {
 export function capViolations(run) {
   const caps = run.settings.caps;
   const out = [];
-  // A chain's turns are counted per local day.
+  // A chain's turns are counted per local day; a feedback turn is no turn of the chain.
   const chains = new Map();
   for (const turn of run.turns) {
+    if (turn.kind === 'feedback') continue;
     const key = `${turn.chainId}\u0000${dayKey(turn.at, run.timezone)}`;
     chains.set(key, (chains.get(key) ?? 0) + 1);
   }

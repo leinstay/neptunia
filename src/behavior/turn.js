@@ -82,12 +82,12 @@ import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
-import { POSTING_SKILLS, innerSettings } from './inner.js';
+import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { innerOutputCalls } from './inner-output.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
 import { intentionSettings, isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
-import { placesBlockText, wakeBlockText } from './wake.js';
+import { feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -1431,6 +1431,15 @@ function journalTurnRecord(draft, result) {
 /** How long a failed addressed turn is kept for her next request in the channel. */
 export const FAILED_TURN_KEEP_MS = DAY_MS;
 
+/** The statuses of a call that did not go well, as a `callFailed` fact names them. */
+const CALL_STATUS_NAMES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
+
+/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `skills.markTextMaxChars`), or {}. */
+function callTextOf(result, maxChars = 200) {
+  const text = clampWithEllipsis(oneLine(typeof result?.data?.text === 'string' ? result.data.text : ''), maxChars);
+  return text ? { text } : {};
+}
+
 /**
  * The `tasks` input of a turn's request (src/behavior/prompt.js#buildRequest)
  * and the calls it names as left to their own turns. `part`: the part of a
@@ -2042,7 +2051,7 @@ export function createTurnRunner({
       // an intent.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
       const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
-      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
+      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' ? callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
       if (named) (draft.innerIntentIds ??= new Set()).add(named);
       // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
@@ -2135,7 +2144,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null, dropped = null }) {
     const { input, history, shownLines = [] } = continuation;
     let fetched = [];
     try {
@@ -2149,7 +2158,7 @@ export function createTurnRunner({
     // `names`: the calls the step follows when they left no result to show (an inner turn's open follow-up).
     const skillNames = [...new Set((Array.isArray(names) && names.length > 0 ? names : outcomes.map((outcome) => outcome.skill)).filter(Boolean))].join(', ');
     const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
-    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '' } });
+    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '', ...(dropped ? { dropped } : {}) } });
     const labels = input.prompts?.labels ?? {};
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
@@ -2403,7 +2412,11 @@ export function createTurnRunner({
   async function planCalls({ calls, channel, draft, view, envelopeOf }) {
     const { maxCallsPerStep } = loopSettings(hot.config, { inner: Boolean(draft?.inner) });
     const kept = calls.slice(0, maxCallsPerStep);
-    if (calls.length > kept.length) log.info('skills: extra-call', { channel: channel.id, count: calls.length - kept.length, loop: true });
+    if (calls.length > kept.length) {
+      log.info('skills: extra-call', { channel: channel.id, count: calls.length - kept.length, loop: true });
+      // Told in the next step when one follows (`labels.task.callsDropped`), else kept as a loopCut fact (toolLoop).
+      if (draft) draft.pendingDropped = (draft.pendingDropped ?? 0) + (calls.length - kept.length);
+    }
     const plans = [];
     for (const [index, call] of kept.entries()) plans.push(await planCall({ call, channel, envelope: envelopeOf(index), draft, view }));
     return plans;
@@ -2434,6 +2447,8 @@ export function createTurnRunner({
    * next calls, or null) or null.
    */
   async function loopStep({ results, step, last, reason, own, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext, posted = false, names = null }) {
+    // The calls dropped by `maxCallsPerStep` since the last step: this step's task says how many and why.
+    const dropped = draft?.pendingDropped > 0 ? { count: draft.pendingDropped, why: 'extra-call' } : null;
     const continued = continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
     const final = last || !continued;
     const innerTurn = continued && continuation.input?.mode === 'inner';
@@ -2445,13 +2460,15 @@ export function createTurnRunner({
         // An inner turn continues under its own labels (no message started it, none of hers went out).
         const label = innerTurn ? (final ? 'continueInnerLast' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
         const open = innerTurn && posted ? openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) : '';
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names }));
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names, dropped }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars: resultCharsFor(result, hot.config), ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
         messages = withSkillResult(sentMessages, blocks.filter(Boolean).join('\n\n'));
       }
       completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });
+      // The answer completed with the line on: the dropped calls are told.
+      if (continued && dropped) draft.pendingDropped = 0;
     } catch (err) {
       log.warn('skills: follow-up failed', { channel: channel.id, skill: results[0]?.skill ?? null, step, error: err });
       return null;
@@ -2549,6 +2566,8 @@ export function createTurnRunner({
     let cutOff = false;
     let steps = 0;
     let made = 0;
+    // The failed results of the latest calls (they were not shown back to her when the step after them failed).
+    let latestFailed = [];
     // The open follow-up due (an inner turn's, after a post with woken intentions still unnamed) and whether the turn had its one.
     let openDue = false;
     let openTaken = false;
@@ -2572,6 +2591,7 @@ export function createTurnRunner({
         const seen = results.filter((result) => result.followUp);
         outcomes.push(...seen);
         fresh = seen.length > 0;
+        latestFailed = results.filter((result) => result.status !== 'ok');
         // The last step's terminal action: nothing follows it.
         if (terminal) break;
       }
@@ -2605,6 +2625,8 @@ export function createTurnRunner({
         openTaken = true;
         draft.innerOpenFollowUp = true;
       }
+      // The step after a failed call did not come: she never read how it went, so it is a fact (an inner turn's actions already are).
+      if ((!answer || answer.cutOff) && !inner && draft) (draft.unseenFailed ??= []).push(...latestFailed.map((result) => ({ kind: 'callFailed', skill: result.skill, status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed', code: typeof result.code === 'string' && result.code ? result.code : null, ...callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) })));
       if (!answer) break;
       if (answer.cutOff) {
         cutOff = true;
@@ -2617,6 +2639,12 @@ export function createTurnRunner({
       if ((answer.next?.plans.length ?? 0) > 0) pending = answer.next;
     }
     log.info('skills: loop', { channel: channel.id, steps, calls: made, ms: clock() - startedAt });
+    // Calls dropped by the per-step bound that no step followed to tell her of: the loop's cut.
+    if (draft && draft.pendingDropped > 0) {
+      draft.loopCut = { reason: draft.loopCut?.reason ?? 'extra-call', dropped: (draft.loopCut?.dropped ?? 0) + draft.pendingDropped };
+      draft.pendingDropped = 0;
+    }
+    if (draft) draft.loopSteps = steps;
     // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that
     // cut it with calls dropped (`steps`, `time`, `no-continuation`; null when none did), how many.
     if (inner) draft.innerLoop = { steps, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
@@ -2626,50 +2654,37 @@ export function createTurnRunner({
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
-  // channelId -> the addressed turns that ended `error` with nothing posted, oldest first
-  // (`{ messageId, authorId, at, code }`), kept `FAILED_TURN_KEEP_MS` and at most
-  // `context.failedTurnsKept`; her next request there tells her (`labels.task.failedEarlier`).
-  // In process only: a restart forgets them (a restart is not the failure being reported).
-  const failedTurns = new Map();
+  // The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
+  // (src/behavior/inner.js, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
+  // `error` or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
+  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`), a diary post she asked for that did not go out
+  // (`diaryFailed`: `{ code }`, `labels.task.diaryFailedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
+  // `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
+  let factsSource = null; // set via setFactsSource()
+  const localFacts = createLocalFacts({ now: () => clock() });
+  const facts = () => (factsSource?.enabled?.() === true ? factsSource : localFacts);
+  // The channels known to be private chats (a deferred call names only its channel).
+  const privateChannels = new Set();
   const failedKept = () => {
     const kept = hot.config.context?.failedTurnsKept;
     return Number.isInteger(kept) && kept >= 0 ? kept : 3;
   };
-  /** The entries of `channelId` still in their window (the stored list pruned). */
-  function failedFor(channelId, at) {
-    const live = (failedTurns.get(String(channelId)) ?? []).filter((entry) => at - entry.at < FAILED_TURN_KEEP_MS);
-    if (live.length > 0) failedTurns.set(String(channelId), live);
-    else failedTurns.delete(String(channelId));
-    return live;
+  /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
+  function factsOfKind(guildId, scope, kind, at) {
+    return facts().pending(guildId, scope).filter((fact) => fact.kind === kind && fact.channelId === scope.channelId && at - fact.at < FAILED_TURN_KEEP_MS);
   }
-  function keepFailed(channelId, entry) {
-    const at = entry.at;
-    const list = [...failedFor(channelId, at).filter((kept) => kept.messageId !== entry.messageId), entry].slice(-failedKept());
-    if (list.length > 0 && failedKept() > 0) failedTurns.set(String(channelId), list);
+  /** A fact of `kind` kept (at most `failedKept()` of the kind per conversation, the newest; one per message). */
+  function keepFact(guildId, scope, kind, payload, at) {
+    const kept = failedKept();
+    if (kept <= 0) return;
+    const store = facts();
+    if (payload.messageId) store.markTold(guildId, factsOfKind(guildId, scope, kind, at).filter((fact) => fact.messageId === payload.messageId).map((fact) => fact.id));
+    store.add(guildId, { kind, ...scope, at, ...payload });
+    const live = factsOfKind(guildId, scope, kind, at);
+    const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
+    if (over.length > 0) store.markTold(guildId, over);
   }
-  function clearFailed(channelId, messageIds) {
-    const gone = new Set(messageIds);
-    const left = (failedTurns.get(String(channelId)) ?? []).filter((entry) => !gone.has(entry.messageId));
-    if (left.length > 0) failedTurns.set(String(channelId), left);
-    else failedTurns.delete(String(channelId));
-  }
-  // channelId -> the diary posts she asked for in an addressed turn that did not go out
-  // (`{ at, code }`), kept like the failed turns; her next request there tells her once
-  // (`labels.task.diaryFailedEarlier`). In process only.
-  const diaryFailed = new Map();
   let onDeferredFailure = null; // set via setOnDeferredFailure(): a deferred call of an inner turn that failed
-  function diaryFailedFor(channelId, at) {
-    const live = (diaryFailed.get(String(channelId)) ?? []).filter((entry) => at - entry.at < FAILED_TURN_KEEP_MS);
-    if (live.length > 0) diaryFailed.set(String(channelId), live);
-    else diaryFailed.delete(String(channelId));
-    return live;
-  }
-  function clearDiaryFailed(channelId, ats) {
-    const gone = new Set(ats);
-    const left = (diaryFailed.get(String(channelId)) ?? []).filter((entry) => !gone.has(entry.at));
-    if (left.length > 0) diaryFailed.set(String(channelId), left);
-    else diaryFailed.delete(String(channelId));
-  }
   /**
    * What became of a call of hers that was queued for after her turn (`diary.post`) when it did
    * not go out: in an inner turn the inner life hears it as a feedback fact; in an addressed turn
@@ -2682,10 +2697,7 @@ export function createTurnRunner({
         Promise.resolve(onDeferredFailure?.({ guildId, channelId: String(channelId), chainId, skill, code, id })).catch((err) => log.warn('turn: deferred failure not handed on', { error: err }));
         return;
       }
-      const kept = failedKept();
-      if (kept <= 0) return;
-      const list = [...diaryFailedFor(channelId, at), { at, code: typeof code === 'string' && code ? code : 'error' }].slice(-kept);
-      diaryFailed.set(String(channelId), list);
+      keepFact(guildId, { channelId: String(channelId), privateChat: privateChannels.has(String(channelId)) }, 'diaryFailed', { code: typeof code === 'string' && code ? code : 'error' }, at);
     } catch (err) {
       log.warn('turn: deferred outcome not kept', { error: err });
     }
@@ -3797,6 +3809,11 @@ export function createTurnRunner({
     // does not ping them (server channels only).
     const pingsOff = (userId) =>
       !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(guildId, userId);
+    // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
+    const failSend = (code) => {
+      sendFailed = true;
+      if (draft) draft.sendFailure = { code, n: ownPosted.length, total: messages.length };
+    };
     for (const [index, message] of messages.entries()) {
       if (!typedAbove(index) && typingOn) await sleep(between(cfg.betweenMessagesMs, rng));
 
@@ -3808,20 +3825,20 @@ export function createTurnRunner({
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
-        sendFailed = true;
+        failSend('refused');
         break;
       }
       // The first message was typed alongside the GIF picker, above; any other is checked before its typing.
       if (typingOn && !typedAbove(index)) {
         if (!checkEffect('message.create', args, effect).ok) {
-          sendFailed = true;
+          failSend('refused');
           break;
         }
         await typeFor(spoken);
       }
       // Checked (again) right before the send: the owner's switch may have moved while she typed.
       if (!checkEffect('message.create', args, effect).ok) {
-        sendFailed = true;
+        failSend('refused');
         break;
       }
 
@@ -3840,7 +3857,7 @@ export function createTurnRunner({
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);
         log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: portError(result) });
-        sendFailed = true;
+        failSend(typeof result.code === 'string' && result.code ? result.code : 'send-failed');
         break;
       }
       const posted = postedOf(result);
@@ -5334,7 +5351,7 @@ export function createTurnRunner({
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
-    const ends = { replyTargets: [], reasons: [], failedShown: null, diaryShown: null };
+    const ends = { replyTargets: [], reasons: [], factsShown: null };
     const tracked = { ...params, journalAttempts: attempts, turnEnds: ends };
     let result;
     let thrown = null;
@@ -5353,25 +5370,51 @@ export function createTurnRunner({
   }
 
   /**
-   * Keep an addressed reply turn that ended `error` with nothing posted for her next request in
-   * the channel (`failedFor`); a turn that spoke or chose silence forgets the entries its request
-   * showed and the entry of the very message it answered. Never throws.
+   * An addressed reply turn: the facts its request showed, and the failure entry of the very message
+   * it answered, are told once a completed answer carried them (any outcome but `error`, `busy`,
+   * `paused`); one that ended `error` or `refused` is kept for her next request in the channel
+   * (`failedTurn`). Never throws.
    */
   function noteFailedTurn(params, result, ends, thrown) {
     try {
       const { channel, trigger = null, triggerKind = null, mode = null } = params ?? {};
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
+      const guildId = params.guildId ?? channel.guild?.id ?? null;
+      const scope = { channelId: String(channel.id), privateChat: !channel.guild };
+      const at = clock();
       const outcome = result?.outcome ?? 'error';
-      if (outcome === 'spoke' || outcome === 'skip') {
-        clearFailed(channel.id, [...(ends.failedShown ?? []), trigger.id]);
-        clearDiaryFailed(channel.id, ends.diaryShown ?? []);
-        return;
+      if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused') {
+        const own = factsOfKind(guildId, scope, 'failedTurn', at).filter((fact) => fact.messageId === String(trigger.id)).map((fact) => fact.id);
+        const told = [...(ends.factsShown ?? []), ...own];
+        if (told.length > 0) facts().markTold(guildId, told);
       }
-      if (outcome !== 'error') return;
-      const code = typeof result?.reason === 'string' ? result.reason : thrown ? errorCodeOf(thrown) : ends.reasons.includes('too-slow') ? 'too-slow' : 'error';
-      keepFailed(channel.id, { messageId: String(trigger.id), authorId: trigger.authorId ?? null, at: clock(), code });
+      if (outcome !== 'error' && outcome !== 'refused') return;
+      const code = typeof result?.reason === 'string' && result.reason ? result.reason : thrown ? errorCodeOf(thrown) : ends.reasons.includes('too-slow') ? 'too-slow' : (outcome === 'refused' ? ends.reasons.at(-1) : null) ?? outcome;
+      keepFact(guildId, scope, 'failedTurn', { messageId: String(trigger.id), authorId: trigger.authorId ?? null, code }, at);
     } catch (err) {
       log.warn('turn: failed turn not kept', { error: err });
+    }
+  }
+
+  /**
+   * What an addressed turn lost, as facts for her next request in the conversation: a message that did
+   * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls she never read the
+   * result of (`callFailed`). Never throws.
+   */
+  function recordTurnFacts(args, draft, result) {
+    try {
+      const channel = args.channel;
+      if (!channel || result?.dryRun === true) return;
+      const entries = [];
+      if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
+      if (draft.loopCut?.dropped > 0) entries.push({ kind: 'loopCut', cut: draft.loopCut.reason, droppedCalls: draft.loopCut.dropped, steps: draft.loopSteps ?? 0 });
+      entries.push(...(draft.unseenFailed ?? []));
+      if (entries.length === 0) return;
+      const guildId = args.guildId ?? channel.guild?.id ?? null;
+      const at = clock();
+      for (const entry of entries) facts().add(guildId, { ...entry, channelId: String(channel.id), privateChat: !channel.guild, at });
+    } catch (err) {
+      log.warn('turn: facts not kept', { error: err });
     }
   }
 
@@ -5600,9 +5643,10 @@ export function createTurnRunner({
       if (args.turnEnds) {
         args.turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
         if (typeof draft.reason === 'string') args.turnEnds.reasons.push(draft.reason);
-        if (draft.failedShown) args.turnEnds.failedShown = draft.failedShown;
-        if (draft.diaryShown) args.turnEnds.diaryShown = draft.diaryShown;
+        if (draft.factsShown) args.turnEnds.factsShown = draft.factsShown;
       }
+      // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
+      if (!args.inner) recordTurnFacts(args, draft, result);
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
@@ -6540,23 +6584,26 @@ export function createTurnRunner({
       const prompts = hot.prompts;
       // A part of a split message, the author's other calls still queued, the messages folded into this one.
       // Addressed turns of this channel that failed earlier, told once (first part only); cleared at the turn's end unless it fails too.
-      const failedEarlier =
-        mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1)
-          ? failedFor(channel.id, now)
-              .filter((entry) => entry.messageId !== trigger.id)
-              .map((entry) => ({
-                author: history.find((m) => m.authorId === entry.authorId)?.authorName ?? store.getUser?.(guildId, entry.authorId)?.names?.[0] ?? '',
-                messageId: entry.messageId,
-                link: messageLink(isPrivate ? '@me' : guildId, channel.id, entry.messageId),
-                at: entry.at,
-                code: entry.code,
-              }))
-          : [];
-      if (failedEarlier.length > 0) draft.failedShown = failedEarlier.map((entry) => entry.messageId);
+      const addressedHere = mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1);
+      if (isPrivate) privateChannels.add(String(channel.id));
+      const factScope = { channelId: String(channel.id), privateChat: isPrivate };
+      const pendingFacts = addressedHere ? facts().pending(guildId, factScope) : [];
+      const failedFacts = pendingFacts.filter((fact) => fact.kind === 'failedTurn' && fact.channelId === factScope.channelId && now - fact.at < FAILED_TURN_KEEP_MS && fact.messageId !== trigger.id);
+      const failedEarlier = failedFacts.map((fact) => ({
+        author: history.find((m) => m.authorId === fact.authorId)?.authorName ?? store.getUser?.(guildId, fact.authorId)?.names?.[0] ?? '',
+        messageId: fact.messageId,
+        link: messageLink(isPrivate ? '@me' : guildId, channel.id, fact.messageId),
+        at: fact.at,
+        code: fact.code,
+      }));
       // The diary posts she asked for in an earlier addressed turn here that did not go out, told the same way.
-      const diaryFailedEarlier =
-        mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1) && prompts?.labels?.task?.diaryFailedEarlier ? diaryFailedFor(channel.id, now).map((entry) => ({ at: entry.at, code: entry.code })) : [];
-      if (diaryFailedEarlier.length > 0) draft.diaryShown = diaryFailedEarlier.map((entry) => entry.at);
+      const diaryFacts = prompts?.labels?.task?.diaryFailedEarlier ? pendingFacts.filter((fact) => fact.kind === 'diaryFailed' && fact.channelId === factScope.channelId && now - fact.at < FAILED_TURN_KEEP_MS) : [];
+      const diaryFailedEarlier = diaryFacts.map((fact) => ({ at: fact.at, code: fact.code }));
+      // What else was kept for her (a drop, a hold, a call or a message that failed): a `<wake>`-shaped block before the task.
+      const otherFacts = pendingFacts.filter((fact) => fact.kind !== 'failedTurn' && fact.kind !== 'diaryFailed').slice(0, FACTS_SHOWN_MAX);
+      const factsText = otherFacts.length > 0 ? feedbackInTurnText(otherFacts.map(factPayload), prompts?.labels, { timezone: config.bot?.timezone ?? 'UTC', locale: prompts?.labels?.locale }) : '';
+      const shownIds = [...failedFacts, ...diaryFacts, ...(factsText ? otherFacts : [])].map((fact) => fact.id);
+      if (shownIds.length > 0) draft.factsShown = shownIds;
       const tasks = taskInput({ part, queued, added, missed, failedEarlier, diaryFailedEarlier, labels: prompts?.labels, channelId: channel.id });
       // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
       // named, and on a part of a split message every line after the message -- a call that came
@@ -6676,7 +6723,7 @@ export function createTurnRunner({
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
-        wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : null,
+        wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : factsText || null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
         places: !draft.inner && !isPrivate && finalMode !== 'diary' ? placesInputFor({ guildId, config, labels: prompts?.labels }) : null,
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
@@ -7067,7 +7114,7 @@ export function createTurnRunner({
       const callDelivered = loopDelivered || (called?.status === 'ok' && !called.followUp);
       // An inner turn in shadow mode delivers nothing, whatever it proposed.
       const delivered = (acted.delivered === true || followed?.delivered === true || callDelivered) && draft.inner?.shadow !== true;
-      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded };
+      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure ? { partial: true } : {}) };
       if (!acted.drawFailed) return spoke;
       // The same predicate as runTurn's hand-off: an unasked turn notifies right here.
       handOff = asked;
@@ -7201,6 +7248,13 @@ export function createTurnRunner({
     /** Called with a deferred call of an inner turn that did not go out (src/behavior/inner.js#noteLateFailure). */
     setOnDeferredFailure: (fn) => {
       onDeferredFailure = fn;
+    },
+    /**
+     * The facts kept for her next request in a conversation (src/behavior/inner.js's `facts`: `enabled`, `add`,
+     * `pending`, `markTold`); used while its `enabled()` says so, else the runner keeps its own in process.
+     */
+    setFactsSource: (source) => {
+      factsSource = source ?? null;
     },
     /**
      * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how

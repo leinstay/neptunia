@@ -14,24 +14,32 @@
 // itself; a review is its day's chain), public posts per local day. No bound is in dollars: what
 // a turn and the errands it hands off cost is recorded (`state.spend`, the `errand-cost` journal
 // event) and reported, never limited.
+// Every drop and every hold of a wake is a fact at the moment it happens, and so is every call
+// outcome that did not go well: facts are kept in the state (`state.facts`) until a model answer
+// that carried them completed (`told`), and are shown by the first turn that can carry them -- an
+// inner turn's `<wake>`, or an addressed turn (src/behavior/turn.js). A fact of a private chat is
+// shown only in that chat; a fact of the server never in a private chat.
 // A review's `<wake>` also tells her once which intentions of hers expired untouched since she was
 // last told (`innerLife.review.expiredMax` newest, the rest counted; a candidate never): each is marked
 // shown on its record once the review turn ran, so a held or erred review lists them again.
-// Over a cap no turn runs and the refusal is journalled once per wake. What is left and when it
-// resets reach her as facts in `<wake>`, never as a rule.
+// Over a cap no turn runs and the refusal is journalled once per wake and held as a fact (with the
+// local midnight it waits for). What is left and when it resets reach her as facts in `<wake>`,
+// never as a rule.
 //
 // Feedback on her own turn (docs/inner-life.md "Feedback on her own turn"): when an inner turn
 // ends, `feedbackFacts` lists from its result what did not go through -- output she wrote outside
-// a call and lost, calls that ended unknown or refused, an intention she closed as done while no
-// delivery call went through, the loop cut with calls dropped, and a wake of hers the engine
-// dropped (`no-channel`) or has held on a cap for over an hour. A non-empty list queues ONE
-// `feedback` wake (`inner.wake:feedback:<turnId>`) in the turn's chain and conversation, due at
-// the next tick, carrying the facts; a feedback turn's own misses are journalled only, never a
-// second wake (no loops). The same facts ride the turn's memory episode (`episode.feedback`).
+// a call and lost, every call whose status was not `ok`, an intention she closed as done while no
+// delivery call went through, and the loop cut with calls dropped; a failed turn is a fact too
+// (`turnFailed`). A non-empty list is kept as facts and queues ONE `feedback` wake
+// (`inner.wake:feedback:<turnId>`) in the turn's chain and conversation, due at the next tick,
+// carrying them -- unless the turn's own wakes come back for a retry, which carries them. The
+// feedback wake is never held by a cap, never coalesced with another wake and does not count
+// against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
+// The same facts ride the turn's memory episode (`episode.feedback`).
 //
 // A recurring intention (`every`, src/intentions/model.js) is advanced to its next occurrence
 // whenever a wake naming it is marked handled -- her turn ended (whatever its outcome), or the
-// engine dropped the wake (`no-channel`, `overflow`, `stale`, the chain cap, the stop) --
+// engine dropped the wake (`no-channel`, `overflow`, `stale`, the stop) --
 // through the intention service's `advance`: `recurred` when a call of the turn named it (the
 // turn result's `inner.intentIds`), `missed` otherwise. Without a chain of its own each occurrence
 // is its own chain (`intention:<id>:<dueAt>`), so the per-chain cap bounds one occurrence. The
@@ -87,16 +95,17 @@ export const INNER_DEFAULTS = Object.freeze({
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
+  factsKeepDays: 7,
 });
 
 /** The orders the places view knows (`places.list` `sort=`). */
 export const PLACE_SORTS = Object.freeze(['recent', 'name', 'lines']);
 /** The wake id prefix of an attend wake (its intention and newest line follow). */
 const ATTEND_PREFIX = 'inner.wake:attend:';
-/** The outcomes of a wake the engine dropped, told to her once at her next turn (`wakeDropped`'s code is the outcome). */
 /** The error codes of a failed turn whose wakes are retried; any other error is handled as an ended turn. */
 const RETRY_CODES = new Set(['provider-limit', 'provider-error', 'timeout']);
-const DROP_TOLD = new Set(['no-channel', 'provider']);
+/** The outcomes of a wake that never ran a turn for it: each is a `wakeDropped` fact at the moment it happens. */
+const DROP_OUTCOMES = new Set(['stopped', 'overflow', 'stale', 'superseded', 'error', 'provider', 'no-channel']);
 /** How far behind the last scan the record is read again (a line appended late is still seen; ids de-duplicate). */
 const SCAN_LAG_MS = 5 * MINUTE_MS;
 
@@ -122,28 +131,28 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'd
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand, a diary entry. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run', 'diary.post']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped']);
-/** How long a capped wake waits before it is a feedback fact. */
-const WAKE_HELD_MS = HOUR_MS;
+export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed']);
+/** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
+const CALL_STATUSES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
+/** The most facts one turn is shown; the rest stay for the next one. */
+export const FACTS_SHOWN_MAX = 12;
 
 /**
  * What did not go through in one inner turn, from its result (src/behavior/turn.js's
  * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
- * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call that ended `unknown`, `timeout` or refused
- * (`skill`, `status`, `code`; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intent.update`
+ * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call whose status was not `ok`
+ * (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the
+ * operation's own `text` when it said one; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intent.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
  * to the result's `inner.intentIds`; `intentionId`,
  * `purpose` from `intentions` when known); `loopCut` when the loop ended by its step or time
- * bound with calls dropped (`cut`, `droppedCalls`, `steps`); one `wakeDropped` per entry of
- * `wakes` (the caller's: wakes of hers dropped `no-channel` or held on a cap over an hour, each
- * `{ id, kind, code, intentionIds }`; `intentionId`, `purpose` from `intentions`). [] when
- * nothing is wrong. Pure.
+ * bound with calls dropped (`cut`, `droppedCalls`, `steps`). [] when nothing is wrong. Pure.
  * @param {object|null} turnResult
- * @param {{ wakes?: object[], named?: string[], posting?: readonly string[], intentions?: object[] }} [options]
+ * @param {{ named?: string[], posting?: readonly string[], intentions?: object[] }} [options]
  * @returns {object[]}
  */
-export function feedbackFacts(turnResult, { wakes = [], named = null, posting = DELIVERY_SKILLS, intentions = [] } = {}) {
+export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKILLS, intentions = [] } = {}) {
   const inner = turnResult?.inner ?? {};
   const actions = list(inner.actions);
   const facts = [];
@@ -153,10 +162,12 @@ export function feedbackFacts(turnResult, { wakes = [], named = null, posting = 
   };
   for (const action of actions) {
     if (!action || typeof action.skill !== 'string') continue;
-    const failed = action.status === 'refused' || action.result === 'unknown' || action.result === 'timeout' || action.code === 'timeout';
-    if (!failed) continue;
-    const status = action.status === 'refused' ? 'refused' : action.result === 'timeout' || action.code === 'timeout' ? 'timeout' : 'unknown';
-    facts.push({ kind: 'callFailed', skill: action.skill, status, code: typeof action.code === 'string' && action.code ? action.code : null });
+    if (action.status === 'proposed') continue;
+    const refused = action.status === 'refused';
+    const result = typeof action.result === 'string' ? action.result : 'ok';
+    if (!refused && result === 'ok') continue;
+    const status = refused ? 'refused' : result === 'timeout' || action.code === 'timeout' ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
+    facts.push({ kind: 'callFailed', skill: action.skill, status, code: typeof action.code === 'string' && action.code ? action.code : null, ...(typeof action.text === 'string' && action.text ? { text: action.text } : {}) });
   }
   const delivered = actions.some((action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill));
   if (!delivered) {
@@ -173,12 +184,57 @@ export function feedbackFacts(turnResult, { wakes = [], named = null, posting = 
   if (loop && typeof loop.cut === 'string' && loop.cut && Number.isFinite(loop.droppedCalls) && loop.droppedCalls > 0) {
     facts.push({ kind: 'loopCut', cut: loop.cut, droppedCalls: loop.droppedCalls, steps: Number.isFinite(loop.steps) ? loop.steps : 0 });
   }
-  for (const wake of list(wakes)) {
-    if (!wake || typeof wake.id !== 'string') continue;
-    const intentionId = list(wake.intentionIds).map(String)[0] ?? null;
-    facts.push({ kind: 'wakeDropped', id: wake.id, wake: typeof wake.kind === 'string' ? wake.kind : null, code: typeof wake.code === 'string' ? wake.code : null, intentionId, purpose: intentionId ? purposeOf(intentionId) : '' });
-  }
   return facts;
+}
+
+/** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ channelId, privateChat, anywhere }`. */
+export function pendingFactsOf(state, { channelId = null, privateChat = false, anywhere = false } = {}) {
+  const here = channelId === null || channelId === undefined ? null : String(channelId);
+  return list(state?.facts).filter((fact) => {
+    if (fact.told) return false;
+    if (privateChat === true) return fact.privateChat === true && here !== null && fact.channelId === here;
+    if (fact.privateChat === true) return false;
+    return anywhere || fact.channelId === null || fact.channelId === here;
+  });
+}
+
+/** `fact` (`{ kind, channelId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
+export function addFactTo(state, fact, id) {
+  const { channelId = null, privateChat = false, at, ...payload } = fact;
+  const stored = { ...payload, id, channelId: channelId === null || channelId === undefined ? null : String(channelId), privateChat: privateChat === true, at: Number.isFinite(at) ? at : 0, told: false };
+  state.facts = [...list(state.facts), stored];
+  return stored;
+}
+
+/** The facts of `ids` marked told at `at`. */
+export function markFactsTold(state, ids, at) {
+  const set = new Set(list(ids).map(String));
+  for (const fact of list(state?.facts)) if (set.has(fact.id) && !fact.told) fact.told = at;
+}
+
+/** A fact as the prompt shows it: its payload without the bookkeeping. */
+export function factPayload(fact) {
+  const { id, channelId, privateChat, at, told, ...payload } = fact;
+  return payload;
+}
+
+/**
+ * The facts of an addressed turn when no inner life keeps them (and of tests): the same three
+ * calls as the inner life's `facts`, in process only, one list for every guild.
+ * @param {{ now?: () => number }} [options]
+ */
+export function createLocalFacts({ now = Date.now } = {}) {
+  const state = { facts: [] };
+  let n = 0;
+  return {
+    enabled: () => true,
+    add: (guildId, fact) => addFactTo(state, { at: now(), ...fact }, `local-${++n}`),
+    pending: (guildId, scope) => pendingFactsOf(state, scope),
+    markTold: (guildId, ids) => {
+      markFactsTold(state, ids, now());
+      state.facts = state.facts.filter((fact) => !fact.told);
+    },
+  };
 }
 
 /** Whether the inner life runs (`features.innerLife` exactly true). */
@@ -230,6 +286,8 @@ export function innerSettings(config) {
       maxCallsPerStep: whole(loop.maxCallsPerStep, d.loop.maxCallsPerStep),
       callTimeoutMs: positive(loop.callTimeoutMs, d.loop.callTimeoutMs),
     },
+    // A fact not told yet is kept this many days.
+    factsKeepDays: positive(raw.factsKeepDays, d.factsKeepDays),
     // A failed turn's wakes come back after the next of these delays while the first failure is younger than maxHours.
     retry: {
       delaysMinutes: Array.isArray(retry.delaysMinutes) && retry.delaysMinutes.length > 0 && retry.delaysMinutes.every((m) => positive(m, 0) > 0) ? [...retry.delaysMinutes] : [...d.retry.delaysMinutes],
@@ -240,7 +298,7 @@ export function innerSettings(config) {
 
 /** A fresh state. */
 export function emptyState() {
-  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, turns: [], spend: [], turnIds: [] };
+  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, turns: [], spend: [], turnIds: [], facts: [] };
 }
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -261,13 +319,14 @@ export function normalizeState(raw) {
     turns: list(raw.turns).filter((turn) => Number.isFinite(turn?.at)),
     spend: list(raw.spend).filter((item) => Number.isFinite(item?.at) && Number.isFinite(item?.usd)),
     turnIds: list(raw.turnIds).filter((id) => typeof id === 'string'),
+    facts: list(raw.facts).filter((fact) => fact && typeof fact.id === 'string' && typeof fact.kind === 'string'),
   };
 }
 
 /**
  * `state` without what is older than its windows (handled ids, turns, spend).
  */
-export function pruneState(state, now) {
+export function pruneState(state, now, { factsKeepMs = INNER_DEFAULTS.factsKeepDays * DAY_MS } = {}) {
   const since = now - KEEP_MS;
   const handled = Object.fromEntries(Object.entries(state.handled).filter(([, entry]) => Number.isFinite(entry?.at) && entry.at >= now - CHAIN_KEEP_MS));
   return {
@@ -276,6 +335,8 @@ export function pruneState(state, now) {
     turns: state.turns.filter((turn) => turn.at >= since),
     spend: state.spend.filter((item) => item.at >= since),
     turnIds: state.turnIds.slice(-TURN_IDS_MAX),
+    // A fact is dropped a day after it was told, or when it has waited the whole keep time.
+    facts: list(state.facts).filter((fact) => (fact.told ? fact.told >= now - DAY_MS : fact.at >= now - factsKeepMs)),
   };
 }
 
@@ -476,12 +537,18 @@ export function drawReviewAt({ day, weights, timezone, rng, notBefore = -Infinit
  * joins it, and the day's review joins any server anchor. With only reviews queued, they go alone.
  * A retried wake (`retry`) joins only the wakes of its own failed group. A wake `isHeld` says is held (its own chain
  * is over its cap) is left out of every group, so it never joins one and never makes a review or a feedback wake wait.
+ * A feedback wake is never coalesced with another kind: the feedback wakes of one conversation run together, first.
  * @param {object[]} queue
  * @returns {object[]}
  */
 export function coalesceGroup(queue, isHeld = () => false) {
   const sorted = list(queue).filter((wake) => !isHeld(wake)).sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
   if (sorted.length === 0) return [];
+  const feedback = sorted.filter((wake) => wake.kind === 'feedback');
+  if (feedback.length > 0) {
+    const first = feedback[0];
+    return feedback.filter((wake) => wake.channelId === first.channelId && Boolean(wake.privateChat) === Boolean(first.privateChat) && retryKey(wake) === retryKey(first));
+  }
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
   const key = retryKey(anchor ?? sorted[0]);
@@ -524,11 +591,13 @@ export function planRetry(group, at, settings, code = 'error') {
 
 /**
  * How many inner turns chain `chainId` has had on `now`'s local day in `timezone` (a failed attempt is no turn), and
- * how many are left under `cap`. A chain at its cap waits for the next local day.
+ * how many are left under `cap`. A chain at its cap waits for the next local day. A feedback turn (one that
+ * ran for feedback wakes only) is not counted.
  */
 export function chainBudget(state, chainId, cap, { now, timezone }) {
   const { start } = dayBounds(now, timezone);
-  const used = state.turns.filter((turn) => turn.chainId === chainId && turn.failed !== true && turn.at >= start).length;
+  const feedbackOnly = (turn) => Array.isArray(turn.kinds) && turn.kinds.length > 0 && turn.kinds.every((kind) => kind === 'feedback');
+  const used = state.turns.filter((turn) => turn.chainId === chainId && turn.failed !== true && !feedbackOnly(turn) && turn.at >= start).length;
   return { used, cap, left: Math.max(0, cap - used) };
 }
 
@@ -657,7 +726,7 @@ export function createInnerLife({
   function save(guildId) {
     const key = String(guildId);
     // Pruned in place: whoever holds the state object keeps seeing the one that is written.
-    const next = Object.assign(stateOf(key), pruneState(stateOf(key), now()));
+    const next = Object.assign(stateOf(key), pruneState(stateOf(key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS }));
     try {
       writeJsonAtomic(fileOf(key), next);
     } catch (err) {
@@ -682,21 +751,44 @@ export function createInnerLife({
     }
   }
 
+  let factSeq = 0;
+
+  /** `fact` kept in `state.facts` (not told yet); the fact's `channelId` and `privateChat` say where it may be shown. */
+  function addFact(state, fact) {
+    const at = Number.isFinite(fact.at) ? fact.at : now();
+    return addFactTo(state, { ...fact, at }, `f${at.toString(36)}-${++factSeq}`);
+  }
+
+  /** The purpose of intention `id` in the guild's store ('' when unknown). Never throws. */
+  function purposeOf(guildId, id) {
+    try {
+      const purpose = guildId && id ? intentions?.store?.(guildId)?.get?.(id)?.purpose : null;
+      return typeof purpose === 'string' ? purpose : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** The fact about `wake` (`wakeDropped` or `wakeHeld`) with its `code`, where it belongs and what `extra` adds. */
+  function wakeFact(guildId, wake, kind, code, extra = {}) {
+    const intentionId = list(wake.intentionIds).map(String)[0] ?? null;
+    return { kind, wakeId: wake.id, wake: wake.kind, code, intentionId, purpose: intentionId ? purposeOf(guildId, intentionId) : '', ...extra, channelId: wake.channelId ?? null, privateChat: wake.privateChat === true };
+  }
+
   /**
    * `wakes` marked handled with `outcome` and taken off the queue; every recurring intention they
    * name advances to its next occurrence (the service's `advance`: `recurred` for one in `named`,
    * the ids her turn's calls named, else `missed`). A one-off, a waiting one and an occurrence she
-   * already closed or moved are left as they are by the service.
+   * already closed or moved are left as they are by the service. An outcome other than a run turn
+   * (DROP_OUTCOMES) is a `wakeDropped` fact at once; `why` (a string, or a function of the wake) is its sub-code.
    */
-  function markHandled(state, wakes, outcome, at, { guildId = null, named = null } = {}) {
+  function markHandled(state, wakes, outcome, at, { guildId = null, named = null, why = null } = {}) {
     for (const wake of wakes) {
-      state.handled[wake.id] = {
-        at,
-        outcome,
-        ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}),
-        // A drop she is told about at her next turn (feedbackFacts' `wakeDropped`): what the fact needs.
-        ...(DROP_TOLD.has(outcome) ? { kind: wake.kind, intentionIds: list(wake.intentionIds), told: false } : {}),
-      };
+      state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}) };
+      if (DROP_OUTCOMES.has(outcome)) {
+        const reason = typeof why === 'function' ? why(wake) : why;
+        addFact(state, { at, ...wakeFact(guildId, wake, 'wakeDropped', outcome, typeof reason === 'string' && reason ? { why: reason } : {}) });
+      }
     }
     const ids = new Set(wakes.map((wake) => wake.id));
     state.queue = state.queue.filter((wake) => !ids.has(wake.id));
@@ -1026,12 +1118,25 @@ export function createInnerLife({
     const anchor = group.find((wake) => wake.kind !== 'review') ?? null;
     const candidates = anchor ? [anchor.channelId] : (stateOf(guildId).review?.channels ?? []);
     const readOnlyOk = anchor?.kind === 'attend';
+    // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
+    let why = anchor ? 'unavailable' : 'no-review-channel';
+    let first = true;
     for (const channelId of candidates) {
       if (!channelId) continue;
+      const fail = (code) => {
+        if (first) why = code;
+        first = false;
+      };
       const channel = await Promise.resolve(client?.channels?.fetch?.(String(channelId))).catch(() => null);
-      if (!channel) continue;
+      if (!channel) {
+        fail('unavailable');
+        continue;
+      }
       // A private chat only while private chats are on (features.privateMessages, read now).
-      if (!channel.guild && hot.config?.features?.privateMessages !== true) continue;
+      if (!channel.guild && hot.config?.features?.privateMessages !== true) {
+        fail('dm-off');
+        continue;
+      }
       if (channel.guild && !readOnlyOk && typeof discord?.canSend === 'function') {
         let writable = false;
         try {
@@ -1039,11 +1144,14 @@ export function createInnerLife({
         } catch {
           writable = false;
         }
-        if (!writable) continue;
+        if (!writable) {
+          fail('not-writable');
+          continue;
+        }
       }
-      return channel;
+      return { channel, why: null };
     }
-    return null;
+    return { channel: null, why };
   }
 
   /** The channel names of the review's recent channels, for `<wake>`. */
@@ -1073,10 +1181,24 @@ export function createInnerLife({
     };
     const stale = state.queue.filter((wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id)));
     if (stale.length > 0) {
-      markHandled(state, stale, 'stale', at, { guildId });
+      // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
+      const staleWhy = (wake) => {
+        const status = intentions?.store?.(guildId)?.get?.(wake.intentionIds[0])?.status;
+        return ['done', 'cancelled', 'expired'].includes(status) ? status : 'forgotten';
+      };
+      markHandled(state, stale, 'stale', at, { guildId, why: staleWhy });
       save(guildId);
       for (const wake of stale) note(guildId, { event: 'stale', wake: wakeFields(wake) });
       if (state.queue.length === 0) return { dropped: stale.length };
+    }
+
+    // A feedback wake whose facts a turn of hers already carried has nothing left to say.
+    const untold = new Set(list(state.facts).filter((fact) => !fact.told).map((fact) => fact.id));
+    const spent = state.queue.filter((wake) => wake.kind === 'feedback' && list(wake.factIds).length > 0 && !wake.factIds.some((id) => untold.has(id)));
+    if (spent.length > 0) {
+      markHandled(state, spent, 'told', at, { guildId });
+      save(guildId);
+      if (state.queue.length === 0) return { told: spent.length };
     }
 
     const timezone = timezoneOf();
@@ -1090,20 +1212,24 @@ export function createInnerLife({
     };
     const chainOf = (chainId) => chainBudget(state, chainId, settings.caps.perChain, { now: at, timezone });
     const overChain = (wake) => chainOf(wake.chainId).left <= 0;
-    const holdOf = (wake) => (overDay(wake) ? 'attend-per-day' : overChain(wake) ? 'per-chain' : null);
+    // A feedback wake is never held: what it carries must reach her.
+    const holdOf = (wake) => (wake.kind === 'feedback' ? null : overDay(wake) ? 'attend-per-day' : overChain(wake) ? 'per-chain' : null);
     const held = [];
     const heldFresh = {};
+    const freshHolds = [];
     for (const wake of state.queue) {
       const cap = holdOf(wake);
       if (!cap) {
-        // The day rolled: a wake held by its chain's cap is released.
-        if (wake.capped === 'per-chain') delete wake.capped;
+        // The day rolled: a wake held by a cap is released.
+        delete wake.capped;
         continue;
       }
       held.push(wake);
       if (wake.capped === cap) continue;
       wake.capped = cap;
       heldFresh[cap] = (heldFresh[cap] ?? 0) + 1;
+      // A hold is a fact once: what holds it and when it is expected to run (the next local midnight).
+      freshHolds.push({ wake, fact: addFact(state, { at, ...wakeFact(guildId, wake, 'wakeHeld', cap, { until: dayBounds(at, timezone).next }) }) });
       note(guildId, { event: 'capped', cap, wake: wakeFields(wake) });
     }
     const freshCaps = Object.keys(heldFresh);
@@ -1111,16 +1237,24 @@ export function createInnerLife({
     if (freshCaps.length > 0) save(guildId);
     // A wake of a failed turn waits for its retry time (`notBefore`).
     const eligible = state.queue.filter((wake) => !held.includes(wake) && !(wake.notBefore > at));
-    if (eligible.length === 0) return held.length > 0 ? { refused: held[0].capped } : { deferred: 'retry' };
+    if (eligible.length === 0) {
+      if (held.length === 0) return { deferred: 'retry' };
+      // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
+      for (const { wake, fact } of freshHolds) {
+        if (!['intention_due', 'errand_deadline'].includes(wake.kind) || !wake.channelId) continue;
+        await enqueue(guildId, { id: `inner.wake:feedback:held:${wake.id}:${fact.id}`, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId: wake.chainId, dueAt: at, channelId: String(wake.channelId), privateChat: wake.privateChat === true, here: String(wake.channelId), turnId: null, facts: [factPayload(fact)], factIds: [fact.id] });
+      }
+      return { refused: held[0].capped };
+    }
 
     const group = coalesceGroup(eligible, (wake) => held.includes(wake));
     const anchor = group.find((wake) => wake.kind !== 'review') ?? group[0];
     const chainId = anchor.chainId;
     const chain = chainOf(chainId);
 
-    const channel = await conversationFor(guildId, group);
+    const { channel, why: noChannelWhy } = await conversationFor(guildId, group);
     if (!channel) {
-      markHandled(state, group, 'no-channel', at, { guildId });
+      markHandled(state, group, 'no-channel', at, { guildId, why: noChannelWhy });
       save(guildId);
       log.info('inner: no conversation', { guildId, wakes: group.length });
       for (const wake of group) note(guildId, { event: 'no-channel', wake: wakeFields(wake) });
@@ -1154,9 +1288,14 @@ export function createInnerLife({
     };
     const placesInWake = settings.attention.placesInWake;
     const current = currentChannelOf(group, records);
+    // The facts a feedback wake carries that are still untold, and the other facts this conversation may be shown (not told yet).
+    const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => list(wake.factIds)));
+    const factsOfWake = (wake) => (list(wake.factIds).length > 0 ? list(state.facts).filter((fact) => !fact.told && wake.factIds.includes(fact.id)).map(factPayload) : list(wake.facts));
+    const shownFacts = pendingFactsOf(state, { channelId: String(channel.id), privateChat: !channel.guild, anywhere: true }).filter((fact) => !ownFactIds.has(fact.id)).slice(0, FACTS_SHOWN_MAX);
     const info = {
       kind: anchor.kind,
-      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.retry ? { delayed: { minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)), code: wake.lastCode ?? 'error' } } : {}), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
+      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.retry ? { delayed: { minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)), code: wake.lastCode ?? 'error' } } : {}), ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}) })),
+      ...(shownFacts.length > 0 ? { facts: shownFacts.map(factPayload) } : {}),
       intentions: records,
       ...(Object.keys(notes).length > 0 ? { notes } : {}),
       ...(expired && expired.items.length > 0 ? { expired } : {}),
@@ -1216,30 +1355,50 @@ export function createInnerLife({
     if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
+    // The facts this turn showed are told once a model answer carried them (not after an error).
+    if (outcome !== 'error') markFactsTold(after, [...shownFacts.map((fact) => fact.id), ...ownFactIds], ended);
     const retry = errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
+    // A wake of hers that comes back (a retry, or the one more try of a one-off) carries the facts of this turn.
+    let comesBack = false;
+    const requeue = (wakes, fields) => {
+      const ids = new Set(wakes.map((wake) => wake.id));
+      for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, fields);
+      comesBack = comesBack || wakes.length > 0;
+    };
     if (retry?.action === 'requeue') {
-      const ids = new Set(group.map((wake) => wake.id));
-      for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, { retry: retry.n, firstFailedAt: retry.firstFailedAt, notBefore: retry.notBefore, lastCode: errorCode });
+      requeue(group, { retry: retry.n, firstFailedAt: retry.firstFailedAt, notBefore: retry.notBefore, lastCode: errorCode });
       log.info('inner: turn failed, wakes retried', { guildId, code: errorCode, retry: retry.n, wakes: group.length, notBefore: retry.notBefore });
       note(guildId, { event: 'retry', code: errorCode, retry: retry.n, notBefore: retry.notBefore, wakes: group.map(wakeFields) });
     } else {
       if (isReview && after.review) after.review = { ...after.review, done: true };
       if (retry?.action === 'drop') {
-        markHandled(after, group, 'provider', ended, { guildId });
+        markHandled(after, group, 'provider', ended, { guildId, why: errorCode });
         log.warn('inner: turn failed, wakes dropped', { guildId, code: errorCode, retry: retry.n, wakes: group.length });
+      } else if (errorCode && !after.stopped) {
+        // An error that is not a provider failure: a one-off intention's due moment gets one more try, then she is told.
+        const oneOff = (wake) => (wake.kind === 'intention_due' || wake.kind === 'errand_deadline') && wake.retry !== 'error' && !intentions?.store?.(guildId)?.get?.(list(wake.intentionIds)[0])?.every;
+        const again = group.filter(oneOff);
+        if (again.length > 0) {
+          requeue(again, { retry: 'error', firstFailedAt: ended, notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS, lastCode: errorCode });
+          note(guildId, { event: 'retry', code: errorCode, retry: 'error', notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS, wakes: again.map(wakeFields) });
+        }
+        markHandled(after, group.filter((wake) => !again.includes(wake)), outcome, ended, { guildId, named: result.inner?.intentIds ?? [], why: errorCode });
       } else {
-        markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [] });
+        markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [], why: errorCode });
       }
     }
-    // What did not go through (feedbackFacts): a feedback turn's own misses are journalled only;
-    // any other turn's queue one feedback wake in its chain and conversation, due at the next tick.
+    // What did not go through (feedbackFacts), and a failed turn itself: kept as facts. A feedback turn's own
+    // misses queue no second wake; any other turn's queue one feedback wake in its chain and conversation, due at
+    // the next tick, unless its own wakes come back and carry them.
     const isFeedback = anchor.kind === 'feedback';
-    const feedback = feedbackOf(guildId, after, { result, records, isFeedback, at: ended });
+    const failure = outcome === 'error' || outcome === 'refused' ? [{ kind: 'turnFailed', code: errorCode ?? (typeof result.reason === 'string' && result.reason ? result.reason : 'refused'), wake: anchor.kind }] : [];
+    const feedback = [...failure, ...feedbackFacts(result, { named: result.inner?.intentIds ?? [], intentions: records })];
+    const keptFacts = feedback.map((fact) => addFact(after, { at: ended, channelId: String(channel.id), privateChat: !channel.guild, ...fact }));
     save(guildId);
     let feedbackWakeId = null;
-    if (feedback.length > 0 && !isFeedback) {
+    if (feedback.length > 0 && !isFeedback && !comesBack) {
       feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
-      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, here: current.channelId, turnId: turnId ? String(turnId) : null, facts: feedback });
+      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, here: current.channelId, turnId: turnId ? String(turnId) : null, facts: feedback, factIds: keptFacts.map((fact) => fact.id) });
     }
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
@@ -1275,32 +1434,6 @@ export function createInnerLife({
   }
 
   /**
-   * The feedback facts of a turn that just ended (feedbackFacts over `result`, with the purposes
-   * of `records`): for a turn that is not itself a feedback turn, also the wakes of hers dropped
-   * `no-channel` and the queued ones held on a cap with a due time over an hour past, each told
-   * once (marked `told` on the state; the caller saves).
-   */
-  function feedbackOf(guildId, state, { result, records, isFeedback, at }) {
-    const wakes = [];
-    if (!isFeedback) {
-      for (const [id, entry] of Object.entries(state.handled)) {
-        if (!DROP_TOLD.has(entry?.outcome) || entry.told !== false) continue;
-        wakes.push({ id, kind: entry.kind ?? null, code: entry.outcome, intentionIds: list(entry.intentionIds) });
-        entry.told = true;
-      }
-      for (const wake of state.queue) {
-        if (!wake.capped || wake.told === true || !(Number.isFinite(wake.dueAt) && wake.dueAt <= at - WAKE_HELD_MS)) continue;
-        wakes.push({ id: wake.id, kind: wake.kind, code: String(wake.capped), intentionIds: list(wake.intentionIds) });
-        wake.told = true;
-      }
-    }
-    // The purposes of the dropped wakes' intentions, closed or not (the facts name them).
-    const known = new Set(records.map((record) => String(record.id)));
-    const more = wakes.flatMap((wake) => wake.intentionIds).filter((id) => !known.has(String(id))).map((id) => intentions?.store?.(guildId)?.get?.(id) ?? null).filter(Boolean);
-    return feedbackFacts(result, { wakes, named: result.inner?.intentIds ?? [], intentions: [...records, ...more] });
-  }
-
-  /**
    * A call of an inner turn that came back `ok` but did not take effect after the turn ended (a
    * deferred `diary.post` that was refused): one `callFailed` feedback wake in its chain and
    * channel, due now, so she hears it at her next inner turn. Answers whether it was queued.
@@ -1312,8 +1445,12 @@ export function createInnerLife({
       if (!guildId || !channelId || !innerOn(hot.config)) return false;
       const at = now();
       const wakeId = `inner.wake:feedback:late:${id ?? `${skill}:${at}`}`;
+      const state = stateOf(guildId);
+      if (state.handled[wakeId] || state.queue.some((queued) => queued.id === wakeId)) return true;
       const facts = [{ kind: 'callFailed', skill: String(skill), status: 'refused', code: typeof code === 'string' && code ? code : null }];
-      await enqueue(guildId, { id: wakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: at, channelId: String(channelId), privateChat: false, here: String(channelId), turnId: null, facts, deliveryFor: [] });
+      const kept = facts.map((fact) => addFact(state, { at, channelId: String(channelId), privateChat: false, ...fact }));
+      save(guildId);
+      await enqueue(guildId, { id: wakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: at, channelId: String(channelId), privateChat: false, here: String(channelId), turnId: null, facts, factIds: kept.map((fact) => fact.id), deliveryFor: [] });
       return true;
     } catch (err) {
       log.warn('inner: late failure not queued', { error: err });
@@ -1343,6 +1480,33 @@ export function createInnerLife({
       return false;
     }
   }
+
+  /**
+   * The facts for the turns that are not inner turns (src/behavior/turn.js's addressed turns): `add` a
+   * fact (`kind`, `channelId`, `privateChat`, its payload), `pending` ones a conversation may be shown
+   * (`scope`: `{ channelId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
+   * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
+   */
+  const factsApi = {
+    enabled: () => innerOn(hot.config),
+    add(guildId, fact) {
+      const key = guildId ?? getGuildId();
+      if (!key) return null;
+      const stored = addFact(stateOf(key), fact);
+      save(key);
+      return stored;
+    },
+    pending(guildId, scope) {
+      const key = guildId ?? getGuildId();
+      return key ? pendingFactsOf(stateOf(key), scope) : [];
+    },
+    markTold(guildId, ids) {
+      const key = guildId ?? getGuildId();
+      if (!key) return;
+      markFactsTold(stateOf(key), ids, now());
+      save(key);
+    },
+  };
 
   /** The kill switch: stopped (persisted), the queue dropped (journalled). */
   function stop(guildId = getGuildId(), { by = null } = {}) {
@@ -1470,5 +1634,5 @@ export function createInnerLife({
     timer = null;
   }
 
-  return { tick, drain, onWake, onTaskFinished, noteLateFailure, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf };
+  return { tick, drain, onWake, onTaskFinished, noteLateFailure, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf, facts: factsApi };
 }

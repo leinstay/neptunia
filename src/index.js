@@ -480,6 +480,8 @@ const inner = createInnerLife({
 });
 // A diary post she asked for in an inner turn that was refused after the turn ended: told to her as feedback.
 turns.setOnDeferredFailure((note) => inner.noteLateFailure(note));
+// The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
+turns.setFactsSource(inner.facts);
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a

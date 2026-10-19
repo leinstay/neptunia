@@ -40,7 +40,7 @@ import { createLookup } from '../src/web/lookup.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
-import { wakeBlockText } from '../src/behavior/wake.js';
+import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -769,6 +769,25 @@ const DIARY_POSTS = [
   { at: NOW - 2 * DAY_MS, kind: 'status', gist: 'pluie toute la journée', picture: null, messageIds: [], search: null },
   { at: NOW - DAY_MS, kind: 'selfPicture', gist: 'sur le toit', picture: 'a rooftop at dusk', messageIds: [], search: null },
 ];
+
+test('shipped labels: every kind of fact she can be told is worded, with no placeholder left unfilled, and the dropped-calls line takes its count and cause', () => {
+  const facts = [
+    { kind: 'callFailed', skill: 'web.search', status: 'failed', code: 'error', text: 'the page is gone' },
+    { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'say hi' },
+    { kind: 'loopCut', cut: 'extra-call', droppedCalls: 2, steps: 1 },
+    { kind: 'wakeDropped', wakeId: 'w1', wake: 'intention_due', code: 'stale', why: 'done', intentionId: 'i1', purpose: 'say hi' },
+    { kind: 'wakeDropped', wakeId: 'w2', wake: 'review', code: 'no-channel', why: 'no-review-channel', intentionId: null, purpose: '' },
+    { kind: 'wakeHeld', wakeId: 'w3', wake: 'intention_due', code: 'per-chain', intentionId: 'i2', purpose: 'later', until: NOW + HOUR_MS },
+    { kind: 'turnFailed', code: 'cut-off', wake: 'attend' },
+    { kind: 'sendFailed', code: 'forbidden', n: 1, total: 3 },
+  ];
+  const text = feedbackInTurnText(facts, LABELS, { locale: LABELS.locale });
+  assert.equal(text.split('\n').length, facts.length + 1, text);
+  assert.equal(text.split('\n')[0], LABELS.wake.feedbackInTurn);
+  assert.ok(!/[{}]/.test(text), text);
+  for (const code of ['done', 'cancelled', 'expired', 'forgotten', 'dm-off', 'not-writable', 'unavailable', 'no-review-channel']) assert.equal(typeof LABELS.wake.feedback.codes[code], 'string', code);
+  assert.equal(fill(LABELS.task.callsDropped, { count: '2', why: 'extra-call' }).includes('{'), false);
+});
 
 test('buildRequest: an inner turn fills system-prompt, character-card, rules, format, inner.md and every labels.wake line', async () => {
   const resetAt = NOW + 12 * HOUR_MS;

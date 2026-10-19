@@ -3458,8 +3458,10 @@ export function buildRequest(input) {
   const channelToken = ownHandle ? `#${ownHandle}` : '';
   let continueTemplate = typeof continueLabel === 'string' && !openLine ? continueLabel.replace(/[ \t]*\n?[ \t]*\{open\}/g, '') : continueLabel;
   if (typeof continueTemplate === 'string' && !channelToken) continueTemplate = withoutSentenceOf(continueTemplate, '{channel}');
+  // The calls dropped by the per-step bound since the last step, said once in the step that follows (`labels.task.callsDropped`: `{count}`, `{why}`).
+  const droppedLine = input.continuation?.dropped && typeof labels.task?.callsDropped === 'string' && labels.task.callsDropped.trim() ? fill(labels.task.callsDropped, { count: String(input.continuation.dropped.count ?? 0), why: String(input.continuation.dropped.why ?? '') }) : '';
   const continueTask =
-    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }) : '';
+    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine].filter(Boolean).join('\n') : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {
