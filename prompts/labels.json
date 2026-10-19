@@ -526,6 +526,8 @@
       "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
       "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}"
     },
+    "here": "TODO-LABEL wake.here {channel} {why}",
+    "hereNone": "TODO-LABEL wake.hereNone",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
     "expiredMore": "... and {more} more",

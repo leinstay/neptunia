@@ -110,6 +110,8 @@ export function placesBlockText(page, labels) {
  * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
  * A `feedback` item (`facts`) is followed by one `labels.wake.feedbackItem` (`{fact}`:
  * feedbackFactText's) per fact; facts without a label are left out.
+ * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
+ * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
  * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
  *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
@@ -153,6 +155,9 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
       }
     }
   }
+  // The current channel her output tags act in and why it is that one, or that there is none.
+  const here = wake.here ? part(l, 'here', { channel: oneLine(String(wake.here.channel ?? '')), why: String(wake.here.why ?? '') }) : wake.here === null ? part(l, 'hereNone', {}) : '';
+  if (here) lines.push(here);
   const expired = wake.expired;
   if (Array.isArray(expired?.items) && expired.items.length > 0 && typeof l.expired === 'string' && l.expired && typeof l.expiredItem === 'string' && l.expiredItem) {
     lines.push(l.expired);

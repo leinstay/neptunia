@@ -16,6 +16,7 @@ import {
   coalesceGroup,
   createCostMeter,
   createInnerLife,
+  currentChannelOf,
   drawReviewAt,
   emptyState,
   errandRefusal,
@@ -1175,6 +1176,56 @@ test('inner: a turn that lost something queues one feedback wake in its chain an
   assert.deepEqual(quiet.inner.state(GUILD).queue, []);
   await settle();
   assert.deepEqual(quiet.journal.find((entry) => entry.event === 'turn').feedback, { facts: [], wake: null });
+});
+
+test('currentChannelOf: the cause of the wake picks the channel -- destination or the asking channel, the place, the errand\'s channel, the reported turn\'s; a review or no channel has none', () => {
+  const due = (extra = {}) => ({ kind: 'intention_due', intentionIds: ['i1'], channelId: 'c1', privateChat: false, ...extra });
+  assert.deepEqual(currentChannelOf([due()], [intention('i1')]), { channelId: 'c1', why: 'asked' });
+  assert.deepEqual(currentChannelOf([due({ channelId: 'c2' })], [{ ...intention('i1'), destination: 'c2' }]), { channelId: 'c2', why: 'destination' });
+  assert.deepEqual(currentChannelOf([due({ privateChat: true })], [{ ...intention('i1'), destination: 'c2' }]), { channelId: 'c1', why: 'asked' }, 'a private chat is where it was asked');
+  assert.deepEqual(currentChannelOf([{ kind: 'attend', intentionIds: ['i1'], channelId: 'c3' }]), { channelId: 'c3', why: 'attend' });
+  assert.deepEqual(currentChannelOf([{ kind: 'errand_deadline', intentionIds: ['i1'], channelId: 'c4' }]), { channelId: 'c4', why: 'errand' });
+  assert.deepEqual(currentChannelOf([{ kind: 'feedback', channelId: 'c1', here: 'c5' }]), { channelId: 'c5', why: 'feedback' });
+  assert.deepEqual(currentChannelOf([{ kind: 'feedback', channelId: 'c1', here: null }]), { channelId: null, why: null }, 'the reported turn had none');
+  assert.deepEqual(currentChannelOf([{ kind: 'feedback', channelId: 'c1' }]), { channelId: 'c1', why: 'feedback' }, 'a wake queued before the field existed');
+  assert.deepEqual(currentChannelOf([reviewWake('2026-10-19', NOW)]), { channelId: null, why: null });
+  assert.deepEqual(currentChannelOf([reviewWake('2026-10-19', NOW), due()], [intention('i1')]), { channelId: 'c1', why: 'asked' }, 'the review joins another cause, which decides');
+  assert.deepEqual(currentChannelOf([due({ channelId: null })]), { channelId: null, why: null });
+});
+
+test('inner: the turn is given the current channel and the wake says where and why; a review has none and says so; the feedback wake carries it on', async () => {
+  const dest = { ...intention('i1'), destination: 'c2' };
+  const run = setup({ records: [dest] });
+  await run.inner.tick();
+  const given = run.turns.calls[0];
+  assert.equal(given.channel.id, 'c2');
+  assert.equal(given.inner.currentChannel, 'c2');
+  assert.deepEqual(given.inner.wake.here, { channel: 'chan-c2', why: 'destination' });
+  const asked = setup({ records: [intention('i1')] });
+  await asked.inner.tick();
+  assert.equal(asked.turns.calls[0].inner.currentChannel, 'c1');
+  assert.equal(asked.turns.calls[0].inner.wake.here.why, 'asked');
+  // The day's review: the turn still runs somewhere (her recent channel) but has no current channel.
+  const lines = [{ kind: 'said', occurredAt: new Date(NOW - DAY_MS).toISOString(), scope: { channel: 'c3' } }];
+  const record = { async *iterate() { for (const line of lines) yield line; } };
+  const review = setup({ record, hot: hotWith({ innerLife: { review: { enabled: true, historyDays: 14 } } }) });
+  clock.t = Date.parse('2026-10-19T08:00:00Z');
+  await review.inner.tick();
+  clock.t = review.inner.status(GUILD).review.at + MINUTE_MS;
+  await review.inner.tick();
+  assert.equal(review.turns.calls[0].channel.id, 'c3');
+  assert.equal(review.turns.calls[0].inner.currentChannel, null);
+  assert.equal(review.turns.calls[0].inner.wake.here, null);
+  // A feedback wake keeps the reported turn's current channel, and the next turn is given it.
+  const episode = { turnId: 't-1', shadow: false, channelId: 'c2', findings: [], actions: [] };
+  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
+  const again = setup({ records: [{ ...dest }], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
+  await again.inner.tick();
+  assert.equal(again.inner.state(GUILD).queue[0].here, 'c2');
+  clock.t = NOW + MINUTE_MS;
+  await again.inner.tick();
+  assert.equal(again.turns.calls[1].inner.currentChannel, 'c2');
+  assert.equal(again.turns.calls[1].inner.wake.here.why, 'feedback');
 });
 
 test('inner: a wake of hers dropped as no-channel, or held on a cap with its due time over an hour past, is told once at her next turn', async () => {

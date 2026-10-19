@@ -676,6 +676,16 @@ test('inner turn: the result carries the loop\'s end state, a refused post as th
   assert.deepEqual(done.result.inner.episode.actions, [{ skill: 'intent.update', status: 'proposed' }]);
 });
 
+test('wakeBlockText: the current channel and why, or that there is none, follow the wake lines; nothing without the labels', () => {
+  const here = wakeBlockText({ ...WAKE, here: { channel: 'general', why: 'asked' } }, labels).split('\n');
+  assert.ok(here.includes(fill(labels.wake.here, { channel: 'general', why: 'asked' })), here.join('\n'));
+  assert.ok(here.indexOf(fill(labels.wake.here, { channel: 'general', why: 'asked' })) < here.findIndex((line) => line.startsWith('now:')));
+  const none = wakeBlockText({ ...WAKE, here: null }, labels).split('\n');
+  assert.ok(none.includes(labels.wake.hereNone));
+  const bare = wakeBlockText({ ...WAKE, here: { channel: 'general', why: 'asked' } }, { ...labels, wake: { ...labels.wake, here: undefined, hereNone: undefined } });
+  assert.ok(!bare.includes('general'));
+});
+
 test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per fact, each worded by its kind\'s label; a fact without a label is left out', () => {
   const facts = [
     { kind: 'dropped', messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'a second\nline'] },

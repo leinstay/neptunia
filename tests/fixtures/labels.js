@@ -551,6 +551,8 @@ export const labels = {
       loopCut: 'loop cut {cut} after {steps} steps, {dropped} dropped',
       wakeDropped: 'wake {kind} {id} {purpose} {code}',
     },
+    here: 'here: #{channel} ({why})',
+    hereNone: 'here: no channel',
     now: 'now: {now} [{timezone}]',
     channels: 'recent channels: {channels}',
     places: 'places ({total}):',

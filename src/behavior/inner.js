@@ -318,6 +318,39 @@ function targetOf(intention) {
 }
 
 /**
+ * The current channel of an inner turn for `group` (the coalesced wakes) and why it is that one,
+ * chosen by the cause of the wake, never by recency: the first wake that is not a review is the
+ * cause. An `intention_due` wake: the intention's destination when recorded, else the channel it
+ * was asked in (the wake's `channelId`, targetOf; a private chat's is that chat); `attend`: the
+ * place; `errand_deadline`: the channel of the intention that waits on the errand; `feedback`:
+ * the current channel of the turn it reports (`here`, null when that turn had none). A review, or
+ * a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
+ * `errand`, `feedback`), null with no channel.
+ * @param {object[]} group
+ * @param {object[]} [records]  The open intentions of the group, for the destination.
+ * @returns {{ channelId: string|null, why: string|null }}
+ */
+export function currentChannelOf(group, records = []) {
+  const cause = list(group).find((wake) => wake && wake.kind !== 'review') ?? null;
+  if (!cause) return { channelId: null, why: null };
+  const pick = (id, why) => (id !== null && id !== undefined && String(id) !== '' ? { channelId: String(id), why } : { channelId: null, why: null });
+  switch (cause.kind) {
+    case 'intention_due': {
+      const record = list(records).find((item) => item && String(item.id) === String(list(cause.intentionIds)[0]));
+      return pick(cause.channelId, record?.destination && !cause.privateChat ? 'destination' : 'asked');
+    }
+    case 'attend':
+      return pick(cause.channelId, 'attend');
+    case 'errand_deadline':
+      return pick(cause.channelId, 'errand');
+    case 'feedback':
+      return pick(Object.hasOwn(cause, 'here') ? cause.here : cause.channelId, 'feedback');
+    default:
+      return { channelId: null, why: null };
+  }
+}
+
+/**
  * The wake of one entry of src/intentions/model.js#dueList (`{ intention, reason, at }`): an
  * `errand_deadline` for a wait past its deadline (its id names the errand), else an
  * `intention_due` (its id names the due time), so the same due item is always the same wake and
@@ -1292,6 +1325,7 @@ export function createInnerLife({
       if (!provenance?.channelId || provenance.scope === 'dm') continue;
       if (list(provenance.participants).some((member) => String(member) !== selfId)) deliveryChannels.add(String(provenance.channelId));
     }
+    const current = currentChannelOf(group, records);
     const info = {
       kind: anchor.kind,
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
@@ -1306,6 +1340,8 @@ export function createInnerLife({
       budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
       ...(deliveryChannels.size > 0 ? { delivery: [...deliveryChannels].map((id) => placeNameOf(guildId, id)) } : {}),
       chainId,
+      // The current channel: where her output tags act, and why it is that one (`<wake>`).
+      here: current.channelId ? { channel: placeNameOf(guildId, current.channelId), why: current.why } : null,
     };
     const key = String(guildId);
     reserved.set(key, (reserved.get(key) ?? 0) + reserve);
@@ -1337,6 +1373,7 @@ export function createInnerLife({
           triggerKind: 'inner',
           inner: {
             wake: info,
+            currentChannel: current.channelId,
             shadow,
             mayAct: () => mayAct(guildId),
             spendAllowed,
@@ -1391,7 +1428,7 @@ export function createInnerLife({
     let feedbackWakeId = null;
     if (feedback.length > 0 && !isFeedback) {
       feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
-      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, turnId: turnId ? String(turnId) : null, facts: feedback, deliveryFor: [...new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : list(wake.deliveryFor))))] });
+      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, here: current.channelId, turnId: turnId ? String(turnId) : null, facts: feedback, deliveryFor: [...new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : list(wake.deliveryFor))))] });
     }
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
