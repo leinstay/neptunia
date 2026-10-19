@@ -173,6 +173,37 @@ const BODY_TAG_RE = /^<([A-Za-z][A-Za-z0-9_]*)>([\s\S]*?)<\/\1\s*>/;
 const BODY_LINE_RE = /^([A-Za-z][A-Za-z0-9_]*)[ \t]*[:=]([^\n]*)/;
 
 /**
+ * The options a body spells out on lines of their own among its text: lines `name: value` or
+ * `name=value` whose name is one of `names` and not the body argument `bodyArg`; a name on two
+ * lines is reported as `twice` (the caller refuses). `rest` is
+ * the other lines, joined (a `<br>` read as a line break). Without such a line `rest` is the body
+ * as it came. Pure.
+ * @param {string} body
+ * @param {Iterable<string>} names
+ * @param {string} bodyArg
+ * @returns {{ options: Record<string, string>, rest: string, twice: string|null }}
+ */
+export function bodyOptionLines(body, names, bodyArg) {
+  const known = new Set(names ?? []);
+  known.delete(bodyArg);
+  const options = {};
+  const kept = [];
+  let twice = null;
+  for (const line of String(body ?? '').replace(BODY_BREAK_RE, '\n').split('\n')) {
+    const match = BODY_LINE_RE.exec(line.trim());
+    const value = match ? match[2].trim() : '';
+    if (!match || !known.has(match[1]) || !value) {
+      kept.push(line);
+      continue;
+    }
+    if (Object.hasOwn(options, match[1])) twice ??= match[1];
+    else options[match[1]] = value;
+  }
+  if (Object.keys(options).length === 0) return { options, rest: String(body ?? ''), twice: null };
+  return { options, rest: kept.join('\n').trim(), twice };
+}
+
+/**
  * The arguments a call's body spells out when the model wrote them there instead of as
  * attributes: `{ name: value }` when the whole body (a `<br>` read as a line break, blank lines
  * left out) is `name: value` or `name = value` lines and `<name>value</name>` tags, every name one
@@ -256,7 +287,10 @@ export function bodyTokens(body, names) {
  * for such a command that is only `name=value` tokens (bodyTokens: names among the command's
  * options, none of them given as an attribute) is those arguments and no text at all; the result
  * counts them (`bodyArgs`) for the caller to log; a body with one of its names on the tag already,
- * or any other body, stays the text. When the command
+ * or any other body, stays the text. For a command whose body argument is not `text` (a question,
+ * a query, a goal, a url), lines of the body that stand alone as `name: value` / `name=value` of the
+ * command's other options are those options (bodyOptionLines; counted in `bodyArgs`; an attribute wins, a
+ * name on two lines is `args.<name>:twice`) and the rest is the body; a `text` body stays as written. When the command
  * takes a `file` the call left out, an errand's file handle on a line of its own in that body
  * becomes the `file` and leaves the text (`fileFromBody: true`; an empty text is a file-only
  * post); two or more are refused `unknown-file` (`file:several`). An errand
@@ -306,19 +340,32 @@ export function resolveCall(call, view) {
     given[key] = value;
     bodyArgs += 1;
   }
-  const bodyText = Boolean(body) && Boolean(command.body) && !fromTokens;
+  // A body for a command whose body argument is not a post (a question, a query, a goal, a url): its
+  // options on lines of their own (`people: ...`) are those options, the other lines the body.
+  let text = body;
+  if (body && command.body && command.body !== 'text' && !fromTokens) {
+    const lined = bodyOptionLines(body, byName.keys(), command.body);
+    if (lined.twice) return refused('invalid-args', `args.${lined.twice}:twice`);
+    for (const [key, value] of Object.entries(lined.options)) {
+      if (Object.hasOwn(given, key)) continue;
+      given[key] = value;
+      bodyArgs += 1;
+    }
+    text = lined.rest;
+  }
+  const bodyText = Boolean(text) && Boolean(command.body) && !fromTokens;
   let fileFromBody = false;
   if (bodyText) {
     // The argument on the tag too: the same text is one value (the body's); a different one is her
     // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
     const attribute = Object.hasOwn(given, command.body) ? String(given[command.body] ?? '').trim() : null;
     const joined = JOINED_BODY_ARGS.includes(command.body);
-    if (attribute !== null && attribute !== body && !joined) return refused('invalid-args', `args.${command.body}:twice`);
-    given[command.body] = joined && attribute && attribute !== body ? `${attribute}\n${body}` : body;
+    if (attribute !== null && attribute !== text && !joined) return refused('invalid-args', `args.${command.body}:twice`);
+    given[command.body] = joined && attribute && attribute !== text ? `${attribute}\n${text}` : text;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
     if (byName.has('file') && !Object.hasOwn(given, 'file')) {
-      const lines = body.split('\n');
+      const lines = text.split('\n');
       const handles = lines.filter((line) => FILE_HANDLE_RE.test(line.trim()));
       if (handles.length > 1) return refused('unknown-file', 'file:several');
       if (handles.length === 1) {
@@ -440,7 +487,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody || fromTokens ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may

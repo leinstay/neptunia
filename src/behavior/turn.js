@@ -35,7 +35,7 @@ import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings }
 import { isTaggedCall } from './mention.js';
 import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
-import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
+import { RECALL_DEFAULTS, fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
@@ -253,6 +253,16 @@ const PREPARE_STAGES = Object.freeze(['history', 'previews', 'captions', 'videos
  * keeps the deadline and the bar (see unhurried).
  */
 const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']);
+
+/**
+ * The most characters of a skill result's data the follow-up request carries, read from `config`: a
+ * memory.search result is cut by the tool itself, window by window, at `recall.quoteMaxChars`, and
+ * is bounded there; every other result at `skills.resultMaxChars`.
+ */
+function resultCharsFor(result, config) {
+  if (result?.skill === 'memory.search') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
+  return config?.skills?.resultMaxChars ?? 4500;
+}
 
 /**
  * Whether nobody waits for a turn of `triggerKind` -- a spontaneous one (no trigger kind: an
@@ -2123,7 +2133,7 @@ export function createTurnRunner({
    * on her last line of the turn here, or a line of its own) -- at the clock's time, with
    * `labels.task.continue` as its task (buildRequest's `continuation`). An `ok` call's data (a
    * read's answer) comes apart from the transcript in a `<result>` block right before `<task>`
-   * (skillResultBlock, cut to `skills.resultMaxChars`, read now; withSkillResult); a call that
+   * (skillResultBlock, cut to `skills.resultMaxChars`, read now -- a memory.search result to `recall.quoteMaxChars`, resultCharsFor; withSkillResult); a call that
    * did not work has none: its mark says how it went. A
    * failed fetch logs `skills: continuation fetch failed` and goes on with the turn's history and
    * her posts. Resolves the messages and
@@ -2146,11 +2156,10 @@ export function createTurnRunner({
     const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
     const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '' } });
     const labels = input.prompts?.labels ?? {};
-    const resultMaxChars = hot.config.skills?.resultMaxChars ?? 4500;
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
       .filter((outcome) => outcome.status === 'ok' && outcome.data)
-      .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultMaxChars }))
+      .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultCharsFor(outcome, hot.config) }))
       .filter(Boolean)
       .join('\n\n');
     return {
@@ -2188,7 +2197,7 @@ export function createTurnRunner({
       if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null }));
       else {
         const labels = hot.prompts?.labels ?? {};
-        const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500, posted: firstPass(acted, labels) });
+        const block = skillResultBlock(called, labels, { maxChars: resultCharsFor(called, hot.config), posted: firstPass(acted, labels) });
         messages = withSkillResult(sentMessages, block);
       }
       completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });
@@ -2447,8 +2456,7 @@ export function createTurnRunner({
         ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names }));
       } else {
         const labels = hot.prompts?.labels ?? {};
-        const maxChars = hot.config.skills?.resultMaxChars ?? 4500;
-        const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars, ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
+        const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars: resultCharsFor(result, hot.config), ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
         messages = withSkillResult(sentMessages, blocks.filter(Boolean).join('\n\n'));
       }
       completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });

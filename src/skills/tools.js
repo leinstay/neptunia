@@ -22,7 +22,7 @@
 import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { zonedDay } from '../time.js';
-import { memorySearchPlan, recallSettings } from '../behavior/recall.js';
+import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { IN_TURN_TOOLS } from './discovery.js';
@@ -147,12 +147,17 @@ export function webReadText(page, { labels, maxChars = READ_CHARS_FALLBACK }) {
  * The text of a memory.search result (`quotes`: recall's stretches, `{ channelName, startTs,
  * lines }`): `labels.skills.tools.memory.source`, then per stretch `.window` (`{date}`: its first
  * line's day as `YYYY-MM-DD` in `timezone`, `{channel}`: its channel's name) and its lines as they
- * were (time and author on each); `.none` when there is none. Pure.
+ * were (time and author on each); `.none` when there is none. Each stretch is cut on its own at
+ * `windowChars` (its last lines dropped, then `.windowCut` with `{dropped}`, the number of lines
+ * dropped); the whole result is counted stretch by stretch against `maxChars`: a stretch that does
+ * not fit whole is left out with every one after it, and a closing `.windowsLeft` (`{count}`,
+ * `{where}`: each left-out stretch's channel and day, comma-joined) says what she did not get. The
+ * first stretch always stays. A missing label adds nothing. Pure.
  * @param {{ channelName?: string|null, startTs: number, lines: string }[]} quotes
- * @param {{ labels: object, timezone?: string }} options
+ * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number }} options
  * @returns {string}
  */
-export function memorySearchText(quotes, { labels, timezone = 'UTC' }) {
+export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars }) {
   const l = toolLabels(labels, 'memory');
   const lines = l.source ? [l.source] : [];
   const shown = (Array.isArray(quotes) ? quotes : []).filter((quote) => typeof quote?.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs));
@@ -160,11 +165,53 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC' }) {
     if (l.none) lines.push(l.none);
     return lines.join('\n');
   }
+  const kept = [];
+  const left = [];
+  let used = lines.join('\n').length;
+  const bounded = Number.isFinite(maxChars) && maxChars > 0;
   for (const quote of shown) {
-    if (l.window) lines.push(fill(l.window, { date: zonedDay(quote.startTs, timezone), channel: String(quote.channelName ?? '') }));
-    lines.push(quote.lines);
+    const day = zonedDay(quote.startTs, timezone);
+    const channelName = String(quote.channelName ?? '');
+    const block = [];
+    if (l.window) block.push(fill(l.window, { date: day, channel: channelName }));
+    const quoted = cutWindowLines(quote.lines, windowChars);
+    block.push(quoted.text);
+    if (quoted.dropped > 0 && l.windowCut) block.push(fill(l.windowCut, { dropped: String(quoted.dropped) }));
+    const where = [channelName, day].filter(Boolean).join(' ');
+    const size = block.join('\n').length + 1;
+    if (left.length > 0 || (kept.length > 0 && bounded && used + size > maxChars)) {
+      left.push(where);
+      continue;
+    }
+    kept.push({ block, where, size });
+    used += size;
   }
+  // The closing line takes room too: windows give way to it until the whole fits.
+  const closing = () => (left.length > 0 && l.windowsLeft ? fill(l.windowsLeft, { count: String(left.length), where: left.join(', ') }) : '');
+  while (bounded && kept.length > 1 && used + closing().length + 1 > maxChars) {
+    const dropped = kept.pop();
+    used -= dropped.size;
+    left.unshift(dropped.where);
+  }
+  for (const { block } of kept) lines.push(...block);
+  if (closing()) lines.push(closing());
   return lines.join('\n');
+}
+
+/** One stretch's lines cut at `limit` characters: whole lines from the top (the first always stays, clamped when alone too long), how many were dropped. */
+function cutWindowLines(value, limit) {
+  const all = String(value).split('\n');
+  if (!Number.isFinite(limit) || limit <= 0 || String(value).length <= limit) return { text: String(value), dropped: 0 };
+  const kept = [];
+  let used = 0;
+  for (const line of all) {
+    const add = line.length + (kept.length > 0 ? 1 : 0);
+    if (kept.length > 0 && used + add > limit) break;
+    kept.push(line);
+    used += add;
+  }
+  if (kept.length === 1 && kept[0].length > limit) kept[0] = clampWithEllipsis(kept[0], limit);
+  return { text: kept.join('\n'), dropped: all.length - kept.length };
 }
 
 /**
@@ -291,7 +338,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (!plan) return { status: 'invalid', code: 'no-query' };
     const candidate = { id: null, content: text(args?.question) };
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
-    return { status: 'ok', data: { text: memorySearchText(found?.quotes ?? [], { labels, timezone }) } };
+    return { status: 'ok', data: { text: memorySearchText(found?.quotes ?? [], { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars }) } };
   } catch {
     return { status: 'failed', code: 'error' };
   }

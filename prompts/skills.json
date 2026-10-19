@@ -316,7 +316,7 @@
   },
   "memory.search": {
     "title": "Search this server's messages",
-    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
+    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match); option lines in the body (people: ..., when: ...) are read as those options. Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
   },
   "intent.set": {

@@ -650,6 +650,8 @@
       "memory": {
         "source": "Source: memory.search, this server's message history. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",
         "window": "{date} in #{channel}:",
+        "windowCut": "({dropped} more lines not shown)",
+        "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, channel, people or terms to see them.",
         "none": "No matching messages found."
       },
       "look": {

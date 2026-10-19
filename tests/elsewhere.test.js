@@ -42,7 +42,7 @@ function msg(id, minutesAgo, { self = false, bot = false } = {}) {
 }
 
 /** An audience record: who can view one channel. */
-function audience({ everyone = false, roles = [], roleAllow = [], roleDeny = [], memberAllow = [], memberDeny = [] } = {}) {
+function audience({ everyone = false, roles = [], roleAllow = [], roleDeny = [], memberAllow = [], memberDeny = [], memberRoles = null } = {}) {
   return {
     everyone,
     roles: new Set(roles),
@@ -50,6 +50,7 @@ function audience({ everyone = false, roles = [], roleAllow = [], roleDeny = [],
     roleDeny: new Set(roleDeny),
     memberAllow: new Set(memberAllow),
     memberDeny: new Set(memberDeny),
+    ...(memberRoles ? { memberRoles: new Map(Object.entries(memberRoles).map(([id, held]) => [id, new Set(held)])) } : {}),
   };
 }
 
@@ -725,4 +726,26 @@ test("messageLink: Discord's jump-link form", () => {
   assert.equal(messageLink(100, 200, 300), 'https://discord.com/channels/100/200/300');
   assert.equal(messageLink('100', '', '300'), null);
   assert.equal(messageLink(undefined, '200', '300'), null);
+});
+
+test('audienceCovers: a member-only destination is covered by an open source with a denied role when the members hold other roles', () => {
+  const source = audience({ everyone: true, roles: ['guild', 'r1'], roleDeny: ['jail'] });
+  const dest = (memberRoles) => audience({ everyone: false, roles: [], memberAllow: ['u1', 'u2'], memberRoles });
+  assert.equal(audienceCovers(dest({ u1: ['r1'], u2: [] }), source), true, 'neither holds the denied role');
+  assert.equal(audienceCovers(dest({ u1: ['r1'], u2: ['jail'] }), source), false, 'one holds the denied role');
+  assert.equal(audienceCovers(dest({ u1: ['r1'] }), source), false, 'a member not cached is not proven');
+  assert.equal(audienceCovers(dest(null), source), false, 'no roles at all: the old rule');
+});
+
+test('audienceCovers: a member proves his view through a role the source allows when it is closed to everyone', () => {
+  const source = audience({ everyone: false, roles: ['staff'], roleAllow: ['staff'] });
+  const dest = (held) => audience({ everyone: false, memberAllow: ['u1'], memberRoles: { u1: held } });
+  assert.equal(audienceCovers(dest(['staff']), source), true);
+  assert.equal(audienceCovers(dest(['other']), source), false);
+});
+
+test('audienceCovers: a member denied by name on the source is not proven by his roles', () => {
+  const source = audience({ everyone: true, memberDeny: ['u1'] });
+  const dest = audience({ everyone: false, memberAllow: ['u1'], memberRoles: { u1: ['r1'] } });
+  assert.equal(audienceCovers(dest, source), false);
 });

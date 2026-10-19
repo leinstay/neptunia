@@ -230,6 +230,26 @@ test('resolveCall: a body of `name=value` tokens for a skill with text becomes t
   assert.deepEqual(resolve('intent.update', { state: 'done' }, 'i1').args, { state: 'done', text: 'i1' });
 });
 
+test('resolveCall: `name: value` lines of a question body are its options, the other lines the question', () => {
+  const body = 'τι είπε ο Ζωή για το ψάρι;\npeople: Zoë\nterms: ψάρι, λίμνη\nwhen=2026-10-12';
+  const found = resolve('memory.search', {}, body);
+  assert.equal(found.ok, true);
+  assert.deepEqual(found.args, { question: 'τι είπε ο Ζωή για το ψάρι;', people: 'Zoë', terms: 'ψάρι, λίμνη', when: '2026-10-12' });
+  assert.equal(found.bodyArgs, 3);
+  const br = resolve('memory.search', {}, 'ερώτηση<br>terms: λαγός');
+  assert.deepEqual(br.args, { question: 'ερώτηση', terms: 'λαγός' });
+  assert.equal(resolve('memory.search', {}, 'q\nterms: a\nterms: b').reason, 'args.terms:twice');
+  assert.equal(resolve('memory.search', { terms: 'tag' }, 'q\nterms: line').args.terms, 'tag', 'an attribute wins');
+  assert.equal(resolve('memory.search', {}, 'q\nquestion: other').args.question, 'q\nquestion: other', 'the body argument itself is no option');
+  assert.equal(resolve('memory.search', {}, 'what is channel: here, he asked').args.question, 'what is channel: here, he asked', 'not alone on its line');
+  assert.equal(resolve('memory.search', {}, 'q\nnote: x').args.question, 'q\nnote: x', 'an unknown name stays in the body');
+});
+
+test('resolveCall: a post keeps `name: value` lines in its text', () => {
+  const body = 'Καλημέρα\nchannel: #Νέα\nterms: a';
+  assert.deepEqual(resolve('message.create', {}, body).args, { text: body });
+});
+
 test('resolveCall: a member by the request\'s @handle; the people of an attention as a list of members, ids out comma-separated', () => {
   const memberHandles = new Map([['h7', MEMBER]]);
   assert.equal(resolve('memory.profile.read', { user: '@h7' }, '', { memberHandles }).args.user, MEMBER, 'a handle resolves exactly');
