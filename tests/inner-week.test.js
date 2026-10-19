@@ -475,19 +475,15 @@ test('inner-week: the report of a live run shows her steps and the informational
   const fx = readFixture('ordinary-talk', { dir: FIXTURES });
   const { run } = await week(fx);
   assert.ok(run.turns.length > 0);
-  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, inner: { ...run.turns[0].result.inner, strayFollowUp: true, strayFollowUps: 2, openFollowUp: true }, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
+  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, inner: { ...run.turns[0].result.inner, openFollowUp: true }, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
   const gates = computeGates(run, fx, effectsOf);
   const report = reportOf(run, fx, gates, effectsOf);
   assert.equal(report.turns[0].steps.length, 1);
-  assert.equal(report.turns[0].strayFollowUp, true, 'the stray follow-up step of a turn is reported');
-  assert.equal(report.turns[0].strayFollowUps, 2, 'with how many stray steps it made');
   assert.equal(report.turns[1]?.steps, undefined);
-  assert.equal(report.turns[1]?.strayFollowUp, undefined);
-  assert.equal(report.turns[1]?.strayFollowUps, undefined);
   assert.equal(report.turns[0].openFollowUp, true, 'the open follow-up step of a turn is reported');
   assert.equal(report.turns[1]?.openFollowUp, undefined);
   const md = renderReport(report);
-  assert.match(md, /\| live \| [^|]+\| [^|]+\| [^|]+\+stray-follow-up x2 \+open-follow-up \|/, 'the inner turns table shows both, the stray steps with their count');
+  assert.match(md, /\| live \| [^|]+\| [^|]+\| [^|]+\+open-follow-up \|/, 'the inner turns table shows the open follow-up');
   assert.match(md, /\| fixture \(stub expectations\) \| info \|/);
   assert.match(md, /## Live turns: her reasoning/);
   assert.match(md, /- think: she asked twice/);
@@ -680,7 +676,7 @@ test('inner-week: a fixture attention wakes her on the place\'s lines after the 
   assert.equal(record.history.length, 1, 'an update is no move');
 });
 
-test('inner-week: the feedback fixture: a stray intention turn gets exactly one feedback wake in its chain at the next tick, naming the dropped line and the intention closed without delivery; the feedback turn posts and gets none; the gate bites', async () => {
+test('inner-week: the feedback fixture: an intention turn whose post is refused gets exactly one feedback wake in its chain at the next tick, naming the refused call and the intention closed without delivery; the feedback turn posts and gets none; the gate bites', async () => {
   const fx = readFixture('feedback', { dir: FIXTURES });
   assert.ok(fx.stub.feedback, 'the stub answers the feedback kind');
   const { run, gates } = await week(fx);
@@ -690,15 +686,14 @@ test('inner-week: the feedback fixture: a stray intention turn gets exactly one 
   const id = run.keys['cat-meme'];
   assert.equal(wakes[0].chainId, `intention:${id}`);
   assert.equal(wakes[0].turnId, 't-week-1');
-  assert.deepEqual(wakes[0].facts.map(factSummary), [`dropped(1m 0r 0g 0d: "here is the cat meme you asked for")`, `doneWithoutDelivery(${id})`]);
+  assert.deepEqual(wakes[0].facts.map(factSummary), ['callFailed(message.create refused destination-required)', `doneWithoutDelivery(${id})`]);
   const [first, second] = run.turns;
   assert.equal(first.kind, 'intention_due');
-  assert.deepEqual(first.result.inner.stray, { messages: 1, reactions: 0, gif: 0, draw: 0, lines: ['here is the cat meme you asked for'] });
-  assert.deepEqual(first.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.intentionId}:${a.state}`), [`intent.update:executed:${id}:done`]);
+  assert.deepEqual(first.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}:${a.intentionId}:${a.state}`), ['message.create:refused:destination-required:undefined:undefined', `intent.update:executed:undefined:${id}:done`]);
   assert.equal(second.kind, 'feedback');
   assert.equal(second.at, first.at + MINUTE_MS, 'the next tick');
   assert.equal(second.chainId, first.chainId);
-  assert.deepEqual(second.items[0].facts.map((fact) => fact.kind), ['dropped', 'doneWithoutDelivery']);
+  assert.deepEqual(second.items[0].facts.map((fact) => fact.kind), ['callFailed', 'doneWithoutDelivery']);
   assert.deepEqual(second.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:executed']);
   assert.equal(run.chat['c-general'].filter((line) => line.self && line.content.includes('for real this time')).length, 1, 'her post went out on the feedback turn');
   assert.equal(run.turns.filter((turn) => turn.kind === 'feedback').length, 1, 'no feedback on the feedback turn');
@@ -707,13 +702,13 @@ test('inner-week: the feedback fixture: a stray intention turn gets exactly one 
   assert.equal(report.feedback[0].turnId, 't-week-1');
   const md = renderReport(report);
   assert.match(md, /## Feedback wakes/);
-  assert.match(md, /inner\.wake:feedback:t-week-1 \| intention:i\w+ \| t-week-1 \| dropped\(1m 0r 0g 0d: "here is the cat meme you asked for"\); doneWithoutDelivery/);
-  assert.equal(gate(gates, 'feedback').detail, '1 feedback wake(s), 2 fact(s): dropped, doneWithoutDelivery');
+  assert.match(md, /inner\.wake:feedback:t-week-1 \| intention:i\w+ \| t-week-1 \| callFailed\(message.create refused destination-required\); doneWithoutDelivery/);
+  assert.equal(gate(gates, 'feedback').detail, '1 feedback wake(s), 2 fact(s): callFailed, doneWithoutDelivery');
   // The gate bites: other counts, another line, another intention, a kind never seen.
   const expecting = (feedback) => gate(computeGates(run, { ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, ...feedback } } }, effectsOf), 'feedback');
   assert.equal(expecting({ wakes: 2 }).pass, false);
   assert.match(expecting({ wakes: 2 }).detail, /1 feedback wake\(s\) != 2/);
-  assert.match(expecting({ line: 'another line' }).detail, /dropped line is not named/);
+  assert.match(expecting({ code: 'inner-post-cap' }).detail, /no callFailed fact with code inner-post-cap/);
   assert.match(expecting({ facts: ['loopCut'] }).detail, /no loopCut fact/);
   assert.match(expecting({ intention: 'nope' }).detail, /nope not named/);
   // A feedback wake born of a feedback turn, or outside its turn's chain, fails.
@@ -722,8 +717,8 @@ test('inner-week: the feedback fixture: a stray intention turn gets exactly one 
   assert.equal(bitten.pass, false);
   assert.match(bitten.detail, /born of a feedback turn/);
   assert.match(bitten.detail, /chain other != its turn's/);
-  // A stray step needs a text and no skill.
-  assert.throws(() => fixture({ stub: { intention_due: [[{ stray: 5 }]] } }), FixtureError);
-  assert.throws(() => fixture({ stub: { intention_due: [[{ stray: 'x', skill: 'web.search' }]] } }), FixtureError);
+  // A refusal code is a text.
+  assert.throws(() => fixture({ stub: { intention_due: [[{ skill: 'message.create', refuse: 5 }]] } }), FixtureError);
+  assert.throws(() => fixture({ stub: { intention_due: [[{ stray: 'x' }]] } }), FixtureError);
   assert.throws(() => fixture({ stub: { feedback: 'no' } }), FixtureError);
 });

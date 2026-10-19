@@ -271,6 +271,20 @@ test('coreToolRows: media.look, granted, stands after web.read with its argument
   assert.deepEqual(off.map((row) => row.name), ['web.read', 'memory.search']);
 });
 
+test('coreToolRows: an inner turn also lists the posting skills it has tags for, after the reads and before the errand and the intentions, when granted; an addressed turn never', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const access = Object.fromEntries(['web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'intent.set'].map((name) => [name, grant]));
+  const config = { features: { skills: true, coreTools: true, intentions: true }, bot: { access } };
+  const inner = coreToolRows({ config, selfId: self, registry, inner: true });
+  assert.deepEqual(inner.map((row) => row.name), ['web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'intent.set']);
+  assert.deepEqual(inner[2].args.map((arg) => arg.name), ['channel', 'reply', 'text', 'file', 'gif']);
+  assert.deepEqual(inner[3].args.map((arg) => arg.name), ['message', 'emoji', 'channel']);
+  assert.deepEqual(coreToolRows({ config, selfId: self, registry }).map((row) => row.name), ['web.read', 'memory.search', 'task.run', 'intent.set']);
+  assert.deepEqual(coreToolRows({ config: { ...config, bot: { access: { 'web.read': grant } } }, selfId: self, registry, inner: true }).map((row) => row.name), ['web.read'], 'not granted: not listed');
+});
+
 test('coreToolRows: the intent rows follow task.run when intentions are on and granted, and are absent with features.intentions off', () => {
   const registry = skillRegistry();
   const self = 'self-id';

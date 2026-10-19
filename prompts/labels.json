@@ -461,7 +461,6 @@
     "continueTools": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. Answer from the results, or make another call if you still need something.",
     "continueToolsLast": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. This is your last step: answer from what you have now. A call here will not run.",
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
-    "continueInnerStray": "This is the same inner turn. What you wrote outside a call reached nobody: in an inner turn only a call does anything, and a post is a message.create call with the channel. A GIF goes on that call as gif=<handle>, a handle from your GIF list or the transcript. A reaction is a message.react.add call. {channel} is the channel you are in, where your post goes unless you name another. Make that call if you still mean to post, make another call you need, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
@@ -520,12 +519,13 @@
     },
     "feedbackItem": "- {fact}",
     "feedback": {
-      "dropped": "You wrote {messages} messages, {reactions} reactions, {gifs} GIFs and {draws} pictures outside a call; none reached anyone. {lines}",
       "callFailed": "Your {skill} call ended {status} ({code})",
       "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture, errand or diary entry went through that turn",
       "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
       "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}"
     },
+    "here": "You are in #{channel} ({why})",
+    "hereNone": "No current channel this wake",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
     "expiredMore": "... and {more} more",
@@ -621,6 +621,8 @@
         "candidate-same-chain": "an inner turn cannot accept a candidate born in its own chain",
         "inner-usd-cap": "today's money for your own initiative is spent",
         "inner-post-cap": "today's public posts on your own initiative are used up",
+        "target-required": "a reaction needs its target message",
+        "destination-required": "no current channel; use message.create with a channel",
       "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
         "no-link": "that message has no link to read",
         "no-media": "that message holds no picture or video to look at",

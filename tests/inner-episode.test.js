@@ -164,7 +164,7 @@ test('memory batch: the analyzer reads her episode as her own lines; the record 
 
 test('innerEpisodeLines: the feedback facts of the turn join the first line in her voice; with no finding they are the one line; nothing without their label', () => {
   const feedback = [
-    { kind: 'dropped', messages: 1, reactions: 0, gif: 0, draw: 0, lines: ['here is the cat meme'] },
+    { kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' },
     { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
   ];
   const expected = fill(labels.memory.innerFeedback, { facts: feedback.map((fact) => feedbackFactText(fact, labels.wake)).join('; ') });

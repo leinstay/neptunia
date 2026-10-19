@@ -93,7 +93,7 @@ export const INNER_DEFAULTS = Object.freeze({
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
-  loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000, strayFollowUps: 2 }),
+  loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
 });
 
 /** The orders the places view knows (`places.list` `sort=`). */
@@ -125,19 +125,15 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'd
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand, a diary entry. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run', 'diary.post']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['dropped', 'callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped']);
+export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped']);
 /** How long a capped wake waits before its hold is a feedback fact. */
 const WAKE_HELD_MS = HOUR_MS;
 
 /**
  * What did not go through in one inner turn, from its result (src/behavior/turn.js's
- * `{ outcome, inner: { actions, intentIds, stray, loop } }`), as a list of facts, each
- * `{ kind, ... }` (FEEDBACK_KINDS), in this order: `dropped` (output written outside a call and
- * lost: `messages`, `reactions`, `gif`, `draw` counts and `lines`, the first lines of the dropped
- * messages the turn kept; when an executed `message.create` came after the latest stray output
- * (`stray.beforeAction`, set by the turn), the messages and lines are left out, an item with every
- * count at zero is no fact); one `callFailed` per call that ended `unknown`, `timeout` or refused
- * (`skill`, `status`, `code`); one `doneWithoutDelivery` per intention an executed `intent.update`
+ * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
+ * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call that ended `unknown`, `timeout` or refused
+ * (`skill`, `status`, `code`; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intent.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
  * to the result's `inner.intentIds`; `intentionId`,
@@ -158,15 +154,6 @@ export function feedbackFacts(turnResult, { wakes = [], named = null, posting = 
     const record = list(intentions).find((item) => item && String(item.id) === String(id));
     return typeof record?.purpose === 'string' ? record.purpose : '';
   };
-  const stray = inner.stray;
-  const strayCount = (key) => (Number.isFinite(stray?.[key]) && stray[key] > 0 ? stray[key] : 0);
-  // The text went out after all when an executed `message.create` came after the latest stray
-  // output (`stray.beforeAction`, the number of actions recorded before it): only the rest was lost.
-  const reposted = Number.isInteger(stray?.beforeAction) && actions.some((action, index) => index >= stray.beforeAction && action?.skill === 'message.create' && action.status === 'executed');
-  const droppedMessages = reposted ? 0 : strayCount('messages');
-  if (stray && droppedMessages + strayCount('reactions') + strayCount('gif') + strayCount('draw') > 0) {
-    facts.push({ kind: 'dropped', messages: droppedMessages, reactions: strayCount('reactions'), gif: strayCount('gif'), draw: strayCount('draw'), lines: reposted ? [] : list(stray.lines).filter((line) => typeof line === 'string' && line).slice() });
-  }
   for (const action of actions) {
     if (!action || typeof action.skill !== 'string') continue;
     const failed = action.status === 'refused' || action.result === 'unknown' || action.result === 'timeout' || action.code === 'timeout';
@@ -213,8 +200,7 @@ const positive = (value, fallback) => (typeof value === 'number' && Number.isFin
  * takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
  * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
- * `skills.loop`'s, `callTimeoutMs` the most one call of hers may run, `strayFollowUps` how many
- * stray follow-up steps one turn may make (0 allowed).
+ * `skills.loop`'s, `callTimeoutMs` the most one call of hers may run.
  * @param {object} config
  */
 export function innerSettings(config) {
@@ -251,7 +237,6 @@ export function innerSettings(config) {
       timeBudgetMs: positive(loop.timeBudgetMs, d.loop.timeBudgetMs),
       maxCallsPerStep: whole(loop.maxCallsPerStep, d.loop.maxCallsPerStep),
       callTimeoutMs: positive(loop.callTimeoutMs, d.loop.callTimeoutMs),
-      strayFollowUps: whole(loop.strayFollowUps, d.loop.strayFollowUps, 0),
     },
   };
 }
@@ -315,6 +300,39 @@ function targetOf(intention) {
   const privateChat = intention?.provenance?.scope === 'dm';
   const channelId = privateChat ? (intention.provenance?.channelId ?? null) : (intention?.destination ?? intention?.provenance?.channelId ?? null);
   return { channelId: channelId ? String(channelId) : null, privateChat };
+}
+
+/**
+ * The current channel of an inner turn for `group` (the coalesced wakes) and why it is that one,
+ * chosen by the cause of the wake, never by recency: the first wake that is not a review is the
+ * cause. An `intention_due` wake: the intention's destination when recorded, else the channel it
+ * was asked in (the wake's `channelId`, targetOf; a private chat's is that chat); `attend`: the
+ * place; `errand_deadline`: the channel of the intention that waits on the errand; `feedback`:
+ * the current channel of the turn it reports (`here`, null when that turn had none). A review, or
+ * a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
+ * `errand`, `feedback`), null with no channel.
+ * @param {object[]} group
+ * @param {object[]} [records]  The open intentions of the group, for the destination.
+ * @returns {{ channelId: string|null, why: string|null }}
+ */
+export function currentChannelOf(group, records = []) {
+  const cause = list(group).find((wake) => wake && wake.kind !== 'review') ?? null;
+  if (!cause) return { channelId: null, why: null };
+  const pick = (id, why) => (id !== null && id !== undefined && String(id) !== '' ? { channelId: String(id), why } : { channelId: null, why: null });
+  switch (cause.kind) {
+    case 'intention_due': {
+      const record = list(records).find((item) => item && String(item.id) === String(list(cause.intentionIds)[0]));
+      return pick(cause.channelId, record?.destination && !cause.privateChat ? 'destination' : 'asked');
+    }
+    case 'attend':
+      return pick(cause.channelId, 'attend');
+    case 'errand_deadline':
+      return pick(cause.channelId, 'errand');
+    case 'feedback':
+      return pick(Object.hasOwn(cause, 'here') ? cause.here : cause.channelId, 'feedback');
+    default:
+      return { channelId: null, why: null };
+  }
 }
 
 /**
@@ -1292,6 +1310,7 @@ export function createInnerLife({
       if (!provenance?.channelId || provenance.scope === 'dm') continue;
       if (list(provenance.participants).some((member) => String(member) !== selfId)) deliveryChannels.add(String(provenance.channelId));
     }
+    const current = currentChannelOf(group, records);
     const info = {
       kind: anchor.kind,
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
@@ -1306,6 +1325,8 @@ export function createInnerLife({
       budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
       ...(deliveryChannels.size > 0 ? { delivery: [...deliveryChannels].map((id) => placeNameOf(guildId, id)) } : {}),
       chainId,
+      // The current channel: where her output tags act, and why it is that one (`<wake>`).
+      here: current.channelId ? { channel: placeNameOf(guildId, current.channelId), why: current.why } : null,
     };
     const key = String(guildId);
     reserved.set(key, (reserved.get(key) ?? 0) + reserve);
@@ -1337,6 +1358,7 @@ export function createInnerLife({
           triggerKind: 'inner',
           inner: {
             wake: info,
+            currentChannel: current.channelId,
             shadow,
             mayAct: () => mayAct(guildId),
             spendAllowed,
@@ -1391,7 +1413,7 @@ export function createInnerLife({
     let feedbackWakeId = null;
     if (feedback.length > 0 && !isFeedback) {
       feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
-      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, turnId: turnId ? String(turnId) : null, facts: feedback, deliveryFor: [...new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : list(wake.deliveryFor))))] });
+      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, here: current.channelId, turnId: turnId ? String(turnId) : null, facts: feedback, deliveryFor: [...new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : list(wake.deliveryFor))))] });
     }
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
@@ -1418,7 +1440,6 @@ export function createInnerLife({
       wakes: group.map(wakeFields),
       coalesced: group.map((wake) => wake.id),
       actions,
-      stray: result.inner?.stray ?? null,
       loop: result.inner?.loop ?? null,
       feedback: { facts: feedback, wake: feedbackWakeId },
       cost: { usd: measured.usd, requests: measured.requests, voice: measured.voice, reservedUsd: reserve },

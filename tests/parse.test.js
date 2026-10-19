@@ -96,6 +96,21 @@ test('parseOutput: a reaction alone is not silence', () => {
   assert.deepEqual(result.reactions, [{ to: 5, emoji: '💀' }]);
 });
 
+test('parseOutput: a reaction names its message by to; one naming none is kept apart, not a skip', () => {
+  const both = parseOutput('<react to="#5">💀</react>');
+  assert.deepEqual(both.reactions, [{ to: 5, emoji: '💀' }]);
+  assert.deepEqual(both.untargetedReactions, []);
+  assert.deepEqual(parseOutput('<react reply="#6">🔥</react>').untargetedReactions, [{ emoji: '🔥' }]);
+  const bare = parseOutput('<react>👍</react>');
+  assert.deepEqual(bare.reactions, []);
+  assert.deepEqual(bare.untargetedReactions, [{ emoji: '👍' }]);
+  assert.equal(bare.skip, false);
+  // An empty or too long body is dropped either way.
+  const none = parseOutput('<react></react><react>this is way more than sixteen chars</react>');
+  assert.deepEqual(none.untargetedReactions, []);
+  assert.equal(none.skip, true);
+});
+
 test('parseOutput: plain text with no tags falls back to one message when short', () => {
   const result = parseOutput('απλό κείμενο χωρίς ετικέτες');
   assert.equal(result.skip, false);

@@ -27,6 +27,16 @@ export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.loo
  */
 export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
 
+/**
+ * The posting skills an inner turn's tags stand for (docs/inner-life.md): shown in `<skills_tools>`
+ * on an inner turn only, after the reads, with their arguments, because her output tags there are
+ * these calls (src/behavior/inner-output.js). An addressed turn's tags post by themselves.
+ */
+export const INNER_POSTING_SKILLS = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
+
+/** CORE_TOOL_SKILLS as an inner turn lists them: the posting skills follow the reads, before the errand and the intentions. */
+export const INNER_CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, ...INNER_POSTING_SKILLS, ...CORE_TOOL_SKILLS.filter((name) => !IN_TURN_TOOLS.includes(name))]);
+
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
 
@@ -236,13 +246,13 @@ export function proposedRows(proposals, rows) {
  * (grantedSkillNames: her grants only, never a requester or a channel), with its texts from the
  * skills layer (`texts`: `hot.prompts.skills`, read by the caller now) and its arguments
  * (skillArgs). The requester's own right is not reflected: the gateway still refuses per call.
- * Pure.
- * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object }} input
+ * On an inner turn (`inner`) the posting skills follow the reads (INNER_CORE_TOOL_SKILLS). Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object, inner?: boolean }} input
  * @returns {object[]}
  */
-export function coreToolRows({ config, selfId = null, registry = null, texts = undefined }) {
+export function coreToolRows({ config, selfId = null, registry = null, texts = undefined, inner = false }) {
   const granted = new Set(grantedSkillNames({ config, selfId, registry }));
-  return CORE_TOOL_SKILLS.filter((name) => granted.has(name) && registry.has(name)).map((name) => {
+  return (inner ? INNER_CORE_TOOL_SKILLS : CORE_TOOL_SKILLS).filter((name) => granted.has(name) && registry.has(name)).map((name) => {
     const skill = registry.get(name);
     return { ...describeSkill(skill, texts), args: skillArgs(skill) };
   });

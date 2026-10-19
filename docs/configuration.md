@@ -1070,8 +1070,9 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `loop.timeBudgetMs` | `180000` | How long the calls and follow-ups of one inner turn may run, counted from its first call. Once it is spent, the next request is her last |
 | `loop.maxCallsPerStep` | `4` | The most calls of one answer of an inner turn that run; the rest are dropped and logged `skills: extra-call` with `loop: true` |
 | `loop.callTimeoutMs` | `60000` | The most one call of an inner turn may run: this, or what is left of `loop.timeBudgetMs` (2 seconds at least), whichever is smaller. A call that runs out of it is reported as `unknown` and never retried, as on every turn (`skills.callTimeoutMs` is not read for an inner turn's loop) |
-| `loop.strayFollowUps` | `2` | How many times in one inner turn an answer of hers that wrote outside a call (a `<msg>`, a reaction, a GIF, a picture: it reached nobody) and made no `message.create` call gets one more step under `task.continueInnerStray`, while steps and time remain. `0`: such an answer ends the turn at once. The turn's `inner` result counts the steps made (`strayFollowUps`) |
 | `memory.enabled` | `true` | What an inner turn's reads found, with her thinking, goes to the memory analyzer as lines of hers ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)); shadow turns too. `false`: no episode is buffered |
+
+`loop.strayFollowUps` is retired. If set, a startup warning names it; the key is ignored. Output tags are lowered into calls now, so the stray follow-up step no longer exists.
 | `memory.thinkChars` | `1200` | The end of her thinking kept in an episode (characters) |
 | `memory.resultChars` | `1500` | Each read's result is cut to this many characters in an episode |
 | `memory.maxFindings` | `5` | At most this many reads per episode, in the order she made them |

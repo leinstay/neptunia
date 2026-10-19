@@ -1,6 +1,6 @@
 {
   "name": "feedback",
-  "description": "One promise, due on day 1 at noon: the stub's intention turn writes the cat meme as plain text outside any call (it reaches nobody) and marks the intention done. The scheduler queues one feedback wake in the same chain for the next tick, naming the dropped line and the intention closed without delivery; the stub then posts through message.create. The feedback turn gets no feedback of its own.",
+  "description": "One promise, due on day 1 at noon: the stub's intention turn posts the cat meme but the post is refused (destination-required) and marks the intention done. The scheduler queues one feedback wake in the same chain for the next tick, naming the refused call and the intention closed without delivery; the stub then posts through message.create. The feedback turn gets no feedback of its own.",
   "start": "2026-11-02",
   "days": 2,
   "timezone": "UTC",
@@ -22,7 +22,7 @@
       "at": "1 10:02",
       "span": "sure, a cat meme at noon, I will dig one up",
       "due": "1 12:00",
-      "stub": { "intention_due": [[{ "stray": "here is the cat meme you asked for" }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] }
+      "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the cat meme you asked for" }, "refuse": "destination-required" }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] }
     }
   ],
   "events": [
@@ -32,6 +32,6 @@
   "expect": {
     "kept": 1,
     "turns": { "min": 2, "max": 4 },
-    "feedback": { "wakes": 1, "facts": ["dropped", "doneWithoutDelivery"], "line": "here is the cat meme you asked for", "intention": "cat-meme" }
+    "feedback": { "wakes": 1, "facts": ["callFailed", "doneWithoutDelivery"], "code": "destination-required", "intention": "cat-meme" }
   }
 }

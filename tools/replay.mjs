@@ -59,7 +59,7 @@
 // memory store; `innerLife.mode` forced to `shadow`, so her reads run (on the simulator key)
 // and every other call is only proposed; features.dryRun and the journal off; intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
-// whole request), her answers, her proposed and executed actions, the stray text and the cost.
+// whole request), her answers, her proposed and executed actions, the cost.
 //
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
@@ -2247,7 +2247,6 @@ async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
         request: { blocks: blockNames(firstText), ...blocks, ...(args.showRequest && replies[0] ? { messages: replies[0].messages } : {}) },
         answers: calls.filter((call) => call.purpose === 'reply').map((call) => call.text),
         actions: result?.inner?.actions ?? [],
-        stray: result?.inner?.stray ?? null,
         posted: port.calls.filter((call) => call.op === 'send').length,
         usage,
       },

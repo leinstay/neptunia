@@ -20,14 +20,9 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 /** A purpose's length on a wake line (characters). */
 export const WAKE_PURPOSE_CHARS = 200;
 
-/** The separator between the dropped lines of one `dropped` fact (data joined, not wording). */
-const LINES_JOIN = ' | ';
-
 /**
  * One feedback fact (src/behavior/inner.js#feedbackFacts) as a line: `l.feedback.<kind>` filled
- * -- `dropped`: `{messages}`, `{reactions}`, `{gifs}`, `{draws}` (counts) and `{lines}` (the first
- * lines of the dropped messages, each on one line cut to WAKE_PURPOSE_CHARS, joined by ` | `);
- * `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
+ * -- `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
  * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps` or `time`), `{dropped}`,
  * `{steps}`; `wakeDropped`: `{kind}` (the wake's), `{code}` (`no-channel` or the cap), `{id}`,
  * `{purpose}`. '' without the fact's label.
@@ -41,8 +36,6 @@ export function feedbackFactText(fact, l) {
   const n = (value) => String(Number.isFinite(value) ? value : 0);
   const purpose = clampWithEllipsis(oneLine(String(fact.purpose ?? '')), WAKE_PURPOSE_CHARS);
   switch (fact.kind) {
-    case 'dropped':
-      return fill(template, { messages: n(fact.messages), reactions: n(fact.reactions), gifs: n(fact.gif), draws: n(fact.draw), lines: (Array.isArray(fact.lines) ? fact.lines : []).map((line) => clampWithEllipsis(oneLine(String(line)), WAKE_PURPOSE_CHARS)).join(LINES_JOIN) });
     case 'callFailed':
       return fill(template, { skill: String(fact.skill ?? ''), status: String(fact.status ?? ''), code: String(fact.code ?? '') });
     case 'doneWithoutDelivery':
@@ -110,6 +103,8 @@ export function placesBlockText(page, labels) {
  * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
  * A `feedback` item (`facts`) is followed by one `labels.wake.feedbackItem` (`{fact}`:
  * feedbackFactText's) per fact; facts without a label are left out.
+ * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
+ * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
  * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
  *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
@@ -153,6 +148,9 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
       }
     }
   }
+  // The current channel her output tags act in and why it is that one, or that there is none.
+  const here = wake.here ? part(l, 'here', { channel: oneLine(String(wake.here.channel ?? '')), why: String(wake.here.why ?? '') }) : wake.here === null ? part(l, 'hereNone', {}) : '';
+  if (here) lines.push(here);
   const expired = wake.expired;
   if (Array.isArray(expired?.items) && expired.items.length > 0 && typeof l.expired === 'string' && l.expired && typeof l.expiredItem === 'string' && l.expiredItem) {
     lines.push(l.expired);
