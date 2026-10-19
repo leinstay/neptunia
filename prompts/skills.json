@@ -321,12 +321,12 @@
   },
   "intent.set": {
     "title": "Set an intention",
-    "whenToUse": "Record something you mean to do later. The purpose goes in the body. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off.",
+    "whenToUse": "Record something you mean to do later. The purpose goes in the body. due= takes a delay (30m, 6h, 2d), a date, a clock time (21:00) or a weekday and time (mon 20:00). every= makes it repeat: day, week, or a count of hours or days (12h, 3d); state=done on intent.update closes one occurrence, intent.cancel ends it for good, and expires= moves its end date. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off.",
     "whenNotToUse": "Not for what you are doing in this turn."
   },
   "intent.update": {
     "title": "Update an intention",
-    "whenToUse": "Change an intention by id=. state=pending accepts a proposed one; state=done marks it finished. task= and deadline= set it waiting for an errand.",
+    "whenToUse": "Change an intention by id=. state=pending accepts a proposed one; state=done marks it finished (on a repeating intention it closes one occurrence; intent.cancel ends it for good, and expires= moves its end date). due= takes a delay, a date, a clock time (21:00) or a weekday and time (mon 20:00). every= sets a repeat: day, week, a count of hours or days; none clears it. task= and deadline= set it waiting for an errand.",
     "whenNotToUse": "Rejecting a proposed one goes through intent.cancel."
   },
   "intent.cancel": {
