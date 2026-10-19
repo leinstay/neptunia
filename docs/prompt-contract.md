@@ -394,6 +394,14 @@ status.costs.agentWindow                 {window} {runs} {in} {out} {usd}: one w
 status.costs.agentNoRuns                 {agent}: the line of an agent with no run in the last 30 days; thinker, dev and writer also get it when the ledger does not answer (no `agents.ledger.socket`, a refusal, an error or no answer within 3 s)
 status.costs.agentContext                {agent} {wave} {turns} {mean} {peak} {usd}: the line right after the thinker's line (any agent whose ledger figures carry a last wave), its latest wave from the ledger: the wave, its turns, the context mean (weighted by steps) and peak in compact tokens (`-` for a missing one) and its USD; left out before the first wave or when the wave has no context figure
 status.costs.agentEstimate               the last line of `costs.agents`: its USD are OpenCode's estimate at each agent's price (`agents.<agent>.cost`), not an OpenRouter key's figure
+status.inner.*                           the owner's `inner` status field (src/ops/status.js#innerLines); read by the owner, never sent to a model. A missing label leaves its line out
+status.inner.modeLine                    {mode} {state}: the inner life's mode (shadow or live) and its switch; state is `running` or `stopped` ({at}: `YYYY-MM-DD HH:MM UTC`)
+status.inner.turnsLine                   {used} {cap} {chains}: inner turns used today vs the day cap, and the distinct causal chains
+status.inner.usdLine                     {spent} {held} {cap}: real USD spent today, dollars held by running errands, and the day cap; spent and held are `toFixed(2)`
+status.inner.postsLine                   {used} {cap}: public posts from the inner life today vs the day cap
+status.inner.nextLine | nextNone         {at} {kind}: when the next wake fires and what it is; kind through `nextKinds` (queue, intention, review); `nextNone` when nothing is scheduled
+status.inner.lastLine | lastNone         {outcome} {at}: the last inner turn's outcome code and time; `outcomeUnknown` when the turn recorded none; `lastNone` when no inner turn has run
+status.inner.intentionsLine              {pending} {waiting} {proposed}: open intentions counted by status
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age
