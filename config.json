@@ -511,7 +511,8 @@
     "maxOpen": 20,
     "maxCandidates": 5,
     "candidateExpiresHours": 48,
-    "waitHours": 2
+    "waitHours": 2,
+    "expiryNoticeDays": 2
   },
   "innerLife": {
     "mode": "shadow",
@@ -520,7 +521,7 @@
     "chatMessages": 30,
     "estimatedTurnUsd": 0.15,
     "errandReserveMaxMinutes": 60,
-    "review": { "enabled": true, "historyDays": 14 },
+    "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
     "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 },
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "memory": {

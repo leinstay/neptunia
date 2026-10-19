@@ -488,6 +488,8 @@
     "line": "{id} · {state} · {purpose}",
     "states": { "pending": "open", "waiting": "waiting" },
     "due": "due {when}",
+    "noDue": "no due time, nothing will wake you for it; expires {expires}",
+    "expiresSoon": "expires {when}",
     "every": "every {period}",
     "waiting": "waiting for errand {task} until {deadline}",
     "outcome": "errand {task} ended: {state}",
@@ -511,6 +513,9 @@
       "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice."
     },
+    "expired": "Intentions of yours that expired untouched since you were last told:",
+    "expiredItem": "{id} · {purpose} · expired {when}",
+    "expiredMore": "... and {more} more",
     "now": "Now: {now}",
     "channels": "You were active lately in: {channels}",
     "places": "Where people are talking ({total} places; places.list shows the rest):",

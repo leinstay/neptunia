@@ -1040,6 +1040,7 @@ Settings for the persona's intentions (`features.intentions`; [Intentions](inten
 | `maxCandidates` | `5` | At most this many candidates from her lines per analyzer batch, and open at once (`{{maxCandidates}}` of `prompts/memory-intentions.md`) |
 | `candidateExpiresHours` | `48` | A candidate she neither accepts nor rejects expires after this many hours |
 | `waitHours` | `2` | The wait deadline when a wait on an errand names none |
+| `expiryNoticeDays` | `2` | An intention whose expiry is this many days away or less ends its `<intentions>` line with the expiry (`labels.intentions.expiresSoon`), one-off, recurring, waiting and attention alike. One with no due time and no wait carries its expiry on every turn instead (`labels.intentions.noDue`: nothing will wake her for it) |
 
 ## `innerLife`
 
@@ -1055,6 +1056,7 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `errandReserveMaxMinutes` | `60` | How long the hold of an errand an inner turn handed off (its agent's `agents.<agent>.limits.usd`, held against `caps.usdPerDay` from its dispatch) lasts when the errand never ends; an intention's wait on the errand releases it at the wait's deadline when that comes first. An errand that ends replaces its hold with its real cost |
 | `review.enabled` | `true` | Whether she has a daily review at all |
 | `review.historyDays` | `14` | How many days of her own lines in the record decide her active hours (when she usually speaks) for the review's random moment |
+| `review.expiredMax` | `5` | At most this many of her intentions that expired untouched since she was last told are listed in a review's `<wake>` (the newest first; the rest counted and told next time); a candidate is never listed. Each listed one is marked shown on its record once the review turn ran |
 | `caps.perDay` | `24` | Inner turns per local day (`bot.timezone`) |
 | `caps.perHour` | `4` | Inner turns per rolling hour |
 | `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. A spent chain's wakes are dropped |

@@ -2,8 +2,9 @@
 // awake with nobody's message in front of her -- each wake of the turn (an intention whose time
 // came, a wait past its deadline, the day's review, people talking in a place she attends: the
 // place, the lines and who wrote them) with the intention it concerns (and the note of a recurring
-// intention's last occurrence before its expiry, `labels.intentions.notes`) -- then the present
-// moment and her timezone, the channels she was recently active in (a review), the places page
+// intention's last occurrence before its expiry, `labels.intentions.notes`) -- a review's list of
+// her intentions that expired untouched since she was last told (`wake.expired`: the newest
+// first, capped, the rest counted) -- then the present moment and her timezone, the channels she was recently active in (a review), the places page
 // (`wake.places`, src/behavior/inner.js#places: where life is beyond this conversation, with the
 // total and how many more) and what is left of her budgets with when each resets: facts she reads,
 // never a rule. The same places page stands alone as the `<places>` block of an addressed turn
@@ -63,11 +64,15 @@ export function placesBlockText(page, labels) {
 /**
  * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
- * ` · ` -- `now`, `timezone`, `channels`, `places`, `budgets`), '' when `labels.wake.header` is
- * missing. An `attend` item fills `{place}` (its name), `{lines}`, `{people}` (names, joined by
- * ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
+ * ` · ` -- `expired` (a review: src/intentions/model.js#expiredToShow's `{ items, more }`, after
+ * the wake lines as `labels.wake.expired`, one `labels.wake.expiredItem` per item with `{id}`,
+ * `{purpose}`, `{when}`, then `labels.wake.expiredMore` with `{more}` when more follow; left out
+ * without its two labels or an item), `now`, `timezone`, `channels`, `places`, `budgets`), ''
+ * when `labels.wake.header` is missing. An `attend` item fills `{place}` (its name), `{lines}`,
+ * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
  * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
- *   intentions?: object[], notes?: Record<string, string>, now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
+ *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
+ *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
  * @param {object} labels
  * @param {{ locale?: string }} [options]
  * @returns {string}
@@ -100,6 +105,15 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
       const code = id ? wake.notes?.[id] : null;
       const note = code && typeof labels?.intentions?.notes?.[code] === 'string' ? fill(labels.intentions.notes[code], { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
+    }
+  }
+  const expired = wake.expired;
+  if (Array.isArray(expired?.items) && expired.items.length > 0 && typeof l.expired === 'string' && l.expired && typeof l.expiredItem === 'string' && l.expiredItem) {
+    lines.push(l.expired);
+    for (const item of expired.items) lines.push(fill(l.expiredItem, { id: String(item.id ?? ''), purpose: clampWithEllipsis(oneLine(String(item.purpose ?? '')), WAKE_PURPOSE_CHARS), when: when(item.at) }));
+    if (expired.more > 0) {
+      const more = part(l, 'expiredMore', { more: String(expired.more) });
+      if (more) lines.push(more);
     }
   }
   const nowLine = part(l, 'now', { now: formatNow(wake.now, timezone, locale), timezone });

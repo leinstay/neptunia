@@ -83,7 +83,7 @@ import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch,
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { POSTING_SKILLS, innerSettings } from './inner.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
-import { isIntentionId } from '../intentions/model.js';
+import { intentionSettings, isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
 import { placesBlockText, wakeBlockText } from './wake.js';
 
@@ -1808,7 +1808,7 @@ export function createTurnRunner({
    * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.js).
    * '' with the switch off, without the service, or with nothing to show.
    */
-  function intentionsInputFor({ guildId, channel, isPrivate, config, labels }) {
+  function intentionsInputFor({ guildId, channel, isPrivate, config, labels, now }) {
     if (!intentions || config.features?.intentions !== true) return '';
     let shown = [];
     try {
@@ -1825,6 +1825,8 @@ export function createTurnRunner({
       maxTokens: config.context?.caps?.intentions ?? DEFAULT_INTENTIONS_CAP,
       channelNameOf,
       nameOf,
+      now,
+      expiryNoticeDays: intentionSettings(config).expiryNoticeDays,
     });
   }
 
@@ -6603,7 +6605,7 @@ export function createTurnRunner({
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
         errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
-        intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels }),
+        intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
         wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).

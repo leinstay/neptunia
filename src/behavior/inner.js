@@ -21,6 +21,9 @@
 // does not fit); its end replaces the hold with its real cost, and a lost one (it never ends) is
 // released at its wait's deadline or after `innerLife.errandReserveMaxMinutes`, whichever comes
 // first. The holds are persisted with the state.
+// A review's `<wake>` also tells her once which intentions of hers expired untouched since she was
+// last told (`innerLife.review.expiredMax` newest, the rest counted; a candidate never): each is marked
+// shown on its record once the review turn ran, so a held or erred review lists them again.
 // Over a cap no turn runs and the refusal is journalled once per wake. What is left and when it
 // resets reach her as facts in `<wake>`, never as a rule.
 //
@@ -64,7 +67,7 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { attendCounter, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
+import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
@@ -78,7 +81,7 @@ export const INNER_DEFAULTS = Object.freeze({
   chatMessages: 30,
   estimatedTurnUsd: 0.15,
   errandReserveMaxMinutes: 60,
-  review: Object.freeze({ enabled: true, historyDays: 14 }),
+  review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
 });
@@ -135,7 +138,7 @@ export function innerSettings(config) {
     chatMessages: Math.max(1, Math.floor(count(raw.chatMessages, d.chatMessages))),
     estimatedTurnUsd: count(raw.estimatedTurnUsd, d.estimatedTurnUsd),
     errandReserveMaxMinutes: Math.max(1, count(raw.errandReserveMaxMinutes, d.errandReserveMaxMinutes)),
-    review: { enabled: review.enabled !== false, historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)) },
+    review: { enabled: review.enabled !== false, historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)), expiredMax: Math.floor(count(review.expiredMax, d.review.expiredMax)) },
     caps: {
       perDay: Math.floor(count(caps.perDay, d.caps.perDay)),
       perHour: Math.floor(count(caps.perHour, d.caps.perHour)),
@@ -1152,6 +1155,10 @@ export function createInnerLife({
       const next = nextOccurrence(record, at, timezone);
       if (!Number.isFinite(next) || next > record.expiresAt) notes[record.id] = 'last-occurrence';
     }
+    // A review tells her once which intentions of hers expired untouched: the expired records not yet
+    // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
+    const isReview = group.some((wake) => wake.kind === 'review');
+    const expired = isReview && intentions && intentionsOn(hot.config) ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax }) : null;
     const shadow = settings.mode !== 'live';
     const posts = () => budgetsOf(stateOf(guildId), innerSettings(hot.config), { now: now(), timezone: timezoneOf() }).posts;
     // An attend wake's facts for `<wake>`: the place's name and the people's names (ids when unknown).
@@ -1172,9 +1179,10 @@ export function createInnerLife({
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake) })),
       intentions: records,
       ...(Object.keys(notes).length > 0 ? { notes } : {}),
+      ...(expired && expired.items.length > 0 ? { expired } : {}),
       now: at,
       timezone,
-      channels: group.some((wake) => wake.kind === 'review') ? channelNames(guildId) : [],
+      channels: isReview ? channelNames(guildId) : [],
       // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
       ...(placesInWake > 0 ? { places: places(guildId, { sort: 'recent', page: 1, pageSize: placesInWake }) } : {}),
       budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
@@ -1253,9 +1261,13 @@ export function createInnerLife({
     after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
-    if (group.some((wake) => wake.kind === 'review') && after.review) after.review = { ...after.review, done: true };
+    if (isReview && after.review) after.review = { ...after.review, done: true };
     markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [] });
     save(guildId);
+    // The expired intentions the review listed were read: a turn that erred shows them again next time.
+    if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
+      for (const item of expired.items) intentions.markExpiredShown(guildId, item.id);
+    }
     // What she did and found goes to her memory, shadow or live: her reads really ran.
     if (result.inner?.episode && typeof onEpisode === 'function') {
       try {
