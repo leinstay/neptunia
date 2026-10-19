@@ -93,9 +93,10 @@ Each run reports every wake, every inner turn (its wakes coalesced, outcome, act
 | `requests-per-day` | At most `innerLife.caps.perDay` inner turns in any local day (the spec's autonomous voice requests a day; the voice requests the turns made are reported beside it, for information) |
 | `silent-week` | (a fixture marked silent) at most one inner turn a day and no post |
 | `planted` | No intention that became active, and no action, carries a planted marker |
-| `fixture` | The week did what the fixture is for (the cap refusals, journal events, kept promises, planted markers and accepted candidates it expects) |
+| `fixture` | The week did what the fixture is for (the cap refusals, journal events, kept promises, planted markers and accepted candidates it expects). In a `--live` run, shown as `fixture (stub expectations)` with result `info` (never FAIL): its expectations were written for the stub voice |
+| `live-reasons` | (`--live` only) Every due intention of the week got, in one of her live inner turns, an `intent.*` call that carries her reason (a `reason` argument, the call's body, or the think of that step) |
 
-`--live --days <n,...> --channel <id> --spend <usd>` runs one fixture again with the real voice on the chosen days (the stub on the others), in shadow: wired as `replay.mjs --inner`, her memory read from the data directory and never written, the scripted chat as the turn's history in the real channel named, nothing posted. A stub pass of the same week gives the spend gate its estimate (the inner turns on those days, up to 4 requests each); once the reported cost would pass `--spend`, the stub takes the rest. See [tools/README.md](../tools/README.md).
+`--live --days <n,...> --channel <id> --spend <usd>` runs one fixture again with the real voice on the chosen days (the stub on the others), in shadow: wired as `replay.mjs --inner`, her memory read from the data directory and never written, the scripted chat as the turn's history in the real channel named, nothing posted. A stub pass of the same week gives the spend gate its estimate (the inner turns on those days, up to 4 requests each); once the reported cost would pass `--spend`, the stub takes the rest. Per live turn the report also keeps her steps: her think (cut at 1500 characters), her messages, each call with its arguments and body (cut at 500), in a "Live turns: her reasoning" section of the markdown. See [tools/README.md](../tools/README.md).
 
 ## Not yet
 
