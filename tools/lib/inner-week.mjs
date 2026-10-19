@@ -246,7 +246,12 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       chain: typeof item.chain === 'string' ? item.chain : null,
       condition: typeof item.condition === 'string' ? item.condition : null,
       stub: checkStub(item.stub, id, `${where}.stub`),
+      // When she made it (default: the week's start) and the exact text of her scripted line that
+      // made it (its id and text become the record's provenance, as her memory of the week has them).
+      at: item.at === undefined || item.at === null ? null : time(item.at, `${where}.at`),
+      span: typeof item.span === 'string' && item.span ? item.span : null,
     };
+    need(out.at === null || (out.at >= startMs && out.at < endMs), id, `${where}.at: outside the week`);
     if (item.wait !== undefined) {
       need(isObject(item.wait) && typeof item.wait.task === 'string', id, `${where}.wait needs a task`);
       out.wait = { task: item.wait.task, deadline: time(item.wait.deadline, `${where}.wait.deadline`) };
@@ -256,7 +261,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
 
   const events = [];
   const intentions = (Array.isArray(data.intentions) ? data.intentions : []).map((item, i) => intentionOf(item, `intentions[${i}]`));
-  for (const item of intentions) events.push({ kind: 'intend', at: startMs, intention: item, order: -1 });
+  for (const item of intentions) events.push({ kind: 'intend', at: item.at ?? startMs, intention: item, order: -1 });
   const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task, i) => {
     need(isObject(task) && typeof task.id === 'string' && task.id, id, `tasks[${i}] needs an id`);
     return { id: task.id, agent: typeof task.agent === 'string' ? task.agent : 'web', state: task.state === 'queued' ? 'queued' : 'running' };
@@ -311,6 +316,13 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
     }
   });
   events.sort((a, b) => a.at - b.at || a.order - b.order);
+  // An intention's span is a line of hers, scripted (in any channel: its destination may be
+  // another one) before it is born.
+  for (const event of events) {
+    if (event.kind !== 'intend' || !event.intention.span) continue;
+    const { key, span } = event.intention;
+    need(events.some((e) => e.kind === 'self' && e.text === span && e.at < event.at), id, `intention ${key}: span is not a self line of hers scripted before it is born`);
+  }
 
   const history = isObject(data.history) ? data.history : {};
   const selfHours = Array.isArray(history.selfHours) ? history.selfHours.filter((h) => Number.isInteger(h) && h >= 0 && h <= 23) : [];
@@ -750,6 +762,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   function setIntention(item, at) {
     let taskId = null;
     let deadline = null;
+    // Her scripted line that made it: the latest line of hers with the span's text, in any channel.
+    const line = item.span ? [...world.chat.values()].flat().filter((l) => l.self && l.content === item.span && l.ts <= at).sort((a, b) => b.ts - a.ts)[0] ?? null : null;
     if (item.wait) {
       if (!world.tasks.has(item.wait.task)) world.tasks.set(item.wait.task, { id: item.wait.task, agent: 'web', state: 'running', origin: {}, createdAt: at });
       taskId = item.wait.task;
@@ -767,8 +781,12 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       deadline,
       scope: 'group',
       turnId: null,
+      messageId: line?.id ?? null,
       by: 'persona',
     });
+    // The service keeps a span only for a candidate; the week writes the self line's text in as
+    // the record's quote, so her <intentions> block and her memory of the week agree.
+    if (created.ok && line && item.span) intentions.store(guildId)?.update(created.intention.id, (record) => ({ ok: true, changed: true, intention: { ...record, provenance: { ...record.provenance, span: item.span } } }));
     if (created.ok) {
       world.keys.set(item.key, created.intention.id);
       world.ids.set(created.intention.id, item.key);
@@ -915,6 +933,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     state: finalState,
     intentions: store ? store.list() : [],
     keys: Object.fromEntries(world.keys),
+    chat: Object.fromEntries(world.chat),
     planted: world.planted,
     stopSpans: world.stopSpans,
     stoppedAtEnd: world.stopped,
