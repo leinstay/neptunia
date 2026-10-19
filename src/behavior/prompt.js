@@ -1228,7 +1228,7 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '' }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '' }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
@@ -1287,6 +1287,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('intentions', intentions),
     // An inner turn's reason to be awake (src/behavior/wake.js, mode `inner` only): per turn.
     block('wake', wake),
+    // The places page of an addressed turn (`context.places`; src/behavior/wake.js#placesBlockText): per turn.
+    block('places', places),
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.
     block('people_now', (kept.peopleNow ?? []).join('\n')),
@@ -3126,6 +3128,9 @@ export function withoutSentenceOf(text, placeholder) {
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
  *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
  *   The task of mode `inner` is `prompts.inner`, like any mode's.
+ * @param {string|null} [input.places]  An addressed turn's `<places>` body (src/behavior/wake.js#placesBlockText,
+ *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
+ *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
  * @param {{ skill: string, label?: string, open?: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
@@ -3540,6 +3545,8 @@ export function buildRequest(input) {
   const intentionsText = typeof input.intentions === 'string' ? input.intentions : '';
   // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.js), never cut.
   const wakeText = typeof input.wake === 'string' ? input.wake : '';
+  // `<places>`: an addressed turn's places page (context.places), rendered by the turn, never cut.
+  const placesText = typeof input.places === 'string' ? input.places : '';
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
   const limit = requestTokenLimit(config) - pictures.length * (visionCfg.tokensPerImage ?? 400) - TAG_OVERHEAD;
@@ -3600,7 +3607,7 @@ export function buildRequest(input) {
     required: true,
     // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -4190,7 +4197,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures, anchoredIds: earlierShown?.parentIds ?? [] });
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -4209,7 +4216,7 @@ export function buildRequest(input) {
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
     // The anchors of `<earlier>` were cut with their picture marks; the same anchors without them.
     const keptBlind = earlierShown?.blind ? { ...kept, earlier: [earlierShown.blind] } : kept;
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText });
   }
 
   // A sticker's URL is already fully sized (see src/media/classify.js

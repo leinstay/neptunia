@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  attendWake,
+  placesPage,
   budgetsOf,
   capRefusal,
   chainBudget,
@@ -766,4 +768,215 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await settle();
   assert.equal(service.store(GUILD).get(last.id).status, 'expired');
   assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
+});
+
+// ---- her attention ------------------------------------------------------------------------
+
+/** A fake record over `lines` (`{ kind, messageId, occurredAt, by, scope }`): iterate filters by `from`. */
+function fakeRecord(lines) {
+  return {
+    lines,
+    async *iterate(_guild, { from } = {}) {
+      const since = from ? Date.parse(from) : -Infinity;
+      for (const line of lines) if (Date.parse(line.occurredAt) >= since) yield line;
+    },
+  };
+}
+
+/** One observed line of `by` in `channel` at `at` (her own when `said`). */
+function seen(id, { channel = 'c2', by = 'u1', at = NOW - 5 * MINUTE_MS, said = false } = {}) {
+  return { kind: said ? 'said' : 'seen', messageId: id, occurredAt: new Date(at).toISOString(), ...(said ? {} : { by }), scope: { channel } };
+}
+
+/** An inner life over the real service with an attention on `place`, the clock at NOW. */
+function attentionSetup({ place = 'c2', people = [], settle = 60, perDay = 12, lines = [], turns = fakeTurns(), innerLife = {}, places = null, nameOf = null, canSend = () => true } = {}) {
+  const dataDir = tempDir('nep-inner-');
+  const hot = hotWith({ innerLife });
+  const service = realIntentions(hot, dataDir);
+  const record = fakeRecord(lines);
+  const journal = [];
+  let inner;
+  const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
+  inner = createInnerLife({
+    hot,
+    dataDir,
+    turns,
+    intentions: service,
+    record,
+    places,
+    nameOf,
+    journal: { inner: async (guildId, fields) => journal.push(fields) },
+    client: fakeClient(),
+    discord: { canSend },
+    submit: (event) => door.submit(event),
+    store: { state: { data: {} } },
+    getGuildId: () => GUILD,
+    meter: { run: async (fn) => ({ result: await fn(), usd: 0.1, requests: 1, voice: 1 }) },
+    rng: seeded(3),
+    now: () => clock.t,
+    log: SILENT,
+  });
+  // Set an hour ago: lines before an attention was set are never new to it.
+  clock.t = NOW - HOUR_MS;
+  const set = service.set(GUILD, { purpose: 'listen there', attend: { place, people, settle, perDay }, channelId: 'c1', scope: 'group' });
+  clock.t = NOW;
+  assert.equal(set.ok, true, set.code);
+  return { inner, turns, journal, service, record, id: set.intention.id, hot };
+}
+
+test('attendWake: lines of others since her last look, settled, make one wake named by the newest line; her own lines and other people never count', () => {
+  const record = { id: 'ia', attend: { place: 'c2', people: [], settle: 60, perDay: 12, today: null } };
+  const lines = [{ id: 'm1', at: NOW - 3 * MINUTE_MS, by: 'u1' }, { id: 'm2', at: NOW - 2 * MINUTE_MS, by: 'u2' }, { id: 'm3', at: NOW - 90_000, by: null, said: true }];
+  const wake = attendWake(record, lines, { now: NOW, since: NOW - HOUR_MS });
+  assert.equal(wake.id, 'inner.wake:attend:ia:m2', 'the newest line that counts, not her own');
+  assert.deepEqual([wake.kind, wake.channelId, wake.chainId, wake.dueAt, wake.intentionIds], ['attend', 'c2', 'attend:ia:m2', NOW - 2 * MINUTE_MS + 60_000, ['ia']]);
+  assert.deepEqual(wake.attend, { place: 'c2', lines: 2, people: ['u1', 'u2'], since: NOW - HOUR_MS, newestAt: NOW - 2 * MINUTE_MS, newestId: 'm2' });
+  assert.equal(attendWake(record, lines, { now: NOW - 100_000 }), null, 'the newest line is younger than the settle: the place is still talking');
+  assert.equal(attendWake(record, [lines[2]], { now: NOW }), null, 'her own line alone wakes nobody');
+  assert.equal(attendWake(record, [], { now: NOW }), null);
+  const only = { ...record, attend: { ...record.attend, people: ['u2'] } };
+  assert.deepEqual(attendWake(only, lines, { now: NOW }).attend.people, ['u2']);
+  assert.equal(attendWake(only, [lines[0]], { now: NOW }), null, 'a line by someone else does not count for a people attention');
+  assert.equal(attendWake({ ...record, attend: { ...record.attend, settle: 0 } }, [{ id: 'm9', at: NOW, by: 'u1' }], { now: NOW }).id, 'inner.wake:attend:ia:m9', 'settle 0 wakes at once');
+});
+
+test('placesPage: filtered by name, sorted recent, name or lines, paged with the total and how many more', () => {
+  const rows = [
+    { id: 'a', name: 'alpha', lines: 3, people: 2, newestAt: NOW - HOUR_MS },
+    { id: 'b', name: 'bêta', lines: 9, people: 4, newestAt: NOW },
+    { id: 'c', name: 'gamma', lines: 0, people: 0, newestAt: null },
+    { id: 'd', name: 'alps', lines: 1, people: 1, newestAt: NOW - 2 * HOUR_MS },
+  ];
+  assert.deepEqual(placesPage(rows).items.map((r) => r.id), ['b', 'a', 'd', 'c'], 'recent: the newest first, a silent place last');
+  assert.deepEqual(placesPage(rows, { sort: 'name' }).items.map((r) => r.id), ['a', 'd', 'b', 'c']);
+  assert.deepEqual(placesPage(rows, { sort: 'lines' }).items.map((r) => r.id), ['b', 'a', 'd', 'c']);
+  assert.deepEqual(placesPage(rows, { filter: 'ALP' }).items.map((r) => r.id), ['a', 'd']);
+  assert.deepEqual(placesPage(rows, { filter: 'beta' }).items.map((r) => r.id), ['b'], 'accents folded');
+  const page = placesPage(rows, { pageSize: 3 });
+  assert.deepEqual([page.total, page.page, page.pageSize, page.more, page.items.length], [4, 1, 3, 1, 3]);
+  const second = placesPage(rows, { pageSize: 3, page: 2 });
+  assert.deepEqual([second.more, second.items.map((r) => r.id)], [0, ['c']]);
+  assert.deepEqual(placesPage(rows, { pageSize: 3, page: 9 }).items, []);
+});
+
+test('inner: an attention wakes her on the place\'s settled lines since her last look, with the whole burst and the places page; nothing elsewhere; the same lines never twice', async () => {
+  const lines = [seen('m1', { by: 'u1', at: NOW - 4 * MINUTE_MS }), seen('m2', { by: 'u2', at: NOW - 3 * MINUTE_MS }), seen('m3', { channel: 'c3', by: 'u3', at: NOW - 3 * MINUTE_MS })];
+  const run = attentionSetup({ lines, nameOf: (_g, id) => ({ u1: 'Ana', u2: 'Nikos' })[id] ?? null, places: () => [{ id: 'c1', name: 'general', writable: true }, { id: 'c2', name: 'garden', writable: true }, { id: 'c3', name: 'news', writable: false }] });
+  const first = await run.inner.tick();
+  assert.equal(first.submitted, 1, 'the attended place only');
+  assert.equal(run.turns.calls.length, 1);
+  const wake = run.turns.calls[0].inner.wake;
+  assert.equal(run.turns.calls[0].channel.id, 'c2');
+  assert.equal(wake.kind, 'attend');
+  assert.equal(wake.chainId, `attend:${run.id}:m2`);
+  const item = wake.items[0];
+  assert.deepEqual([item.kind, item.intentionIds, item.attend.place, item.attend.placeName, item.attend.lines, item.attend.people, item.attend.peopleNames], ['attend', [run.id], 'c2', 'garden', 2, ['u1', 'u2'], ['Ana', 'Nikos']]);
+  assert.equal(item.attend.since, run.service.store(GUILD).get(run.id).createdAt, 'nothing before the attention was set is new');
+  assert.deepEqual(wake.intentions.map((r) => r.id), [run.id]);
+  // The places page: every published place, the lines since her last look, the read-only one listed.
+  assert.equal(wake.places.total, 3);
+  assert.deepEqual(wake.places.items.map((p) => [p.id, p.lines, p.people, p.writable, p.attended]), [['c2', 2, 2, true, true], ['c3', 1, 1, false, false], ['c1', 0, 0, true, false]]);
+  assert.equal(run.journal.find((r) => r.event === 'wake').wake.id, `inner.wake:attend:${run.id}:m2`);
+  assert.deepEqual(run.journal.find((r) => r.event === 'wake').wake.place, 'c2');
+  assert.deepEqual(run.service.attendToday(GUILD, run.id), { day: '2026-10-19', wakes: 1 });
+  // The same lines wake her no more: her look is the handled wake.
+  clock.t = NOW + 5 * MINUTE_MS;
+  const second = await run.inner.tick();
+  assert.equal(second.submitted, 0);
+  assert.equal(run.turns.calls.length, 1);
+  assert.deepEqual(run.inner.places(GUILD).items.find((p) => p.id === 'c2').lines, 0, 'the page counts from her last look');
+  // A new line after her look, settled: a new wake named by it.
+  run.record.lines.push(seen('m4', { by: 'u1', at: NOW + 6 * MINUTE_MS }));
+  clock.t = NOW + 6 * MINUTE_MS + 30_000;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1, 'still talking: the settle has not passed');
+  clock.t = NOW + 8 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 2);
+  assert.equal(run.turns.calls[1].inner.wake.items[0].attend.lines, 1);
+  assert.deepEqual(run.service.attendToday(GUILD, run.id), { day: '2026-10-19', wakes: 2 });
+  const turnNote = run.journal.filter((r) => r.event === 'turn').at(-1);
+  assert.deepEqual([turnNote.wakes[0].kind, turnNote.wakes[0].place, turnNote.wakes[0].lines], ['attend', 'c2', 1]);
+});
+
+test('inner: her own line in the place is a look; a newer burst replaces the queued wake, nothing lost; with people only their lines count', async () => {
+  const turns = fakeTurns();
+  turns.busy = true;
+  const lines = [seen('m1', { by: 'u1', at: NOW - 10 * MINUTE_MS }), seen('m2', { at: NOW - 8 * MINUTE_MS, said: true }), seen('m3', { by: 'u2', at: NOW - 4 * MINUTE_MS })];
+  const run = attentionSetup({ lines, turns, people: ['u2', 'u3'] });
+  await run.inner.tick();
+  let queue = run.inner.state(GUILD).queue;
+  assert.deepEqual(queue.map((w) => [w.id, w.attend.lines]), [[`inner.wake:attend:${run.id}:m3`, 1]], 'only u2\'s line after her own line counts');
+  // More lines while the attention is held: the queued wake takes the newest line's id.
+  run.record.lines.push(seen('m4', { by: 'u1', at: NOW + MINUTE_MS }), seen('m5', { by: 'u3', at: NOW + 2 * MINUTE_MS }));
+  clock.t = NOW + 4 * MINUTE_MS;
+  await run.inner.tick();
+  queue = run.inner.state(GUILD).queue;
+  assert.deepEqual(queue.map((w) => [w.id, w.attend.lines, w.attend.people]), [[`inner.wake:attend:${run.id}:m5`, 2, ['u2', 'u3']]], 'one queued wake per attention');
+  assert.deepEqual(run.journal.filter((r) => r.event === 'replaced').map((r) => [r.wake.id, r.by]), [[`inner.wake:attend:${run.id}:m3`, `inner.wake:attend:${run.id}:m5`]]);
+  turns.busy = false;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.turns.calls[0].inner.wake.items[0].attend.lines, 2);
+  assert.equal(run.inner.state(GUILD).queue.length, 0);
+});
+
+test('inner: past the attention\'s own perDay the wake waits as capped and runs the next local day; the other wakes go on; a read-only place still wakes her', async () => {
+  const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
+  const canSend = (channel) => channel.id !== 'c2';
+  const run = attentionSetup({ lines, perDay: 1, canSend });
+  // A due intention elsewhere and the attention: both run; the attention in a place she cannot write in.
+  run.service.set(GUILD, { purpose: 'say hi', dueAt: NOW - MINUTE_MS, channelId: 'c1', scope: 'group' });
+  await run.inner.tick();
+  await run.inner.tick();
+  assert.deepEqual(run.turns.calls.map((c) => [c.channel.id, c.inner.wake.kind]).sort(), [['c1', 'intention_due'], ['c2', 'attend']]);
+  // The second burst of the day waits.
+  run.record.lines.push(seen('m2', { by: 'u2', at: NOW + 10 * MINUTE_MS }));
+  clock.t = NOW + 12 * MINUTE_MS;
+  const capped = await run.inner.tick();
+  assert.deepEqual(capped.drained, { refused: 'attend-per-day' });
+  assert.equal(run.turns.calls.length, 2);
+  await settle();
+  assert.deepEqual(run.journal.filter((r) => r.event === 'capped').map((r) => r.cap), ['attend-per-day']);
+  assert.equal(run.inner.state(GUILD).queue[0].capped, 'attend-per-day');
+  const status = run.inner.status(GUILD);
+  assert.deepEqual(status.attention, { open: 1, listed: 2, run: 1, spoken: 0, skipped: 1, waiting: 1 });
+  // Another due intention is not held back by it.
+  run.service.set(GUILD, { purpose: 'say bye', dueAt: NOW + 11 * MINUTE_MS, channelId: 'c1', scope: 'group' });
+  clock.t = NOW + 13 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 3);
+  assert.equal(run.turns.calls[2].inner.wake.kind, 'intention_due');
+  assert.equal(run.inner.state(GUILD).queue.length, 1, 'the capped attend wake still waits');
+  // The next local day it runs, and counts on that day.
+  clock.t = NOW + DAY_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 4);
+  assert.equal(run.turns.calls[3].inner.wake.kind, 'attend');
+  assert.deepEqual(run.service.attendToday(GUILD, run.id), { day: '2026-10-20', wakes: 1 });
+  assert.equal(run.journal.filter((r) => r.event === 'capped').length, 1, 'journalled once per wake');
+});
+
+test('inner: a cancelled attention wakes her no more and its queued wake is stale; places() lists, filters and pages the published places', async () => {
+  const turns = fakeTurns();
+  turns.busy = true;
+  const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS }), seen('m2', { channel: 'c3', by: 'u2', at: NOW - 2 * MINUTE_MS })];
+  const run = attentionSetup({ lines, turns, places: () => [{ id: 'c1', name: 'general', writable: true }, { id: 'c2', name: 'garden', writable: true }, { id: 'c3', name: 'news', writable: false }] });
+  await run.inner.tick();
+  assert.equal(run.inner.state(GUILD).queue.length, 1);
+  const page = run.inner.places(GUILD, { sort: 'name', pageSize: 2 });
+  assert.deepEqual([page.total, page.more, page.items.map((p) => p.name)], [3, 1, ['garden', 'general']]);
+  assert.deepEqual(run.inner.places(GUILD, { filter: 'new' }).items.map((p) => [p.name, p.lines, p.writable, p.attended]), [['news', 1, false, false]]);
+  assert.deepEqual(run.inner.places(GUILD, { sort: 'lines', page: 2, pageSize: 2 }).items.map((p) => p.name), ['general']);
+  assert.equal(run.service.cancel(GUILD, run.id).ok, true);
+  turns.busy = false;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 0);
+  assert.equal(run.inner.state(GUILD).queue.length, 0);
+  assert.equal(run.inner.state(GUILD).handled[`inner.wake:attend:${run.id}:m1`].outcome, 'stale');
+  run.record.lines.push(seen('m3', { by: 'u1', at: NOW + MINUTE_MS }));
+  clock.t = NOW + 5 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 0, 'nothing reseeds a cancelled attention');
+  assert.deepEqual(run.inner.status(GUILD).attention, { open: 0, listed: 1, run: 0, spoken: 0, skipped: 0, waiting: 0 });
 });

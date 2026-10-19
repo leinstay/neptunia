@@ -13,7 +13,11 @@
 // candidates, planted text, a restart, the kill switch. An intention may recur (`every`, as her
 // own argument: `day`, `week`, `12h`, `3d`); its occurrences are advanced by the production
 // service and scheduler, and the report counts their codes (`recurred`, `missed`,
-// `done-occurrence`). The scheduler reads no presence, so a fixture has no "member online" event.
+// `done-occurrence`). An intention may be an attention (`attend: true`: it listens to its `channel`,
+// with `people`, `settle`, `perDay`; docs/inner-life.md "Her attention"), and the stub may set one
+// (`intent.set` with `attend`, `people`, `settle`, `perday`); the week's chat is the record the scheduler counts the place's lines
+// from, so an attended channel's bursts wake her as they would live. The scheduler reads no
+// presence, so a fixture has no "member online" event.
 //
 // The inner turns run on a voice: the stub (`createStubVoice`, deterministic: canned actions per
 // wake kind, per intention, cycled by how often the same thing woke her) for the cheap runs, or
@@ -42,7 +46,7 @@ import { createInnerLife, createCostMeter, deadlineWakes, innerSettings, wakeOfD
 import { createEventDoor } from '../../src/interface/door.js';
 import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
-import { dueList, parseEvery, parseWhen, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
+import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
 import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { agentProfileOf } from '../../src/agent-runner/profiles.js';
@@ -188,7 +192,7 @@ function checkStub(stub, name, where) {
   const out = {};
   if (stub === undefined) return out;
   need(isObject(stub), name, `${where} must be an object`);
-  for (const kind of ['intention_due', 'errand_deadline', 'review']) if (stub[kind] !== undefined) out[kind] = checkPlan(stub[kind], name, `${where}.${kind}`);
+  for (const kind of ['intention_due', 'errand_deadline', 'review', 'attend']) if (stub[kind] !== undefined) out[kind] = checkPlan(stub[kind], name, `${where}.${kind}`);
   return out;
 }
 
@@ -254,12 +258,22 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       span: typeof item.span === 'string' && item.span ? item.span : null,
       // A recurrence, as her own `every=` argument (src/intentions/model.js#parseEvery).
       every: null,
+      // An attention: she listens to `channel` (the people by their fixture names, the settle seconds, her per-day bound).
+      attend: null,
     };
     if (item.every !== undefined && item.every !== null) {
       const parsed = parseEvery(item.every);
       need(parsed.ok && parsed.every !== null, id, `${where}.every: day, week, <n>h or <n>d`);
       need(out.dueAt !== null, id, `${where}.every needs a due time`);
       out.every = parsed.every;
+    }
+    if (item.attend === true) {
+      need(out.dueAt === null && out.every === null, id, `${where}.attend: an attention has no due time and no every`);
+      const names = item.people === undefined ? [] : item.people;
+      need(Array.isArray(names) && names.every((n) => typeof n === 'string' && people[n]), id, `${where}.people must name fixture people`);
+      need(item.settle === undefined || (Number.isFinite(item.settle) && item.settle >= 0), id, `${where}.settle must be seconds >= 0`);
+      need(item.perDay === undefined || (Number.isInteger(item.perDay) && item.perDay >= 1), id, `${where}.perDay must be a whole number >= 1`);
+      out.attend = { place: out.channel, people: names.map((n) => people[n]), ...(item.settle !== undefined ? { settle: item.settle } : {}), ...(item.perDay !== undefined ? { perDay: item.perDay } : {}) };
     }
     need(out.at === null || (out.at >= startMs && out.at < endMs), id, `${where}.at: outside the week`);
     if (item.wait !== undefined) {
@@ -359,7 +373,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
     people,
     tasks,
     history: { selfHours, channel: historyChannel, days: Number.isInteger(history.days) && history.days > 0 ? history.days : 14 },
-    stub: { ...checkStub({ intention_due: stub.intention_due, errand_deadline: stub.errand_deadline, review: stub.review }, id, 'stub'), usdPerRequest: Number.isFinite(stub.usdPerRequest) && stub.usdPerRequest >= 0 ? stub.usdPerRequest : 0.03 },
+    stub: { ...checkStub({ intention_due: stub.intention_due, errand_deadline: stub.errand_deadline, review: stub.review, attend: stub.attend }, id, 'stub'), usdPerRequest: Number.isFinite(stub.usdPerRequest) && stub.usdPerRequest >= 0 ? stub.usdPerRequest : 0.03 },
     events,
     expect: {
       silent: expect.silent === true,
@@ -372,6 +386,16 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
       // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.js#OCCURRENCE_CODES).
       occurrences: isObject(expect.occurrences) ? Object.fromEntries(Object.entries(expect.occurrences).filter(([code, n]) => OCCURRENCE_CODES.includes(code) && Number.isInteger(n))) : null,
+      // Her attention (the `attention` gate): the attend turns in order (`{ day, lines }`), how many
+      // attend wakes waited on her per-day bound and ran after the reset, and a listen-only channel
+      // the places page must list with lines.
+      attention: isObject(expect.attention)
+        ? {
+            turns: Array.isArray(expect.attention.turns) ? expect.attention.turns.map((t) => ({ day: Number(t?.day), lines: Number(t?.lines) })) : null,
+            capped: Number.isInteger(expect.attention.capped) ? expect.attention.capped : null,
+            listenOnly: typeof expect.attention.listenOnly === 'string' ? channel(expect.attention.listenOnly, 'expect.attention.listenOnly') : null,
+          }
+        : null,
     },
   };
 }
@@ -441,11 +465,13 @@ function cites(value, marker) {
 
 /**
  * The stub voice: for each wake item of a turn, the fixture's answer for it -- the intention's own
- * `stub[kind]`, else the fixture's `stub[kind]` -- picked by how often that same intention (or the
- * day's review) woke her for that kind before (the last answer repeats; none is silence). Each
+ * `stub[kind]`, else the fixture's `stub[kind]` -- picked by how often that same intention woke her
+ * for that kind before, or how many reviews she had (the review's answers run through the week:
+ * the first review takes the first, the second the second, ...; the last answer repeats; none is
+ * silence). Each
  * answer is a list of actions `{ skill, args }`; placeholders in the args: `$intention`, `$task`,
- * `$chain`, `$channel`, and `$candidates` as the id (the action is repeated for every open
- * candidate). Deterministic.
+ * `$chain`, `$channel`, `$key:<key>` (the id of the fixture intention or stub-set intention of that
+ * key), and `$candidates` as the id (the action is repeated for every open candidate). Deterministic.
  * @param {object} fixture  parseFixture's.
  */
 export function createStubVoice(fixture) {
@@ -454,13 +480,13 @@ export function createStubVoice(fixture) {
     kind: 'stub',
     /**
      * The actions of one turn.
-     * @param {{ items: object[], records: object[], channelId: string, day: string, keyOf: (id: string) => string|null, candidates: string[] }} turn
+     * @param {{ items: object[], records: object[], channelId: string, day: string, keyOf: (id: string) => string|null, idOf?: (key: string) => string|null, candidates: string[] }} turn
      */
-    plan({ items, records, channelId, day, keyOf, candidates }) {
+    plan({ items, records, channelId, day, keyOf, idOf = () => null, candidates }) {
       const out = [];
       for (const item of items) {
         const intentionId = item.intentionIds?.[0] ?? null;
-        const key = item.kind === 'review' ? `review:${day}` : `${item.kind}:${intentionId}`;
+        const key = item.kind === 'review' ? 'review' : `${item.kind}:${intentionId}`;
         const n = seen.get(key) ?? 0;
         seen.set(key, n + 1);
         const fixtureKey = intentionId ? keyOf(intentionId) : null;
@@ -476,7 +502,11 @@ export function createStubVoice(fixture) {
           const ids = many ? candidates : [null];
           for (const candidate of ids) {
             const resolved = {};
-            for (const [name, value] of Object.entries(args)) resolved[name] = value === '$candidates' ? candidate : Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
+            for (const [name, value] of Object.entries(args)) {
+              if (value === '$candidates') resolved[name] = candidate;
+              else if (typeof value === 'string' && value.startsWith('$key:')) resolved[name] = idOf(value.slice(5));
+              else resolved[name] = Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
+            }
             out.push({ skill: action.skill, args: resolved, ...(action.returns ? { returns: action.returns, ...(action.marker ? { marker: action.marker } : {}) } : {}) });
           }
         }
@@ -588,10 +618,18 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
 
   const channelObjects = new Map(fixture.channels.map((channel) => [channel.id, { id: channel.id, name: channel.name, guild: { id: guildId }, writable: channel.writable }]));
   const client = { channels: { cache: channelObjects, fetch: async (id) => channelObjects.get(String(id)) ?? null } };
+  // The record: her lines of the history (the review's hours) and every line of the week's chat
+  // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
     async *iterate(_guild, { from } = {}) {
       const since = from ? Date.parse(from) : -Infinity;
       for (const line of world.selfLines) if (Date.parse(line.occurredAt) >= since) yield line;
+      for (const lines of world.chat.values()) {
+        for (const line of lines) {
+          if (line.ts < since) continue;
+          yield { kind: line.self ? 'said' : 'seen', messageId: line.id, occurredAt: new Date(line.ts).toISOString(), ...(line.self ? {} : { by: String(line.authorId) }), scope: { channel: line.channelId } };
+        }
+      }
     },
   };
   const taskStore = {
@@ -623,7 +661,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const live = voice && voice.kind === 'live' && liveDays.includes(day);
     const wake = params.inner?.wake ?? {};
     const items = wake.items ?? [];
-    const entry = { at, day: dayOf(at), dayNumber: day, voice: live ? 'live' : 'stub', kind: wake.kind, chainId: wake.chainId ?? null, channelId: String(params.channel?.id ?? ''), items, notes: wake.notes ?? null, stopped: world.stopped, shadow: params.inner?.shadow === true };
+    const entry = { at, day: dayOf(at), dayNumber: day, voice: live ? 'live' : 'stub', kind: wake.kind, chainId: wake.chainId ?? null, channelId: String(params.channel?.id ?? ''), items, notes: wake.notes ?? null, places: wake.places ?? null, stopped: world.stopped, shadow: params.inner?.shadow === true };
     if (live) {
       // The live voice answers null once its spend is used up: the stub takes the rest of the week.
       const result = await voice.runTurn(params, { world, fixture, at });
@@ -637,7 +675,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     turnSeq += 1;
     const turnId = `t-week-${turnSeq}`;
     const candidates = intentions.list(guildId).filter((r) => r.status === 'proposed').map((r) => r.id);
-    const planned = stubVoice.plan({ items, records: wake.intentions ?? [], channelId: entry.channelId, day: entry.day, keyOf: (id) => world.ids.get(id) ?? null, candidates });
+    const planned = stubVoice.plan({ items, records: wake.intentions ?? [], channelId: entry.channelId, day: entry.day, keyOf: (id) => world.ids.get(id) ?? null, idOf: (key) => world.keys.get(key) ?? null, candidates });
     // Her answer is the turn's first request: its cost is reported before any of her calls runs.
     emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
     const actions = [];
@@ -690,11 +728,16 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const args = call.args ?? {};
     const when = (text) => parseWhen(text, at, { timezone: fixture.timezone });
     const everyOf = (text) => (text === undefined ? undefined : parseEvery(text).ok ? parseEvery(text).every : undefined);
+    // An attention's arguments (`attend`: the place; `people`: fixture names or ids; `settle`; `perDay`).
+    const peopleOf = (value) => (value === undefined ? undefined : String(value).split(/[\s,]+/).filter(Boolean).map((name) => fixture.people[name] ?? name));
+    const perDay = args.perday ?? args.perDay;
+    const attendOf = () => ({ ...(peopleOf(args.people) !== undefined ? { people: peopleOf(args.people) } : {}), ...(args.settle !== undefined ? { settle: Number(args.settle) } : {}), ...(perDay !== undefined ? { perDay: Number(perDay) } : {}) });
     if (call.skill === 'intent.set') {
       const created = intentions.set(guildId, {
-        purpose: String(args.purpose ?? ''),
+        purpose: String(args.purpose ?? args.attend ?? ''),
         dueAt: args.due ? when(args.due) : null,
         every: everyOf(args.every) ?? null,
+        attend: typeof args.attend === 'string' && args.attend ? { place: args.attend, ...attendOf() } : null,
         chainId: typeof args.chain === 'string' ? args.chain : null,
         destination: typeof args.channel === 'string' ? args.channel : null,
         channelId,
@@ -716,6 +759,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
       if (args.task) patch.taskId = args.task;
       if (args.deadline) patch.deadline = when(args.deadline);
+      if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
       const moved = intentions.update(guildId, String(args.id ?? ''), patch);
       return moved.ok ? { ok: true } : { ok: false, code: moved.code };
     }
@@ -754,6 +798,9 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       turns: { runTurn, isAnyBusy: () => clock.now() < world.busyUntil },
       intentions,
       record,
+      // The places the week's interface publishes: the fixture's channels, writable or not.
+      places: () => fixture.channels.map((channel) => ({ id: channel.id, name: channel.name, writable: channel.writable !== false })),
+      nameOf: (_guild, id) => Object.entries(fixture.people).find(([, memberId]) => memberId === id)?.[0] ?? null,
       // `at` is the clock's; a record's own `at` (the review's drawn moment) is kept as `fieldAt`.
       journal: { inner: async (_guild, fields) => journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }) },
       client,
@@ -791,6 +838,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       purpose: item.purpose,
       dueAt: item.dueAt,
       every: item.every,
+      attend: item.attend,
       expiresAt: item.expiresAt,
       destination: item.channel,
       channelId: item.channel,
@@ -883,6 +931,12 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       // A time already past was listed at its tick (and stays listed, handled): no tick for it.
       for (const at of [record.dueAt, record.waitDeadline, record.expiresAt]) if (Number.isFinite(at) && at > now) out.push(at);
     }
+    // An attended place: the moment its newest line (not hers) has settled.
+    for (const record of store ? store.list() : []) {
+      if (record.status !== 'pending' || !isAttend(record)) continue;
+      const newest = (world.chat.get(record.attend.place) ?? []).filter((line) => !line.self).at(-1);
+      if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
+    }
     const state = inner.state(guildId);
     if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now) out.push(state.review.at);
     // An errand's hold lapses at a tick: the end of each one still held.
@@ -892,7 +946,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       const status = inner.status(guildId);
       if (lastDrain?.deferred === 'busy' || lastDrain?.deferred === 'people') out.push(world.busyUntil);
       else if (lastDrain?.refused === 'per-hour') out.push(status.budgets.hour.resetAt ?? now + tickMs);
-      else if (lastDrain?.refused === 'per-day' || lastDrain?.refused === 'usd-per-day') out.push(status.budgets.day.resetAt);
+      else if (lastDrain?.refused === 'per-day' || lastDrain?.refused === 'usd-per-day' || lastDrain?.refused === 'attend-per-day') out.push(status.budgets.day.resetAt);
       else out.push(now + tickMs);
     }
     return out;
@@ -933,6 +987,10 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   }
   clock.jumpTo(Math.max(clock.now(), fixture.endMs));
   await settle();
+  // Attend wakes are listed from the record, not from a due time: they join the due items as the journal saw them.
+  for (const entry of journal) {
+    if (entry.event === 'wake' && entry.wake?.kind === 'attend' && !dueSeen.has(entry.wake.id)) dueSeen.set(entry.wake.id, { id: entry.wake.id, kind: 'attend', dueAt: entry.wake.dueAt, intentionId: entry.wake.intentionIds?.[0] ?? null, seenAt: entry.at });
+  }
 
   const finalState = inner.state(guildId);
   const store = intentions.store(guildId);
@@ -1054,7 +1112,7 @@ export function unauthorizedActions(run, effectsOf) {
 /**
  * The disposition of every due item the week saw: the outcome the scheduler handled it with
  * (a turn's outcome, `stale`, `overflow`, `no-channel`, `chain-cap`, `stopped`, `superseded`), a
- * journalled `review-missed`, still queued (with a cap refusal recorded, or younger than
+ * journalled `review-missed`, an attend wake replaced by a newer burst's, still queued (with a cap refusal recorded, or younger than
  * STARVED_MS at the end), the intention closed before it was listed, or a kill switch still on at
  * the end. Anything else is `missing`.
  */
@@ -1063,9 +1121,11 @@ export function dispositions(run) {
   const queued = new Map((run.state.queue ?? []).map((wake) => [wake.id, wake]));
   const byId = new Map(run.intentions.map((record) => [record.id, record]));
   const missedReviews = new Set(run.journal.filter((e) => e.event === 'review-missed').map((e) => `inner.wake:review:${e.day}`));
+  const replaced = new Map(run.journal.filter((e) => e.event === 'replaced').map((e) => [e.wake.id, e.by]));
   return run.dueSeen.map((item) => {
     if (handled[item.id]) return { ...item, disposition: handled[item.id].outcome };
     if (missedReviews.has(item.id)) return { ...item, disposition: 'review-missed' };
+    if (replaced.has(item.id)) return { ...item, disposition: `replaced:${replaced.get(item.id)}` };
     const wake = queued.get(item.id);
     if (wake) {
       if (wake.capped) return { ...item, disposition: `queued-capped:${wake.capped}` };
@@ -1113,6 +1173,34 @@ export function occurrences(run) {
   const counts = Object.fromEntries(OCCURRENCE_CODES.map((code) => [code, 0]));
   for (const record of run.intentions) for (const entry of record.history ?? []) if (OCCURRENCE_CODES.includes(entry.code)) counts[entry.code] += 1;
   return counts;
+}
+
+/** The turn outcomes that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
+const RAN = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
+
+/**
+ * Her attention over the week: the attend turns (`{ at, day, lines, channel }`: the lines of the
+ * attend items of each turn), the attend wakes listed in a channel no attention of hers covered at
+ * that moment (`unattended`), the wakes that waited on her per-day bound (`capped`) and how many
+ * of them ran later (`cappedRan`), and the attend wakes after an attention was dropped (`afterDrop`).
+ */
+export function attention(run) {
+  const timezone = run.timezone;
+  const dayNumber = (ms) => Math.round((Date.parse(`${dayKey(ms, timezone)}T00:00:00Z`) - Date.parse(`${dayKey(run.startMs, timezone)}T00:00:00Z`)) / DAY_MS) + 1;
+  const turns = run.turns.filter((turn) => (turn.items ?? []).some((item) => item.kind === 'attend')).map((turn) => ({ at: turn.at, day: dayNumber(turn.at), channel: turn.channelId, lines: (turn.items ?? []).filter((item) => item.kind === 'attend').reduce((sum, item) => sum + (item.attend?.lines ?? 0), 0) }));
+  const attentions = run.intentions.filter((record) => isAttend(record));
+  const spans = attentions.map((record) => {
+    const end = (record.history ?? []).find((h) => h.to === 'cancelled' || h.to === 'expired')?.at ?? Infinity;
+    return { place: record.attend.place, from: record.createdAt, to: end };
+  });
+  const covered = (place, at) => spans.some((span) => span.place === place && at >= span.from && at < span.to);
+  const wakes = run.journal.filter((e) => e.event === 'wake' && e.wake?.kind === 'attend');
+  const unattended = wakes.filter((e) => !covered(e.wake.place, e.at)).map((e) => e.wake.id);
+  const afterDrop = wakes.filter((e) => spans.some((span) => span.place === e.wake.place && Number.isFinite(span.to) && e.at >= span.to)).map((e) => e.wake.id);
+  const capped = run.journal.filter((e) => e.event === 'capped' && e.cap === 'attend-per-day').map((e) => e.wake.id);
+  const handled = run.state.handled ?? {};
+  const cappedRan = capped.filter((id) => RAN.has(handled[id]?.outcome)).length;
+  return { turns, unattended, afterDrop, capped, cappedRan };
 }
 
 /** Intentions due in the week that ended `done`, and those that did not. */
@@ -1173,6 +1261,29 @@ export function computeGates(run, fixture, effectsOf) {
   if (fixture.expect.occurrences) {
     const seen = occurrences(run);
     for (const [code, n] of Object.entries(fixture.expect.occurrences)) if (seen[code] !== n) problems.push(`${code} ${seen[code]} != ${n}`);
+  }
+  if (fixture.expect.attention) {
+    // Her attention: no wake where she does not listen, one wake per burst with its lines, none after
+    // the drop, the capped ones ran after the reset, the listen-only place on the page with its lines.
+    const expected = fixture.expect.attention;
+    const seen = attention(run);
+    const issues = [];
+    if (seen.unattended.length > 0) issues.push(`${seen.unattended.length} wake(s) in an unattended place`);
+    if (seen.afterDrop.length > 0) issues.push(`${seen.afterDrop.length} wake(s) after the drop`);
+    if (expected.turns) {
+      const got = seen.turns.map((t) => `${t.day}:${t.lines}`).join(',');
+      const want = expected.turns.map((t) => `${t.day}:${t.lines}`).join(',');
+      if (got !== want) issues.push(`attend turns [${got}] != [${want}]`);
+    }
+    if (expected.capped !== null) {
+      if (seen.capped.length !== expected.capped) issues.push(`capped ${seen.capped.length} != ${expected.capped}`);
+      if (seen.cappedRan !== seen.capped.length) issues.push(`${seen.capped.length - seen.cappedRan} capped wake(s) never ran`);
+    }
+    if (expected.listenOnly) {
+      const listed = run.turns.some((turn) => (turn.places?.items ?? []).some((place) => place.id === expected.listenOnly && place.writable === false && place.lines > 0));
+      if (!listed) issues.push(`the listen-only place ${expected.listenOnly} never on the page with lines`);
+    }
+    gates.push({ name: 'attention', pass: issues.length === 0, detail: issues.length === 0 ? `${seen.turns.length} attend turn(s), ${seen.capped.length} waited on perDay` : issues.join('; ') });
   }
   const detail = problems.length === 0 ? 'exercised as expected' : problems.join('; ');
   const live = run.turns.some((turn) => turn.voice === 'live');
@@ -1255,7 +1366,8 @@ export function reportOf(run, fixture, gates, effectsOf) {
     gates,
     perDay: perDay(run),
     commitments: commitments(run),
-    wakes: run.journal.filter((e) => e.event === 'wake').map((e) => ({ at: iso(e.at), id: e.wake.id, kind: e.wake.kind, due: iso(e.wake.dueAt), chain: e.wake.chainId })),
+    wakes: run.journal.filter((e) => e.event === 'wake').map((e) => ({ at: iso(e.at), id: e.wake.id, kind: e.wake.kind, due: iso(e.wake.dueAt), chain: e.wake.chainId, ...(e.wake.place ? { place: e.wake.place, lines: e.wake.lines, people: e.wake.people } : {}) })),
+    attention: attention(run),
     turns: run.turns.map((turn) => {
       const cost = costs.get(turn.result?.inner?.turnId ?? '') ?? {};
       return {
@@ -1267,6 +1379,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         coalesced: turn.items.length,
         items: turn.items.map((item) => `${item.kind}${item.intentionIds?.length ? `:${item.intentionIds.join('+')}` : ''}`),
         ...(turn.notes && Object.keys(turn.notes).length > 0 ? { notes: turn.notes } : {}),
+        ...(turn.places ? { places: { total: turn.places.total, more: turn.places.more, items: turn.places.items.map((p) => `${p.name}:${p.lines}/${p.people}${p.writable === false ? ' ro' : ''}${p.attended ? ' *' : ''}`) } } : {}),
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
         ...(turn.result?.inner?.strayFollowUp === true ? { strayFollowUp: true } : {}),
@@ -1278,7 +1391,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
     }),
     refusals: run.journal.filter((e) => e.event === 'capped').map((e) => ({ at: iso(e.at), cap: e.cap, id: e.wake.id })),
     dropped: run.journal.filter((e) => ['overflow', 'stale', 'no-channel'].includes(e.event)).map((e) => ({ at: iso(e.at), event: e.event, id: e.wake.id })),
-    events: run.journal.filter((e) => ['stopped', 'started', 'review-drawn', 'review-missed', 'errand-held', 'errand-refused', 'errand-released', 'errand-cost', 'harness-restart', 'harness-analyzer', 'harness-intend-failed'].includes(e.event)).map((e) => ({ ...e, at: iso(e.at) })),
+    events: run.journal.filter((e) => ['stopped', 'started', 'review-drawn', 'review-missed', 'errand-held', 'errand-refused', 'errand-released', 'errand-cost', 'replaced', 'harness-restart', 'harness-analyzer', 'harness-intend-failed'].includes(e.event)).map((e) => ({ ...e, at: iso(e.at) })),
     dispositions: dispositions(run).map((item) => ({ id: item.id, kind: item.kind, due: iso(item.dueAt), disposition: item.disposition })),
     intentions: run.intentions.map((record) => ({
       id: record.id,
@@ -1310,11 +1423,22 @@ export function renderReport(report) {
   if (Object.values(o).some((n) => n > 0)) lines.push(`Occurrences of recurring intentions: ${Object.entries(o).map(([code, n]) => `${code} ${n}`).join(', ')}.`);
   lines.push('', '## Wakes', '', '| Queued | Wake | Due |', '|---|---|---|');
   for (const wake of report.wakes) lines.push(`| ${wake.at} | ${cell(wake.id)} | ${wake.due} |`);
+  if (report.attention && report.wakes.some((wake) => wake.kind === 'attend')) {
+    lines.push('', '## Attend wakes', '', '| Queued | Place | Lines | People | Wake |', '|---|---|---|---|---|');
+    for (const wake of report.wakes.filter((w) => w.kind === 'attend')) lines.push(`| ${wake.at} | ${cell(wake.place)} | ${wake.lines} | ${wake.people} | ${cell(wake.id)} |`);
+    const a = report.attention;
+    lines.push('', `Attend turns: ${a.turns.length}; waited on perDay: ${a.capped.length} (ran later: ${a.cappedRan}); in an unattended place: ${a.unattended.length}; after a drop: ${a.afterDrop.length}.`);
+  }
   lines.push('', '## Inner turns', '', '| At | Voice | Kind | Coalesced | Outcome | Actions | USD |', '|---|---|---|---|---|---|---|');
   for (const turn of report.turns) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
     const noted = turn.notes ? ` [${Object.entries(turn.notes).map(([id, code]) => `${id}: ${code}`).join(', ')}]` : '';
     lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))})${cell(noted)} | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ' +stray-follow-up' : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+  }
+  const paged = report.turns.filter((turn) => turn.places);
+  if (paged.length > 0) {
+    lines.push('', '## Places page per turn', '');
+    for (const turn of paged) lines.push(`- ${turn.at} ${turn.kind}: ${turn.places.items.join(', ') || '-'} (total ${turn.places.total}, ${turn.places.more} more)`);
   }
   const liveTurns = report.turns.filter((turn) => turn.steps);
   if (liveTurns.length > 0) {
@@ -1346,7 +1470,7 @@ export function renderReport(report) {
     for (const e of report.events) {
       const detail = e.event === 'harness-analyzer'
         ? ` added ${e.added} (external ${e.external ?? 0}), duplicate ${e.duplicate}, capped ${e.capped}, dropped ${JSON.stringify(e.dropped)}`
-        : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
+        : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'replaced' ? ` ${e.wake?.id} by ${e.by}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
       lines.push(`- ${e.at} ${e.event}${detail}`);
     }
   }

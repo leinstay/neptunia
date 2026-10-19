@@ -225,6 +225,16 @@ test('resolveCall: a body of `name=value` tokens for a skill with text becomes t
   assert.deepEqual(resolve('intent.update', { state: 'done' }, 'i1').args, { state: 'done', text: 'i1' });
 });
 
+test('resolveCall: a member by the request\'s @handle; the people of an attention as a list of members, ids out comma-separated', () => {
+  const memberHandles = new Map([['h7', MEMBER]]);
+  assert.equal(resolve('memory.profile.read', { user: '@h7' }, '', { memberHandles }).args.user, MEMBER, 'a handle resolves exactly');
+  assert.equal(resolve('memory.profile.read', { user: '@h7' }).code, 'unknown-member', 'without the request\'s handles it is no name');
+  const set = resolve('intent.set', { attend: '#🍡νέα', people: `@h7, Zoë <@${MEMBER}>` }, 'listen there', { memberHandles });
+  assert.deepEqual([set.ok, set.args.attend, set.args.people, set.args.text], [true, NEWS, MEMBER, 'listen there'], 'the place resolves as a channel; the people to one id each, once');
+  assert.deepEqual([resolve('intent.update', { id: 'i1', people: '@h7 Nobody' }, '', { memberHandles }).code], ['unknown-member']);
+  assert.equal(resolve('memory.search', { people: 'Zoë, Nobody' }, 'q').args.people, 'Zoë, Nobody', 'memory.search keeps its people as names');
+});
+
 test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {
   for (const channel of ['#🍡νέα', '💖νέα', 'ΝΕΑ']) assert.equal(resolve('memory.channel.read', { channel }).args.channel, NEWS, channel);
   assert.equal(resolve('memory.channel.read', { channel: '<#123>' }).args.channel, '123', 'a mention is its id');

@@ -21,7 +21,7 @@ import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
-import { wakeBlockText } from '../src/behavior/wake.js';
+import { placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill } from '../src/format.js';
@@ -310,6 +310,21 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   const noted = wakeBlockText({ ...WAKE, notes: { i1: 'last-occurrence' } }, { ...labels, intentions: { notes: { 'last-occurrence': 'LAST' } } }).split('\n');
   assert.ok(noted.some((line) => line.startsWith('due: i1 πες καλημέρα') && line.endsWith(' · LAST')), noted.join('|'));
   assert.equal(wakeBlockText({ ...WAKE, notes: { i1: 'last-occurrence' } }, labels).split('\n')[1], lines[1], 'without the note label the line stays as it is');
+});
+
+test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
+  const attend = { kind: 'attend', reason: 'lines', intentionIds: ['i1'], taskId: null, attend: { place: 'c2', placeName: 'κήπος', lines: 3, people: ['u1', 'u2'], peopleNames: ['Ana', 'u2'], since: NOW - 3_600_000 } };
+  const places = { total: 5, more: 2, items: [{ id: 'c2', name: 'κήπος', lines: 3, people: 2, writable: true, attended: true }, { id: 'c3', name: 'νέα', lines: 1, people: 1, writable: false, attended: false }, { id: 'c1', name: 'general', lines: 0, people: 0, writable: true, attended: false }] };
+  const lines = wakeBlockText({ ...WAKE, kind: 'attend', items: [attend], places }, labels).split('\n');
+  assert.ok(lines.includes('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since 10/19/2026 11:00 AM by Ana, u2') || lines.some((line) => line.startsWith('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since ') && line.endsWith(' by Ana, u2')), lines.join('|'));
+  const at = lines.indexOf('places (5):');
+  assert.ok(at > 0, lines.join('|'));
+  assert.deepEqual(lines.slice(at, at + 5), ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2']);
+  assert.ok(lines.indexOf('budgets:') > at, 'the budgets close the block');
+  assert.equal(wakeBlockText({ ...WAKE, places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] } }, labels).split('\n').filter((line) => line.startsWith('+')).length, 0, 'no "more" line when nothing follows');
+  assert.equal(wakeBlockText({ ...WAKE, places }, { ...labels, wake: { ...labels.wake, places: undefined } }).includes('#κήπος'), false, 'no page without its lead label');
+  assert.equal(placesBlockText(places, labels), ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2'].join('\n'));
+  assert.equal(placesBlockText(null, labels), '');
 });
 
 test('wakeLanes: the purposes of the intentions as one wake lane; none for a review alone', () => {

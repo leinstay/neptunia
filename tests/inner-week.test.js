@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   acceptedCandidates,
+  attention,
   capViolations,
   computeGates,
   createFakeClock,
@@ -580,4 +581,85 @@ test('inner-week: a fixture intention takes every as her own argument; a bad one
   assert.throws(() => fixture({ intentions: [{ ...base, every: 'hourly' }] }), /every: day, week/);
   assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', every: 'day' }] }), /needs a due time/);
   assert.deepEqual(fixture({ expect: { occurrences: { missed: 1, bogus: 2, recurred: 'x' } } }).expect.occurrences, { missed: 1 });
+});
+
+// ---- her attention ----------------------------------------------------------------------
+
+test('inner-week: the attention fixture: the attended channel wakes her once per burst with the whole burst, the third burst waits on her perDay and runs after midnight, nothing wakes her elsewhere or after the drop, and the page lists the listen-only place', async () => {
+  const fx = readFixture('attention', { dir: FIXTURES });
+  const { run, gates } = await week(fx);
+  assert.deepEqual(gates.filter((g) => !g.pass), []);
+  const seen = attention(run);
+  assert.deepEqual(seen.turns.map((t) => [t.day, t.lines, t.channel]), [[2, 6, 'c-garden'], [2, 6, 'c-garden'], [3, 6, 'c-garden']]);
+  assert.deepEqual([seen.unattended, seen.afterDrop, seen.capped.length, seen.cappedRan], [[], [], 1, 1]);
+  const attendTurns = run.turns.filter((turn) => turn.kind === 'attend');
+  assert.ok(attendTurns.every((turn) => turn.items.length === 1 && turn.items[0].kind === 'attend'), 'one coalesced wake per burst');
+  assert.deepEqual(attendTurns[0].items[0].attend.people, ['u-301', 'u-302']);
+  assert.deepEqual(attendTurns[0].items[0].attend.peopleNames, ['Ana', 'Nikos'], 'the fixture names reach the wake');
+  assert.equal(attendTurns[0].items[0].attend.placeName, 'garden');
+  // The capped wake ran on day 3 right after midnight and counted on that day.
+  assert.equal(attendTurns[2].at, Date.parse('2026-11-04T00:00:00Z'));
+  assert.deepEqual(run.journal.filter((e) => e.event === 'capped').map((e) => e.cap), ['attend-per-day']);
+  // No wake named #general or #announcements: she never attended them.
+  assert.ok(run.journal.filter((e) => e.event === 'wake' && e.wake.kind === 'attend').every((e) => e.wake.place === 'c-garden'));
+  // The day-4 review sees the page: the listen-only place with its burst, #general's burst, #garden quiet since her last look.
+  const review = run.turns.find((turn) => turn.kind === 'review' && turn.dayNumber === 4);
+  assert.deepEqual(review.places.items.map((p) => [p.id, p.lines, p.people, p.writable, p.attended]), [['c-announcements', 6, 1, false, false], ['c-general', 6, 2, true, false], ['c-garden', 0, 0, true, true]]);
+  assert.deepEqual([review.places.total, review.places.more], [3, 0]);
+  // The attention itself: set by her first review, dropped by the fourth; nothing reseeds it.
+  const record = run.intentions.find((r) => r.id === run.keys.garden);
+  assert.deepEqual([record.attend.place, record.attend.perDay, record.status], ['c-garden', 2, 'cancelled']);
+  assert.equal(record.attend.today.wakes, 1, 'the day-3 wake counted on its day');
+  assert.equal(run.intentions.length, 1);
+  // The report shows the attend wakes and the places page.
+  const report = reportOf(run, fx, gates, effectsOf);
+  assert.equal(report.attention.turns.length, 3);
+  const md = renderReport(report);
+  assert.match(md, /## Attend wakes/);
+  assert.match(md, /\| c-garden \| 6 \| 2 \|/);
+  assert.match(md, /## Places page per turn/);
+  assert.match(md, /announcements:6\/1 ro/);
+  // The gate bites: other expectations fail it.
+  const off = { ...fx, expect: { ...fx.expect, attention: { ...fx.expect.attention, turns: [{ day: 2, lines: 6 }], capped: 0, listenOnly: 'c-general' } } };
+  const failed = gate(computeGates(run, off, effectsOf), 'attention');
+  assert.equal(failed.pass, false);
+  assert.match(failed.detail, /attend turns \[2:6,2:6,3:6\] != \[2:6\]; capped 1 != 0; the listen-only place c-general never on the page/);
+});
+
+test('inner-week: a fixture intention may be an attention (attend: true, its channel the place, people by name); due or every on it, unknown people and bad numbers are refused', () => {
+  const people = { Ana: 'u-1', Bo: 'u-2' };
+  const fx = fixture({ people, intentions: [{ key: 'k', purpose: 'listen', attend: true, people: ['Ana'], settle: 0, perDay: 3 }] });
+  assert.deepEqual(fx.events[0].intention.attend, { place: 'c1', people: ['u-1'], settle: 0, perDay: 3 });
+  assert.deepEqual(fixture({ intentions: [{ key: 'k', purpose: 'listen', attend: true }] }).events[0].intention.attend, { place: 'c1', people: [] });
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', attend: true, due: '1 10:00' }] }), /no due time and no every/);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', attend: true, people: ['Zed'] }] }), /people must name fixture people/);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', attend: true, perDay: 0 }] }), /perDay/);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', attend: true, settle: -1 }] }), /settle/);
+  assert.throws(() => fixture({ expect: { attention: { listenOnly: 'nowhere' } } }), /unknown channel/);
+  assert.equal(fixture({ stub: { attend: [[{ skill: 'message.create', args: { text: 'hi' } }]] } }).stub.attend.length, 1, 'a stub plan for attend wakes');
+});
+
+test('inner-week: a fixture attention wakes her on the place\'s lines after the settle, with people only on theirs; the review\'s answers run through the week', async () => {
+  const people = { Ana: 'u-1', Bo: 'u-2' };
+  const fx = fixture({
+    days: 3,
+    people,
+    channels: [{ id: 'c1', name: 'general' }, { id: 'c2', name: 'garden' }],
+    intentions: [{ key: 'k', purpose: 'listen', channel: 'c2', attend: true, people: ['Ana'], settle: 120 }],
+    stub: { review: [[], [{ skill: 'intent.update', args: { id: '$key:k', perday: 1, people: 'Bo' } }], []] },
+    events: [
+      { kind: 'message', at: '1 15:00', channel: 'c2', author: 'Bo', text: 'only Bo' },
+      { kind: 'message', at: '1 16:00', channel: 'c2', author: 'Ana', text: 'Ana speaks' },
+      { kind: 'message', at: '1 16:01', channel: 'c2', author: 'Bo', text: 'Bo answers' },
+      { kind: 'message', at: '3 10:00', channel: 'c2', author: 'Bo', text: 'Bo again' },
+    ],
+  });
+  const { run, gates } = await week(fx);
+  assert.deepEqual(gates.filter((g) => !g.pass), []);
+  const wakes = run.journal.filter((e) => e.event === 'wake' && e.wake.kind === 'attend');
+  // Day 1: Bo's line alone wakes nobody; Ana's does (one line counted of two, 120 s after the newest line); day 3: Bo counts after her review named him.
+  assert.deepEqual(wakes.map((e) => [new Date(e.at).toISOString(), e.wake.lines, e.wake.people]), [['2026-11-02T16:03:00.000Z', 1, 1], ['2026-11-04T10:02:00.000Z', 1, 1]]);
+  const record = run.intentions.find((r) => r.id === run.keys.k);
+  assert.deepEqual([record.attend.people, record.attend.perDay], [['u-2'], 1], 'the second review\'s answer changed the attention');
+  assert.equal(record.history.length, 1, 'an update is no move');
 });

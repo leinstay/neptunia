@@ -353,5 +353,10 @@
     "title": "List intentions",
     "whenToUse": "Read your open intentions with their states and due times.",
     "whenNotToUse": "The intentions block already shows them on each turn."
+  },
+  "places.list": {
+    "title": "List the places you can read",
+    "whenToUse": "PLACEHOLDER (writer): see which places exist on this server, with the lines and people since you last looked there, whether you can write there and whether you already attend it. filter= narrows by name, sort= recent|name|lines, page= turns the pages. To listen to a place, intent.set attend=<place>.",
+    "whenNotToUse": "PLACEHOLDER (writer): not for reading what was said there; that is the chat itself or memory.search. The sort= values are recent, name and lines."
   }
 }

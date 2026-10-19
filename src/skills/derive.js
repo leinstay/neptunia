@@ -54,6 +54,7 @@ export const BODY_ARGS = Object.freeze({
   'memory.search': 'question',
   'intent.set': 'text',
   'intent.update': 'text',
+  'places.list': 'filter',
 });
 
 /** Every leaf of `table` as `{ key, leaf }`: `<group>.<name>` or a bare `<name>`, in order. */

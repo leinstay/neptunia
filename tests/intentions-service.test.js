@@ -467,3 +467,67 @@ test('intentions: a recurring wait ends per occurrence -- the errand\'s end retu
     assert.equal(record.history.at(-2).code, 'task-done');
   });
 });
+
+// ---- attention: intent.set attend= ------------------------------------------------------
+
+test('intent.set attend=: an attention of hers with the defaults from innerLife.attention, her own numbers and people; due and every on it are refused', async () => {
+  const { env, hot, intentions } = makeEnv();
+  hot.config.innerLife = { attention: { settleSeconds: 45, perDayDefault: 6 } };
+  const set = await runOp('intent.set', { attend: 'c-garden' }, hers(env, 'T1'));
+  assert.equal(set.status, 'ok', set.code);
+  const record = onlyIntention(intentions);
+  assert.equal(record.purpose, 'c-garden', 'the purpose is the place when she gives none');
+  assert.deepEqual(record.attend, { place: 'c-garden', people: [], settle: 45, perDay: 6, today: null });
+  assert.equal(record.dueAt, null);
+  assert.match(set.data.text, /attend c-garden/);
+  assert.match(set.data.text, /settle 45s, today 0\/6/);
+  // Her own numbers and people (ids, comma or space separated; a mention unwrapped).
+  const own = await runOp('intent.set', { text: 'follow the garden talk', attend: 'c-garden', people: '7, <@8> 9', settle: '0', perday: 2 }, hers(env, 'T2'));
+  assert.equal(own.status, 'ok', own.code);
+  const mine = intentions.list('g1').find((r) => r.purpose === 'follow the garden talk');
+  assert.deepEqual(mine.attend, { place: 'c-garden', people: ['7', '8', '9'], settle: 0, perDay: 2, today: null });
+  assert.match(own.data.text, /people 7,8,9/);
+  // Refusals.
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', due: '2h' }, hers(env, 'T3'))).code, 'attend-with-due');
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', every: 'day', due: '2h' }, hers(env, 'T3'))).code, 'attend-with-due');
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', every: 'day' }, hers(env, 'T3'))).code, 'attend-with-every');
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', settle: '-1' }, hers(env, 'T3'))).code, 'bad-attend');
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 0 }, hers(env, 'T3'))).code, 'bad-attend');
+  assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 'many' }, hers(env, 'T3'))).code, 'bad-attend');
+  assert.equal(intentions.list('g1').length, 2);
+});
+
+test('intent.update on an attention changes settle, perDay, people and expires; a due time or a recurrence is refused; cancel ends it; the day counter lives on the record', async () => {
+  const { env, intentions, clock } = makeEnv();
+  await runOp('intent.set', { attend: 'c-garden', text: 'listen' }, hers(env, 'T1'));
+  const record = onlyIntention(intentions);
+  const updated = await runOp('intent.update', { id: record.id, settle: 10, perday: 3, people: '7 8', expires: '2d' }, hers(env, 'T2'));
+  assert.equal(updated.status, 'ok', updated.code);
+  const after = intentions.store('g1').get(record.id);
+  assert.deepEqual(after.attend, { place: 'c-garden', people: ['7', '8'], settle: 10, perDay: 3, today: null });
+  assert.equal(after.expiresAt, T0 + 48 * HOUR);
+  assert.equal((await runOp('intent.update', { id: record.id, due: '1h' }, hers(env, 'T2'))).code, 'attend-with-due');
+  assert.equal((await runOp('intent.update', { id: record.id, every: 'day', due: '1h' }, hers(env, 'T2'))).code, 'attend-with-due');
+  assert.equal((await runOp('intent.update', { id: record.id, every: 'day' }, hers(env, 'T2'))).code, 'attend-with-every');
+  assert.equal((await runOp('intent.update', { id: record.id, perday: 0 }, hers(env, 'T2'))).code, 'bad-attend');
+  // A plain intention takes no attention arguments.
+  await runOp('intent.set', { text: 'plain one' }, hers(env, 'T3'));
+  const plain = intentions.list('g1').find((r) => r.purpose === 'plain one');
+  assert.equal((await runOp('intent.update', { id: plain.id, settle: 5 }, hers(env, 'T3'))).code, 'not-attend');
+  // The counter: the scheduler counts a wake; a new local day starts at zero; the service reads it.
+  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 0 });
+  assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 1);
+  assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 2);
+  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 2 });
+  assert.deepEqual(intentions.attending('g1').map((r) => r.id), [record.id], 'the open attentions, the plain one not among them');
+  clock.t = T0 + 24 * HOUR;
+  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-19', wakes: 0 }, 'the day changed');
+  assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 1);
+  assert.equal(intentions.countAttendWake('g1', plain.id).code, 'not-attend');
+  assert.equal(intentions.attendToday('g1', plain.id), null);
+  // Cancel ends it; nothing reseeds it.
+  assert.equal((await runOp('intent.cancel', { id: record.id }, hers(env, 'T4'))).status, 'ok');
+  assert.equal(intentions.store('g1').get(record.id).status, 'cancelled');
+  assert.deepEqual(intentions.attending('g1'), []);
+  assert.equal((await runOp('intent.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
+});

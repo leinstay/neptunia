@@ -21,6 +21,15 @@
 // history (`recurred`, `missed`, `done-occurrence`); such a record is never `done` (invariant
 // `recurring-done`): `cancelled` and `expired` end it, and expiry stays binding (the next
 // occurrence may lie past `expiresAt`; the clock expires the record first).
+//
+// An attention (docs/inner-life.md "Her attention") is an intention of kind `attend`: `attend:
+// { place, people, settle, perDay, today }` -- an opaque place address the interface published,
+// the people whose lines count (ids; empty: everyone), the quiet seconds before a wake, her own
+// per-day bound and the day's counter (`today: { day, wakes }`, the local day of `bot.timezone`,
+// reset by the service when the day changes). It has no due time and no recurrence (invariants
+// `attend-with-due`, `attend-with-every`); the scheduler wakes her on the place's lines
+// (src/behavior/inner.js). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
+// `innerLife.attention.*` through attentionSettings); validAttend checks the shape.
 
 import { randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
@@ -50,6 +59,10 @@ const MOVES = Object.freeze({
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
 export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 });
+/** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
+export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
+/** The most people one attention names. */
+export const ATTEND_PEOPLE_MAX = 20;
 /** The periods `every` names by a word; `<n>h` and `<n>d` are the interval forms. */
 export const EVERY_PERIODS = Object.freeze(['day', 'week']);
 /** The occurrence codes advanceOccurrence writes to the history. */
@@ -74,6 +87,18 @@ export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
   return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours') };
+}
+
+/**
+ * The `innerLife.attention` numbers an attention is born with, read from the live config now, each
+ * falling back to ATTEND_DEFAULTS: `settleSeconds` (>= 0) and `perDayDefault` (an integer >= 1).
+ */
+export function attentionSettings(config) {
+  const set = config?.innerLife?.attention ?? {};
+  return {
+    settleSeconds: Number.isFinite(set.settleSeconds) && set.settleSeconds >= 0 ? set.settleSeconds : ATTEND_DEFAULTS.settleSeconds,
+    perDayDefault: Number.isInteger(set.perDayDefault) && set.perDayDefault >= 1 ? set.perDayDefault : ATTEND_DEFAULTS.perDayDefault,
+  };
 }
 
 /** Whether `features.intentions` is exactly true (a missing key counts as off). */
@@ -277,6 +302,73 @@ export function nextOccurrence(record, now, timezone = 'UTC') {
   }
 }
 
+/**
+ * Whether `attend` is a well-formed attention (null counts as none, which is fine): a non-empty
+ * `place`, `people` an array of non-empty ids, `settle` seconds >= 0, `perDay` an integer >= 1,
+ * and `today` null or `{ day, wakes }`.
+ */
+export function validAttend(attend) {
+  if (attend === null || attend === undefined) return true;
+  if (!attend || typeof attend !== 'object' || Array.isArray(attend)) return false;
+  if (typeof attend.place !== 'string' || !attend.place) return false;
+  if (!Array.isArray(attend.people) || attend.people.some((id) => typeof id !== 'string' || !id)) return false;
+  if (!(Number.isFinite(attend.settle) && attend.settle >= 0)) return false;
+  if (!(Number.isInteger(attend.perDay) && attend.perDay >= 1)) return false;
+  const today = attend.today;
+  if (today === null || today === undefined) return true;
+  return Boolean(today) && typeof today === 'object' && typeof today.day === 'string' && Number.isInteger(today.wakes) && today.wakes >= 0;
+}
+
+/**
+ * Her `attend` input (`{ place, people?, settle?, perDay?, today? }`: the place as the interface
+ * addresses it, people as ids, strings or numbers) as a record's `attend`, the defaults filled
+ * from `settings` (attentionSettings' shape): distinct people, at most ATTEND_PEOPLE_MAX, blank
+ * tokens dropped. Null when it is not a well-formed attention (validAttend).
+ * @param {object} input
+ * @param {{ settleSeconds?: number, perDayDefault?: number }} [settings]
+ * @returns {{ place: string, people: string[], settle: number, perDay: number, today: { day: string, wakes: number }|null }|null}
+ */
+export function normalizeAttend(input, { settleSeconds = ATTEND_DEFAULTS.settleSeconds, perDayDefault = ATTEND_DEFAULTS.perDayDefault } = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const place = typeof input.place === 'string' ? input.place.trim() : typeof input.place === 'number' ? String(input.place) : '';
+  const raw = input.people === undefined || input.people === null ? [] : input.people;
+  if (!Array.isArray(raw)) return null;
+  const people = [...new Set(raw.map((id) => (typeof id === 'string' ? id.trim() : typeof id === 'number' && Number.isFinite(id) ? String(id) : null)))].filter((id) => typeof id === 'string' && id).slice(0, ATTEND_PEOPLE_MAX);
+  if (raw.some((id) => typeof id !== 'string' && typeof id !== 'number')) return null;
+  const attend = {
+    place,
+    people,
+    settle: input.settle === undefined || input.settle === null ? settleSeconds : input.settle,
+    perDay: input.perDay === undefined || input.perDay === null ? perDayDefault : input.perDay,
+    today: input.today === undefined ? null : input.today,
+  };
+  return validAttend(attend) ? attend : null;
+}
+
+/** True for an attention: a record with an `attend` place. */
+export function isAttend(record) {
+  return Boolean(record?.attend && typeof record.attend === 'object' && typeof record.attend.place === 'string' && record.attend.place);
+}
+
+/**
+ * The per-day counter of attention `record` on local day `day` (`YYYY-MM-DD` of `bot.timezone`):
+ * `{ day, wakes }`, zero when the counter is of another day (the day changed). Pure.
+ */
+export function attendCounter(record, day) {
+  const today = record?.attend?.today;
+  return today && today.day === day ? { day, wakes: today.wakes } : { day, wakes: 0 };
+}
+
+/**
+ * `record` with one more attend wake counted on local day `day` (a counter of another day starts
+ * at zero): `{ ok: true, intention, changed: true }`, or `{ ok: false, code: 'not-attend' }`.
+ */
+export function bumpAttend(record, day) {
+  if (!isAttend(record)) return { ok: false, code: 'not-attend' };
+  const current = attendCounter(record, day);
+  return { ok: true, intention: { ...record, attend: { ...record.attend, today: { day, wakes: current.wakes + 1 } } }, changed: true };
+}
+
 /** One line of text cut to `max` characters; '' for nothing. */
 function line(text, max) {
   return clampChars(oneLine(typeof text === 'string' ? text : ''), max);
@@ -294,8 +386,9 @@ function participantIds(list) {
 
 /**
  * The invariant `record` breaks, as a code, or null: `bad-status`, `no-purpose`, `no-expiry`,
- * `wait-without-task`, `wait-without-deadline`, `bad-every`, `every-without-due` (a recurring one
- * always has its current occurrence), `recurring-done` (a recurring one is never done).
+ * `wait-without-task`, `wait-without-deadline`, `bad-attend`, `attend-with-due`, `attend-with-every`
+ * (an attention has no due time and no recurrence), `bad-every`, `every-without-due` (a recurring
+ * one always has its current occurrence), `recurring-done` (a recurring one is never done).
  * @param {object} record
  * @returns {string|null}
  */
@@ -303,6 +396,11 @@ export function checkInvariants(record) {
   if (!record || !STATUSES.includes(record.status)) return 'bad-status';
   if (typeof record.purpose !== 'string' || !record.purpose) return 'no-purpose';
   if (!Number.isFinite(record.expiresAt)) return 'no-expiry';
+  if (!validAttend(record.attend)) return 'bad-attend';
+  if (record.attend) {
+    if (record.dueAt !== null && record.dueAt !== undefined) return 'attend-with-due';
+    if (record.every) return 'attend-with-every';
+  }
   if (!validEvery(record.every)) return 'bad-every';
   if (record.every) {
     if (!Number.isFinite(record.dueAt)) return 'every-without-due';
@@ -323,7 +421,10 @@ function withHistory(record, entry) {
 
 /**
  * A new intention: `{ ok: true, intention }` or `{ ok: false, code }` (`no-purpose`,
- * `bad-provenance`, `bad-due`, `bad-every`, `every-without-due`, `bad-expiry`, `due-after-expiry`).
+ * `bad-provenance`, `bad-attend`, `attend-with-due`, `attend-with-every`, `bad-due`, `bad-every`,
+ * `every-without-due`, `bad-expiry`, `due-after-expiry`). `attend` (normalizeAttend's input; its
+ * defaults from `settings.attention`, attentionSettings' shape) makes it an attention: no due
+ * time, no recurrence, her own only.
  * Her own (`provenance.kind` `self`) is `pending`; a candidate is `proposed` and expires after
  * `candidateExpiresHours` unless `expiresAt` says otherwise; her own after `expiresDays`, or
  * after `recurringExpiresDays` with `every` set (parseEvery's shape, pinned by the caller).
@@ -332,13 +433,17 @@ function withHistory(record, entry) {
  * one of them takes the intention out (concernsMember).
  * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group', participants?: string[] },
  *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
- *   completionCondition?: string|null, chainId?: string|null, now: number, settings?: object, id?: string, by?: string }} input
+ *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
  */
-export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
+export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: 'no-purpose' };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: 'bad-provenance' };
   const candidate = provenance.kind === 'candidate';
+  const attention = attend === null || attend === undefined ? null : normalizeAttend(attend, settings.attention);
+  if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: 'bad-attend' };
+  if (attention && dueAt !== null && dueAt !== undefined) return { ok: false, code: 'attend-with-due' };
+  if (attention && every) return { ok: false, code: 'attend-with-every' };
   if (dueAt !== null && !Number.isFinite(dueAt)) return { ok: false, code: 'bad-due' };
   if (!validEvery(every)) return { ok: false, code: 'bad-every' };
   if (every && dueAt === null) return { ok: false, code: 'every-without-due' };
@@ -378,6 +483,7 @@ export function createIntention({ purpose, provenance, dueAt = null, every = nul
     destination: idOrNull(destination),
     completionCondition: line(completionCondition, CONDITION_CHARS) || null,
     chainId: line(chainId, CHAIN_CHARS) || null,
+    attend: attention,
     history: [{ at: now, to: status, by }],
   };
   return { ok: true, intention };
@@ -631,7 +737,8 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
 
 /**
  * Whether `record` concerns member `userId` (a forget, src/intentions/store.js#forgetUser): it is
- * meant for them (`destination`), it came from a conversation with them (`provenance.participants`),
+ * meant for them (`destination`), an attention names them (`attend.people`), it came from a
+ * conversation with them (`provenance.participants`),
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's
  * error -- carry their id (their `<@id>` token included) or one of `names` as a whole word
  * (accents folded; a name under three letters or digits is never matched).
@@ -643,6 +750,7 @@ export function concernsMember(record, { userId, names = [] }) {
   const id = String(userId ?? '');
   if (!id || !record) return false;
   if (record.destination === id) return true;
+  if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;
   const provenance = record.provenance ?? {};
   if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
   const texts = [record.purpose, provenance.span, record.completionCondition, record.chainId, record.outcome?.error].filter((text) => typeof text === 'string' && text);

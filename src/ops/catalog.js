@@ -438,15 +438,42 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'chain', description: 'Chain id.', required: false, max_length: 64 },
           { type: STRING, name: 'condition', description: 'Done when.', required: false, max_length: 300 },
           channelOption('Destination.'),
+          // An attention (src/ops/intent.js): the place to listen to, the people whose lines count,
+          // the quiet seconds before a wake, her own daily bound.
+          { type: CHANNEL, name: 'attend', description: 'Listen there.', required: false, channel_types: [GUILD_TEXT] },
+          { type: STRING, name: 'people', description: 'Whose lines count.', required: false, max_length: 500 },
+          { type: INTEGER, name: 'settle', description: 'Quiet seconds.', required: false, min_value: 0, max_value: 86400 },
+          { type: INTEGER, name: 'perday', description: 'Wakes a day.', required: false, min_value: 1, max_value: 1000 },
         ],
         args: (options) => {
           const out = { action: options.getString('action', true) };
-          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition']) {
+          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition', 'people']) {
             const value = options.getString(name);
             if (value !== null && value !== undefined) out[name] = value;
           }
+          for (const name of ['settle', 'perday']) {
+            const value = options.getInteger(name);
+            if (value !== null && value !== undefined) out[name] = value;
+          }
           const channelId = options.getChannel('channel')?.id;
-          return channelId ? { ...out, channelId } : out;
+          const attend = options.getChannel('attend')?.id;
+          return { ...out, ...(channelId ? { channelId } : {}), ...(attend ? { attend } : {}) };
+        },
+      },
+      {
+        // The places the interfaces publish (src/ops/places.js, docs/inner-life.md "Her attention"):
+        // her read skill `places.list`, with a filter, a sort and a page.
+        name: 'places',
+        description: 'Places, new lines.',
+        options: [
+          { type: STRING, name: 'filter', description: 'Name has.', required: false, max_length: 100 },
+          // `sort` names recent, name or lines (src/ops/places.js#PLACE_SORTS); no choices, to keep the tree under Discord's size.
+          { type: STRING, name: 'sort', description: 'Order.', required: false, max_length: 10 },
+          { type: INTEGER, name: 'page', description: 'Page.', required: false, min_value: 1, max_value: 1000 },
+        ],
+        args: (options) => {
+          const page = options.getInteger('page');
+          return { filter: options.getString('filter') ?? undefined, sort: options.getString('sort') ?? undefined, ...(page == null ? {} : { page }) };
         },
       },
       {
