@@ -126,8 +126,8 @@
   },
   "diary.post": {
     "title": "Post a diary entry",
-    "whenToUse": "Write one diary entry now; an optional kind and topic steer the post.",
-    "whenNotToUse": "Refuses when the diary has no channel or the daily cap is hit."
+    "whenToUse": "Trigger one diary post now. The diary writes the entry itself. Kind and topic steer the subject.",
+    "whenNotToUse": "Body text in the call is not used. Refuses when the diary has no channel or the daily cap is hit."
   },
   "alias.add": {
     "title": "Add an alias",

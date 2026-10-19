@@ -376,10 +376,10 @@
     "privateChannel": "private chat",
     "redaction": "someone",
     "inner": {
-      "think": "[on my own, nobody saw this] What I was thinking: {text}",
-      "done": "What I did: {skills}",
-      "notDone": "What I considered but did not do: {skills}",
-      "found": "[on my own, nobody saw this] I used {skill}{asked} and found: {text}",
+      "think": "[on my own, nobody saw this] I thought: {text}",
+      "done": "I called: {skills}",
+      "notDone": "I considered but did not call (never ran, no outcome from these): {skills}",
+      "found": "[on my own, nobody saw this] I called {skill}{asked} and got: {text}",
       "asked": " ({text})",
       "sources": "Sources: {links}"
     }
@@ -596,7 +596,7 @@
     },
     "refusals": {
       "agentRequired": "{arg} was not given; name one of: {agents}",
-      "unknownArg": "the skill takes no {arg}; it takes only: {args}"
+      "unknownArg": "the skill has no {arg} argument, only: {args}"
     }
   },
   "peopleNow": {
