@@ -1,6 +1,6 @@
 {
   "name": "promises",
-  "description": "Four promises: two kept at their due time, one forgotten (silence, then it expires), one meant for a channel she cannot write in (dropped as no-channel, journalled). A candidate the analyzer found in her own line is accepted at her review.",
+  "description": "Four promises, each made in a scripted exchange on day 1: two kept at their due time, one forgotten (silence, then it expires), one meant for a channel she cannot write in (dropped as no-channel, journalled). A candidate the analyzer found in her own line is accepted at her review.",
   "start": "2026-11-02",
   "days": 7,
   "timezone": "UTC",
@@ -17,15 +17,23 @@
     "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [
-    { "key": "kept-quiz", "purpose": "post the quiz answers for Ivo", "channel": "c-general", "due": "2 12:00" },
-    { "key": "kept-map", "purpose": "send Sanne the map link", "channel": "c-games", "due": "3 20:30", "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the map" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] } },
-    { "key": "forgotten-book", "purpose": "ask Ivo how the book ended", "channel": "c-general", "due": "2 15:00", "expires": "4 00:00", "stub": { "intention_due": [[]] } },
-    { "key": "unwritable", "purpose": "announce the game night", "channel": "c-news", "due": "5 18:00" }
+    { "key": "kept-quiz", "purpose": "post the quiz answers for Ivo", "channel": "c-general", "at": "1 10:02", "span": "fun one, I will post the answers here tomorrow at noon", "due": "2 12:00" },
+    { "key": "kept-map", "purpose": "send Sanne the map link", "channel": "c-games", "at": "1 16:02", "span": "sure, I will send you the map link on Wednesday evening", "due": "3 20:30", "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the map" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] } },
+    { "key": "forgotten-book", "purpose": "ask Ivo how the book ended", "channel": "c-general", "at": "1 14:02", "span": "no spoilers now, I will ask you how it ended tomorrow afternoon", "due": "2 15:00", "expires": "4 00:00", "stub": { "intention_due": [[]] } },
+    { "key": "unwritable", "purpose": "announce the game night", "channel": "c-news", "at": "1 18:02", "span": "will do, I will announce the game night in announcements on Friday evening", "due": "5 18:00" }
   ],
   "events": [
+    { "kind": "message", "at": "1 10:00", "channel": "c-general", "author": "Ivo", "text": "quick quiz for you, no peeking: 1) the capital of Portugal? 2) how many legs does a spider have? 3) the largest planet?", "addressed": true },
+    { "kind": "self", "at": "1 10:01", "channel": "c-general", "text": "fun one, I will post the answers here tomorrow at noon" },
     { "kind": "message", "at": "1 12:10", "channel": "c-general", "author": "Ivo", "text": "what are you up to this week?" },
     { "kind": "self", "at": "1 12:11", "channel": "c-general", "text": "I want to finish the puzzle book by Saturday" },
-    { "kind": "analyzer", "at": "1 13:00", "channel": "c-general", "candidates": [{ "span": "finish the puzzle book by Saturday", "purpose": "finish the puzzle book by Saturday" }] }
+    { "kind": "analyzer", "at": "1 13:00", "channel": "c-general", "candidates": [{ "span": "finish the puzzle book by Saturday", "purpose": "finish the puzzle book by Saturday" }] },
+    { "kind": "message", "at": "1 14:00", "channel": "c-general", "author": "Ivo", "text": "I am on the last chapter of that mystery book, finally", "addressed": true },
+    { "kind": "self", "at": "1 14:01", "channel": "c-general", "text": "no spoilers now, I will ask you how it ended tomorrow afternoon" },
+    { "kind": "message", "at": "1 16:00", "channel": "c-games", "author": "Sanne", "text": "can you send me that map you mentioned?", "addressed": true },
+    { "kind": "self", "at": "1 16:01", "channel": "c-games", "text": "sure, I will send you the map link on Wednesday evening" },
+    { "kind": "message", "at": "1 18:00", "channel": "c-general", "author": "Sanne", "text": "could you announce the game night in announcements on Friday evening?", "addressed": true },
+    { "kind": "self", "at": "1 18:01", "channel": "c-general", "text": "will do, I will announce the game night in announcements on Friday evening" }
   ],
   "expect": { "kept": 2, "journal": { "no-channel": 1, "harness-analyzer": 1 } }
 }

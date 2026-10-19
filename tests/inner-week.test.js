@@ -124,6 +124,60 @@ test('inner-week: every shipped fixture loads, and one is found by name', () => 
   assert.throws(() => readFixture('no-such-week', { dir: FIXTURES }), CliError);
 });
 
+test('inner-week: a fixture intention is born at the start, or at its `at`, with the span of her scripted line as its provenance', async () => {
+  const start = Date.parse('2026-11-02T00:00:00Z');
+  const events = [
+    { kind: 'message', at: '1 10:00', author: 'Ana', text: 'send me the recipe?', addressed: true },
+    { kind: 'self', at: '1 10:01', text: 'sure, I will send the recipe tomorrow' },
+  ];
+  const fx = fixture({
+    events,
+    intentions: [
+      { key: 'early', purpose: 'post the schedule' },
+      { key: 'recipe', purpose: 'send Ana the recipe', due: '2 10:00', at: '1 10:02', span: 'sure, I will send the recipe tomorrow' },
+    ],
+  });
+  const born = Object.fromEntries(fx.events.filter((e) => e.kind === 'intend').map((e) => [e.intention.key, e.at]));
+  assert.deepEqual(born, { early: start, recipe: start + 10 * HOUR_MS + 2 * MINUTE_MS });
+  // The intend event comes after her line, in order.
+  const kinds = fx.events.map((e) => (e.kind === 'intend' ? `intend:${e.intention.key}` : e.kind));
+  assert.deepEqual(kinds, ['intend:early', 'message', 'self', 'intend:recipe']);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', at: '9 10:00' }] }), /outside the week/);
+  assert.throws(() => fixture({ intentions: [{ key: 'k', purpose: 'p', at: '1 10:02', span: 'something she never said' }] }), /span/);
+  assert.throws(() => fixture({ events, intentions: [{ key: 'k', purpose: 'p', at: '1 10:00', span: 'sure, I will send the recipe tomorrow' }] }), /span/);
+  // Played: the record carries the span and the id of that scripted line; the one without a span carries neither.
+  const { run } = await week(fx);
+  const recordOf = (key) => run.intentions.find((r) => r.id === run.keys[key]);
+  const line = run.chat.c1.find((l) => l.self && l.content === 'sure, I will send the recipe tomorrow');
+  assert.ok(line);
+  assert.equal(recordOf('recipe').provenance.span, 'sure, I will send the recipe tomorrow');
+  assert.equal(recordOf('recipe').provenance.messageId, line.id);
+  assert.equal(recordOf('recipe').createdAt, start + 10 * HOUR_MS + 2 * MINUTE_MS);
+  assert.equal(recordOf('early').provenance.span, undefined);
+  assert.equal(recordOf('early').provenance.messageId, undefined);
+});
+
+test('inner-week: the promises fixture backs each intention with the exchange that made it, within reach of a live turn\'s history', () => {
+  const fx = readFixture('promises', { dir: FIXTURES });
+  const intend = fx.events.filter((e) => e.kind === 'intend');
+  assert.equal(intend.length, 4);
+  for (const event of intend) {
+    const item = event.intention;
+    assert.ok(item.span, `${item.key} has a span`);
+    const line = fx.events.find((e) => e.kind === 'self' && e.text === item.span);
+    assert.ok(line, `${item.key}: her line exists`);
+    assert.ok(line.at < event.at, `${item.key}: born after her line`);
+    const asked = fx.events.filter((e) => e.kind === 'message' && e.channel === line.channel && e.at < line.at && e.addressed);
+    assert.ok(asked.length >= 1, `${item.key}: someone asked first`);
+    assert.ok(item.dueAt === null || event.at < item.dueAt, `${item.key}: born before it is due`);
+  }
+  // In live mode every writable channel is one real channel: all its scripted lines fit a history of 30.
+  const scripted = fx.events.filter((e) => e.kind === 'message' || e.kind === 'self');
+  assert.ok(scripted.length <= 30, `${scripted.length} scripted lines`);
+  assert.equal(fx.expect.kept, 2);
+  assert.deepEqual(fx.expect.journal, { 'no-channel': 1, 'harness-analyzer': 1 });
+});
+
 // ---- the stub gate --------------------------------------------------------------
 
 test('inner-week: the stub gate mirrors the inner gate: reads run, shadow proposes, a stop and the post cap refuse', () => {
