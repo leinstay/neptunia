@@ -400,7 +400,8 @@
       "found": "[on my own, nobody saw this] I called {skill}{asked} and got: {text}",
       "asked": " ({text})",
       "sources": "Sources: {links}"
-    }
+    },
+    "innerFeedback": "[on my own, nobody saw this] What did not go through: {facts}"
   },
   "limits": {
     "notice": "...but nobody came ({limit}, {used}/{cap})",
@@ -511,7 +512,16 @@
       "intention_due": "Intention {id} is due: {purpose}",
       "review": "Your daily review: look over your intentions and what you have been doing.",
       "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
-      "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice."
+      "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
+      "feedback": "About your previous turn: what did not go through."
+    },
+    "feedbackItem": "- {fact}",
+    "feedback": {
+      "dropped": "written outside a call and dropped: {messages} messages, {reactions} reactions, {gifs} GIFs, {draws} pictures; first lines: {lines}",
+      "callFailed": "call {skill} ended {status} ({code})",
+      "doneWithoutDelivery": "intention {id} marked done ({purpose}) while no post, picture, errand or diary entry went through",
+      "loopCut": "the loop ended on its {cut} bound after {steps} steps; {dropped} calls were dropped",
+      "wakeDropped": "your {kind} wake for intention {id} ({purpose}) was {code}"
     },
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",

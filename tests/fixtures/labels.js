@@ -300,6 +300,7 @@ export const labels = {
       asked: ' ({text})',
       sources: 'sources: {links}',
     },
+    innerFeedback: '[inner] not through: {facts}',
   },
   status: {
     probe: 'Reply with one word: pong',
@@ -531,7 +532,15 @@ export const labels = {
   },
   wake: {
     header: 'wake:',
-    kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}' },
+    kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:' },
+    feedbackItem: '* {fact}',
+    feedback: {
+      dropped: 'dropped {messages}m {reactions}r {gifs}g {draws}d: {lines}',
+      callFailed: 'call {skill} {status} {code}',
+      doneWithoutDelivery: 'done without delivery {id} {purpose}',
+      loopCut: 'loop cut {cut} after {steps} steps, {dropped} dropped',
+      wakeDropped: 'wake {kind} {id} {purpose} {code}',
+    },
     now: 'now: {now} [{timezone}]',
     channels: 'recent channels: {channels}',
     places: 'places ({total}):',

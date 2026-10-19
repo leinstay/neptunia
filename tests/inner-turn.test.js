@@ -632,3 +632,58 @@ test('inner turn, open follow-up: on the last step the open line comes with cont
   assert.equal(taskOf(read, 1), `${LAST_LEAD('lore.list')}\n${OPEN_LINE}`);
   assert.equal(read.result.inner.openFollowUp, undefined);
 });
+
+test('inner turn: the result carries the first lines of the dropped messages (at most 3, cut short), the loop\'s end state, and the intention an intent.update closed with its state', async () => {
+  const long = 'α'.repeat(300);
+  // Three messages in her answer (the parser's most), a fourth on the stray follow-up step: four dropped, three first lines kept.
+  const stray = await innerTurn({ answers: ['<msg>γεια σας\nδεύτερη γραμμή</msg><msg>' + long + '</msg><msg>τρίτο</msg>', '<msg>τέταρτο</msg>', '<skip/>'] });
+  assert.equal(stray.result.inner.stray.messages, 4);
+  assert.equal(stray.result.inner.stray.lines.length, 3, 'three first lines at most');
+  assert.equal(stray.result.inner.stray.lines[0], 'γεια σας', 'the first line of a message only');
+  assert.ok(Array.from(stray.result.inner.stray.lines[1]).length <= 200, 'cut to the wake purpose length');
+  assert.equal(stray.result.inner.stray.lines[2], 'τρίτο');
+  assert.deepEqual(stray.result.inner.loop, { steps: 2, cut: null, droppedCalls: 0 }, 'two stray steps ran, nothing was cut');
+  assert.ok(stray.result.inner.episode, 'a turn that lost output has an episode for the feedback facts to ride');
+  assert.deepEqual(stray.result.inner.episode.findings, []);
+  // No loop at all: zeros.
+  const silent = await innerTurn({ answers: ['<skip/>'] });
+  assert.deepEqual(silent.result.inner.loop, { steps: 0, cut: null, droppedCalls: 0 });
+  assert.deepEqual(silent.result.inner.stray, { messages: 0, reactions: 0, gif: 0, draw: 0, lines: [] }, 'the counters exist on every inner turn; no line kept');
+  // The loop cut on its last step with calls dropped; the intent.update action names its intention and state.
+  const cut = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/><call skill="message.create">καλημέρα</call><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
+  assert.deepEqual(cut.result.inner.loop, { steps: 1, cut: 'steps', droppedCalls: 2 });
+  const done = await innerTurn({ answers: ['<call skill="intent.update" id="i1" state="done"/>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
+  const action = done.result.inner.actions[0];
+  assert.equal(action.skill, 'intent.update');
+  assert.equal(action.intentionId, 'i1');
+  assert.equal(action.state, 'done');
+  assert.ok(done.result.inner.episode, 'a turn with a call other than a read has an episode');
+  assert.deepEqual(done.result.inner.episode.actions, [{ skill: 'intent.update', status: 'proposed' }]);
+});
+
+test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per fact, each worded by its kind\'s label; a fact without a label is left out', () => {
+  const facts = [
+    { kind: 'dropped', messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'a second\nline'] },
+    { kind: 'callFailed', skill: 'web.search', status: 'timeout', code: 'timeout' },
+    { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
+    { kind: 'loopCut', cut: 'steps', droppedCalls: 1, steps: 2 },
+    { kind: 'wakeDropped', id: 'w', wake: 'intention_due', code: 'no-channel', intentionId: 'i7', purpose: 'announce' },
+    { kind: 'unknownKind' },
+  ];
+  const wake = { ...WAKE, kind: 'feedback', items: [{ kind: 'feedback', reason: 'feedback', intentionIds: [], taskId: null, facts, turnId: 't-1' }], intentions: [] };
+  const text = wakeBlockText(wake, labels);
+  const lines = text.split('\n');
+  assert.equal(lines[0], labels.wake.header);
+  assert.equal(lines[1], labels.wake.kinds.feedback);
+  assert.equal(lines[2], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.dropped, { messages: '2', reactions: '0', gifs: '2', draws: '0', lines: 'here is the cat meme | a second line' }) }));
+  assert.equal(lines[3], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.callFailed, { skill: 'web.search', status: 'timeout', code: 'timeout' }) }));
+  assert.equal(lines[4], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.doneWithoutDelivery, { id: 'i1', purpose: 'send a cat meme' }) }));
+  assert.equal(lines[5], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.loopCut, { cut: 'steps', dropped: '1', steps: '2' }) }));
+  assert.equal(lines[6], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.wakeDropped, { kind: 'intention_due', code: 'no-channel', id: 'i7', purpose: 'announce' }) }));
+  assert.ok(lines[7].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
+  assert.ok(!text.includes('{'), 'every placeholder filled');
+  // Without the item label the facts are left out; the kind line stays.
+  const bare = wakeBlockText(wake, { ...labels, wake: { ...labels.wake, feedbackItem: '' } });
+  assert.equal(bare.split('\n')[1], labels.wake.kinds.feedback);
+  assert.ok(!bare.includes('web.search'));
+});

@@ -198,6 +198,10 @@ const LOOP_MIN_CALL_MS = 2000;
  * last step is dropped as on every turn.
  */
 const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', 'intent.set', 'intent.update', 'intent.cancel']);
+/** How many first lines of an inner turn's dropped messages its result keeps (`inner.stray.lines`, for the feedback wake). */
+const STRAY_LINES_MAX = 3;
+/** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
+const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
 /** The intention calls of an inner turn that name an intention (`id`, or the id alone in the body). */
 const INTENT_ID_SKILLS = Object.freeze(['intent.update', 'intent.cancel']);
 
@@ -2026,10 +2030,12 @@ export function createTurnRunner({
     // What a read of hers returned is outside material her later lines of the turn may repeat.
     if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') noteSeen(draft, result.data.text, { read: true });
     if (inner) {
-      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}) });
       // The intention a call of hers named, however it went: the open-intentions line of the next
-      // step (openIntentionsText) no longer lists it.
+      // step (openIntentionsText) no longer lists it; the action record carries it, and the state
+      // an intent.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
+      const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
+      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
       if (named) (draft.innerIntentIds ??= new Set()).add(named);
       // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
@@ -2504,6 +2510,8 @@ export function createTurnRunner({
           const capReason = continued ? reason : 'no-continuation';
           log.info('skills: loop cap', { channel: channel.id, reason: capReason, step, dropped });
           draft?.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: dropped, detail: capReason });
+          // An inner turn's result says how its loop ended (toolLoop's `draft.innerLoop`).
+          if (draft) draft.loopCut = { reason: capReason, dropped: (draft.loopCut?.dropped ?? 0) + dropped };
         }
         if (terminal) next = { ...(await planNext([terminal], routing)), terminal: true };
       } else {
@@ -2666,6 +2674,9 @@ export function createTurnRunner({
       if (answer.stray === true && strayMade < settings.strayFollowUps) strayDue = true;
     }
     log.info('skills: loop', { channel: channel.id, steps, calls: made, ms: clock() - startedAt });
+    // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that
+    // cut it with calls dropped (`steps`, `time`, `no-continuation`; null when none did), how many.
+    if (inner) draft.innerLoop = { steps, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
     return { answers, cutOff, delivered };
   }
 
@@ -5583,7 +5594,7 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUps > 0 ? { strayFollowUp: true, strayFollowUps: draft.innerStrayFollowUps } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], stray: draft.innerStray ?? null, loop: draft.innerLoop ?? { ...NO_LOOP }, ...(draft.innerStrayFollowUps > 0 ? { strayFollowUp: true, strayFollowUps: draft.innerStrayFollowUps } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 
@@ -5591,17 +5602,24 @@ export function createTurnRunner({
    * What an inner turn (`args.inner`) did and found, for her memory (src/memory/inner-episode.js,
    * src/memory/update.js#observeInner): her thinks, what her reads found (`draft.innerFindings`:
    * skill, arguments, result text), her other calls with how each went, where it happened and
-   * whether it was shadow. Null when no read of hers found anything, or for a private chat whose
-   * partner is unknown (a private finding never goes to the server's memory). No wording here.
+   * whether it was shadow. Null when the turn found nothing and has nothing to answer for (no
+   * read found anything, no call other than a read, every call ended ok, nothing written outside
+   * a call, no loop cut: the scheduler's feedback facts ride this episode, src/behavior/inner.js),
+   * or for a private chat whose partner is unknown (a private finding never goes to the server's
+   * memory). No wording here.
    */
   function innerEpisodeOf(args, draft, turnId) {
     const findings = Array.isArray(draft.innerFindings) ? draft.innerFindings : [];
     const channel = args.channel;
-    if (!args.inner || findings.length === 0 || !channel) return null;
+    if (!args.inner || !channel) return null;
+    const registry = skills ?? defaultSkills();
+    const stray = draft.innerStray;
+    const strayAny = Boolean(stray) && (stray.messages ?? 0) + (stray.reactions ?? 0) + (stray.gif ?? 0) + (stray.draw ?? 0) > 0;
+    const accountable = (draft.innerActions ?? []).some((action) => action.status !== 'executed' || action.result !== 'ok' || registry.get(action.skill)?.effects !== 'read');
+    if (findings.length === 0 && !strayAny && !accountable && !draft.loopCut) return null;
     const privateChat = !channel.guild;
     const privateUserId = privateChat ? (draft.privateUserId ?? channel.recipientId ?? null) : null;
     if (privateChat && !privateUserId) return null;
-    const registry = skills ?? defaultSkills();
     const guildId = args.guildId ?? channel.guild?.id ?? null;
     let selfName = null;
     try {
@@ -6763,7 +6781,13 @@ export function createTurnRunner({
         // An inner turn posts only through an explicit call (message.create and the like): what she
         // wrote outside a call reaches nobody; it is counted for the journal, never kept.
         if (draft.inner) {
-          const stray = draft.innerStray ?? { messages: 0, reactions: 0, gif: 0, draw: 0 };
+          const stray = draft.innerStray ?? { messages: 0, reactions: 0, gif: 0, draw: 0, lines: [] };
+          // The first line of each dropped message, cut short: the feedback wake names what was lost.
+          for (const message of parsed.messages) {
+            if (stray.lines.length >= STRAY_LINES_MAX) break;
+            const first = oneLine(String(message.text ?? '').split('\n').find((part) => part.trim()) ?? '');
+            if (first) stray.lines.push(clampWithEllipsis(first, WAKE_PURPOSE_CHARS));
+          }
           stray.messages += parsed.messages.length;
           stray.reactions += parsed.reactions.length;
           stray.gif += parsed.gif ? 1 : 0;

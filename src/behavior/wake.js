@@ -7,7 +7,9 @@
 // first, capped, the rest counted) -- then the present moment and her timezone, the channels she was recently active in (a review), the places page
 // (`wake.places`, src/behavior/inner.js#places: where life is beyond this conversation, with the
 // total and how many more) and what is left of her budgets with when each resets: facts she reads,
-// never a rule. The same places page stands alone as the `<places>` block of an addressed turn
+// never a rule. A `feedback` wake (src/behavior/inner.js#feedbackFacts: what did not go through in
+// her previous turn) is its kind line followed by one `wake.feedbackItem` per fact, each fact
+// worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The same places page stands alone as the `<places>` block of an addressed turn
 // (`context.places`, placesBlockText). Pure: every word comes from `labels.wake`
 // (prompts/labels.json); without its header the block is left out (''). Ids, counts and times are
 // data, not wording.
@@ -17,6 +19,42 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 
 /** A purpose's length on a wake line (characters). */
 export const WAKE_PURPOSE_CHARS = 200;
+
+/** The separator between the dropped lines of one `dropped` fact (data joined, not wording). */
+const LINES_JOIN = ' | ';
+
+/**
+ * One feedback fact (src/behavior/inner.js#feedbackFacts) as a line: `l.feedback.<kind>` filled
+ * -- `dropped`: `{messages}`, `{reactions}`, `{gifs}`, `{draws}` (counts) and `{lines}` (the first
+ * lines of the dropped messages, each on one line cut to WAKE_PURPOSE_CHARS, joined by ` | `);
+ * `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
+ * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps` or `time`), `{dropped}`,
+ * `{steps}`; `wakeDropped`: `{kind}` (the wake's), `{code}` (`no-channel` or the cap), `{id}`,
+ * `{purpose}`. '' without the fact's label.
+ * @param {object} fact
+ * @param {object} l  `labels.wake`.
+ * @returns {string}
+ */
+export function feedbackFactText(fact, l) {
+  const template = l?.feedback?.[fact?.kind];
+  if (typeof template !== 'string' || !template) return '';
+  const n = (value) => String(Number.isFinite(value) ? value : 0);
+  const purpose = clampWithEllipsis(oneLine(String(fact.purpose ?? '')), WAKE_PURPOSE_CHARS);
+  switch (fact.kind) {
+    case 'dropped':
+      return fill(template, { messages: n(fact.messages), reactions: n(fact.reactions), gifs: n(fact.gif), draws: n(fact.draw), lines: (Array.isArray(fact.lines) ? fact.lines : []).map((line) => clampWithEllipsis(oneLine(String(line)), WAKE_PURPOSE_CHARS)).join(LINES_JOIN) });
+    case 'callFailed':
+      return fill(template, { skill: String(fact.skill ?? ''), status: String(fact.status ?? ''), code: String(fact.code ?? '') });
+    case 'doneWithoutDelivery':
+      return fill(template, { id: String(fact.intentionId ?? ''), purpose });
+    case 'loopCut':
+      return fill(template, { cut: String(fact.cut ?? ''), dropped: n(fact.droppedCalls), steps: n(fact.steps) });
+    case 'wakeDropped':
+      return fill(template, { kind: String(fact.wake ?? ''), code: String(fact.code ?? ''), id: String(fact.intentionId ?? ''), purpose });
+    default:
+      return '';
+  }
+}
 
 /** The budgets the block names, in order. */
 export const WAKE_BUDGETS = Object.freeze(['day', 'hour', 'chain', 'usd', 'posts']);
@@ -70,6 +108,8 @@ export function placesBlockText(page, labels) {
  * without its two labels or an item), `now`, `timezone`, `channels`, `places`, `budgets`), ''
  * when `labels.wake.header` is missing. An `attend` item fills `{place}` (its name), `{lines}`,
  * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
+ * A `feedback` item (`facts`) is followed by one `labels.wake.feedbackItem` (`{fact}`:
+ * feedbackFactText's) per fact; facts without a label are left out.
  * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
  *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
@@ -105,6 +145,12 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
       const code = id ? wake.notes?.[id] : null;
       const note = code && typeof labels?.intentions?.notes?.[code] === 'string' ? fill(labels.intentions.notes[code], { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
+    }
+    if (item.kind === 'feedback' && typeof l.feedbackItem === 'string' && l.feedbackItem) {
+      for (const fact of Array.isArray(item.facts) ? item.facts : []) {
+        const text = feedbackFactText(fact, l);
+        if (text) lines.push(fill(l.feedbackItem, { fact: text }));
+      }
     }
   }
   const expired = wake.expired;

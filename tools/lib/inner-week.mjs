@@ -20,7 +20,10 @@
 // presence, so a fixture has no "member online" event.
 //
 // The inner turns run on a voice: the stub (`createStubVoice`, deterministic: canned actions per
-// wake kind, per intention, cycled by how often the same thing woke her) for the cheap runs, or
+// wake kind, per intention, cycled by how often the same thing woke her; a `{ "stray": "text" }`
+// step is text written outside a call, which reaches nobody and is counted as the turn runner
+// counts it, so the scheduler's feedback wake (src/behavior/inner.js#feedbackFacts) can be
+// exercised) for the cheap runs, or
 // the real voice in shadow (tools/inner-week.mjs `--live`) on selected days. The stub's calls pass
 // a gate that mirrors the turn runner's inner gate (src/behavior/turn.js#innerVerdict: a read
 // runs, shadow proposes everything else, live asks the kill switch and the public-post cap right
@@ -175,11 +178,18 @@ function need(condition, name, message) {
 
 const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
-/** A stub plan (`[[action, ...], ...]`): every action `{ skill, args? }`. */
+/** The wake kinds a stub plan may answer. */
+const STUB_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'attend', 'feedback']);
+
+/** A stub plan (`[[action, ...], ...]`): every action `{ skill, args? }`, or `{ stray: text }` (text outside a call). */
 function checkPlan(plan, name, where) {
   need(Array.isArray(plan) && plan.every((answer) => Array.isArray(answer)), name, `${where} must be a list of answers (each a list of actions)`);
   for (const answer of plan) {
     for (const action of answer) {
+      if (isObject(action) && action.stray !== undefined) {
+        need(typeof action.stray === 'string' && action.stray && action.skill === undefined, name, `${where}: \`stray\` must be a text and has no skill`);
+        continue;
+      }
       need(isObject(action) && typeof action.skill === 'string' && action.skill, name, `${where}: every action needs a skill`);
       need(action.returns === undefined || (typeof action.returns === 'string' && action.returns), name, `${where}: \`returns\` must be a text (what the read returns)`);
       need(action.marker === undefined || (typeof action.returns === 'string' && typeof action.marker === 'string' && action.marker.length >= 4), name, `${where}: a \`marker\` (4+ characters) goes with \`returns\``);
@@ -192,7 +202,7 @@ function checkStub(stub, name, where) {
   const out = {};
   if (stub === undefined) return out;
   need(isObject(stub), name, `${where} must be an object`);
-  for (const kind of ['intention_due', 'errand_deadline', 'review', 'attend']) if (stub[kind] !== undefined) out[kind] = checkPlan(stub[kind], name, `${where}.${kind}`);
+  for (const kind of STUB_KINDS) if (stub[kind] !== undefined) out[kind] = checkPlan(stub[kind], name, `${where}.${kind}`);
   return out;
 }
 
@@ -373,7 +383,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
     people,
     tasks,
     history: { selfHours, channel: historyChannel, days: Number.isInteger(history.days) && history.days > 0 ? history.days : 14 },
-    stub: { ...checkStub({ intention_due: stub.intention_due, errand_deadline: stub.errand_deadline, review: stub.review, attend: stub.attend }, id, 'stub'), usdPerRequest: Number.isFinite(stub.usdPerRequest) && stub.usdPerRequest >= 0 ? stub.usdPerRequest : 0.03 },
+    stub: { ...checkStub(Object.fromEntries(STUB_KINDS.map((kind) => [kind, stub[kind]])), id, 'stub'), usdPerRequest: Number.isFinite(stub.usdPerRequest) && stub.usdPerRequest >= 0 ? stub.usdPerRequest : 0.03 },
     events,
     expect: {
       silent: expect.silent === true,
@@ -386,6 +396,17 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
       // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.js#OCCURRENCE_CODES).
       occurrences: isObject(expect.occurrences) ? Object.fromEntries(Object.entries(expect.occurrences).filter(([code, n]) => OCCURRENCE_CODES.includes(code) && Number.isInteger(n))) : null,
+      // The feedback wakes (the `feedback` gate): how many over the week (`wakes`), the fact kinds
+      // they must carry (`facts`), a dropped line one must name (`line`), the intention (by key)
+      // one must name as closed without delivery (`intention`).
+      feedback: isObject(expect.feedback)
+        ? {
+            wakes: Number.isInteger(expect.feedback.wakes) ? expect.feedback.wakes : null,
+            facts: Array.isArray(expect.feedback.facts) ? expect.feedback.facts.map(String) : [],
+            line: typeof expect.feedback.line === 'string' ? expect.feedback.line : null,
+            intention: typeof expect.feedback.intention === 'string' ? expect.feedback.intention : null,
+          }
+        : null,
       // Her attention (the `attention` gate): the attend turns in order (`{ day, lines }`), how many
       // attend wakes waited on her per-day bound and ran after the reset, and a listen-only channel
       // the places page must list with lines.
@@ -497,6 +518,10 @@ export function createStubVoice(fixture) {
         const record = records.find((r) => r.id === intentionId) ?? null;
         const values = { $intention: intentionId, $task: item.taskId ?? null, $chain: record?.chainId ?? null, $channel: channelId };
         for (const action of answer) {
+          if (typeof action.stray === 'string') {
+            out.push({ stray: action.stray });
+            continue;
+          }
           const args = action.args ?? {};
           const many = Object.values(args).includes('$candidates');
           const ids = many ? candidates : [null];
@@ -682,11 +707,17 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     // What her reads returned this turn: outside material her later posts may repeat.
     const seen = [];
     const findings = [];
+    // Text written outside a call: it reaches nobody; counted as the turn runner counts it (`inner.stray`).
+    const strayTexts = planned.filter((call) => typeof call.stray === 'string').map((call) => call.stray);
+    const stray = strayTexts.length > 0 ? { messages: strayTexts.length, reactions: 0, gif: 0, draw: 0, lines: strayTexts.slice(0, 3).map((text) => text.split('\n')[0]) } : null;
     for (const [index, call] of planned.entries()) {
+      if (typeof call.stray === 'string') continue;
       const effects = skills.effectsOf(call.skill);
       const key = `${turnId}.1:${index}`;
       const verdict = stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed, spendAllowed: params.inner.spendAllowed, reserveErrand: params.inner.reserveErrand ?? null, agent: typeof call.args?.agent === 'string' ? call.args.agent : null, key });
-      const action = { skill: call.skill, status: verdict.status, ...(verdict.code ? { code: verdict.code } : {}), args: call.args };
+      // The intention an intent.* call named and the state an intent.update set, as the turn runner records them.
+      const named = ['intent.update', 'intent.cancel'].includes(call.skill) && typeof call.args?.id === 'string' && call.args.id ? call.args.id : null;
+      const action = { skill: call.skill, status: verdict.status, ...(verdict.code ? { code: verdict.code } : {}), args: call.args, ...(named ? { intentionId: named } : {}), ...(call.skill === 'intent.update' && typeof call.args?.state === 'string' ? { state: call.args.state } : {}) };
       if (verdict.status === 'executed') {
         const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen, key });
         // The errand's hold: bound to the errand it became, released when none was queued.
@@ -715,9 +746,10 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const acted = actions.some((a) => a.status !== 'refused');
     // The intentions her intent.* calls named, however they went (src/behavior/turn.js's `inner.intentIds`).
     const intentIds = [...new Set(planned.filter((call) => ['intent.update', 'intent.cancel'].includes(call.skill) && typeof call.args?.id === 'string' && call.args.id).map((call) => call.args.id))];
+    const loop = { steps: 0, cut: null, droppedCalls: 0 };
     const result = acted
-      ? { outcome: 'spoke', reason: null, inner: { actions, intentIds, stray: null, turnId } }
-      : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions, intentIds, stray: null, turnId } };
+      ? { outcome: 'spoke', reason: null, inner: { actions, intentIds, stray, loop, turnId } }
+      : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions, intentIds, stray, loop, turnId } };
     entry.result = result;
     turns.push(entry);
     return result;
@@ -1211,6 +1243,47 @@ function commitments(run) {
 }
 
 /**
+ * The feedback wakes of a run (the journal's `wake` events of kind `feedback`), each with its
+ * facts and the journal's `turn` record it came from (`turn`: `{ at, chainId, feedback }`,
+ * `feedback` when that turn was itself a feedback turn; null when none has its turn id).
+ * @returns {{ id: string, at: number, chainId: string|null, turnId: string|null, facts: object[], turn: object|null }[]}
+ */
+export function feedbackWakes(run) {
+  const turns = run.journal.filter((entry) => entry.event === 'turn' && entry.turnId);
+  return run.journal
+    .filter((entry) => entry.event === 'wake' && entry.wake?.kind === 'feedback')
+    .map((entry) => {
+      const source = turns.find((turn) => turn.turnId === entry.wake.turnId) ?? null;
+      return {
+        id: entry.wake.id,
+        at: entry.at,
+        chainId: entry.wake.chainId ?? null,
+        turnId: entry.wake.turnId ?? null,
+        facts: Array.isArray(entry.wake.facts) ? entry.wake.facts : [],
+        turn: source ? { at: source.at, chainId: source.wakes?.[0]?.chainId ?? null, feedback: (source.wakes ?? []).some((wake) => wake.kind === 'feedback') } : null,
+      };
+    });
+}
+
+/** One feedback fact as a short cell of the report: its kind and what it names. */
+export function factSummary(fact) {
+  switch (fact?.kind) {
+    case 'dropped':
+      return `dropped(${fact.messages}m ${fact.reactions}r ${fact.gif}g ${fact.draw}d${(fact.lines ?? []).length ? `: ${fact.lines.map((line) => JSON.stringify(line)).join(', ')}` : ''})`;
+    case 'callFailed':
+      return `callFailed(${fact.skill} ${fact.status}${fact.code ? ` ${fact.code}` : ''})`;
+    case 'doneWithoutDelivery':
+      return `doneWithoutDelivery(${fact.intentionId})`;
+    case 'loopCut':
+      return `loopCut(${fact.cut}, ${fact.droppedCalls} dropped after ${fact.steps} steps)`;
+    case 'wakeDropped':
+      return `wakeDropped(${fact.wake} ${fact.intentionId ?? '-'} ${fact.code})`;
+    default:
+      return String(fact?.kind ?? '?');
+  }
+}
+
+/**
  * The acceptance gates of a run (spec section 6.3), each `{ name, pass, detail }`, plus the
  * fixture's own checks that it exercised what it is for (`expect`).
  * @param {object} run  runWeek's.
@@ -1263,6 +1336,32 @@ export function computeGates(run, fixture, effectsOf) {
     for (const [code, n] of Object.entries(fixture.expect.occurrences)) if (seen[code] !== n) problems.push(`${code} ${seen[code]} != ${n}`);
   }
   const live = run.turns.some((turn) => turn.voice === 'live');
+  if (fixture.expect.feedback) {
+    // The feedback wakes: as many as expected, each in the chain of a non-feedback turn that ended
+    // before it, none born of a feedback turn, the facts naming what the fixture expects.
+    const expected = fixture.expect.feedback;
+    const seen = feedbackWakes(run);
+    const issues = [];
+    if (expected.wakes !== null && seen.length !== expected.wakes) issues.push(`${seen.length} feedback wake(s) != ${expected.wakes}`);
+    for (const wake of seen) {
+      if (!wake.turn) issues.push(`${wake.id}: no turn of its own before it`);
+      else {
+        if (wake.turn.chainId !== wake.chainId) issues.push(`${wake.id}: chain ${wake.chainId} != its turn's ${wake.turn.chainId}`);
+        if (wake.turn.feedback) issues.push(`${wake.id}: born of a feedback turn`);
+        if (wake.turn.at > wake.at) issues.push(`${wake.id}: queued before its turn ended`);
+      }
+    }
+    const facts = seen.flatMap((wake) => wake.facts);
+    for (const kind of expected.facts) if (!facts.some((fact) => fact.kind === kind)) issues.push(`no ${kind} fact`);
+    if (expected.line !== null && !facts.some((fact) => fact.kind === 'dropped' && (fact.lines ?? []).includes(expected.line))) issues.push('the dropped line is not named');
+    if (expected.intention !== null) {
+      const id = run.keys[expected.intention] ?? null;
+      if (!facts.some((fact) => fact.kind === 'doneWithoutDelivery' && fact.intentionId === id)) issues.push(`intention ${expected.intention} not named as done without delivery`);
+    }
+    const detail = issues.length === 0 ? `${seen.length} feedback wake(s), ${facts.length} fact(s): ${facts.map((fact) => fact.kind).join(', ') || '-'}` : issues.join('; ');
+    if (live) gates.push({ name: 'feedback (stub expectations)', pass: true, info: true, detail });
+    else gates.push({ name: 'feedback', pass: issues.length === 0, detail });
+  }
   if (fixture.expect.attention) {
     // Her attention: no wake where she does not listen, one wake per burst with its lines, none after
     // the drop, the capped ones ran after the reset, the listen-only place on the page with its lines.
@@ -1392,6 +1491,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         cost: { usd: cost.usd ?? 0, voice: cost.voice ?? 0, requests: cost.requests ?? 0 },
       };
     }),
+    feedback: feedbackWakes(run).map((wake) => ({ at: iso(wake.at), id: wake.id, chain: wake.chainId, turnId: wake.turnId, facts: wake.facts.map(factSummary) })),
     refusals: run.journal.filter((e) => e.event === 'capped').map((e) => ({ at: iso(e.at), cap: e.cap, id: e.wake.id })),
     dropped: run.journal.filter((e) => ['overflow', 'stale', 'no-channel'].includes(e.event)).map((e) => ({ at: iso(e.at), event: e.event, id: e.wake.id })),
     events: run.journal.filter((e) => ['stopped', 'started', 'review-drawn', 'review-missed', 'errand-held', 'errand-refused', 'errand-released', 'errand-cost', 'replaced', 'harness-restart', 'harness-analyzer', 'harness-intend-failed'].includes(e.event)).map((e) => ({ ...e, at: iso(e.at) })),
@@ -1437,6 +1537,10 @@ export function renderReport(report) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
     const noted = turn.notes ? ` [${Object.entries(turn.notes).map(([id, code]) => `${id}: ${code}`).join(', ')}]` : '';
     lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))})${cell(noted)} | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ` +stray-follow-up${turn.strayFollowUps > 1 ? ` x${turn.strayFollowUps}` : ''}` : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+  }
+  if ((report.feedback ?? []).length > 0) {
+    lines.push('', '## Feedback wakes', '', '| Queued | Wake | Chain | After turn | Facts |', '|---|---|---|---|---|');
+    for (const wake of report.feedback) lines.push(`| ${wake.at} | ${cell(wake.id)} | ${cell(wake.chain)} | ${cell(wake.turnId)} | ${cell(wake.facts.join('; '))} |`);
   }
   const paged = report.turns.filter((turn) => turn.places);
   if (paged.length > 0) {

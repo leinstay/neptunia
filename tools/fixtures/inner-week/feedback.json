@@ -1,0 +1,37 @@
+{
+  "name": "feedback",
+  "description": "One promise, due on day 1 at noon: the stub's intention turn writes the cat meme as plain text outside any call (it reaches nobody) and marks the intention done. The scheduler queues one feedback wake in the same chain for the next tick, naming the dropped line and the intention closed without delivery; the stub then posts through message.create. The feedback turn gets no feedback of its own.",
+  "start": "2026-11-02",
+  "days": 2,
+  "timezone": "UTC",
+  "seed": 11,
+  "channels": [
+    { "id": "c-general", "name": "general" }
+  ],
+  "people": { "Ivo": "u-201" },
+  "history": { "selfHours": [9, 21], "channel": "c-general" },
+  "stub": {
+    "review": [[]],
+    "feedback": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the cat meme, for real this time" } }]]
+  },
+  "intentions": [
+    {
+      "key": "cat-meme",
+      "purpose": "send Ivo a cat meme",
+      "channel": "c-general",
+      "at": "1 10:02",
+      "span": "sure, a cat meme at noon, I will dig one up",
+      "due": "1 12:00",
+      "stub": { "intention_due": [[{ "stray": "here is the cat meme you asked for" }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] }
+    }
+  ],
+  "events": [
+    { "kind": "message", "at": "1 10:00", "channel": "c-general", "author": "Ivo", "text": "send me a cat meme at noon, I need one", "addressed": true },
+    { "kind": "self", "at": "1 10:01", "channel": "c-general", "text": "sure, a cat meme at noon, I will dig one up" }
+  ],
+  "expect": {
+    "kept": 1,
+    "turns": { "min": 2, "max": 4 },
+    "feedback": { "wakes": 1, "facts": ["dropped", "doneWithoutDelivery"], "line": "here is the cat meme you asked for", "intention": "cat-meme" }
+  }
+}

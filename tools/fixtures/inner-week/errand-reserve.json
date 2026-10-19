@@ -1,6 +1,6 @@
 {
   "name": "errand-reserve",
-  "description": "An inner turn hands off three errands, each able to cost up to its agent's 0.40 USD limit, under a 1 USD day. Each errand holds its limit from its dispatch: the first two fit, the third is refused (inner-usd-cap). Both errands end at their full limit, the next turn of the day is refused before it would push the day over and waits for the next day. On day two an errand that never ends releases its hold after errandReserveMaxMinutes. Without the holds the third errand would run and the first day would end at 1.26 USD.",
+  "description": "An inner turn hands off three errands, each able to cost up to its agent's 0.40 USD limit, under a 1 USD day. Each errand holds its limit from its dispatch: the first two fit, the third is refused (inner-usd-cap). Both errands end at their full limit, the next turn of the day is refused before it would push the day over and waits for the next day. On day two an errand that never ends releases its hold after errandReserveMaxMinutes. Without the holds the third errand would run and the first day would end at 1.26 USD. The refused errand is told to her as a feedback wake in the same chain (one more turn).",
   "start": "2026-11-02",
   "days": 3,
   "timezone": "UTC",
@@ -43,7 +43,7 @@
   ],
   "expect": {
     "capped": ["usd-per-day"],
-    "turns": { "min": 3, "max": 3 },
+    "turns": { "min": 4, "max": 4 },
     "journal": { "errand-held": 3, "errand-refused": 1, "errand-cost": 2, "errand-released": 1 }
   }
 }
