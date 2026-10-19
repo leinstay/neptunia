@@ -9,7 +9,9 @@
 // total and how many more) and what is left of her budgets with when each resets: facts she reads,
 // never a rule. A `feedback` wake (src/behavior/inner.js#feedbackFacts: what did not go through in
 // her previous turn) is its kind line followed by one `wake.feedbackItem` per fact, each fact
-// worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The same places page stands alone as the `<places>` block of an addressed turn
+// worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The facts kept
+// for her and not told yet (`wake.facts`) follow under `wake.feedbackInTurn`, and stand alone under it as the
+// `<wake>` block of an addressed turn (feedbackInTurnText). The same places page stands alone as the `<places>` block of an addressed turn
 // (`context.places`, placesBlockText). Pure: every word comes from `labels.wake`
 // (prompts/labels.json); without its header the block is left out (''). Ids, counts and times are
 // data, not wording.
@@ -21,32 +23,61 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 export const WAKE_PURPOSE_CHARS = 200;
 
 /**
- * One feedback fact (src/behavior/inner.js#feedbackFacts) as a line: `l.feedback.<kind>` filled
- * -- `callFailed`: `{skill}`, `{status}` (`unknown`, `timeout`, `refused`), `{code}`;
- * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps` or `time`), `{dropped}`,
- * `{steps}`; `wakeDropped`: `{kind}` (the wake's), `{code}` (`no-channel` or the cap), `{id}`,
- * `{purpose}`. '' without the fact's label.
+ * One feedback fact (src/behavior/inner.js#feedbackFacts and the facts kept in the state) as a line:
+ * `l.feedback.<kind>` filled -- `callFailed`: `{skill}`, `{status}` (`failed`, `partial`, `invalid`,
+ * `denied`, `not_configured`, `refused`, `unknown`, `timeout`), `{code}`, `{text}` (the operation's own);
+ * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps`, `time`, `no-continuation`,
+ * `extra-call`), `{dropped}`, `{steps}`; `wakeDropped`: `{kind}` (the wake's), `{code}` (the outcome), `{why}`
+ * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
+ * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
+ * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
+ * `sendFailed`: `{code}`, `{n}`, `{total}`. '' without the fact's label.
  * @param {object} fact
  * @param {object} l  `labels.wake`.
+ * @param {{ when?: (ts: number) => string }} [options]
  * @returns {string}
  */
-export function feedbackFactText(fact, l) {
-  const template = l?.feedback?.[fact?.kind];
+export function feedbackFactText(fact, l, { when = () => '' } = {}) {
+  const key = (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') && !fact.intentionId && typeof l?.feedback?.[`${fact.kind}Kind`] === 'string' ? `${fact.kind}Kind` : fact?.kind;
+  const template = l?.feedback?.[key];
   if (typeof template !== 'string' || !template) return '';
   const n = (value) => String(Number.isFinite(value) ? value : 0);
   const purpose = clampWithEllipsis(oneLine(String(fact.purpose ?? '')), WAKE_PURPOSE_CHARS);
+  const why = typeof fact.why === 'string' && fact.why ? (typeof l.feedback.codes?.[fact.why] === 'string' ? l.feedback.codes[fact.why] : fact.why) : '';
+  const text = (line) => line.replace(/\s+/g, ' ').trim();
   switch (fact.kind) {
     case 'callFailed':
-      return fill(template, { skill: String(fact.skill ?? ''), status: String(fact.status ?? ''), code: String(fact.code ?? '') });
+      return text(fill(template, { skill: String(fact.skill ?? ''), status: String(fact.status ?? ''), code: String(fact.code ?? ''), text: oneLine(String(fact.text ?? '')) }));
     case 'doneWithoutDelivery':
       return fill(template, { id: String(fact.intentionId ?? ''), purpose });
     case 'loopCut':
       return fill(template, { cut: String(fact.cut ?? ''), dropped: n(fact.droppedCalls), steps: n(fact.steps) });
     case 'wakeDropped':
-      return fill(template, { kind: String(fact.wake ?? ''), code: String(fact.code ?? ''), id: String(fact.intentionId ?? ''), purpose });
+    case 'wakeHeld':
+      return text(fill(template, { kind: String(fact.wake ?? ''), code: String(fact.code ?? ''), why, id: String(fact.intentionId ?? ''), purpose, until: when(fact.until) }));
+    case 'turnFailed':
+      return fill(template, { code: String(fact.code ?? ''), kind: String(fact.wake ?? '') });
+    case 'sendFailed':
+      return fill(template, { code: String(fact.code ?? ''), n: n(fact.n), total: n(fact.total) });
     default:
       return '';
   }
+}
+
+/**
+ * The facts kept for her and not told yet as a block: `l.feedbackInTurn`, then one `l.feedbackItem` per fact
+ * (`facts` without a label are left out). '' without the header, the item label or a fact with text.
+ * @param {object[]} facts  Fact payloads (src/behavior/inner.js#factPayload).
+ * @param {object} labels
+ * @param {{ timezone?: string, locale?: string }} [options]
+ * @returns {string}
+ */
+export function feedbackInTurnText(facts, labels, { timezone = 'UTC', locale = 'en-US' } = {}) {
+  const l = labels?.wake;
+  if (typeof l?.feedbackInTurn !== 'string' || !l.feedbackInTurn || typeof l.feedbackItem !== 'string' || !l.feedbackItem) return '';
+  const when = (ts) => (Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '');
+  const lines = (Array.isArray(facts) ? facts : []).map((fact) => feedbackFactText(fact, l, { when })).filter(Boolean).map((text) => fill(l.feedbackItem, { fact: text }));
+  return lines.length > 0 ? [l.feedbackInTurn, ...lines].join('\n') : '';
 }
 
 /** The budgets the block names, in order. */
@@ -104,7 +135,8 @@ export function placesBlockText(page, labels) {
  * An item with `delayed` (`{ minutes, code }`: a wake retried after a failed turn) is followed by one
  * `labels.wake.delayed` (`{minutes}` since it was due, `{code}`); without the label no line.
  * A `feedback` item (`facts`) is followed by one `labels.wake.feedbackItem` (`{fact}`:
- * feedbackFactText's) per fact; facts without a label are left out.
+ * feedbackFactText's) per fact; facts without a label are left out. `facts` of the wake itself (the
+ * kept, untold ones) follow the same way under `labels.wake.feedbackInTurn`.
  * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
  * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
  * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
@@ -147,11 +179,14 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     if (item.delayed && typeof l.delayed === 'string' && l.delayed) lines.push(fill(l.delayed, { minutes: String(item.delayed.minutes ?? 0), code: String(item.delayed.code ?? '') }));
     if (item.kind === 'feedback' && typeof l.feedbackItem === 'string' && l.feedbackItem) {
       for (const fact of Array.isArray(item.facts) ? item.facts : []) {
-        const text = feedbackFactText(fact, l);
+        const text = feedbackFactText(fact, l, { when });
         if (text) lines.push(fill(l.feedbackItem, { fact: text }));
       }
     }
   }
+  // The other facts kept for her and not told yet (a drop, a hold, a failure of an earlier turn).
+  const kept = feedbackInTurnText(wake.facts, labels, { timezone, locale });
+  if (kept) lines.push(kept);
   // The current channel her output tags act in and why it is that one, or that there is none.
   const here = wake.here ? part(l, 'here', { channel: oneLine(String(wake.here.channel ?? '')), why: String(wake.here.why ?? '') }) : wake.here === null ? part(l, 'hereNone', {}) : '';
   if (here) lines.push(here);

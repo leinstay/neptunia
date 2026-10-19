@@ -38,6 +38,7 @@ import { createDiary } from '../src/behavior/diary.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createLocalFacts } from '../src/behavior/inner.js';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -5725,6 +5726,30 @@ test('runTurn: a second message that fails to send ends the turn as spoke with w
   const failed = logs.find((entry) => entry.msg === 'turn: send failed');
   assert.deepEqual([failed.level, failed.channel, failed.index], ['warn', 'c1', 1]);
   assert.equal(turns.spokeAfterSeeing('c1', 'm1'), true, 'the turn noted what it had in view');
+});
+
+test('runTurn: a message that fails to send ends the turn partial with a sendFailed fact (its code, how many of how many went out), kept for her next request there', async () => {
+  const raw = rawMessage({ id: 'm1' });
+  const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw] });
+  const send = channel.send;
+  channel.send = async (payload) => {
+    if (payload.content === 'δύο') throw new Error('fixture: Missing Permissions');
+    return send(payload);
+  };
+  const store = fakeStore();
+  const hot = fakeHot({ typingSimulation: false });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<msg>ένα</msg><msg>δύο</msg><msg>τρία</msg>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const source = createLocalFacts({ now: () => NOW });
+  turns.setFactsSource(source);
+  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
+  assert.deepEqual({ outcome: result.outcome, delivered: result.delivered, partial: result.partial }, { outcome: 'spoke', delivered: true, partial: true });
+  const [fact] = source.pending(null, { channelId: 'c1', privateChat: false });
+  assert.equal(fact.kind, 'sendFailed');
+  assert.deepEqual([fact.n, fact.total], [1, 3]);
+  assert.equal(typeof fact.code, 'string');
+  // A turn whose messages all went out leaves no such fact.
+  const fine = await followUpTurn({});
+  assert.equal(fine.result.partial, undefined);
 });
 
 test('runTurn: a first message that fails to send ends spoke with nothing delivered', async () => {

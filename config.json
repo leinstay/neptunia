@@ -522,6 +522,7 @@
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },
     "retry": { "delaysMinutes": [1, 5, 15, 60], "maxHours": 6 },
+    "factsKeepDays": 7,
     "memory": {
       "enabled": true,
       "thinkChars": 1200,

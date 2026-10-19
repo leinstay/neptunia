@@ -702,3 +702,11 @@ test('createMissed: a turn that ended in an error keeps its reason as the fact\'
   const facts = journal.answers.filter((record) => record.event === 'fact');
   assert.deepEqual(facts.map((record) => [record.messageId, record.reason, record.failure ?? null, record.turnId ?? null]), [['m1', 'turn-error', 'cut-off', 't-1'], ['m2', 'turn-error', null, null]]);
 });
+
+test('createMissed: a failed turn opened by a finished errand (task) is a candidate like a failed mention; a private chat\'s stays out', () => {
+  const { missed } = scene();
+  const trigger = (id) => ({ id, authorId: 'u1', channelId: 'c1', ts: T0, content: 'ναι' });
+  missed.onTurnEnd({ channelId: 'c1', trigger: trigger('m1'), triggerKind: 'task', outcome: 'error', reason: 'cut-off' });
+  missed.onTurnEnd({ channelId: 'd1', trigger: trigger('m2'), triggerKind: 'private', outcome: 'error', privateChat: true });
+  assert.deepEqual(missed.candidates().map((c) => [c.messageId, c.reason]), [['m1', 'turn-error']]);
+});

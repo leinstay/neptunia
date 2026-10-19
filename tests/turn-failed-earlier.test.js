@@ -6,6 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
+import { createLocalFacts } from '../src/behavior/inner.js';
+import { DailyCapError } from '../src/llm/openrouter.js';
+import { formatClock, formatDate } from '../src/format.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { labels } from './fixtures/labels.js';
@@ -175,4 +178,44 @@ test('a diary post that failed is forgotten past 24 hours and kept at most conte
   for (const code of ['a', 'b', 'c']) turns.noteDeferred({ skill: 'diary.post', channelId: '77', code, at: NOW });
   await run(first);
   assert.deepEqual(diaryOf(0).map((line) => line.match(/\((.+)\)/)[1]), ['b', 'c'], 'the newest two, none past 24 hours');
+});
+
+test('a turn stopped by a rail is kept like an error: told at the next request there with the reason', async () => {
+  const first = rawMessage({ id: '101' });
+  const second = rawMessage({ id: '102', ts: NOW + MINUTE });
+  const { run, fail, taskOf } = setup({ history: [first, second] });
+  fail.error = new DailyCapError('daily LLM request cap reached');
+  const stopped = await run(first);
+  assert.equal(stopped.result.outcome, 'refused');
+  fail.on = false;
+  clock.t = NOW + 2 * MINUTE;
+  await run(second);
+  assert.equal(taskOf(1).length, 1, 'told');
+  assert.match(taskOf(1)[0], /^unanswered: Zoë #1 2 min ago \(\S+\)$/);
+});
+
+test('facts kept for the channel (a drop, a hold) reach an addressed request there in a block before the task, once; a private chat\'s and another channel\'s do not', async () => {
+  const first = rawMessage({ id: '101' });
+  const { run, fail, calls, turns } = setup({ history: [first] });
+  fail.on = false;
+  const source = createLocalFacts({ now: () => clock.t });
+  turns.setFactsSource(source);
+  const dropped = { kind: 'wakeDropped', wakeId: 'w1', wake: 'intention_due', code: 'stale', why: 'done', intentionId: 'i1', purpose: 'say hi' };
+  source.add('55', { ...dropped, channelId: '77', privateChat: false });
+  source.add('55', { kind: 'wakeHeld', wakeId: 'w2', wake: 'intention_due', code: 'per-chain', intentionId: 'i2', purpose: 'later', until: NOW + 6 * HOUR, channelId: null, privateChat: false });
+  source.add('55', { ...dropped, intentionId: 'i3', purpose: 'in a private chat', channelId: '88', privateChat: true });
+  source.add('55', { ...dropped, intentionId: 'i4', purpose: 'elsewhere', channelId: '99', privateChat: false });
+  await run(first);
+  const text = userText(calls[0][1].content);
+  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? '';
+  const lines = block.split('\n');
+  assert.equal(lines[0], labels.wake.feedbackInTurn);
+  assert.deepEqual(lines.slice(1), ['* wake intention_due i1 say hi stale is done', `* held intention_due i2 later per-chain until ${formatDate(NOW + 6 * HOUR, 'UTC', 'en-US')} ${formatClock(NOW + 6 * HOUR, 'UTC', 'en-US')}`]);
+  assert.ok(text.indexOf('<wake>') < text.indexOf('<task>'));
+  assert.equal(source.pending(null, { channelId: '88', privateChat: true }).length, 1, 'the private chat\'s fact is still waiting for that chat');
+  assert.equal(source.pending(null, { channelId: '99', privateChat: false }).length, 1);
+  // Told once a completed answer carried them.
+  await run(first);
+  assert.equal(userText(calls[1][1].content).includes('<wake>'), false);
+  assert.equal(source.pending(null, { channelId: '77', privateChat: false }).length, 0);
 });

@@ -22,7 +22,7 @@ import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
-import { placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
+import { feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { feedbackFacts } from '../src/behavior/inner.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
@@ -600,7 +600,13 @@ test('inner turn: the result carries the loop\'s end state, a refused post as th
   // A refused post (no current channel) is an action the episode and the feedback facts carry.
   const refused = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { currentChannel: null } });
   assert.deepEqual(refused.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:destination-required']);
-  assert.deepEqual(feedbackFacts(refused.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
+  assert.equal(refused.result.inner.actions[0].presented, true, 'a step followed: she read the refusal');
+  assert.deepEqual(feedbackFacts(refused.result).filter((fact) => fact.kind === 'callFailed'), [], 'told in the turn: no fact');
+  // The same refusal on the last step has no step after it: it is a fact.
+  const last = await innerTurn({ answers: ['<call skill="lore.list"/>', '<msg>γεια σας</msg>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, gate: { currentChannel: null } });
+  assert.equal(last.llm.calls.length, 2, 'nothing follows the terminal call');
+  assert.equal(last.result.inner.actions.at(-1).presented, undefined);
+  assert.deepEqual(feedbackFacts(last.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
   assert.ok(refused.result.inner.episode, 'a turn with a refused post has an episode for the feedback facts to ride');
   // No loop at all: zeros.
   const silent = await innerTurn({ answers: ['<skip/>'] });
@@ -640,16 +646,92 @@ test('wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
   const lines = text.split('\n');
   assert.equal(lines[0], labels.wake.header);
   assert.equal(lines[1], labels.wake.kinds.feedback);
-  assert.equal(lines[2], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.callFailed, { skill: 'web.search', status: 'timeout', code: 'timeout' }) }));
+  assert.equal(lines[2], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.callFailed, { skill: 'web.search', status: 'timeout', code: 'timeout', text: '' }).trim() }));
   assert.equal(lines[3], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.doneWithoutDelivery, { id: 'i1', purpose: 'send a cat meme' }) }));
   assert.equal(lines[4], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.loopCut, { cut: 'steps', dropped: '1', steps: '2' }) }));
-  assert.equal(lines[5], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.wakeDropped, { kind: 'intention_due', code: 'no-channel', id: 'i7', purpose: 'announce' }) }));
+  assert.equal(lines[5], fill(labels.wake.feedbackItem, { fact: fill(labels.wake.feedback.wakeDropped, { kind: 'intention_due', code: 'no-channel', id: 'i7', purpose: 'announce', why: '' }).trim() }));
   assert.ok(lines[6].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
   assert.ok(!text.includes('{'), 'every placeholder filled');
   // Without the item label the facts are left out; the kind line stays.
   const bare = wakeBlockText(wake, { ...labels, wake: { ...labels.wake, feedbackItem: '' } });
   assert.equal(bare.split('\n')[1], labels.wake.kinds.feedback);
   assert.ok(!bare.includes('web.search'));
+});
+
+test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behind a drop, a drop of a wake with no intention by its kind; the kept facts of a turn follow under their header', () => {
+  const until = NOW + 6 * 3_600_000;
+  const when = `${formatDate(until, 'UTC', 'en-US')} ${formatClock(until, 'UTC', 'en-US')}`;
+  const facts = [
+    { kind: 'wakeHeld', wakeId: 'w1', wake: 'intention_due', code: 'per-chain', intentionId: 'i2', purpose: 'say hi', until },
+    { kind: 'wakeDropped', wakeId: 'w2', wake: 'intention_due', code: 'stale', why: 'done', intentionId: 'i3', purpose: 'old one' },
+    { kind: 'wakeDropped', wakeId: 'w3', wake: 'review', code: 'no-channel', why: 'no-review-channel', intentionId: null, purpose: '' },
+    { kind: 'turnFailed', code: 'provider-limit', wake: 'attend' },
+    { kind: 'sendFailed', code: 'send-failed', n: 1, total: 3 },
+    { kind: 'callFailed', skill: 'web.search', status: 'failed', code: 'error', text: 'the page is gone' },
+    { kind: 'unknownKind' },
+  ];
+  const lines = wakeBlockText({ ...WAKE, facts }, labels).split('\n');
+  const at = lines.indexOf(labels.wake.feedbackInTurn);
+  assert.ok(at > 0, lines.join('\n'));
+  const item = (fact) => fill(labels.wake.feedbackItem, { fact });
+  assert.deepEqual(lines.slice(at + 1, at + 7), [
+    item(`held intention_due i2 say hi per-chain until ${when}`),
+    item('wake intention_due i3 old one stale is done'),
+    item('wake review no-channel no review channel'),
+    item('turn attend failed provider-limit'),
+    item('send failed send-failed 1/3'),
+    item('call web.search failed error the page is gone'),
+  ]);
+  assert.ok(lines[at + 7].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
+  // The same lines stand alone for an addressed turn; nothing without facts, a header or the item label.
+  assert.equal(feedbackInTurnText(facts, labels).split('\n')[0], labels.wake.feedbackInTurn);
+  assert.equal(feedbackInTurnText(facts, labels).split('\n').length, 7);
+  assert.equal(feedbackInTurnText([], labels), '');
+  assert.equal(feedbackInTurnText([{ kind: 'unknownKind' }], labels), '');
+  assert.equal(feedbackInTurnText(facts, { ...labels, wake: { ...labels.wake, feedbackInTurn: undefined } }), '');
+  assert.equal(feedbackInTurnText(facts, { ...labels, wake: { ...labels.wake, feedbackItem: undefined } }), '');
+});
+
+test('feedbackFacts: every status that is not ok is a callFailed with its code and the operation\'s own text; a proposed call is none', () => {
+  const statuses = ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown'];
+  const actions = statuses.map((result) => ({ skill: 'web.search', status: 'executed', result, code: `c-${result}`, text: `said ${result}` }));
+  actions.push({ skill: 'web.search', status: 'executed', result: 'unknown', code: 'timeout' });
+  actions.push({ skill: 'message.create', status: 'proposed', result: 'ok' });
+  actions.push({ skill: 'message.create', status: 'refused', result: 'denied', code: 'inner-stopped' });
+  const facts = feedbackFacts({ inner: { actions, intentIds: [] } });
+  assert.deepEqual(facts.map((fact) => `${fact.status}:${fact.code}:${fact.text ?? ''}`), [
+    ...statuses.map((status) => `${status}:c-${status}:said ${status}`),
+    'timeout:timeout:',
+    'refused:inner-stopped:',
+  ]);
+});
+
+test('inner turn, live: a call that did not work carries the operation\'s own words into its action and its callFailed fact', async () => {
+  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες τον πίνακα</call>', '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true, errandConfigured: false });
+  const [action] = run.result.inner.actions;
+  assert.notEqual(action.result, 'ok');
+  assert.equal(action.presented, true);
+  assert.deepEqual(feedbackFacts(run.result), [], 'her next step showed the outcome: no fact');
+  const [fact] = feedbackFacts({ inner: { actions: [{ ...action, presented: undefined }] } });
+  assert.equal(fact.kind, 'callFailed');
+  assert.equal(fact.skill, 'task.run');
+  assert.equal(fact.status, ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown', 'timeout', 'refused'].includes(action.result) ? action.result : 'failed');
+  assert.equal(fact.code, action.code ?? null);
+  if (action.text) assert.equal(fact.text, action.text);
+});
+
+test('inner turn, live: calls past maxCallsPerStep are told in the step that follows; with no step after them they are a loopCut of the turn', async () => {
+  const told = await innerTurn({ answers: ['<call skill="lore.list"/><call skill="lore.list"/>', '<skip/>'], shadow: false, loop: { maxCallsPerStep: 1 } });
+  assert.equal(told.llm.calls.length, 2);
+  const line = fill(labels.task.callsDropped, { count: '1', why: 'extra-call' });
+  assert.ok(taskOf(told, 1).includes(line), taskOf(told, 1));
+  assert.deepEqual(told.result.inner.loop, { steps: 1, cut: null, droppedCalls: 0 }, 'told in the turn: not a cut');
+  // A post leaves nothing to show and nothing is open: no step follows, the dropped call is a cut.
+  const quiet = { ...WAKE, intentions: [] };
+  const cut = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call><call skill="message.create">γεια</call>', '<skip/>'], shadow: false, loop: { maxCallsPerStep: 1 }, gate: { wake: quiet }, allowed: ['message.create'] });
+  assert.equal(cut.llm.calls.length, 1);
+  assert.deepEqual(cut.result.inner.loop, { steps: 0, cut: 'extra-call', droppedCalls: 1 });
+  assert.deepEqual(feedbackFacts(cut.result).filter((fact) => fact.kind === 'loopCut'), [{ kind: 'loopCut', cut: 'extra-call', droppedCalls: 1, steps: 0 }]);
 });
 
 test('wakeBlockText: a retried wake is followed by its delayed line with the minutes and the code; none without the label', () => {
