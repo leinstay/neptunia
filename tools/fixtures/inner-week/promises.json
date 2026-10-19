@@ -1,0 +1,31 @@
+{
+  "name": "promises",
+  "description": "Four promises: two kept at their due time, one forgotten (silence, then it expires), one meant for a channel she cannot write in (dropped as no-channel, journalled). A candidate the analyzer found in her own line is accepted at her review.",
+  "start": "2026-11-02",
+  "days": 7,
+  "timezone": "UTC",
+  "seed": 37,
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" },
+    { "id": "c-news", "name": "announcements", "writable": false }
+  ],
+  "people": { "Ivo": "u-201", "Sanne": "u-202" },
+  "history": { "selfHours": [12, 13, 20], "channel": "c-general" },
+  "stub": {
+    "review": [[{ "skill": "intent.update", "args": { "id": "$candidates", "state": "pending" } }]],
+    "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+  },
+  "intentions": [
+    { "key": "kept-quiz", "purpose": "post the quiz answers for Ivo", "channel": "c-general", "due": "2 12:00" },
+    { "key": "kept-map", "purpose": "send Sanne the map link", "channel": "c-games", "due": "3 20:30", "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the map" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] } },
+    { "key": "forgotten-book", "purpose": "ask Ivo how the book ended", "channel": "c-general", "due": "2 15:00", "expires": "4 00:00", "stub": { "intention_due": [[]] } },
+    { "key": "unwritable", "purpose": "announce the game night", "channel": "c-news", "due": "5 18:00" }
+  ],
+  "events": [
+    { "kind": "message", "at": "1 12:10", "channel": "c-general", "author": "Ivo", "text": "what are you up to this week?" },
+    { "kind": "self", "at": "1 12:11", "channel": "c-general", "text": "I want to finish the puzzle book by Saturday" },
+    { "kind": "analyzer", "at": "1 13:00", "channel": "c-general", "candidates": [{ "span": "finish the puzzle book by Saturday", "purpose": "finish the puzzle book by Saturday" }] }
+  ],
+  "expect": { "kept": 2, "journal": { "no-channel": 1, "harness-analyzer": 1 } }
+}

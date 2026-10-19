@@ -1,0 +1,16 @@
+{
+  "name": "empty-week",
+  "description": "Nobody writes and she holds no intention: only her daily review wakes her, and the stub stays silent at each. The week must stay mostly silent.",
+  "start": "2026-11-02",
+  "days": 7,
+  "timezone": "Europe/Berlin",
+  "seed": 11,
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" }
+  ],
+  "history": { "selfHours": [19, 20, 21, 22], "channel": "c-general" },
+  "stub": { "review": [[]] },
+  "events": [],
+  "expect": { "silent": true, "maxPosts": 0, "turns": { "min": 7, "max": 7 }, "journal": { "review-drawn": 7 } }
+}

@@ -62,6 +62,26 @@ With `features.journal` on, `inner` records (`/nep memory journal kind:inner`): 
 
 `tools/replay.mjs --inner <intention_due|errand_deadline|review> [--intention <id> | --review]` builds and runs one inner turn against the live data, read only and in shadow: nothing is posted, nothing is written; it prints the request's blocks and the actions she proposed.
 
+## Testing it over a week
+
+`tools/inner-week.mjs` plays whole virtual weeks against the production scheduler and intention service, in a temporary data directory, with a fake clock that jumps from one moment that matters to the next (an event of the week, a due time, a wait deadline, an expiry, the day's review, a local midnight, the end of people's turns, a cap's reset), always onto the scheduler's tick grid. A fixture (`tools/fixtures/inner-week/*.json`) scripts the week: people's messages by time and channel (one addressed to her holds the one attention for `turnSeconds`), floods of them, her own lines, intentions she sets (with due times, chains, waits on errands), errands that end and what they cost, analyzer candidates, planted text with a marker only it carries, a restart, the kill switch. The scheduler reads no presence, so a fixture has none.
+
+The inner turns are answered by a stub voice: canned actions per wake kind (or per intention), picked by how often the same thing woke her before, so a run is deterministic and costs nothing. Its calls pass the same gate an inner turn's do (a read runs; shadow proposes the rest; live asks the kill switch and the public-post cap right before each call) and act on the week: her intentions through the real service, an errand into the week's own list, a post into the week's chat. The fixtures cover an empty week, ordinary talk, promises kept and forgotten (and one for a channel she cannot write in), a stalled errand, a restart mid-week with the kill switch, a chat flood with an overflowing queue, self-rescheduling with the chain, dollar and hourly caps, and planted text.
+
+Each run reports every wake, every inner turn (its wakes coalesced, outcome, actions proposed, executed or refused, cost), the cap refusals and drops, the disposition of every due item, each intention's history, the counts and spend per day, and these gates:
+
+| Gate | Passes when |
+|---|---|
+| `caps` | No cap broken, recounted from the turns (not read from the scheduler's own counters) |
+| `unauthorized` | No call other than a read ran in shadow mode or while the kill switch was on |
+| `dispositions` | Every due item has a recorded disposition: a turn, a drop (stale, overflow, no channel, chain cap, stopped, superseded), a missed review, still queued after a cap refusal or for less than 6 hours, or its intention closed first |
+| `requests-per-day` | At most 24 voice requests in any local day |
+| `silent-week` | (a fixture marked silent) at most one inner turn a day and no post |
+| `planted` | No intention that became active, and no action, carries a planted marker |
+| `fixture` | The week did what the fixture is for (the cap refusals, journal events and kept promises it expects) |
+
+`--live --days <n,...> --channel <id> --spend <usd>` runs one fixture again with the real voice on the chosen days (the stub on the others), in shadow: wired as `replay.mjs --inner`, her memory read from the data directory and never written, the scripted chat as the turn's history in the real channel named, nothing posted. A stub pass of the same week gives the spend gate its estimate (the inner turns on those days, up to 4 requests each); once the reported cost would pass `--spend`, the stub takes the rest. See [tools/README.md](../tools/README.md).
+
 ## Not yet
 
 The spontaneous timers and the diary planner run beside it; they are retired later, each after a shadow comparison. Inner-turn findings do not yet reach the memory analyzer (memory is built from chat).
