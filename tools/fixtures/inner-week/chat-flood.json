@@ -1,0 +1,31 @@
+{
+  "name": "chat-flood",
+  "description": "A morning flood of messages to her holds the one attention for over three hours; six intentions come due meanwhile in two channels. The queue is held at four, so the rest overflow (journalled, never silent); once the flood ends the queued wakes coalesce by channel.",
+  "start": "2026-11-02",
+  "days": 3,
+  "timezone": "UTC",
+  "seed": 67,
+  "innerLife": { "queueMax": 4 },
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" }
+  ],
+  "people": { "Noor": "u-401", "Pavel": "u-402", "Elif": "u-403" },
+  "history": { "selfHours": [8, 13, 19], "channel": "c-general" },
+  "stub": {
+    "review": [[]],
+    "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+  },
+  "intentions": [
+    { "key": "g1", "purpose": "post the event schedule", "channel": "c-general", "due": "2 09:30" },
+    { "key": "g2", "purpose": "thank Noor for the fan art", "channel": "c-general", "due": "2 09:45" },
+    { "key": "m1", "purpose": "send Pavel the build guide", "channel": "c-games", "due": "2 10:00" },
+    { "key": "m2", "purpose": "ask Elif about the tournament", "channel": "c-games", "due": "2 10:15" },
+    { "key": "g3", "purpose": "share the patch summary", "channel": "c-general", "due": "2 10:30" },
+    { "key": "m3", "purpose": "post the team list", "channel": "c-games", "due": "2 11:00" }
+  ],
+  "events": [
+    { "kind": "flood", "at": "2 09:00", "channel": "c-general", "count": 600, "every": "20s", "authors": ["Noor", "Pavel", "Elif"], "text": "hey persona" }
+  ],
+  "expect": { "journal": { "overflow": 1 } }
+}

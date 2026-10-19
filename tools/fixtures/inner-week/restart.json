@@ -1,0 +1,31 @@
+{
+  "name": "restart",
+  "description": "A restart while a wake waits behind people's turns: the wake resumes from the state file and runs once. Then the kill switch: a queued wake is dropped at the stop, a due time passing while stopped is not listed, and after the start it runs.",
+  "start": "2026-11-02",
+  "days": 6,
+  "timezone": "UTC",
+  "seed": 53,
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" }
+  ],
+  "people": { "Ada": "u-301", "Rui": "u-302" },
+  "history": { "selfHours": [9, 14, 21], "channel": "c-general" },
+  "stub": {
+    "review": [[]],
+    "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "a reminder, as promised" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+  },
+  "intentions": [
+    { "key": "before-restart", "purpose": "remind Ada about the raid sign-up", "channel": "c-general", "due": "3 10:05" },
+    { "key": "queued-at-stop", "purpose": "share the screenshot with Rui", "channel": "c-games", "due": "4 08:58" },
+    { "key": "due-while-stopped", "purpose": "ask Ada how the exam went", "channel": "c-general", "due": "4 12:00" }
+  ],
+  "events": [
+    { "kind": "flood", "at": "3 10:00", "channel": "c-general", "count": 90, "every": "20s", "authors": ["Ada", "Rui"], "text": "raid talk" },
+    { "kind": "restart", "at": "3 10:15" },
+    { "kind": "flood", "at": "4 08:55", "channel": "c-games", "count": 45, "every": "20s", "authors": ["Rui"], "text": "screenshot talk" },
+    { "kind": "stop", "at": "4 09:00", "by": "owner" },
+    { "kind": "start", "at": "5 08:00", "by": "owner" }
+  ],
+  "expect": { "journal": { "stopped": 1, "started": 1, "harness-restart": 1 } }
+}

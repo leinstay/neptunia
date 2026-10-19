@@ -839,7 +839,7 @@ function turnStartForTrigger(records, triggerId) {
  * in), its channels (so `#channel` mentions and categories resolve as in the
  * live cache), its custom emoji, the bot's own user and member.
  */
-async function connectDiscord({ discord, token, configuredGuildId, resolveGuild, log }) {
+export async function connectDiscord({ discord, token, configuredGuildId, resolveGuild, log }) {
   const { Client, Routes } = discord;
   const client = new Client({ intents: [] });
   client.rest.setToken(token);
@@ -1704,7 +1704,7 @@ export function searchAvailableOf({ hot, createLookup, searches, env = process.e
  * only this process's cache, which is never flushed.
  * @param {object} store  From src/memory/store.js#createStore.
  */
-function unflushedStore(store) {
+export function unflushedStore(store) {
   const state = { data: structuredClone(store.state?.data ?? {}), markDirty() {} };
   const refused = new Set(['flush', 'flushEntry', 'forgetUser', 'forgetPrivate', 'wipeGuild', 'setPingsOff', 'dropCaches', 'reloadState']);
   const proxy = new Proxy(store, {
@@ -1729,7 +1729,7 @@ function unflushedStore(store) {
  * `{ code, result }`.
  */
 /** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
-async function loadDiaryMods(load) {
+export async function loadDiaryMods(load) {
   return {
     ...(await load('behavior/diary.js')),
     ...(await load('memory/store.js')),
@@ -1759,7 +1759,7 @@ async function loadDiaryMods(load) {
  * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
  * recorded in `calls` as `{ purpose, text, usage, error }`.
  */
-function recordingLlm(realLlm, calls, { noCache = false } = {}) {
+export function recordingLlm(realLlm, calls, { noCache = false } = {}) {
   return new Proxy(realLlm, {
     get(target, prop) {
       if (prop === 'complete') {
@@ -1845,7 +1845,7 @@ async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canA
  * `port`: the interface port the turn acts through (else the default Discord adapter);
  * `rng` / `now`: the runner's random stream and clock (else its defaults).
  */
-function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port = null, rng = null, now = null, extra = {} }) {
+export function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port = null, rng = null, now = null, extra = {} }) {
   const imageFetcher = mods.createImageFetcher();
   const describer = mods.createDescriber({ hot, store, llm, imageFetcher, videoFetcher: mods.createVideoFetcher(), state, youtubeApiKey: process.env.YOUTUBE_API_KEY || null });
   const lookup = mods.createLookup({
