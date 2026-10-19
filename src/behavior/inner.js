@@ -1283,6 +1283,15 @@ export function createInnerLife({
       return { attend: { ...wake.attend, placeName: placeNameOf(guildId, wake.attend.place), peopleNames: wake.attend.people.map(name) } };
     };
     const placesInWake = settings.attention.placesInWake;
+    // The channels a promise of hers is kept to: the provenance channel of each woken intention (a feedback wake: the
+    // intentions of the turn it reports) that someone other than herself asked for. A post there is a delivery.
+    const selfId = client?.user?.id != null ? String(client.user.id) : null;
+    const deliveryChannels = new Set();
+    for (const id of new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : wake.kind === 'feedback' ? list(wake.deliveryFor) : [])))) {
+      const provenance = intentions?.store?.(guildId)?.get?.(id)?.provenance;
+      if (!provenance?.channelId || provenance.scope === 'dm') continue;
+      if (list(provenance.participants).some((member) => String(member) !== selfId)) deliveryChannels.add(String(provenance.channelId));
+    }
     const info = {
       kind: anchor.kind,
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.kind === 'feedback' ? { facts: list(wake.facts), turnId: wake.turnId ?? null } : {}) })),
@@ -1295,6 +1304,7 @@ export function createInnerLife({
       // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
       ...(placesInWake > 0 ? { places: places(guildId, { sort: 'recent', page: 1, pageSize: placesInWake }) } : {}),
       budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
+      ...(deliveryChannels.size > 0 ? { delivery: [...deliveryChannels].map((id) => placeNameOf(guildId, id)) } : {}),
       chainId,
     };
     const key = String(guildId);
@@ -1334,6 +1344,7 @@ export function createInnerLife({
               ? { reserveErrand, bindErrand: (holdId, taskId) => bindErrand(guildId, holdId, taskId), releaseErrand: (holdId) => releaseErrand(guildId, holdId) }
               : {}),
             postAllowed: () => posts().left > 0,
+            deliveryChannels,
             onPosted: () => {
               stateOf(guildId).posts.push(now());
               save(guildId);
@@ -1380,7 +1391,7 @@ export function createInnerLife({
     let feedbackWakeId = null;
     if (feedback.length > 0 && !isFeedback) {
       feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
-      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, turnId: turnId ? String(turnId) : null, facts: feedback });
+      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, turnId: turnId ? String(turnId) : null, facts: feedback, deliveryFor: [...new Set(group.flatMap((wake) => (wake.kind === 'intention_due' ? list(wake.intentionIds) : list(wake.deliveryFor))))] });
     }
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
