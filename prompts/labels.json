@@ -455,9 +455,9 @@
     "continueTools": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. Answer from the results, or make another call if you still need something.",
     "continueToolsLast": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. This is your last step: answer from what you have now. A call here will not run.",
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
-    "continueInnerStray": "This is the same inner turn. What you wrote outside a call reached nobody: in an inner turn only a call does anything, and a post is a message.create call with the channel. Make that call if you still mean to post, make another call you need, or end with <skip/>.\n{open}",
+    "continueInnerStray": "This is the same inner turn. What you wrote outside a call reached nobody: in an inner turn only a call does anything, and a post is a message.create call with the channel. {channel} is the channel you are in, where your post goes unless you name another. Make that call if you still mean to post, make another call you need, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
-    "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>."
+    "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
     "header": "Your errands (open, or finished and not yet seen by you):",

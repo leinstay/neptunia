@@ -2128,7 +2128,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '' }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null }) {
     const { input, history, shownLines = [], pictures } = continuation;
     let fetched = [];
     try {
@@ -2139,7 +2139,8 @@ export function createTurnRunner({
     // The tool loop (toolLoop) hands every result of the turn so far, her posts of every step
     // and its own task label; the one follow-up after a call hands the call alone.
     const outcomes = results ?? [called];
-    const skillNames = [...new Set(outcomes.map((outcome) => outcome.skill))].join(', ');
+    // `names`: the calls the step follows when they left no result to show (an inner turn's open follow-up).
+    const skillNames = [...new Set((Array.isArray(names) && names.length > 0 ? names : outcomes.map((outcome) => outcome.skill)).filter(Boolean))].join(', ');
     const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
     const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '' } });
     const labels = input.prompts?.labels ?? {};
@@ -2418,8 +2419,10 @@ export function createTurnRunner({
    * An inner turn (`continuation.input.mode` `inner`, docs/inner-life.md) continues under
    * `task.continueInner`, or `task.continueInnerStray` when this is the turn's one stray
    * follow-up (`stray`: her previous answer wrote outside a call and made no `message.create`
-   * call); either carries the open-intentions line (openIntentionsText, `{open}`) on the stray
-   * follow-up and after a step whose `message.create` went through or was proposed (`posted`).
+   * call); the open-intentions line (openIntentionsText, `{open}`) is filled on the stray
+   * follow-up and after a step whose `message.create` went through or was proposed (`posted`),
+   * the last step's label included. `names`: the calls the step follows when none of them left a
+   * result to show (the `{skill}` of the label; the open follow-up's `message.create`).
    * Its last step is `task.continueInnerLast`, and one terminal action call in its answer
    * (INNER_TERMINAL_SKILLS: a post, an intention change; the first such) still runs, as
    * `next` with `terminal: true` (no step follows it); the other calls are dropped as above.
@@ -2427,7 +2430,7 @@ export function createTurnRunner({
    * next calls, or null; `stray`: an inner turn's answer, not its last, that wrote outside a call
    * and made no `message.create` call) or null.
    */
-  async function loopStep({ results, step, last, reason, own, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext, stray = false, posted = false }) {
+  async function loopStep({ results, step, last, reason, own, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext, stray = false, posted = false, names = null }) {
     const continued = continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
     const final = last || !continued;
     const innerTurn = continued && continuation.input?.mode === 'inner';
@@ -2438,8 +2441,8 @@ export function createTurnRunner({
       if (continued) {
         // An inner turn continues under its own labels (no message started it, none of hers went out).
         const label = innerTurn ? (final ? 'continueInnerLast' : stray ? 'continueInnerStray' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
-        const open = innerTurn && !final && (stray || posted) ? openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) : '';
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open }));
+        const open = innerTurn && (stray || posted) ? openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) : '';
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const maxChars = hot.config.skills?.resultMaxChars ?? 4500;
@@ -2518,8 +2521,13 @@ export function createTurnRunner({
    * no `message.create` call (`stray`: the reply's answer did; loopStep's `stray`: a later one),
    * and steps remain, one more step is made -- once per turn, under `task.continueInnerStray`,
    * with or without a result to show -- and the turn's result says so (`draft.innerStrayFollowUp`).
-   * No new request once the steps or the time are spent. The terminal action: the one call her
-   * last step may still make (loopStep's `next.terminal`) runs and nothing follows it.
+   * The open follow-up: when the calls just run include a `message.create` that went through or
+   * was proposed, none of them left a result to show, an intention the turn woke for is still
+   * unnamed by any `intent.*` call of the turn (openIntentionsText) and steps remain, one more
+   * step is made under `task.continueInner` with its open-intentions line -- once per turn -- and
+   * the turn's result says so (`draft.innerOpenFollowUp`). No new request once the steps or the
+   * time are spent. The terminal action: the one call her last step may still make (loopStep's
+   * `next.terminal`) runs and nothing follows it.
    */
   async function toolLoop({ plans, context, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext, stray = false }) {
     const settings = loopSettings(hot.config);
@@ -2536,11 +2544,16 @@ export function createTurnRunner({
     // The stray follow-up due (an inner turn's) and whether the turn had its one.
     let strayDue = innerTurn && stray === true;
     let strayTaken = false;
+    // The open follow-up due (an inner turn's, after a post with woken intentions still unnamed) and whether the turn had its one.
+    let openDue = false;
+    let openTaken = false;
     while ((pending && pending.plans.length > 0) || strayDue) {
       // Whether a message.create of the calls just run went through or was proposed (the open-intentions line).
       let posted = false;
       // Whether the calls just run left a result she still has to see.
       let fresh = false;
+      // The names of the calls just run (the label of a step they leave no result for).
+      let names = null;
       if (pending && pending.plans.length > 0) {
         const leftMs = settings.timeBudgetMs - (clock() - startedAt);
         const callTimeoutMs = Math.min(hot.config.skills?.callTimeoutMs ?? 120000, Math.max(LOOP_MIN_CALL_MS, leftMs));
@@ -2550,13 +2563,16 @@ export function createTurnRunner({
         pending = null;
         if (results.some((result) => result.status === 'ok' && !result.followUp)) delivered = true;
         posted = results.some((result) => result.skill === 'message.create' && result.status === 'ok');
+        names = results.map((result) => result.skill);
         const seen = results.filter((result) => result.followUp);
         outcomes.push(...seen);
         fresh = seen.length > 0;
         // The last step's terminal action: nothing follows it.
         if (terminal) break;
       }
-      if (!fresh && !strayDue) break;
+      // A post with nothing to show back, an intention she woke for still untouched: one more step names it.
+      openDue = innerTurn && posted && !fresh && !strayDue && !openTaken && openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) !== '';
+      if (!fresh && !strayDue && !openDue) break;
       // An inner turn past the day's dollars (src/behavior/inner.js, asked now): no further request.
       if (typeof draft?.inner?.spendAllowed === 'function' && !draft.inner.spendAllowed()) {
         log.info('skills: loop cap', { channel: channel.id, reason: 'usd', step: steps, dropped: 0 });
@@ -2587,10 +2603,15 @@ export function createTurnRunner({
         planNext,
         stray: strayStep,
         posted,
+        names: fresh ? null : names,
       });
       if (strayStep) {
         strayTaken = true;
         draft.innerStrayFollowUp = true;
+      }
+      if (openDue) {
+        openTaken = true;
+        draft.innerOpenFollowUp = true;
       }
       strayDue = false;
       if (!answer) break;
@@ -5185,10 +5206,12 @@ export function createTurnRunner({
    *   (`inner-usd-cap`) and the tool loop makes no further request. An answer with no action ends
    *   `skip` with `reason: 'nothing-to-do'` -- unless it wrote outside a call: then the tool loop
    *   makes its one stray follow-up step (toolLoop: `task.continueInnerStray`, once per turn, while
-   *   steps remain). The last loop step still runs one terminal action call of hers (a post, an
+   *   steps remain), and after a post that left nothing to show while an intention she woke for is
+   *   still untouched, one open follow-up step (toolLoop: `task.continueInner` with the open line,
+   *   once per turn). The last loop step still runs one terminal action call of hers (a post, an
    *   intention change; loopStep). The result carries `inner: { actions, stray, strayFollowUp?,
-   *   turnId, episode }` (`strayFollowUp: true` when that step was made; `shadow: true` in shadow
-   *   mode; `episode`: innerEpisodeOf's, for her memory). A
+   *   openFollowUp?, turnId, episode }` (`strayFollowUp: true` / `openFollowUp: true` when that
+   *   step was made; `shadow: true` in shadow mode; `episode`: innerEpisodeOf's, for her memory). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
    *   overheard line).
@@ -5519,7 +5542,7 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUp === true ? { strayFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUp === true ? { strayFollowUp: true } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 

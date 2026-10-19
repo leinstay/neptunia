@@ -15,7 +15,7 @@ import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, bodyTokens, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
@@ -194,6 +194,35 @@ test('resolveCall: a body of `name: value` lines for a skill without text is rea
   }
   const said = resolve('message.create', {}, 'channel: #νέα');
   assert.deepEqual([said.args, 'bodyArgs' in said], [{ text: 'channel: #νέα' }, false], 'a skill that takes text keeps its body as its text');
+});
+
+test('bodyTokens: a body of `name=value` tokens of known options alone, else null', () => {
+  const names = ['id', 'state', 'due', 'text'];
+  assert.deepEqual(bodyTokens('state=done', names), { state: 'done' });
+  assert.deepEqual(bodyTokens('  id=i1   state=done\n due="2026-10-20 09:00" ', names), { id: 'i1', state: 'done', due: '2026-10-20 09:00' });
+  assert.deepEqual(bodyTokens('text="ώρα για ύπνο"', names), { text: 'ώρα για ύπνο' }, 'a quoted value may hold spaces');
+  for (const body of ['', '  ', 'done', 'state done', 'state=', 'state=""', 'state: done', 'state=done please', 'who=Zoë', 'state=done state=pending', 'state=do ne', 'the state=done now']) {
+    assert.equal(bodyTokens(body, names), null, JSON.stringify(body));
+  }
+});
+
+test('resolveCall: a body of `name=value` tokens for a skill with text becomes those arguments, not the text; any other body stays the text', () => {
+  // The live call: id on the tag, state=done in the body -- the state changes, no note is written.
+  const done = resolve('intent.update', { id: 'i1' }, 'state=done');
+  assert.deepEqual([done.ok, done.args, done.bodyArgs, 'bodyArg' in done, 'bodyIgnored' in done], [true, { id: 'i1', state: 'done' }, 1, false, false]);
+  const several = resolve('intent.update', {}, 'id=i1 state=done due="2026-10-20 09:00"');
+  assert.deepEqual([several.args, several.bodyArgs], [{ id: 'i1', state: 'done', due: '2026-10-20 09:00' }, 3]);
+  // A name already on the tag: the body is her text, as before.
+  const twice = resolve('intent.update', { id: 'i1', state: 'done' }, 'state=done');
+  assert.deepEqual([twice.args, 'bodyArgs' in twice, twice.bodyArg], [{ id: 'i1', state: 'done', text: 'state=done' }, false, 'text']);
+  // Ordinary bodies keep every earlier behaviour.
+  assert.deepEqual(resolve('intent.update', { id: 'i1' }, 'έτοιμο, το έστειλα').args, { id: 'i1', text: 'έτοιμο, το έστειλα' });
+  assert.deepEqual(resolve('intent.update', { id: 'i1' }, 'state=done and a note').args, { id: 'i1', text: 'state=done and a note' });
+  assert.deepEqual(resolve('message.create', {}, 'a=b').args, { text: 'a=b' }, 'an unknown name: the text');
+  assert.deepEqual(resolve('message.create', {}, 'channel=#Νέα').args, { channel: NEWS }, 'a channel token resolves like the attribute');
+  assert.equal(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
+  // The id alone in the body is not a token: it stays the text (src/ops/intent.js reads it as the id).
+  assert.deepEqual(resolve('intent.update', { state: 'done' }, 'i1').args, { state: 'done', text: 'i1' });
 });
 
 test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {

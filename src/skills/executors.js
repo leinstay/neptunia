@@ -189,6 +189,40 @@ export function bodyArguments(body, names) {
   return out;
 }
 
+/** One `name=value` token: the value bare (no whitespace, no quote) or in double quotes. */
+const BODY_TOKEN_RE = /^([A-Za-z][A-Za-z0-9_]*)=(?:"([^"]*)"|([^\s"]+))/;
+
+/**
+ * The arguments a call's body spells out as `name=value` tokens when the model wrote them there
+ * instead of as attributes: `{ name: value }` when the whole body is one or more such tokens
+ * separated by whitespace, every name one of `names` (the command's option names) and given once,
+ * every value non-empty -- bare (no whitespace or double quote in it) or in double quotes (may
+ * hold spaces); else null -- a bare word, a name alone, a sentence, an unknown or repeated name,
+ * or an empty body. The line-shaped forms (`name: value`, `<name>value</name>`) are
+ * bodyArguments'. Pure.
+ * @param {string} body
+ * @param {Iterable<string>} names
+ * @returns {Record<string, string>|null}
+ */
+export function bodyTokens(body, names) {
+  const known = new Set(names ?? []);
+  let rest = String(body ?? '').trim();
+  if (!rest) return null;
+  const out = {};
+  while (rest) {
+    const match = BODY_TOKEN_RE.exec(rest);
+    if (!match) return null;
+    const [all, name, quoted, bare] = match;
+    const value = quoted ?? bare;
+    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
+    out[name] = value;
+    rest = rest.slice(all.length);
+    if (rest && !/^\s/.test(rest)) return null;
+    rest = rest.trim();
+  }
+  return out;
+}
+
 /**
  * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
  * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
@@ -207,7 +241,11 @@ export function bodyArguments(body, names) {
  * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
  * skill's body argument (`command.body`, src/skills/derive.js#BODY_ARGS: an errand's `goal`, her
  * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
- * attribute too -- and the result names it (`bodyArg`) for the caller to log. When the command
+ * attribute too -- and the result names it (`bodyArg`) for the caller to log. Before that, a body
+ * for such a command that is only `name=value` tokens (bodyTokens: names among the command's
+ * options, none of them given as an attribute) is those arguments and no text at all; the result
+ * counts them (`bodyArgs`) for the caller to log; a body with one of its names on the tag already,
+ * or any other body, stays the text. When the command
  * takes a `file` the call left out, an errand's file handle on a line of its own in that body
  * becomes the `file` and leaves the text (`fileFromBody: true`; an empty text is a file-only
  * post); two or more are refused `unknown-file` (`file:several`). An errand
@@ -247,8 +285,17 @@ export function resolveCall(call, view) {
     given[key] = value;
     bodyArgs += 1;
   }
+  // A body where the command takes text that is only `name=value` tokens of options the tag
+  // left out: the arguments she meant (`state=done`), not a note; else the body is her text.
+  const tokens = body && command.body ? bodyTokens(body, byName.keys()) : null;
+  const fromTokens = tokens && !Object.keys(tokens).some((key) => Object.hasOwn(given, key)) ? tokens : null;
+  for (const [key, value] of Object.entries(fromTokens ?? {})) {
+    given[key] = value;
+    bodyArgs += 1;
+  }
+  const bodyText = Boolean(body) && Boolean(command.body) && !fromTokens;
   let fileFromBody = false;
-  if (body && command.body) {
+  if (bodyText) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
@@ -360,7 +407,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(body && command.body ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody || fromTokens ? { bodyArgs } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may
