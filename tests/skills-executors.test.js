@@ -245,6 +245,16 @@ test('resolveCall: `name: value` lines of a question body are its options, the o
   assert.equal(resolve('memory.search', {}, 'q\nnote: x').args.question, 'q\nnote: x', 'an unknown name stays in the body');
 });
 
+test('resolveCall: an intention body reads its option lines; a post body stays as written', () => {
+  const set = resolve('intent.set', {}, 'send the cats to the dev room <br>due=1m');
+  assert.equal(set.ok, true);
+  assert.deepEqual([set.args.text, set.args.due], ['send the cats to the dev room', '1m']);
+  const update = resolve('intent.update', { id: 'i1' }, 'moved\nstate: done');
+  assert.deepEqual([update.args.text, update.args.state], ['moved', 'done']);
+  const post = resolve('message.create', {}, 'see you\nchannel: #c2003');
+  assert.equal(post.args.text, 'see you\nchannel: #c2003', 'a post keeps such a line');
+});
+
 test('resolveCall: a post keeps `name: value` lines in its text', () => {
   const body = 'Καλημέρα\nchannel: #Νέα\nterms: a';
   assert.deepEqual(resolve('message.create', {}, body).args, { text: body });
