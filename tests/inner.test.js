@@ -1267,3 +1267,21 @@ test('inner: a wake of hers dropped as no-channel, or held on a cap with its due
   assert.equal(held.turns.calls.length, 5);
   assert.deepEqual(held.inner.state(GUILD).queue.map((wake) => wake.kind), ['attend'], 'told once');
 });
+
+test('inner: a turn that ended error journals its code and the status shows the last error; a thrown provider error is mapped', async () => {
+  const limit = Object.assign(new Error('OpenRouter HTTP 429'), { statusCode: 429, body: '{}' });
+  const turns = fakeTurns({ answer: () => { throw limit; } });
+  const run = setup({ records: [intention('i1')], turns });
+  await run.inner.tick();
+  const record = run.journal.find((r) => r.event === 'turn');
+  assert.equal(record.outcome, 'error');
+  assert.deepEqual(record.error, { code: 'provider-limit' });
+  assert.deepEqual(run.inner.status(GUILD).lastError, { at: NOW, code: 'provider-limit' });
+  const reported = setup({ records: [intention('i1')], turns: fakeTurns({ answer: () => ({ outcome: 'error', reason: 'timeout' }) }) });
+  await reported.inner.tick();
+  assert.deepEqual(reported.journal.find((r) => r.event === 'turn').error, { code: 'timeout' });
+  const fine = setup({ records: [intention('i1')] });
+  await fine.inner.tick();
+  assert.equal(fine.journal.find((r) => r.event === 'turn').error, undefined);
+  assert.equal(fine.inner.status(GUILD).lastError, null);
+});

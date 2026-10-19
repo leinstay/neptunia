@@ -107,6 +107,7 @@ export function innerLines(s, labels, { tokens = null } = {}) {
     b ? labelLine(L.postsLine, { used: b.posts.used, cap: b.posts.cap }) : null,
     s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
     s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
+    s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,
     intentions ? labelLine(L.intentionsLine, intentions) : null,
     s.attention ? labelLine(L.attentionLine, s.attention) : null,
     tokens ? labelLine(L.tokensLine, { prompt: tokens.prompt ?? 0, cached: tokens.cached ?? 0, completion: tokens.completion ?? 0 }) : null,

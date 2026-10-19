@@ -798,6 +798,24 @@ export function providerLimitOf(err) {
   return { status, ...bodyLimit(status, err.body) };
 }
 
+/**
+ * The short code of a failed model call, for the turn result's `reason`, the journal and the
+ * status card: `provider-limit` (any 429: a quota of the day or a throttle), `provider-error`
+ * (another HTTP status, or a network failure), `timeout` (a timed-out or aborted attempt), else
+ * `error` (a rail refusal or any other exception). Only the status, the error name and the
+ * message shape are read, never the provider's text.
+ * @param {unknown} err
+ * @returns {'provider-limit'|'provider-error'|'timeout'|'error'}
+ */
+export function errorCodeOf(err) {
+  const status = err?.statusCode;
+  if (Number.isInteger(status)) return status === 429 ? 'provider-limit' : 'provider-error';
+  if (err instanceof TokenLimitError || err instanceof DailyCapError || err instanceof NotByokError) return 'error';
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError' || /timed out/i.test(String(err?.message ?? ''))) return 'timeout';
+  if (err instanceof TypeError && /fetch failed|network/i.test(String(err.message ?? ''))) return 'provider-error';
+  return 'error';
+}
+
 // The `llm: retry` fields of a retried error: `limitSource`, `provider` and `kind`, each only
 // when `providerLimitOf` found it (nothing for an error without an HTTP status).
 function retryLimitFields(err) {

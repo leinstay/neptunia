@@ -22,6 +22,7 @@ import {
   openRouterHeaders,
   VIDEO_TOKENS_PER_SECOND_FALLBACK,
   providerLimitOf,
+  errorCodeOf,
   cacheTtlFor,
   withCacheMarker,
   profilesTtlFor,
@@ -2998,4 +2999,28 @@ test('openrouter: estimate-off and output-cap are reported to the collector', as
 
   // No collector: nothing breaks.
   await llm.complete(messages);
+});
+
+test('errorCodeOf: the daily-limit 429 of the provider account and OpenRouter\'s own 429 are provider-limit', () => {
+  assert.equal(errorCodeOf(httpError(429, upstreamLimitBody(DAILY_RAW))), 'provider-limit');
+  assert.equal(errorCodeOf(httpError(429, OPENROUTER_429)), 'provider-limit');
+});
+
+test('errorCodeOf: any other HTTP status and a network failure are provider-error', () => {
+  assert.equal(errorCodeOf(httpError(500, '{}')), 'provider-error');
+  assert.equal(errorCodeOf(httpError(402, '')), 'provider-error');
+  assert.equal(errorCodeOf(new TypeError('fetch failed')), 'provider-error');
+});
+
+test('errorCodeOf: a timed-out or aborted attempt is timeout', () => {
+  assert.equal(errorCodeOf(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })), 'timeout');
+  assert.equal(errorCodeOf(Object.assign(new Error('x'), { name: 'AbortError' })), 'timeout');
+  assert.equal(errorCodeOf(new Error('hedged request timed out after 5 ms')), 'timeout');
+});
+
+test('errorCodeOf: a rail refusal or any other exception is plain error', () => {
+  assert.equal(errorCodeOf(new TokenLimitError('too big')), 'error');
+  assert.equal(errorCodeOf(new DailyCapError('cap')), 'error');
+  assert.equal(errorCodeOf(new RangeError('boom')), 'error');
+  assert.equal(errorCodeOf(null), 'error');
 });

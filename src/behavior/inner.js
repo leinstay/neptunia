@@ -78,6 +78,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
 import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
+import { errorCodeOf } from '../llm/openrouter.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback']);
@@ -1375,8 +1376,9 @@ export function createInnerLife({
         }),
       );
     } catch (err) {
-      log.warn('inner: turn failed', { guildId, error: err });
-      measured = { result: { outcome: 'error' }, usd: 0, requests: 0, voice: 0 };
+      const code = errorCodeOf(err);
+      log.warn('inner: turn failed', { guildId, code, error: err });
+      measured = { result: { outcome: 'error', reason: code }, usd: 0, requests: 0, voice: 0 };
     } finally {
       reserved.set(key, Math.max(0, (reserved.get(key) ?? 0) - reserve));
       for (const wake of group) running.delete(wake.id);
@@ -1394,7 +1396,8 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))] });
+    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : 'error') : null;
+    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode } : {}) });
     // Each attention woken for counts the wake on its day (its own per-day bound).
     if (typeof intentions?.countAttendWake === 'function') {
       for (const id of new Set(group.filter((wake) => wake.kind === 'attend').flatMap((wake) => wake.intentionIds))) intentions.countAttendWake(guildId, id);
@@ -1442,6 +1445,7 @@ export function createInnerLife({
       actions,
       loop: result.inner?.loop ?? null,
       feedback: { facts: feedback, wake: feedbackWakeId },
+      ...(errorCode ? { error: { code: errorCode } } : {}),
       cost: { usd: measured.usd, requests: measured.requests, voice: measured.voice, reservedUsd: reserve },
     });
     return { outcome, wakes: group.length, usd: measured.usd, ...(feedbackWakeId ? { feedback: feedbackWakeId } : {}) };
@@ -1555,7 +1559,7 @@ export function createInnerLife({
    */
   function status(guildId = getGuildId()) {
     const settings = innerSettings(hot.config);
-    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null, chains: 0, spentUsd: 0, heldUsd: 0, intentions: null, attention: null, next: null, lastTurn: null };
+    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null, chains: 0, spentUsd: 0, heldUsd: 0, intentions: null, attention: null, next: null, lastTurn: null, lastError: null };
     const state = stateOf(guildId);
     const at = now();
     const timezone = timezoneOf();
@@ -1570,6 +1574,7 @@ export function createInnerLife({
     }
     const countOf = (name) => open.filter((record) => record.status === name).length;
     const last = state.turns.reduce((latest, turn) => (!latest || turn.at >= latest.at ? turn : latest), null);
+    const lastFailed = state.turns.reduce((latest, turn) => (turn.outcome === 'error' && (!latest || turn.at >= latest.at) ? turn : latest), null);
     // Her attention today: the attend wakes handled (run: a turn ran for it) and the queued ones.
     const attention = { open: open.filter((record) => record.status === 'pending' && isAttend(record)).length, listed: 0, run: 0, spoken: 0, skipped: 0, waiting: 0 };
     for (const [id, entry] of Object.entries(state.handled)) {
@@ -1599,6 +1604,7 @@ export function createInnerLife({
       attention,
       next: nextWakeOf(state, open, at),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
+      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : 'error' } : null,
     };
   }
 

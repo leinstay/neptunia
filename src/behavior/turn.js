@@ -42,7 +42,7 @@ import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
-import { DailyCapError, REPLY_REQUEST, TokenLimitError, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
+import { DailyCapError, REPLY_REQUEST, TokenLimitError, cacheTtlMs, errorCodeOf, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
@@ -5452,8 +5452,9 @@ export function createTurnRunner({
           });
           result = await answerDrawFailure(params, once, { owned: true, plainPosts });
         } catch (err) {
-          log.error('turn: failed', { channel: channel.id, error: err });
-          result = { outcome: 'error' };
+          const code = errorCodeOf(err);
+          log.error('turn: failed', { channel: channel.id, code, error: err });
+          result = { outcome: 'error', reason: code };
         }
         log.info('turn: part', { channel: channel.id, index, total, outcome: result.outcome });
         results.push(result);
@@ -7006,8 +7007,9 @@ export function createTurnRunner({
         if (err instanceof DailyCapError) draft.limits?.add({ kind: 'daily-cap', where: limitOf(err)?.key ?? 'llm.maxRequestsPerDay' });
         return { outcome: 'refused', limit: limitOf(err) };
       }
-      log.error('turn: failed', { channel: channel.id, error: err });
-      return { outcome: 'error' };
+      const code = errorCodeOf(err);
+      log.error('turn: failed', { channel: channel.id, code, error: err });
+      return { outcome: 'error', reason: code };
     } finally {
       draft.mode = turnMode;
       prep.closeAll();
