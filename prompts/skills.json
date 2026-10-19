@@ -321,8 +321,8 @@
   },
   "intent.set": {
     "title": "Set an intention",
-    "whenToUse": "Record something you mean to do later. The purpose goes in the body. due= takes a delay (30m, 6h, 2d), a date, a clock time (21:00) or a weekday and time (mon 20:00). every= makes it repeat: day, week, or a count of hours or days (12h, 3d); state=done on intent.update closes one occurrence, intent.cancel ends it for good, and expires= moves its end date. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off. attend=<place> listens to a place: you are woken on new lines there since your last look. people= makes only those people's lines count for the wake. settle= sets how long the place must be quiet before a wake (seconds). perday= is your daily bound on attend wakes from that place. due= and every= do not apply to an attention.",
-    "whenNotToUse": "Not for what you are doing in this turn."
+    "whenToUse": "Create a new durable intention for an action you have adopted for a later time. The purpose goes in the body. due= takes a delay (30m, 6h, 2d), a date, a clock time (21:00) or a weekday and time (mon 20:00). every= makes it repeat: day, week, or a count of hours or days (12h, 3d); state=done on intent.update closes one occurrence, intent.cancel ends it for good, and expires= moves its end date. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off. attend=<place> listens to a place: you are woken on new lines there since your last look. people= makes only those people's lines count for the wake. settle= sets how long the place must be quiet before a wake (seconds). perday= is your daily bound on attend wakes from that place. due= and every= do not apply to an attention.",
+    "whenNotToUse": "Not for an action done in this turn (do it directly), not for a possibility merely discussed, not for changing an existing intention (intent.update)."
   },
   "intent.update": {
     "title": "Update an intention",

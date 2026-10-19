@@ -552,7 +552,7 @@
     "offStopped": "Off, {from} to {to} ({length})"
   },
   "skills": {
-    "protocol": "You have skills; what you may use is listed by name. The full description of a skill arrives with the message that needs it, or when someone asks what you can do. A skill runs only through <call>; the engine checks your rights.",
+    "protocol": "You have skills; what you may use is listed by name. The full description of a skill arrives with the message that needs it, or when someone asks what you can do. A skill runs only through <call>; the engine checks your rights. When you adopt a commitment to act later, record it with intent.set in this turn, carrying the timing you accepted. A renewal or a changed deadline of an existing intention goes through intent.update, not a second intent.set. Agreement alone schedules nothing. Do not report anything as scheduled unless the call succeeded.",
     "line": "{name}: {title} — {whenToUse} ({access}){args}",
     "args": {
       "list": " Arguments: {list}.",
