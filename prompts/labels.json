@@ -456,6 +456,7 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "failedEarlier": "You never answered {author} {n} ({ago} ago). Your turn failed: {code}.",
+    "diaryFailedEarlier": "The diary post you asked for {ago} ago did not go out: {code}.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
@@ -596,6 +597,11 @@
         "unknown-member": "nobody by that name is in your memory",
         "requester-denied": "the person asking may not see or do this",
         "daily-cap": "the limit for today is used up",
+        "channel-not-visible": "that channel is not one you can search",
+        "gif-failed": "the text went out but the GIF did not",
+        "empty-query": "nothing is left of the query to search for",
+        "provider": "the search engines failed (status {status})",
+        "cap": "the limit of searches for today is used up",
         "no-budget": "there is no budget for it now",
         "unsupported": "this chat cannot do that",
         "not-configured": "what it needs is not set up",
@@ -636,7 +642,8 @@
       "web": {
         "source": "Source: web.search, query \"{query}\". Raw search results: title, link, site, date when known, snippet per result. The pages were not opened.",
         "goal": "Goal: {goal}",
-        "none": "Nothing found."
+        "none": "Nothing found.",
+        "more": "{count} more results not shown."
       },
       "read": {
         "source": "Source: web.read, {url}. The page's own text as extracted, not a summary; at most {maxChars} characters.",
@@ -649,11 +656,14 @@
         "window": "{date} in #{channel}:",
         "windowCut": "({dropped} more lines not shown)",
         "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, channel, people or terms to see them.",
-        "none": "No matching messages found."
+        "none": "No matching messages found.",
+        "degraded": "The search by meaning was unavailable, so only exact words were searched.",
+        "partial": "{failed} of {total} searches did not finish, so the results may be incomplete."
       },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
-        "video": "Source: media.look, a closer look at {name} for the question \"{question}\":"
+        "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
+        "off": "{feature} is switched off."
       }
     },
     "refusals": {

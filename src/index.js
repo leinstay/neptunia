@@ -478,6 +478,8 @@ const inner = createInnerLife({
   onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
   log,
 });
+// A diary post she asked for in an inner turn that was refused after the turn ended: told to her as feedback.
+turns.setOnDeferredFailure((note) => inner.noteLateFailure(note));
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a

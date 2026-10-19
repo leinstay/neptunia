@@ -1447,7 +1447,8 @@ function numberedItems(texts, first) {
  * without a usable part, `labels.task.queued`), then
  * `labels.task.queuedOthers`, then `labels.task.added`, then one `labels.task.failedEarlier` line
  * per `failedEarlier` entry (`{ author, messageId, link, at, code }`: `{author}`, `{n}` the
- * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`).
+ * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`), then one
+ * `labels.task.diaryFailedEarlier` line per `diaryFailedEarlier` entry (`{ at, code }`: `{ago}`, `{code}`).
  * '' when nothing applies.
  * @param {{ part?: { index: number, total?: number, parts: string[] }|null, queued?: string[],
  *   queuedOthers?: { author: string, text: string }[], added?: string[],
@@ -1495,6 +1496,11 @@ function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
       });
     });
     texts.push(lines.join('\n'));
+  }
+  // Diary posts she asked for that did not go out, after the failed turns.
+  const diaryFailed = Array.isArray(tasks.diaryFailedEarlier) ? tasks.diaryFailedEarlier.filter((entry) => entry && Number.isFinite(entry.at)) : [];
+  if (diaryFailed.length > 0 && labels.task?.diaryFailedEarlier && labels.units) {
+    texts.push(diaryFailed.map((entry) => fill(labels.task.diaryFailedEarlier, { ago: formatDuration(Math.max(0, now - entry.at), labels.units), code: entry.code ?? '' })).join('\n'));
   }
   return texts.join('\n\n');
 }
@@ -1959,7 +1965,8 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
   // A deleted message is its own reason of `unknown-message` (the machine reason names it).
   const reason = (result.reason === 'message-deleted' ? reasons[result.reason] : undefined) ?? reasons[code] ?? reasons.other ?? code;
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
-  const lead = typeof word === 'string' ? fill(word, { reason }) : '';
+  // A reason with its own values (`result.values`: the status a search engine answered with) is filled with them.
+  const lead = typeof word === 'string' ? fill(word, { reason: result.values && typeof reason === 'string' ? fill(reason, result.values) : reason }) : '';
   let data = '';
   if (result.data) {
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');

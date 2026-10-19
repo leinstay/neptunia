@@ -3383,17 +3383,16 @@ test('run: draw still generates when the avatar cannot be fetched, and says so',
   assert.match(result.text, /no avatar reference/);
 });
 
-test('run: draw with an unsupported image model answers with a message and never generates', async () => {
+test('run: draw with an unsupported image model is a not-configured refusal with the reason, and never generates', async () => {
   const rootDir = makeRoot();
   const hot = hotForDraw(rootDir, { model: 'someone/else-model' });
   const images = fakeImages();
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
 
-  const result = await admin.run('draw', { text: 'a cat' }, { guildId: 'g1' });
-
-  assert.equal(typeof result, 'string');
-  assert.match(result, /someone\/else-model/);
-  assert.match(result, /unsupported/);
+  await assert.rejects(
+    () => admin.run('draw', { text: 'a cat' }, { guildId: 'g1' }),
+    (err) => err.code === 'not-configured' && /someone\/else-model/.test(err.message) && /unsupported/.test(err.message),
+  );
   assert.equal(images.calls.length, 0);
 });
 

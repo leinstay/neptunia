@@ -678,8 +678,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     if (!query) return null;
     const started = now();
     const trace = { query: query.form, candidates: 0, kept: [], ms: 0 };
-    const out = { record: [], archive: [], trace };
+    const out = { record: [], archive: [], trace, degraded: false };
     const failed = (stage, err) => {
+      out.degraded = true;
       log.warn('recall: meaning failed', { channel: channel.id, stage, reason: railReason(err, `${stage}-error`), status: err?.statusCode ?? null, name: err?.name ?? null });
       trace.ms = now() - started;
       return out;
@@ -816,6 +817,8 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
     const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scopeOf({ config, guild, channel, partner });
+    // The persona's own search naming a channel the rail hides: said so, not an empty result.
+    if (quotes && server?.channelId && sourceOf(server.channelId) === null) return result({ outcome: { kind: 'not-visible' } });
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -896,9 +899,13 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     };
     for (const query of queue) tracePlanned(query);
     stepAt = now();
+    let cutQueries = 0;
     while (queue.length > 0) {
       if (signal.aborted) return null;
-      if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
+      if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) {
+        cutQueries = queue.length;
+        break;
+      }
       const query = queue.shift();
       beforeRequest();
       const page = await searchMessages(guild, query, { signal: searchSignal });
@@ -1079,7 +1086,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       stats.summary = 'quotes';
       if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
       log.info('recall: quoted', { channel: channelId, windows: windows.length, quoted: shown.length, totalMs: now() - started });
-      return result({ quotes: shown, people: peopleOut() });
+      // What the persona is told besides the stretches: the words-only search, the queries that failed or were cut.
+      const outcome = { kind: 'searched', degraded: meaning?.degraded === true, failed: stats.failed + cutQueries, total: stats.planned };
+      return result({ quotes: shown, people: peopleOut(), outcome });
     }
     // Stored memory alone is enough to ask the summary.
     const messages =
@@ -1206,6 +1215,12 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * prompt is not needed; the run resolves `quotes`, every kept window as a stretch (cut to
    * `recall.stretchChars`, no indices) in rank order -- only the channel `server.channelId`
    * names when it is set -- with `text` and `stretch` null, and logs `recall: quoted`.
+   * The result's `outcome` (optional) says what a run that found nothing did not do: `{ kind }`
+   * `daily-cap` (a daily limit spent: `llm.capLeft()` or `recall.maxPerDay`), `timeout`
+   * (`recall.timeoutMs` ran out, no fallback), `error` (a throw) or, with `quotes`, `not-visible`
+   * (the `server.channelId` named is hidden by the pull rail) and `searched` (`degraded`: the
+   * meaning search failed and words only were searched; `failed`, `total`: the planned queries that
+   * failed or were cut by the time share, out of all planned).
    * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
    * window's messages once they are read and gives the ones rendered, so the persona's lines
    * there show what she called like her chat lines do.
@@ -1214,13 +1229,14 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
-    const empty = () => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started } });
+    const empty = (extra = {}) => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, ...extra });
     let trace = null;
     let traceMaxLines = null;
     const skip = (reason) => {
       log.info('recall: skipped', { channel: channelId, reason });
       if (trace) trace.skipped = reason;
-      return finish(empty());
+      // The daily limits are named to the persona's own search (`outcome`); other gates are no news to her.
+      return finish(empty(reason === 'daily-cap' || reason === 'daily' ? { outcome: { kind: 'daily-cap' } } : {}));
     };
     let controller = null;
     let timer = null;
@@ -1295,7 +1311,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         log.warn('recall: failed', { channel: channelId, reason: 'timeout', status: null, name: null });
         const fallen = progress.fallback ? progress.fallback('timeout') : null;
         if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed('timeout'));
-        return finish(fallen ?? empty());
+        return finish(fallen ?? empty({ outcome: { kind: 'timeout' } }));
       }
       const out = outcome ?? empty();
       if (op) await op.succeeded(opResult(out, 'ok'));
@@ -1304,7 +1320,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       controller?.abort();
       log.warn('recall: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });
       if (op) await op.failed('error');
-      return finish(empty());
+      return finish(empty({ outcome: { kind: 'error' } }));
     } finally {
       if (timer !== null) timers.clear(timer);
       if (cut !== null) timers.clear(cut);

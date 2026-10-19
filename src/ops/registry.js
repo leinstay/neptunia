@@ -2,8 +2,8 @@
 // one named operation with declared rights. It lives apart from src/ops/index.js so the area
 // modules can register themselves while index.js imports them, with no import cycle.
 
-/** The statuses an operation result may carry (src/ops/index.js#runOp). */
-export const STATUSES = Object.freeze(['ok', 'denied', 'approval_required', 'invalid', 'failed']);
+/** The statuses an operation result may carry (src/ops/index.js#runOp); `partial`: part of it took effect (a text went out, its GIF did not). */
+export const STATUSES = Object.freeze(['ok', 'denied', 'approval_required', 'invalid', 'partial', 'failed']);
 
 const registry = new Map();
 

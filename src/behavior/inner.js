@@ -1301,6 +1301,27 @@ export function createInnerLife({
   }
 
   /**
+   * A call of an inner turn that came back `ok` but did not take effect after the turn ended (a
+   * deferred `diary.post` that was refused): one `callFailed` feedback wake in its chain and
+   * channel, due now, so she hears it at her next inner turn. Answers whether it was queued.
+   * Never throws.
+   * @param {{ guildId?: string|null, channelId: string, chainId?: string|null, skill: string, code?: string|null, id?: string }} note
+   */
+  async function noteLateFailure({ guildId = getGuildId(), channelId, chainId = null, skill, code = null, id = null }) {
+    try {
+      if (!guildId || !channelId || !innerOn(hot.config)) return false;
+      const at = now();
+      const wakeId = `inner.wake:feedback:late:${id ?? `${skill}:${at}`}`;
+      const facts = [{ kind: 'callFailed', skill: String(skill), status: 'refused', code: typeof code === 'string' && code ? code : null }];
+      await enqueue(guildId, { id: wakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: at, channelId: String(channelId), privateChat: false, here: String(channelId), turnId: null, facts, deliveryFor: [] });
+      return true;
+    } catch (err) {
+      log.warn('inner: late failure not queued', { error: err });
+      return false;
+    }
+  }
+
+  /**
    * An errand's end: one an inner turn handed off has its cost recorded in the day's spend.
    * Answers whether a cost was counted. Never throws.
    */
@@ -1449,5 +1470,5 @@ export function createInnerLife({
     timer = null;
   }
 
-  return { tick, drain, onWake, onTaskFinished, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf };
+  return { tick, drain, onWake, onTaskFinished, noteLateFailure, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf };
 }

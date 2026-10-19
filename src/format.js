@@ -591,7 +591,8 @@ function callReason(mark, labels) {
   const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';
   const channel = typeof mark.targetChannel === 'string' && mark.targetChannel ? mark.targetChannel : '';
   const agents = Array.isArray(detail.values) ? detail.values.filter((value) => typeof value === 'string' && value).join(', ') : '';
-  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}')) && (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
+  const fields = detail.fields && typeof detail.fields === 'object' ? detail.fields : {};
+  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (!phrase.includes('{status}') || fields.status) && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}')) && (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
   const own = labels.transcript.callReasons;
   const coded = labels.skills?.result?.reasons;
   const lookup = (map, key) => (map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null);
@@ -603,7 +604,7 @@ function callReason(mark, labels) {
   // which names what exactly went wrong.
   if (typeof detail.text === 'string' && detail.text) return detail.text;
   const generic = [lookup(coded, detail.code), lookup(coded, 'other')].find(usable);
-  return generic ? fill(generic, { arg, channel }) : '';
+  return generic ? fill(generic, { arg, channel, ...fields }) : '';
 }
 
 /**

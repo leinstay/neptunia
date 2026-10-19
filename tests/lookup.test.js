@@ -869,18 +869,18 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
   assert.deepEqual(await none.lookup.searchResults('g1', 'x y'), { query: 'x y', results: [] }, 'no annotations: nothing found, not a failure');
 });
 
-test('searchResults: the fallback engines answer the same failures as the summary path; the request cap and the daily slots stop it; off returns null', async () => {
+test('searchResults: the fallback engines answer the same failures as the summary path; the request cap and the daily slots stop it; off returns a coded failure', async () => {
   const fell = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: { ok: false, reason: 'rate-limited', status: 429 } });
   const found = await fell.lookup.searchResults('g1', 'x y');
   assert.equal(found.results[0].url, 'https://exa.example.net/one');
   assert.equal(fell.state.data.webCount, 1, 'one slot whatever the attempts');
   const stopped = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: { ok: false, reason: 'http', status: 500 } });
-  assert.equal(await stopped.lookup.searchResults('g1', 'x y'), null);
+  assert.deepEqual(await stopped.lookup.searchResults('g1', 'x y'), { failed: { code: 'provider', status: 500 } });
   assert.equal(stopped.exaSearch.calls.length, 0, 'another failure never falls back');
 
   const capped = engineSetup({ engine: 'openrouter' });
   capped.llm.capLeft = () => 0;
-  assert.equal(await capped.lookup.searchResults('g1', 'x y'), null);
+  assert.deepEqual(await capped.lookup.searchResults('g1', 'x y'), { failed: { code: 'cap' } });
   assert.equal(capped.llm.calls.length, 0);
   assert.equal(capped.state.data.webCount ?? 0, 0, 'no slot taken under the request cap');
   const braveCapped = setup();
@@ -888,11 +888,11 @@ test('searchResults: the fallback engines answer the same failures as the summar
   assert.ok(await braveCapped.lookup.searchResults('g1', 'x y'), 'Brave sends no model request: the request cap does not stop it');
 
   const full = setup({ hotOptions: { web: { maxPerDay: 0 } } });
-  assert.equal(await full.lookup.searchResults('g1', 'x y'), null);
+  assert.deepEqual(await full.lookup.searchResults('g1', 'x y'), { failed: { code: 'cap' } });
   assert.equal(full.braveSearch.calls.length, 0);
-  assert.equal(await setup({ hotOptions: { features: { webLookup: false } } }).lookup.searchResults('g1', 'x y'), null);
-  assert.equal(await setup({ hotOptions: { web: { search: { enabled: false } } } }).lookup.searchResults('g1', 'x y'), null);
-  assert.equal(await setup().lookup.searchResults('g1', '   '), null);
+  assert.deepEqual(await setup({ hotOptions: { features: { webLookup: false } } }).lookup.searchResults('g1', 'x y'), { failed: { code: 'not-configured' } });
+  assert.deepEqual(await setup({ hotOptions: { web: { search: { enabled: false } } } }).lookup.searchResults('g1', 'x y'), { failed: { code: 'not-configured' } });
+  assert.deepEqual(await setup().lookup.searchResults('g1', '   '), { failed: { code: 'empty-query' } });
   assert.ok(await setup({ hotOptions: { prompts: { 'search-summary': '' } } }).lookup.searchResults('g1', 'x y'), 'never needs the search-summary prompt');
 });
 

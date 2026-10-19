@@ -932,3 +932,82 @@ test('executeCall: an in-turn tool runs in place of the command, on the operatio
   assert.deepEqual([other.status, keys], ['ok', ['lore.list']]);
   assert.deepEqual(seen.length, 1);
 });
+
+// Outcomes that used to read as success: a refused picture, a post whose GIF failed, a diary post that did not go out.
+
+test('draw.create: no image generation, or a model with no supported family, is not_configured with its reason as the op text -- never an ok sentence', async () => {
+  const { admin, port } = makeAdmin({});
+  const none = await executeCall(resolve('draw.create', {}, 'ένα καράβι'), deps(admin, port));
+  assert.deepEqual(none, { status: 'not_configured', code: 'not-configured', data: { text: 'image generation is not available' } });
+  assert.equal(needsFollowUp('draw.create', none), true, 'a refusal is never quiet');
+  const images = { familyOf: () => null, calls: [] };
+  const wrong = makeAdmin({ extra: { images } });
+  const refused = await executeCall(resolve('draw.create', {}, 'ένα καράβι'), deps(wrong.admin, wrong.port));
+  assert.deepEqual([refused.status, refused.code], ['not_configured', 'not-configured']);
+  assert.match(refused.data.text, /unsupported image model/);
+  assert.equal(needsFollowUp('draw.create', refused), true);
+  assert.equal(images.calls.length, 0);
+});
+
+test('message.create gif=: the text went out and the GIF did not -- partial, gif-failed, the text\'s reference kept and the GIF\'s state apart', async () => {
+  const library = gifLibrary();
+  const cfg = config();
+  cfg.gifs = { ...(cfg.gifs ?? {}), maxPerDay: 5 };
+  const { admin, store, port } = makeAdmin({ cfg });
+  library.patch(store);
+  const send = port.send;
+  let sends = 0;
+  port.send = async (...args) => {
+    sends += 1;
+    return sends === 2 ? { status: 'failed', error: { code: 'rate-limited' } } : send(...args);
+  };
+  const result = await executeCall(resolve('message.create', { gif: 'g1' }, 'νιάου'), deps(admin, port));
+  assert.deepEqual([result.status, result.code], ['partial', 'gif-failed']);
+  assert.ok(result.ref?.messageId, 'the text was said and keeps its reference');
+  assert.equal(store.state.data.gifCount ?? 0, 0, 'a GIF that did not go is not counted');
+  assert.equal(RESULT_STATUSES.includes(result.status), true);
+  assert.equal(needsFollowUp('message.create', result), true);
+  // the status reaches her result block; with the reason through the fixture's generic words
+  const block = skillResultBlock({ skill: 'message.create', ...result }, labels);
+  assert.ok(block.startsWith('<result skill="message.create" status="partial">'), block);
+  assert.ok(block.includes(labels.skills.result.reasons['gif-failed']), block);
+  // the call mark's detail names the reason too
+  assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });
+});
+
+test('diary.post: the outcome of the post queued for after her turn is written back -- nothing for a post that went out, the code for one that did not', async () => {
+  const cases = [
+    [{ outcome: 'spoke' }, null],
+    [{ outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: 2, cap: 2 } }, 'daily-cap'],
+    [{ outcome: 'not-now', reason: 'no-channel' }, 'not-configured'],
+    [{ outcome: 'busy' }, 'busy'],
+    [new Error('planner down'), 'error'],
+  ];
+  for (const [outcome, expected] of cases) {
+    const notes = [];
+    const turns = { waitIdle: () => Promise.resolve(), noteDeferred: (note) => notes.push(note) };
+    const diary = { force: async () => { if (outcome instanceof Error) throw outcome; return outcome; } };
+    const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true } };
+    const { admin, port } = makeAdmin({ cfg, diary, extra: { turns } });
+    const answered = await executeCall(resolve('diary.post', { kind: 'photos' }), deps(admin, port));
+    assert.equal(answered.status, 'ok', 'the immediate answer stays "queued"');
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    if (expected === null) assert.deepEqual(notes, []);
+    else assert.deepEqual(notes, [{ skill: 'diary.post', guildId: 'g1', channelId: HERE, ownInitiative: false, chainId: null, code: expected, id: 'inv-1' }]);
+  }
+});
+
+test('diary.post: asked in an inner turn, the write-back says so and carries the chain', async () => {
+  const notes = [];
+  const turns = { waitIdle: () => Promise.resolve(), noteDeferred: (note) => notes.push(note) };
+  const diary = { force: async () => ({ outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: 1, cap: 1 } }) };
+  const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true } };
+  const { admin, port } = makeAdmin({ cfg, diary, extra: { turns } });
+  const initiative = Object.freeze({ actor: 'persona', requester: null, mixed: false, invocationId: 'inv-9', originChannelId: HERE, ownInitiative: true, chainId: 'chain:k' });
+  const answered = await executeCall(resolve('diary.post', { kind: 'photos' }), deps(admin, port, { envelope: initiative, runInitiativeCommand: admin.runInitiativeCommand }));
+  assert.equal(answered.status, 'ok');
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(notes, [{ skill: 'diary.post', guildId: 'g1', channelId: HERE, ownInitiative: true, chainId: 'chain:k', code: 'daily-cap', id: 'inv-9' }]);
+});

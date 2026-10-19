@@ -314,3 +314,100 @@ test('runMediaLook: a placeholder of a deleted message is refused as unknown-mes
   const result = await runMediaLook({ describer: {}, config: LOOK_ON, labels, guildId: 'g1', args: { message: 'm7', question: 'τι;' }, mediaOf: () => ({ id: 'm7', deleted: true, attachments: [] }) });
   assert.deepEqual([result.status, result.code, result.reason], ['invalid', 'unknown-message', 'message-deleted']);
 });
+
+// A tool that did not do what it was asked says so: the outcomes that used to read as an empty success.
+
+test('runWebSearch: the lookup\'s coded failures reach her as what they are; an empty search that ran stays ok with the none label', async () => {
+  const via = async (failed) => runWebSearch({ lookup: fakeLookup({ found: { failed } }), config: WEB_ON, labels, guildId: 'g1', args: { query: 'q' } });
+  assert.deepEqual(await via({ code: 'provider', status: 503 }), { status: 'failed', code: 'provider', values: { status: '503' } });
+  assert.deepEqual(await via({ code: 'provider' }), { status: 'failed', code: 'provider', values: { status: '' } });
+  assert.deepEqual(await via({ code: 'cap' }), { status: 'failed', code: 'cap' });
+  assert.deepEqual(await via({ code: 'empty-query' }), { status: 'invalid', code: 'empty-query' });
+  assert.deepEqual(await via({ code: 'not-configured' }), { status: 'not_configured', code: 'not-configured' });
+  const none = await runWebSearch({ lookup: fakeLookup({ found: { results: [] } }), config: WEB_ON, labels, guildId: 'g1', args: { query: 'q' } });
+  assert.equal(none.status, 'ok');
+  assert.ok(none.data.text.endsWith(labels.skills.tools.web.none), none.data.text);
+});
+
+test('webSearchText: results left out for room are counted in a closing line', () => {
+  const results = Array.from({ length: 5 }, (_, i) => ({ title: `Τίτλος ${i}`, url: `https://example.com/${i}`, site: 'example.com', snippet: 'κείμενο' }));
+  const out = webSearchText({ query: 'q', results }, { labels, maxChars: 190 });
+  const shown = out.split('\n').filter((line) => /^\d+\. /.test(line)).length;
+  assert.ok(shown >= 1 && shown < 5, out);
+  assert.equal(out.split('\n').at(-1), fill(labels.skills.tools.web.more, { count: String(5 - shown) }));
+  assert.ok(!webSearchText({ query: 'q', results: results.slice(0, 1) }, { labels }).includes(fill(labels.skills.tools.web.more, { count: '0' })));
+});
+
+test('skillResultBlock: a reason with its own values is filled with them', async () => {
+  const { skillResultBlock } = await import('../src/behavior/prompt.js');
+  const block = skillResultBlock({ skill: 'web.search', status: 'failed', code: 'provider', values: { status: '503' } }, labels);
+  assert.ok(block.includes(fill(labels.skills.result.reasons.provider, { status: '503' })), block);
+  assert.ok(!block.includes('{status}'), block);
+});
+
+/** A recall runner that answers `answer` (what its run resolves) to every search. */
+function recallAnswering(answer) {
+  return { available: () => true, run: async () => answer };
+}
+
+async function memoryWith(answer, args = { question: 'τι είπε η Zoë;', terms: 'λαγός' }) {
+  const guild = { id: 'g1' };
+  return runMemorySearch({
+    recall: recallAnswering(answer),
+    store: { listUserProfiles: () => [] },
+    config: { bot: { timezone: 'UTC' }, features: { recall: true }, recall: { maxForms: 4 } },
+    labels,
+    guild,
+    guildId: 'g1',
+    channel: { id: 'c1', guild },
+    args,
+    now: NOW,
+  });
+}
+
+const STRETCH = { channelName: 'jardin', startTs: Date.UTC(2026, 8, 30, 9), lines: '[09:00] Éloïse: ένα κουνέλι' };
+const NO_STRETCH = { text: null, stretch: null, people: [], quotes: [] };
+
+test('runMemorySearch: a run that did not search says why instead of "no matching messages"', async () => {
+  const cap = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'daily-cap' } });
+  assert.deepEqual([cap.status, cap.code, cap.data], ['denied', 'daily-cap', undefined]);
+  const hidden = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'not-visible' } });
+  assert.deepEqual([hidden.status, hidden.code], ['denied', 'channel-not-visible']);
+  const thrown = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'error' } });
+  assert.deepEqual([thrown.status, thrown.code], ['failed', 'error']);
+  const late = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'timeout' } });
+  assert.deepEqual([late.status, late.code], ['failed', 'timeout']);
+  const some = await memoryWith({ ...NO_STRETCH, quotes: [STRETCH], outcome: { kind: 'timeout' } });
+  assert.deepEqual([some.status, some.code], ['partial', 'timeout']);
+  assert.ok(some.data.text.includes(STRETCH.lines), 'the stretches that came back are kept');
+});
+
+test('runMemorySearch: an empty search that really ran stays ok with the none label; words only and cut searches are named', async () => {
+  const l = labels.skills.tools.memory;
+  const none = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'searched', degraded: false, failed: 0, total: 3 } });
+  assert.equal(none.status, 'ok');
+  assert.equal(none.data.text, [l.source, l.none].join('\n'));
+  const plain = await memoryWith({ ...NO_STRETCH });
+  assert.equal(plain.data.text, none.data.text, 'a run without an outcome is a plain search');
+  const words = await memoryWith({ ...NO_STRETCH, quotes: [STRETCH], outcome: { kind: 'searched', degraded: true, failed: 0, total: 3 } });
+  assert.equal(words.status, 'ok');
+  assert.equal(words.data.text.split('\n')[0], l.degraded);
+  assert.ok(words.data.text.includes(STRETCH.lines));
+  const cut = await memoryWith({ ...NO_STRETCH, quotes: [STRETCH], outcome: { kind: 'searched', degraded: false, failed: 2, total: 5 } });
+  assert.equal(cut.status, 'ok');
+  assert.equal(cut.data.text.split('\n').at(-1), fill(l.partial, { failed: '2', total: '5' }));
+  assert.ok(!cut.data.text.includes(l.degraded));
+});
+
+test('runMediaLook: a second look that is switched off names the switch', async () => {
+  const given = { message: 'm7', question: 'τι;', item: '1' };
+  const run = (features, item = '1') => runMediaLook({ describer: fakeDescriber(), config: { ...LOOK_ON, features: { ...LOOK_ON.features, ...features } }, labels, guildId: 'g1', args: { ...given, item }, mediaOf: () => mediaMessage() });
+  const picture = await run({ imageRelook: false });
+  assert.deepEqual([picture.status, picture.code], ['not_configured', 'not-configured']);
+  assert.equal(picture.data.text, fill(labels.skills.tools.look.off, { feature: 'features.imageRelook' }));
+  const clip = await run({ videoRewatch: false }, '2');
+  assert.equal(clip.data.text, fill(labels.skills.tools.look.off, { feature: 'features.videoRewatch' }));
+  const noVision = await run({ videoDescriptions: false, mediaDescriptions: false }, '2');
+  assert.equal(noVision.status, 'not_configured');
+  assert.ok(noVision.data.text.length > 0, 'the video vision switch is named too');
+});

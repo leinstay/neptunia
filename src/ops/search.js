@@ -16,6 +16,7 @@ import { defineOp, perEnv, invalid } from './registry.js';
 function asOpResult(result, what = 'search') {
   const text = String(result?.data?.text ?? '');
   if (result?.status === 'ok') return { status: 'ok', code: 'ok', summary: text, data: { text } };
+  if (result?.status === 'partial') return { status: 'partial', code: String(result.code ?? 'partial'), summary: text, data: { text } };
   if (result?.status === 'invalid') throw invalid(`not run: ${result.code ?? 'invalid-args'}`, result.code ?? 'invalid-args');
   return { status: 'failed', code: String(result?.code ?? 'error'), summary: `${what} not run: ${result?.code ?? 'error'}`, data: null };
 }

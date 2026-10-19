@@ -1239,3 +1239,21 @@ test('inner retry: an error that is not a provider failure (cut-off) is journall
   assert.deepEqual(run.journal.find((r) => r.event === 'turn').error, { code: 'cut-off' });
   assert.equal(run.journal.some((r) => r.event === 'retry'), false);
 });
+
+test('inner: a deferred call of hers that failed after the turn ended is one callFailed feedback wake in its chain and channel, run at the next tick', async () => {
+  const run = setup({ hot: hotWith({ innerLife: { mode: 'live' } }) });
+  assert.equal(await run.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', chainId: 'intention:i1', skill: 'diary.post', code: 'daily-cap', id: 'inv-4' }), true);
+  const queued = run.inner.state(GUILD).queue;
+  assert.equal(queued.length, 1);
+  assert.deepEqual([queued[0].kind, queued[0].chainId, queued[0].channelId, queued[0].dueAt], ['feedback', 'intention:i1', 'c2', NOW]);
+  assert.deepEqual(queued[0].facts, [{ kind: 'callFailed', skill: 'diary.post', status: 'refused', code: 'daily-cap' }]);
+  assert.equal(await run.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', chainId: 'intention:i1', skill: 'diary.post', code: 'daily-cap', id: 'inv-4' }), true);
+  assert.equal(run.inner.state(GUILD).queue.length, 1, 'the same invocation is told once');
+  clock.t = NOW + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.turns.calls[0].inner.wake.kind, 'feedback');
+  assert.deepEqual(run.turns.calls[0].inner.wake.items[0].facts[0], { kind: 'callFailed', skill: 'diary.post', status: 'refused', code: 'daily-cap' });
+  const off = setup({ hot: hotWith({ features: { innerLife: false } }) });
+  assert.equal(await off.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', skill: 'diary.post', code: 'x' }), false);
+});
