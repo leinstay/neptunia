@@ -621,6 +621,8 @@
         "candidate-same-chain": "an inner turn cannot accept a candidate born in its own chain",
         "inner-usd-cap": "today's money for your own initiative is spent",
         "inner-post-cap": "today's public posts on your own initiative are used up",
+        "target-required": "TODO-LABEL target-required",
+        "destination-required": "TODO-LABEL destination-required",
       "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
         "no-link": "that message has no link to read",
         "no-media": "that message holds no picture or video to look at",

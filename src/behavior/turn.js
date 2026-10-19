@@ -83,6 +83,7 @@ import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall }
 import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { POSTING_SKILLS, innerSettings } from './inner.js';
+import { innerOutputCalls } from './inner-output.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
 import { intentionSettings, isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
@@ -1916,6 +1917,11 @@ export function createTurnRunner({
     // A call of an inner turn in shadow mode is only proposed: its lines say so (no call mark is drawn from them).
     const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId }, ...(draft?.inner?.shadow ? { shadow: true } : {}) });
     if (op.opId) await op.proposed({ input: { skill: call.skill, invocationId: envelope.invocationId, args: Object.keys(call.args ?? {}), body: Boolean(call.body) } });
+    // An inner turn's tag that cannot act (src/behavior/inner-output.js): refused before anything is resolved or done.
+    if (call.refuse) {
+      log.info('skill: refused', { skill: call.skill, code: call.refuse.code, reason: call.refuse.reason, channel: channel.id });
+      return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
+    }
     const resolved = resolveCall(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
@@ -6675,7 +6681,10 @@ export function createTurnRunner({
       // The tool loop (features.coreTools, read now): her calls of the reply and of each step after it.
       const loopOn = coreToolsOn(hot.config);
       const shapeOutput = (parsed) => {
-        if (features.reactions === false) parsed.reactions = [];
+        if (features.reactions === false) {
+          parsed.reactions = [];
+          parsed.untargetedReactions = [];
+        }
         // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.
         const lookupEmoji = emojiLookup();
         parsed.reactions = parsed.reactions
@@ -6693,29 +6702,18 @@ export function createTurnRunner({
         }
         // No image client, drawing off, no Attach Files, or already answering a failed picture: the <draw> is dropped.
         if (!drawOn) parsed.draw = null;
-        // An inner turn posts only through an explicit call (message.create and the like): what she
-        // wrote outside a call reaches nobody; it is counted for the journal, never kept.
+        // An inner turn's tags are public actions in its current channel: lowered into the calls a
+        // `message.create` / `draw.create` / `message.react.add` of hers would be and planned before
+        // her own calls, in the order an addressed turn acts in (src/behavior/inner-output.js).
         if (draft.inner) {
-          const stray = draft.innerStray ?? { messages: 0, reactions: 0, gif: 0, draw: 0, lines: [] };
-          // The first line of each dropped message, cut short: the feedback wake names what was lost.
-          for (const message of parsed.messages) {
-            if (stray.lines.length >= STRAY_LINES_MAX) break;
-            const first = oneLine(String(message.text ?? '').split('\n').find((part) => part.trim()) ?? '');
-            if (first) stray.lines.push(clampWithEllipsis(first, WAKE_PURPOSE_CHARS));
-          }
-          stray.messages += parsed.messages.length;
-          stray.reactions += parsed.reactions.length;
-          stray.gif += parsed.gif ? 1 : 0;
-          stray.draw += parsed.draw || parsed.draws?.length ? 1 : 0;
-          // Where this stray output sits among the turn's actions (the calls recorded so far came
-          // before it): the feedback facts drop its messages when a later `message.create` went out.
-          if (parsed.messages.length + parsed.reactions.length > 0 || parsed.gif || parsed.draw || (parsed.draws?.length ?? 0) > 0) stray.beforeAction = (draft.innerActions ?? []).length;
-          draft.innerStray = stray;
-          // This answer's stray output, for the one stray follow-up step (toolLoop).
-          parsed.innerStray = parsed.messages.length + parsed.reactions.length > 0 || Boolean(parsed.gif) || Boolean(parsed.draw) || (parsed.draws?.length ?? 0) > 0;
-          if (parsed.innerStray) log.info('turn: inner output dropped', { channel: channel.id, messages: parsed.messages.length, reactions: parsed.reactions.length });
+          const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
+          const lowered = innerOutputCalls(parsed, { current: current ? String(current) : null, turnChannel: String(channel.id) });
+          parsed.calls = [...lowered, ...(Array.isArray(parsed.calls) ? parsed.calls : [])];
+          parsed.call = parsed.calls[0] ?? null;
+          if (lowered.length > 0) log.info('turn: inner output lowered', { channel: channel.id, calls: lowered.length });
           parsed.messages = [];
           parsed.reactions = [];
+          parsed.untargetedReactions = [];
           parsed.gif = null;
           parsed.draw = null;
           parsed.draws = [];

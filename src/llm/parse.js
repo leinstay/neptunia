@@ -136,7 +136,7 @@ function parseIndex(value) {
  *   `<msg>` (a joined one included) cut at 1900 characters as a `message-cut` (`where: 'parse'`)
  *   with the characters lost.
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
- *             reactions: {to: number, emoji: string}[], think: string,
+ *             reactions: {to: number, emoji: string}[], untargetedReactions: {emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null,
@@ -152,7 +152,7 @@ function parseIndex(value) {
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, calls: [], extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
+  const result = { skip: false, messages: [], reactions: [], untargetedReactions: [], think: '', draw: null, draws: [], gif: null, call: null, calls: [], extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -200,11 +200,15 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     result.messages.push({ text: body.slice(0, MAX_MESSAGE_CHARS), replyTo });
   }
 
-  for (const match of text.matchAll(/<react\s+to\s*=\s*"([^"]*)"\s*>([\s\S]*?)<\/react>/gi)) {
-    const to = parseIndex(match[1]);
+  for (const match of text.matchAll(/<react(\s[^>]*)?>([\s\S]*?)<\/react>/gi)) {
+    const target = /\b(?:to|reply)\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
+    const to = target ? parseIndex(target[1]) : null;
     const emoji = match[2].trim();
     const fits = emoji.length <= MAX_REACTION_CHARS || CUSTOM_REACTION_RE.test(emoji);
-    if (to !== null && emoji && fits) result.reactions.push({ to, emoji });
+    if (!emoji || !fits) continue;
+    // A reaction that names no message is kept apart: an addressed turn ignores it, an inner turn refuses it.
+    if (to !== null) result.reactions.push({ to, emoji });
+    else result.untargetedReactions.push({ emoji });
   }
 
   for (const match of text.matchAll(/<draw(\s[^>]*)?>([\s\S]*?)<\/draw>/gi)) {
@@ -230,7 +234,7 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     break;
   }
 
-  if (result.messages.length === 0 && result.reactions.length === 0 && !result.draw && !result.gif && !result.call) {
+  if (result.messages.length === 0 && result.reactions.length === 0 && result.untargetedReactions.length === 0 && !result.draw && !result.gif && !result.call) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();
     const hasTags = calls.length > 0 || /<\/?(msg|react|skip|draw|gif|call)\b/i.test(text);
     if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {

@@ -211,18 +211,64 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
   assert.equal(run.result.reason, 'nothing-to-do');
 });
 
-test('inner turn: what she writes outside a call reaches nobody and is counted; the turn is silence', async () => {
-  // Her stray text gets the one follow-up step (below); she ends it: the turn is silence.
+test('inner turn, live: her <msg> and <gif> are public actions in the current channel, run through the gate like message.create calls and counted', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'], shadow: false, gifs });
+  assert.deepEqual(run.sends.map((send) => send.text), ['γεια σας', 'https://tenor.example/cat']);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`), ['message.create:executed:ok', 'message.create:executed:ok']);
+  assert.equal(run.posted.length, 2, 'two posts against the day\'s cap');
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.result.delivered, true);
+  assert.equal(run.result.inner.actions[0].target.channel, undefined, 'the turn\'s own channel is the default: no channel argument');
+});
+
+test('inner turn, live: a <msg> to the channel that asked is a delivery (exempt from the cap, not counted); past the cap any other tag is refused and she reads it', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const promised = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'], shadow: false, gifs, gate: { postAllowed: () => false, deliveryChannels: new Set(['c1']) } });
+  assert.equal(promised.sends.length, 2);
+  assert.equal(promised.posted.length, 0);
+  assert.deepEqual(promised.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.delivery === true}`), ['message.create:executed:true', 'message.create:executed:true']);
+  const capped = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { postAllowed: () => false } });
+  assert.deepEqual(capped.sends, []);
+  assert.deepEqual(capped.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:inner-post-cap']);
+  assert.equal(capped.llm.calls.length, 2, 'the refusal came back to her');
+  assert.ok(userText(capped.llm.calls[1][1].content).includes(labels.skills.result.reasons['inner-post-cap']), 'worded by the reason label');
+});
+
+test('inner turn, shadow: the tags are only proposed, as a message.create call is', async () => {
   const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'] });
   assert.deepEqual(run.sends, []);
-  assert.equal(run.llm.calls.length, 2);
-  assert.equal(run.result.outcome, 'skip');
-  assert.equal(run.result.reason, 'nothing-to-do');
-  assert.equal(run.result.inner.stray.messages, 1);
-  assert.equal(run.result.inner.stray.reactions, 1);
-  assert.equal(run.result.inner.strayFollowUp, true);
-  assert.equal(run.result.inner.strayFollowUps, 1);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:proposed', 'message.create:proposed']);
+  assert.equal(run.posted.length, 0);
 });
+
+test('inner turn: with no current channel a <msg>, <gif> or <draw> is refused destination-required before any side effect; message.create with a channel goes', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<call skill="message.create" channel="#general">καλημέρα</call>', '<skip/>'], shadow: false, gifs, gate: { currentChannel: null } });
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['message.create:refused:destination-required', 'message.create:refused:destination-required', 'message.create:executed:']);
+  assert.deepEqual(run.sends.map((send) => send.text), ['καλημέρα']);
+  assert.equal(run.posted.length, 1, 'only the explicit post counted');
+  assert.ok(userText(run.llm.calls[1][1].content).includes(labels.skills.result.reasons['destination-required']), 'she reads the refusal');
+});
+
+test('inner turn, live: a <react> needs a target; without one it is refused target-required, with one it reacts', async () => {
+  const bare = await innerTurn({ answers: ['<react>👍</react>', '<skip/>'], shadow: false });
+  assert.deepEqual(bare.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.react.add:refused:target-required']);
+  assert.equal(bare.llm.calls.length, 2, 'she reads the refusal');
+  assert.ok(userText(bare.llm.calls[1][1].content).includes(labels.skills.result.reasons['target-required']));
+  const targeted = await innerTurn({ answers: ['<react to="#2">👍</react>', '<skip/>'], shadow: false });
+  assert.deepEqual(targeted.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:executed']);
+  const replied = await innerTurn({ answers: ['<react reply="#2">👍</react>', '<skip/>'], shadow: false });
+  assert.deepEqual(replied.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:executed']);
+});
+
+test('inner turn, live: <msg reply="#N"> replies to that line; the tags go first, in the order of an addressed turn, then her calls', async () => {
+  const run = await innerTurn({ answers: ['<call skill="message.create">τρίτο</call><msg reply="#2">πρώτο</msg><msg>δεύτερο</msg>', '<skip/>'], shadow: false });
+  assert.deepEqual(run.sends.map((send) => send.text), ['πρώτο', 'δεύτερο', 'τρίτο']);
+  assert.equal(run.sends[0].replyTo?.messageId, 'm2');
+  assert.equal(run.sends[1].replyTo, undefined);
+});
+
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
   const { journal, lines } = journalOverMemory();
@@ -477,23 +523,16 @@ function taskOf(run, n) {
 
 /** The handle `<channel_directory>` gives c1 (the one channel listed: the short form). */
 const C1_HANDLE = `#${handleOf('c1', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)}`;
-const STRAY_LEAD = fill(labels.task.continueInnerStray.split('\n')[0], { channel: C1_HANDLE });
 const OPEN_LINE = fill(labels.task.continueInnerOpen, { list: 'i1: πες καλημέρα στο κανάλι' });
 const INNER_LEAD = (skill) => fill(labels.task.continueInner.split('\n')[0], { skill });
 const LAST_LEAD = (skill) => fill(labels.task.continueInnerLast.split('\n')[0], { skill });
 
-test('inner turn, stray: a <msg> with no call gets one follow-up step under continueInnerStray with the open intentions; her post then goes out', async () => {
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<call skill="message.create">γεια σας</call>', '<skip/>'], shadow: false });
-  assert.equal(run.llm.calls.length, 3, 'the stray follow-up step, then the open follow-up after its post');
+test('inner turn, live: a <msg> that leaves nothing to show while a woken intention is untouched gets the one open follow-up step', async () => {
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false });
+  assert.equal(run.llm.calls.length, 2);
+  assert.equal(taskOf(run, 1), `${INNER_LEAD('message.create')}\n${OPEN_LINE}`);
   assert.equal(run.result.inner.openFollowUp, true);
-  assert.equal(taskOf(run, 1), `${STRAY_LEAD}\n${OPEN_LINE}`);
-  assert.ok(STRAY_LEAD.includes(C1_HANDLE), 'the step names the channel the turn runs in by its handle');
-  assert.ok(userText(run.llm.calls[1][1].content).includes(`${C1_HANDLE} "general"`), 'the same handle the channel directory shows');
   assert.equal(run.sends.length, 1);
-  assert.equal(run.sends[0].text, 'γεια σας');
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.result.inner.strayFollowUp, true);
-  assert.equal(run.result.inner.stray.messages, 1, 'the stray counter is as before');
 });
 
 test('inner turn, live: message.create with gif= posts the text then the GIF, and counts as one public post', async () => {
@@ -503,53 +542,6 @@ test('inner turn, live: message.create with gif= posts the text then the GIF, an
   assert.equal(run.posted.length, 1, 'text and GIF are one public post');
   assert.equal(run.store.state.data.gifCount, 1);
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:executed']);
-});
-
-test('inner turn, stray: the stray output is placed among the actions, so a later message.create takes its messages out of the feedback facts', async () => {
-  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<call skill="message.create">γεια σας</call>', '<skip/>'], shadow: false, gifs });
-  assert.equal(run.result.inner.stray.beforeAction, 0);
-  assert.deepEqual(feedbackFacts(run.result).filter((fact) => fact.kind === 'dropped'), [{ kind: 'dropped', messages: 0, reactions: 0, gif: 1, draw: 0, lines: [] }]);
-});
-
-test('inner turn, stray: a channel the directory does not list gets no handle, and the channel sentence is left out whole', async () => {
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], listed: false });
-  assert.equal(run.llm.calls.length, 2);
-  const task = taskOf(run, 1);
-  assert.ok(!task.includes('{channel}'), task);
-  assert.ok(!task.includes(C1_HANDLE), task);
-  const template = labels.task.continueInnerStray.split('\n')[0];
-  const sentence = template.split('. ').find((part) => part.includes('{channel}'));
-  assert.ok(sentence, 'the fixture label keeps the channel in a sentence of its own');
-  assert.equal(task, `${template.replace(`${sentence}. `, '')}\n${OPEN_LINE}`);
-});
-
-test('inner turn, stray: the follow-up is made up to innerLife.loop.strayFollowUps times per turn; the next stray answer ends the turn as silence', async () => {
-  // The default (2): a second stray answer gets a second step, a third does not.
-  const run = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>', '<msg>τέσσερα</msg>'] });
-  assert.equal(run.llm.calls.length, 3);
-  assert.equal(taskOf(run, 1), `${STRAY_LEAD}\n${OPEN_LINE}`);
-  assert.equal(taskOf(run, 2), `${STRAY_LEAD}\n${OPEN_LINE}`, 'the second stray step takes the same label');
-  assert.equal(run.result.outcome, 'skip');
-  assert.equal(run.result.reason, 'nothing-to-do');
-  assert.equal(run.result.inner.stray.messages, 3);
-  assert.equal(run.result.inner.strayFollowUp, true);
-  assert.equal(run.result.inner.strayFollowUps, 2);
-  // One: the earlier behaviour.
-  const once = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'], loop: { strayFollowUps: 1 } });
-  assert.equal(once.llm.calls.length, 2);
-  assert.equal(once.result.inner.stray.messages, 2);
-  assert.equal(once.result.inner.strayFollowUps, 1);
-  // None: her stray answer ends the turn at once.
-  const none = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>'], loop: { strayFollowUps: 0 } });
-  assert.equal(none.llm.calls.length, 1);
-  assert.equal(none.result.outcome, 'skip');
-  assert.equal(none.result.inner.strayFollowUp, undefined);
-  assert.equal(none.result.inner.strayFollowUps, undefined);
-  // Never past the steps: with one step the second stray answer lands on the last step and gets none.
-  const steps = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'], loop: { maxSteps: 1 } });
-  assert.equal(steps.llm.calls.length, 2);
-  assert.equal(steps.result.inner.strayFollowUps, 1);
 });
 
 test('loopSettings: an inner turn\'s bounds are innerLife.loop\'s (config.json\'s when missing or unusable); an ordinary turn\'s stay skills.loop\'s', () => {
@@ -566,54 +558,40 @@ test('loopSettings: an inner turn\'s bounds are innerLife.loop\'s (config.json\'
 });
 
 test('inner turn, budget: a slow call past skills.loop\'s 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today', async () => {
-  // The clock jumps 25 s while the stray step's request is out: skills.loop's budget would be spent, innerLife.loop's is not.
+  // The clock jumps 25 s while the second request is out: skills.loop's budget would be spent, innerLife.loop's is not.
   const jumping = () => {
     let at = NOW;
     return { clock: () => at, onCall: (n) => { if (n === 2) at += 25_000; } };
   };
   let t = jumping();
-  const run = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, skillsLoop: { maxSteps: 1, timeBudgetMs: 1000 } });
-  assert.equal(run.llm.calls.length, 3, 'the stray step, then the read came back to her');
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`), ['lore.list:executed:ok']);
+  const run = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, skillsLoop: { maxSteps: 1, timeBudgetMs: 1000 } });
+  assert.equal(run.llm.calls.length, 3, 'the read came back to her twice');
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`), ['lore.list:executed:ok', 'lore.list:executed:ok']);
   assert.ok(taskOf(run, 2).startsWith(INNER_LEAD('lore.list')), 'not her last step: 25 s is inside the inner budget');
   assert.ok(!run.logs.some((l) => l.msg === 'skills: loop cap'));
   // The inner per-call timeout: min(innerLife.loop.callTimeoutMs, what is left) -- here 100 ms against a 300 ms call.
   t = jumping();
-  const cut = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, loop: { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 100, strayFollowUps: 2 } });
-  assert.deepEqual(cut.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}:${a.code}`), ['lore.list:executed:unknown:timeout']);
+  const cut = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, loop: { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 100 } });
+  assert.deepEqual(cut.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}:${a.code}`), ['lore.list:executed:unknown:timeout', 'lore.list:executed:unknown:timeout']);
   // The inner budget spent: the next step is her last, as on every turn.
   let at = NOW;
-  const spent = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: () => at, onCall: (n) => { if (n === 2) at += 181_000; } });
+  const spent = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/>', '<skip/>'], clock: () => at, onCall: (n) => { if (n === 2) at += 181_000; } });
   assert.equal(spent.llm.calls.length, 3);
   assert.ok(taskOf(spent, 2).startsWith(LAST_LEAD('lore.list')), taskOf(spent, 2));
 });
 
-test('inner turn, stray: beside a read the next step takes the stray label in place of continueInner; a message.create call beside it does not', async () => {
-  const run = await innerTurn({ answers: ['<msg>γεια</msg><call skill="lore.list"/>', '<skip/>'] });
-  assert.equal(run.llm.calls.length, 2);
-  assert.ok(taskOf(run, 1).startsWith(STRAY_LEAD), taskOf(run, 1));
-  assert.equal(run.result.inner.strayFollowUp, true);
-  const posted = await innerTurn({ answers: ['<msg>γεια</msg><call skill="lore.list"/><call skill="message.create">γεια</call>', '<skip/>'] });
-  assert.equal(posted.llm.calls.length, 2);
-  assert.ok(posted.result.inner.strayFollowUp === undefined, 'she posted: no stray follow-up');
-  assert.equal(taskOf(posted, 1), `${fill(labels.task.continueInner.split('\n')[0], { skill: 'lore.list' })}\n${OPEN_LINE}`, 'after a proposed post the open intentions are listed');
-});
-
-test('inner turn, stray: no new request once the steps are spent; the open line names only intentions no intent call touched', async () => {
-  const spent = await innerTurn({ answers: ['<call skill="lore.list"/>', '<msg>γεια</msg>', '<msg>πάλι</msg>'], loop: { maxSteps: 1 } });
-  assert.equal(spent.llm.calls.length, 2, 'the last step was spent on the read; her stray answer there gets no step');
-  assert.equal(spent.result.inner.strayFollowUp, undefined);
-  // intent.update naming i1 (in shadow: only proposed) takes it off the open line, which is then left out whole.
+test('inner turn: the open line names only intentions no intent call touched', async () => {
+  // intent.update naming i1 (in shadow: only proposed) takes it off the open line: no step is made for it.
   const touched = await innerTurn({ answers: ['<msg>έτοιμο</msg><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
-  assert.deepEqual(touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['intent.update:proposed']);
+  assert.deepEqual(touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:proposed', 'intent.update:proposed']);
   assert.deepEqual(touched.result.inner.intentIds, ['i1'], 'the result names the intentions her calls touched (the scheduler advances a recurring one as recurred)');
-  assert.deepEqual(spent.result.inner.intentIds, []);
-  assert.equal(touched.llm.calls.length, 2);
-  assert.equal(taskOf(touched, 1), STRAY_LEAD, 'no open line, no empty placeholder');
+  assert.equal(touched.llm.calls.length, 1, 'nothing left open: no step');
   // The id alone in the body counts the same.
   const bare = await innerTurn({ answers: ['<msg>έτοιμο</msg><call skill="intent.update" state="done">i1</call>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
-  assert.deepEqual(bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['intent.update:proposed']);
-  assert.equal(taskOf(bare, 1), STRAY_LEAD);
+  assert.deepEqual(bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:proposed', 'intent.update:proposed']);
+  assert.equal(bare.llm.calls.length, 1);
+  const none = await innerTurn({ answers: ['<skip/>'] });
+  assert.deepEqual(none.result.inner.intentIds, []);
 });
 
 test('inner turn, last step: one post or intention change still runs, nothing follows it; a read there is dropped', async () => {
@@ -679,22 +657,15 @@ test('inner turn, open follow-up: on the last step the open line comes with cont
   assert.equal(read.result.inner.openFollowUp, undefined);
 });
 
-test('inner turn: the result carries the first lines of the dropped messages (at most 3, cut short), the loop\'s end state, and the intention an intent.update closed with its state', async () => {
-  const long = 'α'.repeat(300);
-  // Three messages in her answer (the parser's most), a fourth on the stray follow-up step: four dropped, three first lines kept.
-  const stray = await innerTurn({ answers: ['<msg>γεια σας\nδεύτερη γραμμή</msg><msg>' + long + '</msg><msg>τρίτο</msg>', '<msg>τέταρτο</msg>', '<skip/>'] });
-  assert.equal(stray.result.inner.stray.messages, 4);
-  assert.equal(stray.result.inner.stray.lines.length, 3, 'three first lines at most');
-  assert.equal(stray.result.inner.stray.lines[0], 'γεια σας', 'the first line of a message only');
-  assert.ok(Array.from(stray.result.inner.stray.lines[1]).length <= 200, 'cut to the wake purpose length');
-  assert.equal(stray.result.inner.stray.lines[2], 'τρίτο');
-  assert.deepEqual(stray.result.inner.loop, { steps: 2, cut: null, droppedCalls: 0 }, 'two stray steps ran, nothing was cut');
-  assert.ok(stray.result.inner.episode, 'a turn that lost output has an episode for the feedback facts to ride');
-  assert.deepEqual(stray.result.inner.episode.findings, []);
+test('inner turn: the result carries the loop\'s end state, a refused post as the episode\'s fact, and the intention an intent.update closed with its state', async () => {
+  // A refused post (no current channel) is an action the episode and the feedback facts carry.
+  const refused = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { currentChannel: null } });
+  assert.deepEqual(refused.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:destination-required']);
+  assert.deepEqual(feedbackFacts(refused.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
+  assert.ok(refused.result.inner.episode, 'a turn with a refused post has an episode for the feedback facts to ride');
   // No loop at all: zeros.
   const silent = await innerTurn({ answers: ['<skip/>'] });
   assert.deepEqual(silent.result.inner.loop, { steps: 0, cut: null, droppedCalls: 0 });
-  assert.deepEqual(silent.result.inner.stray, { messages: 0, reactions: 0, gif: 0, draw: 0, lines: [] }, 'the counters exist on every inner turn; no line kept');
   // The loop cut on its last step with calls dropped; the intent.update action names its intention and state.
   const cut = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/><call skill="message.create">καλημέρα</call><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
   assert.deepEqual(cut.result.inner.loop, { steps: 1, cut: 'steps', droppedCalls: 2 });
