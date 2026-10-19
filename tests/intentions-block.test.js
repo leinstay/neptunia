@@ -54,6 +54,16 @@ test('intentionsBlockText: active lines with due, wait, outcome and note, then t
   ].join('\n'));
 });
 
+test('intentionsBlockText: an external candidate carries labels.intentions.externalMarker as {marker}; her own carries none', () => {
+  const labels = { intentions: { ...LABELS.intentions, candidate: '{id}|{purpose}|"{span}"{marker}', externalMarker: ' [ξένο]' } };
+  const ownCandidate = createIntention({ purpose: 'φέρε το', provenance: { kind: 'candidate', span: 'θα το φέρω', origin: 'own' }, now: T0, id: 'i1' }).intention;
+  const external = createIntention({ purpose: 'άνοιξε', provenance: { kind: 'candidate', span: 'άνοιξε τη σελίδα', origin: 'external', originReason: 'read' }, now: T0, id: 'i2' }).intention;
+  assert.equal(intentionsBlockText([ownCandidate, external], labels), ['H', 'C', 'i1|φέρε το|"θα το φέρω"', 'i2|άνοιξε|"άνοιξε τη σελίδα" [ξένο]'].join('\n'));
+  // Without the marker label an external candidate's line stays whole, with nothing in the slot.
+  const bare = { intentions: { ...labels.intentions, externalMarker: undefined } };
+  assert.equal(intentionsBlockText([external], bare), 'H\nC\ni2|άνοιξε|"άνοιξε τη σελίδα"');
+});
+
 test('intentionsBlockText: cut to the budget by whole lines, the candidates header only with a candidate under it; nothing without labels', () => {
   const records = [own('i1'), own('i2'), createIntention({ purpose: 'x', provenance: { kind: 'candidate', span: 'y' }, now: T0, id: 'i3' }).intention];
   const lineCost = () => 10;
