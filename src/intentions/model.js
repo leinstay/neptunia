@@ -562,8 +562,13 @@ export function arrive(record, task, { now }) {
   if (record?.status !== 'waiting' || !task || record.awaitingTaskId !== String(task.id) || !TASK_ENDS.includes(task.state)) {
     return { ok: true, intention: record, changed: false };
   }
-  const outcome = { taskId: String(task.id), state: task.state, ...(task.error ? { error: String(task.error) } : {}), at: Number.isFinite(task.endedAt) ? task.endedAt : now };
-  return transition(record, 'pending', { now, by: 'engine', code: `task-${task.state}`, patch: { outcome, note: `task-${task.state}` } });
+  const at = Number.isFinite(task.endedAt) ? task.endedAt : now;
+  const outcome = { taskId: String(task.id), state: task.state, ...(task.error ? { error: String(task.error) } : {}), at };
+  // The end is a fresh due moment when the old one has passed: the scheduler's wake id carries
+  // the due time, and the old moment was handled when she set the wait, so without this nothing
+  // would wake her for the outcome once the result turn leaves the record open.
+  const dueAt = Number.isFinite(record.dueAt) && record.dueAt > at ? record.dueAt : at;
+  return transition(record, 'pending', { now, by: 'engine', code: `task-${task.state}`, patch: { outcome, note: `task-${task.state}`, dueAt } });
 }
 
 /** `record` expired when it is open and `now` is at or past its `expiresAt`; unchanged otherwise. */

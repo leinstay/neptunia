@@ -109,6 +109,18 @@ test('arrive: the awaited errand ending moves the wait back to pending once; a s
   assert.equal(again.intention, first.intention);
 });
 
+test('arrive: the end is a fresh due moment when the old one has passed; a due still ahead stays', () => {
+  // She waited at T0 on an intention due at T0 (the wake that set the wait): the end at T0 + 5 is the new due.
+  const past = waitOn(mine({ dueAt: T0 }), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  assert.equal(arrive(past, { id: 'tabc', state: 'done', endedAt: T0 + 5 }, { now: T0 + 10 }).intention.dueAt, T0 + 5);
+  // No due time at all: the end is one now.
+  const none = waitOn(mine(), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  assert.equal(arrive(none, { id: 'tabc', state: 'done' }, { now: T0 + 10 }).intention.dueAt, T0 + 10);
+  // A due ahead of the end is hers to keep.
+  const ahead = waitOn(mine({ dueAt: T0 + 2 * HOUR }), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  assert.equal(arrive(ahead, { id: 'tabc', state: 'done', endedAt: T0 + 5 }, { now: T0 + 10 }).intention.dueAt, T0 + 2 * HOUR);
+});
+
 test('reconcileWait: a gone errand, an ended one and a passed deadline each move the wait to pending with its note', () => {
   const waiting = waitOn(mine(), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
   assert.equal(reconcileWait(waiting, { taskOf: () => null, now: T0 + 1 }).intention.note, 'task-missing');

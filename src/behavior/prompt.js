@@ -3414,6 +3414,12 @@ export function buildRequest(input) {
   // An overheard turn has its own task text (prompts.overheard) INSTEAD of the mode's; without
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask = overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
+  // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
+  // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
+  // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
+  // blank, the mode's text applies (degraded).
+  const errandPrompt = prompts['errand-result'];
+  const errandTask = triggerKind === 'task' && !trigger && typeof errandPrompt === 'string' && errandPrompt.trim() ? errandPrompt : null;
   // A follow-up or an untagged reply has its own task text (prompts['follow-up']) INSTEAD of
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];
@@ -3459,7 +3465,7 @@ export function buildRequest(input) {
       target: callItem ? `#${callItem.index}` : '',
       ...(sourceChannel ? { channel: sourceChannel.name, destination: here } : {}),
     };
-    const baseTask = fillPromptTemplate(overheardTask ?? followUpTask ?? prompts[mode] ?? '', taskValues);
+    const baseTask = fillPromptTemplate(overheardTask ?? errandTask ?? followUpTask ?? prompts[mode] ?? '', taskValues);
     // Owner-forced turn (`/nep interject`/`/nep initiate`): tell the model
     // `<skip/>` is not the expected outcome this time -- optional, missing
     // prompts.forced (an older/undeployed labels layer) leaves the task as-is.
