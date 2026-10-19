@@ -54,13 +54,23 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request any more: she sees through the describer's captions, `features.mediaDescriptions`, and
  * her second look, `features.imageRelook`, both on the `vision` helper model); `innerLife.loop.strayFollowUps`
- * (an inner turn's output tags act as calls now, so nothing is left to follow up).
+ * (an inner turn's output tags act as calls now, so nothing is left to follow up). No bound in the
+ * engine is in dollars: `innerLife.caps.usdPerDay`, `innerLife.estimatedTurnUsd`,
+ * `innerLife.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
+ * not read (the provider keys' own limits are the money bounds; costs are only reported).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'memory.voiceModel', use: 'models.core', read: (config) => config?.memory?.voiceModel },
   { key: 'features.vision', use: 'features.mediaDescriptions', read: (config) => config?.features?.vision },
   { key: 'features.attachedDescriptions', use: 'features.mediaDescriptions', read: (config) => config?.features?.attachedDescriptions },
   { key: 'innerLife.loop.strayFollowUps', use: 'innerLife.loop.maxSteps', read: (config) => config?.innerLife?.loop?.strayFollowUps },
+  { key: 'innerLife.caps.usdPerDay', use: null, read: (config) => config?.innerLife?.caps?.usdPerDay },
+  { key: 'innerLife.estimatedTurnUsd', use: null, read: (config) => config?.innerLife?.estimatedTurnUsd },
+  { key: 'innerLife.errandReserveMaxMinutes', use: null, read: (config) => config?.innerLife?.errandReserveMaxMinutes },
+  ...['web', 'server', 'drawing', 'thinker', 'dev', 'writer'].flatMap((agent) => [
+    { key: `agents.${agent}.daily.usd`, use: null, read: (config) => config?.agents?.[agent]?.daily?.usd },
+    { key: `agents.${agent}.limits.usd`, use: null, read: (config) => config?.agents?.[agent]?.limits?.usd },
+  ]),
 ]);
 
 /** How many hex characters of the sha256 `hot.hashes` keeps. */

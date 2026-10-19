@@ -485,7 +485,7 @@ function errandService(hot) {
   return { service, runs };
 }
 
-const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } };
+const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, web: { enabled: true, daily: { tasks: 10 } } } };
 
 test('task.run in the loop: after a search she hands off the errand, it is queued once with her turn and her brief as written; the same call again queues nothing', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });

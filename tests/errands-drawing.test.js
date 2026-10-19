@@ -85,7 +85,7 @@ test('drawing profile: a tool agent the runner never takes, with its own caps', 
   assert.equal(profile.tool, 'draw');
   assert.equal(profile.modelRole, 'drawing');
   assert.deepEqual({ ...profile.defaultLimits }, { seconds: 300 });
-  assert.deepEqual({ ...profile.defaultDaily }, { tasks: 100, usd: 5 });
+  assert.deepEqual({ ...profile.defaultDaily }, { tasks: 100 });
   assert.equal(profileOf('drawing'), null, 'no runner profile: it cannot be submitted as an errand');
   assert.deepEqual(Object.keys(TOOL_PROFILES), ['drawing']);
   assert.equal(isToolTask('drawing'), true);
@@ -265,7 +265,7 @@ test('runInline: a tool outside agents.maxOpen, errands keep their cap; a tool t
 test('runInline: the agent\'s daily caps refuse a picture before it starts, with the setting, the use and the cap; the same notice an image cap gives', async () => {
   let ran = 0;
   const run = async () => { ran += 1; return { output: 'p', usage: { usd: 0.6 } }; };
-  const hot = hotOf({ agents: { drawing: { daily: { tasks: 2, usd: 1 } } } });
+  const hot = hotOf({ agents: { drawing: { daily: { tasks: 2 } } } });
   const { errands } = makeService({ hot });
   assert.equal((await errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'a', requester, run })).ok, true);
   assert.equal((await errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'b', requester, run })).ok, true);
@@ -276,15 +276,9 @@ test('runInline: the agent\'s daily caps refuse a picture before it starts, with
   assert.ok(err instanceof ImageCapError);
   assert.deepEqual([err.reason, err.key, err.used, err.cap], ['daily', 'agents.drawing.daily.tasks', 2, 2]);
 
-  const usd = makeService({ hot: hotOf({ agents: { drawing: { daily: { tasks: 50, usd: 1 } } } }) });
-  await usd.errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'a', requester, run });
-  await usd.errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'b', requester, run });
-  const usdCap = await usd.errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'c', requester, run });
-  assert.equal(usdCap.code, 'cap-usd');
-  assert.equal(usdCap.key, 'agents.drawing.daily.usd');
-  assert.ok(Math.abs(usdCap.used - 1.2) < 1e-9);
-  assert.equal(usdCap.cap, 1);
-  await assert.rejects(() => drawPicture({ tool: toolOf({ images: fakeImages() }), errands: usd.errands, guildId: 'g1', input: { scene: 'd', selfName: 'Bot' }, requester }), (e) => e instanceof ImageCapError && e.key === 'agents.drawing.daily.usd');
+  // What the pictures cost never refuses one: only the count does.
+  const costly = makeService({ hot: hotOf({ agents: { drawing: { daily: { tasks: 50 } } } }) });
+  for (const goal of ['a', 'b', 'c']) assert.equal((await costly.errands.runInline({ guildId: 'g1', agent: 'drawing', goal, requester, run })).ok, true);
 });
 
 test('runInline: a run past agents.drawing.limits.seconds is cut off as a timed-out generation', async () => {
@@ -331,7 +325,7 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   const clock = { t: NOW };
   const journalLines = [];
   const journal = { action: async (_guild, line) => { journalLines.push(line); } };
-  const config = { features: { journal: true }, agents: { maxOpen: 3, web: { daily: { tasks: 500, usd: 500 } }, drawing: { daily: { tasks: 500, usd: 500 } } } };
+  const config = { features: { journal: true }, agents: { maxOpen: 3, web: { daily: { tasks: 500 } }, drawing: { daily: { tasks: 500 } } } };
   const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal });
   const draw = () => {
     clock.t += 1000;

@@ -24,8 +24,8 @@ function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, jo
     features: { journal: journalOn },
     agents: {
       maxOpen: 3,
-      web: { daily: { tasks: 5, usd: 1 }, out: '/var/lib/agent-web/out' },
-      server: { daily: { tasks: 2, usd: 0.5 }, out: '/var/lib/agent-server/out' },
+      web: { daily: { tasks: 5 }, out: '/var/lib/agent-web/out' },
+      server: { daily: { tasks: 2 }, out: '/var/lib/agent-server/out' },
       ...agents,
     },
   };
@@ -115,7 +115,7 @@ test('task store: a cancel closes an open task; the runner\'s later end changes 
   });
 });
 
-test('task store: the caps refuse with cap-open, cap-tasks and cap-usd, and the day rolls over', async () => {
+test('task store: the caps refuse with cap-open and cap-tasks, a dollar figure never refuses, and the day rolls over', async () => {
   await withCapturedLogs(() => {
     const { store, clock } = makeStore({ agents: { maxOpen: 2 } });
     assert.equal(store.add(asked).ok, true);
@@ -133,12 +133,13 @@ test('task store: the caps refuse with cap-open, cap-tasks and cap-usd, and the 
     const s2 = store.add(server).task;
     store.finish(s2.id, { status: 'done', usage: { usd: 0.1 } });
     assert.deepEqual(store.add(server), { ok: false, code: 'cap-tasks' });
-    // web: one dollar a day.
+    // web: what a day's tasks cost refuses nothing.
     const w = store.add(asked).task;
-    store.finish(w.id, { status: 'done', usage: { usd: 0.95 } });
-    assert.deepEqual(store.add(asked), { ok: false, code: 'cap-usd' });
-    assert.equal(store.budget('web').key, 'agents.web.daily.usd');
-    // A new UTC day: both rails start again.
+    store.finish(w.id, { status: 'done', usage: { usd: 500 } });
+    assert.equal(store.budget('web').spent, false);
+    assert.equal(store.add(asked).ok, true);
+    store.finish(store.open()[0].id, { status: 'done', usage: { usd: 500 } });
+    // A new UTC day: the task count starts again.
     clock.t += DAY;
     assert.equal(store.add(asked).ok, true);
     assert.equal(store.add(server).ok, true);
@@ -235,7 +236,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 test('task store: a finished task\'s files expire once the runner removed its directory; the handle then names nothing', async () => {
   await withCapturedLogs(() => {
     const out = tempDir('errands-out-');
-    const { store, dataDir } = makeStore({ agents: { maxOpen: 5, web: { daily: { tasks: 5, usd: 1 }, out } } });
+    const { store, dataDir } = makeStore({ agents: { maxOpen: 5, web: { daily: { tasks: 5 }, out } } });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
     const kept = store.add(asked).task;
     const gone = store.add(asked).task;
@@ -262,7 +263,7 @@ test('task store: a finished task\'s files expire once the runner removed its di
 
 test('task store: no out dir at all (no runner on this host) expires nothing', async () => {
   await withCapturedLogs(() => {
-    const { store } = makeStore({ agents: { web: { daily: { tasks: 5, usd: 1 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } } });
+    const { store } = makeStore({ agents: { web: { daily: { tasks: 5 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } } });
     const { task } = store.add(asked);
     store.finish(task.id, { status: 'done', result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] } });
     assert.equal(store.expireFiles(), 0);
@@ -331,21 +332,19 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     assert.deepEqual(costs.web.today, { runs: 2, input: 3000, output: 300, usd: 0.8999999999999999 });
     assert.equal(costs.web.last7.runs, 3);
     assert.equal(costs.dev.last30.runs, 0);
-    assert.deepEqual(store.today('web'), { tasks: costs.web.today.runs, usd: costs.web.today.usd, caps: { tasks: 5, usd: 1 } }, 'the caps read the costs\' today');
+    assert.deepEqual(store.today('web'), { tasks: costs.web.today.runs, usd: costs.web.today.usd, caps: { tasks: 5 } }, 'the caps read the costs\' today');
     const c = store.add(asked).task;
     store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
-    assert.deepEqual(store.add(asked), { ok: false, code: 'cap-usd' });
 
     // A restart: the list file carries no counters; tasks.jsonl gives the same numbers back.
     assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')), 'daily'), false);
     const again = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config });
     assert.deepEqual(again.costs(), store.costs());
-    assert.deepEqual(again.add(asked), { ok: false, code: 'cap-usd' });
 
     // The member's tasks leave the spend with their lines.
     again.forgetUser('u2');
     assert.equal(again.costs().web.today.runs, 2);
-    assert.equal(again.add(asked).ok, true, 'under the dollar cap again');
+    assert.equal(again.add(asked).ok, true, 'under the task cap');
     again.wipe();
     assert.deepEqual(again.costs(), {});
   });

@@ -435,13 +435,13 @@ const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchP
 /**
  * The keys only a development profile carries: the OpenCode tools it asks for (DEVELOPMENT_TOOLS),
  * its reasoning effort (DEVELOPMENT_EFFORTS, OpenCode's `--variant`) and its default per-run caps
- * `{ usd, steps, minutes }`.
+ * `{ steps, minutes }`.
  */
 const DEVELOPMENT_KEYS = Object.freeze(['tools', 'effort', 'limits']);
 
 /**
  * The keys only a tool profile carries: the name of its tool (TOOL_NAMES), its per-run cap
- * `{ seconds }` and its daily caps `{ tasks, usd }` (the same keys a worker's `daily` has).
+ * `{ seconds }` and its daily cap `{ tasks }` (the same keys a worker's `daily` has).
  */
 const TOOL_KEYS = Object.freeze(['tool', 'limits', 'daily']);
 
@@ -584,21 +584,21 @@ function validateProfile(agent, raw) {
   if (development) {
     checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
     if (!DEVELOPMENT_EFFORTS.includes(raw.effort)) throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
-    checkNumbers(agent, 'limits', raw.limits, { usd: false, steps: true, minutes: false });
+    checkNumbers(agent, 'limits', raw.limits, { steps: true, minutes: false });
     return;
   }
   if (tool) {
     if (!TOOL_NAMES.includes(raw.tool)) throw new AgentProfileError(agent, 'tool', `must be one of ${TOOL_NAMES.join(', ')}`);
     checkNumbers(agent, 'limits', raw.limits, { seconds: false });
-    checkNumbers(agent, 'daily', raw.daily, { tasks: true, usd: false });
+    checkNumbers(agent, 'daily', raw.daily, { tasks: true });
     return;
   }
   if (!worker) return;
 
   if (!Object.hasOwn(SHELL_CLASSES, raw.shell)) throw new AgentProfileError(agent, 'shell', `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`);
   checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${raw.shell}`);
-  checkNumbers(agent, 'limits', raw.limits, { steps: true, usd: false, seconds: false });
-  checkNumbers(agent, 'daily', raw.daily, { tasks: true, usd: false });
+  checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
+  checkNumbers(agent, 'daily', raw.daily, { tasks: true });
   if (raw.searchProvider !== null && (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))) {
     throw new AgentProfileError(agent, 'searchProvider', 'must be a provider name or null');
   }

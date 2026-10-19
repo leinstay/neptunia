@@ -1957,22 +1957,16 @@ export function createTurnRunner({
 
   /**
    * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
-   * once the day's dollars are spent (`spendAllowed`, asked now: the real reported spend, this
-   * turn's so far included) every call is refused (`inner-usd-cap`); otherwise
    * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
    * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`), and a
    * public post (POSTING_SKILLS in a server channel) past the day's cap (`postAllowed`) is refused
-   * (`inner-post-cap`), and an errand (`task.run`) is let through only when its most possible cost
-   * can be held against the day's dollars (`reserveErrand`, asked now: `inner-usd-cap` otherwise;
-   * `hold` names the hold, bound to the errand or released once the call answered).
+   * (`inner-post-cap`).
    * `public` says whether a call that runs is a public post; `delivery` marks a post to one of `inner.deliveryChannels`
    * (a promise kept to the channel that asked): exempt from the cap and not counted.
-   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean, delivery?: true, hold?: string }|null}
+   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean, delivery?: true }|null}
    */
-  function innerVerdict(inner, skill, { channel, args, key = null }) {
+  function innerVerdict(inner, skill, { channel, args }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
-    // The day's dollars spent (what was really reported, this turn's so far included): no call more.
-    if (typeof inner.spendAllowed === 'function' && !inner.spendAllowed()) return { refusal: { code: 'inner-usd-cap', reason: 'innerLife.caps.usdPerDay' } };
     if (effects === 'read') return null;
     if (inner.shadow) return { proposed: true };
     if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
@@ -1982,12 +1976,6 @@ export function createTurnRunner({
     const delivery = isPublic && target !== null && inner.deliveryChannels instanceof Set && inner.deliveryChannels.has(target);
     if (delivery) return { public: false, delivery: true };
     if (isPublic && typeof inner.postAllowed === 'function' && !inner.postAllowed()) return { refusal: { code: 'inner-post-cap', reason: 'innerLife.caps.publicPostsPerDay' } };
-    // An errand's most possible cost held from its dispatch (an agent-less call is the operation's to refuse).
-    if (skill === 'task.run' && typeof inner.reserveErrand === 'function' && typeof args?.agent === 'string' && args.agent) {
-      const held = inner.reserveErrand({ agent: args.agent, key });
-      if (!held?.ok) return { refusal: { code: held?.code ?? 'inner-usd-cap', reason: 'innerLife.caps.usdPerDay' } };
-      return { public: isPublic, hold: held.id };
-    }
     return { public: isPublic };
   }
 
@@ -2020,7 +2008,7 @@ export function createTurnRunner({
     // refused once the kill switch stopped it (asked right here, before the action), and a public
     // post past the day's cap is refused too.
     const inner = draft?.inner ?? null;
-    const innerGate = inner && !plan.refusal ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {}, key: envelope?.idempotencyKey ?? null }) : null;
+    const innerGate = inner && !plan.refusal ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {} }) : null;
     // Whether the call was dispatched (its operation ran, whatever it answered).
     let ran = false;
     if (plan.refusal) result = refusedWith(plan.refusal);
@@ -2064,12 +2052,6 @@ export function createTurnRunner({
         (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
       }
       if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
-      // The errand's hold: bound to the errand it became, kept on an unknown answer (it may have
-      // been queued; it lapses on its own), released when nothing was handed off.
-      if (innerGate?.hold) {
-        if (ran && result.status === 'ok' && result.taskId) inner.bindErrand?.(innerGate.hold, result.taskId);
-        else if (!(ran && (result.status === 'ok' || result.status === 'unknown'))) inner.releaseErrand?.(innerGate.hold);
-      }
       // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
       if (innerGate?.proposed) {
         log.info('skills: proposed', { channel: channel.id, skill, shadow: true });
@@ -2599,12 +2581,6 @@ export function createTurnRunner({
       // A post with nothing to show back, an intention she woke for still untouched: one more step names it.
       openDue = innerTurn && posted && !fresh && !openTaken && openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) !== '';
       if (!fresh && !openDue) break;
-      // An inner turn past the day's dollars (src/behavior/inner.js, asked now): no further request.
-      if (typeof draft?.inner?.spendAllowed === 'function' && !draft.inner.spendAllowed()) {
-        log.info('skills: loop cap', { channel: channel.id, reason: 'usd', step: steps, dropped: 0 });
-        draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: 0, detail: 'usd' });
-        break;
-      }
       // The open follow-up alone never opens a step past the budget: no new request once spent.
       if (!fresh && (steps >= settings.maxSteps || clock() - startedAt >= settings.timeBudgetMs)) break;
       steps += 1;
@@ -5222,8 +5198,7 @@ export function createTurnRunner({
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
    * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean, deliveryChannels?: Set<string>,
-   *   onPosted?: () => void, spendAllowed?: () => boolean, reserveErrand?: Function, bindErrand?: Function,
-   *   releaseErrand?: Function, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.js,
+   *   onPosted?: () => void, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.js,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
    *   request carries `<wake>` (src/behavior/wake.js over `wake`) and the task `prompts.inner`, its
    *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
@@ -5234,11 +5209,7 @@ export function createTurnRunner({
    *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
    *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
    *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
-   *   and a public post needs `postAllowed()` (then `onPosted()`), an errand (`task.run`)
-   *   `reserveErrand({ agent, key })` (its hold then bound with `bindErrand(hold, taskId)` or
-   *   released with `releaseErrand(hold)`); in either mode, once
-   *   `spendAllowed()` says the day's dollars are spent, every further call is refused
-   *   (`inner-usd-cap`) and the tool loop makes no further request. An answer with no action ends
+   *   and a public post needs `postAllowed()` (then `onPosted()`). An answer with no action ends
    *   `skip` with `reason: 'nothing-to-do'`; after a post that left nothing to show while an intention she woke for is
    *   still untouched, the tool loop makes one open follow-up step (toolLoop: `task.continueInner` with the open line,
    *   once per turn). The last loop step still runs one terminal action call of hers (a post, an

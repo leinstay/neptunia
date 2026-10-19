@@ -192,17 +192,6 @@ test('inner-week: the stub gate mirrors the inner gate: reads run, shadow propos
   assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: false, mayAct: on, postAllowed: off }), { status: 'refused', code: 'inner-post-cap' });
   assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: false, mayAct: on, postAllowed: on }), { status: 'executed', public: true });
   assert.equal(stubVerdict({ effects: null, skill: 'made.up', shadow: false, mayAct: on, postAllowed: on }).code, 'unknown-skill');
-  assert.deepEqual(stubVerdict({ effects: 'read', skill: 'web.search', shadow: true, mayAct: on, postAllowed: on, spendAllowed: off }), { status: 'refused', code: 'inner-usd-cap' }, 'past the day\'s dollars not even a read');
-});
-
-test('inner-week: the stub gate holds an errand\'s cost before it runs, as the inner gate does', () => {
-  const on = () => true;
-  const asked = [];
-  const holds = (ok) => (input) => (asked.push(input), ok ? { ok: true, id: 'h1' } : { ok: false, code: 'inner-usd-cap' });
-  assert.deepEqual(stubVerdict({ effects: 'paid', skill: 'task.run', shadow: false, mayAct: on, postAllowed: on, reserveErrand: holds(true), agent: 'web', key: 'k1' }), { status: 'executed', public: false, hold: 'h1' });
-  assert.deepEqual(stubVerdict({ effects: 'paid', skill: 'task.run', shadow: false, mayAct: on, postAllowed: on, reserveErrand: holds(false), agent: 'web', key: 'k2' }), { status: 'refused', code: 'inner-usd-cap' });
-  assert.deepEqual(stubVerdict({ effects: 'paid', skill: 'task.run', shadow: true, mayAct: on, postAllowed: on, reserveErrand: holds(true), agent: 'web' }), { status: 'proposed' }, 'shadow holds nothing');
-  assert.deepEqual(asked, [{ agent: 'web', key: 'k1' }, { agent: 'web', key: 'k2' }]);
 });
 
 // ---- the gates bite -------------------------------------------------------------
@@ -214,7 +203,7 @@ function bareRun(extra = {}) {
     startMs: start,
     endMs: start + 2 * 24 * HOUR_MS,
     timezone: 'UTC',
-    settings: { caps: { perDay: 24, perHour: 2, perChain: 3, usdPerDay: 4, publicPostsPerDay: 1 } },
+    settings: { caps: { perDay: 24, perHour: 2, perChain: 3, publicPostsPerDay: 1 } },
     turns: [],
     journal: [],
     errandCosts: [],
@@ -330,35 +319,11 @@ test('inner-week: a restart while a wake waits resumes it once, and the kill swi
   assert.ok(run.turns.every((t) => t.at < stop.from || t.at >= stop.to), 'no inner turn while stopped');
 });
 
-test('inner-week: self-rescheduling meets the chain cap and a thin dollar budget waits for the next day', async () => {
+test('inner-week: self-rescheduling meets the chain and the hourly caps', async () => {
   const { run } = await week(readFixture('self-rescheduling', { dir: FIXTURES }));
   const caps = new Set(run.journal.filter((e) => e.event === 'capped').map((e) => e.cap));
-  assert.ok(caps.has('per-chain') && caps.has('usd-per-day') && caps.has('per-hour'));
+  assert.ok(caps.has('per-chain') && caps.has('per-hour'));
   assert.deepEqual(capViolations(run), []);
-});
-
-test('inner-week: turns costlier than the estimate never push the day over; the reservation follows the real cost', async () => {
-  const { run, gates } = await week(readFixture('expensive-turns', { dir: FIXTURES }));
-  assert.deepEqual(capViolations(run), []);
-  assert.ok(run.journal.some((e) => e.event === 'capped' && e.cap === 'usd-per-day'));
-  const reserved = run.journal.filter((e) => e.event === 'turn').map((e) => e.cost.reservedUsd);
-  assert.deepEqual(reserved.slice(0, 2), [0.15, 0.4]);
-  assert.ok(gates.every((g) => g.pass));
-});
-
-test('inner-week: errands that would pass the day\'s dollars are refused at dispatch; their holds give way to the real cost or lapse', async () => {
-  const fx = readFixture('errand-reserve', { dir: FIXTURES });
-  const { run, gates } = await week(fx);
-  assert.deepEqual(capViolations(run), []);
-  const first = run.turns[0].result.inner.actions.map((a) => `${a.status}${a.code ? `:${a.code}` : ''}`);
-  assert.deepEqual(first, ['executed', 'executed', 'refused:inner-usd-cap']);
-  assert.deepEqual(run.errandCosts.map((c) => c.taskId), ['task-1', 'task-2']);
-  assert.deepEqual(run.journal.filter((e) => e.event === 'errand-released').map((e) => [e.taskId, e.reason]), [['task-3', 'lost']]);
-  assert.deepEqual(run.state.holds, []);
-  assert.ok(gates.every((g) => g.pass));
-  // With room for every errand, all three run: the refusal is the day's ceiling, nothing else.
-  const roomy = await week({ ...fx, innerLife: { ...fx.innerLife, caps: { usdPerDay: 2 } } });
-  assert.deepEqual(roomy.run.turns[0].result.inner.actions.map((a) => a.status), ['executed', 'executed', 'executed']);
 });
 
 test('inner-week: goals planted in a page, a memory result, tool output or laundered through her summary are proposed as external and her review never activates them', async () => {

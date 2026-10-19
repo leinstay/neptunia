@@ -49,7 +49,7 @@ function makeService(env, { keyByRole } = {}) {
     config: {
       features: { journal: true },
       llm: { keyByRole: keyByRole ?? { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY' } },
-      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } }, server: { enabled: true, daily: { tasks: 10, usd: 5 } } },
+      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
   };
   const journalLines = [];
@@ -151,7 +151,7 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
 
 test('errands service: forgetUser cancels the member\'s running task at its runner, then drops their tasks; wipe empties the guild\'s', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
   const gates = new Map();
   const cancels = [];
   const client = {
@@ -183,7 +183,7 @@ test('errands service: forgetUser cancels the member\'s running task at its runn
 
 test('errands service: a task carries context.recent, the origin channel\'s last agents.recentLines lines as of its queuing; a dm task sends none', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, web: { enabled: true, daily: { tasks: 10 } } } } };
   const buffer = [
     { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
     { channelId: 'c2', authorName: 'Νίκος', content: 'elsewhere' },
@@ -261,7 +261,7 @@ function fakeMirror() {
 
 test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { models: { agents: { web: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
+  const hot = { config: { models: { agents: { web: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
   const gates = new Map();
   const listeners = [];
   const client = {
@@ -298,7 +298,7 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
     await new Promise((resolve) => setImmediate(resolve));
     errands.forgetUser('g1', '7');
     await errands.idle();
-    const limits = { steps: 9, usd: 0.3, seconds: 90 };
+    const limits = { steps: 9, seconds: 90 };
     assert.deepEqual(ledger.calls, [
       ['add', done, 'queued', 'g1', limits],
       ['start', done, 'running', limits, 'openrouter/vendor/web-model'],
@@ -318,7 +318,7 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
 
 test('errands service: at start the open tasks without a ledger id are mirrored, then each one\'s restart failure; a mirror that throws never stops an errand', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     // Before the restart: two open tasks, one of them already mirrored.
@@ -402,7 +402,7 @@ async function pongRunner(sock) {
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
   const rootDir = tempDir('nep-errands-service-');
   const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
-  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, socket: sock, daily: { tasks: 10, usd: 5 } }, server: { enabled: false } } } };
+  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } } } };
   let clock = 1_000_000;
   const log = fakeLog();
   const client = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
@@ -455,7 +455,7 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
     run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
   };
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } } } };
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   try {

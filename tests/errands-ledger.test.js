@@ -151,7 +151,7 @@ test('ledger mirror: every transition of a done errand, with its idempotency key
         },
         idempotency: 'errand:t0000001:task.add',
       },
-      { op: 'task.transition', args: { id: 'L1', to: 'triaged', set: { role: 'web', budget_usd: 0.5, step_cap: 25, estimate_minutes: 5 } }, idempotency: key('task.transition:triaged') },
+      { op: 'task.transition', args: { id: 'L1', to: 'triaged', set: { role: 'web', step_cap: 25, estimate_minutes: 5 } }, idempotency: key('task.transition:triaged') },
       { op: 'task.transition', args: { id: 'L1', to: 'approved' }, idempotency: key('task.transition:approved') },
       { op: 'task.claim', args: { id: 'L1', lease_seconds: 360 }, idempotency: key('task.claim') },
       { op: 'attempt.start', args: { task_id: 'L1', principal: 'core', role: 'web', model: 'openrouter/vendor/model', worktree: null }, idempotency: key('attempt.start') },
@@ -301,7 +301,7 @@ function machine({ triage = true } = {}) {
     let to = from;
     if (op === 'task.transition') {
       const set = args.set ?? {};
-      const allowed = (from === 'proposed' && args.to === 'triaged' && triage && set.role && set.budget_usd > 0 && set.estimate_minutes > 0)
+      const allowed = (from === 'proposed' && args.to === 'triaged' && triage && set.role && set.estimate_minutes > 0)
         || (from === 'triaged' && args.to === 'approved')
         || (from === 'in_progress' && ['done', 'failed', 'cancelled'].includes(args.to))
         || (['proposed', 'triaged', 'approved'].includes(from) && args.to === 'cancelled');
@@ -347,7 +347,7 @@ test('ledger mirror: against the ledger\'s machine a mirrored errand goes propos
     assert.deepEqual(states.attempts, [{ id: 'A1', task: 'L1' }]);
     assert.deepEqual(states.results, [['L1', 'summary'], ['L1', 'file']]);
     assert.deepEqual(ledger.requests.filter((request) => request.op === 'task.transition').map((request) => request.args.to), ['triaged', 'approved', 'done']);
-    assert.deepEqual(ledger.requests.find((request) => request.args.to === 'triaged').args.set, { role: 'web', budget_usd: 0.3, step_cap: 9, estimate_minutes: 2 });
+    assert.deepEqual(ledger.requests.find((request) => request.args.to === 'triaged').args.set, { role: 'web', step_cap: 9, estimate_minutes: 2 });
     assert.deepEqual(log.calls.filter((call) => call.level === 'warn'), [], 'no refused or skipped call');
   } finally {
     mirror.close();

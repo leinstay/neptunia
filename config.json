@@ -471,8 +471,8 @@
       "cost": { "input": 2, "output": 6 },
       "socket": "/run/neptunia-agent-web/sock",
       "out": "/var/lib/neptunia-agent-web/out",
-      "limits": { "steps": 25, "usd": 0.5, "seconds": 300 },
-      "daily": { "tasks": 40, "usd": 8 },
+      "limits": { "steps": 25, "seconds": 300 },
+      "daily": { "tasks": 40 },
       "search": { "provider": "exa" }
     },
     "server": {
@@ -480,29 +480,26 @@
       "cost": { "input": 2, "output": 6 },
       "socket": "/run/neptunia-agent-server/sock",
       "out": "/var/lib/neptunia-agent-server/out",
-      "limits": { "steps": 20, "usd": 0.2, "seconds": 120 },
-      "daily": { "tasks": 40, "usd": 3 }
+      "limits": { "steps": 20, "seconds": 120 },
+      "daily": { "tasks": 40 }
     },
     "drawing": {
       "limits": { "seconds": 300 },
-      "daily": { "tasks": 100, "usd": 5 }
+      "daily": { "tasks": 100 }
     },
     "thinker": {
       "cost": { "input": 4, "output": 20 },
-      "limits": { "usd": 10, "steps": 400, "minutes": 60 },
-      "daily": { "usd": 60 },
+      "limits": { "steps": 400, "minutes": 60 },
       "contextLimit": 350000,
       "contextHard": 400000
     },
     "dev": {
       "cost": { "input": 2, "output": 10 },
-      "limits": { "usd": 10, "steps": 300, "minutes": 60 },
-      "daily": { "usd": 40 }
+      "limits": { "steps": 300, "minutes": 60 }
     },
     "writer": {
       "cost": { "input": 5, "output": 25 },
-      "limits": { "usd": 5, "steps": 150, "minutes": 45 },
-      "daily": { "usd": 20 }
+      "limits": { "steps": 150, "minutes": 45 }
     }
   },
   "intentions": {
@@ -519,10 +516,8 @@
     "tickSeconds": 60,
     "queueMax": 20,
     "chatMessages": 30,
-    "estimatedTurnUsd": 0.15,
-    "errandReserveMaxMinutes": 60,
     "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
-    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 },
+    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "publicPostsPerDay": 2 },
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },
     "retry": { "delaysMinutes": [1, 5, 15, 60], "maxHours": 6 },

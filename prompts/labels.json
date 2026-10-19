@@ -347,7 +347,7 @@
       "running": "running",
       "stopped": "stopped since {at}",
       "turnsLine": "turns today {used} / {cap} · {chains} chains",
-      "usdLine": "{spent} spent + {held} held / {cap} USD",
+      "usdLine": "{spent} spent",
       "postsLine": "public posts {used} / {cap}",
       "nextLine": "next wake {at} ({kind})",
       "nextNone": "next wake: none scheduled",
@@ -544,7 +544,6 @@
       "day": "inner turns today: {left} remaining of {cap} (resets {reset})",
       "hour": "inner turns this hour: {left} remaining of {cap}",
       "chain": "turns for this thread: {left} remaining of {cap}",
-      "usd": "dollars today: {left} remaining of {cap} (resets {reset})",
       "posts": "public posts today: {left} remaining of {cap} (resets {reset})",
       "postsDelivery": "a delivery of this intention to {channel} does not count"
     }
@@ -611,7 +610,6 @@
         "timeout": "the chat did not answer in time",
         "cap-open": "too many of your errands are open already",
         "cap-tasks": "today's errands for that agent are used up",
-        "cap-usd": "today's budget for that agent is spent",
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",
@@ -622,7 +620,6 @@
         "candidate-external": "that candidate came from outside material; only an ordinary turn can accept it",
         "candidate-same-turn": "a candidate cannot be accepted in the turn that wrote its line",
         "candidate-same-chain": "an inner turn cannot accept a candidate born in its own chain",
-        "inner-usd-cap": "today's money for your own initiative is spent",
         "inner-post-cap": "today's public posts on your own initiative are used up",
         "target-required": "a reaction needs its target message",
         "destination-required": "no current channel; use message.create with a channel",

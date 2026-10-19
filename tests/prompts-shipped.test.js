@@ -790,7 +790,6 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
       day: { left: 20, cap: 24, resetAt },
       hour: { left: 3, cap: 4, resetAt: NOW + HOUR_MS },
       chain: { left: 2, cap: 3 },
-      usd: { left: 3.5, cap: 4, resetAt },
       posts: { left: 2, cap: 2, resetAt },
     },
   };

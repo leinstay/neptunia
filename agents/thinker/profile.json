@@ -6,6 +6,6 @@
   "override": null,
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill", "external_directory"],
   "effort": "high",
-  "limits": { "usd": 10, "steps": 400, "minutes": 60 },
+  "limits": { "steps": 400, "minutes": 60 },
   "description": "Orchestrates the development tasks of the ledger: writes briefs, reviews the work, runs the tests and merges; never deploys."
 }

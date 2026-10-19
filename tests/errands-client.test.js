@@ -99,9 +99,9 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
   client.onProgress((event) => progress.push(event));
   try {
     await withCapturedLogs(async () => {
-      const running = client.run({ agent: 'web', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 } });
+      const running = client.run({ agent: 'web', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, seconds: 30 } });
       const request = await runner.next((r) => r.op === 'run');
-      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 }, model: ROLE_DEFAULTS.web });
+      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, seconds: 30 }, model: ROLE_DEFAULTS.web });
       runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
       runner.reply({ id: 'task-1', event: 'end', status: 'done', result: { text: 'found', sources: ['https://example.org/a'], files: [{ path: '/out/task-1/a.png', name: 'a.png', contentType: 'image/png', bytes: 10 }] }, usage: { steps: 2, usd: 0.01 } });
       const outcome = await running;

@@ -63,7 +63,7 @@ function scenarioConfig(grants, { agents = {} } = {}) {
     models: { core: 'x/chat' },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false },
-    agents: { maxOpen: 3, web: { daily: { tasks: 2, usd: 8 } }, server: { daily: { tasks: 1, usd: 3 } }, ...agents },
+    agents: { maxOpen: 3, web: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
     features: { skills: true, followUpContinuation: true },
   }, SELF, grants);
 }
@@ -142,7 +142,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   assert.deepEqual([unbudgeted.verdict.code, unbudgeted.verdict.reason], ['no-budget', 'unavailable']);
 
   // The caps are read at the moment of use: a lower web cap refuses it the next time.
-  const lowered = scenarioConfig(['task.run'], { agents: { web: { daily: { tasks: 1, usd: 8 } } } });
+  const lowered = scenarioConfig(['task.run'], { agents: { web: { daily: { tasks: 1 } } } });
   const live = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => lowered, now: () => NOW });
   assert.equal(runTask({ config: lowered, tasks: live }).verdict.code, 'cap-tasks');
 

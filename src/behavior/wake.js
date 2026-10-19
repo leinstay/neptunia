@@ -50,7 +50,7 @@ export function feedbackFactText(fact, l) {
 }
 
 /** The budgets the block names, in order. */
-export const WAKE_BUDGETS = Object.freeze(['day', 'hour', 'chain', 'usd', 'posts']);
+export const WAKE_BUDGETS = Object.freeze(['day', 'hour', 'chain', 'posts']);
 
 /** A label of `l` filled, or '' when it is missing. */
 function part(l, key, values) {

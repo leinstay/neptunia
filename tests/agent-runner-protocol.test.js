@@ -23,7 +23,7 @@ test('validateRequest: a full run passes and is normalised', () => {
   const r = validateRequest({
     op: 'run', id: 'task-1', goal: '  find a meme  ',
     context: { scope: 'dm', asker: 'Theodora' },
-    limits: { steps: 10, usd: 0.5, seconds: 60 },
+    limits: { steps: 10, seconds: 60 },
     tools: ['search', 'search', 'fetch'], model: 'x-ai/grok-4.7',
     cost: { input: 2, output: 6 }, searchProvider: 'exa',
   });
