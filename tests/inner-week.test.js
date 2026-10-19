@@ -30,8 +30,11 @@ import {
   renderReport,
   reportOf,
   stepsOf,
+  withChannelMap,
 } from '../tools/lib/inner-week.mjs';
-import { effectsLookup, main, parseArgs, readFixture, scriptedHistory } from '../tools/inner-week.mjs';
+import { addFixturePeople, effectsLookup, liveChannelMap, main, parseArgs, readFixture, scriptedHistory } from '../tools/inner-week.mjs';
+import { createStore } from '../src/memory/store.js';
+import { directoryEntries } from '../src/behavior/handles.js';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
 import { HOUR_MS, MINUTE_MS } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -384,13 +387,14 @@ test('inner-week: in a live run the fixture gate is informational and live-reaso
   const fx = fixture();
   const dueSeen = [{ id: 'w1', intentionId: 'i1' }, { id: 'w2', intentionId: 'i2' }];
   const reasoned = '<call skill="intent.update" id="i1" reason="done it"/>';
-  const one = computeGates(bareRun({ dueSeen, turns: [liveTurn(at, [reasoned])] }), fx, effectsOf);
+  const woken = (turn, ids) => ({ ...turn, items: ids.map((id) => ({ kind: 'intention_due', intentionIds: [id] })) });
+  const one = computeGates(bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned]), ['i1', 'i2'])] }), fx, effectsOf);
   assert.equal(gate(one, 'fixture'), undefined);
   assert.deepEqual([gate(one, 'fixture (stub expectations)').pass, gate(one, 'fixture (stub expectations)').info], [true, true]);
   assert.equal(gate(one, 'live-reasons').pass, false);
   assert.match(gate(one, 'live-reasons').detail, /i2/);
   const thought = '<think>i2 can wait, nothing came of it</think><call skill="intent.cancel" id="i2"/>';
-  const both = computeGates(bareRun({ dueSeen, turns: [liveTurn(at, [reasoned, thought])] }), fx, effectsOf);
+  const both = computeGates(bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned, thought]), ['i1', 'i2'])] }), fx, effectsOf);
   assert.equal(gate(both, 'live-reasons').pass, true);
   assert.match(gate(both, 'live-reasons').detail, /^2 due intention/);
   const stub = computeGates(bareRun({ dueSeen, turns: [turnAt(at)] }), fx, effectsOf);
@@ -413,4 +417,70 @@ test('inner-week: the report of a live run shows her steps and the informational
   assert.match(md, /- think: she asked twice/);
   assert.match(md, /- call intent\.update/);
   assert.match(gatesTable([report]), /info/);
+});
+
+test('inner-week: live-reasons: her reason covers, an engine drop or an expiry before any turn of hers is disposed, a live wake left without a reason fails', () => {
+  const at = Date.parse('2026-11-02T10:00:00Z');
+  const fx = fixture();
+  const dueSeen = [{ id: 'w1', intentionId: 'i1' }, { id: 'w2', intentionId: 'i2' }, { id: 'w3', intentionId: 'i3' }, { id: 'w4', intentionId: 'i4' }];
+  const items = (id) => [{ kind: 'intention_due', intentionIds: [id] }];
+  const reasoned = { ...liveTurn(at, ['<call skill="intent.update" id="i1" reason="done it"/>']), items: items('i1') };
+  const silent = { ...liveTurn(at + HOUR_MS, ['<msg>hi</msg>']), items: items('i2') };
+  const journal = [{ at: at + 2 * HOUR_MS, event: 'no-channel', wake: { id: 'w3', kind: 'intention_due', intentionIds: ['i3'] } }];
+  const intentions = [{ id: 'i1', status: 'done' }, { id: 'i2', status: 'pending' }, { id: 'i3', status: 'pending' }, { id: 'i4', status: 'expired' }];
+  // Only the wake she saw and left without a reason fails.
+  const failing = gate(computeGates(bareRun({ dueSeen, turns: [reasoned, silent], journal, intentions }), fx, effectsOf), 'live-reasons');
+  assert.equal(failing.pass, false);
+  assert.match(failing.detail, /no reason from her for: i2$/);
+  assert.match(failing.detail, /disposed by the engine: i3 \(no-channel\), i4 \(expired\)/);
+  assert.doesNotMatch(failing.detail, /for: .*i3/);
+  // Without that wake the gate passes, the engine's two still listed.
+  const passing = gate(computeGates(bareRun({ dueSeen: dueSeen.filter((d) => d.intentionId !== 'i2'), turns: [reasoned], journal, intentions }), fx, effectsOf), 'live-reasons');
+  assert.equal(passing.pass, true);
+  assert.match(passing.detail, /^3 due intention\(s\): 1 with her reason; disposed by the engine: i3 \(no-channel\), i4 \(expired\)$/);
+  // Woken live and dropped later: she saw it, so her silence still counts.
+  const dropped = [...journal, { at: at + 3 * HOUR_MS, event: 'stale', wake: { id: 'w2', kind: 'intention_due', intentionIds: ['i2'] } }];
+  assert.equal(gate(computeGates(bareRun({ dueSeen, turns: [reasoned, silent], journal: dropped, intentions }), fx, effectsOf), 'live-reasons').pass, false);
+});
+
+// ---- live runs: the fixture's world mapped onto the real channel and her directory ----
+
+test('inner-week: in live mode every writable fixture channel is the real channel; an unwritable one stays as the fixture has it', async () => {
+  const fx = readFixture('promises', { dir: FIXTURES });
+  const real = { id: '123456789012345678', name: 'dev-room' };
+  const map = liveChannelMap(fx, real);
+  assert.deepEqual(map, { 'c-general': real, 'c-games': real });
+  const mapped = withChannelMap(fx, map);
+  assert.deepEqual(mapped.channels, [{ id: real.id, name: real.name, writable: true }, { id: 'c-news', name: 'announcements', writable: false }]);
+  assert.equal(mapped.history.channel, real.id);
+  const intend = Object.fromEntries(mapped.events.filter((e) => e.kind === 'intend').map((e) => [e.intention.key, e.intention.channel]));
+  assert.deepEqual(intend, { 'kept-quiz': real.id, 'kept-map': real.id, 'forgotten-book': real.id, unwritable: 'c-news' });
+  assert.ok(mapped.events.filter((e) => e.kind !== 'intend').every((e) => e.channel === real.id));
+  assert.deepEqual(mapped.people, fx.people);
+  // The original is untouched; a map with no name keeps the fixture's.
+  assert.equal(fx.channels[0].id, 'c-general');
+  assert.equal(withChannelMap(fx, liveChannelMap(fx, { id: real.id, name: null })).channels[0].name, 'general');
+  // Played with the stub: the kept intentions' destination is the real channel, the wakes land in it, the unwritable one still drops as no-channel.
+  const { run } = await week(mapped, { mode: 'shadow' });
+  const byKey = Object.fromEntries(Object.entries(run.keys).map(([key, id]) => [key, run.intentions.find((r) => r.id === id)]));
+  assert.equal(byKey['kept-quiz'].destination, real.id);
+  assert.equal(byKey.unwritable.destination, 'c-news');
+  assert.ok(run.turns.length > 0);
+  assert.ok(run.turns.every((turn) => turn.channelId === real.id));
+  const drops = run.journal.filter((e) => e.event === 'no-channel');
+  assert.deepEqual(drops.map((e) => e.wake.intentionIds), [[byKey.unwritable.id]]);
+});
+
+test('inner-week: the fixture\'s people join the copied directory with their names and nothing is written to disk', () => {
+  const dataDir = tempDir('nep-week-people-');
+  const store = createStore({ dataDir });
+  const at = Date.parse('2026-11-02T00:00:00Z');
+  const added = addFixturePeople(store, 'g1', { Ivo: 'u-201', Sanne: 'u-202' }, at);
+  assert.deepEqual(added, ['u-201', 'u-202']);
+  const entries = directoryEntries(store.listUserProfiles('g1'), { selfId: 'self' });
+  assert.deepEqual(entries.map((e) => [e.id, e.names, e.aliases]), [['u-201', ['Ivo'], []], ['u-202', ['Sanne'], []]]);
+  assert.equal(fs.existsSync(path.join(dataDir, 'guilds')), false);
+  // Idempotent: the same people again add nothing.
+  assert.deepEqual(addFixturePeople(store, 'g1', { Ivo: 'u-201' }, at), []);
+  assert.equal(store.listUserProfiles('g1').length, 2);
 });

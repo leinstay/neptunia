@@ -24,7 +24,11 @@
 // Discord over REST, GET only (`--channel` is the real channel every fixture conversation is played
 // in; its sends refused), her memory an unflushed copy of `--data` (default the deployment's data
 // directory; read only), the history of each turn the fixture's scripted chat instead of the real
-// channel's, the intentions and errands the week's own. The spend gate: a stub pass of the same
+// channel's, the intentions and errands the week's own. So that the week reads as her own world:
+// every writable fixture channel is the real channel (`withChannelMap`: the intentions' destinations,
+// the wakes, the scripted history; an unwritable one keeps its fixture id and drops as no-channel
+// as the fixture intends), and the fixture's people are members of the copied directory with
+// their names (`addFixturePeople`; nothing reaches `--data`). The spend gate: a stub pass of the same
 // week counts the inner turns on `--days`, at up to 4 requests each (her answer and the tool-loop
 // steps) at ~0.15 USD; refused (exit 2) without `--spend` covering it. Once what the provider
 // reports spent would pass `--spend`, the stub answers the rest of the week.
@@ -35,7 +39,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, runCli, simKey, spendGate } from './lib/cli.mjs';
-import { computeGates, gatesTable, loadFixtures, parseDays, parseFixture, renderReport, reportOf, runWeek, turnsOnDays } from './lib/inner-week.mjs';
+import { computeGates, gatesTable, loadFixtures, parseDays, parseFixture, renderReport, reportOf, runWeek, turnsOnDays, withChannelMap } from './lib/inner-week.mjs';
 import { onLog } from '../src/log.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
@@ -123,6 +127,32 @@ function writeReport(outDir, report) {
 
 // ---- the live voice ------------------------------------------------------------------
 
+/**
+ * The channel map of a live run (withChannelMap's): every writable channel of `fixture` onto the
+ * real `channel` (`{ id, name }`; a null name keeps the fixture's). The unwritable ones are left
+ * out, so they stay channels she cannot write in.
+ */
+export function liveChannelMap(fixture, channel) {
+  const target = { id: String(channel.id), name: typeof channel.name === 'string' && channel.name ? channel.name : null };
+  return Object.fromEntries(fixture.channels.filter((c) => c.writable !== false).map((c) => [c.id, target]));
+}
+
+/**
+ * The fixture's people (`name -> id`) as members of `guildId` in `store`'s cache, each with its
+ * name, so her `<directory>` lists them as the scripted lines show them; one already there is
+ * left alone. Called on the unflushed copy of the live store: nothing reaches the disk. Returns
+ * the ids added.
+ */
+export function addFixturePeople(store, guildId, people, at) {
+  const added = [];
+  for (const [name, id] of Object.entries(people ?? {})) {
+    if (typeof id !== 'string' || !id || store.getUser(guildId, id)) continue;
+    store.touchUser(guildId, id, name, at);
+    added.push(id);
+  }
+  return added;
+}
+
 /** A Discord snowflake of `ts` (ms) with `seq` in its low bits: ids that sort as the lines do. */
 function snowflakeOf(ts, seq) {
   return ((BigInt(Math.max(ts, 1420070400000)) - 1420070400000n) << 22n | BigInt(seq & 0x3fffff)).toString();
@@ -163,10 +193,11 @@ export function scriptedHistory(lines, { channel, selfId, selfName, now, limit }
 }
 
 /**
- * The real voice in shadow, wired as `replay.mjs --inner` wires it (see the header). Resolves
- * `{ voice, guildId, close }`; `voice.runTurn` answers null once the spend is used up.
+ * The real voice in shadow, wired as `replay.mjs --inner` wires it (see the header), the
+ * fixture's people in her copied directory. Resolves `{ voice, guildId, channel, close }`
+ * (`channel`: the real channel's id and name); `voice.runTurn` answers null once the spend is used up.
  */
-async function createLiveVoice({ args, clock, budget, log }) {
+async function createLiveVoice({ args, fixture, clock, budget, log }) {
   const replay = await import('./replay.mjs');
   const load = (rel) => import(pathToFileURL(path.join(ROOT, 'src', rel)).href);
   const mods = { ...(await replay.loadDiaryMods(load)), ...(await load('admin.js')) };
@@ -214,6 +245,7 @@ async function createLiveVoice({ args, clock, budget, log }) {
     };
     channel.send = refuse('send');
     channel.sendTyping = refuse('sendTyping');
+    addFixturePeople(store, guildId, fixture.people, fixture.startMs);
 
     // The turn's history: the fixture's chat of the conversation the scheduler picked.
     let scripted = { lines: [], name: null };
@@ -262,6 +294,7 @@ async function createLiveVoice({ args, clock, budget, log }) {
     return {
       voice,
       guildId,
+      channel: { id: String(channel.id), name: channel.name ?? null },
       spent,
       close: async () => {
         liveHot.close?.();
@@ -298,10 +331,11 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
   }
 
   // --live: the stub pass first (the estimate), then the week with the real voice on --days.
+  // Both play the fixture's writable channels as the real channel (liveChannelMap, withChannelMap).
   const fixture = fixtures[0];
   const liveDays = parseDays(args.days, fixture.days);
   if (!liveDays) throw new CliError(`inner-week: --days must name days 1..${fixture.days}`);
-  const dry = await weekOf(fixture, { effectsOf, mode: 'shadow' });
+  const dry = await weekOf(withChannelMap(fixture, liveChannelMap(fixture, { id: args.channel, name: null })), { effectsOf, mode: 'shadow' });
   const turns = turnsOnDays(dry.run, liveDays);
   const requests = turns * INNER_REQUESTS;
   const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail: `${turns} inner turn(s) on day(s) ${liveDays.join(',')} in the stub pass, up to ${INNER_REQUESTS} requests each at ~${USD_PER_ANSWER} USD` });
@@ -309,12 +343,13 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
   process.stderr.write(`inner-week: ${gate.text}\n`);
   const clockBox = { now: () => fixture.startMs };
   const { log } = await import('../src/log.js');
-  const live = await createLiveVoice({ args, clock: { now: () => clockBox.now() }, budget: gate.budget, log });
+  const live = await createLiveVoice({ args, fixture, clock: { now: () => clockBox.now() }, budget: gate.budget, log });
   try {
+    const liveFixture = withChannelMap(fixture, liveChannelMap(fixture, live.channel));
     const dataDir = tempData(fixture.name);
     try {
       const run = await runWeek({
-        fixture,
+        fixture: liveFixture,
         dataDir,
         skills: { effectsOf },
         voice: live.voice,
@@ -327,8 +362,8 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
           live.voice.bind(intentions);
         },
       });
-      const gates = computeGates(run, fixture, effectsOf);
-      const report = { ...reportOf(run, fixture, gates, effectsOf), live: { days: liveDays, spentUsd: Math.round(live.spent() * 10000) / 10000, budgetUsd: gate.budget } };
+      const gates = computeGates(run, liveFixture, effectsOf);
+      const report = { ...reportOf(run, liveFixture, gates, effectsOf), live: { days: liveDays, spentUsd: Math.round(live.spent() * 10000) / 10000, budgetUsd: gate.budget } };
       if (args.out) writeReport(path.resolve(cwd, args.out), report);
       return `${gatesTable([report])}\nlive days ${liveDays.join(',')}: ${run.turns.filter((t) => t.voice === 'live').length} live inner turn(s), ${report.live.spentUsd} USD reported\n`;
     } finally {
