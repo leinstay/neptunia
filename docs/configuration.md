@@ -313,7 +313,7 @@ Settings for pulling another channel into a turn's request (`features.channelPul
 | `scanMessages` | `20` | Recent messages of the current channel scanned for channel mentions |
 | `maxChannels` | `1` | Channels that can be pulled per turn |
 | `maxAgeDays` | `0` | Refuse a pull when the channel's newest message is older than this many days. `0` = no limit |
-| `sameAudience` | `true` | Check that every role allowed to view the destination channel can also view the source. Also governs which neighbour channels appear in `<other_channels>` and which server-search windows the recall run keeps. When false, content from a restricted channel can reach a wider audience |
+| `sameAudience` | `true` | Check that every role allowed to view the destination channel can also view the source. A named member's view is proved through his roles from the guild's member cache; a member not in the cache is proved only through the everyone permission and the channel's role denies, as before. Also governs which neighbour channels appear in `<other_channels>` and which server-search windows the recall run keeps. When false, content from a restricted channel can reach a wider audience |
 | `seenTtlMinutes` | `120` | Minutes before a previous view of the same channel in the same destination expires. A view older than this is ignored when comparing which messages are new. `0` = every view is treated as the first |
 
 ## `elsewhere`
@@ -420,6 +420,8 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `traceMaxLines` | `500` | Lines kept in the trace file (`features.recallTrace`); the oldest go first. At least 1 |
 | `answerChars` | `1200` | Max characters for the summary note; fills `{{answerChars}}` in `recall-summary.md` |
 | `stretchChars` | `1500` | Max characters of the verbatim stretch shown to the persona |
+| `quoteWindowChars` | `1500` | Per-stretch character limit of a `memory.search` result (`features.coreTools`). Each stretch is cut by whole lines; the lines that do not fit are counted in `skills.tools.memory.windowCut`. The first stretch always stays |
+| `quoteMaxChars` | `9000` | Total character limit of a `memory.search` result. Stretches are counted one by one; a stretch that would push past the limit is left out with every one after it, and a closing line (`skills.tools.memory.windowsLeft`) names what was not shown. `skills.resultMaxChars` does not apply to a `memory.search` result |
 | `maxPerDay` | `100` | Daily recall runs (stored in `state.json` as `recallDay` / `recallCount`) |
 | `timeoutMs` | `15000` | Total time for the recall run (search, windows, summary). Once half the time is gone no further search is sent; the summary runs only when at least `minSummaryMs` is left |
 | `minSummaryMs` | `2500` | Minimum time left for the summary helper to be asked. Without it the verbatim stretch of the top window is returned without a note |
