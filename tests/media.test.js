@@ -17,7 +17,6 @@ import {
   lateVideoStates,
   collectReadableLinks,
   isDescribable,
-  selectPictures,
   discordCdnVideo,
   mediaParts,
   siteOf,
@@ -398,72 +397,6 @@ test('mediaProxyUrl: an unparsable URL is returned as-is instead of throwing', (
 
 // --- mediaLabelFor -------------------------------------------------------------
 
-test('mediaLabelFor: an attached plain image renders imageAttached with its 1-based index', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { attachedIndex: 1 }), { key: 'imageAttached', values: { n: 1 } });
-});
-
-test('mediaLabelFor: an attached plain image with a caption renders imageAttachedDescribed with n and text', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { attachedIndex: 2, description: 'a grey cat' }), {
-    key: 'imageAttachedDescribed',
-    values: { n: 2, text: 'a grey cat' },
-  });
-});
-
-test('mediaLabelFor: an attached plain image with an empty caption keeps the bare imageAttached', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { attachedIndex: 1, description: '' }), { key: 'imageAttached', values: { n: 1 } });
-});
-
-test('mediaLabelFor: an attached video/gif still frame keeps its normal (blind) form, plus an extra frameAttached tag', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { attachedIndex: 2 }), {
-    key: 'gif',
-    values: { name: 'cat.gif' },
-    extra: { key: 'frameAttached', values: { n: 2 } },
-  });
-  assert.deepEqual(mediaLabelFor({ kind: 'video', name: 'clip.mp4', durationSec: 65 }, { attachedIndex: 3 }), {
-    key: 'video',
-    values: { name: 'clip.mp4', duration: '1:05' },
-    extra: { key: 'frameAttached', values: { n: 3 } },
-  });
-});
-
-test('mediaLabelFor: an attached video/gif still frame with a description uses the described form, plus frameAttached', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'gif' }, { attachedIndex: 1, description: 'a cat dances' }), {
-    key: 'gifDescribed',
-    values: { text: 'a cat dances' },
-    extra: { key: 'frameAttached', values: { n: 1 } },
-  });
-  assert.deepEqual(
-    mediaLabelFor({ kind: 'video', name: 'clip.mp4', durationSec: 65 }, { attachedIndex: 1, description: 'a dog runs' }),
-    {
-      key: 'videoDescribed',
-      values: { name: 'clip.mp4', duration: '1:05', text: 'a dog runs' },
-      extra: { key: 'frameAttached', values: { n: 1 } },
-    },
-  );
-});
-
-test('mediaLabelFor: an attached link-embed thumbnail keeps the link tag and adds frameAttached (never bare imageAttached)', () => {
-  const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
-  assert.deepEqual(mediaLabelFor(item, { attachedIndex: 1 }), {
-    key: 'link',
-    values: { site: 's', title: 't' },
-    extra: { key: 'frameAttached', values: { n: 1 } },
-  });
-});
-
-test('mediaLabelFor: an attached link-embed thumbnail with a description still prefers frameAttached over thumbnailDescribed', () => {
-  const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
-  const result = mediaLabelFor(item, { attachedIndex: 1, description: 'a video preview' });
-  assert.equal(result.extra.key, 'frameAttached');
-});
-
-test('mediaLabelFor: a link without a thumbnail is never attachable, even with an index passed by mistake', () => {
-  const item = { kind: 'link', site: 's', title: 't' };
-  const result = mediaLabelFor(item, { attachedIndex: 1 });
-  assert.notEqual(result.key, 'imageAttached');
-  assert.equal(result.extra, undefined);
-});
-
 test('mediaLabelFor: a link thumbnail description appends thumbnailDescribed, the link tag itself never swaps', () => {
   const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
   assert.deepEqual(mediaLabelFor(item, { description: 'a video preview' }), {
@@ -572,32 +505,6 @@ test('mediaLabelFor: a watched video wins over a still-frame description', () =>
   assert.equal(result.values.text, 'the whole clip');
 });
 
-test('mediaLabelFor: a video with an attached still frame keeps frameAttached as its extra, watched or not', () => {
-  const rows = [
-    {
-      label: 'a watched video with an attached still frame',
-      options: { attachedIndex: 2, video: { state: 'watched', text: 'a dog runs' } },
-      expected: {
-        key: 'videoWatched',
-        values: { name: 'clip.mp4', duration: '1:05', text: 'a dog runs' },
-        extra: { key: 'frameAttached', values: { n: 2 } },
-      },
-    },
-    {
-      label: 'a video not watched with an attached frame',
-      options: { attachedIndex: 1, video: { state: 'error' } },
-      expected: {
-        key: 'videoNotWatched',
-        values: { name: 'clip.mp4', duration: '1:05', reason: 'error' },
-        extra: { key: 'frameAttached', values: { n: 1 } },
-      },
-    },
-  ];
-  for (const { label, options, expected } of rows) {
-    assert.deepEqual(mediaLabelFor(clip, options), expected, label);
-  }
-});
-
 test('mediaLabelFor: a video not watched but with a still-frame caption renders videoNotWatchedFrame', () => {
   assert.deepEqual(mediaLabelFor(clip, { description: 'a café terrace', video: { state: 'limit', reason: 'size' } }), {
     key: 'videoNotWatchedFrame',
@@ -669,18 +576,6 @@ test('mediaLabelFor: a link not watched without a caption renders linkNotWatched
     key: 'link',
     values: { site: 'youtube.com', title: '' },
     extra: { key: 'linkNotWatched', values: { reason: 'error' } },
-  });
-});
-
-test('mediaLabelFor: an attached link thumbnail AND a video state -> extra array, frameAttached first', () => {
-  const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
-  assert.deepEqual(mediaLabelFor(item, { attachedIndex: 3, video: { state: 'watched', text: 'a talk' } }), {
-    key: 'link',
-    values: { site: 's', title: 't' },
-    extra: [
-      { key: 'frameAttached', values: { n: 3 } },
-      { key: 'linkWatched', values: { text: 'a talk' } },
-    ],
   });
 });
 
@@ -829,127 +724,7 @@ test('isDescribable: true for image/gif/video/sticker/emoji/link (a link thumbna
   assert.equal(isDescribable({ kind: 'file' }), false);
 });
 
-// --- selectPictures -------------------------------------------------------------
-
 const MIN = 60_000;
-
-function pictureMessage(id, ts, itemId) {
-  return message(id, { ts, attachments: [{ id: itemId, kind: 'image', url: `url-${itemId}`, name: `${itemId}.png` }] });
-}
-
-test('selectPictures: vision off (maxImages 0) selects nothing', () => {
-  const now = 1_000_000;
-  const trigger = pictureMessage('t', now, 'trig');
-  const picked = selectPictures({ trigger, history: [trigger], visionCfg: { maxImages: 0, recentImages: 3, recentImageMinutes: 30 }, now });
-  assert.deepEqual(picked, []);
-});
-
-test('selectPictures: trigger pictures come first', () => {
-  const now = 1_000_000;
-  // Every tier has a candidate and maxImages leaves room for fewer: priority decides.
-  // The replied-to picture is older than recentImageMinutes (only its own tier can
-  // take it); a newer picture follows the trigger (the recent tier would take it first).
-  const replied = pictureMessage('r', now - 60 * MIN, 'replied');
-  const trigger = { ...pictureMessage('t', now - 2 * MIN, 'trig'), replyToId: 'r' };
-  const later = pictureMessage('m1', now - MIN, 'later');
-  const pick = (maxImages) =>
-    selectPictures({
-      trigger,
-      history: [replied, trigger, later],
-      visionCfg: { maxImages, recentImages: 3, recentImageMinutes: 30 },
-      now,
-    }).map((p) => p.itemId);
-  assert.deepEqual(pick(1), ['trig'], 'room for one: the trigger\'s own, ahead of the replied-to and the newer picture');
-  assert.deepEqual(pick(2), ['replied', 'trig'], 'room for two: the replied-to picture next, ahead of the newer one');
-});
-
-test('selectPictures: recent channel pictures fill up to recentImages, newest first, then re-sorted to transcript order', () => {
-  const now = 1_000_000;
-  const m1 = pictureMessage('m1', now - 20 * MIN, 'p1');
-  const m2 = pictureMessage('m2', now - 10 * MIN, 'p2');
-  const m3 = pictureMessage('m3', now - 5 * MIN, 'p3');
-  const picked = selectPictures({
-    trigger: null,
-    history: [m1, m2, m3],
-    visionCfg: { maxImages: 4, recentImages: 2, recentImageMinutes: 30 },
-    now,
-  });
-  // p1 is the oldest, dropped because recentImages caps at 2; p2/p3 kept, in transcript (chronological) order.
-  assert.deepEqual(picked.map((p) => p.itemId), ['p2', 'p3']);
-});
-
-test('selectPictures: recent pictures older than recentImageMinutes are excluded', () => {
-  const now = 1_000_000;
-  const old = pictureMessage('old', now - 40 * MIN, 'old-pic');
-  const recent = pictureMessage('recent', now - 5 * MIN, 'recent-pic');
-  const picked = selectPictures({
-    trigger: null,
-    history: [old, recent],
-    visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 },
-    now,
-  });
-  assert.deepEqual(picked.map((p) => p.itemId), ['recent-pic']);
-});
-
-test('selectPictures: the overall maxImages cap wins even when more would qualify', () => {
-  const now = 1_000_000;
-  const trigger = message('t', {
-    ts: now,
-    attachments: [
-      { id: 'a', kind: 'image', url: 'ua', name: 'a.png' },
-      { id: 'b', kind: 'image', url: 'ub', name: 'b.png' },
-      { id: 'c', kind: 'image', url: 'uc', name: 'c.png' },
-    ],
-  });
-  const picked = selectPictures({
-    trigger,
-    history: [trigger],
-    visionCfg: { maxImages: 2, recentImages: 3, recentImageMinutes: 30 },
-    now,
-  });
-  assert.equal(picked.length, 2);
-});
-
-test('selectPictures: never picks the same item twice across tiers', () => {
-  const now = 1_000_000;
-  const trigger = pictureMessage('t', now, 'shared');
-  trigger.replyToId = 't'; // pathological but must not double-count
-  const picked = selectPictures({
-    trigger,
-    history: [trigger],
-    visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 },
-    now,
-  });
-  assert.deepEqual(picked.map((p) => p.itemId), ['shared']);
-});
-
-test('selectPictures: a trigger in another channel than the turn posts in gives no picture, nor does the message it replies to', () => {
-  const now = 1_000_000;
-  // Older than recentImageMinutes: only the replied-to tier could take it.
-  const replied = pictureMessage('r', now - 60 * MIN, 'replied');
-  const trigger = { ...pictureMessage('t', now, 'trig'), channelId: 'source', replyToId: 'r' };
-  const sticker = { ...stickerMessage('s', now, [{ id: 's1', name: 'gâteau', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' }]), channelId: 'source' };
-  const local = { ...pictureMessage('m1', now - MIN, 'local'), channelId: 'dest' };
-  const visionCfg = { maxImages: 4, recentImages: 3, recentImageMinutes: 30 };
-
-  const picked = selectPictures({ trigger, history: [replied, local], visionCfg, now, channelId: 'dest' });
-  assert.deepEqual(picked.map((p) => p.itemId), ['local'], 'only the turn channel\'s own recent picture');
-  const here = { ...trigger, channelId: 'dest' };
-  const sameChannel = selectPictures({ trigger: here, history: [replied, local, here], visionCfg, now, channelId: 'dest' });
-  assert.deepEqual(sameChannel.map((p) => p.itemId), ['replied', 'local', 'trig'], 'the same trigger in the turn\'s channel gives both tiers');
-  assert.deepEqual(selectPictures({ trigger: sticker, history: [], visionCfg, now, channelId: 'dest' }), []);
-});
-
-test('selectPictures: a trigger in the turn\'s channel, or with either channel id unknown, keeps its pictures first', () => {
-  const now = 1_000_000;
-  const visionCfg = { maxImages: 4, recentImages: 3, recentImageMinutes: 30 };
-  const here = { ...pictureMessage('t', now, 'trig'), channelId: 'dest' };
-  assert.deepEqual(selectPictures({ trigger: here, history: [here], visionCfg, now, channelId: 'dest' }).map((p) => p.itemId), ['trig']);
-  const unknown = pictureMessage('u', now, 'trig-u');
-  assert.deepEqual(selectPictures({ trigger: unknown, history: [], visionCfg, now, channelId: 'dest' }).map((p) => p.itemId), ['trig-u']);
-  const elsewhere = { ...pictureMessage('e', now, 'trig-e'), channelId: 'source' };
-  assert.deepEqual(selectPictures({ trigger: elsewhere, history: [], visionCfg, now }).map((p) => p.itemId), ['trig-e'], 'no channelId: as before');
-});
 
 // --- stickerUrl / linkThumbnailCacheKey ------------------------
 
@@ -992,9 +767,9 @@ function sticker(name, url) {
   return { name, url };
 }
 
-test('stickerLabelFor: a Lottie sticker (url null) is always the plain name form, ignoring attached/description', () => {
+test('stickerLabelFor: a Lottie sticker (url null) is always the plain name form, ignoring a description', () => {
   assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null)), { key: 'sticker', values: { name: 'dancing-cat' } });
-  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null), { attachedIndex: 1, description: 'a cat dances' }), {
+  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null), { description: 'a cat dances' }), {
     key: 'sticker',
     values: { name: 'dancing-cat' },
   });
@@ -1005,15 +780,6 @@ test('stickerLabelFor: a picture-format sticker blind vs described', () => {
   assert.deepEqual(stickerLabelFor(sticker('pepe', 'https://x'), { description: 'a frog gives a thumbs up' }), {
     key: 'stickerDescribed',
     values: { name: 'pepe', text: 'a frog gives a thumbs up' },
-  });
-});
-
-test('stickerLabelFor: attached wins over described, keeps the sticker tag and adds frameAttached', () => {
-  const result = stickerLabelFor(sticker('pepe', 'https://x'), { attachedIndex: 2, description: 'a frog gives a thumbs up' });
-  assert.deepEqual(result, {
-    key: 'stickerDescribed',
-    values: { name: 'pepe', text: 'a frog gives a thumbs up' },
-    extra: { key: 'frameAttached', values: { n: 2 } },
   });
 });
 
@@ -1044,48 +810,8 @@ test('collectEmojiItems: every distinct emoji of a message becomes a describable
   const items = collectEmojiItems(m);
   assert.deepEqual(items.map((i) => i.itemId), ['emoji:e1', 'emoji:e2']);
   assert.ok(items.every((i) => i.source === 'emoji' && isDescribable(i)));
-  // Never eligible for vision: collectPictures ignores message.emojis entirely.
+  // Never a picture: collectPictures ignores message.emojis entirely.
   assert.deepEqual(collectPictures(m).map((p) => p.itemId), []);
-});
-
-// --- selectPictures: sticker vision eligibility ---------------------------
-
-test('selectPictures: the trigger\'s own picture-format sticker is eligible, same priority as its images', () => {
-  const now = 1_000_000;
-  const trigger = stickerMessage('t', now, [
-    { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
-  ]);
-  const picked = selectPictures({ trigger, history: [trigger], visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 }, now });
-  assert.deepEqual(picked.map((p) => p.itemId), ['sticker:s1']);
-});
-
-test('selectPictures: a sticker on the REPLIED-TO message is never vision-eligible, only the trigger\'s own', () => {
-  const now = 1_000_000;
-  const replied = stickerMessage('r', now - 5 * MIN, [
-    { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
-  ]);
-  const trigger = { ...message('t', { ts: now }), replyToId: 'r' };
-  const picked = selectPictures({
-    trigger,
-    history: [replied, trigger],
-    visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 },
-    now,
-  });
-  assert.deepEqual(picked, []);
-});
-
-test('selectPictures: a sticker in the "recent" tier is never vision-eligible, even with room to spare', () => {
-  const now = 1_000_000;
-  const recent = stickerMessage('m1', now - MIN, [
-    { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
-  ]);
-  const picked = selectPictures({
-    trigger: null,
-    history: [recent],
-    visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 },
-    now,
-  });
-  assert.deepEqual(picked, []);
 });
 
 // --- mediaLabelFor: a second look on a question (videoAnswered) -------------------
@@ -1100,16 +826,11 @@ test('mediaLabelFor: a watched video with an answer appends videoAnswered after 
   });
 });
 
-test('mediaLabelFor: a watched link with an answer -> linkWatched, then videoAnswered (after frameAttached too)', () => {
+test('mediaLabelFor: a watched link with an answer -> linkWatched, then videoAnswered', () => {
   const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
   const video = { state: 'watched', text: 'a talk', answer };
   const answered = { key: 'videoAnswered', values: { question: answer.question, text: answer.text } };
   assert.deepEqual(mediaLabelFor(item, { video }).extra, [{ key: 'linkWatched', values: { text: 'a talk' } }, answered]);
-  assert.deepEqual(mediaLabelFor(item, { attachedIndex: 1, video }).extra, [
-    { key: 'frameAttached', values: { n: 1 } },
-    { key: 'linkWatched', values: { text: 'a talk' } },
-    answered,
-  ]);
 });
 
 test('mediaLabelFor: an answer on a state that is not watched is ignored', () => {
@@ -1133,20 +854,11 @@ test('mediaLabelFor: a picture with an answer appends imageAnswered after image 
   });
 });
 
-test('mediaLabelFor: an attached picture with an answer appends imageAnswered after imageAttached(Described)', () => {
-  assert.deepEqual(mediaLabelFor(picture, { attachedIndex: 2, answer }), { key: 'imageAttached', values: { n: 2 }, extra: pictureAnswered });
-  assert.deepEqual(mediaLabelFor(picture, { attachedIndex: 2, description: 'deux singes', answer }), {
-    key: 'imageAttachedDescribed',
-    values: { n: 2, text: 'deux singes' },
-    extra: pictureAnswered,
-  });
-});
-
 test('mediaLabelFor: an answer on a video item is ignored (its answer lives in its state)', () => {
   assert.deepEqual(mediaLabelFor(clip, { answer }), { key: 'video', values: { name: 'clip.mp4', duration: '1:05' } });
 });
 
-test('mediaLabelFor: a GIF\'s second look appends videoAnswered after its tag, attached, described or known alike', () => {
+test('mediaLabelFor: a GIF\'s second look appends videoAnswered after its tag, described or known alike', () => {
   const answered = { key: 'videoAnswered', values: { question: answer.question, text: answer.text } };
   assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer }), { key: 'gif', values: { name: 'a.gif' }, extra: answered });
   assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer, description: 'un miroir' }), {
@@ -1158,11 +870,6 @@ test('mediaLabelFor: a GIF\'s second look appends videoAnswered after its tag, a
     key: 'gifKnown',
     values: { id: 'g3', text: 'un miroir' },
     extra: answered,
-  });
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer, attachedIndex: 2 }), {
-    key: 'gif',
-    values: { name: 'a.gif' },
-    extra: [{ key: 'frameAttached', values: { n: 2 } }, answered],
   });
 });
 
@@ -1177,21 +884,19 @@ test('mediaLabelFor: a read link keeps its link tag and gets linkRead as its one
   });
 });
 
-test('mediaLabelFor: linkRead follows thumbnailDescribed, and frameAttached when the thumbnail is attached', () => {
+test('mediaLabelFor: linkRead follows thumbnailDescribed', () => {
   const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
   const read = { key: 'linkRead', values: { text: 'page gist' } };
   assert.deepEqual(mediaLabelFor(item, { description: 'thumb', read: 'page gist' }).extra, [
     { key: 'thumbnailDescribed', values: { text: 'thumb' } },
     read,
   ]);
-  assert.deepEqual(mediaLabelFor(item, { attachedIndex: 2, read: 'page gist' }).extra, [{ key: 'frameAttached', values: { n: 2 } }, read]);
 });
 
-test('mediaLabelFor: linkRead comes after frameAttached, the video extra and videoAnswered', () => {
+test('mediaLabelFor: linkRead comes after the video extra and videoAnswered', () => {
   const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
   const video = { state: 'watched', text: 'a talk', answer };
-  assert.deepEqual(mediaLabelFor(item, { attachedIndex: 1, video, read: 'page gist' }).extra, [
-    { key: 'frameAttached', values: { n: 1 } },
+  assert.deepEqual(mediaLabelFor(item, { video, read: 'page gist' }).extra, [
     { key: 'linkWatched', values: { text: 'a talk' } },
     { key: 'videoAnswered', values: { question: answer.question, text: answer.text } },
     { key: 'linkRead', values: { text: 'page gist' } },
@@ -1330,16 +1035,6 @@ test('collectReadableLinks: forwarded plain links follow the message\'s own, vid
   ]);
 });
 
-test('selectPictures: a forwarded picture on the trigger is eligible and sorted by the outer message', () => {
-  const now = 1_000_000;
-  const trigger = {
-    ...message('t', { ts: now }),
-    forwarded: [{ content: '', attachments: [{ id: 'fa', kind: 'image', url: 'u-fa', name: 'fa.png' }], links: [], stickers: [] }],
-  };
-  const picked = selectPictures({ trigger, history: [trigger], visionCfg: { maxImages: 4, recentImages: 3, recentImageMinutes: 30 }, now });
-  assert.deepEqual(picked.map((p) => [p.itemId, p.messageId]), [['fa', 't']]);
-});
-
 // --- discordCdnVideo ---------------------------------------------------------
 
 const CDN_QUERY = '?ex=aa&is=bb&hm=cc';
@@ -1422,8 +1117,6 @@ test('mediaLabelFor: a library GIF with a reaction or on-screen text -> gifKnown
   });
   const reactionOnly = mediaLabelFor(gif, { gifHandle: 'g3', description: 'x', gifFields: { reaction: 'accord', action: '', screen: '' } });
   assert.equal(reactionOnly.key, 'gifKnownFields');
-  const attached = mediaLabelFor(gif, { gifHandle: 'g3', description: 'x', gifFields: all, attachedIndex: 1 });
-  assert.equal(attached.key, 'gifKnownFields', 'an attached GIF alike');
 });
 
 test('mediaLabelFor: gifKnownFields needs a handle, a caption and a reaction or on-screen text', () => {

@@ -362,8 +362,7 @@ export function mediaLookText({ kind, name = '', question = '', text: answer = '
 
 /**
  * The describer's second look for each kind and whether its switches let it run now: a picture
- * under features.imageRelook alone (features.vision gates only pictures in the persona's own
- * request; the look runs through the vision model like a caption), a video and a GIF under video vision
+ * under features.imageRelook (the look runs through the vision model like a caption), a video and a GIF under video vision
  * (src/memory/youtube-check.js#isVideoVisionOn) and features.videoRewatch (a missing key counts
  * as on, each, as the describer reads them).
  */

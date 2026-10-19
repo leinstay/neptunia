@@ -652,8 +652,6 @@ test('media.look off: the re-watch classifier is asked as before; on: it is not,
     answers: ['<call skill="media.look" message="#1" item="2">τι κρατά η γάτα;</call>', '<msg>ένα κλειδί</msg>'],
     allowed: ['media.look'],
     content: 'τι κρατά στη φωτογραφία;',
-    // features.vision off, as on an instance whose eyes are the vision helpers: the look still runs.
-    features: { vision: false },
     firstAttachments: TWO_PICTURES,
     prompts: LOOK_PROMPTS,
     runner: { describer, imageFetcher: fakePictures },

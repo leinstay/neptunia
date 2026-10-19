@@ -43,7 +43,7 @@ function fakeConfig(overrides = {}) {
       gapMarkerMinutes: 20,
       maxMessageChars: 800,
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
-      vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
+      vision: { tokensPerImage: 400 },
       // The settings the behaviour tests below rely on, pinned here once instead of
       // leaning on the code fallbacks (one test compares those with config.json).
       tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
@@ -51,7 +51,6 @@ function fakeConfig(overrides = {}) {
       ...overrides.context,
     },
     features: {
-      vision: true,
       relationships: true,
       episodes: true,
       lore: true,
@@ -482,14 +481,13 @@ function blockTags(text) {
   return [...text.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1]);
 }
 
-test('buildRequest: the user content is the stable part, the profiles, the tail, then the pictures', () => {
-  const config = fakeConfig({ context: { vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } } });
-  const request = buildRequest(segmentScene({ config, triggerFields: { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] } }));
+test('buildRequest: the user content is the stable part, the profiles and the tail; a picture in the chat never becomes an image part', () => {
+  const request = buildRequest(segmentScene({ triggerFields: { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] } }));
   const content = request.messages[1].content;
   assert.ok(Array.isArray(content));
   assert.deepEqual(
     content.map((part) => [part.type, part.cacheSegment ?? null]),
-    [['text', 'stable'], ['text', 'profiles'], ['text', null], ['image_url', null]],
+    [['text', 'stable'], ['text', 'profiles'], ['text', null]],
   );
   assert.deepEqual(blockTags(content[0].text), ['senses', 'skills_protocol', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blockTags(content[1].text), ['people']);
@@ -516,7 +514,6 @@ test('buildRequest: without pictures the user content is still an array of text 
   assert.ok(Array.isArray(content));
   assert.deepEqual(content.map((part) => part.cacheSegment ?? null), ['stable', 'profiles', null]);
   assert.ok(content.every((part) => part.type === 'text' && part.text));
-  assert.equal(request.textFallback, null);
 });
 
 test('buildRequest: an empty segment is left out, never sent as an empty text part', () => {
@@ -727,7 +724,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
   // The lines of the one `<senses>` block this turn had before the split, in its order.
   const S = labels.senses;
   const oneBlock = [
-    S.imageSee, S.imageDescribed, S.gifDescribed, S.videoWatch, S.videoRewatch, S.stickerSee, S.stickerDescribed, S.lottie,
+    S.imageDescribed, S.gifDescribed, S.videoWatch, S.videoRewatch, S.stickerDescribed, S.lottie,
     S.customEmoji, S.gifs, S.voice, S.linksWatch, S.linksRead, S.search, S.recall, S.draw, S.files, S.time, S.channels,
     fill(S.elsewhere, { destination: 'général' }), fill(S.diary, { channel: 'ημερολόγιο' }), S.privateAware,
   ];
@@ -947,76 +944,7 @@ test('buildRequest: total token usage never exceeds maxRequestTokens * safetyMar
   assert.ok(request.stats.used <= cap, `used ${request.stats.used} must be <= cap ${cap}`);
 });
 
-test('buildRequest: images are attached only when features.vision is enabled, capped by maxImages', () => {
-  const trigger = makeMessage(1, NOW - MIN, {
-    attachments: [
-      { id: 'i1', kind: 'image', url: 'img1' },
-      { id: 'i2', kind: 'image', url: 'img2' },
-      { id: 'i3', kind: 'image', url: 'img3' },
-      { id: 'i4', kind: 'file', url: 'file1' },
-    ],
-  });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  const content = request.messages[1].content;
-  assert.ok(Array.isArray(content));
-  const imageParts = content.filter((part) => part.type === 'image_url');
-  assert.equal(imageParts.length, 2);
-  assert.equal(content[0].type, 'text');
-  assert.deepEqual(content.slice(-2), imageParts, 'the pictures follow every text part');
-});
-
-test('buildRequest: vision disabled means text parts only, even with image attachments', () => {
-  const trigger = makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] });
-  const config = fakeConfig({
-    features: { vision: false },
-    context: { vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  assert.ok(request.messages[1].content.every((part) => part.type === 'text'));
-  assert.equal(request.textFallback, null);
-});
-
-test('buildRequest: an image attached to the request renders transcript.imageAttached numbered in transcript order', () => {
-  const trigger = makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  const user = contentText(request.messages[1].content);
-  assert.ok(user.includes(labels.transcript.imageAttached.replace('{n}', '1')));
-});
-
-test('buildRequest: textFallback re-renders the same chat with attachedIndex dropped -- blind/described, frameAttached gone', () => {
-  const trigger = makeMessage(1, NOW - MIN, {
-    attachments: [{ id: 'v1', kind: 'video', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', name: 'clip.mp4', durationSec: 34 }],
-  });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-
-  const primaryText = contentText(request.messages[1].content);
-  assert.ok(primaryText.includes(labels.transcript.frameAttached.replace('{n}', '1')));
-  assert.ok(primaryText.includes('[video: clip.mp4, 0:34]'));
-
-  assert.ok(Array.isArray(request.textFallback));
-  assert.ok(request.textFallback.every((part) => part.type === 'text'), 'no image part in the fallback');
-  const fallback = contentText(request.textFallback);
-  assert.ok(fallback.includes('[video: clip.mp4, 0:34]'));
-  assert.ok(!fallback.includes('still frame'), 'frameAttached must be dropped in the fallback');
-  assert.ok(!fallback.includes(labels.transcript.imageAttached.replace('{n}', '1')));
-  // Only the chat differs: the cached parts ahead of the tail are the very same text.
-  const textParts = request.messages[1].content.filter((part) => part.type === 'text');
-  assert.deepEqual(request.textFallback.slice(0, -1), textParts.slice(0, -1));
-});
-
-test('buildRequest: videos reach the transcript, and the textFallback keeps them', () => {
+test('buildRequest: videos reach the transcript', () => {
   const trigger = makeMessage(1, NOW - MIN, {
     attachments: [{ id: 'v1', kind: 'video', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', name: 'clip.mp4', durationSec: 34 }],
   });
@@ -1026,64 +954,6 @@ test('buildRequest: videos reach the transcript, and the textFallback keeps them
   const watched = fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:34', text: 'κάποιος χορεύει' });
   const primaryText = contentText(request.messages[1].content);
   assert.ok(primaryText.includes(watched));
-  assert.ok(contentText(request.textFallback).includes(watched));
-});
-
-test('buildRequest: textFallback is null when nothing is attached (no pictures selected)', () => {
-  const request = buildRequest(baseInput());
-  assert.equal(request.textFallback, null);
-});
-
-test('buildRequest: the media proxy fits a Discord CDN picture of known size into context.vision.imageSize, aspect kept', () => {
-  const trigger = makeMessage(1, NOW - MIN, {
-    attachments: [{ id: 'i1', kind: 'image', url: 'https://cdn.discordapp.com/attachments/1/2/pic.png', width: 988, height: 1306 }],
-  });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 256, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  const imagePart = request.messages[1].content.find((part) => part.type === 'image_url');
-  const url = new URL(imagePart.image_url.url);
-  assert.equal(url.searchParams.get('width'), '194');
-  assert.equal(url.searchParams.get('height'), '256');
-  assert.equal(url.searchParams.get('format'), 'webp');
-});
-
-test('buildRequest: a Discord CDN picture of unknown size goes through the proxy with no width or height', () => {
-  const trigger = makeMessage(1, NOW - MIN, {
-    attachments: [{ id: 'i1', kind: 'image', url: 'https://cdn.discordapp.com/attachments/1/2/pic.png' }],
-  });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 256, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  const imagePart = request.messages[1].content.find((part) => part.type === 'image_url');
-  assert.equal(imagePart.image_url.url, 'https://media.discordapp.net/attachments/1/2/pic.png?format=webp');
-});
-
-// --- vision: the trigger's own sticker --------------------------------------
-
-test('buildRequest: the trigger\'s picture-format sticker is attached, rendered as the sticker tag + frameAttached', () => {
-  const trigger = makeMessage(1, NOW - MIN, {
-    stickers: [{ id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' }],
-  });
-  const config = fakeConfig({
-    features: { vision: true },
-    context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-  });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-
-  const content = request.messages[1].content;
-  assert.ok(Array.isArray(content));
-  const imagePart = content.find((part) => part.type === 'image_url');
-  // A sticker's URL is already fully sized (see stickerUrl) -- the media
-  // proxy must never touch it, unlike a plain attachment/embed picture.
-  assert.equal(imagePart.image_url.url, 'https://media.discordapp.net/stickers/s1.png?size=160');
-
-  const user = contentText(content);
-  assert.ok(user.includes('[sticker: pepe] [its still frame is attached image 1]'));
 });
 
 test('buildRequest: idByIndex maps every transcript index to its message id', () => {
@@ -1094,7 +964,7 @@ test('buildRequest: idByIndex maps every transcript index to its message id', ()
   assert.equal(request.idByIndex.get(3), 'c');
 });
 
-test('prompt: returns the ids of the kept window, the parents and the attached parts', () => {
+test('prompt: returns the ids of the kept window, the parents and the previewed parts', () => {
   const parent = makeMessage('p1', NOW - 30 * MIN, { content: 'ο παλιός λόγος', replyParent: true });
   const withFile = makeMessage('m2', NOW - 2 * MIN, {
     authorId: 'author-x',
@@ -1105,7 +975,7 @@ test('prompt: returns the ids of the kept window, the parents and the attached p
   assert.deepEqual(request.seen, {
     messageIds: ['p1', 'm2', 'm3'],
     parents: ['p1'],
-    parts: { images: ['m3'], filePreviews: ['m2'] },
+    parts: { filePreviews: ['m2'] },
   });
 
   // Under a tight budget only the kept tail of the window counts as seen; a dropped parent is not listed.
@@ -1116,7 +986,7 @@ test('prompt: returns the ids of the kept window, the parents and the attached p
   assert.equal(tight.seen.messageIds.length, tight.stats.chat.kept);
   assert.deepEqual(tight.seen.messageIds, history.slice(history.length - tight.stats.chat.kept).map((message) => message.id));
   assert.deepEqual(tight.seen.parents, []);
-  assert.deepEqual(tight.seen.parts, { images: [], filePreviews: [] });
+  assert.deepEqual(tight.seen.parts, { filePreviews: [] });
 });
 
 test('buildRequest: idByIndex still covers messages later trimmed out of the rendered chat', () => {
@@ -1784,11 +1654,11 @@ test('buildRequest: the stable <senses> lines lead the stable part, the per-turn
   assert.equal(sensesHalves(request).turn, labels.senses.draw);
 });
 
-test('buildRequest: vision on, mediaDescriptions off -> imageSee + blind forms', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: false } });
+test('buildRequest: mediaDescriptions off -> the blind forms, never a first-hand imageSee line', () => {
+  const config = fakeConfig({ features: { mediaDescriptions: false } });
   const request = buildRequest(baseInput({ config }));
   const senses = sensesOf(request);
-  assert.ok(senses.includes(labels.senses.imageSee));
+  assert.ok(!senses.includes(labels.senses.imageSee));
   assert.ok(senses.includes(labels.senses.imageBlind));
   assert.ok(!senses.includes(labels.senses.imageDescribed));
   assert.ok(senses.includes(labels.senses.gifBlind));
@@ -1798,18 +1668,10 @@ test('buildRequest: vision on, mediaDescriptions off -> imageSee + blind forms',
   assert.ok(senses.includes(labels.senses.files));
 });
 
-test('buildRequest: vision off -> no imageSee line, blind forms still shown', () => {
-  const config = fakeConfig({ features: { vision: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.imageSee));
-  assert.ok(senses.includes(labels.senses.imageBlind));
-});
-
 test('buildRequest: mediaDescriptions on -> described forms replace the blind ones', () => {
   // videoDescriptions off pins the still-frame video line (with it on, the
   // video line becomes videoWatch -- see the video-watching tests below).
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true, videoDescriptions: false } });
+  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
   const request = buildRequest(baseInput({ config }));
   const senses = sensesOf(request);
   assert.ok(senses.includes(labels.senses.imageDescribed));
@@ -1824,7 +1686,7 @@ test('buildRequest: mediaDescriptions on -> described forms replace the blind on
 
 /** The GIF line of a request's <senses> block under `config` and `prompts` overrides. */
 function gifSenses({ features = {}, media, prompts = {}, labelsOverride } = {}) {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true, ...features } });
+  const config = fakeConfig({ features: { mediaDescriptions: true, ...features } });
   config.media = media ?? { gif: { watch: true } };
   const promptSet = fakePrompts({ ...(labelsOverride ? { labels: labelsOverride } : {}), ...prompts });
   return sensesOf(buildRequest(baseInput({ config, prompts: promptSet }))).split('\n');
@@ -1870,7 +1732,7 @@ test('buildRequest: an older labels.json without senses.gifWatched keeps senses.
 // --- <senses>: video watching ---------------------------------------------------
 
 test('buildRequest: mediaDescriptions and videoDescriptions on -> videoWatch and linksWatch', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: true } });
   const senses = sensesOf(buildRequest(baseInput({ config })));
   assert.ok(senses.includes(labels.senses.videoWatch));
   assert.ok(senses.includes(labels.senses.linksWatch));
@@ -1880,7 +1742,7 @@ test('buildRequest: mediaDescriptions and videoDescriptions on -> videoWatch and
 });
 
 test('buildRequest: videoDescriptions false -> the still-frame video line and the plain links line', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true, videoDescriptions: false } });
+  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
   const senses = sensesOf(buildRequest(baseInput({ config })));
   assert.ok(senses.includes(labels.senses.videoDescribed));
   assert.ok(senses.split('\n').includes(labels.senses.links));
@@ -1889,7 +1751,7 @@ test('buildRequest: videoDescriptions false -> the still-frame video line and th
 });
 
 test('buildRequest: mediaDescriptions off -> no video watching even with videoDescriptions on', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: false, videoDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: false, videoDescriptions: true } });
   const senses = sensesOf(buildRequest(baseInput({ config })));
   assert.ok(senses.includes(labels.senses.videoBlind));
   assert.ok(senses.split('\n').includes(labels.senses.links));
@@ -1899,7 +1761,7 @@ test('buildRequest: mediaDescriptions off -> no video watching even with videoDe
 
 test('buildRequest: an older labels set without videoWatch/linksWatch falls back to videoDescribed/links', () => {
   const oldLabels = { ...labels, senses: { ...labels.senses, videoWatch: undefined, linksWatch: undefined } };
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: true } });
   const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
   assert.ok(senses.includes(labels.senses.videoDescribed));
   assert.ok(senses.split('\n').includes(labels.senses.links));
@@ -1914,27 +1776,18 @@ test('buildRequest: <senses> is omitted entirely when labels has no senses secti
 
 // --- <senses>: stickers/Lottie -----------------------------------------------
 
-test('buildRequest: vision on, mediaDescriptions off -> stickerSee + stickerBlind + lottie', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: false } });
+test('buildRequest: mediaDescriptions off -> stickerBlind + lottie, never a first-hand stickerSee line', () => {
+  const config = fakeConfig({ features: { mediaDescriptions: false } });
   const request = buildRequest(baseInput({ config }));
   const senses = sensesOf(request);
-  assert.ok(senses.includes(labels.senses.stickerSee));
+  assert.ok(!senses.includes(labels.senses.stickerSee));
   assert.ok(senses.includes(labels.senses.stickerBlind));
   assert.ok(!senses.includes(labels.senses.stickerDescribed));
   assert.ok(senses.includes(labels.senses.lottie));
 });
 
-test('buildRequest: vision off -> no stickerSee line, stickerBlind and lottie still shown', () => {
-  const config = fakeConfig({ features: { vision: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.stickerSee));
-  assert.ok(senses.includes(labels.senses.stickerBlind));
-  assert.ok(senses.includes(labels.senses.lottie));
-});
-
 test('buildRequest: mediaDescriptions on -> stickerDescribed replaces stickerBlind, lottie still shown', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: true } });
   const request = buildRequest(baseInput({ config }));
   const senses = sensesOf(request);
   assert.ok(senses.includes(labels.senses.stickerDescribed));
@@ -1943,11 +1796,11 @@ test('buildRequest: mediaDescriptions on -> stickerDescribed replaces stickerBli
 });
 
 test('buildRequest: an older labels.json with no sticker senses keys omits them (and lottie) without breaking the rest', () => {
-  const oldLabels = { ...labels, senses: { ...labels.senses, stickerSee: undefined, stickerDescribed: undefined, stickerBlind: undefined } };
+  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined, stickerBlind: undefined } };
   const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) }));
   const senses = sensesOf(request);
   assert.ok(!senses.includes(labels.senses.lottie));
-  assert.ok(senses.includes(labels.senses.imageSee));
+  assert.ok(senses.includes(labels.senses.imageBlind));
 });
 
 // --- <lore> ------------------------------------------------------------------
@@ -2674,7 +2527,7 @@ test('people: an author of a pulled line asked about through the pulled block sh
 // --- <senses>: the second look on a question (videoRewatch) --------------------------
 
 test('buildRequest: video watching and videoRewatch on -> the videoRewatch line right after the video line', () => {
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: true } });
   const lines = sensesOf(buildRequest(baseInput({ config }))).split('\n');
   const at = lines.indexOf(labels.senses.videoWatch);
   assert.ok(at !== -1);
@@ -2683,16 +2536,16 @@ test('buildRequest: video watching and videoRewatch on -> the videoRewatch line 
 
 test('buildRequest: videoRewatch false, video watching off, or no videoRewatch label -> no videoRewatch line', () => {
   const cases = [
-    { features: { vision: true, mediaDescriptions: true, videoRewatch: false } },
-    { features: { vision: true, mediaDescriptions: true, videoDescriptions: false } },
-    { features: { vision: true, mediaDescriptions: false } },
+    { features: { mediaDescriptions: true, videoRewatch: false } },
+    { features: { mediaDescriptions: true, videoDescriptions: false } },
+    { features: { mediaDescriptions: false } },
   ];
   for (const overrides of cases) {
     const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig(overrides) })));
     assert.ok(!senses.includes(labels.senses.videoRewatch), JSON.stringify(overrides));
   }
   const oldLabels = { ...labels, senses: { ...labels.senses, videoRewatch: undefined } };
-  const config = fakeConfig({ features: { vision: true, mediaDescriptions: true } });
+  const config = fakeConfig({ features: { mediaDescriptions: true } });
   const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
   assert.ok(senses.includes(labels.senses.videoWatch));
   assert.ok(!senses.includes(labels.senses.videoRewatch));
@@ -3680,43 +3533,13 @@ test('buildRequest: an old chat line carries its age against input.now, a recent
   assert.notEqual(aged(NOW), aged(NOW + 60 * MIN));
 });
 
-test('buildRequest: textFallback re-renders pulled lines without attachment markers', () => {
-  // The same sticker in the chat's trigger and in a pulled line: one item id (`sticker:s1`),
-  // attached for the chat, never marked attached on the pulled line.
-  const sticker = { id: 's1', name: 'gâteau', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' };
-  const trigger = destMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'https://cdn/i1.png', name: 'i1.png' }], stickers: [sticker] });
-  const pulled = pulledChannel({
-    messages: [
-      pulledMessage('p1', NOW - 30 * MIN, { attachments: [{ id: 'pi1', kind: 'image', url: 'https://cdn/pi1.png', name: 'pi1.png' }] }),
-      pulledMessage('p2', NOW - 20 * MIN, { attachments: [{ id: 'pi2', kind: 'image', url: 'https://cdn/pi2.png', name: 'pi2.png' }], stickers: [sticker] }),
-    ],
-    descriptions: new Map([['pi1', 'un chat endormi']]),
-  });
-  const config = fakeConfig({ context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 3, recentImageMinutes: 60 } } });
-  const request = buildRequest(baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', pulled: [pulled], currentChannelId: DEST }));
-  assert.deepEqual(request.pictures.map((picture) => picture.itemId), ['i1', 'sticker:s1'], 'only the chat\'s pictures are attached');
-  const stickerTag = fill(labels.transcript.sticker, { name: 'gâteau' });
-  const chat = bodyOf(userText(request), 'chat');
-  assert.ok(chat.includes(fill(labels.transcript.imageAttached, { n: 1 })), chat);
-  assert.ok(chat.includes(`${stickerTag} ${fill(labels.transcript.frameAttached, { n: 2 })}`), chat);
-  const view = bodyOf(userText(request), 'channel_view');
-  assert.ok(view.includes(fill(labels.transcript.imageDescribed, { text: 'un chat endormi' })), view);
-  assert.ok(view.split('\n').at(-1).endsWith(`Zoé: content of message p2 ${labels.transcript.image} ${stickerTag}`), view);
-  assert.ok(!view.includes('attached'), view);
-  assert.equal(bodyOf(contentText(request.textFallback), 'channel_view'), view);
-  assert.ok(!bodyOf(contentText(request.textFallback), 'chat').includes('attached'));
-});
-
-test('buildRequest: a routed trigger\'s pictures are not attached, nor any pulled picture', () => {
+test('buildRequest: a routed trigger\'s picture is shown as its caption in the pulled view', () => {
   const picture = { id: 'tp1', kind: 'image', url: 'https://cdn/tp1.png', name: 'tp1.png' };
-  const config = fakeConfig({ context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 3, recentImageMinutes: 60 } } });
   const base = routedInput();
   const trigger = { ...base.trigger, attachments: [picture] };
   const pulled = { ...base.pulled[0], messages: [...base.pulled[0].messages.slice(0, -1), trigger], descriptions: new Map([['tp1', 'une affiche']]) };
-  const request = buildRequest({ ...base, config, trigger, pulled: [pulled] });
+  const request = buildRequest({ ...base, trigger, pulled: [pulled] });
   assert.ok(request.messages[1].content.every((part) => part.type === 'text'), 'no image part at all');
-  assert.deepEqual(request.pictures, []);
-  assert.equal(request.stats.images, 0);
   assert.ok(bodyOf(userText(request), 'channel_view').includes(fill(labels.transcript.imageDescribed, { text: 'une affiche' })));
 });
 
@@ -4477,8 +4300,7 @@ test('buildRequest: the code fallbacks for missing settings equal the values in 
   const shipped = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   const base = {
     bot: { timezone: 'Europe/Moscow' },
-    context: { gapMarkerMinutes: 20, maxMessageChars: 800, caps: {}, vision: { maxImages: 2, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
-    features: { vision: true },
+    context: { gapMarkerMinutes: 20, maxMessageChars: 800, caps: {}, vision: {} },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
   };
   // The same config with every setting the scenes below depend on written out from config.json.

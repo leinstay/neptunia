@@ -40,12 +40,10 @@ Set them in the process environment (for example with `Environment=` in the syst
 | `gifPicker` | `true` | When the persona's first message is at most `gifs.pick.maxChars` characters and she chose no GIF herself, a classifier picks a fitting GIF from the full library. On a match the GIF replaces that first message; the remaining messages follow as written. A missing key counts as on. Needs `features.gifs` on and a non-empty library |
 | `embedUpdates` | `true` | When Discord attaches a link's embed after the message itself (Tenor GIFs arrive this way), fold it into the memory buffer so the GIF library and the analyzer see the GIF. A missing key counts as on |
 | `multiMessage` | `true` | Allow 2–3 messages in a row |
-| `vision` | `true` | Send pictures into the persona's own request (the attached and recent pictures `context.vision` selects, and the prompt's picture blocks). Off, the persona still sees through the describer's captions and the second look (`imageRelook`), which run on the `vision` helper model |
 | `mediaDescriptions` | `true` | One-line descriptions for pictures, GIFs, video frames and link thumbnails |
-| `attachedDescriptions` | `true` | Run the describer for pictures that are also attached to the request. Without this, attached pictures carry no helper's caption. A missing key counts as on. Needs both `vision` and `mediaDescriptions` on; one extra describer request per new picture, within `media.maxPerTurn` |
 | `videoDescriptions` | `false` | Watch short video clips through a video-capable model; needs `mediaDescriptions` on as well. Turn on in `config.local.json`; still needs a video-capable model and, for site links, `yt-dlp`/`ffmpeg` |
 | `videoRewatch` | `true` | When addressed, re-watch a video to answer a question about it; needs `videoDescriptions` on |
-| `imageRelook` | `true` | When addressed, look at a picture again to answer a question or check a claimed detail about it (the re-watch classifier's pick, or her own `media.look`); the second look runs through the `vision` helper model like the captions and does not need `vision` on. Shares the daily `media.video.rewatch.maxPerDay` counter with video re-watches. A missing key counts as on |
+| `imageRelook` | `true` | When addressed, look at a picture again to answer a question or check a claimed detail about it (the re-watch classifier's pick, or her own `media.look`); the second look runs through the `vision` helper model like the captions. Shares the daily `media.video.rewatch.maxPerDay` counter with video re-watches. A missing key counts as on |
 | `webLookup` | `false` | Read links posted in chat and search the web when asked a factual question. Unlike other features, a missing key counts as OFF. Needs `BRAVE_SEARCH_API_KEY` in `.env` for search; without it only link reading works. See [Media: Links and search](media.md#links) |
 | `imageGeneration` | `false` | Let the persona draw pictures through a drawing sub-process. A missing key counts as on. Turn on in `config.local.json`; needs an image-capable model in `models.agents.drawing`. See [Media: Drawing](media.md#drawing) |
 | `privateMessages` | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity`. See [Messages and memory: Private layer](messages-and-memory.md#private-layer) |
@@ -282,13 +280,11 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `caps.earlier` | `2500` | Token cap: the anchored window's `<earlier>` block (`features.anchoredWindow`); whole anchors are dropped, the trigger's reply parent and the unanswered requests to the persona last, then the other parents, then the persona's saved stretches, the oldest first |
 | `channelActivity.liveMessagesPerDay` | `20` | Daily messages = "active" channel |
 | `channelActivity.deadAfterDays` | `7` | Days without messages = "dead" channel |
-| `vision.maxImages` | `4` | Max images per request |
-| `vision.tokensPerImage` | `400` | Token budget per image |
-| `vision.imageSize` | `512` | Via Discord's media proxy, a picture's longer side is scaled down to at most this many px with its aspect kept; a picture of unknown size is sent at its original size |
-| `vision.recentImages` | `3` | Recent channel images to include |
-| `vision.recentImageMinutes` | `30` | Max age for recent images (min) |
-| `vision.maxBytes` | `1500000` | Max image file size (bytes); larger pictures are skipped |
-| `vision.fetchTimeoutMs` | `10000` | Download timeout per image (ms) |
+| `vision.tokensPerImage` | `400` | What the request rail charges for one image part of a helper request (the describer's, the avatar queue's); the persona's own request never carries one |
+| `vision.maxBytes` | `1500000` | Max picture file size (bytes) the describer, the second look and the avatar queue download; larger pictures are skipped |
+| `vision.fetchTimeoutMs` | `10000` | Download timeout per picture (ms) for the same downloads |
+
+**Removed.** `features.vision` and `features.attachedDescriptions` are no longer read: pictures never go into the persona's own request; she sees them through the describer's captions (`features.mediaDescriptions`) and her second look (`features.imageRelook`), both on the `vision` helper model. A config that still sets either key logs one warning and the value is ignored. `context.vision.maxImages`, `imageSize`, `recentImages` and `recentImageMinutes`, which only picked the pictures for that request, are gone with it (the describer scales a picture by `media.imageSize`).
 
 ### `context.customEmoji`
 

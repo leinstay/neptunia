@@ -2104,7 +2104,7 @@ test('rewatchVideo: logs one describe: rewatch line -- never the question, the a
 
 /** rewatchHot with the picture switches on and the image settings the download reads. */
 function relookHot({ features = {}, rewatch = {}, prompts = {} } = {}) {
-  const hot = rewatchHot({ features: { vision: true, imageRelook: true, ...features }, rewatch, prompts });
+  const hot = rewatchHot({ features: { imageRelook: true, ...features }, rewatch, prompts });
   hot.config.media.imageSize = 512;
   return hot;
 }
@@ -2205,14 +2205,6 @@ test('relookImage: a spent llm.maxRequestsPerDay takes no slot; a failed downloa
   const failed = relookDescriber({ llm: fakeLlm(new Error('boom')) });
   assert.equal(await failed.describer.relookImage('g1', pictureItem('a1'), 'q?'), null);
   assert.deepEqual(Object.keys(failed.store.getMediaCache('g1')), []);
-});
-
-test('relookImage: features.vision off (pictures stay out of the persona\'s own request) still looks through the vision model', async () => {
-  const { describer, llm, imageFetcher } = relookDescriber({ hot: relookHot({ features: { vision: false } }) });
-  const answer = await describer.relookImage('g1', pictureItem('a1'), 'q?');
-  assert.equal(typeof answer?.text, 'string');
-  assert.equal(imageFetcher.calls.length, 1);
-  assert.equal(llm.calls.length, 1);
 });
 
 test('relookImage: imageRelook off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {

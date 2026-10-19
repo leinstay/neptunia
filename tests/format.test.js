@@ -587,35 +587,7 @@ test('formatTranscript: chat mode never adds a channel heading, even across a ch
 });
 
 // --- formatTranscript: new media forms (images, gifs, video, voice, audio,
-// links, forwarded, imageAttached) ------------------------------------------
-
-test('formatTranscript: an image attached to this request renders imageAttached with its index', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { content: '', attachments: [{ id: 'att1', kind: 'image', name: 'pic.png' }] })];
-  const attachedIndex = new Map([['att1', 2]]);
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, attachedIndex });
-  assert.ok(items[0].text.includes('[picture #2, attached]'));
-});
-
-test('formatTranscript: an attached image with a caption renders imageAttachedDescribed, marker and caption together', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { content: '', attachments: [{ id: 'att1', kind: 'image', name: 'pic.png' }] })];
-  const attachedIndex = new Map([['att1', 2]]);
-  const descriptions = new Map([['att1', 'a grey cat sleeping']]);
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, attachedIndex, descriptions });
-  assert.ok(items[0].text.includes('[picture #2, attached; helper caption: a grey cat sleeping]'));
-});
-
-test('formatTranscript: an older labels.json with no imageAttachedDescribed key falls back to the bare imageAttached', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, imageAttachedDescribed: undefined } };
-  const messages = [msg('a', t0, { content: '', attachments: [{ id: 'att1', kind: 'image', name: 'pic.png' }] })];
-  const attachedIndex = new Map([['att1', 1]]);
-  const descriptions = new Map([['att1', 'a grey cat sleeping']]);
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels: oldLabels, attachedIndex, descriptions });
-  assert.ok(items[0].text.includes('[picture #1, attached]'));
-  assert.ok(!items[0].text.includes('grey cat'));
-});
+// links, forwarded) ---------------------------------------------------------
 
 // --- formatTranscript: a plain 'link' embed's thumbnail can be described too
 // -- the link/linkText tag itself never swaps, one extra tag follows.
@@ -755,7 +727,6 @@ test('formatTranscript: labels without the video keys render byte-for-byte as be
     msg('a', T0, { content: 'look', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }], links: [ytLink] }),
   ];
   const context = {
-    attachedIndex: new Map([['link:abcd1234', 1]]),
     descriptions: new Map([['v1', 'a dog runs']]),
   };
   const before = videoTranscript(messages, { labels: oldLabels, ...context });
@@ -768,7 +739,7 @@ test('formatTranscript: labels without the video keys render byte-for-byte as be
     ]),
   });
   assert.equal(after[0].text, before[0].text);
-  assert.ok(before[0].text.endsWith('look [video: clip.mp4, 1:05: a dog runs] [link: YouTube — Cool video] [its still frame is attached image 1]'));
+  assert.ok(before[0].text.endsWith('look [video: clip.mp4, 1:05: a dog runs] [link: YouTube — Cool video]'), before[0].text);
 });
 
 // --- formatTranscript: stickers ---------------------------------------
@@ -777,7 +748,7 @@ function stickerItem(id, name, url) {
   return { id, name, url };
 }
 
-test('formatTranscript: a described sticker (not attached) renders stickerDescribed', () => {
+test('formatTranscript: a described sticker renders stickerDescribed', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { content: '', stickers: [stickerItem('s1', 'pepe', 'https://x/s1.png')] })];
   const items = formatTranscript(messages, {
@@ -1153,7 +1124,7 @@ test('formatTranscript: a watched video with an answer renders videoAnswered rig
 test('formatTranscript: labels without videoAnswered render an answered video exactly as a plain watched one', () => {
   const oldLabels = { ...labels, transcript: { ...labels.transcript, videoAnswered: undefined } };
   const messages = [msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }], links: [ytLink] })];
-  const context = { attachedIndex: new Map([['v1', 1]]) };
+  const context = {};
   const plain = videoTranscript(messages, {
     labels: oldLabels,
     ...context,
@@ -1178,24 +1149,13 @@ test('formatTranscript: labels without videoAnswered render an answered video ex
 
 const pictureMsg = () => msg('a', T0, { content: '', attachments: [{ id: 'p1', kind: 'image', name: 'singes.png' }] });
 
-test('formatTranscript: a picture with an answer renders imageAnswered right after its own tag, attached or not', () => {
+test('formatTranscript: a picture with an answer renders imageAnswered right after its own tag, captioned or blind', () => {
   const imageAnswers = new Map([['p1', answered]]);
   const descriptions = new Map([['p1', 'deux singes']]);
   const plain = videoTranscript([pictureMsg()], { imageAnswers, descriptions });
   assert.ok(plain[0].text.endsWith('[image: deux singes] [picture checked again for "τι χρώμα είναι;": κόκκινο]'), plain[0].text);
-  const attached = videoTranscript([pictureMsg()], { imageAnswers, attachedIndex: new Map([['p1', 1]]) });
-  assert.ok(attached[0].text.endsWith(`${fill(labels.transcript.imageAttached, { n: 1 })} [picture checked again for "τι χρώμα είναι;": κόκκινο]`));
-});
-
-test('formatTranscript: an attached captioned picture keeps its answer when imageAttachedDescribed is blanked', () => {
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, imageAttachedDescribed: undefined } };
-  const items = videoTranscript([pictureMsg()], {
-    labels: oldLabels,
-    imageAnswers: new Map([['p1', answered]]),
-    descriptions: new Map([['p1', 'deux singes']]),
-    attachedIndex: new Map([['p1', 1]]),
-  });
-  assert.ok(items[0].text.endsWith(`${fill(labels.transcript.imageAttached, { n: 1 })} [picture checked again for "τι χρώμα είναι;": κόκκινο]`));
+  const blind = videoTranscript([pictureMsg()], { imageAnswers });
+  assert.ok(blind[0].text.endsWith(`${labels.transcript.image} [picture checked again for "τι χρώμα είναι;": κόκκινο]`), blind[0].text);
 });
 
 test('formatTranscript: labels without imageAnswered render an answered picture exactly as a plain one', () => {

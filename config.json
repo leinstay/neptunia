@@ -22,9 +22,7 @@
     "callMarkers": true,
     "followUpContinuation": true,
     "multiMessage": true,
-    "vision": true,
     "mediaDescriptions": true,
-    "attachedDescriptions": true,
     "videoDescriptions": false,
     "videoRewatch": true,
     "imageRelook": true,
@@ -158,7 +156,7 @@
     "pull": { "windowMinutes": 60, "minMessages": 5, "maxMessages": 60, "maxPictures": 10, "maxNewDescriptions": 8, "describeTimeoutMs": 15000, "scanMessages": 20, "maxChannels": 1, "maxAgeDays": 0, "sameAudience": true, "seenTtlMinutes": 120 },
     "customEmoji": { "max": 30, "storeMax": 200, "halfLifeDays": 30, "backfillMessages": 500 },
     "channelActivity": { "liveMessagesPerDay": 20, "deadAfterDays": 7 },
-    "vision": { "maxImages": 4, "tokensPerImage": 400, "imageSize": 512, "recentImages": 3, "recentImageMinutes": 30, "maxBytes": 1500000, "fetchTimeoutMs": 10000 }
+    "vision": { "tokensPerImage": 400, "maxBytes": 1500000, "fetchTimeoutMs": 10000 }
   },
   "mention": {
     "ignoreChance": 0,

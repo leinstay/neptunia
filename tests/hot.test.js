@@ -473,6 +473,28 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
   }
 });
 
+test('createHot: an old config that still sets features.vision or features.attachedDescriptions loads, warns once per key at startup and reads neither', async () => {
+  const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ features: { vision: false, attachedDescriptions: true } }));
+  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: features\.(vision|attachedDescriptions) is no longer read$/.test(entry.msg));
+  let hot;
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.deepEqual(
+      retired(started.logs).map((entry) => entry.msg).sort(),
+      ['config: features.attachedDescriptions is no longer read', 'config: features.vision is no longer read'],
+    );
+    assert.equal(hot.config.features.vision, false, 'the value stays in the config, unread');
+    const again = await withCapturedLogs(() => hot.reloadConfig());
+    assert.equal(retired(again.logs).length, 0, 'no second warning while the keys stay');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
   const dir = makeRoot({ config: { models: { helpers: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');

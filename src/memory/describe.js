@@ -651,9 +651,9 @@ export function createDescriber({
           { role: 'system', content: fillPromptTemplate(promptText, { maxChars: descriptionChars, today: todayDate() }) },
           { role: 'user', content: [{ type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
         ],
-        // An in-turn helper (llm.helperTimeoutMs, counted, never calibrated: a
-        // picture is estimated at a flat context.vision.tokensPerImage while the
-        // vision model counts far more).
+        // An in-turn helper (llm.helperTimeoutMs, counted, never calibrated: the
+        // rail estimates the picture at a flat context.vision.tokensPerImage while
+        // the vision model counts far more).
         {
           model,
           ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: mediaCfg.maxOutputTokens, purpose: 'describe' }),
@@ -1519,9 +1519,8 @@ export function createDescriber({
 
   /**
    * The second look at a picture on a question (features.imageRelook, a missing
-   * key counts as on; never features.vision, which gates only the pictures sent
-   * in the persona's own request): download `item` the way a
-   * caption does (pictureImageUrl, `context.vision.maxBytes`) and ask the
+   * key counts as on): download `item` the way a caption does (pictureImageUrl,
+   * `context.vision.maxBytes`) and ask the
    * media model (`vision`, a helper request, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =

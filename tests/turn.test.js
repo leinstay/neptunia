@@ -366,8 +366,6 @@ const SWITCHES_ON = {
   videoRewatch: true,
   imageRelook: true,
   videoDescriptions: true,
-  attachedDescriptions: true,
-  vision: true,
   privateLikeServer: true,
   followUpContinuation: true,
 };
@@ -385,7 +383,7 @@ function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {})
         gapMarkerMinutes: 20,
         otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+        vision: { tokensPerImage: 400, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
@@ -719,7 +717,7 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   const newer = rawMessage({ id: 'm2', ts: NOW - 1000, content: 'look https://www.youtube.com/watch?v=abc' });
   const channel = fakeTurnChannel({ historyMessages: [older, newer] });
   const llm = fakeLlm('<msg>ok</msg>');
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true, vision: false }, {}, VIDEO_TURN_CONFIG);
+  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'κάποιος χορεύει' } });
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
@@ -798,14 +796,14 @@ test('createTurnRunner: features.mediaDescriptions on describes an un-attached p
   assert.ok(userMessage.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
 });
 
-// features.attachedDescriptions -- a picture attached as image_url also gets the helper's caption.
+// A picture in the trigger reaches the persona as the helper's caption only, never as an image part.
 
-function attachedPictureTurn({ features, media, newer = false }) {
+function pictureTurn({ features, media, newer = false }) {
   const pic = { id: 'i1', contentType: 'image/png', name: 'one.png', url: 'https://cdn.discordapp.com/x/one.png' };
   const raw = rawMessage({ id: 'm2', attachments: new Map([['i1', pic]]) });
   const history = [raw];
   if (newer) {
-    // A picture posted right after the trigger: newer, but not attached (recentImages is 0).
+    // A picture posted right after the trigger: newer, so captioned first.
     const other = { id: 'o1', contentType: 'image/png', name: 'other.png', url: 'https://cdn.discordapp.com/x/other.png' };
     history.push(rawMessage({ id: 'm3', ts: NOW - 500, attachments: new Map([['o1', other]]) }));
   }
@@ -848,33 +846,22 @@ function userText(llm) {
   return textOf(llm.calls[0][1].content);
 }
 
-test('createTurnRunner: features.attachedDescriptions on -- an attached picture is described and its caption sits with the marker', async () => {
-  const { channel, llm, describer, turns, trigger } = attachedPictureTurn({ features: { mediaDescriptions: true, attachedDescriptions: true } });
+test('createTurnRunner: the trigger\'s picture is captioned by the describer and never sent as an image_url part', async () => {
+  const { channel, llm, describer, turns, trigger } = pictureTurn({ features: { mediaDescriptions: true } });
 
   await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
   assert.equal(describer.calls.length, 1);
   assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['i1']);
-  assert.ok(llm.calls[0][1].content.some((p) => p.type === 'image_url'), 'the picture is still attached as an image_url part');
+  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request is text parts only');
   const text = userText(llm);
-  assert.ok(text.includes(labels.transcript.imageAttachedDescribed.replace('{n}', '1').replace('{text}', 'a grey cat')));
+  assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
+  assert.ok(!text.includes(labels.transcript.imageAttached.replace('{n}', '1')), 'no line claims the picture is attached');
 });
 
-test('createTurnRunner: features.attachedDescriptions false -- the attached picture is never sent to the describer, today\'s line', async () => {
-  const { channel, llm, describer, turns, trigger } = attachedPictureTurn({ features: { mediaDescriptions: true, attachedDescriptions: false } });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
-
-  const described = describer.calls.flatMap((call) => call.items.map((item) => item.itemId));
-  assert.ok(!described.includes('i1'));
-  const text = userText(llm);
-  assert.ok(text.includes(labels.transcript.imageAttached.replace('{n}', '1')));
-  assert.ok(!text.includes('a grey cat'));
-});
-
-test('createTurnRunner: features.attachedDescriptions on -- attached pictures come first, media.maxPerTurn still caps new captions', async () => {
-  const { channel, llm, describer, turns, trigger } = attachedPictureTurn({
-    features: { mediaDescriptions: true, attachedDescriptions: true },
+test('createTurnRunner: captions go newest message first, media.maxPerTurn still caps new captions', async () => {
+  const { channel, llm, describer, turns, trigger } = pictureTurn({
+    features: { mediaDescriptions: true },
     media: { maxPerTurn: 1, filePreviewChars: 500 },
     newer: true,
   });
@@ -882,11 +869,11 @@ test('createTurnRunner: features.attachedDescriptions on -- attached pictures co
   await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
   assert.equal(describer.calls.length, 1);
-  assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['i1', 'o1'], 'the attached picture first, even ahead of a newer un-attached one');
+  assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['o1', 'i1'], 'the newest picture first');
   assert.equal(describer.calls[0].options.maxNew, 1);
   const text = userText(llm);
-  assert.ok(text.includes(labels.transcript.imageAttachedDescribed.replace('{n}', '1').replace('{text}', 'a grey cat')));
-  assert.ok(!text.includes('a red fox'), 'the one new caption of this turn went to the attached picture');
+  assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a red fox')));
+  assert.ok(!text.includes('a grey cat'), 'the one new caption of this turn went to the newest picture');
 });
 
 test('createTurnRunner: features.mediaDescriptions on describes a picture-format sticker via the same describer/cache path', async () => {
@@ -1073,10 +1060,9 @@ test('createTurnRunner: a text-attachment fetch failure falls back to the plain 
 });
 
 // ---------------------------------------------------------------------------
-// A provider that rejects the images (4xx) retries text-only -- the retry
-// must never resend text still claiming a picture is attached.
+// A provider's 4xx is never resent: the request is text only, there is nothing to strip.
 
-function fakeLlmRejectingImagesOnce(statusCode, responseText) {
+function fakeLlmRejectingOnce(statusCode, responseText) {
   const calls = [];
   const optionCalls = [];
   let first = true;
@@ -1106,73 +1092,10 @@ function videoTrigger(raw) {
   };
 }
 
-test('createTurnRunner: a 4xx image error (download succeeded, the provider itself still rejects) retries text-only, rendering the video blind (frameAttached dropped)', async () => {
-  const raw = rawMessage({
-    id: 'm1',
-    attachments: new Map([
-      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
-    ]),
-  });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlmRejectingImagesOnce(400, '<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({});
-  const imageFetcher = fakeImageFetcher();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
-
-  const trigger = videoTrigger(raw);
-
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(llm.calls.length, 2, 'the first (image) attempt and the text-only retry');
-
-  const firstUser = llm.calls[0][1].content;
-  assert.ok(firstUser.some((p) => p.type === 'image_url'), 'the first attempt carries image_url parts');
-  const firstText = textOf(firstUser);
-  assert.ok(firstText.includes(labels.transcript.frameAttached.replace('{n}', '1')));
-  const firstImage = firstUser.find((p) => p.type === 'image_url');
-  assert.ok(firstImage.image_url.url.startsWith('data:'), 'the downloaded picture is sent as a data: URL, never the bare CDN URL');
-
-  const secondParts = llm.calls[1][1].content;
-  assert.ok(Array.isArray(secondParts) && secondParts.every((p) => p.type === 'text'), 'the retry sends text parts only, no image_url parts');
-  const secondUser = textOf(secondParts);
-  assert.ok(secondUser.includes('[video: clip.mp4, 0:34]'), 'the video still renders in its blind form');
-  assert.ok(!secondUser.includes('still frame'), 'frameAttached must not survive into the text-only retry');
-});
-
-// A rate limit / quota (429) or a request timeout (408) says nothing about the
-// pictures: the client already retried it, so a text-only resend would only
-// double a doomed request while the persona's one attention waits.
-test('createTurnRunner: a 429 with pictures attached -- no text-only resend, the turn ends in error', async () => {
-  const raw = videoRaw();
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlmRejectingImagesOnce(429, '<msg>never posted</msg>');
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: fakeHot({}),
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    imageFetcher: fakeImageFetcher(),
-  });
-
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }),
-  );
-
-  assert.equal(result.outcome, 'error');
-  assert.equal(llm.calls.length, 1, 'the model is called once, never resent text-only');
-  assert.ok(llm.calls[0][1].content.some((p) => p.type === 'image_url'), 'the one call carried the pictures');
-  assert.equal(channel.sent.length, 0);
-});
-
-test('createTurnRunner: a 4xx with no pictures in the request -- nothing to strip, so no resend, the turn ends in error', async () => {
+test('createTurnRunner: a 4xx from the provider is not resent, the turn ends in error', async () => {
   const raw = rawMessage({ id: 'm1', content: 'hello there' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlmRejectingImagesOnce(400, '<msg>never posted</msg>');
+  const llm = fakeLlmRejectingOnce(400, '<msg>never posted</msg>');
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1188,18 +1111,15 @@ test('createTurnRunner: a 4xx with no pictures in the request -- nothing to stri
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
   );
 
-  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request carried no picture');
+  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request is text only');
   assert.equal(result.outcome, 'error');
   assert.equal(llm.calls.length, 1, 'the model is called once, never resent');
   assert.equal(channel.sent.length, 0);
 });
 
 // ---------------------------------------------------------------------------
-// The picture is downloaded and inlined as a data: URL BEFORE the model
-// ever sees the request -- the provider's own fetcher gets a 403 from
-// Discord on some CDN hosts even though our server fetches the same URL
-// fine. A failed download drops EVERY picture of the turn (never a partial,
-// mis-numbered set) and falls back to plain text.
+// A video in the trigger renders in the transcript by its tag; nothing of it is downloaded for
+// the persona's request (her eyes are the describer's).
 
 function videoRaw(id = 'm1') {
   return rawMessage({
@@ -1210,123 +1130,20 @@ function videoRaw(id = 'm1') {
   });
 }
 
-test('createTurnRunner: a picture is downloaded and sent as a data: URL, never the bare Discord CDN URL', async () => {
+test('createTurnRunner: a video in the trigger renders by its tag, nothing is downloaded and no image part is sent', async () => {
   const raw = videoRaw();
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({});
   const imageFetcher = fakeImageFetcher();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
-  assert.equal(imageFetcher.calls.length, 1);
-  assert.equal(imageFetcher.calls[0].url.includes('clip.mp4'), true);
-  assert.deepEqual(imageFetcher.calls[0].options, { maxBytes: 1_500_000, timeoutMs: 10_000 });
-  const userContent = llm.calls[0][1].content;
-  const imagePart = userContent.find((p) => p.type === 'image_url');
-  assert.equal(imagePart.image_url.url, 'data:image/webp;base64,ZmFrZQ==');
-});
-
-test('createTurnRunner: a failed download drops EVERY picture of the turn -- sent as plain text, rendering blind, not attached', async () => {
-  const raw = videoRaw();
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({});
-  const imageFetcher = fakeImageFetcher(null); // every download fails
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
-
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
-
-  assert.equal(result.outcome, 'spoke');
+  assert.equal(imageFetcher.calls.length, 0);
   const parts = llm.calls[0][1].content;
-  assert.ok(parts.every((p) => p.type === 'text'), 'no image_url parts must be sent once any download failed');
-  const userContent = textOf(parts);
-  assert.ok(userContent.includes('[video: clip.mp4, 0:34]'), 'the video renders in its blind form');
-  assert.ok(!userContent.includes('still frame'), 'frameAttached must not survive a dropped picture');
-});
-
-test('createTurnRunner: with two pictures, one failed download drops BOTH -- never a partial, mis-numbered set', async () => {
-  const raw = rawMessage({
-    id: 'm1',
-    attachments: new Map([
-      ['i1', { id: 'i1', contentType: 'image/png', name: 'one.png', url: 'https://cdn.discordapp.com/x/one.png' }],
-      ['i2', { id: 'i2', contentType: 'image/png', name: 'two.png', url: 'https://cdn.discordapp.com/x/two.png' }],
-    ]),
-  });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({});
-  // one.png succeeds, two.png fails.
-  const imageFetcher = fakeImageFetcher((url) =>
-    url.includes('one.png') ? { dataUrl: 'data:image/png;base64,b25l', bytes: 3, contentType: 'image/png' } : null,
-  );
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
-
-  const trigger = {
-    ...normalizedTrigger(raw),
-    attachments: [
-      { id: 'i1', kind: 'image', url: 'https://cdn.discordapp.com/x/one.png', name: 'one.png' },
-      { id: 'i2', kind: 'image', url: 'https://cdn.discordapp.com/x/two.png', name: 'two.png' },
-    ],
-  };
-
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
-
-  assert.equal(result.outcome, 'spoke');
-  const parts = llm.calls[0][1].content;
-  assert.ok(parts.every((p) => p.type === 'text'), 'both pictures must be dropped, not just the failed one');
-  const userContent = textOf(parts);
-  assert.ok(
-    !userContent.includes(labels.transcript.imageAttached.replace('{n}', '1')) &&
-      !userContent.includes(labels.transcript.imageAttached.replace('{n}', '2')),
-    'neither picture is claimed as attached once one download failed',
-  );
-  assert.ok(userContent.includes(labels.transcript.image), 'both pictures render in their plain blind form');
-});
-
-test('createTurnRunner: when every picture downloads fine, all are kept as data: URLs in transcript order', async () => {
-  const raw = rawMessage({
-    id: 'm1',
-    attachments: new Map([
-      ['i1', { id: 'i1', contentType: 'image/png', name: 'one.png', url: 'https://cdn.discordapp.com/x/one.png' }],
-      ['i2', { id: 'i2', contentType: 'image/png', name: 'two.png', url: 'https://cdn.discordapp.com/x/two.png' }],
-    ]),
-  });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({});
-  const imageFetcher = fakeImageFetcher((url) => ({
-    dataUrl: url.includes('one.png') ? 'data:image/png;base64,ONE' : 'data:image/png;base64,TWO',
-    bytes: 3,
-    contentType: 'image/png',
-  }));
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
-
-  const trigger = {
-    ...normalizedTrigger(raw),
-    attachments: [
-      { id: 'i1', kind: 'image', url: 'https://cdn.discordapp.com/x/one.png', name: 'one.png' },
-      { id: 'i2', kind: 'image', url: 'https://cdn.discordapp.com/x/two.png', name: 'two.png' },
-    ],
-  };
-
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
-
-  assert.equal(result.outcome, 'spoke');
-  const userContent = llm.calls[0][1].content;
-  const imageParts = userContent.filter((p) => p.type === 'image_url');
-  assert.equal(imageParts.length, 2);
-  assert.deepEqual(
-    imageParts.map((p) => p.image_url.url),
-    ['data:image/png;base64,ONE', 'data:image/png;base64,TWO'],
-    'pictures are kept in the order they appear in the transcript',
-  );
+  assert.ok(parts.every((p) => p.type === 'text'));
+  assert.ok(textOf(parts).includes('[video: clip.mp4, 0:34]'), 'the video renders by its tag');
 });
 
 // ---------------------------------------------------------------------------
@@ -1684,7 +1501,7 @@ function rewatchLlm(classifierText, turnText = '<msg>ok</msg>') {
 
 function rewatchHot(features = {}, video = {}, config = {}) {
   const hot = fakeHot(
-    { mediaDescriptions: true, videoDescriptions: true, vision: false, ...features },
+    { mediaDescriptions: true, videoDescriptions: true, ...features },
     {},
     {
       models: { helpers: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
@@ -2065,7 +1882,7 @@ function relookScene(history = [pictureRaw('m1', NOW - 5000, 'pa', 'singes.png')
 }
 
 async function runRelook({
-  hot = rewatchHot({ vision: true }),
+  hot = rewatchHot({}),
   llm = rewatchLlm('1 | y a-t-il un chargeur dans la pupille ?'),
   describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' }),
   scene = relookScene(),
@@ -2118,21 +1935,18 @@ test('createTurnRunner: relook -- with the second-look counter spent no picture 
   assert.ok(capped.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'cap'));
 });
 
-test('createTurnRunner: relook -- imageRelook off removes the pictures (features.vision off does not); the videos keep their second look', async () => {
+test('createTurnRunner: relook -- imageRelook off removes the pictures; the videos keep their second look', async () => {
   const video = videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4');
   const picture = pictureRaw('m2', NOW - 5000, 'pa', 'singes.png');
   const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } };
   const run = (hot) =>
     runRelook({ hot, scene: relookScene([video, picture]), llm: rewatchLlm('1 | τι χρώμα;'), describer: fakeRelookDescriber(states, { pa: 'deux singes' }) });
 
-  // features.vision only gates pictures in the persona's own request: the second look runs through the describer.
-  for (const hot of [rewatchHot({ vision: true, imageRelook: true }), rewatchHot({ vision: false, imageRelook: true })]) {
-    const on = await run(hot);
-    assert.deepEqual(mediaLines(on.llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | picture | singes.png | described | deux singes']);
-  }
+  const on = await run(rewatchHot({ imageRelook: true }));
+  assert.deepEqual(mediaLines(on.llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | picture | singes.png | described | deux singes']);
 
-  for (const hot of [rewatchHot({ vision: true, imageRelook: false }), rewatchHot({ vision: false, imageRelook: false })]) {
-    const { describer, llm } = await run(hot);
+  {
+    const { describer, llm } = await run(rewatchHot({ imageRelook: false }));
     assert.deepEqual(mediaLines(llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά']);
     assert.equal(describer.rewatchCalls.length, 1);
     assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
@@ -2142,7 +1956,7 @@ test('createTurnRunner: relook -- imageRelook off removes the pictures (features
 });
 
 test('createTurnRunner: relook -- with video vision off the pictures are still offered', async () => {
-  const { describer, llm } = await runRelook({ hot: rewatchHot({ vision: true, videoDescriptions: false }) });
+  const { describer, llm } = await runRelook({ hot: rewatchHot({ videoDescriptions: false }) });
   assert.deepEqual(mediaLines(llm), ['1 | picture | singes.png | described | deux singes sur une branche']);
   assert.equal(describer.relookCalls.length, 1);
 });
@@ -2169,7 +1983,7 @@ test('createTurnRunner: relook -- maxCandidates caps the merged list: the videos
   const states = { v1: { state: 'watched', text: 'scène 1' }, v2: { state: 'watched', text: 'scène 2' } };
   const describer = fakeRelookDescriber(states, {});
   const { llm } = await runRelook({
-    hot: rewatchHot({ vision: true }, { rewatch: { maxCandidates: 3 } }),
+    hot: rewatchHot({}, { rewatch: { maxCandidates: 3 } }),
     scene: relookScene(history),
     llm: rewatchLlm('3 | combien de singes ?'),
     describer,
@@ -2353,7 +2167,7 @@ function lookupLlm(classifierText = 'none', turnText = '<msg>ok</msg>') {
 
 function lookupHot(features = {}, web = {}, config = {}) {
   const hot = fakeHot(
-    { webLookup: true, vision: false, ...features },
+    { webLookup: true, ...features },
     {},
     {
       models: { helpers: { analyzer: 'x/text', extractor: 'x/extract' } },
@@ -3869,21 +3683,6 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
 });
 
-test('createTurnRunner: the text-only retry after a 4xx image error is requested as the reply too', async () => {
-  const raw = rawMessage({
-    id: 'm1',
-    attachments: new Map([
-      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
-    ]),
-  });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlmRejectingImagesOnce(400, '<msg>ok</msg>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher() });
-  await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
-  assert.equal(llm.optionCalls.length, 2);
-  assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['core', 'reply'], ['core', 'reply']]);
-});
-
 test('createTurnRunner: the rewatch classifier and the lookup are requested as analyzer, the turn as core', async () => {
   const rewatch = await runRewatch();
   assert.equal(rewatch.llm.classifierCalls[0].options.role, 'analyzer');
@@ -4742,7 +4541,7 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   assert.deepEqual(callsFor(describer, 'cp1').map((call) => call.options), [{ maxNew: 1 }]);
-  assert.equal(scene.llm.calls[0][1].content.some((p) => p.type === 'image_url'), false, 'nothing is attached for vision');
+  assert.equal(scene.llm.calls[0][1].content.some((p) => p.type === 'image_url'), false, 'no image part is ever sent');
   assert.ok(channelViewOf(scene.llm).includes('caption of cp1'));
 });
 
@@ -6523,7 +6322,7 @@ const WATCHED_TEXT = 'ένα ποτάμι κάτω από τη γέφυρα';
  * defaults to video vision on with the test pace and `pace` over it.
  */
 function videoPaceScene({ pace = {}, where = 'trigger', watch = null, clock = () => NOW, hot = null, llm = fakeLlm('<msg>ok</msg>'), lookup = undefined, content = 'το βλέπεις;' } = {}) {
-  const turnHot = hot ?? fakeHot({ mediaDescriptions: true, videoDescriptions: true, vision: false }, {}, VIDEO_TURN_CONFIG);
+  const turnHot = hot ?? fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   turnHot.config.pace = { ...TEST_PACE, ...pace };
   const older = where === 'trigger' ? rawMessage({ id: 'm1', ts: NOW - 9000, content: 'γεια' }) : videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mov');
   const trigger = where === 'trigger' ? videoAttachmentRaw('m2', NOW - 1000, 'va', 'clip.mov') : rawMessage({ id: 'm2', ts: NOW - 1000 });
@@ -6613,7 +6412,7 @@ test('runTurn: a video whose watch misses the deadline renders not watched, stil
 
 test('runTurn: a late video stage keeps the states the cache holds; only the video still loading is pending', async () => {
   const watch = deferred();
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true, vision: false }, {}, VIDEO_TURN_CONFIG);
+  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   hot.config.pace = { ...TEST_PACE, prepareMs: 1000, prepareMediaMs: 5000 };
   // An older line with a video watched on an earlier turn (served from the cache), and the call with a new one.
   const older = videoAttachmentRaw('m1', NOW - 9000, 'vo', 'old.mp4');
@@ -6871,7 +6670,7 @@ test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing 
   assert.equal(scene.channel.sent.length, 0, 'a late answer is never posted');
 });
 
-test('runTurn: no text-only resend is made once no time is left before pace.dropAfterMs', async () => {
+test('runTurn: a provider error landing once no time is left before pace.dropAfterMs drops the turn, nothing is asked again', async () => {
   let t = NOW;
   const raw = rawMessage({
     id: 'm1',
@@ -6893,7 +6692,7 @@ test('runTurn: no text-only resend is made once no time is left before pace.drop
 
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
 
-  assert.equal(llm.optionCalls.length, 1, 'the resend is never asked');
+  assert.equal(llm.optionCalls.length, 1, 'nothing is asked again');
   assert.equal(result.outcome, 'error');
   assert.equal(channel.sent.length, 0);
   assert.ok(logs.some((l) => l.msg === 'turn: dropped' && l.reason === 'too-slow'));
@@ -7731,7 +7530,7 @@ function replyParentChannel(historyMessages, stored = []) {
 
 /** The video-stage hot config with the reply-parent settings set by the test. */
 function replyParentHot({ fetchReplyParents = true, replyParentsFor = 3, replyParentsMax = 4 } = {}) {
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true, vision: false }, {}, VIDEO_TURN_CONFIG);
+  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   Object.assign(hot.config.context, { fetchReplyParents, replyParentsFor, replyParentsMax });
   return hot;
 }
@@ -8065,7 +7864,7 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.equal(turn.attemptId, 1);
   assert.equal(turn.outcome, 'spoke');
   assert.equal(turn.reason, null);
-  assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { images: [], filePreviews: [] }, pulled: [] });
+  assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { filePreviews: [] }, pulled: [] });
   assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
   assert.deepEqual([...turn.participants].sort(), ['u1', 'u2']);
   assert.equal(turn.think, 'Η Αλίκη με φωνάζει.');
@@ -9559,7 +9358,7 @@ test('createTurnRunner: the end hook hears every turn\'s outcome, its trigger an
 });
 
 test('createTurnRunner: a turn dropped at its bar reaches the end hook as an error with reason too-slow', async () => {
-  // The scene of 'no text-only resend is made once no time is left before pace.dropAfterMs'.
+  // The scene of 'a provider error landing once no time is left before pace.dropAfterMs drops the turn'.
   let t = NOW;
   const raw = rawMessage({
     id: 'm1',

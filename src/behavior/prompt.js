@@ -98,7 +98,7 @@ import {
 import { topByRank } from '../memory/ranking.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
-import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../media/classify.js';
+import { mediaParts } from '../media/classify.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
@@ -1217,15 +1217,10 @@ function nowBlock(now, timezone, labels, periods) {
  * blocks, so the parts' texts joined with nothing (userText) are the whole
  * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
  * turns it into the provider's marker under the cache policy and never sends it.
- * Factored out so a fallback rendering (see `textFallback` below) can reuse
- * every block untouched except `<chat>`. `errands`: the `<tasks>` and `<task_result>` bodies
+ * `errands`: the `<tasks>` and `<task_result>` bodies
  * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
- * A pulled channel's lines never carry
- * an `imageAttached`/`frameAttached` tag (nothing of another channel is
- * attached); `<other_channels>` lines can, when they hold an item attached for
- * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
 function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '' }) {
@@ -1686,12 +1681,12 @@ function renderSenses(
   const coreTools = config.features?.coreTools === true;
   const granted = (name) => Array.isArray(toolsGranted) && toolsGranted.includes(name);
   if (!senses) return { stable: '', turn: '' };
-  const visionOn = config.features?.vision !== false;
+  // Pictures never go into the persona's own request: she sees them through the describer's
+  // captions (and her second look), so the lines say described or blind, never seen first-hand.
   const describedOn = config.features?.mediaDescriptions === true;
   const lines = [];
   // The lines that change from turn to turn: they stay out of the cached part.
   const turnLines = [];
-  if (visionOn) lines.push(senses.imageSee);
   lines.push(describedOn ? senses.imageDescribed : senses.imageBlind);
   // A watched GIF (its animation, not one frame); an older labels.json
   // without the line keeps the one-frame one.
@@ -1704,8 +1699,8 @@ function renderSenses(
   // The second look on a question (features.videoRewatch, a missing key
   // counts as on); an older labels.json without the line shows nothing.
   // With features.coreTools no classifier gives her one: she looks again herself with media.look,
-  // granted to her by name, at a picture (features.imageRelook, through the vision model; never
-  // features.vision, which gates only the pictures in her own request) or a video (video vision).
+  // granted to her by name, at a picture (features.imageRelook, through the vision model) or a
+  // video (video vision).
   if (coreTools) {
     const imageRelookOn = config.features?.imageRelook !== false;
     if (granted('media.look') && (imageRelookOn || videoOn) && senses.lookTool) lines.push(senses.lookTool);
@@ -1714,9 +1709,8 @@ function renderSenses(
   // Stickers get their own lines (a picture-format one behaves like an
   // image); senses.lottie only shows up alongside them -- an animated
   // built-in (Lottie) sticker is never a picture, name only, regardless of
-  // vision/mediaDescriptions.
+  // mediaDescriptions.
   const stickerLines = [];
-  if (visionOn) stickerLines.push(senses.stickerSee);
   stickerLines.push(describedOn ? senses.stickerDescribed : senses.stickerBlind);
   const shownStickerLines = stickerLines.filter(Boolean);
   lines.push(...shownStickerLines);
@@ -2364,9 +2358,8 @@ function anchoredOn(config, labels, privateChat) {
  *
  * Priority for the budget (`pieces` come in it): the trigger's parent, then the pieces holding an
  * open request, then the other parents, then the episodes, each newest first. Every piece has
- * `text` (with the attached-picture marks of `formatOptions`) and `blind` (without them, for the
- * request's text fallback), `ids` (the messages it shows), `parentIds` (the reply parents among
- * them) and `startAt`. Null when there is nothing to show.
+ * `text`, `ids` (the messages it shows), `parentIds` (the reply parents among them) and
+ * `startAt`. Null when there is nothing to show.
  * @returns {{ header: string, pieces: object[] }|null}
  */
 function anchorsView(participation, { config, labels, currentChannelId, history, trigger, selfId, now, timezone, selfName, nameOf, formatOptions }) {
@@ -2406,16 +2399,14 @@ function anchorsView(participation, { config, labels, currentChannelId, history,
   const pieces = [];
   for (const parent of parents) {
     const open = openParent(parent);
-    const line = (attachedIndex) =>
-      formatTranscript(history, { ...formatOptions, attachedIndex, now: undefined, skip: (message) => message.id !== parent.id })[0].text + (open ? mark : '');
+    const line = formatTranscript(history, { ...formatOptions, now: undefined, skip: (message) => message.id !== parent.id })[0].text + (open ? mark : '');
     pieces.push({
       kind: 'reply',
       ids: [parent.id],
       parentIds: [parent.id],
       startAt: parent.ts,
       rank: parent.id === trigger?.replyToId ? 0 : open ? 1 : 2,
-      text: line(formatOptions.attachedIndex),
-      blind: line(undefined),
+      text: line,
     });
   }
   const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes: Infinity });
@@ -2440,7 +2431,6 @@ function anchorsView(participation, { config, labels, currentChannelId, history,
       lastAt: episode.lastAt,
       rank: shown.some((id) => openIds.has(id)) ? 1 : 3,
       text,
-      blind: text,
     });
   }
   if (pieces.length === 0) return null;
@@ -2453,13 +2443,12 @@ function anchorsView(participation, { config, labels, currentChannelId, history,
  * The `<earlier>` block from the budget's kept items (the header, then a subsequence of
  * `view.pieces`' texts in their order): the header, then the kept pieces oldest first,
  * `labels.participation.earlierGap` between two of them when the label is there. A reply parent
- * that a kept episode already shows is not repeated. `text` with the attached-picture marks,
- * `blind` without them, `parentIds` the reply parents shown; '' texts when the header or every
- * piece was cut.
- * @returns {{ text: string, blind: string, parentIds: string[] }}
+ * that a kept episode already shows is not repeated. `parentIds` the reply parents shown; ''
+ * text when the header or every piece was cut.
+ * @returns {{ text: string, parentIds: string[] }}
  */
 function anchorsText(view, keptItems, labels) {
-  const none = { text: '', blind: '', parentIds: [] };
+  const none = { text: '', parentIds: [] };
   if (keptItems.length < 2 || keptItems[0] !== view.header) return none;
   const kept = [];
   let next = 1;
@@ -2473,8 +2462,8 @@ function anchorsText(view, keptItems, labels) {
   const shown = kept.filter((piece) => piece.kind === 'episode' || !inEpisodes.has(piece.ids[0])).sort((x, y) => x.startAt - y.startAt);
   if (shown.length === 0) return none;
   const gap = labels.participation?.earlierGap;
-  const join = (key) => [view.header, shown.map((piece) => piece[key]).join(gap ? `\n${gap}\n` : '\n')].join('\n');
-  return { text: join('text'), blind: join('blind'), parentIds: [...new Set(shown.flatMap((piece) => piece.parentIds))] };
+  const text = [view.header, shown.map((piece) => piece.text).join(gap ? `\n${gap}\n` : '\n')].join('\n');
+  return { text, parentIds: [...new Set(shown.flatMap((piece) => piece.parentIds))] };
 }
 
 /** A stored `YYYY-MM-DD` in the transcript's date form (`formatDate`), read as that calendar day:
@@ -2581,7 +2570,7 @@ function pulledTranscripts(pulledChannels, { formatOptions, descriptions, firstI
   return pulledChannels.map((channel) => {
     const own = channel.entry.descriptions;
     const captions = own instanceof Map && own.size > 0 ? new Map([...own, ...(descriptions ?? [])]) : descriptions;
-    const items = formatTranscript(channel.messages, { ...formatOptions, attachedIndex: undefined, descriptions: captions, indexOffset: offset });
+    const items = formatTranscript(channel.messages, { ...formatOptions, descriptions: captions, indexOffset: offset });
     offset += channel.messages.length;
     for (const item of items) {
       if (triggerId !== null && item.id === triggerId) continue;
@@ -2805,25 +2794,20 @@ export function continuesTurn(config, labels) {
 /**
  * What of the chat window entered a turn's request, for the journal: the ids of the kept
  * transcript lines (oldest first), of the reply parents among them (prepended to the window
- * from outside it, `replyParent: true`), of the messages whose pictures went in as image parts
- * and of the kept messages whose text attachment was previewed. `anchoredIds`: the reply
- * parents `<earlier>` showed instead of `<chat>` (the anchored window), counted first.
- * @param {{ history: object[], keptChat: { id: string }[], pictures: { messageId?: string }[], anchoredIds?: string[] }} input
- * @returns {{ messageIds: string[], parents: string[], parts: { images: string[], filePreviews: string[] } }}
+ * from outside it, `replyParent: true`) and of the kept messages whose text attachment was
+ * previewed. `anchoredIds`: the reply parents `<earlier>` showed instead of `<chat>` (the
+ * anchored window), counted first.
+ * @param {{ history: object[], keptChat: { id: string }[], anchoredIds?: string[] }} input
+ * @returns {{ messageIds: string[], parents: string[], parts: { filePreviews: string[] } }}
  */
-function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
+function seenOf({ history, keptChat, anchoredIds = [] }) {
   const byId = new Map(history.map((message) => [message.id, message]));
   const messageIds = [...anchoredIds, ...keptChat.map((item) => item.id)].filter((id) => typeof id === 'string' && id);
   const keptMessages = messageIds.map((id) => byId.get(id)).filter(Boolean);
-  const images = [];
-  for (const picture of pictures) {
-    if (typeof picture.messageId === 'string' && picture.messageId && !images.includes(picture.messageId)) images.push(picture.messageId);
-  }
   return {
     messageIds,
     parents: keptMessages.filter((message) => message.replyParent === true).map((message) => message.id),
     parts: {
-      images,
       filePreviews: keptMessages
         .filter((message) =>
           mediaParts(message).some((part) => (part.attachments ?? []).some((a) => a?.kind === 'text' && typeof a.previewText === 'string')),
@@ -2923,9 +2907,8 @@ export function withoutSentenceOf(text, placeholder) {
  *   `channelHandles` maps each handle back to its channel id.
  * @param {object[]} [input.loreEntries]   The guild's stored lorebook (store.getLore), [] when memory is off.
  * @param {string|null} [input.currentChannelId]  Id of the channel this turn happens in.
- * @param {Map<string, string>} [input.descriptions]  Item id -> describer caption, for pictures
- *   NOT selected to be attached, and for attached ones too with features.attachedDescriptions
- *   (see src/behavior/turn.js, src/memory/describe.js).
+ * @param {Map<string, string>} [input.descriptions]  Item id -> describer caption (see
+ *   src/behavior/turn.js, src/memory/describe.js): the only way a picture reaches the persona.
  * @param {Map<string, string>} [input.neighborDescriptions]  Item id -> the caption the
  *   describer's cache already held for a picture in a neighbour's lines
  *   (src/memory/describe.js#cachedDescriptions); used for `<other_channels>` only, alongside
@@ -3152,19 +3135,17 @@ export function withoutSentenceOf(text, placeholder) {
  *   rendered from the input every time.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object, handles: Map<string, string>|null, channelHandles: Map<string, string>|null,
- *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
+ *   pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
  *   pulledViews: { channelId: string, hashes: Map<string, string>, oldestTs: number, oldestId: string|number }[],
  *   peopleShown: { id: string, names: string[] }[],
  *   recent: { lines: number, episodes: number, cut: number, hidden: number, repeated: number,
  *     unnamed: number }|null,
- *   seen: { messageIds: string[], parents: string[], parts: { images: string[], filePreviews: string[] } } }}
- *   The user message's content is always an array: its text parts (assembleUser: the stable
+ *   seen: { messageIds: string[], parents: string[], parts: { filePreviews: string[] } } }}
+ *   The user message's content is always an array of text parts (assembleUser: the stable
  *   part, the profiles and the tail, each tagged with its `cacheSegment` but the tail; an empty
- *   one left out), then one image_url part per attached picture; userText reads its whole text.
- *   `pictures` are the ones attached as image_url parts; `textFallback` is the same text parts
- *   with every attached picture rendered blind or described and no image part (null when nothing
- *   is attached), for a provider that rejects them. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
+ *   one left out), never an image part: the persona sees pictures through the describer's
+ *   captions only; userText reads its whole text. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
  *   every pulled line's message id to its channel id (the output side reacts there, never
  *   replies across channels); `pulledKept` lists the channels whose block survived the budget,
  *   with the ids of the lines shown and the newest window line shown; `pulledViews` the same
@@ -3196,8 +3177,8 @@ export function withoutSentenceOf(text, placeholder) {
  *   shown: a channel without a name, an episode left without an own line by the dedup, the
  *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
  *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
- *   parents among them, the messages whose pictures are image parts and whose text
- *   attachments were previewed -- for the journal's turn record.
+ *   parents among them and the messages whose text attachments were previewed -- for the
+ *   journal's turn record.
  */
 export function buildRequest(input) {
   const { config, prompts, calibrator, mode, forced = false, now, selfName, history, neighbors, trigger, triggerKind, channels = [], currentChannelId = null, descriptions, videos, imageAnswers, reads, lookup = null } = input;
@@ -3254,12 +3235,6 @@ export function buildRequest(input) {
   const shownMoves = config.relationships?.shownMoves ?? 4;
   const episodesOn = config.features?.episodes !== false;
   const loreOn = config.features?.lore !== false;
-  const visionCfg = config.context.vision ?? {};
-  const visionOn = config.features?.vision !== false;
-  // Only this channel's pictures are attached: a trigger in another channel (a routed call)
-  // is shown as captions, like every pulled line.
-  const pictures = visionOn ? selectPictures({ trigger, history, visionCfg, now, channelId: currentChannelId }) : [];
-  const attachedIndex = new Map(pictures.map((picture, i) => [picture.itemId, i + 1]));
   // The GIF library: the switch (a missing key counts as on) and at least one entry.
   const gifLibrary = config.features?.gifs !== false && input.gifs ? normalizeGifs(input.gifs) : null;
   const gifsOn = Boolean(gifLibrary) && Object.keys(gifLibrary.entries).length > 0;
@@ -3279,7 +3254,7 @@ export function buildRequest(input) {
     selfName,
     labels,
     // An old line carries its age against the same clock as `<now>` and `<tempo>`: the chat,
-    // its blind variant, neighbour and pulled channels alike.
+    // neighbour and pulled channels alike.
     now,
     ageMinutes: config.context.ageAfterMinutes ?? 60,
     seeReactions: config.features?.seeReactions !== false,
@@ -3289,7 +3264,6 @@ export function buildRequest(input) {
     reactionNamesMax: config.context.reactions?.maxNames ?? 5,
     replyQuoteChars: config.context.replyQuoteChars,
     emojiInline: !emojiOnce,
-    attachedIndex,
     descriptions,
     videos,
     reads,
@@ -3552,7 +3526,7 @@ export function buildRequest(input) {
   const placesText = typeof input.places === 'string' ? input.places : '';
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
-  const limit = requestTokenLimit(config) - pictures.length * (visionCfg.tokensPerImage ?? 400) - TAG_OVERHEAD;
+  const limit = requestTokenLimit(config) - TAG_OVERHEAD;
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).
@@ -4199,55 +4173,17 @@ export function buildRequest(input) {
   }
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
-  const seen = seenOf({ history, keptChat, pictures, anchoredIds: earlierShown?.parentIds ?? [] });
+  const seen = seenOf({ history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
+  // The text parts (assembleUser's cache segments) are the whole user content: no image part
+  // ever, the persona sees pictures through the describer's captions.
   const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText });
-
-  // A provider that rejects the images (see src/behavior/turn.js's 4xx
-  // retry) must never resend a <chat> claiming a picture is attached with
-  // nothing actually attached: `textFallback` re-renders the SAME kept
-  // messages with attachedIndex dropped, so imageAttached/frameAttached fall
-  // back to their blind/described forms. Only `<chat>` is re-rendered: the
-  // pulled lines never carry an attachment marker (rendered without
-  // attachedIndex from the start), but `<other_channels>` lines are rendered
-  // with it, so a neighbour line holding an item that is attached for the
-  // chat (the same sticker or link id) shows the attached marker in both
-  // renderings -- a known gap, left as it is. Computed only when there is
-  // anything to fall back from.
-  let textFallback = null;
-  if (pictures.length) {
-    const chatItemsBlind = formatTranscript(history, { ...chatOptions, attachedIndex: undefined });
-    const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    // The anchors of `<earlier>` were cut with their picture marks; the same anchors without them.
-    const keptBlind = earlierShown?.blind ? { ...kept, earlier: [earlierShown.blind] } : kept;
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText });
-  }
-
-  // A sticker's URL is already fully sized (see src/media/classify.js
-  // stickerUrl: `size=`, not width/height/format) -- the media proxy must
-  // never touch it again. Any other picture of known size gets its longer
-  // side scaled to at most `context.vision.imageSize`, the aspect kept
-  // (fitBox: the proxy crops any box of another aspect); of unknown size no
-  // size at all, the original served under `context.vision.maxBytes`.
-  const pictureUrl = (picture) =>
-    picture.kind === 'sticker'
-      ? picture.url
-      : mediaProxyUrl(picture.url, { ...(fitBox(picture.width, picture.height, visionCfg.imageSize) ?? {}), format: 'webp' });
-
-  // The text parts (assembleUser's cache segments), then the pictures: an array with or without them.
-  const content = [
-    ...user,
-    ...pictures.map((picture) => ({
-      type: 'image_url',
-      image_url: { url: pictureUrl(picture) },
-    })),
-  ];
 
   return {
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content },
+      { role: 'user', content: user },
     ],
-    stats: { ...stats, used, limit, images: pictures.length },
+    stats: { ...stats, used, limit },
     segments: user.map((part) => ({
       segment: part.cacheSegment ?? 'tail',
       chars: part.text.length,
@@ -4255,8 +4191,6 @@ export function buildRequest(input) {
     })),
     idByIndex,
     tempo,
-    pictures,
-    textFallback,
     pulledIds,
     pulledKept,
     pulledViews,
