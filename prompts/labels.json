@@ -336,7 +336,7 @@
       },
       "agentNoRuns": "{agent} · no runs recorded",
       "agentContext": "{agent} · wave {wave}: {turns} turns, context avg {mean}, peak {peak}, {usd} USD",
-      "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
+      "agentEstimate": "agent USD is OpenCode's estimate at each agent's model price; drawing shows the provider's cost per picture"
     }
   },
   "warmup": {
@@ -452,6 +452,21 @@
       "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else.",
       "held": "The engine held back {names} because they contained what looks like a key, token or password, or came from a closed path. You have no handle for them, so tell the person those files were not delivered."
     }
+  },
+  "intentions": {
+    "header": "Your intentions:",
+    "line": "{id} · {state} · {purpose}",
+    "states": { "pending": "open", "waiting": "waiting" },
+    "due": "due {when}",
+    "waiting": "waiting for errand {task} until {deadline}",
+    "outcome": "errand {task} ended: {state}",
+    "notes": {
+      "wait-deadline": "the wait for errand {task} ran out",
+      "task-missing": "errand {task} is gone"
+    },
+    "destination": "for #{channel}",
+    "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",
+    "candidate": "{id} · {purpose} · from your line: \"{span}\""
   },
   "journal": {
     "offLead": "You were away:",

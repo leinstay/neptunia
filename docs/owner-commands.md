@@ -99,7 +99,7 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 ## Member commands
 
-`/nep pings`, the `/nep task` group and `/nep memory search` are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
+`/nep pings`, the `/nep task` group (but `/nep task intent`, an owner command) and `/nep memory search` are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
 
 | Command | What it does |
 |---|---|
@@ -108,5 +108,6 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 | `/nep task status [id]` | One task (state, age, goal, the size of its result, its usage), or every open one. A task asked in a private chat is shown only to its requester and owners. Operation `task.status` |
 | `/nep task cancel <id>` | Cancel an open task; only its requester or an owner (`not-requester` otherwise). Operation `task.cancel` |
 | `/nep task list` | The latest ten tasks, newest first. Operation `task.list` |
+| `/nep task intent <action:add\|update\|cancel\|list> [text] [id] [due] [expires] [task] [deadline] [state:pending\|done] [chain] [condition] [channel]` | The persona's intentions ([Intentions](intentions.md)), only with `features.intentions` on (`feature-off` otherwise). `add` sets one with `text` as its purpose (`intent.set`); `update` changes the one named by `id` (`intent.update`): `state:pending` accepts a proposed candidate, `state:done` closes it, `task` (an errand id) and `deadline` set it waiting for that errand; `cancel` drops it or rejects a candidate (`intent.cancel`); `list` shows the open ones (`intent.list`). Times are `30m`, `6h`, `2d` from now or an ISO date-time. Owner operations, grantable; granted to the persona they run on her grant alone, as her messages do |
 | `/nep task search <query> [goal]` | One quick web search through the bot's search engines (`features.webLookup`, `web.search.engine` and its fallbacks, the cache and the daily `web.maxPerDay`), the same the persona's own `web.search` runs: the results as the engine returned them (title, link, site, date when known, snippet, cut by `web.search.snippetChars` and `web.search.resultsChars`), no summary; the pages are not opened. Operation `web.search` (read) |
 | `/nep task read [url]` | Read one web page through the SSRF-guarded page fetcher (`features.webLookup`, the daily `web.maxPerDay`, cached for `web.links.readCacheHours`), the same the persona's own `web.read` runs: the page's extracted main text with its title and final link, cut at `web.links.readChars`, no summary. The persona's call may name a message (`message="#N"`) instead of a link: its first link is read. Operation `web.read` (read) |

@@ -145,6 +145,7 @@ export const SANDBOX_OMITS = Object.freeze({
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
   skillsTools: 'no core tools: a replay runs no tool loop (features.coreTools), so no <skills_tools> block',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
+  intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
 
@@ -775,6 +776,8 @@ export function sandboxRequestInput({
         : null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
     errands: resultText ? { tasks: '', result: resultText } : null,
+    // No intention store (SANDBOX_OMITS): no <intentions> block.
+    intentions: null,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
   };

@@ -1556,14 +1556,22 @@ test('toEvent: no mention of the persona is mentioned false, whatever else is me
 
 test('toEvent: an edit carries the same message id, its edit time and the old message', () => {
   const previous = guildMessage({ cleanContent: 'helo' });
-  const event = toEvent(guildMessage({ editedTimestamp: 5000 }), 'self', { edit: true, previous });
+  const event = toEvent(guildMessage({ editedTimestamp: 5000 }), 'self', { edit: true, previous, now: () => 9000 });
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.equal(event.edit, true);
   assert.equal(event.message.id, 'm1');
   assert.equal(event.at, 5000);
-  assert.equal(event.id, 'discord:edit:m1:5000');
+  assert.equal(event.id, 'discord:edit:m1:5000:9000');
   assert.equal(event.rawPrevious, previous);
   assert.equal(toEvent(guildMessage(), 'self', { edit: true, now: () => 7000 }).at, 7000, 'no edit stamp: now');
+});
+
+test('toEvent: two updates with the same edit stamp (an embed attached after an edit) are two events', () => {
+  const edited = guildMessage({ editedTimestamp: 5000 });
+  const first = toEvent(edited, 'self', { edit: true, now: () => 9000 });
+  const second = toEvent(edited, 'self', { edit: true, now: () => 9400 });
+  assert.equal(first.at, second.at);
+  assert.notEqual(first.id, second.id);
 });
 
 test('toEvent: an edit of a partial message carries only its id, and a deletion only its id', () => {

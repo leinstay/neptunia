@@ -91,6 +91,7 @@ Set them in the process environment (for example with `Environment=` in the syst
 | `offlineCatchUp` | `true` | At start, read the messages posted while the bot was down: in each channel with a newer message than the last one the bot saw, the newest `offlineCatchUp.maxMessages` are fetched and the ones after that last seen message are taken in like live ones, oldest first. A mention, a reply to the persona or her name younger than `offlineCatchUp.windowMinutes`, with no message of hers after it in that channel, is answered as it would have been live; older ones are only remembered. A message the gateway also delivers is handled once. Nothing while paused. A missing key counts as on. See [`offlineCatchUp`](#offlinecatchup) |
 | `around` | `true` | The persona sees, at the corner of her eye, what a member sees in Discord's sidebar right now. Each person the request is about gets an entry in `<people_now>` (in the tail of the request): a heading with their handle and name, then one labelled line each for their Discord status (online, idle, do not disturb, offline), whether they sit in a voice channel (which one, for how long when the bot saw them join, muted, deafened, streaming, camera, each yes or no) and their current activity (playing, streaming, listening to (a Spotify track with its artist), watching, or none). People sitting in a voice channel who have no profile in the request get an entry of their own. When the data cannot tell, the line says unavailable or stale instead of no. Custom statuses are never shown. A live snapshot in process memory, never stored, logged or backed up. Statuses and activities need `discord.intents.presences`; without it they read unavailable and only voice channels show. Not shown in a private chat or a diary post. Off: the entries keep only what memory holds (the attitude, its recent moves, the message count). A missing key counts as on. See `context.around.maxTokens` and [`discord`](#discord) |
 | `avatars` | `false` | The persona knows what each member's avatar looks like. Every member with a profile (never a bot) gets their current avatar (the server avatar when set, else the account one) described once by the vision model in one short line, kept in their profile and shown in it; a new avatar replaces the old description, no history is kept. Discord's default avatar is noted without a request. A background queue, one request every `avatars.intervalMs` at most and `avatars.maxPerDay` a day; it never delays a reply. Needs `prompts/avatar.md`. Changed avatars are seen at once with `discord.intents.members`, else at the member's next message or the daily scan. Must be exactly `true` to enable; a missing key counts as off. See [`avatars`](#avatars) |
+| `intentions` | `false` | The persona keeps intentions: things she means to do later, set by her own `intent.set` call or proposed by the memory analyzer from her own lines and confirmed by her (`intent.update` with `state:pending`, or rejected with `intent.cancel`). Each has an expiry; one may wait for one of her errands until a deadline, and when the errand ends (or the reconciliation at start finds it ended, gone or past the deadline) it is open again with the outcome noted. Every turn but a diary post shows them in `<intentions>` (the tail, after `<tasks>`). Nothing wakes her for them yet. Off: the `intent.*` skills do not exist for her, `/nep task intent` answers `feature-off`, the analyzer is not asked, and every request is as without the feature. Must be exactly `true` to enable; a missing key counts as off. See [`intentions`](#intentions) and [Intentions](intentions.md) |
 
 ## `skills`
 
@@ -251,6 +252,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `caps.lore` | `1500` | Token cap: lore entries |
 | `caps.people` | `9000` | Token cap: other profiles |
 | `caps.attitudes` | `400` | Token cap: attitude list |
+| `caps.intentions` | `600` | Token cap: `<intentions>` (`features.intentions`), whole lines, her own first, then the candidates |
 | `caps.neighbors` | `3000` | Token cap: neighbour channels |
 | `caps.server` | `4000` | Token cap: channel map |
 | `caps.emoji` | `800` | Token cap: custom emoji |
@@ -977,12 +979,12 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 
 ### `agents.drawing`
 
-The drawing agent (a `tool` agent: the core runs it, no runner), see [The drawing agent](agents.md#the-drawing-agent).
+The drawing agent (a `tool` agent: the core runs it, no runner). See [The drawing agent](agents.md#the-drawing-agent).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `limits` | `{ "seconds": 300 }` | The most one picture may take (wall-clock seconds); a longer run is cut off and counts as a timed-out generation |
-| `daily` | `{ "tasks": 100, "usd": 5 }` | Per-day caps (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` pictures, and `usd` once the day's finished pictures reported that much cost |
+| `limits` | `{ "seconds": 300 }` | How long one picture may take (wall-clock seconds); a longer run is cut off and counts as a timed-out generation |
+| `daily` | `{ "tasks": 100, "usd": 5 }` | Per-day caps (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` is a picture count; `usd` is the total cost reported by finished pictures that day |
 
 ### `agents.thinker`, `agents.dev`, `agents.writer`
 
@@ -995,6 +997,18 @@ The development agents: they run outside this engine (the ledger's attempt runne
 | `daily` | thinker `{ "usd": 60 }`, dev `{ "usd": 40 }`, writer `{ "usd": 20 }` | Estimated USD per UTC day, counted from the ledger's figures (the same ones as `costs.agents`) |
 | `contextLimit` | `350000` | Thinker only: the context size (tokens) its model is given in OpenCode, which compacts its session before reaching it |
 | `contextHard` | `400000` | Thinker only: a turn that ends above this context (tokens) without a compaction is followed by a handover and a fresh session |
+
+## `intentions`
+
+Settings for the persona's intentions (`features.intentions`; [Intentions](intentions.md)). Read at the moment of use.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `expiresDays` | `14` | An intention of hers (and an accepted candidate, from its acceptance) expires this many days after it was set, unless it names its own `expires` |
+| `maxOpen` | `20` | At most this many of her intentions open (pending or waiting) at once: a new one, or accepting a candidate, is refused `cap-open` past it |
+| `maxCandidates` | `5` | At most this many candidates from her lines per analyzer batch, and open at once (`{{maxCandidates}}` of `prompts/memory-intentions.md`) |
+| `candidateExpiresHours` | `48` | A candidate she neither accepts nor rejects expires after this many hours |
+| `waitHours` | `2` | The wait deadline when a wait on an errand names none |
 
 ## `appendStore`
 

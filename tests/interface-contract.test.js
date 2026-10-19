@@ -311,13 +311,27 @@ test('createDiscordInterface: the capabilities are the package\'s own functions,
   const { capabilities } = createDiscordInterface({ client: { user: { id: SELF } } });
   assert.deepEqual(Object.keys(capabilities), [
     'canRead', 'canSend', 'canAttach', 'canReact', 'isReadableChannel', 'isWritableChannel', 'readableChannels',
-    'channelDirectoryOf', 'lastActivity', 'audienceOf', 'fetchHistory', 'fetchHistoryWindow', 'fetchMessage',
+    'channelDirectoryOf', 'lastActivity', 'snowflakeTime', 'audienceOf', 'fetchHistory', 'fetchHistoryWindow', 'fetchMessage',
     'fetchReplyParents', 'fetchNeighbors', 'withTextPreviews', 'normalizeMessage', 'normalizeOptions', 'PAGE',
     'audienceAllows', 'captionPulled', 'checkPull', 'createPullViews', 'fetchPull', 'searchMessages', 'searchMembers',
     'fetchAround', 'fetchAfter', 'reactorIdsOf', 'normalizedOf', 'toEvent',
   ]);
   for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
   assert.ok(Object.isFrozen(capabilities));
+});
+
+test('snowflakeTime and createDiscordClient: the creation time of an id, and the client the root logs in', () => {
+  // The Discord epoch plus the timestamp bits: 175928847299117063 is 2016-04-30T11:18:25.796Z.
+  assert.equal(discordInterface.snowflakeTime('175928847299117063'), Date.UTC(2016, 3, 30, 11, 18, 25, 796));
+  const plain = discordInterface.createDiscordClient();
+  const wide = discordInterface.createDiscordClient({ presences: true, members: true });
+  try {
+    assert.equal(wide.options.intents.bitfield - plain.options.intents.bitfield, (1 << 8) + (1 << 1), 'presences and members add their intents');
+    assert.equal(plain.options.partials.length, 4);
+  } finally {
+    plain.destroy();
+    wide.destroy();
+  }
 });
 
 test('discordFailure: Discord answers are normalised', () => {

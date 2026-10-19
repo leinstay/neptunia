@@ -13,13 +13,17 @@ export const MESSAGE_RECEIVED = 'message.received';
 export const REACTION_CHANGED = 'reaction.changed';
 /** An owner command asked through the interface; answered by a `command.result` action. */
 export const COMMAND_REQUESTED = 'command.requested';
+/** A member joined, left or changed in a community. */
+export const MEMBERSHIP_CHANGED = 'membership.changed';
+/** A member's voice state changed (joined, left or moved a voice conversation, muted, ...). */
+export const VOICE_CHANGED = 'voice.changed';
 /** The core's own clock. */
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
 export const TASK_COMPLETED = 'task.completed';
 
 /** Every inbound event kind. */
-export const EVENT_KINDS = Object.freeze([MESSAGE_RECEIVED, REACTION_CHANGED, COMMAND_REQUESTED, SCHEDULER_TICK, TASK_COMPLETED]);
+export const EVENT_KINDS = Object.freeze([MESSAGE_RECEIVED, REACTION_CHANGED, COMMAND_REQUESTED, SCHEDULER_TICK, TASK_COMPLETED, MEMBERSHIP_CHANGED, VOICE_CHANGED]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
 export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED]);
@@ -27,11 +31,18 @@ export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED]);
 /** Every conversation kind. */
 export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
 
+/** The chat types of an origin record: a direct chat, a small group, a channel of a community, a thread. */
+export const CHAT_TYPES = Object.freeze(['dm', 'group', 'channel', 'thread']);
+
+/** What happened to a member (`membership.changed`). */
+export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
+
 /**
  * Where an event happened. `guildId`: the community the conversation belongs to (none for a
  * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
+ * `parentId`: the conversation a thread belongs to (absent or null for any other).
  * @typedef {{ id: string, kind: 'channel'|'dm'|'thread', guildId?: string|null, name?: string|null,
- *   topic?: string|null, category?: string|null }} Conversation
+ *   topic?: string|null, category?: string|null, parentId?: string|null }} Conversation
  */
 
 /**
@@ -59,11 +70,23 @@ export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
  */
 
 /**
+ * Where a message came from and whether it expects an answer: the record the mind routes by,
+ * the field list of a gateway's session source. `chatType`: the kind of chat; `place`: its
+ * conversation id; `parent`: the conversation a thread sits in; `thread`: the thread's id when
+ * the message is in one; `replyToAuthorId`: the author of the message it replies to;
+ * `replyExpected`: true when it was meant for the persona, false when it was meant for someone
+ * else, null when the adapter cannot tell. An adapter may send it with the event; the core reads
+ * it through `originOf` (origin.js), which derives what an event does not carry.
+ * @typedef {{ chatType: 'dm'|'group'|'channel'|'thread', place: string, parent: string|null,
+ *   thread: string|null, replyToAuthorId: string|null, replyExpected: boolean|null }} Origin
+ */
+
+/**
  * `message.received`. An edit carries the same message id with `edit: true`; a deletion carries
  * only `message.id` with `deleted: true`; an edit the adapter could not read whole carries only
  * `message.id` with `edit: true, partial: true` (the core asks the adapter for the rest).
  * @typedef {{ kind: 'message.received', iface: string, at: number, id: string, conversation: Conversation,
- *   message: Message|{ id: string }, addressing?: Addressing, edit?: boolean, deleted?: boolean,
+ *   message: Message|{ id: string }, addressing?: Addressing, origin?: Origin, edit?: boolean, deleted?: boolean,
  *   partial?: boolean }} MessageReceived
  */
 
@@ -83,15 +106,33 @@ export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
  */
 
 /**
+ * `membership.changed`: `change` says what happened to the member `userId` of the community
+ * `guildId`; `member` is who they are now (absent when they left and the adapter no longer knows).
+ * @typedef {{ kind: 'membership.changed', iface: string, at: number, id: string, guildId: string,
+ *   userId: string, change: 'joined'|'left'|'updated', member?: { id: string, name: string|null, bot: boolean } }} MembershipChanged
+ */
+
+/**
+ * `voice.changed`: `conversationId` is the voice conversation the member is in now (null: none),
+ * `previousId` the one they were in (null: none); the flags are what the adapter knows.
+ * @typedef {{ kind: 'voice.changed', iface: string, at: number, id: string, guildId: string, userId: string,
+ *   conversationId: string|null, previousId: string|null, muted?: boolean, deafened?: boolean,
+ *   streaming?: boolean }} VoiceChanged
+ */
+
+/**
  * `scheduler.tick`: the core's clock, `at` only.
  * @typedef {{ kind: 'scheduler.tick', at: number }} SchedulerTick
  */
 
 /**
- * `task.completed`: an errand ended with `status` and its `result` (as src/errands defines them).
- * @typedef {{ kind: 'task.completed', at: number, taskId: string, status: string, result?: unknown }} TaskCompleted
+ * `task.completed`: an errand ended with `status` and its `result` (as src/errands defines them);
+ * `guildId` is the community whose ledger holds the task. The core derives `id` (`taskId` and
+ * `status`) when it has none, so a second delivery of the same end is the same event.
+ * @typedef {{ kind: 'task.completed', at: number, id?: string, guildId?: string|null, taskId: string, status: string,
+ *   result?: unknown }} TaskCompleted
  */
 
 /**
- * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted} InboundEvent
+ * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged} InboundEvent
  */

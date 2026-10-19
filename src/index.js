@@ -6,7 +6,6 @@
 // src/interface/discord.js).
 
 import fs from 'node:fs';
-import { Client, Events, GatewayIntentBits, Partials, SnowflakeUtil } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -51,8 +50,10 @@ import {
   applyReactionEvent,
   createAroundStore,
   createAudienceWarmer,
+  createDiscordClient,
   createDiscordInterface,
   createEmojiIndex,
+  Events,
   createInteractionHandler,
   createReactorStore,
   normalizeOptions,
@@ -74,11 +75,13 @@ import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
 import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
-import { createTaskTurns } from './errands/turns.js';
+import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
+import { createEventDoor } from './interface/door.js';
+import { createIntentionStores } from './intentions/store.js';
+import { createIntentionService } from './intentions/service.js';
 import { skillRegistry } from './skills/registry.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
-import { validateEvent } from './protocol.js';
 import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
@@ -264,20 +267,7 @@ const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawi
 const intentSettings = hot.config.discord?.intents ?? {};
 const presencesIntent = intentSettings.presences === true;
 const membersIntent = intentSettings.members === true;
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildExpressions,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessageReactions,
-    ...(presencesIntent ? [GatewayIntentBits.GuildPresences] : []),
-    ...(membersIntent ? [GatewayIntentBits.GuildMembers] : []),
-  ],
-  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
-});
+const client = createDiscordClient({ presences: presencesIntent, members: membersIntent });
 
 // This instance serves exactly one Discord server. `instance.guildId` is set
 // once, right after ClientReady resolves it (see below), and every component
@@ -362,10 +352,13 @@ const activity = createActivity();
 const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
-// TODO(.agents spec 2026-10-17-protocol-package, "Code"): an errand's end becomes a
-// `task.completed` event through one core dispatcher; the turn it opens needs the whole task, not
-// the event's id/status/result, so the call stays direct in this stage.
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
+// An errand's end is a `task.completed` event through the event door (`door`, created below with
+// the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
+// intentions waiting on it back to pending, then opens her turn, which shows them with the outcome.
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
+// The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
+// `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
+const intentions = createIntentionService({ stores: createIntentionStores({ dataDir, log }), hot, tasks: errands, journal, getGuildId, log });
 const turns = createTurnRunner({
   hot,
   store,
@@ -397,6 +390,8 @@ const turns = createTurnRunner({
   runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
   // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
   errands,
+  // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
+  intentions,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -423,9 +418,11 @@ const memory = createMemoryUpdater({
   archive,
   // A status line for the development channel (bot.dryRunChannelId, read now).
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
+  // features.intentions: the intention candidates a batch found in her own lines.
+  onIntentionCandidates: (guildId, raw, messages) => intentions.addCandidates(guildId, raw, messages),
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
-const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, getGuildId, log });
+const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -478,7 +475,7 @@ const offlineCatchUp = createOfflineCatchUp({
   channelInfo: (channelId) => {
     const channel = client.channels.cache.get(channelId);
     if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function') return { available: false, latestAt: null };
-    return { available: true, latestAt: channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : null };
+    return { available: true, latestAt: channel.lastMessageId ? discord.snowflakeTime(channel.lastMessageId) : null };
   },
   fetchRecent: async (channelId, limit) => {
     const channel = client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId));
@@ -504,6 +501,8 @@ const admin = createAdmin({
   port: iface,
   // /nep task: the persona's errands.
   errands,
+  // /nep task intent: her intentions.
+  intentions,
   spontaneous,
   // /nep diary: the day plan, a forced post.
   diary,
@@ -694,8 +693,9 @@ async function pruneJournalRequests(guildId) {
  */
 async function startJournal(guildId) {
   // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
-  // `errands`: a forget's errands step (the tasks the member asked for, src/errands/service.js#forgetUser).
-  const deps = { journal, errands, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
+  // `errands`: a forget's errands step (the tasks the member asked for, src/errands/service.js#forgetUser);
+  // `intentions`: its intentions step (hers that concern the member, src/intentions/service.js#forgetUser).
+  const deps = { journal, errands, intentions, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
   await store.resumeForgets(guildId, deps);
   await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
@@ -787,6 +787,10 @@ client.once(Events.ClientReady, async () => {
   // (`restarted`) and show in her `<tasks>` block as failed.
   await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
 
+  // Her intentions reconciled with the errands as they stand now (those just failed included):
+  // a wait whose errand ended, is gone or ran out moves back to pending; the expired ones expire.
+  await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
+
   // The meaning index caught up with what the record took while the queue was down (the last
   // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or
   // with the switches off.
@@ -861,38 +865,43 @@ hot.on('change', ({ what }) => {
 });
 
 // The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
-// built by interfaces/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
-// that cannot be built or is malformed is dropped with one warn line (its kind and the reason,
-// never its content), so nothing behind it ever sees a half-formed one.
+// built by interfaces/discord/collect.js) through the event door (src/interface/door.js), the one
+// entry of the mind: it validates each event at the boundary, drops a repeated id, and hands the
+// event to the handler of its kind. An event that cannot be built or is malformed is dropped with
+// one warn line (its kind and the reason, never its content), so nothing behind it ever sees a
+// half-formed one. The core's own events (an errand's end) come through the same door.
+const door = createEventDoor({
+  handlers: {
+    'message.received': (event) => {
+      if (event.deleted) return onMessage.onMessageDelete(event);
+      return event.edit ? onMessage.onMessageUpdate(event) : onMessage(event);
+    },
+    'reaction.changed': (event) => feedReactors('add', event.raw),
+    'task.completed': (event) => taskTurns.onEvent(event),
+  },
+  log,
+});
 function inbound(kind, build) {
   let event;
   try {
     event = build();
   } catch (err) {
     log.warn('interface: invalid event', { kind, reason: 'build-failed', name: err?.name ?? null });
-    return null;
+    return;
   }
-  const verdict = validateEvent(event);
-  if (!verdict.ok) {
-    log.warn('interface: invalid event', { kind: event?.kind ?? kind, reason: verdict.reason });
-    return null;
-  }
-  return event;
+  door.submit(event);
 }
 const selfIdNow = () => client.user?.id ?? null;
 client.on('messageCreate', (message) => {
-  const event = inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
-  if (event) onMessage(event);
+  inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
 });
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
 client.on('messageUpdate', (oldMessage, newMessage) => {
-  const event = inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
-  if (event) onMessage.onMessageUpdate(event);
+  inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
 });
 // A deleted message is a `deleted` line of the record (features.record).
 client.on('messageDelete', (message) => {
-  const event = inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
-  if (event) onMessage.onMessageDelete(event);
+  inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
 });
 // A new or edited channel of the served guild may name a member the cache has not seen.
 const warmOnChannel = (channel) => {
@@ -942,8 +951,7 @@ const feedReactors = (kind, parts) => {
   }
 };
 client.on(Events.MessageReactionAdd, (reaction, user) => {
-  const event = inbound('reaction.changed', () => reactionEvent(reaction, user, true));
-  if (event) feedReactors('add', event.raw);
+  inbound('reaction.changed', () => reactionEvent(reaction, user, true));
 });
 client.on(Events.MessageReactionRemove, (reaction, user) => feedReactors('remove', { reaction, user }));
 client.on(Events.MessageReactionRemoveAll, (message) => feedReactors('removeAll', { message }));

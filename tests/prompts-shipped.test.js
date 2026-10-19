@@ -140,6 +140,7 @@ const LOADS = {
   diaryPlan: ['diary-plan', 'world'],
   memory: ['memory', ...CHARACTER],
   memoryDecide: ['memory-decide', ...CHARACTER],
+  memoryIntentions: ['memory', 'memory-intentions', ...CHARACTER],
   voice: ['memory-voice', ...CHARACTER],
   warmupChannel: ['channel'],
   warmupPerson: ['profile', ...CHARACTER],
@@ -796,10 +797,10 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
 // ---- the stream analyzer --------------------------------------------------------------
 
 /** One guild batch of the analyzer over the #général chat, at `stage`. */
-async function memoryRequest(stage) {
+async function memoryRequest(stage, overrides = {}) {
   const history = await generalHistory();
   const { descriptions, videos, reads } = mediaMaps(history);
-  const config = shippedConfig({ memory: { mainChannelIds: [GENERAL] } });
+  const config = shippedConfig({ memory: { mainChannelIds: [GENERAL] }, ...overrides });
   return buildMemoryRequest({
     prompts: SHIPPED.prompts,
     config,
@@ -832,6 +833,11 @@ test('buildMemoryRequest: the decide stage fills memory-decide.md', async () => 
   const request = await memoryRequest('decide');
   const text = assertFilled(request.messages, { files: LOADS.memoryDecide, blocks: MEMORY_BLOCKS }, 'memory decide');
   assert.ok(!carries(text, 'memory'), 'stage A sends its own prompt, not memory.md');
+});
+
+test('buildMemoryRequest: with features.intentions on, a guild batch also fills memory-intentions.md', async () => {
+  const request = await memoryRequest('single', { features: { intentions: true } });
+  assertFilled(request.messages, { files: LOADS.memoryIntentions, blocks: MEMORY_BLOCKS }, 'memory intentions');
 });
 
 test('buildMemoryRequest: a private batch fills memory.md with the private blocks', async () => {

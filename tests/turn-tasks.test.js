@@ -10,7 +10,9 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
-import { createTaskTurns } from '../src/errands/turns.js';
+import { createTaskTurns, taskCompletedEvent } from '../src/errands/turns.js';
+import { createEventDoor } from '../src/interface/door.js';
+import { validateEvent } from '../src/protocol.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
@@ -291,4 +293,41 @@ test('task turns: held back while the attention is taken, tried again after agen
   assert.equal(runs[0].taskResult.id, 'tab02');
   assert.deepEqual(runs[0].requester, { id: 'u1' });
   assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
+});
+
+test('task turns: an errand end enters through the event door as task.completed, once, and opens the same turn', async () => {
+  const runs = [];
+  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return { outcome: 'spoke' }; } };
+  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
+  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  const errands = fakeErrands();
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW });
+  const door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
+  const event = taskCompletedEvent(doneTask, 'g1', () => NOW);
+  assert.deepEqual(validateEvent(event), { ok: true });
+  assert.deepEqual({ ...event, raw: undefined }, { kind: 'task.completed', at: NOW, guildId: 'g1', taskId: 'tab02', status: 'done', raw: undefined });
+  const first = await withCapturedLogs(() => door.submit(event));
+  assert.equal(first.result.status, 'ok');
+  assert.deepEqual((await door.submit(taskCompletedEvent(doneTask, 'g1', () => NOW + 5))).status, 'duplicate', 'the same end delivered twice runs no second turn');
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].triggerKind, 'task');
+  assert.equal(runs[0].taskResult.id, 'tab02');
+  assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
+});
+
+test('task turns: an event without the task in hand asks the guild\'s task store; an unknown task opens nothing', async () => {
+  const runs = [];
+  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return { outcome: 'spoke' }; } };
+  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
+  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  const errands = { ...fakeErrands(), store: (guildId) => (guildId === 'g1' ? { get: (id) => (id === 'tab02' ? doneTask : null) } : null) };
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW });
+  const { raw: _raw, ...bare } = taskCompletedEvent(doneTask, 'g1', () => NOW);
+  await withCapturedLogs(async () => {
+    assert.equal(await taskTurns.onEvent({ ...bare, taskId: 'nope' }), null);
+    assert.equal(runs.length, 0);
+    await taskTurns.onEvent(bare);
+  });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].taskResult.id, 'tab02');
 });

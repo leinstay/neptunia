@@ -9,7 +9,13 @@
 // (src/errands/blocks.js). A turn held back is retried every `agents.resultRetrySeconds`, at
 // most RESULT_ATTEMPTS times, then left for her `<tasks>` block; once a turn ran (spoke, chose
 // silence, or failed on its own) the task is marked seen. Settings are read at the moment of
-// use; logs carry ids and outcomes, never a goal or a result.
+// use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
+// as a `task.completed` event through the core's event door (src/interface/door.js): the service
+// calls `taskCompletedEvent(task, guildId)` and submits it, the door's handler is `onEvent`; the
+// task itself rides along in-process under `raw.task` (the event holds its id and status), and
+// when it does not, the task store of the event's guild is asked for it. Before the result turn,
+// the end reaches the persona's intentions waiting on that errand (`intentions.onTaskFinished`,
+// src/intentions/service.js), so the turn already shows them back to pending with the outcome.
 
 import { log as defaultLog } from '../log.js';
 
@@ -18,6 +24,18 @@ export const DEFAULT_RETRY_SECONDS = 30;
 export const DEFAULT_COOLDOWN_SECONDS = 60;
 /** How many times a result turn is tried before the task is left to the `<tasks>` block. */
 export const RESULT_ATTEMPTS = 20;
+
+/**
+ * The `task.completed` event of a finished task (packages/protocol/events.js): the whole task
+ * rides along as `raw.task`, which validation never reads. Its id is left to the door (task and
+ * status), so a second delivery of the same end is the same event.
+ * @param {{ id: string, state: string }} task
+ * @param {string|null} [guildId]
+ * @param {() => number} [now]
+ */
+export function taskCompletedEvent(task, guildId = null, now = Date.now) {
+  return { kind: 'task.completed', at: now(), guildId: guildId ?? null, taskId: task.id, status: task.state, raw: { task } };
+}
 
 /** The outcomes that mean the turn never ran: try again later. */
 const HELD = new Set(['busy', 'paused']);
@@ -29,12 +47,14 @@ const HELD = new Set(['busy', 'paused']);
  * @param {object} options.discord  The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of the message a result answers.
  * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
  * @param {{ markSeen: Function }} options.errands
+ * @param {{ onTaskFinished: Function }|null} [options.intentions]  The intention service: an errand's
+ *   end moves the intentions waiting on it first (idempotent; never throws).
  * @param {() => string|null} [options.getGuildId]
  * @param {() => number} [options.now]
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createTaskTurns({ hot, client, discord, turns, errands, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
+export function createTaskTurns({ hot, client, discord, turns, errands, intentions = null, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
   const { normalizeMessage } = discord;
   // conversation id -> when its last result turn started
   const lastAt = new Map();
@@ -136,11 +156,31 @@ export function createTaskTurns({ hot, client, discord, turns, errands, getGuild
     });
   }
 
+  /**
+   * The door's handler of `task.completed`: the intentions waiting on the task the event names
+   * moved first, then its result turn (never throws); null when the task cannot be found.
+   * @param {ReturnType<typeof taskCompletedEvent>} event
+   */
+  function onEvent(event) {
+    const guildId = event?.guildId ?? null;
+    const task = event?.raw?.task ?? errands?.store?.(guildId)?.get?.(event?.taskId) ?? null;
+    if (!task) {
+      log.warn('errands: finished task not found', { id: event?.taskId ?? null });
+      return Promise.resolve(null);
+    }
+    try {
+      intentions?.onTaskFinished?.(task, guildId);
+    } catch (err) {
+      log.warn('errands: intentions not reached', { id: task.id, error: err });
+    }
+    return onFinished(task, guildId);
+  }
+
   /** Every result still waiting dropped (shutdown). */
   function stop() {
     for (const timer of waiting.values()) clearTimeout(timer);
     waiting.clear();
   }
 
-  return { onFinished, stop };
+  return { onFinished, onEvent, stop };
 }

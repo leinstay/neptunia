@@ -53,6 +53,7 @@ export function createOpsEnv({
   managementKey = null,
   port = null,
   errands = null,
+  intentions = null,
   now = Date.now,
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
@@ -248,6 +249,8 @@ export function createOpsEnv({
     port,
     // The persona's errands (src/errands/service.js): `/nep task`.
     errands,
+    // The persona's intentions (src/intentions/service.js): `/nep task intent`.
+    intentions,
     now,
     dataDir,
     connection,

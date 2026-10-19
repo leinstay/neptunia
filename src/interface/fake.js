@@ -11,6 +11,35 @@
 import { portAction, validateAction } from '../protocol.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
 
+/**
+ * Replays a recorded fixture of inbound events through an event door (src/interface/door.js), in
+ * order, the way an interface would deliver them. A fixture is `{ iface?, events: [event, ...] }`:
+ * each event is a protocol event (packages/protocol/events.js); `iface` is filled from the
+ * fixture's when an event has none, and a `message.received` of a new message is put into
+ * `port` (the fake adapter) first, so history reads find what the persona was shown. An event
+ * with `redeliver: n` is delivered n more times after the first (at-least-once delivery: the door
+ * answers `duplicate` to each). Returns one answer per delivery: `{ id, status }` in order.
+ * @param {{ iface?: string, events: object[] }} fixture
+ * @param {{ submit(event: object): Promise<{ status: string, id: string|null }> }} door
+ * @param {{ port?: ReturnType<typeof createFakeAdapter>|null }} [options]
+ */
+export async function replayFixture(fixture, door, { port = null } = {}) {
+  const answers = [];
+  for (const recorded of fixture.events) {
+    const { redeliver = 0, ...fields } = recorded;
+    const event = { ...(fixture.iface && fields.iface === undefined ? { iface: fixture.iface } : {}), ...fields };
+    const message = event.message;
+    if (port && event.kind === 'message.received' && !event.edit && !event.deleted && message?.author) {
+      port.seed(event.conversation.id, { authorId: message.author.id, text: message.content, messageId: message.id });
+    }
+    for (let delivery = 0; delivery <= redeliver; delivery += 1) {
+      const { status, id } = await door.submit(structuredClone(event));
+      answers.push({ id, status });
+    }
+  }
+  return answers;
+}
+
 /** The fake's default limits. */
 export const FAKE_LIMITS = Object.freeze({ maxTextLength: 2000, maxAttachments: 10, maxAttachmentBytes: 8 * 1024 * 1024 });
 
