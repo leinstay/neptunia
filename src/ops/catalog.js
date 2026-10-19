@@ -105,7 +105,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
  * in src/ops/status.js, which imports this module.
  */
-export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'limits', 'memory', 'speed']);
+export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed']);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {

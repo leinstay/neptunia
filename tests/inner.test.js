@@ -639,3 +639,29 @@ test('inner: a hold whose call handed nothing off is released at once; without e
   await bare.inner.tick();
   assert.equal(bare.turns.calls[0].inner.reserveErrand, undefined);
 });
+
+test('inner status: chains, spend, open intentions, the next wake and the last turn for the status card', async () => {
+  const run = setup({
+    records: [
+      intention('i1', { dueAt: NOW - MINUTE_MS, chainId: 'k1' }),
+      intention('i2', { dueAt: NOW + 3 * HOUR_MS, status: 'waiting' }),
+      intention('i3', { dueAt: NOW + HOUR_MS, status: 'pending' }),
+      intention('i4', { dueAt: null, status: 'proposed' }),
+    ],
+    meterUsd: 0.25,
+  });
+  const before = run.inner.status(GUILD);
+  assert.equal(before.lastTurn, null);
+  assert.equal(before.chains, 0);
+  assert.deepEqual(before.intentions, { pending: 2, waiting: 1, proposed: 1 });
+  assert.deepEqual(before.next, { at: NOW - MINUTE_MS, kind: 'intention' });
+  await run.inner.tick();
+  clock.t = NOW + MINUTE_MS;
+  const after = run.inner.status(GUILD);
+  assert.equal(after.budgets.day.used, 1);
+  assert.equal(after.chains, 1);
+  assert.equal(after.spentUsd, 0.25);
+  assert.equal(after.heldUsd, 0);
+  assert.deepEqual(after.lastTurn, { at: NOW, outcome: 'skip' });
+  assert.deepEqual(after.next, { at: NOW + HOUR_MS, kind: 'intention' }, 'the next intention to come due, the handled one behind');
+});

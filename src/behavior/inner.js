@@ -915,7 +915,7 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    after.turns.push({ at: ended, chainId, usd: measured.usd });
+    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome });
     if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
     after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
@@ -1008,12 +1008,44 @@ export function createInnerLife({
     return { ok: true, already };
   }
 
-  /** What the owner's status shows: the switch, the mode, the stop, the queue, the review, the budgets. */
+  /** The earliest moment something will wake her (null when nothing is known), and what: `queue`, `intention` or `review`. */
+  function nextWakeOf(state, open, at) {
+    const found = [];
+    for (const wake of state.queue) if (Number.isFinite(wake.dueAt)) found.push({ at: wake.dueAt, kind: 'queue' });
+    // A time already past that she handled counts no more; one not yet handled wakes her at the next tick.
+    const upcoming = (record, reason, when) => Number.isFinite(when) && (when > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
+    for (const record of open) {
+      if (record.status !== 'pending' && record.status !== 'waiting') continue;
+      if (upcoming(record, 'due', record.dueAt)) found.push({ at: record.dueAt, kind: 'intention' });
+      if (record.status === 'waiting' && upcoming(record, 'wait-deadline', record.waitDeadline)) found.push({ at: record.waitDeadline, kind: 'intention' });
+    }
+    const review = state.review;
+    if (review && review.done !== true && Number.isFinite(review.at)) found.push({ at: review.at, kind: 'review' });
+    return found.length > 0 ? found.reduce((first, item) => (item.at < first.at ? item : first)) : null;
+  }
+
+  /**
+   * What the owner's status shows: the switch, the mode, the stop, the queue, the review, the budgets,
+   * and for the status card the chains of the day, the dollars held by errands, the open intentions by
+   * status, the next wake and the last inner turn.
+   */
   function status(guildId = getGuildId()) {
     const settings = innerSettings(hot.config);
-    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null };
+    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null, chains: 0, spentUsd: 0, heldUsd: 0, intentions: null, next: null, lastTurn: null };
     const state = stateOf(guildId);
     const at = now();
+    const timezone = timezoneOf();
+    const { start } = dayBounds(at, timezone);
+    let open = [];
+    if (intentions && intentionsOn(hot.config)) {
+      try {
+        open = (intentions.list(guildId, { all: true }) ?? []).filter((record) => ['pending', 'waiting', 'proposed'].includes(record?.status));
+      } catch (err) {
+        log.warn('inner: status intentions failed', { guildId, code: err?.code ?? null });
+      }
+    }
+    const countOf = (name) => open.filter((record) => record.status === name).length;
+    const last = state.turns.reduce((latest, turn) => (!latest || turn.at >= latest.at ? turn : latest), null);
     return {
       on: innerOn(hot.config),
       mode: settings.mode,
@@ -1021,7 +1053,13 @@ export function createInnerLife({
       stoppedAt: state.stoppedAt,
       queue: state.queue.map((wake) => ({ id: wake.id, kind: wake.kind, dueAt: wake.dueAt ?? null, capped: wake.capped ?? null })),
       review: state.review ? { day: state.review.day, at: state.review.at ?? null, done: state.review.done === true } : null,
-      budgets: budgetsOf(state, settings, { now: at, timezone: timezoneOf(), reserved: reserved.get(String(guildId)) ?? 0 }),
+      budgets: budgetsOf(state, settings, { now: at, timezone, reserved: reserved.get(String(guildId)) ?? 0 }),
+      chains: new Set(state.turns.filter((turn) => turn.at >= start).map((turn) => turn.chainId)).size,
+      spentUsd: Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) / 10000,
+      heldUsd: Math.round(heldUsd(state, at) * 10000) / 10000,
+      intentions: { pending: countOf('pending'), waiting: countOf('waiting'), proposed: countOf('proposed') },
+      next: nextWakeOf(state, open, at),
+      lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
     };
   }
 

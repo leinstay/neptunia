@@ -20,7 +20,10 @@
 // reads today's per-role accumulator (src/ops/usage.js); `costs.agents` the errand records' spend
 // per agent (src/errands/costs.js through the guild's task store) and the development agents'
 // (thinker, dev, writer) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
-// context), those three shown with no runs when the ledger does not answer.
+// context), those three shown with no runs when the ledger does not answer. The owner's `inner`
+// field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.js#status,
+// the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
+// posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -42,6 +45,8 @@ import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccou
 import { PROFILES, TOOL_PROFILES } from '../agent-runner/profiles.js';
 import { LEDGER_AGENTS } from '../errands/ledger.js';
 import { isPlainObject } from '../config.js';
+import { fill } from '../format.js';
+import { innerOn } from '../behavior/inner.js';
 import { log } from '../log.js';
 import { modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
@@ -50,7 +55,7 @@ import { defineOp, perEnv } from './registry.js';
 export { STATUS_FIELDS };
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.agents', 'memory', 'speed']);
+const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.agents', 'inner', 'memory', 'speed']);
 
 /** The model roles of the errand agents and the tool agents (src/agent-runner/profiles.js): a key
  * only they use is the agents' key, which `keys.base` leaves out. */
@@ -72,6 +77,35 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'video', roles: ['video'] },
   { name: 'embedding', roles: [EMBED_ROLE] },
 ]);
+
+/** The time of `ts` for the inner field (UTC, minutes). */
+function innerStamp(ts) {
+  return Number.isFinite(ts) ? `${new Date(ts).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '-';
+}
+
+/** A label that is a non-empty string, filled; null otherwise (the line is left out). */
+function labelLine(template, values) {
+  return typeof template === 'string' && template ? fill(template, values) : null;
+}
+
+/** The `inner` field's lines from the inner life's status `s` (src/behavior/inner.js#status), words from `labels.status.inner`. */
+export function innerLines(s, labels) {
+  const L = labels?.status?.inner;
+  if (!isPlainObject(L)) return [];
+  const b = s.budgets;
+  const state = s.stopped ? labelLine(L.stopped, { at: innerStamp(s.stoppedAt) }) : labelLine(L.running, {});
+  const kinds = isPlainObject(L.nextKinds) ? L.nextKinds : {};
+  const intentions = s.intentions;
+  return [
+    labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
+    b ? labelLine(L.turnsLine, { used: b.day.used, cap: b.day.cap, chains: s.chains ?? 0 }) : null,
+    b ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2), held: (s.heldUsd ?? 0).toFixed(2), cap: b.usd.cap }) : null,
+    b ? labelLine(L.postsLine, { used: b.posts.used, cap: b.posts.cap }) : null,
+    s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
+    s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
+    intentions ? labelLine(L.intentionsLine, intentions) : null,
+  ].filter(Boolean);
+}
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */
 function roleHead(role, model) {
@@ -582,6 +616,13 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
+  /** The owner's `inner` field: the inner life's status (the same data as `/nep task inner status`); `-` without it. */
+  function innerValue(guildId) {
+    if (typeof env.inner?.status !== 'function') return '-';
+    const lines = innerLines(env.inner.status(guildId ?? undefined), hot.prompts?.labels);
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
   /** The record line: its messages (the distinct ids of the month indexes), its first day to
    * today, and the share of those days with a day file. Reads directory listings and one
    * `ids.json` per month, never a day file. */
@@ -793,7 +834,7 @@ const handlers = perEnv((env) => {
     const data = store.state.data ?? {};
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
-    const visible = STATUS_FIELDS.filter((name) => owner || !OWNER_FIELDS.has(name));
+    const visible = STATUS_FIELDS.filter((name) => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg)));
     const shown = visible.includes(field) ? [field] : visible;
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
@@ -807,6 +848,7 @@ const handlers = perEnv((env) => {
       'costs.base': () => roleCostsValue(),
       'models.agents': () => (owner && typeof llm?.complete === 'function' ? probedAgentsValue(cfg) : agentsValue(cfg)),
       'costs.agents': () => agentCostsValue(guildId),
+      inner: () => innerValue(guildId),
       limits: () => limitsValue(cfg, data),
       memory: () => (guildId ? memoryValue(guildId) : unresolved),
       speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
