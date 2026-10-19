@@ -346,9 +346,8 @@
       "modeLine": "{mode} · {state}",
       "running": "running",
       "stopped": "stopped since {at}",
-      "turnsLine": "turns today {used} / {cap} · {chains} chains",
+      "turnsLine": "turns today {used} · {chains} chains",
       "usdLine": "{spent} spent",
-      "postsLine": "public posts {used} / {cap}",
       "nextLine": "next wake {at} ({kind})",
       "nextNone": "next wake: none scheduled",
       "nextKinds": { "queue": "queued", "intention": "intention", "review": "daily review" },
@@ -541,11 +540,7 @@
     "placesMore": "... and {more} more",
     "budgets": "What you have left:",
     "budget": {
-      "day": "inner turns today: {left} remaining of {cap} (resets {reset})",
-      "hour": "inner turns this hour: {left} remaining of {cap}",
-      "chain": "turns for this thread: {left} remaining of {cap}",
-      "posts": "public posts today: {left} remaining of {cap} (resets {reset})",
-      "postsDelivery": "a delivery of this intention to {channel} does not count"
+      "chain": "turns for this thread: {left} remaining of {cap}"
     }
   },
   "journal": {
@@ -620,7 +615,6 @@
         "candidate-external": "that candidate came from outside material; only an ordinary turn can accept it",
         "candidate-same-turn": "a candidate cannot be accepted in the turn that wrote its line",
         "candidate-same-chain": "an inner turn cannot accept a candidate born in its own chain",
-        "inner-post-cap": "today's public posts on your own initiative are used up",
         "target-required": "a reaction needs its target message",
         "destination-required": "no current channel; use message.create with a channel",
       "no-query": "nothing to search for after expanding the question; try naming people or exact terms",

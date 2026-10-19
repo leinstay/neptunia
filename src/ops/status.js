@@ -96,15 +96,13 @@ function labelLine(template, values) {
 export function innerLines(s, labels, { tokens = null } = {}) {
   const L = labels?.status?.inner;
   if (!isPlainObject(L)) return [];
-  const b = s.budgets;
   const state = s.stopped ? labelLine(L.stopped, { at: innerStamp(s.stoppedAt) }) : labelLine(L.running, {});
   const kinds = isPlainObject(L.nextKinds) ? L.nextKinds : {};
   const intentions = s.intentions;
   return [
     labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
-    b ? labelLine(L.turnsLine, { used: b.day.used, cap: b.day.cap, chains: s.chains ?? 0 }) : null,
-    b ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
-    b ? labelLine(L.postsLine, { used: b.posts.used, cap: b.posts.cap }) : null,
+    s.turnsToday != null ? labelLine(L.turnsLine, { used: s.turnsToday, chains: s.chains ?? 0 }) : null,
+    s.turnsToday != null ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
     s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
     s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
     s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,

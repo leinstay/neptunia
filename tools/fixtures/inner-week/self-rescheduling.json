@@ -1,6 +1,6 @@
 {
   "name": "self-rescheduling",
-  "description": "She keeps pushing the same intention ten minutes ahead, and keeps setting a new one in the same chain: the per-chain cap ends both. Five conversations due at once on a fresh day meet the hourly cap.",
+  "description": "She keeps pushing the same intention ten minutes ahead, and keeps setting a new one in the same chain: the per-chain cap ends both.",
   "start": "2026-11-02",
   "days": 5,
   "timezone": "UTC",
@@ -18,18 +18,8 @@
   "stub": { "usdPerRequest": 0.06, "review": [[]], "intention_due": [[{ "skill": "web.search", "args": { "q": "news" } }]] },
   "intentions": [
     { "key": "push-ahead", "purpose": "check the leaderboard", "channel": "c-games", "due": "1 10:00", "stub": { "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "due": "10m" } }]] } },
-    { "key": "chain-seed", "purpose": "watch the stream schedule", "channel": "c-memes", "due": "1 14:00", "chain": "stream-watch", "stub": { "intention_due": [[{ "skill": "intent.set", "args": { "purpose": "watch the stream schedule again", "due": "15m", "chain": "$chain", "channel": "$channel", "key": "chain-seed" } }]] } },
-    { "key": "d2-a", "purpose": "read the art thread", "channel": "c-art", "due": "2 09:00" },
-    { "key": "d2-b", "purpose": "read the book thread", "channel": "c-books", "due": "2 09:20" },
-    { "key": "d2-c", "purpose": "read the music thread", "channel": "c-music", "due": "2 09:40" },
-    { "key": "d2-d", "purpose": "read the games thread", "channel": "c-games", "due": "2 10:00" },
-    { "key": "d2-e", "purpose": "read the general thread", "channel": "c-general", "due": "2 10:20" },
-    { "key": "d5-a", "purpose": "say hi in art", "channel": "c-art", "due": "5 15:00", "stub": { "intention_due": [[]] } },
-    { "key": "d5-b", "purpose": "say hi in books", "channel": "c-books", "due": "5 15:00", "stub": { "intention_due": [[]] } },
-    { "key": "d5-c", "purpose": "say hi in music", "channel": "c-music", "due": "5 15:00", "stub": { "intention_due": [[]] } },
-    { "key": "d5-d", "purpose": "say hi in games", "channel": "c-games", "due": "5 15:00", "stub": { "intention_due": [[]] } },
-    { "key": "d5-e", "purpose": "say hi in memes", "channel": "c-memes", "due": "5 15:00", "stub": { "intention_due": [[]] } }
+    { "key": "chain-seed", "purpose": "watch the stream schedule", "channel": "c-memes", "due": "1 14:00", "chain": "stream-watch", "stub": { "intention_due": [[{ "skill": "intent.set", "args": { "purpose": "watch the stream schedule again", "due": "15m", "chain": "$chain", "channel": "$channel", "key": "chain-seed" } }]] } }
   ],
   "events": [],
-  "expect": { "capped": ["per-chain", "per-hour"] }
+  "expect": { "capped": ["per-chain"] }
 }

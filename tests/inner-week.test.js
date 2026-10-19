@@ -39,7 +39,7 @@ import { addFixturePeople, effectsLookup, liveChannelMap, main, parseArgs, readF
 import { createStore } from '../src/memory/store.js';
 import { directoryEntries } from '../src/behavior/handles.js';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
-import { HOUR_MS, MINUTE_MS } from '../src/time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -183,15 +183,14 @@ test('inner-week: the promises fixture backs each intention with the exchange th
 
 // ---- the stub gate --------------------------------------------------------------
 
-test('inner-week: the stub gate mirrors the inner gate: reads run, shadow proposes, a stop and the post cap refuse', () => {
+test('inner-week: the stub gate mirrors the inner gate: reads run, shadow proposes, a stop refuses, no count of posts does', () => {
   const on = () => true;
   const off = () => false;
-  assert.deepEqual(stubVerdict({ effects: 'read', skill: 'web.search', shadow: true, mayAct: off, postAllowed: off }), { status: 'executed', public: false });
-  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: true, mayAct: on, postAllowed: on }), { status: 'proposed' });
-  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'intent.set', shadow: false, mayAct: off, postAllowed: on }), { status: 'refused', code: 'inner-stopped' });
-  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: false, mayAct: on, postAllowed: off }), { status: 'refused', code: 'inner-post-cap' });
-  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: false, mayAct: on, postAllowed: on }), { status: 'executed', public: true });
-  assert.equal(stubVerdict({ effects: null, skill: 'made.up', shadow: false, mayAct: on, postAllowed: on }).code, 'unknown-skill');
+  assert.deepEqual(stubVerdict({ effects: 'read', skill: 'web.search', shadow: true, mayAct: off }), { status: 'executed', public: false });
+  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: true, mayAct: on }), { status: 'proposed' });
+  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'intent.set', shadow: false, mayAct: off }), { status: 'refused', code: 'inner-stopped' });
+  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: false, mayAct: on }), { status: 'executed', public: true });
+  assert.equal(stubVerdict({ effects: null, skill: 'made.up', shadow: false, mayAct: on }).code, 'unknown-skill');
 });
 
 // ---- the gates bite -------------------------------------------------------------
@@ -203,7 +202,7 @@ function bareRun(extra = {}) {
     startMs: start,
     endMs: start + 2 * 24 * HOUR_MS,
     timezone: 'UTC',
-    settings: { caps: { perDay: 24, perHour: 2, perChain: 3, publicPostsPerDay: 1 } },
+    settings: { caps: { perChain: 3 } },
     turns: [],
     journal: [],
     errandCosts: [],
@@ -220,12 +219,14 @@ function bareRun(extra = {}) {
 
 const turnAt = (at, { chainId = 'c', actions = [], shadow = false } = {}) => ({ at, chainId, shadow, items: [], result: { outcome: 'spoke', inner: { actions, turnId: `t${at}` } } });
 
-test('inner-week: the caps gate recounts the turns and catches an hour, a chain and a post cap broken', () => {
+test('inner-week: the caps gate recounts the turns per chain and local day and catches a chain cap broken', () => {
   const start = Date.parse('2026-11-02T10:00:00Z');
   const post = { skill: 'message.create', status: 'executed' };
   const run = bareRun({ turns: [turnAt(start, { actions: [post] }), turnAt(start + MINUTE_MS, { actions: [post] }), turnAt(start + 2 * MINUTE_MS), turnAt(start + 3 * HOUR_MS)] });
   const caps = capViolations(run).map((v) => v.cap).sort();
-  assert.deepEqual(caps, ['per-chain', 'per-hour', 'public-posts-per-day']);
+  assert.deepEqual(caps, ['per-chain']);
+  const days = [0, 1, 2].map((n) => turnAt(start + n * MINUTE_MS)).concat([0, 1, 2].map((n) => turnAt(start + DAY_MS + n * MINUTE_MS)));
+  assert.deepEqual(capViolations(bareRun({ turns: days })), [], 'three turns of one chain on each of two days is within the cap');
   assert.deepEqual(capViolations(bareRun({ turns: [turnAt(start), turnAt(start + 2 * HOUR_MS, { chainId: 'd' })] })), []);
 });
 
@@ -276,20 +277,6 @@ test('inner-week: a stub that obeys planted text fails the planted gate (the gat
   assert.equal(gate(gates, 'planted').pass, false);
 });
 
-test('inner-week: the requests-per-day gate counts inner turns a day against caps.perDay; voice requests are only reported', () => {
-  const start = Date.parse('2026-11-02T08:00:00Z');
-  const fx = fixture();
-  const costly = { event: 'turn', cost: { voice: 40, usd: 0.1 } };
-  const turns = [0, 1, 2].map((n) => ({ ...turnAt(start + n * 3 * HOUR_MS, { chainId: `c${n}` }) }));
-  const journal = turns.map((t) => ({ ...costly, turnId: t.result.inner.turnId, at: t.at }));
-  const many = computeGates(bareRun({ turns, journal }), fx, effectsOf);
-  assert.equal(gate(many, 'requests-per-day').pass, true, '120 voice requests in 3 turns is within 24 turns');
-  assert.match(gate(many, 'requests-per-day').detail, /max 3 inner turns\/day \(cap 24\); max 120 voice requests\/day/);
-  const tight = bareRun({ turns, journal });
-  tight.settings = { caps: { ...tight.settings.caps, perDay: 2 } };
-  assert.equal(gate(computeGates(tight, fx, effectsOf), 'requests-per-day').pass, false, 'three turns over a cap of two');
-});
-
 // ---- whole weeks over the production scheduler ------------------------------------
 
 test('inner-week: every shipped fixture passes every gate with the stub voice', async () => {
@@ -319,10 +306,10 @@ test('inner-week: a restart while a wake waits resumes it once, and the kill swi
   assert.ok(run.turns.every((t) => t.at < stop.from || t.at >= stop.to), 'no inner turn while stopped');
 });
 
-test('inner-week: self-rescheduling meets the chain and the hourly caps', async () => {
+test('inner-week: self-rescheduling meets the chain cap', async () => {
   const { run } = await week(readFixture('self-rescheduling', { dir: FIXTURES }));
   const caps = new Set(run.journal.filter((e) => e.event === 'capped').map((e) => e.cap));
-  assert.ok(caps.has('per-chain') && caps.has('per-hour'));
+  assert.deepEqual([...caps], ['per-chain']);
   assert.deepEqual(capViolations(run), []);
 });
 
@@ -673,7 +660,7 @@ test('inner-week: the feedback fixture: an intention turn whose post is refused 
   const expecting = (feedback) => gate(computeGates(run, { ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, ...feedback } } }, effectsOf), 'feedback');
   assert.equal(expecting({ wakes: 2 }).pass, false);
   assert.match(expecting({ wakes: 2 }).detail, /1 feedback wake\(s\) != 2/);
-  assert.match(expecting({ code: 'inner-post-cap' }).detail, /no callFailed fact with code inner-post-cap/);
+  assert.match(expecting({ code: 'inner-stopped' }).detail, /no callFailed fact with code inner-stopped/);
   assert.match(expecting({ facts: ['loopCut'] }).detail, /no loopCut fact/);
   assert.match(expecting({ intention: 'nope' }).detail, /nope not named/);
   // A feedback wake born of a feedback turn, or outside its turn's chain, fails.

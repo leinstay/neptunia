@@ -10,8 +10,6 @@ import path from 'node:path';
 import {
   attendWake,
   placesPage,
-  budgetsOf,
-  capRefusal,
   chainBudget,
   coalesceGroup,
   createCostMeter,
@@ -25,6 +23,7 @@ import {
   reviewWake,
   wakeOfDue,
   DELIVERY_SKILLS,
+  turnsToday,
   WAKE_KINDS,
 } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
@@ -95,7 +94,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
       bot: { timezone },
       features: { innerLife: true, intentions: true, journal: true, ...features },
       mention: { oneAtATime: true },
-      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, caps: { perDay: 24, perHour: 4, perChain: 3, publicPostsPerDay: 2 }, ...innerLife },
+      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, caps: { perChain: 3 }, ...innerLife },
     },
   };
 }
@@ -155,7 +154,7 @@ test('inner: a due intention is one wake through the door and one inner turn; th
   assert.equal(params.inner.wake.kind, 'intention_due');
   assert.deepEqual(params.inner.wake.items.map((item) => item.kind), ['intention_due']);
   assert.deepEqual(params.inner.wake.intentions.map((r) => r.id), ['i1']);
-  assert.equal(params.inner.wake.budgets.day.left, 24);
+  assert.equal(params.inner.wake.budgets.day, undefined);
   assert.equal(params.inner.wake.budgets.chain.left, 3);
   const second = await run.inner.tick();
   assert.equal(second.submitted, 0);
@@ -165,28 +164,6 @@ test('inner: a due intention is one wake through the door and one inner turn; th
   clock.t = NOW + MINUTE_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 2);
-});
-
-test('inner: the turn gets the channel that asked as a delivery channel only for an intention someone else set; the feedback wake carries it on', async () => {
-  const asked = { ...intention('i1', { purpose: 'send the cats' }), provenance: { kind: 'self', channelId: 'c1', scope: 'group', participants: ['u1'] } };
-  const alone = { ...intention('i2', { channelId: 'c2' }), provenance: { kind: 'self', channelId: 'c2', scope: 'group', participants: [] } };
-  const first = setup({ records: [asked] });
-  await first.inner.tick();
-  assert.deepEqual([...first.turns.calls[0].inner.deliveryChannels], ['c1']);
-  assert.deepEqual(first.turns.calls[0].inner.wake.delivery, ['chan-c1']);
-  const second = setup({ records: [alone] });
-  await second.inner.tick();
-  assert.equal(second.turns.calls[0].inner.deliveryChannels.size, 0);
-  assert.equal(second.turns.calls[0].inner.wake.delivery, undefined);
-  // The feedback turn of the asked intention keeps the delivery channel.
-  const episode = { turnId: 't-1', shadow: false, channelId: 'c1', findings: [], actions: [] };
-  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
-  const again = setup({ records: [{ ...asked }], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
-  await again.inner.tick();
-  clock.t = NOW + MINUTE_MS;
-  await again.inner.tick();
-  assert.deepEqual([...again.turns.calls[1].inner.deliveryChannels], ['c1']);
-  assert.equal(again.turns.calls[1].inner.wake.kind, 'feedback');
 });
 
 test('inner: wakes of one conversation and the day\'s review coalesce into one turn; another conversation waits for its own', async () => {
@@ -320,65 +297,77 @@ test('inner: the day\'s review is drawn once from her record inside her hours, w
   assert.equal(run.journal.filter((r) => r.event === 'review-drawn').length, 2);
 });
 
-test('inner: the day cap refuses the next turn and journals it once per wake', async () => {
-  const run = setup({ records: [intention('i1', { dueAt: NOW - 2 * MINUTE_MS }), intention('i2', { dueAt: NOW - MINUTE_MS, channelId: 'c2' })], hot: hotWith({ innerLife: { caps: { perDay: 1, perHour: 4, perChain: 3, publicPostsPerDay: 2 } } }) });
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1);
-  const refused = await run.inner.tick();
-  assert.deepEqual(refused.drained, { refused: 'per-day' });
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1);
+test('inner: no count of turns refuses one: a day and an hour of turns all run', async () => {
+  const run = setup({ records: [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c2' }), intention('i3', { dueAt: NOW - MINUTE_MS, channelId: 'c3' })], hot: hotWith({ innerLife: { caps: { perDay: 1, perHour: 1, perChain: 3 } } }) });
+  for (let i = 0; i < 3; i += 1) assert.equal((await run.inner.tick()).drained.outcome, 'skip');
+  assert.equal(run.turns.calls.length, 3);
   await settle();
-  assert.equal(run.journal.filter((r) => r.event === 'capped' && r.cap === 'per-day').length, 1);
-  // The next local day it runs.
-  clock.t = NOW + DAY_MS;
+  assert.equal(run.journal.filter((r) => r.event === 'capped').length, 0);
+});
+
+test('inner: a chain past its cap is held, not dropped: its wake waits capped per-chain and runs after the local midnight', async () => {
+  const caps = { perChain: 1 };
+  const run = setup({ records: [intention('i1', { chainId: 'k' }), intention('i2', { chainId: 'k', channelId: 'c2' })], hot: hotWith({ innerLife: { caps } }) });
+  await run.inner.tick();
+  assert.deepEqual((await run.inner.tick()).drained, { refused: 'per-chain' });
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.inner.state(GUILD).queue.length, 1, 'the held wake stays queued');
+  assert.equal(run.inner.state(GUILD).queue[0].capped, 'per-chain');
+  assert.equal(Object.keys(run.inner.state(GUILD).handled).length, 1, 'only the first wake is handled');
+  await settle();
+  assert.equal(run.journal.filter((r) => r.event === 'capped' && r.cap === 'per-chain').length, 1, 'journalled once per wake');
+  // Later the same day it still waits; the local midnight releases it.
+  clock.t = NOW + 6 * HOUR_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  clock.t = NOW + 13 * HOUR_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 2);
+  assert.equal(run.turns.calls[1].channel.id, 'c2');
+  assert.equal(run.inner.state(GUILD).queue.length, 0);
 });
 
-test('inner: the hour cap rolls, the chain cap ends the chain', async () => {
-  const caps = { perDay: 24, perHour: 1, perChain: 3, publicPostsPerDay: 2 };
-  const hourly = setup({ records: [intention('i1', { dueAt: NOW - 2 * MINUTE_MS }), intention('i2', { dueAt: NOW - MINUTE_MS, channelId: 'c2' })], hot: hotWith({ innerLife: { caps } }) });
-  await hourly.inner.tick();
-  assert.deepEqual((await hourly.inner.tick()).drained, { refused: 'per-hour' });
-  clock.t = NOW + HOUR_MS + MINUTE_MS;
-  await hourly.inner.tick();
-  assert.equal(hourly.turns.calls.length, 2);
-
-  clock.t = NOW;
-  const chained = setup({ records: [intention('i1', { chainId: 'k' }), intention('i2', { chainId: 'k', channelId: 'c2' })], hot: hotWith({ innerLife: { caps: { ...caps, perHour: 4, perChain: 1 } } }) });
-  await chained.inner.tick();
-  assert.deepEqual((await chained.inner.tick()).drained, { refused: 'per-chain' });
-  assert.equal(chained.inner.status(GUILD).queue.length, 0, 'a spent chain\'s wakes are done with');
-  assert.equal(chained.turns.calls.length, 1);
+test('inner: a wake of another chain that shares the conversation of a held one runs now and leaves the held one queued', async () => {
+  const run = setup({ records: [intention('i1', { chainId: 'k', dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS })], hot: hotWith({ innerLife: { caps: { perChain: 1 } } }) });
+  run.turns.busy = true;
+  await run.inner.tick();
+  run.inner.state(GUILD).turns.push({ at: NOW - MINUTE_MS, chainId: 'chain:k', outcome: 'spoke' });
+  run.turns.busy = false;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  assert.deepEqual(run.turns.calls[0].inner.wake.intentions.map((r) => r.id), ['i2']);
+  assert.equal(run.turns.calls[0].inner.wake.budgets.chain.cap, 1);
+  const queue = run.inner.state(GUILD).queue;
+  assert.deepEqual(queue.map((wake) => `${wake.intentionIds[0]}:${wake.capped}`), ['i1:per-chain']);
 });
 
-test('budgetsOf and capRefusal: the facts she is given and the order of the caps', () => {
-  const settings = innerSettings(hotWith().config);
-  const state = { ...emptyState(), turns: [{ at: NOW - 10 * MINUTE_MS, chainId: 'a', usd: 1 }], spend: [{ at: NOW - 10 * MINUTE_MS, usd: 1 }], posts: [NOW - MINUTE_MS] };
-  const b = budgetsOf(state, settings, { now: NOW, timezone: 'UTC' });
-  assert.deepEqual(b.day, { used: 1, cap: 24, left: 23, resetAt: Date.parse('2026-10-20T00:00:00Z') });
-  assert.equal(b.hour.resetAt, NOW + 50 * MINUTE_MS);
-  assert.equal(b.posts.left, 1);
-  assert.equal(capRefusal(b, chainBudget(state, 'a', 3)), null);
-  assert.equal(capRefusal(b, chainBudget({ ...state, chains: { a: { turns: 3, lastAt: NOW } } }, 'a', 3)), 'per-chain');
+test('coalesceGroup: a wake the caller holds is left out of every group, a review included', () => {
+  const held = { id: 'h', kind: 'intention_due', channelId: 'c1', dueAt: 1 };
+  const mate = { id: 'a', kind: 'intention_due', channelId: 'c1', dueAt: 2 };
+  const review = reviewWake('2026-10-19', 3);
+  const isHeld = (wake) => wake.id === 'h';
+  assert.deepEqual(coalesceGroup([held, mate, review], isHeld).map((w) => w.id), ['a', review.id]);
+  assert.deepEqual(coalesceGroup([held, review], isHeld).map((w) => w.id), [review.id]);
+  assert.deepEqual(coalesceGroup([held], isHeld), []);
 });
 
-test('inner: the public post cap is asked by the turn, and each post counts', async () => {
-  const turns = fakeTurns({
-    answer: (params) => {
-      const allowed = [];
-      for (let i = 0; i < 3; i += 1) {
-        allowed.push(params.inner.postAllowed());
-        if (allowed[i]) params.inner.onPosted();
-      }
-      return { outcome: 'spoke', inner: { actions: [], turnId: 't1' }, allowed };
-    },
-  });
-  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
+test('chainBudget and turnsToday: counted on the local day, a failed attempt is no turn', () => {
+  const day = Date.parse('2026-10-19T00:00:00Z');
+  const state = { ...emptyState(), turns: [{ at: day - HOUR_MS, chainId: 'a' }, { at: day + HOUR_MS, chainId: 'a' }, { at: day + 2 * HOUR_MS, chainId: 'a', failed: true }, { at: day + 3 * HOUR_MS, chainId: 'b' }] };
+  assert.deepEqual(chainBudget(state, 'a', 3, { now: NOW, timezone: 'UTC' }), { used: 1, cap: 3, left: 2 });
+  assert.deepEqual(chainBudget(state, 'a', 1, { now: NOW, timezone: 'UTC' }), { used: 1, cap: 1, left: 0 });
+  assert.equal(chainBudget(state, 'a', 3, { now: NOW + DAY_MS, timezone: 'UTC' }).used, 0, 'the next local day starts at nothing');
+  assert.equal(turnsToday(state, { now: NOW, timezone: 'UTC' }), 2);
+});
+
+test('inner: the turn is handed no post counter and no delivery channels: nothing counts posts', async () => {
+  const run = setup({ records: [intention('i1')], hot: hotWith({ innerLife: { mode: 'live' } }) });
   await run.inner.tick();
   assert.equal(run.turns.calls[0].inner.shadow, false);
-  assert.equal(run.inner.status(GUILD).budgets.posts.used, 2);
+  assert.equal(run.turns.calls[0].inner.postAllowed, undefined);
+  assert.equal(run.turns.calls[0].inner.onPosted, undefined);
+  assert.equal(run.turns.calls[0].inner.deliveryChannels, undefined);
 });
 
 test('inner: stop drops the queue and is seen by a running turn before its next action; start releases it', async () => {
@@ -447,22 +436,22 @@ test('wakeOfDue: a wait past its deadline names its errand; the chain is the int
   assert.equal(wakeOfDue({ intention: intention('i2'), reason: 'due', at: 7 }).chainId, 'intention:i2');
 });
 
-test('inner: what one drain hands off (a stale wake, then a spent chain) is all on disk afterwards', async () => {
+test('inner: what one drain hands off (a stale wake) and keeps (the wake of a held chain) is all on disk afterwards', async () => {
   const dataDir = tempDir('nep-inner-drain-');
   const records = [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' })];
-  const hot = hotWith({ innerLife: { caps: { perDay: 24, perHour: 4, perChain: 1, publicPostsPerDay: 2 } } });
+  const hot = hotWith({ innerLife: { caps: { perChain: 1 } } });
   const run = setup({ records, dataDir, hot });
   run.turns.busy = true;
   await run.inner.tick();
   // Chain k already spent; i1 closed meanwhile.
-  run.inner.state(GUILD).chains['chain:k'] = { turns: 1, lastAt: NOW };
+  run.inner.state(GUILD).turns.push({ at: NOW - MINUTE_MS, chainId: 'chain:k', outcome: 'spoke' });
   records[0].status = 'done';
   run.turns.busy = false;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
   const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
-  assert.deepEqual(onDisk.queue, []);
-  assert.deepEqual(Object.values(onDisk.handled).map((entry) => entry.outcome).sort(), ['chain-cap', 'stale']);
+  assert.deepEqual(onDisk.queue.map((wake) => `${wake.intentionIds[0]}:${wake.capped}`), ['i2:per-chain']);
+  assert.deepEqual(Object.values(onDisk.handled).map((entry) => entry.outcome), ['stale']);
 });
 
 test('inner: what a turn did and found is handed to her memory, shadow or not; a turn without an episode hands nothing', async () => {
@@ -554,7 +543,7 @@ test('inner status: chains, spend, open intentions, the next wake and the last t
   await run.inner.tick();
   clock.t = NOW + MINUTE_MS;
   const after = run.inner.status(GUILD);
-  assert.equal(after.budgets.day.used, 1);
+  assert.equal(after.turnsToday, 1);
   assert.equal(after.chains, 1);
   assert.equal(after.spentUsd, 0.25);
   assert.deepEqual(after.lastTurn, { at: NOW, outcome: 'skip' });
@@ -609,7 +598,7 @@ test('inner: a recurring intention advances when its wake is disposed of -- recu
   // Two occurrences, two chains: the per-chain cap bounds one occurrence, not the intention's life.
   assert.equal(run.inner.status(GUILD).chains, 1, 'one chain today');
   const state = run.inner.state(GUILD);
-  assert.equal(Object.keys(state.chains).length, 2);
+  assert.equal(new Set(state.turns.map((turn) => turn.chainId)).size, 2);
 });
 
 test('inner: a dropped wake of a recurring intention (no channel, overflow, stale) still advances it; the last occurrence before expiry carries its note', async () => {
@@ -962,8 +951,8 @@ test('feedbackFacts: a call that ended unknown or refused, an intention closed w
     { kind: 'wakeDropped', id: 'inner.wake:intention_due:i7:1', wake: 'intention_due', code: 'no-channel', intentionId: 'i7', purpose: '' },
   ]);
   // A refused call carries its code; an executed delivery makes the done intention no fact; a loop that ended on its own is none.
-  const delivered = feedbackFacts({ inner: { actions: [{ skill: 'message.create', status: 'executed', result: 'ok' }, { skill: 'intent.update', status: 'executed', result: 'ok', intentionId: 'i1', state: 'done' }, { skill: 'draw.create', status: 'refused', result: 'refused', code: 'inner-post-cap' }], intentIds: ['i1'], loop: { steps: 3, cut: null, droppedCalls: 0 } } });
-  assert.deepEqual(delivered, [{ kind: 'callFailed', skill: 'draw.create', status: 'refused', code: 'inner-post-cap' }]);
+  const delivered = feedbackFacts({ inner: { actions: [{ skill: 'message.create', status: 'executed', result: 'ok' }, { skill: 'intent.update', status: 'executed', result: 'ok', intentionId: 'i1', state: 'done' }, { skill: 'draw.create', status: 'refused', result: 'refused', code: 'inner-stopped' }], intentIds: ['i1'], loop: { steps: 3, cut: null, droppedCalls: 0 } } });
+  assert.deepEqual(delivered, [{ kind: 'callFailed', skill: 'draw.create', status: 'refused', code: 'inner-stopped' }]);
   // A done set in shadow (proposed) closed nothing: no fact; without an id on the action the one named id counts.
   assert.deepEqual(feedbackFacts({ inner: { actions: [{ skill: 'intent.update', status: 'proposed', result: 'ok', intentionId: 'i1', state: 'done' }], intentIds: ['i1'] } }), []);
   assert.deepEqual(feedbackFacts({ inner: { actions: [{ skill: 'intent.update', status: 'executed', result: 'ok', state: 'done' }], intentIds: ['i2'] } }), [{ kind: 'doneWithoutDelivery', intentionId: 'i2', purpose: '' }]);
@@ -1168,9 +1157,8 @@ test('inner retry: a turn ending error re-queues its wakes after the first delay
   assert.equal(queued.notBefore, NOW + MINUTE_MS);
   assert.equal(queued.lastCode, 'provider-limit');
   assert.equal(run.inner.state(GUILD).handled[queued.id], undefined);
-  assert.equal(status.budgets.day.used, 0);
-  assert.equal(status.budgets.hour.used, 0);
-  assert.equal(run.inner.state(GUILD).chains[queued.chainId], undefined);
+  assert.equal(status.turnsToday, 0);
+  assert.equal(chainBudget(run.inner.state(GUILD), queued.chainId, 3, { now: NOW, timezone: 'UTC' }).used, 0);
   assert.equal(run.journal.find((r) => r.event === 'retry').retry, 1);
   // Before the delay nothing runs; the wake is not woken twice either.
   clock.t = NOW + 30_000;
@@ -1195,7 +1183,7 @@ test('inner retry: the second failure waits the second delay; a success after a 
   assert.equal(run.turns.calls[0].inner.wake.items[0].delayed, undefined);
   assert.equal(run.inner.state(GUILD).queue.length, 0);
   assert.equal(run.inner.state(GUILD).handled[queued.id].outcome, 'skip');
-  assert.equal(run.inner.status(GUILD).budgets.day.used, 1, 'only the turn that ran counts');
+  assert.equal(run.inner.status(GUILD).turnsToday, 1, 'only the turn that ran counts');
 });
 
 test('inner retry: the last delay repeats; past retry.maxHours the wake is dropped provider and she is told at her next turn', async () => {

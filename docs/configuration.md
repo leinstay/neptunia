@@ -1054,10 +1054,7 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `review.enabled` | `true` | Whether she has a daily review at all |
 | `review.historyDays` | `14` | How many days of her own lines in the record decide her active hours (when she usually speaks) for the review's random moment |
 | `review.expiredMax` | `5` | At most this many of her intentions that expired untouched since she was last told are listed in a review's `<wake>` (the newest first; the rest counted and told next time); a candidate is never listed. Each listed one is marked shown on its record once the review turn ran |
-| `caps.perDay` | `24` | Inner turns per local day (`bot.timezone`) |
-| `caps.perHour` | `4` | Inner turns per rolling hour |
-| `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. A spent chain's wakes are dropped |
-| `caps.publicPostsPerDay` | `2` | Posts of her own initiative in server channels per local day (live mode); one more is refused. A post delivering an intention someone asked for, to the channel it was asked in, is not counted ([Inner life](inner-life.md)) |
+| `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. |
 | `attention.settleSeconds` | `90` | The quiet an attention waits for before it wakes her: the newest line of the attended place must be this many seconds old (so she does not cut into a line being typed). The default of `intent.set attend=`; she may set her own `settle=`, 0 included ([Inner life](inner-life.md#her-attention)) |
 | `attention.perDayDefault` | `12` | An attention's own bound: attend wakes per local day. The default of `intent.set attend=`; she sets her own with `perday=`. Past it the wake waits in the queue (`attend-per-day`) and runs the next local day |
 | `attention.pageSize` | `12` | Places per page of her `places.list` skill (`page=` turns them; the total and how many more are always said) |

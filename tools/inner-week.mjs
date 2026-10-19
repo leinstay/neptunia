@@ -283,7 +283,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
         const before = calls.length;
         let result;
         try {
-          result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { ...params.inner, shadow: true, postAllowed: () => false, onPosted: () => {} } });
+          result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { ...params.inner, shadow: true } });
         } catch (err) {
           result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
         }

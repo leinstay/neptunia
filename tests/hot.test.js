@@ -531,6 +531,24 @@ test('createHot: a config that still sets a dollar limit loads and warns once pe
   }
 });
 
+test('createHot: a config that still sets a per-day, per-hour or public-posts count cap loads and warns once per key', async () => {
+  const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } }));
+  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: innerLife\.caps\..* is no longer read$/.test(entry.msg)).map((entry) => entry.msg).sort();
+  let hot;
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.deepEqual(retired(started.logs), ['config: innerLife.caps.perDay is no longer read', 'config: innerLife.caps.perHour is no longer read', 'config: innerLife.caps.publicPostsPerDay is no longer read']);
+    const again = await withCapturedLogs(() => hot.reloadConfig());
+    assert.equal(retired(again.logs).length, 0);
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
   const dir = makeRoot({ config: { models: { helpers: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');

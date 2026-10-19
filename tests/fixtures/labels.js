@@ -475,7 +475,6 @@ export const labels = {
         'message-deleted': 'that message was deleted',
         'unknown-gif': 'no gif by that handle',
         'gif-cap': 'gif limit used up',
-        'inner-post-cap': 'public posts for today used up',
         'target-required': 'name the message to react to',
         'destination-required': 'no current channel; name one',
         other: 'other failure',
@@ -561,6 +560,6 @@ export const labels = {
     placeAttended: ' *',
     placesMore: '+{more}',
     budgets: 'budgets:',
-    budget: { day: 'day {left}/{cap} until {reset}', hour: 'hour {left}/{cap} until {reset}', chain: 'chain {left}/{cap}', posts: 'posts {left}/{cap} until {reset}', postsDelivery: 'delivery to {channel} does not count' },
+    budget: { chain: 'chain {left}/{cap}' },
   },
 };
