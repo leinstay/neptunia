@@ -426,7 +426,7 @@ function gifLibrary(over = {}) {
   };
 }
 
-test('message.create gif=: the GIF follows the text, goes alone without one, and counts like a <gif>; unknown handle and the daily cap refuse', async () => {
+test('message.create gif=: the GIF follows the text, goes alone without one, and counts like a <gif>; unknown handle and the daily cap refuse before anything is posted', async () => {
   const library = gifLibrary();
   const cfg = config();
   cfg.gifs = { ...(cfg.gifs ?? {}), maxPerDay: 2 };
@@ -451,13 +451,11 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
   assert.equal(mine().at(-1), 'https://tenor.example/cat');
   assert.equal(store.state.data.gifCount, 2);
 
-  // over gifs.maxPerDay: refused, the text still posted
-  const capped = await executeCall(resolve('message.create', { gif: 'g1' }, 'άλλο ένα'), deps(admin, port));
-  assert.deepEqual([capped.status, capped.code], ['failed', 'gif-cap']);
-  assert.equal(mine().at(-1), 'άλλο ένα');
-  assert.equal(store.state.data.gifCount, 2);
-  // over the cap with no text: nothing posted
+  // over gifs.maxPerDay: refused before anything is posted, the text included
   const before = mine().length;
+  const capped = await executeCall(resolve('message.create', { gif: 'g1' }, 'άλλο ένα'), deps(admin, port));
+  assert.deepEqual([capped.status, capped.code], ['invalid', 'gif-cap']);
+  assert.equal(store.state.data.gifCount, 2);
   const cappedAlone = await executeCall(resolve('message.create', { gif: 'g1' }), deps(admin, port));
   assert.deepEqual([cappedAlone.status, cappedAlone.code], ['invalid', 'gif-cap']);
   assert.equal(mine().length, before);

@@ -20,7 +20,7 @@
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
 // carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
-// reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`, the text still posted).
+// reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`; both refuse before anything is posted).
 
 import fsp from 'node:fs/promises';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
@@ -95,7 +95,7 @@ const handlers = perEnv((env) => {
    * (her library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
    * of a reply turn does (src/media/gif-post.js): the entry's URL as the text of a message of
    * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
-   * `gif-cap`, the text (if any) still posted.
+   * `gif-cap` before anything is posted.
    */
   async function post(args, context) {
     const p = requirePort();
@@ -110,7 +110,8 @@ const handlers = perEnv((env) => {
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(args, guildId);
     const capped = entry ? gifCapSpent() : false;
-    if (capped && !text && !String(args?.file ?? '').trim()) throw invalid('the GIF limit for today is used up', 'gif-cap');
+    // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
+    if (capped) throw invalid('the GIF limit for today is used up', 'gif-cap');
     const attachment = await errandFile(args, context, channelId, p);
     const to = { iface: p.iface, conversationId: channelId };
     const content = {
@@ -123,10 +124,6 @@ const handlers = perEnv((env) => {
     if (text || attachment) {
       result = await p.send(to, content);
       if (result?.status !== 'ok' || !entry) return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
-    }
-    if (capped) {
-      // The text is out; only the GIF is refused. Its reference rides along for the caller's bookkeeping.
-      return { status: 'failed', code: 'gif-cap', summary: 'message.create: the text went out, the GIF did not (gif-cap)', data: { unknown: false, portStatus: 'ok', ref: result?.ref ?? null } };
     }
     const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
     if (sent?.status !== 'ok') return text || attachment ? { status: 'failed', code: String(sent?.error?.code ?? sent?.status ?? 'error'), summary: 'message.create: the text went out, the GIF did not', data: { unknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');

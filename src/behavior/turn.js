@@ -2034,7 +2034,7 @@ export function createTurnRunner({
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
         (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
       }
-      if (!innerGate?.proposed && (result.status === 'ok' || (skill === 'message.create' && result.code === 'gif-cap' && result.ref)) && innerGate?.public) inner.onPosted?.();
+      if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
       // The errand's hold: bound to the errand it became, kept on an unknown answer (it may have
       // been queued; it lapses on its own), released when nothing was handed off.
       if (innerGate?.hold) {
@@ -2053,9 +2053,7 @@ export function createTurnRunner({
       else await op.failed(result.code ?? 'error', { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}) });
     }
     const args = plan.resolved?.args ?? {};
-    // A post whose GIF alone was refused (`gif-cap`) still sent its text: that message counts.
-    const wentOut = result.status === 'ok' || (skill === 'message.create' && result.code === 'gif-cap');
-    const posted = wentOut && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
+    const posted = result.status === 'ok' && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
