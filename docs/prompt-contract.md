@@ -793,7 +793,7 @@ skills.tools.memory.none                 nothing matched
 
 Only these tags are acted on:
 
-- `<think>…</think>` optional, first, private planning whose length follows the moment; an unclosed one means silence.
+- `<think>…</think>` always first, private planning whose length follows the moment; an unclosed one means silence.
 - `<msg>text</msg>` one chat message, up to 3 in a row; `reply="#87"` makes it a Discord reply. A fourth and any later `<msg>` is not dropped: the parser joins its text unchanged into the third, each on its own line (the third keeps its own `reply`, the joined ones' are lost), and the journal records a `message-merge` limit with the number joined; the joined message is then cut at 1900 characters like any other (`message-cut`).
 - `<react to="#87">💀</react>` one unicode emoji or one server custom emoji as `:name:`; alone or with `<msg>`.
 - `<gif reply="#87">g12</gif>` posts a GIF from the library by handle (body = the handle from the `<gifs>` list or from the transcript, never a URL). One per turn; `reply` optional as on `<msg>`. May stand alone or alongside `<msg>`, `<react>`, `<draw>`. Unknown handle = nothing posted.
