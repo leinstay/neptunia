@@ -74,6 +74,12 @@ function callAttributes(raw) {
   return attrs;
 }
 
+/** A body wrapped whole in a CDATA section: the text inside it. */
+function unwrapCdata(body) {
+  const match = /^<!\[CDATA\[([\s\S]*?)\]\]>$/.exec(body);
+  return match ? match[1].trim() : body;
+}
+
 /**
  * The top-level <call> tags of `text`: `{ calls: [{ start, end, call }] }` in order, `call` null
  * for a malformed one (bad attributes, no or a bad `skill`, never closed). Every tag's span is
@@ -104,7 +110,7 @@ function findCalls(text) {
     let call = null;
     if (attrs && typeof skill === 'string' && SKILL_NAME_RE.test(skill)) {
       const { skill: _name, ...args } = attrs;
-      call = { skill, args, body: body.trim() };
+      call = { skill, args, body: unwrapCdata(body.trim()) };
     }
     found.push({ start, end, call });
   }

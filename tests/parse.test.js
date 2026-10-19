@@ -356,3 +356,8 @@ test('parseOutput: untagged marks the plain-text fallback message only', () => {
   assert.equal(parseOutput('<msg>ναι</msg>').untagged, false);
   assert.equal(parseOutput('<skip/>').untagged, false);
 });
+
+test('parseOutput: a <call> body wrapped in CDATA is unwrapped', () => {
+  const out = parseOutput('<call skill="memory.search"><![CDATA[\nτι είπε η Ana;\nterms: λαγός\n]]></call>');
+  assert.equal(out.call.body, 'τι είπε η Ana;\nterms: λαγός');
+});
