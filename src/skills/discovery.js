@@ -18,8 +18,13 @@ import { describeSkill, skillNames } from './registry.js';
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
 export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'memory.search']);
 
-/** Her own tools listed in full on every turn under features.coreTools: the in-turn tools, then the errand hand-off. */
-export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run']);
+/**
+ * Her own tools listed in full on every turn under features.coreTools: the in-turn tools, the errand
+ * hand-off, then the intention skills that set, change and drop one (no classifier names a skill for
+ * her then, so this is the only place she learns how). `intent.list` stays out: the `<intentions>`
+ * block shows them. Each row still needs her grant and its feature switch (grantedSkillNames).
+ */
+export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
