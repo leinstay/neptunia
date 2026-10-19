@@ -9427,3 +9427,46 @@ test('run: a consumed batch counts the names its lines call other members by, ne
     assert.deepEqual(store.getUser(guildId, '1').addressedAs, { Aria: { score: 1, last: new Date(base + 2 * MINUTE_MS).toISOString() } }, 'the persona\'s line counts, the URL does not');
   });
 });
+
+test('analyze: with features.intentions on, a guild batch asks for candidates (memory-intentions appended) and hands the answer and its lines on', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    const answer = { intentions: [{ span: 'θα το φέρω', purpose: 'bring it' }] };
+    const llm = recordingLlm(answer);
+    const handed = [];
+    const prompts = { memory: 'sys', 'memory-intentions': 'CANDIDATES at most {{maxCandidates}}', labels };
+    const hot = { config: makeConfig({ features: { intentions: true }, intentions: { maxCandidates: 3 } }), prompts };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', onIntentionCandidates: (...args) => handed.push(args) });
+    const lines = [slimMessage({ id: 'm1' }), slimMessage({ id: 'm2', self: true, authorId: 'bot', content: 'θα το φέρω' })];
+    await withCapturedLogs(() => updater.analyze(guildId, lines));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(llm.calls[0].messages[0].content, 'sys\n\nCANDIDATES at most 3');
+    assert.equal(handed.length, 1);
+    assert.equal(handed[0][0], guildId);
+    assert.deepEqual(handed[0][1], answer.intentions);
+    assert.deepEqual(handed[0][2].map((m) => m.id), ['m1', 'm2']);
+
+    // Off: the system message as it was, nothing handed on even when the model answers the field.
+    hot.config.features.intentions = false;
+    await withCapturedLogs(() => updater.analyze(guildId, [slimMessage({ id: 'm3' })]));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(llm.calls[1].messages[0].content, 'sys');
+    assert.equal(handed.length, 1);
+  });
+});
+
+test('analyzePrivate: a private chat\'s batch never asks for intention candidates and hands nothing on, whatever the answer holds', async () => {
+  await withStoreAsync(async (store) => {
+    const answer = { intentions: [{ span: 'θα σου πω αύριο', purpose: 'tell tomorrow' }] };
+    const llm = recordingLlm(answer);
+    const handed = [];
+    const hot = privateHot({}, { features: { intentions: true } });
+    hot.prompts = { ...hot.prompts, 'memory-intentions': 'CANDIDATES at most {{maxCandidates}}' };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', onIntentionCandidates: (...args) => handed.push(args) });
+    const { result: outcome } = await withCapturedLogs(() => updater.analyzePrivate('g1', 'u1', [dmMessage({ id: 'm1' }), dmMessage({ id: 'm2', self: true, authorId: 'bot', content: 'θα σου πω αύριο' })]));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(outcome.ok, true);
+    assert.equal(llm.calls[0].messages[0].content.includes('CANDIDATES'), false);
+    assert.deepEqual(handed, []);
+  });
+});

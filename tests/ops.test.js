@@ -38,6 +38,7 @@ const AGREED = new Set([
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
   'task.run', 'task.status', 'task.cancel', 'task.list',
   'web.search', 'web.read', 'memory.search',
+  'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */
@@ -144,7 +145,7 @@ test('ops: an exception becomes failed with its code', async () => {
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
   // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'] };
+  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'] };
   const KINDS = { 'memory.refresh': ['user', 'channel', 'server'] };
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);

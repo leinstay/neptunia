@@ -74,11 +74,15 @@ export const OP_EFFECTS = Object.freeze({
   'web.search': 'read',
   'web.read': 'read',
   'memory.search': 'read',
+  'intent.set': 'write',
+  'intent.update': 'write',
+  'intent.cancel': 'write',
+  'intent.list': 'read',
 });
 
 /**
- * The persona's own expressive operations -- her messages, reactions, drawings, diary: run for
- * her on her own grant alone, whoever asked (the owner's decision: "messages and drawings are
+ * The persona's own expressive operations -- her messages, reactions, drawings, diary -- and her
+ * own intentions: run for her on her own grant alone, whoever asked (the owner's decision: "messages and drawings are
  * hers"); every other operation also needs the right of the person who asked
  * (src/skills/gateway.js). Their own rules still hold (edit and delete only her own messages, a
  * post only where she may write), and so do the rules on who asked: no write when a turn answers
@@ -93,6 +97,11 @@ export const SELF_OWNED_OPS = Object.freeze([
   'draw.create',
   'diary.post',
   'diary.show',
+  // Her intentions are her own state (src/ops/intent.js).
+  'intent.set',
+  'intent.update',
+  'intent.cancel',
+  'intent.list',
 ]);
 
 /**

@@ -1369,7 +1369,7 @@ test('wipeGuild: removes profiles, guild memory, channels, buffer and analyzer l
   storeA.flush();
 
   const { vault, ...counts } = storeA.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0, intentionFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
 
   // cache is immediately usable
@@ -1865,7 +1865,7 @@ test('wipeGuild: removes the private directory, cache and disk, leaves other gui
   store.applyPrivateOps('g2', 'u9', {});
 
   const { vault, ...counts } = store.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0, intentionFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
   assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
   assert.equal(store.getPrivate('g1', 'u1'), null);
@@ -3880,5 +3880,71 @@ test('wipeGuild: the errands\' files go, through the errand stores when given, e
     const plain = createStore({ dataDir: other });
     assert.equal(plain.wipeGuild('g1').taskFiles, 2);
     assert.equal(fs.existsSync(path.join(other, 'guilds', 'g1', 'tasks.json')), false);
+  });
+});
+
+// ---- the intentions step of a forget, and the wipe of the intentions' file ------
+
+/**
+ * An intention store over `dir` (src/intentions/store.js) with five of the persona's intentions:
+ * one from a conversation with u1, one meant for u1, one naming Alice (u1's name), one whose span
+ * quotes a line of a talk with u1 and is already closed, and one about u2 only.
+ */
+async function seedIntentions(dir) {
+  const { createIntentionStores } = await import('../src/intentions/store.js');
+  const { createIntention, transition } = await import('../src/intentions/model.js');
+  const stores = createIntentionStores({ dataDir: dir, log: { info() {}, warn() {} } });
+  const intentions = stores.get('g1');
+  const T = Date.parse('2026-10-18T10:00:00Z');
+  const make = (id, purpose, provenance, extra = {}) => createIntention({ purpose, provenance: { kind: 'self', ...provenance }, now: T, id, ...extra }).intention;
+  intentions.add(make('i1', 'φέρε το παιχνίδι', { participants: ['u1', 'u2'] }));
+  intentions.add(make('i2', 'πες καλημέρα', { participants: ['u2'] }, { destination: 'u1' }));
+  intentions.add(make('i3', 'ρώτα την Alice για το βίντεο', { participants: ['u2'] }));
+  const closed = transition(make('i4', 'κάτι', { kind: 'candidate', span: 'θα σου πω, Alice', participants: [] }), 'cancelled', { now: T }).intention;
+  intentions.add(closed);
+  intentions.add(make('i5', 'στείλε τον σύνδεσμο', { participants: ['u2'] }));
+  return { stores, intentions };
+}
+
+test('forgetUser: the intentions step removes every intention concerning the member, whatever its status; the vault keeps the file', async () => {
+  await withCapturedLogs(async () => {
+    const dir = tmpDataDir();
+    const store = createStore({ dataDir: dir });
+    store.touchUser('g1', 'u1', 'Alice', 1000);
+    store.flush();
+    const { stores, intentions } = await seedIntentions(dir);
+    const file = path.join(dir, 'guilds', 'g1', 'intentions.json');
+    fs.writeFileSync(`${file}.unreadable-1`, '{"intentions":[{"destination":"u1"');
+    fs.writeFileSync(`${file}.unreadable-2`, '{"intentions":[{"destination":"u2"');
+    const { vault, counts } = await store.forgetUser('g1', 'u1', { intentions: stores });
+    assert.equal(counts.intentions, 4);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).intentions.map((r) => r.id), ['i5']);
+    assert.deepEqual(intentions.list().map((r) => r.id), ['i5'], 'the store\'s copy follows');
+    assert.equal(fs.existsSync(`${file}.unreadable-1`), false, 'an unreadable copy naming them goes');
+    assert.equal(fs.existsSync(`${file}.unreadable-2`), true, 'one that does not stays');
+    const vaulted = path.join(vault, 'guilds', 'g1');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(vaulted, 'intentions.json'), 'utf8')).intentions.length, 5);
+    assert.ok(fs.existsSync(path.join(vaulted, 'intentions.json.unreadable-1')));
+    assert.deepEqual(stores.forgetUser('g1', 'u1'), { removed: 0, copies: 0 }, 'a second forget finds nothing');
+  });
+});
+
+test('wipeGuild: the intentions\' file goes, through the intention stores when given, else directly', async () => {
+  await withCapturedLogs(async () => {
+    const dir = tmpDataDir();
+    const store = createStore({ dataDir: dir });
+    const { stores, intentions } = await seedIntentions(dir);
+    const counts = store.wipeGuild('g1', { intentions: stores });
+    assert.equal(counts.intentionFiles, 1);
+    assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'intentions.json')), false);
+    assert.deepEqual(intentions.list(), [], 'the store\'s copy is empty too');
+    assert.ok(fs.existsSync(path.join(counts.vault, 'guilds', 'g1', 'intentions.json')), 'the vault copy holds them');
+
+    const other = tmpDataDir();
+    await seedIntentions(other);
+    fs.writeFileSync(path.join(other, 'guilds', 'g1', 'intentions.json.unreadable-1'), 'x');
+    const plain = createStore({ dataDir: other });
+    assert.equal(plain.wipeGuild('g1').intentionFiles, 2);
+    assert.deepEqual(fs.readdirSync(path.join(other, 'guilds', 'g1')).filter((name) => name.startsWith('intentions')), []);
   });
 });

@@ -12,7 +12,7 @@
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
 import { isPlainObject } from '../config.js';
-import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillsOn } from './access.js';
+import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn, skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
@@ -60,7 +60,8 @@ export function alwaysListedOn(config) {
  * grants give the same list whatever the order they were stored or registered in). Only her
  * grants and the registry decide it -- never a requester, a channel or the time -- so the cached
  * part of the request it fills stays byte-identical until a grant changes. Left out: a skill no
- * grant opens for her (NOT_GRANTABLE_TO_PERSONA); everything under safe mode or with
+ * grant opens for her (NOT_GRANTABLE_TO_PERSONA), a skill whose feature switch is off
+ * (src/skills/access.js#skillFeatureOn); everything under safe mode or with
  * `features.skills` off. A carried-over skill is listed only when granted. Pure.
  * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null }} input
  * @returns {string[]}
@@ -68,7 +69,7 @@ export function alwaysListedOn(config) {
 export function grantedSkillNames({ config, selfId = null, registry = null }) {
   if (!skillsOn(config) || safeModeOn(config) || !(registry instanceof Map)) return [];
   return [...registry.keys()]
-    .filter((name) => typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && grantedToPersona(config, selfId, name))
+    .filter((name) => typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && skillFeatureOn(name, config) && grantedToPersona(config, selfId, name))
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 

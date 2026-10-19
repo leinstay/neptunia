@@ -133,6 +133,8 @@ const ARCHIVE_CHOICES = 25;
  *   report they are not available.
  * `errands` — from createErrandService() (src/errands/service.js), optional: what `/nep task
  *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
+ * `intentions` — from createIntentionService() (src/intentions/service.js), optional: what `/nep
+ *   task intent` and her `intent.*` calls change and read. Absent -> those report they are not available.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the data directory `/nep memory snapshot` copies: src/index.js passes the one it
  *   resolved (src/paths.js, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
