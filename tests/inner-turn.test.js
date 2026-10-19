@@ -4,15 +4,17 @@
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
 // cap refuses, text outside a call reaches nobody, and an ordinary turn's request is unchanged by
 // the switch; a refusal in shadow reaches her within the turn; what her reads found comes back as
-// the turn's episode for her memory. The loop's inner rules: text outside a call and no post gets
-// one stray follow-up step (task.continueInnerStray, once per turn, never past the steps), the
+// the turn's episode for her memory. The loop's inner rules: the loop runs under innerLife.loop's
+// own bounds (a generous budget: nobody waits), text outside a call and no post gets a stray
+// follow-up step (task.continueInnerStray, up to innerLife.loop.strayFollowUps per turn, never past the steps), the
 // open-intentions line lists what she woke for and has not touched, and her last step still runs
 // one post or intention change; the stray step names the channel the turn runs in by its directory
 // handle, and a post that leaves nothing to show while a woken intention is untouched gets one open
 // follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import fs from 'node:fs';
+import { createTurnRunner, loopSettings } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
@@ -163,12 +165,15 @@ const WAKE = {
 
 /**
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
- * the inner parameter (mayAct, postAllowed, onPosted).
+ * the inner parameter (mayAct, postAllowed, onPosted); `loop` overrides of `innerLife.loop` (the
+ * inner turn's bounds), `skillsLoop` of `skills.loop` (an ordinary turn's); `clock` the turn's
+ * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, listed = true }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, skillsLoop = null, listed = true, clock = () => NOW, slowMs = 0 }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
   const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
-  if (loop) hot.config.skills.loop = { ...hot.config.skills.loop, ...loop };
+  if (loop) hot.config.innerLife.loop = { ...loop };
+  if (skillsLoop) hot.config.skills.loop = { ...hot.config.skills.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
@@ -183,7 +188,8 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...(errands ? { errands } : {}) });
   const llm = sequenceLlm(answers, { onCall });
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, ...(errands ? { errands } : {}) });
+  const slow = (fn) => (slowMs > 0 ? async (...a) => { await new Promise((resolve) => setTimeout(resolve, slowMs)); return fn(...a); } : fn);
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: clock, port, skills: skillRegistry(), journal, runCommand: slow(admin.runCommand), runOwnCommand: slow(admin.runOwnCommand), runInitiativeCommand: slow(admin.runInitiativeCommand), intentions, ...(errands ? { errands } : {}) });
   const posted = [];
   const inner = { wake: WAKE, shadow, mayAct: () => true, postAllowed: () => true, onPosted: () => posted.push(NOW), ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history, { listed }), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
@@ -213,6 +219,7 @@ test('inner turn: what she writes outside a call reaches nobody and is counted; 
   assert.equal(run.result.inner.stray.messages, 1);
   assert.equal(run.result.inner.stray.reactions, 1);
   assert.equal(run.result.inner.strayFollowUp, true);
+  assert.equal(run.result.inner.strayFollowUps, 1);
 });
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
@@ -471,13 +478,68 @@ test('inner turn, stray: a channel the directory does not list gets no handle, a
   assert.equal(task, `${template.replace(`${sentence}. `, '')}\n${OPEN_LINE}`);
 });
 
-test('inner turn, stray: the follow-up is made once per turn; a second stray answer ends the turn as silence', async () => {
-  const run = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'] });
-  assert.equal(run.llm.calls.length, 2);
+test('inner turn, stray: the follow-up is made up to innerLife.loop.strayFollowUps times per turn; the next stray answer ends the turn as silence', async () => {
+  // The default (2): a second stray answer gets a second step, a third does not.
+  const run = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>', '<msg>τέσσερα</msg>'] });
+  assert.equal(run.llm.calls.length, 3);
+  assert.equal(taskOf(run, 1), `${STRAY_LEAD}\n${OPEN_LINE}`);
+  assert.equal(taskOf(run, 2), `${STRAY_LEAD}\n${OPEN_LINE}`, 'the second stray step takes the same label');
   assert.equal(run.result.outcome, 'skip');
   assert.equal(run.result.reason, 'nothing-to-do');
-  assert.equal(run.result.inner.stray.messages, 2);
+  assert.equal(run.result.inner.stray.messages, 3);
   assert.equal(run.result.inner.strayFollowUp, true);
+  assert.equal(run.result.inner.strayFollowUps, 2);
+  // One: the earlier behaviour.
+  const once = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'], loop: { strayFollowUps: 1 } });
+  assert.equal(once.llm.calls.length, 2);
+  assert.equal(once.result.inner.stray.messages, 2);
+  assert.equal(once.result.inner.strayFollowUps, 1);
+  // None: her stray answer ends the turn at once.
+  const none = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>'], loop: { strayFollowUps: 0 } });
+  assert.equal(none.llm.calls.length, 1);
+  assert.equal(none.result.outcome, 'skip');
+  assert.equal(none.result.inner.strayFollowUp, undefined);
+  assert.equal(none.result.inner.strayFollowUps, undefined);
+  // Never past the steps: with one step the second stray answer lands on the last step and gets none.
+  const steps = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'], loop: { maxSteps: 1 } });
+  assert.equal(steps.llm.calls.length, 2);
+  assert.equal(steps.result.inner.strayFollowUps, 1);
+});
+
+test('loopSettings: an inner turn\'s bounds are innerLife.loop\'s (config.json\'s when missing or unusable); an ordinary turn\'s stay skills.loop\'s', () => {
+  const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  assert.deepEqual(loopSettings({}, { inner: true }), tracked.innerLife.loop);
+  assert.deepEqual(tracked.innerLife.loop, { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000, strayFollowUps: 2 });
+  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5, callTimeoutMs: 'x', strayFollowUps: -1 } } }, { inner: true }), tracked.innerLife.loop);
+  assert.deepEqual(loopSettings({ innerLife: { loop: { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500, strayFollowUps: 0 } } }, { inner: true }), { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500, strayFollowUps: 0 });
+  // skills.loop never reaches an inner turn, innerLife.loop never an ordinary one.
+  const both = { skills: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } }, innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9, strayFollowUps: 9 } } };
+  assert.deepEqual(loopSettings(both, { inner: true }), both.innerLife.loop);
+  assert.deepEqual(loopSettings(both), both.skills.loop);
+  assert.deepEqual(loopSettings(both, { inner: false }), both.skills.loop);
+});
+
+test('inner turn, budget: a slow call past skills.loop\'s 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today', async () => {
+  // The clock jumps 25 s while the stray step's request is out: skills.loop's budget would be spent, innerLife.loop's is not.
+  const jumping = () => {
+    let at = NOW;
+    return { clock: () => at, onCall: (n) => { if (n === 2) at += 25_000; } };
+  };
+  let t = jumping();
+  const run = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, skillsLoop: { maxSteps: 1, timeBudgetMs: 1000 } });
+  assert.equal(run.llm.calls.length, 3, 'the stray step, then the read came back to her');
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`), ['lore.list:executed:ok']);
+  assert.ok(taskOf(run, 2).startsWith(INNER_LEAD('lore.list')), 'not her last step: 25 s is inside the inner budget');
+  assert.ok(!run.logs.some((l) => l.msg === 'skills: loop cap'));
+  // The inner per-call timeout: min(innerLife.loop.callTimeoutMs, what is left) -- here 100 ms against a 300 ms call.
+  t = jumping();
+  const cut = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: t.clock, onCall: t.onCall, slowMs: 300, loop: { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 100, strayFollowUps: 2 } });
+  assert.deepEqual(cut.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}:${a.code}`), ['lore.list:executed:unknown:timeout']);
+  // The inner budget spent: the next step is her last, as on every turn.
+  let at = NOW;
+  const spent = await innerTurn({ answers: ['<msg>γεια</msg>', '<call skill="lore.list"/>', '<skip/>'], clock: () => at, onCall: (n) => { if (n === 2) at += 181_000; } });
+  assert.equal(spent.llm.calls.length, 3);
+  assert.ok(taskOf(spent, 2).startsWith(LAST_LEAD('lore.list')), taskOf(spent, 2));
 });
 
 test('inner turn, stray: beside a read the next step takes the stray label in place of continueInner; a message.create call beside it does not', async () => {

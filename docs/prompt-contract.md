@@ -284,12 +284,15 @@ names of those calls, comma-separated). Its answer is acted on like the reply, a
 the next request is the last and its task is `task.continueToolsLast`; a call in its answer is dropped, logged
 `skills: loop cap` (`reason`: `steps`, `time` or `no-continuation`) and kept in the turn record as a `loop-cap` limit.
 Without the continuation (`features.followUpContinuation` or the call marks off) the one follow-up of the earlier
-framing carries every result and is always the last. An inner turn (mode `inner`) continues under `task.continueInner`
+framing carries every result and is always the last. An inner turn (mode `inner`) runs its loop under its own bounds,
+`innerLife.loop` (`maxSteps`, `timeBudgetMs`, `maxCallsPerStep` in place of `skills.loop`'s, each call at most for
+what is left of that budget or `innerLife.loop.callTimeoutMs`, the smaller), and continues under `task.continueInner`
 and, on its last step, `task.continueInnerLast` instead (no message started it and nothing of hers went out). When an
 answer of an inner turn wrote outside a call (a `<msg>`, a reaction, a GIF, a picture: it reached nobody) and made no
-`message.create` call, and steps remain, one more step is made under `task.continueInnerStray` in place of
-`task.continueInner` (once per turn, with or without a result to show). The turn's `inner` result carries
-`strayFollowUp: true`. `task.continueInnerStray` also takes `{channel}`: the handle of the conversation the turn runs
+`message.create` call, and steps and time remain, one more step is made under `task.continueInnerStray` in place of
+`task.continueInner` (up to `innerLife.loop.strayFollowUps` times per turn, with or without a result to show). The
+turn's `inner` result carries `strayFollowUp: true` and `strayFollowUps`: how many such steps it made.
+`task.continueInnerStray` also takes `{channel}`: the handle of the conversation the turn runs
 in, exactly as `<channel_directory>` shows it (`#` included); when that channel has no handle (the switch off, a channel
 the directory does not list, a private chat) the whole sentence holding the placeholder is left out. `task.continueInner`,
 `task.continueInnerStray` and `task.continueInnerLast` take `{open}`: the open-intentions line (`task.continueInnerOpen`,

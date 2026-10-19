@@ -219,11 +219,17 @@ export function coreToolsOn(config) {
  * `timeBudgetMs`, how long the loop may run from its first call before the next request is
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
  * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
- * takes config.json's. Pure.
+ * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
+ * bounds, `innerLife.loop` (src/behavior/inner.js#innerSettings; nobody waits for it, so its
+ * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run,
+ * and `strayFollowUps`, how many stray follow-up steps the turn may make. `skills.loop` never
+ * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
  * @param {object} config
- * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number }}
+ * @param {{ inner?: boolean }} [options]
+ * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number, strayFollowUps?: number }}
  */
-export function loopSettings(config) {
+export function loopSettings(config, { inner = false } = {}) {
+  if (inner) return { ...innerSettings(config).loop };
   const loop = isPlainObject(config?.skills?.loop) ? config.skills.loop : {};
   const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
   return {
@@ -2415,12 +2421,13 @@ export function createTurnRunner({
 
   /**
    * The calls of one answer of the tool loop planned (planCall each, in order, before anything
-   * of that answer is done): at most `skills.loop.maxCallsPerStep` (loopSettings, read now); the
-   * rest are dropped and logged `skills: extra-call` (`count`, `loop: true`). Every call gets its
-   * own envelope (`envelopeOf(index)`: callEnvelope's) and is resolved over `view`.
+   * of that answer is done): at most `skills.loop.maxCallsPerStep` (an inner turn's:
+   * `innerLife.loop.maxCallsPerStep`; loopSettings, read now); the rest are dropped and logged
+   * `skills: extra-call` (`count`, `loop: true`). Every call gets its own envelope
+   * (`envelopeOf(index)`: callEnvelope's) and is resolved over `view`.
    */
   async function planCalls({ calls, channel, draft, view, envelopeOf }) {
-    const { maxCallsPerStep } = loopSettings(hot.config);
+    const { maxCallsPerStep } = loopSettings(hot.config, { inner: Boolean(draft?.inner) });
     const kept = calls.slice(0, maxCallsPerStep);
     if (calls.length > kept.length) log.info('skills: extra-call', { channel: channel.id, count: calls.length - kept.length, loop: true });
     const plans = [];
@@ -2442,8 +2449,8 @@ export function createTurnRunner({
    * logs `skills: follow-up failed` and ends the loop.
    *
    * An inner turn (`continuation.input.mode` `inner`, docs/inner-life.md) continues under
-   * `task.continueInner`, or `task.continueInnerStray` when this is the turn's one stray
-   * follow-up (`stray`: her previous answer wrote outside a call and made no `message.create`
+   * `task.continueInner`, or `task.continueInnerStray` when this is one of the turn's stray
+   * follow-ups (`stray`: her previous answer wrote outside a call and made no `message.create`
    * call); the open-intentions line (openIntentionsText, `{open}`) is filled on the stray
    * follow-up and after a step whose `message.create` went through or was proposed (`posted`),
    * the last step's label included. `names`: the calls the step follows when none of them left a
@@ -2541,11 +2548,15 @@ export function createTurnRunner({
    * and whether a call was its own answer (`delivered`: a message or a picture that went out,
    * an errand accepted).
    *
-   * An inner turn (docs/inner-life.md) adds two things. The stray follow-up: when an answer of
-   * hers wrote outside a call (a `<msg>`, a reaction, a GIF, a picture: it reached nobody) and made
-   * no `message.create` call (`stray`: the reply's answer did; loopStep's `stray`: a later one),
-   * and steps remain, one more step is made -- once per turn, under `task.continueInnerStray`,
-   * with or without a result to show -- and the turn's result says so (`draft.innerStrayFollowUp`).
+   * An inner turn (docs/inner-life.md) runs under its own bounds, `innerLife.loop` (loopSettings
+   * with `inner`; nobody waits for it): its steps, time budget and calls per step, and each call
+   * at most for what is left of that budget (2 s at least) or `innerLife.loop.callTimeoutMs`, the
+   * smaller; a call that runs out of it is `unknown` as on every turn. It adds two things. The
+   * stray follow-up: when an answer of hers wrote outside a call (a `<msg>`, a reaction, a GIF, a
+   * picture: it reached nobody) and made no `message.create` call (`stray`: the reply's answer
+   * did; loopStep's `stray`: a later one), and steps remain, one more step is made -- up to
+   * `innerLife.loop.strayFollowUps` times per turn, under `task.continueInnerStray`, with or
+   * without a result to show -- and the turn's result counts them (`draft.innerStrayFollowUps`).
    * The open follow-up: when the calls just run include a `message.create` that went through or
    * was proposed, none of them left a result to show, an intention the turn woke for is still
    * unnamed by any `intent.*` call of the turn (openIntentionsText) and steps remain, one more
@@ -2555,20 +2566,23 @@ export function createTurnRunner({
    * `next.terminal`) runs and nothing follows it.
    */
   async function toolLoop({ plans, context, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext, stray = false }) {
-    const settings = loopSettings(hot.config);
+    const inner = Boolean(draft?.inner);
+    const settings = loopSettings(hot.config, { inner });
+    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else skills.callTimeoutMs (read now).
+    const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000);
     const startedAt = clock();
     const outcomes = [];
     const answers = [];
     const own = [...(acted?.lines ?? [])];
-    const innerTurn = Boolean(draft?.inner) && continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
+    const innerTurn = inner && continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
     let pending = { plans, context };
     let delivered = false;
     let cutOff = false;
     let steps = 0;
     let made = 0;
-    // The stray follow-up due (an inner turn's) and whether the turn had its one.
-    let strayDue = innerTurn && stray === true;
-    let strayTaken = false;
+    // The stray follow-up due (an inner turn's) and how many the turn made (innerLife.loop.strayFollowUps at most).
+    let strayDue = innerTurn && stray === true && settings.strayFollowUps > 0;
+    let strayMade = 0;
     // The open follow-up due (an inner turn's, after a post with woken intentions still unnamed) and whether the turn had its one.
     let openDue = false;
     let openTaken = false;
@@ -2581,7 +2595,7 @@ export function createTurnRunner({
       let names = null;
       if (pending && pending.plans.length > 0) {
         const leftMs = settings.timeBudgetMs - (clock() - startedAt);
-        const callTimeoutMs = Math.min(hot.config.skills?.callTimeoutMs ?? 120000, Math.max(LOOP_MIN_CALL_MS, leftMs));
+        const callTimeoutMs = Math.min(callTimeoutCap, Math.max(LOOP_MIN_CALL_MS, leftMs));
         const results = await runCalls(pending.plans, { ...pending.context, timeoutMs: callTimeoutMs });
         made += results.length;
         const terminal = pending.terminal === true;
@@ -2609,7 +2623,7 @@ export function createTurnRunner({
       steps += 1;
       const stepsSpent = steps >= settings.maxSteps;
       const timeSpent = clock() - startedAt >= settings.timeBudgetMs;
-      // The turn's one stray follow-up (its label, unless this step is the last: that label wins).
+      // One of the turn's stray follow-ups (its label, unless this step is the last: that label wins).
       const strayStep = strayDue;
       const answer = await loopStep({
         results: outcomes,
@@ -2631,8 +2645,8 @@ export function createTurnRunner({
         names: fresh ? null : names,
       });
       if (strayStep) {
-        strayTaken = true;
-        draft.innerStrayFollowUp = true;
+        strayMade += 1;
+        draft.innerStrayFollowUps = strayMade;
       }
       if (openDue) {
         openTaken = true;
@@ -2649,7 +2663,7 @@ export function createTurnRunner({
         own.push(...(answer.acted.lines ?? []));
       }
       if ((answer.next?.plans.length ?? 0) > 0) pending = answer.next;
-      if (answer.stray === true && !strayTaken) strayDue = true;
+      if (answer.stray === true && strayMade < settings.strayFollowUps) strayDue = true;
     }
     log.info('skills: loop', { channel: channel.id, steps, calls: made, ms: clock() - startedAt });
     return { answers, cutOff, delivered };
@@ -5230,12 +5244,14 @@ export function createTurnRunner({
    *   `spendAllowed()` says the day's dollars are spent, every further call is refused
    *   (`inner-usd-cap`) and the tool loop makes no further request. An answer with no action ends
    *   `skip` with `reason: 'nothing-to-do'` -- unless it wrote outside a call: then the tool loop
-   *   makes its one stray follow-up step (toolLoop: `task.continueInnerStray`, once per turn, while
-   *   steps remain), and after a post that left nothing to show while an intention she woke for is
+   *   makes a stray follow-up step (toolLoop: `task.continueInnerStray`, up to
+   *   `innerLife.loop.strayFollowUps` per turn, while steps remain), and after a post that left nothing to show while an intention she woke for is
    *   still untouched, one open follow-up step (toolLoop: `task.continueInner` with the open line,
    *   once per turn). The last loop step still runs one terminal action call of hers (a post, an
-   *   intention change; loopStep). The result carries `inner: { actions, stray, strayFollowUp?,
-   *   openFollowUp?, turnId, episode }` (`strayFollowUp: true` / `openFollowUp: true` when that
+   *   intention change; loopStep). The tool loop of an inner turn runs under `innerLife.loop`
+   *   (loopSettings with `inner`), not `skills.loop`. The result carries `inner: { actions, stray,
+   *   strayFollowUp?, strayFollowUps?, openFollowUp?, turnId, episode }` (`strayFollowUp: true`
+   *   with `strayFollowUps`, how many, when a stray step was made; `openFollowUp: true` when that
    *   step was made; `shadow: true` in shadow mode; `episode`: innerEpisodeOf's, for her memory). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
@@ -5567,7 +5583,7 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUp === true ? { strayFollowUp: true } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUps > 0 ? { strayFollowUp: true, strayFollowUps: draft.innerStrayFollowUps } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 
@@ -6793,7 +6809,7 @@ export function createTurnRunner({
       const nothingToDo =
         parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.draw === null && parsed.gif === null && !(setDraws?.length > 0) && !parsed.call;
       // An inner turn whose reply wrote outside a call and made no message.create call: the tool
-      // loop's one stray follow-up step (toolLoop) is due, with or without a call to run first.
+      // loop's stray follow-up step (toolLoop) is due, with or without a call to run first.
       const strayFollowUpDue = Boolean(draft.inner) && parsed.innerStray === true && !parsed.skip && loopOn && !diaryPrep && !(Array.isArray(parsed.calls) && parsed.calls.some((call) => call?.skill === 'message.create'));
       // The journal keeps the think (journal.thinkChars); the log then carries its length only.
       if (draft.started) {

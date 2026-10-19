@@ -84,6 +84,7 @@ export const INNER_DEFAULTS = Object.freeze({
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
+  loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000, strayFollowUps: 2 }),
 });
 
 /** The orders the places view knows (`places.list` `sort=`). */
@@ -119,10 +120,18 @@ export function innerOn(config) {
 }
 
 const count = (value, fallback) => (Number.isFinite(value) && value >= 0 ? value : fallback);
+/** A whole number of at least `min`, else `fallback`. */
+const whole = (value, fallback, min = 1) => (Number.isInteger(value) && value >= min ? value : fallback);
+/** A positive finite number, else `fallback`. */
+const positive = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
 
 /**
  * The `innerLife` section with every number checked against INNER_DEFAULTS (a missing or bad value
- * takes the default). `mode` is `live` only when it says so exactly.
+ * takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
+ * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
+ * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
+ * `skills.loop`'s, `callTimeoutMs` the most one call of hers may run, `strayFollowUps` how many
+ * stray follow-up steps one turn may make (0 allowed).
  * @param {object} config
  */
 export function innerSettings(config) {
@@ -130,6 +139,7 @@ export function innerSettings(config) {
   const caps = raw.caps ?? {};
   const review = raw.review ?? {};
   const attention = raw.attention ?? {};
+  const loop = raw.loop ?? {};
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -152,6 +162,13 @@ export function innerSettings(config) {
       pageSize: Math.max(1, Math.floor(count(attention.pageSize, d.attention.pageSize))),
       placesInWake: Math.floor(count(attention.placesInWake, d.attention.placesInWake)),
       lookbackHours: Math.max(1, count(attention.lookbackHours, d.attention.lookbackHours)),
+    },
+    loop: {
+      maxSteps: whole(loop.maxSteps, d.loop.maxSteps),
+      timeBudgetMs: positive(loop.timeBudgetMs, d.loop.timeBudgetMs),
+      maxCallsPerStep: whole(loop.maxCallsPerStep, d.loop.maxCallsPerStep),
+      callTimeoutMs: positive(loop.callTimeoutMs, d.loop.callTimeoutMs),
+      strayFollowUps: whole(loop.strayFollowUps, d.loop.strayFollowUps, 0),
     },
   };
 }
