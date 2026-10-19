@@ -479,8 +479,8 @@ transcript.videoWatched                  {name} {duration} {text}: first-hand, t
 transcript.videoWatchedPart              {name} {duration} {watched} {reason} {text}: first-hand but only the start of a longer clip; {watched} is the watched length (e.g. 5:00), {duration} the total; {reason} is the human phrase from videoPartReason.*
 transcript.videoNotWatched               {name} {duration} {reason}: reason is the human phrase from videoReason.*
 transcript.videoNotWatchedFrame          {name} {duration} {reason} {text}: not watched but a still frame was described
-transcript.videoAnswered                {question} {text}: extra tag after a watched video tag or a GIF's tag; the persona re-watched the clip for this question
-transcript.imageAnswered                {question} {text}: extra tag under the picture's line; the persona looked at the picture again for this question
+transcript.videoAnswered                {question} {text}: extra tag after a watched video tag or a GIF's tag; the persona looked more closely at the clip for this question
+transcript.imageAnswered                {question} {text}: extra tag under the picture's line; the persona looked more closely at the picture for this question
 transcript.videoReason.length | size | daily | error | pending    human phrases for the five reason codes; pending = the clip was still loading when the request went out
 transcript.videoPartReason.clip          human phrase for the clip length limit reason (only the start of a longer video was watched)
 transcript.linkWatched                   {text}: extra tag after a link tag, first-hand video summary
@@ -521,7 +521,7 @@ senses.search                            shown when features.webLookup is on, we
 senses.recall                            shown right after the search line when the server-history search is available: on every server turn, and in a private chat when `features.privateLikeServer` is on (the default). Tells the persona that a search of the server's old messages either ran before the reply or did not, that its part of `<lookup>` is what the history holds (a helper's summary or a verbatim stretch), and that without it nothing was looked up there. An older labels file without the key renders nothing
 senses.searchTool                        with `features.coreTools` on, in place of `senses.search` (same conditions) and only when `web.search` is granted to her: nothing is searched before her reply; she calls `web.search` herself and its result comes in `<result>` as raw search results (title, link, snippet, site), the pages not opened. Without the label nothing is shown
 senses.readTool                          with `features.coreTools` on, features.webLookup on and `web.read` granted to her, after the links lines: she can open a page herself with `web.read` (its link, or a message `#N` holding one); the page's own text comes back in `<result>`, cut, not a summary. Without the label nothing is shown
-senses.lookTool                          with `features.coreTools` on and `media.look` granted to her, while the image second look (`features.imageRelook`) or video vision is on, in place of `senses.videoRewatch`: she can look again at a picture, GIF or video of a message `#N` herself with `media.look` and her question; the image or video model's answer comes back in `<result>`, marked as that model's observation. Without the label nothing is shown
+senses.lookTool                          with `features.coreTools` on and `media.look` granted to her, while the image second look (`features.imageRelook`) or video vision is on, in place of `senses.videoRewatch`: she can look more closely at a picture, GIF or video of a message `#N` with `media.look` and her question; the closer look comes back in `<result>`. Without the label nothing is shown
 senses.recallTool                        with `features.coreTools` on, in place of `senses.recall` (same conditions, per turn) and only when `memory.search` is granted to her: she calls `memory.search` herself; the messages come back quoted in `<result>`. Without the label nothing is shown
 senses.diary                             {channel}: shown when `diary.channelId` is set and `features.diary` is not false; tells the persona they keep a diary in that channel
 senses.draw                              shown when features.imageGeneration is on and an image client is wired; tells the persona they can draw
@@ -771,8 +771,8 @@ skills.tools.read.source                 {url} {maxChars}: the first line of a `
 skills.tools.read.title                  {title}: the page's title, under the source; left out when it has none
 skills.tools.read.cut                    {maxChars}: after the text when the page was longer and was cut
 skills.tools.read.none                   the page had no readable text
-skills.tools.look.image                  {name} {question}: the first line of a `media.look` result on a picture: where it came from (the image model looking again at that picture) and what was asked; the answer follows as the model gave it
-skills.tools.look.video                  {name} {question}: the same for a video or a GIF (the video model watching it again)
+skills.tools.look.image                  {name} {question}: the first line of a `media.look` result on a picture: a closer look at the picture and what was asked; the answer follows as the model gave it
+skills.tools.look.video                  {name} {question}: the same for a video or a GIF
 skills.tools.memory.source               the first line of a `memory.search` result: where it came from (this server's message history) and what kind of evidence it is (messages quoted as written, each with its time and author; a sample)
 skills.tools.memory.window               {date} {channel}: the heading of one quoted stretch (`YYYY-MM-DD` in `bot.timezone`, the channel's name)
 skills.tools.memory.none                 nothing matched
@@ -1318,7 +1318,7 @@ Rails: at most one re-watch or retry per turn; the classifier and the second loo
 question (see the video cache section above). Switch `features.videoRewatch` (missing = on, needs
 `videoDescriptions` on). Switch `features.imageRelook` (missing = on; the look runs through the `vision` helper model, the persona's only sight).
 
-With `features.coreTools` on this classifier is never asked (nor the planner's rewatch block): the persona looks again
+With `features.coreTools` on this classifier is never asked (nor the planner's rewatch block): the persona looks more closely
 herself with `media.look` (see [the tool loop](#the-tool-loop-featurescoretools)), which runs the same second look
 with her own question.
 

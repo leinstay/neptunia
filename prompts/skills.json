@@ -310,9 +310,9 @@
     "whenNotToUse": "Not for files, pictures or videos, nor pages behind a login; for longer research use task.run with the web agent."
   },
   "media.look": {
-    "title": "Look again at a picture or video",
-    "whenToUse": "Look again at a picture, GIF or video in a message you see, when its description does not answer what you need: give message=#N, your question (body or question=), and item= when the message holds several (1 is the first). The image or video model's answer comes back in this same turn.",
-    "whenNotToUse": "Not when the description in the chat already answers it; not for links to web pages (web.read)."
+    "title": "Look more closely",
+    "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (body or question=), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
+    "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
   },
   "memory.search": {
     "title": "Search this server's messages",
