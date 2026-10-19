@@ -352,6 +352,35 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
   };
 }
 
+/**
+ * The fixture with its channels mapped: every channel id `map` names becomes `map[id].id` (named
+ * `map[id].name`, else as the fixture names it) wherever the fixture refers to it -- the channel
+ * list (channels sharing a target collapse into one, the first one's place and name), every
+ * event's channel, every intention's destination, the history's channel. A channel the map
+ * leaves out stays as it is (tools/inner-week.mjs `--live`: the writable fixture channels become
+ * the real channel; an unwritable one keeps its fixture id and still drops as no-channel). Pure:
+ * a new fixture, the given one untouched.
+ * @param {object} fixture  parseFixture's.
+ * @param {Record<string, { id: string, name?: string|null }>} map  fixture channel id -> real channel.
+ */
+export function withChannelMap(fixture, map) {
+  const targets = map && typeof map === 'object' ? map : {};
+  const idOf = (id) => (targets[id] ? String(targets[id].id) : id);
+  const channels = [];
+  for (const channel of fixture.channels) {
+    const id = idOf(channel.id);
+    if (channels.some((c) => c.id === id)) continue;
+    const name = targets[channel.id]?.name;
+    channels.push({ ...channel, id, name: typeof name === 'string' && name ? name : channel.name });
+  }
+  const events = fixture.events.map((event) => ({
+    ...event,
+    ...(typeof event.channel === 'string' ? { channel: idOf(event.channel) } : {}),
+    ...(event.intention ? { intention: { ...event.intention, channel: idOf(event.intention.channel) } } : {}),
+  }));
+  return { ...fixture, channels, events, history: { ...fixture.history, channel: idOf(fixture.history.channel) } };
+}
+
 /** Every `*.json` fixture of `dir`, parsed, by file name. */
 export function loadFixtures(dir) {
   return fs
@@ -1101,9 +1130,15 @@ export function computeGates(run, fixture, effectsOf) {
   if (live) {
     // The expectations were written for the stub voice: shown, never a verdict on her.
     gates.push({ name: 'fixture (stub expectations)', pass: true, info: true, detail });
-    const missing = liveReasonsMissing(run);
-    const total = run.dueSeen.filter((item) => item.intentionId).length;
-    gates.push({ name: 'live-reasons', pass: missing.length === 0, detail: missing.length === 0 ? `${total} due intention(s), each with a disposition and her reason recorded` : `no disposition with a reason for: ${missing.join(', ')}` });
+    const reasons = liveReasons(run);
+    const total = reasons.reasoned.length + reasons.disposed.length + reasons.unwoken.length + reasons.missing.length;
+    const reasonsDetail = [
+      `${total} due intention(s): ${reasons.reasoned.length} with her reason`,
+      ...(reasons.disposed.length ? [`disposed by the engine: ${reasons.disposed.map((d) => `${d.id} (${d.event})`).join(', ')}`] : []),
+      ...(reasons.unwoken.length ? [`never woken live: ${reasons.unwoken.join(', ')}`] : []),
+      ...(reasons.missing.length ? [`no reason from her for: ${reasons.missing.join(', ')}`] : []),
+    ].join('; ');
+    gates.push({ name: 'live-reasons', pass: reasons.missing.length === 0, detail: reasonsDetail });
   } else {
     gates.push({ name: 'fixture', pass: problems.length === 0, detail });
   }
@@ -1126,11 +1161,35 @@ export function stepsOf(answers) {
   });
 }
 
-/** Ids of the week's due intentions with no live-turn call on them carrying her reason (a `reason` argument, a body, or the step's think). */
-function liveReasonsMissing(run) {
-  const due = [...new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => item.intentionId))];
-  const steps = run.turns.filter((turn) => turn.voice === 'live').flatMap((turn) => stepsOf(turn.result?.answers));
-  return due.filter((id) => !steps.some((step) => step.calls.some((call) => String(call.skill).startsWith('intent.') && String(call.args?.id ?? '') === String(id) && (String(call.args?.reason ?? '').trim() || call.body.trim() || step.think.trim()))));
+/** The journal events by which the engine disposes of a wake before any turn runs for it. */
+const ENGINE_DROPS = Object.freeze(['no-channel', 'overflow', 'stale']);
+
+/**
+ * The week's due intentions sorted for the `live-reasons` gate: `reasoned` (a live turn of hers
+ * carried an intent.* call on it with her reason: a `reason` argument, a body, or the step's
+ * think), else `missing` (she was woken for it in a live turn -- the turn's items name it -- and
+ * left it without one), else `disposed` by the engine before any turn of hers (an ENGINE_DROPS
+ * event in the journal, or an expiry while it was never woken; `event` says which), else
+ * `unwoken` (only the stub saw it, or it was still queued at the end).
+ * @returns {{ reasoned: string[], missing: string[], disposed: { id: string, event: string }[], unwoken: string[] }}
+ */
+export function liveReasons(run) {
+  const due = [...new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => String(item.intentionId)))];
+  const liveTurns = run.turns.filter((turn) => turn.voice === 'live');
+  const steps = liveTurns.flatMap((turn) => stepsOf(turn.result?.answers));
+  const reasoned = (id) => steps.some((step) => step.calls.some((call) => String(call.skill).startsWith('intent.') && String(call.args?.id ?? '') === id && (String(call.args?.reason ?? '').trim() || call.body.trim() || step.think.trim())));
+  const woken = (id) => liveTurns.some((turn) => (turn.items ?? []).some((item) => (item.intentionIds ?? []).map(String).includes(id)));
+  const dropped = (id) => run.journal.find((entry) => ENGINE_DROPS.includes(entry.event) && (entry.wake?.intentionIds ?? []).map(String).includes(id))?.event ?? null;
+  const byId = new Map(run.intentions.map((record) => [String(record.id), record]));
+  const out = { reasoned: [], missing: [], disposed: [], unwoken: [] };
+  for (const id of due) {
+    if (reasoned(id)) out.reasoned.push(id);
+    else if (woken(id)) out.missing.push(id);
+    else if (dropped(id)) out.disposed.push({ id, event: dropped(id) });
+    else if (byId.get(id)?.status === 'expired') out.disposed.push({ id, event: 'expired' });
+    else out.unwoken.push(id);
+  }
+  return out;
 }
 
 // ---- the report ----------------------------------------------------------------------
