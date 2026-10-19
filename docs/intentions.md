@@ -67,7 +67,7 @@ wakes of that day), which starts again each day. At most
 `waiting` always names a real errand and a deadline. A wait is linked only to an errand the task store holds: named
 by its id, or handed off with `task.run` in the same turn (either call first). A launch that fails links nothing, so
 nothing waits on it. When the errand ends, the intention is `pending` again with the outcome noted, before her result
-turn runs; the same end delivered twice changes nothing. At start (and later on the scheduler's tick) a
+turn runs; the same end delivered twice changes nothing. When the old due time has already passed, the due time is set to the errand's end, so the scheduler wakes her for it at the next tick if the result turn left the intention open. At start (and later on the scheduler's tick) a
 reconciliation moves every wait whose errand already ended, is gone, or passed its deadline back to `pending` with a
 note, and expires what is past its expiry.
 
