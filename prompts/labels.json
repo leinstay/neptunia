@@ -477,7 +477,7 @@
     "destination": "for #{channel}",
     "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",
     "candidate": "{id} · {purpose} · from your line: \"{span}\"{marker}",
-    "externalMarker": " · [PLACEHOLDER labels.intentions.externalMarker]"
+    "externalMarker": " · [from outside]"
   },
   "wake": {
     "header": "Why you are awake (nobody wrote to you):",
