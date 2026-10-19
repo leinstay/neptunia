@@ -3,7 +3,8 @@
 // Her active intentions first (`pending`, then `waiting` with the errand it awaits and the wait's
 // deadline), each with its due time (the next occurrence of a recurring one, with its `every`
 // period as she wrote it) and, after a wait ended, the errand's outcome or the reason
-// the wait ended; then the candidates the analyzer proposed from her own lines, under their own
+// the wait ended; an attention (`attend`) with its place, the people whose lines count and the
+// day's wakes against her own bound (`labels.intentions.attend`, `attendPeople`); then the candidates the analyzer proposed from her own lines, under their own
 // header, each with the line it came from (and a marker on one whose words came from outside
 // material, which only an ordinary turn of hers may accept). Cut to a token budget (`context.caps.intentions`):
 // whole lines only, in order, the candidates' header only with a candidate under it. Pure: every
@@ -31,12 +32,17 @@ function part(l, key, values) {
   return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
 }
 
-/** One active intention's line: its own, then its due time and recurrence, its wait, its outcome or note. */
-function activeLine(record, l, { timezone, locale, channelNameOf }) {
+/** One active intention's line: its own, then its due time and recurrence, its attention, its wait, its outcome or note. */
+function activeLine(record, l, { timezone, locale, channelNameOf, nameOf }) {
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
   const pieces = [fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) })];
   if (Number.isFinite(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
   if (typeof record.every?.period === 'string' && record.every.period) pieces.push(part(l, 'every', { period: record.every.period }));
+  if (record.attend?.place) {
+    const attend = record.attend;
+    pieces.push(part(l, 'attend', { place: channelNameOf(attend.place) || attend.place, wakes: String(attend.today?.wakes ?? 0), perDay: String(attend.perDay), settle: String(attend.settle) }));
+    if (Array.isArray(attend.people) && attend.people.length > 0) pieces.push(part(l, 'attendPeople', { people: attend.people.map((id) => oneLine(nameOf(id) || id)).join(', ') }));
+  }
   if (record.status === 'waiting') pieces.push(part(l, 'waiting', { task: record.awaitingTaskId, deadline: when(record.waitDeadline, timezone, locale) }));
   else if (record.outcome?.taskId) pieces.push(part(l, 'outcome', { task: record.outcome.taskId, state: record.outcome.state }));
   else if (record.note && typeof l.notes?.[record.note] === 'string') pieces.push(fill(l.notes[record.note], { task: record.lastTaskId ?? '' }));
@@ -62,11 +68,12 @@ function candidateLine(record, l) {
  * the labels are missing.
  * @param {object[]} records
  * @param {object} labels
- * `channelNameOf(id)` names a destination channel (its id when it gives nothing).
- * @param {{ timezone?: string, locale?: string, maxTokens?: number, cost?: (text: string) => number, channelNameOf?: (id: string) => string|null }} [options]
+ * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
+ * `nameOf(id)` names an attended person (the id when it gives nothing).
+ * @param {{ timezone?: string, locale?: string, maxTokens?: number, cost?: (text: string) => number, channelNameOf?: (id: string) => string|null, nameOf?: (id: string) => string|null }} [options]
  * @returns {string}
  */
-export function intentionsBlockText(records, labels, { timezone = 'UTC', locale = 'en-US', maxTokens = DEFAULT_INTENTIONS_CAP, cost = estimateTokens, channelNameOf = () => null } = {}) {
+export function intentionsBlockText(records, labels, { timezone = 'UTC', locale = 'en-US', maxTokens = DEFAULT_INTENTIONS_CAP, cost = estimateTokens, channelNameOf = () => null, nameOf = () => null } = {}) {
   const l = labels?.intentions;
   const list = Array.isArray(records) ? records.filter((record) => record && typeof record.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
@@ -78,7 +85,7 @@ export function intentionsBlockText(records, labels, { timezone = 'UTC', locale 
     used += cost(text) + 1;
   };
   for (const record of list.filter((r) => r.status !== 'proposed')) {
-    const text = activeLine(record, l, { timezone, locale, channelNameOf });
+    const text = activeLine(record, l, { timezone, locale, channelNameOf, nameOf });
     if (!fits(text)) break;
     take(text);
   }

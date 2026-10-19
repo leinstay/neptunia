@@ -28,6 +28,8 @@ const LABELS = {
   lastNone: 'last: none',
   outcomeUnknown: '?',
   intentionsLine: 'open {pending}/{waiting}/{proposed}',
+  attentionLine: 'attention {open} open, wakes {listed}/{run}/{spoken}/{skipped}/{waiting}',
+  tokensLine: 'core tokens {prompt} ({cached}) + {completion}',
 };
 
 const STATUS = {
@@ -40,11 +42,12 @@ const STATUS = {
   spentUsd: 0.6,
   heldUsd: 0.3,
   intentions: { pending: 2, waiting: 1, proposed: 4 },
+  attention: { open: 1, listed: 5, run: 4, spoken: 1, skipped: 3, waiting: 1 },
   next: { at: AT + 3600000, kind: 'review' },
   lastTurn: { at: AT, outcome: 'skip' },
 };
 
-function envOf({ innerLife = true, status = STATUS } = {}) {
+function envOf({ innerLife = true, status = STATUS, usage = null } = {}) {
   const hot = {
     config: { bot: { owners: ['42'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } }, features: { innerLife }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
     prompts: { labels: { status: { inner: LABELS } } },
@@ -54,7 +57,7 @@ function envOf({ innerLife = true, status = STATUS } = {}) {
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const seen = [];
   const inner = { status: (guildId) => (seen.push(guildId), status) };
-  return { env: createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', inner }), seen };
+  return { env: createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', inner, usage }), seen };
 }
 
 const show = async (env, args, userId) => (await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: [] })).data.embeds[0].fields;
@@ -72,8 +75,19 @@ test('status inner: the owner reads the inner life\'s lines through the labels; 
     'next 2026-10-19 13:30 UTC (review)',
     'last skip at 2026-10-19 12:30 UTC',
     'open 2/1/4',
+    'attention 1 open, wakes 5/4/1/3/1',
   ]);
   assert.deepEqual(seen, ['g1']);
+});
+
+test('status inner: the core role\'s tokens today come from the usage accumulator; without a row the line is left out', async () => {
+  const usage = { byRole: () => [{ role: 'analyzer', requests: 9, promptTokens: 1, cachedTokens: 0, completionTokens: 1, cost: 0 }, { role: 'core', requests: 3, promptTokens: 12000, cachedTokens: 9000, completionTokens: 800, cost: 0.4 }] };
+  const { env } = envOf({ usage });
+  const lines = (await show(env, { field: 'inner' }, '42'))[0].value.split('\n');
+  assert.equal(lines.at(-1), 'core tokens 12000 (9000) + 800');
+  const none = envOf({ usage: { byRole: () => [] } });
+  assert.ok(!(await show(none.env, { field: 'inner' }, '42'))[0].value.includes('core tokens'));
+  assert.deepEqual(innerLines({ ...STATUS, attention: null }, { status: { inner: LABELS } }, { tokens: { prompt: 1, cached: 2, completion: 3 } }).at(-1), 'core tokens 1 (2) + 3');
 });
 
 test('status inner: in the whole card, between costs.agents and limits', async () => {
@@ -93,7 +107,7 @@ test('status inner: absent with features.innerLife off, hidden from a member', a
 });
 
 test('status inner: a stopped inner life, no wake known, no turn yet', () => {
-  const lines = innerLines({ ...STATUS, mode: 'live', stopped: true, stoppedAt: AT, next: null, lastTurn: null, intentions: null }, { status: { inner: LABELS } });
+  const lines = innerLines({ ...STATUS, mode: 'live', stopped: true, stoppedAt: AT, next: null, lastTurn: null, intentions: null, attention: null }, { status: { inner: LABELS } });
   assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3/24, chains 2', 'usd 0.60 + 0.30 / 4', 'posts 1/2', 'next: none', 'last: none']);
   assert.equal(innerLines({ ...STATUS, lastTurn: { at: AT, outcome: null } }, { status: { inner: LABELS } })[5], 'last ? at 2026-10-19 12:30 UTC');
   assert.deepEqual(innerLines(STATUS, {}), [], 'no labels, no lines');

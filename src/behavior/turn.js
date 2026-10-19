@@ -85,7 +85,7 @@ import { POSTING_SKILLS, innerSettings } from './inner.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
 import { isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
-import { wakeBlockText } from './wake.js';
+import { placesBlockText, wakeBlockText } from './wake.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -1053,14 +1053,15 @@ export function requesterOf(trigger, channel) {
  * operation's rule, src/ops/shared.js#postingConversation), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
- * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name) and the skill registry
+ * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
+ * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a derived skill's options are resolved by its command), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, fileOf = null, triggerText = null }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, memberHandles = null, fileOf = null, triggerText = null }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1083,6 +1084,7 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     currentConversationId: String(channel.id),
     conversations,
     channelHandles: channelHandles instanceof Map ? channelHandles : null,
+    memberHandles: memberHandles instanceof Map ? memberHandles : null,
     messageAt: (n) => {
       const id = idByIndex?.get(n);
       if (!id) return null;
@@ -1677,6 +1679,8 @@ export function createTurnRunner({
   reactors = null,
   errands = null,
   intentions = null,
+  // The places view of the inner life (src/behavior/inner.js#places): `<places>` on an addressed turn with `context.places` on.
+  places = null,
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
@@ -1814,18 +1818,37 @@ export function createTurnRunner({
       return '';
     }
     const channelNameOf = (id) => channel.guild?.channels?.cache?.get?.(String(id))?.name ?? null;
+    const nameOf = (id) => (typeof store?.getUser === 'function' ? store.getUser(guildId, String(id))?.names?.[0] ?? null : null);
     return intentionsBlockText(shown, labels, {
       timezone: config.bot?.timezone ?? 'UTC',
       locale: labels?.locale,
       maxTokens: config.context?.caps?.intentions ?? DEFAULT_INTENTIONS_CAP,
       channelNameOf,
+      nameOf,
     });
   }
 
+  /**
+   * The request's `<places>` body (context.places exactly true, read now; src/behavior/wake.js#placesBlockText):
+   * the first `innerLife.attention.placesInWake` places by recent activity (0: none), from the inner
+   * life's places view. '' with the switch off, without the view, or when it fails.
+   */
+  function placesInputFor({ guildId, config, labels }) {
+    if (config.context?.places !== true || typeof places !== 'function') return '';
+    const size = innerSettings(config).attention.placesInWake;
+    if (!(size > 0)) return '';
+    try {
+      return placesBlockText(places(guildId, { sort: 'recent', page: 1, pageSize: size }), labels);
+    } catch (err) {
+      log.warn('turn: places view failed', { guildId, error: err });
+      return '';
+    }
+  }
+
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
-  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, trigger = null }) {
+  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, memberHandles = null, trigger = null }) {
     const fileOf = typeof errands?.fileOf === 'function' ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) }) : null;
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null });
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, memberHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null });
   }
 
   /**
@@ -6583,6 +6606,8 @@ export function createTurnRunner({
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
         wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : null,
+        // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
+        places: !draft.inner && !isPrivate && finalMode !== 'diary' ? placesInputFor({ guildId, config, labels: prompts?.labels }) : null,
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
@@ -6915,10 +6940,10 @@ export function createTurnRunner({
         return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner), chainId: draft.inner?.wake?.chainId ?? null });
       };
       const callPlan = parsed.call && !looping
-        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
+        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger }) })
         : null;
       const loopPlans = looping && parsed.calls.length > 0
-        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }), envelopeOf })
+        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger }), envelopeOf })
         : [];
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.

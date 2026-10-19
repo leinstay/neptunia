@@ -255,7 +255,7 @@ test('coreToolRows: her granted tools among web.search, web.read, media.look, me
   assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
   assert.equal(rows[0].args[0].body, true, 'the question is the body');
   assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'task.run', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
 });
 
 test('coreToolRows: media.look, granted, stands after web.read with its arguments while the tool loop is on; with it off the skill does not exist for her', () => {

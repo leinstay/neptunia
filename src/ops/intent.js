@@ -14,8 +14,16 @@
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
 // `<n>m`, `<n>h`, `<n>d` from now, an ISO date-time, or a wall clock in `bot.timezone` --
 // `HH:MM`, `<weekday> HH:MM` (src/intentions/model.js#parseWhen); `every=` (`day`, `week`, `<n>h`,
-// `<n>d`; `none` on an update) makes an intention recurring (model.js#parseEvery).
-// Answers are operator lines (ids, states, times, the recurrence), the purpose cut to one short line.
+// `<n>d`; `none` on an update) makes an intention recurring (model.js#parseEvery). `attend=<place>`
+// makes an attention (docs/inner-life.md "Her attention"): the place's address (a channel option,
+// so her `#handle` resolves as any channel argument does), `people=` (ids, comma or space
+// separated; her `@handle`s are resolved to ids before the call reaches here), `settle=` seconds
+// and `perday=` her own daily bound (defaults `innerLife.attention.settleSeconds` /
+// `perDayDefault`; the option is lowercase as Discord wants it, the record's field is `perDay`);
+// the body is its purpose, the place's address when she gives none. An update may change
+// `people`, `settle`, `perday` and `expires`; `due=` and `every=` on an attention are
+// refused (`attend-with-due`, `attend-with-every`).
+// Answers are operator lines (ids, states, times, the recurrence, the place), the purpose cut to one short line.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
@@ -26,7 +34,7 @@ import { defineOp, perEnv, invalid } from './registry.js';
 const PURPOSE_LINE_CHARS = 80;
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
-const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found']);
+const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found', 'bad-attend', 'attend-with-due', 'attend-with-every', 'not-attend']);
 
 const handlers = perEnv((env) => {
   const { hot, client, resolvedGuildId, now = Date.now } = env;
@@ -73,6 +81,31 @@ const handlers = perEnv((env) => {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 
+  /** `args.people` as ids (comma or space separated; `<@id>` unwrapped), undefined when not given. */
+  function peopleOf(args) {
+    const value = text(args, 'people');
+    if (value === undefined) return undefined;
+    return value.split(/[\s,]+/).map((token) => token.replace(/^<@!?(\d+)>$/, '$1').trim()).filter(Boolean);
+  }
+
+  /** `args[key]` as a whole number >= `min`, undefined when not given; an `invalid` error (`bad-attend`) otherwise. */
+  function integer(args, key, min) {
+    const value = args?.[key];
+    if (value === undefined || value === null || value === '') return undefined;
+    const n = typeof value === 'number' ? value : /^\d{1,9}$/.test(String(value).trim()) ? Number(String(value).trim()) : NaN;
+    if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, 'bad-attend');
+    return n;
+  }
+
+  /** The attention arguments given (`people`, `settle`, `perday`), or null when none is. */
+  function attendPatch(args) {
+    const people = peopleOf(args);
+    const settle = integer(args, 'settle', 0);
+    const perDay = integer(args, 'perday', 1);
+    if (people === undefined && settle === undefined && perDay === undefined) return null;
+    return { ...(people !== undefined ? { people } : {}), ...(settle !== undefined ? { settle } : {}), ...(perDay !== undefined ? { perDay } : {}) };
+  }
+
   /**
    * The id of `intent.update` / `intent.cancel`: `id` when given, else the call's body (its
    * `text`) when that is one bare token shaped like an intention id (isIntentionId): she wrote
@@ -97,6 +130,11 @@ const handlers = perEnv((env) => {
     const parts = [`${record.id} ${record.status}`];
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
     if (record.every?.period) parts.push(`every ${record.every.period}`);
+    if (record.attend?.place) {
+      parts.push(`attend ${record.attend.place}`);
+      if (record.attend.people.length > 0) parts.push(`people ${record.attend.people.join(',')}`);
+      parts.push(`settle ${record.attend.settle}s`, `today ${record.attend.today?.wakes ?? 0}/${record.attend.perDay}`);
+    }
     if (record.status === 'waiting') parts.push(`awaiting ${record.awaitingTaskId} until ${stamp(record.waitDeadline)}`);
     else if (record.outcome?.taskId) parts.push(`errand ${record.outcome.taskId} ${record.outcome.state}`);
     else if (record.note) parts.push(record.note);
@@ -143,15 +181,17 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** `intent.set`: a new intention, its purpose the text. */
+  /** `intent.set`: a new intention, its purpose the text; with `attend` an attention on that place. */
   function cmdSet(args, context) {
     const refused = off();
     if (refused) return refused;
-    const purpose = text(args, 'text');
+    const place = text(args, 'attend');
+    const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
     const from = origin(context);
     const result = intentions().set(resolvedGuildId(context), {
       purpose,
+      attend: place ? { place, ...(attendPatch(args) ?? {}) } : null,
       dueAt: moment(args, 'due') ?? null,
       every: every(args) ?? null,
       expiresAt: moment(args, 'expires') ?? null,
@@ -176,10 +216,12 @@ const handlers = perEnv((env) => {
     const from = origin(context);
     const due = moment(args, 'due');
     const recurrence = every(args);
+    const attend = attendPatch(args);
     const result = intentions().update(resolvedGuildId(context), id, {
       ...(text(args, 'text') ? { purpose: text(args, 'text') } : {}),
       ...(due !== undefined ? { dueAt: due } : {}),
       ...(recurrence !== undefined ? { every: recurrence } : {}),
+      ...(attend ? { attend } : {}),
       ...(moment(args, 'expires') !== undefined ? { expiresAt: moment(args, 'expires') } : {}),
       ...(text(args, 'channelId') ? { destination: text(args, 'channelId') } : {}),
       ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),

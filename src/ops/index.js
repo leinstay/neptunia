@@ -32,6 +32,7 @@ import './memory.js';
 import './message.js';
 import './task.js';
 import './intent.js';
+import './places.js';
 import './inner.js';
 import './search.js';
 
@@ -131,6 +132,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.look': 'media.look',
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
+  'task.places': 'places.list',
   'memory.search': 'memory.search',
 });
 

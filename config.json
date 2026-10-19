@@ -154,6 +154,7 @@
     "around": { "maxTokens": 400 },
     "tempo": { "liveMessages10min": 4, "deadSilenceMinutes": 45 },
     "caps": { "interlocutor": 6000, "aboutChat": 2500, "people": 9000, "neighbors": 3000, "server": 4000, "lore": 1500, "emoji": 800, "gifs": 900, "pulled": 4000, "recent": 1200, "participation": 6000, "earlier": 2500, "attitudes": 400, "intentions": 600 },
+    "places": false,
     "pull": { "windowMinutes": 60, "minMessages": 5, "maxMessages": 60, "maxPictures": 10, "maxNewDescriptions": 8, "describeTimeoutMs": 15000, "scanMessages": 20, "maxChannels": 1, "maxAgeDays": 0, "sameAudience": true, "seenTtlMinutes": 120 },
     "customEmoji": { "max": 30, "storeMax": 200, "halfLifeDays": 30, "backfillMessages": 500 },
     "channelActivity": { "liveMessagesPerDay": 20, "deadAfterDays": 7 },
@@ -521,6 +522,7 @@
     "errandReserveMaxMinutes": 60,
     "review": { "enabled": true, "historyDays": 14 },
     "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 },
+    "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "memory": {
       "enabled": true,
       "thinkChars": 1200,

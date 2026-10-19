@@ -12,18 +12,27 @@
 // (`every`, src/intentions/model.js) is advanced to its next occurrence when the scheduler disposes
 // of its wake (`advance`: `recurred` when a call of hers named it, `missed` otherwise), when her
 // `state=done` closes the occurrence (`done-occurrence`), and when a wait of its ends with the
-// errand (the outcome kept); its wall-clock time is pinned in `bot.timezone`. Settings are read at
-// the moment of use (`intentions.*`, `features.intentions`); logs carry ids and codes, never text.
+// errand (the outcome kept); its wall-clock time is pinned in `bot.timezone`. An attention
+// (`attend`, model.js) is set and changed through the same calls (`attend`, `people`, `settle`,
+// `perDay`; a due time or a recurrence on it is refused) and carries the day's wake counter the
+// scheduler bumps (`countAttendWake`) and reads (`attendToday`, the local day of `bot.timezone`).
+// Settings are read at the moment of use (`intentions.*`, `innerLife.attention.*`,
+// `features.intentions`); logs carry ids and codes, never text.
 
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
-import { DAY_MS, HOUR_MS } from '../time.js';
+import { DAY_MS, HOUR_MS, zonedDay } from '../time.js';
 import { isToolTask, isOpenState } from '../errands/store.js';
 import { createLineSources } from './sources.js';
 import {
   acceptRefusal,
   advanceOccurrence,
   arrive,
+  attendCounter,
+  attentionSettings,
+  bumpAttend,
+  isAttend,
+  normalizeAttend,
   candidatesFromAnswer,
   createIntention,
   dueList as dueOf,
@@ -135,8 +144,10 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * @param {string|null} guildId
    * @param {{ purpose: string, dueAt?: number|null, every?: { period: string, at?: string|null }|null, expiresAt?: number|null, destination?: string|null,
    *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
-   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', participants?: string[], by?: string }} input
+   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', participants?: string[], by?: string,
+   *   attend?: { place: string, people?: string[], settle?: number, perDay?: number }|null }} input
    *   `every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
+   *   `attend` makes it an attention (model.js#normalizeAttend; its defaults `innerLife.attention.*`, read now).
    */
   function set(guildId, input) {
     const store = storeOf(guildId);
@@ -153,8 +164,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       destination: input.destination ?? null,
       completionCondition: input.completionCondition ?? null,
       chainId: input.chainId ?? null,
+      attend: input.attend ?? null,
       now: now(),
-      settings: limits,
+      settings: { ...limits, attention: attentionSettings(hot.config) },
       id: freshId(store),
       by,
     });
@@ -181,7 +193,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * or ends a wait by hand, `done` closes it (a recurring one's occurrence only: it advances to the
    * next, code `done-occurrence`); `purpose`, `dueAt`, `every` (parseEvery's shape; null makes it
    * one-off; `every-without-due` without a due time), `expiresAt`, `destination`,
-   * `completionCondition`, `chainId` edit an open one; `taskId` / `deadline` set it waiting (as in
+   * `completionCondition`, `chainId` edit an open one; `attend` (`{ people?, settle?, perDay? }`)
+   * edits an attention (`not-attend` on any other; a due time or a recurrence on an attention is
+   * `attend-with-due` / `attend-with-every`); `taskId` / `deadline` set it waiting (as in
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
@@ -224,6 +238,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       if (patch.destination !== undefined) fields.destination = patch.destination ? String(patch.destination) : null;
       if (typeof patch.completionCondition === 'string') fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
       if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
+      if (patch.attend !== undefined && patch.attend !== null) {
+        if (!isAttend(record)) return { ok: false, code: 'not-attend' };
+        const attend = normalizeAttend({ ...record.attend, ...patch.attend, place: record.attend.place, today: record.attend.today ?? null }, attentionSettings(hot.config));
+        if (!attend) return { ok: false, code: 'bad-attend' };
+        fields.attend = attend;
+      }
+      if (isAttend(record) && fields.dueAt !== undefined && fields.dueAt !== null) return { ok: false, code: 'attend-with-due' };
+      if (isAttend(record) && fields.every) return { ok: false, code: 'attend-with-every' };
       if (Object.keys(fields).length > 0) {
         next = { ...next, ...fields, updatedAt: at };
         if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: 'every-without-due' };
@@ -420,6 +442,34 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: 'recurred', dueAt: result.intention.dueAt });
   }
 
+  /** The guild's open attentions (`pending` records with an `attend` place), the expired swept first. */
+  function attending(guildId) {
+    return list(guildId, { all: true }).filter((record) => record.status === 'pending' && isAttend(record));
+  }
+
+  /** The day's wake counter of attention `id` (model.js#attendCounter, today in `bot.timezone`), or null. */
+  function attendToday(guildId, id) {
+    const record = storeOf(guildId)?.get(id) ?? null;
+    return isAttend(record) ? attendCounter(record, zonedDay(now(), timezone())) : null;
+  }
+
+  /**
+   * One attend wake of attention `id` counted on today's counter (the scheduler, after the
+   * wake's turn): `{ ok, intention, changed }` (`not-attend`, `not-found`, `write-failed`). Never throws.
+   */
+  function countAttendWake(guildId, id) {
+    try {
+      const store = storeOf(guildId);
+      if (!store) return { ok: false, code: 'no-guild' };
+      const result = store.update(id, (record) => bumpAttend(record, zonedDay(now(), timezone())));
+      if (result.ok && result.changed) log.info('intentions: attend wake counted', { guildId: store.guildId, id: String(id), wakes: result.intention.attend.today.wakes });
+      return result;
+    } catch (err) {
+      log.warn('intentions: attend count failed', { id: String(id ?? ''), error: err });
+      return { ok: false, code: 'write-failed' };
+    }
+  }
+
   /** What is due now (src/intentions/model.js#dueList) for the guild, its expired swept first. */
   function due(guildId) {
     const store = storeOf(guildId);
@@ -526,5 +576,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, addCandidates, forgetUser, wipe, store: storeOf };
 }

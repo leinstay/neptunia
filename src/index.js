@@ -397,6 +397,8 @@ const turns = createTurnRunner({
   errands,
   // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
   intentions,
+  // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
+  places: (guildId, options) => inner.places(guildId, options),
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -430,8 +432,28 @@ const memory = createMemoryUpdater({
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
 const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
+/**
+ * The places the Discord interface publishes for the guild, as the core takes them: opaque
+ * addresses with a name and whether the persona can write there (the channel directory a turn
+ * shows her, interfaces/discord/collect.js#channelDirectoryOf, and its send check). Nothing of
+ * discord.js reaches the core: it reads this list alone.
+ */
+function placesOf(guildId) {
+  const guild = client.guilds.cache.get(String(guildId));
+  if (!guild) return [];
+  return discord.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
+    const channel = guild.channels.cache.get(entry.id);
+    let writable = null;
+    try {
+      writable = channel ? discord.canSend(channel) : null;
+    } catch {
+      writable = null;
+    }
+    return { id: entry.id, name: entry.name, writable };
+  });
+}
 // The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
-// that lists what is due for her (her intentions, waits past their deadline, one daily review),
+// that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
 // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
 // attention is free and no cap refuses. Its own timer; a no-op with the switch off.
 const inner = createInnerLife({
@@ -440,6 +462,9 @@ const inner = createInnerLife({
   turns,
   intentions,
   record,
+  // Her attention: the places the interface publishes, and the names of the people a wake names.
+  places: placesOf,
+  nameOf: (guildId, memberId) => store.getUser(guildId, memberId)?.names?.[0] ?? null,
   journal,
   client,
   discord,

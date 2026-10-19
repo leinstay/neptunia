@@ -59,6 +59,15 @@ test('intentionsBlockText: active lines with due, wait, outcome and note, then t
   assert.equal(intentionsBlockText([daily], { intentions: { ...LABELS.intentions, every: undefined } }), `H\ni5|P|σκοπός i5 · due ${at(T0 + 2 * HOUR)}`);
 });
 
+test('intentionsBlockText: an attention shows its place, the day\'s wakes against her bound, the settle and the people by name', () => {
+  const attention = own('i6', { attend: { place: 'c9', people: ['u1', 'u2'], settle: 30, perDay: 4 } });
+  const counted = { ...attention, attend: { ...attention.attend, today: { day: '2026-10-18', wakes: 2 } } };
+  const labels = { intentions: { ...LABELS.intentions, attend: 'in #{place} {wakes}/{perDay} q{settle}', attendPeople: 'of {people}' } };
+  const text = intentionsBlockText([counted, own('i7', { attend: { place: 'c8' } })], labels, { channelNameOf: (id) => (id === 'c9' ? 'κήπος' : null), nameOf: (id) => (id === 'u1' ? 'Ana' : null) });
+  assert.equal(text, ['H', 'i6|P|σκοπός i6 · in #κήπος 2/4 q30 · of Ana, u2', 'i7|P|σκοπός i7 · in #c8 0/12 q90'].join('\n'));
+  assert.equal(intentionsBlockText([counted], LABELS), 'H\ni6|P|σκοπός i6', 'without the attend labels the line stands alone');
+});
+
 test('intentionsBlockText: an external candidate carries labels.intentions.externalMarker as {marker}; her own carries none', () => {
   const labels = { intentions: { ...LABELS.intentions, candidate: '{id}|{purpose}|"{span}"{marker}', externalMarker: ' [ξένο]' } };
   const ownCandidate = createIntention({ purpose: 'φέρε το', provenance: { kind: 'candidate', span: 'θα το φέρω', origin: 'own' }, now: T0, id: 'i1' }).intention;

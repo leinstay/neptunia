@@ -5,8 +5,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ATTEND_DEFAULTS,
   DEFAULTS,
   acceptRefusal,
+  attendCounter,
+  attentionSettings,
+  bumpAttend,
+  isAttend,
+  normalizeAttend,
+  validAttend,
   advanceOccurrence,
   nextOccurrence,
   parseEvery,
@@ -361,4 +368,74 @@ test('advanceOccurrence: expiry wins over the next due -- the last occurrence be
   assert.deepEqual(dueList([after], after.expiresAt - 1), [], 'nothing is due before the expiry');
   assert.equal(expireAt(after, after.expiresAt).intention.status, 'expired');
   assert.equal(expireAt(after, after.dueAt - HOUR).changed, true, 'the expiry comes first');
+});
+
+// ---- attention: an intention of kind attend ----------------------------------------------
+
+test('attend: her own intention with a place is an attention with the defaults filled; no due, no recurrence, never a candidate', () => {
+  const made = createIntention({ purpose: 'listen to the garden talk', provenance: { kind: 'self' }, attend: { place: 'c-garden' }, now: T0, id: 'ia1' });
+  assert.equal(made.ok, true, made.code);
+  assert.equal(isAttend(made.intention), true);
+  assert.deepEqual(made.intention.attend, { place: 'c-garden', people: [], settle: ATTEND_DEFAULTS.settleSeconds, perDay: ATTEND_DEFAULTS.perDayDefault, today: null });
+  assert.equal(made.intention.dueAt, null);
+  assert.equal(made.intention.expiresAt, T0 + DEFAULTS.expiresDays * DAY, 'an attention ends like any intention of hers');
+  assert.equal(checkInvariants(made.intention), null);
+  assert.equal(isAttend(mine()), false);
+  assert.equal(mine().attend, null);
+  // Her own numbers and people, the defaults from the live config.
+  const own = createIntention({ purpose: 'p', provenance: { kind: 'self' }, attend: { place: 'c-garden', people: ['u1', 'u1', ' u2 ', 7], settle: 0, perDay: 3 }, now: T0, settings: { ...DEFAULTS, attention: { settleSeconds: 30, perDayDefault: 5 } } });
+  assert.deepEqual(own.intention.attend, { place: 'c-garden', people: ['u1', 'u2', '7'], settle: 0, perDay: 3, today: null });
+  const configured = createIntention({ purpose: 'p', provenance: { kind: 'self' }, attend: { place: 'c-garden' }, now: T0, settings: { ...DEFAULTS, attention: { settleSeconds: 30, perDayDefault: 5 } } });
+  assert.deepEqual([configured.intention.attend.settle, configured.intention.attend.perDay], [30, 5]);
+  // The codes.
+  const code = (extra) => createIntention({ purpose: 'p', provenance: { kind: 'self' }, now: T0, ...extra }).code;
+  assert.equal(code({ attend: { place: '' } }), 'bad-attend');
+  assert.equal(code({ attend: { place: 'c', settle: -1 } }), 'bad-attend');
+  assert.equal(code({ attend: { place: 'c', perDay: 0 } }), 'bad-attend');
+  assert.equal(code({ attend: { place: 'c', perDay: 1.5 } }), 'bad-attend');
+  assert.equal(code({ attend: { place: 'c', people: 'u1' } }), 'bad-attend');
+  assert.equal(code({ attend: 'c-garden' }), 'bad-attend');
+  assert.equal(code({ attend: { place: 'c' }, dueAt: T0 + HOUR }), 'attend-with-due');
+  assert.equal(code({ attend: { place: 'c' }, every: { period: 'day', at: null } }), 'attend-with-every');
+  assert.equal(createIntention({ purpose: 'p', provenance: { kind: 'candidate', span: 'p' }, attend: { place: 'c' }, now: T0 }).code, 'bad-attend', 'a candidate is never an attention');
+});
+
+test('attend: the invariants hold on every move; validAttend and normalizeAttend check the shape', () => {
+  const record = createIntention({ purpose: 'p', provenance: { kind: 'self' }, attend: { place: 'c-garden' }, now: T0, id: 'ia2' }).intention;
+  assert.equal(checkInvariants({ ...record, dueAt: T0 }), 'attend-with-due');
+  assert.equal(checkInvariants({ ...record, every: { period: 'day', at: null }, dueAt: null }), 'attend-with-every');
+  assert.equal(checkInvariants({ ...record, attend: { ...record.attend, perDay: 0 } }), 'bad-attend');
+  assert.equal(transition(record, 'done', { now: T0 + HOUR, patch: { dueAt: T0 } }).code, 'attend-with-due', 'a patch cannot give an attention a due time');
+  assert.equal(transition(record, 'cancelled', { now: T0 + HOUR }).intention.status, 'cancelled');
+  assert.equal(validAttend(null), true);
+  assert.equal(validAttend({ place: 'c', people: [], settle: 90, perDay: 12, today: { day: '2026-10-18', wakes: 2 } }), true);
+  assert.equal(validAttend({ place: 'c', people: [], settle: 90, perDay: 12, today: { day: '2026-10-18' } }), false);
+  assert.equal(validAttend({ place: 'c', people: [''], settle: 90, perDay: 12, today: null }), false);
+  assert.equal(normalizeAttend({ place: 'c', people: [{}] }), null, 'an object is no id');
+  assert.deepEqual(normalizeAttend({ place: 'c', people: ['', 'u1', ''] }, { settleSeconds: 10, perDayDefault: 2 }), { place: 'c', people: ['u1'], settle: 10, perDay: 2, today: null });
+  assert.equal(normalizeAttend({ place: 'c', people: Array.from({ length: 30 }, (_, i) => `u${i}`) }).people.length, 20, 'at most ATTEND_PEOPLE_MAX people');
+});
+
+test('attend: the per-day counter counts on its local day and starts again on the next', () => {
+  const record = createIntention({ purpose: 'p', provenance: { kind: 'self' }, attend: { place: 'c-garden', perDay: 2 }, now: T0, id: 'ia3' }).intention;
+  assert.deepEqual(attendCounter(record, '2026-10-18'), { day: '2026-10-18', wakes: 0 });
+  const once = bumpAttend(record, '2026-10-18');
+  assert.equal(once.ok, true);
+  assert.deepEqual(once.intention.attend.today, { day: '2026-10-18', wakes: 1 });
+  const twice = bumpAttend(once.intention, '2026-10-18').intention;
+  assert.deepEqual(attendCounter(twice, '2026-10-18'), { day: '2026-10-18', wakes: 2 });
+  assert.deepEqual(attendCounter(twice, '2026-10-19'), { day: '2026-10-19', wakes: 0 }, 'a new day, a fresh count');
+  assert.deepEqual(bumpAttend(twice, '2026-10-19').intention.attend.today, { day: '2026-10-19', wakes: 1 });
+  assert.equal(checkInvariants(twice), null);
+  assert.equal(bumpAttend(mine(), '2026-10-18').code, 'not-attend');
+  assert.equal(dueList([twice], T0 + DAY).length, 0, 'an attention is never due: the scheduler lists its place\'s lines instead');
+});
+
+test('attend: a forget of one of the attended people takes the attention out; attentionSettings reads the live numbers', () => {
+  const record = createIntention({ purpose: 'listen', provenance: { kind: 'self' }, attend: { place: 'c-garden', people: ['u9'] }, now: T0, id: 'ia4' }).intention;
+  assert.equal(concernsMember(record, { userId: 'u9' }), true);
+  assert.equal(concernsMember(record, { userId: 'u8' }), false);
+  assert.deepEqual(attentionSettings({ innerLife: { attention: { settleSeconds: 0, perDayDefault: 3 } } }), { settleSeconds: 0, perDayDefault: 3 });
+  assert.deepEqual(attentionSettings({ innerLife: { attention: { settleSeconds: -5, perDayDefault: 0 } } }), { settleSeconds: 90, perDayDefault: 12 });
+  assert.deepEqual(attentionSettings({}), ATTEND_DEFAULTS);
 });

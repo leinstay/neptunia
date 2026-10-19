@@ -21,10 +21,11 @@ export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.loo
 /**
  * Her own tools listed in full on every turn under features.coreTools: the in-turn tools, the errand
  * hand-off, then the intention skills that set, change and drop one (no classifier names a skill for
- * her then, so this is the only place she learns how). `intent.list` stays out: the `<intentions>`
- * block shows them. Each row still needs her grant and its feature switch (grantedSkillNames).
+ * her then, so this is the only place she learns how), then `places.list` (the places she can read,
+ * docs/inner-life.md "Her attention"). `intent.list` stays out: the `<intentions>` block shows them.
+ * Each row still needs her grant and its feature switch (grantedSkillNames).
  */
-export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
+export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;

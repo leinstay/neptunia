@@ -88,8 +88,12 @@ function labelLine(template, values) {
   return typeof template === 'string' && template ? fill(template, values) : null;
 }
 
-/** The `inner` field's lines from the inner life's status `s` (src/behavior/inner.js#status), words from `labels.status.inner`. */
-export function innerLines(s, labels) {
+/**
+ * The `inner` field's lines from the inner life's status `s` (src/behavior/inner.js#status), words
+ * from `labels.status.inner`; `tokens` (`{ prompt, cached, completion }`, the core role's today from
+ * the usage accumulator) adds the tokens line.
+ */
+export function innerLines(s, labels, { tokens = null } = {}) {
   const L = labels?.status?.inner;
   if (!isPlainObject(L)) return [];
   const b = s.budgets;
@@ -104,6 +108,8 @@ export function innerLines(s, labels) {
     s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
     s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
     intentions ? labelLine(L.intentionsLine, intentions) : null,
+    s.attention ? labelLine(L.attentionLine, s.attention) : null,
+    tokens ? labelLine(L.tokensLine, { prompt: tokens.prompt ?? 0, cached: tokens.cached ?? 0, completion: tokens.completion ?? 0 }) : null,
   ].filter(Boolean);
 }
 
@@ -619,7 +625,10 @@ const handlers = perEnv((env) => {
   /** The owner's `inner` field: the inner life's status (the same data as `/nep task inner status`); `-` without it. */
   function innerValue(guildId) {
     if (typeof env.inner?.status !== 'function') return '-';
-    const lines = innerLines(env.inner.status(guildId ?? undefined), hot.prompts?.labels);
+    // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.
+    const row = typeof usage?.byRole === 'function' ? usage.byRole().find((entry) => entry.role === CORE_ROLE) : null;
+    const tokens = row ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens } : null;
+    const lines = innerLines(env.inner.status(guildId ?? undefined), hot.prompts?.labels, { tokens });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 

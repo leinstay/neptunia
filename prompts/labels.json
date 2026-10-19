@@ -352,7 +352,9 @@
       "lastLine": "last turn {outcome} · {at}",
       "lastNone": "last turn: none yet",
       "outcomeUnknown": "unknown",
-      "intentionsLine": "intentions · {pending} pending · {waiting} waiting · {proposed} proposed"
+      "intentionsLine": "intentions · {pending} pending · {waiting} waiting · {proposed} proposed",
+      "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
+      "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
     }
   },
   "warmup": {
@@ -495,6 +497,8 @@
       "last-occurrence": "last occurrence before it expires"
     },
     "destination": "for #{channel}",
+    "attend": "listening in #{place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
+    "attendPeople": "people: {people}",
     "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",
     "candidate": "{id} · {purpose} · from your line: \"{span}\"{marker}",
     "externalMarker": " · [from outside]"
@@ -504,10 +508,16 @@
     "kinds": {
       "intention_due": "Intention {id} is due: {purpose}",
       "review": "Your daily review: look over your intentions and what you have been doing.",
-      "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})"
+      "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
+      "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice."
     },
     "now": "Now: {now}",
     "channels": "You were active lately in: {channels}",
+    "places": "Where people are talking ({total} places; places.list shows the rest):",
+    "place": "#{name}: {lines} new lines, {people} people{flags}",
+    "placeReadOnly": " · read-only for you",
+    "placeAttended": " · you listen here",
+    "placesMore": "... and {more} more",
     "budgets": "What you have left:",
     "budget": {
       "day": "inner turns today: {left} remaining of {cap} (resets {reset})",

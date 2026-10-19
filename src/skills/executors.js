@@ -31,6 +31,8 @@ const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
 
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
+/** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
+const PEOPLE_LIST_SKILLS = Object.freeze(['intent.set', 'intent.update']);
 
 /**
  * The operations whose success is its own answer: a message or a picture that went out, and an
@@ -115,12 +117,17 @@ function transcriptNumber(value) {
   return match ? Number(match[1]) : null;
 }
 
-/** The stored member a name or mention (`<@id>`, `<@!id>`, `@name`, an id) names, `{ id }` or a refusal. */
-function memberOf(reference, members) {
+/**
+ * The stored member a name or mention (`<@id>`, `<@!id>`, `@name`, an id) names, or a `@handle` of
+ * `handles` (the request's, handle -> member id: resolved exactly, before any name), `{ id }` or a refusal.
+ */
+function memberOf(reference, members, handles = null) {
   const given = String(reference ?? '').trim();
   const list = Array.isArray(members) ? members : [];
   const mention = /^<@!?(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
   if (mention) return list.some((member) => String(member?.id) === mention[1]) ? { id: mention[1] } : refused('unknown-member', 'id');
+  const byHandle = handles instanceof Map && given.startsWith('@') ? handles.get(given.slice(1)) : undefined;
+  if (byHandle) return { id: String(byHandle) };
   const name = folded(given.replace(/^@/, ''));
   if (!name) return refused('unknown-member', 'empty');
   const ids = new Set();
@@ -258,8 +265,10 @@ export function bodyTokens(body, names) {
  * (`bodyIgnored: true`) for the caller to log. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
  * A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
- * id) exactly before any name.
- * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null,
+ * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
+ * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
+ * separated), each resolved like a member option; the ids come out comma-separated.
+ * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null, memberHandles?: Map<string, string>|null,
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
@@ -335,7 +344,7 @@ export function resolveCall(call, view) {
         args[option] = /^(?:true|false)$/i.test(text) ? text.toLowerCase() === 'true' : raw;
         break;
       case 'user': {
-        const member = memberOf(text, view?.members);
+        const member = memberOf(text, view?.members, view?.memberHandles);
         if (member.ok === false) return member;
         args[option] = member.id;
         break;
@@ -354,6 +363,17 @@ export function resolveCall(call, view) {
         break;
       }
       default: {
+        // A list of people: each token a member reference, resolved as a member option is.
+        if (option === 'people' && PEOPLE_LIST_SKILLS.includes(name)) {
+          const ids = [];
+          for (const token of text.split(/[\s,]+/).filter(Boolean)) {
+            const member = memberOf(token, view?.members, view?.memberHandles);
+            if (member.ok === false) return member;
+            if (!ids.includes(member.id)) ids.push(member.id);
+          }
+          args[option] = ids.join(',');
+          break;
+        }
         // A file handle must name a file of one of her errands this conversation may see.
         if (FILE_OPTIONS.includes(option)) {
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;

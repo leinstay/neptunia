@@ -1,0 +1,56 @@
+{
+  "name": "attention",
+  "description": "Her attention: three channels, one of them listen-only. At the first review she sets an attention on #garden (perDay 2) and drops it at the review of day 4. Day 2 brings three bursts in #garden: the first two wake her (one coalesced wake per burst, its whole burst in the wake), the third waits on her per-day bound and runs after midnight. Day 3 brings a burst in #general (unattended: no wake) and one in the listen-only #announcements (no wake; the places page of the day-4 review lists it with its lines). The burst of day 4 comes after the drop and wakes nobody.",
+  "start": "2026-11-02",
+  "days": 6,
+  "timezone": "UTC",
+  "seed": 23,
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-garden", "name": "garden" },
+    { "id": "c-announcements", "name": "announcements", "writable": false }
+  ],
+  "people": {
+    "Ana": "u-301",
+    "Nikos": "u-302",
+    "Eleni": "u-303"
+  },
+  "history": {
+    "selfHours": [13],
+    "channel": "c-general"
+  },
+  "innerLife": {
+    "attention": { "settleSeconds": 90, "perDayDefault": 12, "placesInWake": 8 }
+  },
+  "stub": {
+    "review": [
+      [{ "skill": "intent.set", "args": { "purpose": "listen to the garden talk", "attend": "c-garden", "perday": 2, "key": "garden" } }],
+      [],
+      [],
+      [{ "skill": "intent.cancel", "args": { "id": "$key:garden" } }],
+      []
+    ],
+    "attend": [
+      [{ "skill": "message.create", "args": { "text": "I heard you talking about the tomatoes" } }],
+      []
+    ]
+  },
+  "events": [
+    { "kind": "flood", "at": "2 14:00", "channel": "c-garden", "count": 6, "every": "30s", "authors": ["Ana", "Nikos"], "text": "the tomatoes are ripe", "addressed": false },
+    { "kind": "flood", "at": "2 16:00", "channel": "c-garden", "count": 6, "every": "30s", "authors": ["Nikos", "Eleni"], "text": "who waters tomorrow", "addressed": false },
+    { "kind": "flood", "at": "2 19:00", "channel": "c-garden", "count": 6, "every": "30s", "authors": ["Ana", "Eleni"], "text": "slugs again", "addressed": false },
+    { "kind": "flood", "at": "3 15:00", "channel": "c-general", "count": 6, "every": "30s", "authors": ["Ana", "Nikos"], "text": "match tonight", "addressed": false },
+    { "kind": "flood", "at": "3 17:00", "channel": "c-announcements", "count": 6, "every": "30s", "authors": ["Eleni"], "text": "the fair is on saturday", "addressed": false },
+    { "kind": "flood", "at": "4 15:00", "channel": "c-garden", "count": 6, "every": "30s", "authors": ["Ana", "Nikos"], "text": "first cucumbers", "addressed": false }
+  ],
+  "expect": {
+    "turns": { "min": 8 },
+    "capped": ["attend-per-day"],
+    "journal": { "wake": 8 },
+    "attention": {
+      "turns": [{ "day": 2, "lines": 6 }, { "day": 2, "lines": 6 }, { "day": 3, "lines": 6 }],
+      "capped": 1,
+      "listenOnly": "c-announcements"
+    }
+  }
+}

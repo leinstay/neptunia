@@ -69,6 +69,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'errands',
   'intentions',
   'wake',
+  'places',
   'continuation',
   'stableFreeze',
 ]);

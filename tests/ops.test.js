@@ -39,6 +39,7 @@ const AGREED = new Set([
   'task.run', 'task.status', 'task.cancel', 'task.list',
   'web.search', 'web.read', 'media.look', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
+  'places.list',
   'inner.stop', 'inner.start', 'inner.status',
 ]);
 

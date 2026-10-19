@@ -32,6 +32,21 @@
 // is its own chain (`intention:<id>:<dueAt>`), so the per-chain cap bounds one occurrence. The
 // last occurrence before its expiry carries the note `last-occurrence` on its `<wake>` line.
 //
+// Her attention (docs/inner-life.md "Her attention"): an open intention of kind `attend`
+// (src/intentions/model.js) names a place; the tick counts the place's lines in the record since
+// her last look there -- her last own line in that place, or the last attend wake handled for
+// that place, whichever is later, and never before the attention was set -- and, once the newest
+// line is `settle` seconds old, lists one `attend` wake (`inner.wake:attend:<intentionId>:<newestLineId>`,
+// each wake its own chain). One queued wake per attention: a newer burst replaces the queued wake's
+// id and newest line, nothing observed lost (the turn's history is the place's lines). With
+// `people` on the attention only their lines count and the wake names them. Past the attention's
+// own `perDay` the wake waits in the queue (`capped: 'attend-per-day'`) like a wake past a cap of
+// the day. The record is read incrementally (a per-guild place index over the last
+// `innerLife.attention.lookbackHours`), the same store the review's hours come from; the same
+// index feeds `places` (her `places.list` skill and the page in `<wake>`): per place the
+// interface publishes (`places`, an injected directory of opaque addresses; nothing of the
+// interface's own objects is read here), its lines and people since her last look there.
+//
 // `innerLife.mode`: `shadow` (the default) runs the turn with nothing leaving it -- her reads run,
 // every other call is recorded as proposed -- and `live` lets her calls run through the gateway on
 // her own grants. The kill switch (`/nep task inner action:stop`) is persisted with the state,
@@ -49,10 +64,11 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { intentionsOn, nextOccurrence } from '../intentions/model.js';
+import { attendCounter, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
+import { foldText } from '../memory/recent.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
-export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline']);
+export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend']);
 
 /** The defaults of the `innerLife` section (config.json carries the same). */
 export const INNER_DEFAULTS = Object.freeze({
@@ -64,7 +80,15 @@ export const INNER_DEFAULTS = Object.freeze({
   errandReserveMaxMinutes: 60,
   review: Object.freeze({ enabled: true, historyDays: 14 }),
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
+  attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
 });
+
+/** The orders the places view knows (`places.list` `sort=`). */
+export const PLACE_SORTS = Object.freeze(['recent', 'name', 'lines']);
+/** The wake id prefix of an attend wake (its intention and newest line follow). */
+const ATTEND_PREFIX = 'inner.wake:attend:';
+/** How far behind the last scan the record is read again (a line appended late is still seen; ids de-duplicate). */
+const SCAN_LAG_MS = 5 * MINUTE_MS;
 
 /** The state file's schema version. */
 const VERSION = 1;
@@ -81,6 +105,8 @@ const TURN_IDS_MAX = 100;
 const REVIEW_CHANNELS_MAX = 3;
 /** The outcomes of runTurn that mean the turn never ran: the wake waits. */
 const HELD = new Set(['busy', 'paused']);
+/** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
+const TURN_OUTCOMES = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 /** The skills that post where people read (a public post counts against `publicPostsPerDay`). */
 export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'diary.post']);
 
@@ -100,6 +126,7 @@ export function innerSettings(config) {
   const raw = config?.innerLife ?? {};
   const caps = raw.caps ?? {};
   const review = raw.review ?? {};
+  const attention = raw.attention ?? {};
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -115,6 +142,13 @@ export function innerSettings(config) {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
       usdPerDay: count(caps.usdPerDay, d.caps.usdPerDay),
       publicPostsPerDay: Math.floor(count(caps.publicPostsPerDay, d.caps.publicPostsPerDay)),
+    },
+    attention: {
+      settleSeconds: count(attention.settleSeconds, d.attention.settleSeconds),
+      perDayDefault: Math.max(1, Math.floor(count(attention.perDayDefault, d.attention.perDayDefault))),
+      pageSize: Math.max(1, Math.floor(count(attention.pageSize, d.attention.pageSize))),
+      placesInWake: Math.floor(count(attention.placesInWake, d.attention.placesInWake)),
+      lookbackHours: Math.max(1, count(attention.lookbackHours, d.attention.lookbackHours)),
     },
   };
 }
@@ -214,6 +248,67 @@ export function deadlineWakes(records) {
   return list(records)
     .filter((record) => record?.status === 'pending' && record.note === 'wait-deadline' && record.lastTaskId)
     .map((record) => wakeOfDue({ intention: { ...record, awaitingTaskId: record.lastTaskId }, reason: 'wait-deadline', at: record.updatedAt ?? record.createdAt ?? 0 }));
+}
+
+/**
+ * The attend wake of attention `record` over `lines` (the place's lines since her last look there,
+ * `{ id, at, by, said }`: her own lines never count; with `attend.people` only theirs do) at `now`:
+ * null when no line counts or the newest is younger than `attend.settle` seconds (the place is
+ * still talking); else the wake named by the newest line, its own chain, due when the settle ends.
+ * @param {object} record  An intention of kind attend.
+ * @param {{ id: string, at: number, by: string|null, said?: boolean }[]} lines
+ * @param {{ now: number, since?: number }} options  `since`: her last look (for the wake's record).
+ */
+export function attendWake(record, lines, { now, since = null }) {
+  const attend = record?.attend;
+  if (!attend?.place) return null;
+  const people = Array.isArray(attend.people) ? attend.people : [];
+  const counted = list(lines).filter((line) => line && !line.said && Number.isFinite(line.at) && (people.length === 0 || (line.by && people.includes(String(line.by)))));
+  if (counted.length === 0) return null;
+  const newest = counted.reduce((best, line) => (line.at > best.at ? line : best));
+  const settleMs = (Number.isFinite(attend.settle) ? attend.settle : 0) * 1000;
+  if (now - newest.at < settleMs) return null;
+  return {
+    id: `${ATTEND_PREFIX}${record.id}:${newest.id}`,
+    kind: 'attend',
+    reason: 'lines',
+    intentionIds: [record.id],
+    chainId: `attend:${record.id}:${newest.id}`,
+    dueAt: newest.at + settleMs,
+    channelId: String(attend.place),
+    privateChat: false,
+    attend: {
+      place: String(attend.place),
+      lines: counted.length,
+      people: [...new Set(counted.map((line) => (line.by ? String(line.by) : null)).filter(Boolean))],
+      since: Number.isFinite(since) ? since : null,
+      newestAt: newest.at,
+      newestId: String(newest.id),
+    },
+  };
+}
+
+/**
+ * One page of the places view: `entries` (`{ id, name, writable, lines, people, newestAt, attended }`,
+ * one per place) filtered by name (`filter`, case and accents folded), sorted (`recent`: the newest
+ * line first, places without one last; `name`; `lines`: most first), cut to page `page` of
+ * `pageSize`. The total and how many more follow the page are always said. Pure.
+ * @returns {{ total: number, page: number, pageSize: number, more: number, items: object[] }}
+ */
+export function placesPage(entries, { filter = null, sort = 'recent', page = 1, pageSize = 12 } = {}) {
+  const needle = typeof filter === 'string' && filter.trim() ? foldText(filter) : null;
+  const kept = list(entries).filter((entry) => entry && (needle === null || foldText(String(entry.name ?? entry.id ?? '')).includes(needle)));
+  const byName = (a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id)) || String(a.id).localeCompare(String(b.id));
+  const sorted = [...kept].sort((a, b) => {
+    if (sort === 'name') return byName(a, b);
+    if (sort === 'lines') return (b.lines ?? 0) - (a.lines ?? 0) || byName(a, b);
+    return (b.newestAt ?? -Infinity) - (a.newestAt ?? -Infinity) || byName(a, b);
+  });
+  const size = Math.max(1, Math.floor(pageSize));
+  const number = Math.max(1, Math.floor(page));
+  const start = (number - 1) * size;
+  const items = sorted.slice(start, start + size);
+  return { total: sorted.length, page: number, pageSize: size, more: Math.max(0, sorted.length - start - items.length), items };
 }
 
 /** The day's review wake. */
@@ -403,7 +498,13 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {string} options.dataDir
  * @param {{ runTurn: Function, isAnyBusy?: Function, isBusy?: Function }} options.turns
  * @param {object|null} [options.intentions]  src/intentions/service.js
- * @param {{ iterate: Function }|null} [options.record]  Her own lines, for the review's hours.
+ * @param {{ iterate: Function }|null} [options.record]  The record: her own lines for the review's
+ *   hours, every place's lines for her attention.
+ * @param {((guildId: string) => { id: string, name?: string|null, writable?: boolean|null }[])|null} [options.places]
+ *   The places the interface publishes for the guild (opaque addresses, names, whether she can
+ *   write there), for `places`; without it the places are the ones the record shows.
+ * @param {((guildId: string, memberId: string) => string|null)|null} [options.nameOf]  A member's
+ *   name for the `<wake>` lines (null: the id is shown).
  * @param {{ inner?: Function }|null} [options.journal]
  * @param {{ channels?: { fetch: Function } }|null} [options.client]
  * @param {{ canSend?: Function }|null} [options.discord]
@@ -429,6 +530,8 @@ export function createInnerLife({
   turns,
   intentions = null,
   record = null,
+  places: placesOf = null,
+  nameOf = null,
   journal = null,
   client = null,
   discord = null,
@@ -446,6 +549,8 @@ export function createInnerLife({
   log = defaultLog,
 }) {
   const states = new Map();
+  // Per guild: the place index (the record's lines per place over the lookback window).
+  const placeIndexes = new Map();
   const costs = meter ?? createCostMeter();
   // Per guild: the estimate held while an inner turn runs.
   const reserved = new Map();
@@ -508,7 +613,7 @@ export function createInnerLife({
    * already closed or moved are left as they are by the service.
    */
   function markHandled(state, wakes, outcome, at, { guildId = null, named = null } = {}) {
-    for (const wake of wakes) state.handled[wake.id] = { at, outcome };
+    for (const wake of wakes) state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}) };
     const ids = new Set(wakes.map((wake) => wake.id));
     state.queue = state.queue.filter((wake) => !ids.has(wake.id));
     if (!guildId || typeof intentions?.advance !== 'function') return;
@@ -558,6 +663,7 @@ export function createInnerLife({
       intentionIds: wake.intentionIds ?? [],
       chainId: wake.chainId ?? null,
       ...(wake.taskId ? { taskId: wake.taskId } : {}),
+      ...(wake.attend ? { place: wake.attend.place, lines: wake.attend.lines, people: wake.attend.people.length } : {}),
     };
   }
 
@@ -578,6 +684,146 @@ export function createInnerLife({
       log.warn('inner: record read failed', { guildId, code: err?.code ?? null });
     }
     return lines;
+  }
+
+  function placeIndexOf(guildId) {
+    const key = String(guildId);
+    if (!placeIndexes.has(key)) placeIndexes.set(key, { scannedTo: null, places: new Map() });
+    return placeIndexes.get(key);
+  }
+
+  /**
+   * The place index brought up to `at`: the record's `seen` and `said` lines since the last scan
+   * (a little behind it; a line already indexed is skipped by its message id), each as
+   * `{ id, at, by, said }` under its place; lines older than the lookback window dropped. Never throws.
+   */
+  async function refreshPlaces(guildId, at, settings) {
+    const index = placeIndexOf(guildId);
+    const floor = at - settings.attention.lookbackHours * HOUR_MS;
+    const from = index.scannedTo === null ? floor : Math.max(floor, index.scannedTo - SCAN_LAG_MS);
+    if (typeof record?.iterate === 'function') {
+      try {
+        for await (const line of record.iterate(guildId, { from: new Date(from).toISOString() })) {
+          if (line?.kind !== 'seen' && line?.kind !== 'said') continue;
+          const place = line.scope?.channel;
+          if (typeof place !== 'string' || !place) continue;
+          const lineAt = Date.parse(line.occurredAt);
+          if (!Number.isFinite(lineAt) || lineAt < floor || lineAt > at) continue;
+          const id = String(line.messageId ?? line.id ?? '');
+          if (!id) continue;
+          if (!index.places.has(place)) index.places.set(place, { lines: [], ids: new Set() });
+          const bucket = index.places.get(place);
+          if (bucket.ids.has(id)) continue;
+          bucket.ids.add(id);
+          bucket.lines.push({ id, at: lineAt, by: line.kind === 'said' ? null : (typeof line.by === 'string' ? line.by : null), said: line.kind === 'said' });
+        }
+      } catch (err) {
+        log.warn('inner: record read failed', { guildId, code: err?.code ?? null });
+      }
+    }
+    index.scannedTo = at;
+    for (const [place, bucket] of index.places) {
+      if (bucket.lines.some((line) => line.at < floor)) {
+        bucket.lines = bucket.lines.filter((line) => line.at >= floor);
+        bucket.ids = new Set(bucket.lines.map((line) => line.id));
+      }
+      if (bucket.lines.length === 0) index.places.delete(place);
+    }
+    return index;
+  }
+
+  /**
+   * When she last looked at `place`: her last own line there (the index), or the last attend wake
+   * handled for that place, whichever is later; -Infinity when neither is known.
+   */
+  function lastLookAt(guildId, place) {
+    let last = -Infinity;
+    for (const line of placeIndexOf(guildId).places.get(String(place))?.lines ?? []) if (line.said && line.at > last) last = line.at;
+    for (const [id, entry] of Object.entries(stateOf(guildId).handled)) {
+      if (id.startsWith(ATTEND_PREFIX) && entry?.place === String(place) && Number.isFinite(entry.at) && entry.at > last) last = entry.at;
+    }
+    return last;
+  }
+
+  /** The indexed lines of `place` strictly after `since`. */
+  function linesSince(guildId, place, since) {
+    return (placeIndexOf(guildId).places.get(String(place))?.lines ?? []).filter((line) => line.at > since);
+  }
+
+  /** The guild's open attentions (the service's `attending`, else its list filtered). Never throws. */
+  function openAttentions(guildId) {
+    try {
+      if (typeof intentions?.attending === 'function') return intentions.attending(guildId) ?? [];
+      return (intentions?.list?.(guildId, { all: true }) ?? []).filter((record) => record?.status === 'pending' && isAttend(record));
+    } catch (err) {
+      log.warn('inner: attentions unreadable', { guildId, code: err?.code ?? null });
+      return [];
+    }
+  }
+
+  /** The attend wakes due now: one per open attention whose place has settled lines since her last look. */
+  function attendWakes(guildId, at) {
+    const out = [];
+    for (const record of openAttentions(guildId)) {
+      const place = String(record.attend.place);
+      const since = Math.max(lastLookAt(guildId, place), Number.isFinite(record.createdAt) ? record.createdAt : -Infinity);
+      const wake = attendWake(record, linesSince(guildId, place, since), { now: at, since: Number.isFinite(since) ? since : null });
+      if (wake) out.push(wake);
+    }
+    return out;
+  }
+
+  /** The name of place `id`: the directory's, else the interface's cache, else the id. */
+  function placeNameOf(guildId, id) {
+    const named = directoryOf(guildId).find((entry) => entry.id === String(id));
+    return named?.name ?? client?.channels?.cache?.get?.(String(id))?.name ?? String(id);
+  }
+
+  /** The places the interface publishes for the guild (`places`), else the places the record shows. */
+  function directoryOf(guildId) {
+    let listed = [];
+    if (typeof placesOf === 'function') {
+      try {
+        listed = list(placesOf(String(guildId))).filter((entry) => entry && (typeof entry.id === 'string' || typeof entry.id === 'number'));
+      } catch (err) {
+        log.warn('inner: places unreadable', { guildId, code: err?.code ?? null });
+        listed = [];
+      }
+      return listed.map((entry) => ({ id: String(entry.id), name: typeof entry.name === 'string' && entry.name ? entry.name : String(entry.id), writable: typeof entry.writable === 'boolean' ? entry.writable : null }));
+    }
+    return [...placeIndexOf(guildId).places.keys()].map((id) => ({ id, name: client?.channels?.cache?.get?.(id)?.name ?? id, writable: null }));
+  }
+
+  /**
+   * The places view (her `places.list`, the page in `<wake>`): every place of the directory (and
+   * every attended place), with the lines and distinct people since her last look there (the
+   * index: at most the lookback window), its newest line, whether she can write there (null when
+   * the interface did not say) and whether she attends it; filtered, sorted and paged (placesPage;
+   * `pageSize` defaults to `innerLife.attention.pageSize`). Never throws.
+   * @param {string} guildId
+   * @param {{ filter?: string|null, sort?: string, page?: number, pageSize?: number|null }} [options]
+   */
+  function places(guildId = getGuildId(), { filter = null, sort = 'recent', page = 1, pageSize = null } = {}) {
+    const settings = innerSettings(hot.config);
+    const size = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : settings.attention.pageSize;
+    if (!guildId) return placesPage([], { filter, sort, page, pageSize: size });
+    const attended = new Set(openAttentions(guildId).map((record) => String(record.attend.place)));
+    const directory = directoryOf(guildId);
+    const known = new Set(directory.map((entry) => entry.id));
+    const entries = [...directory, ...[...attended].filter((id) => !known.has(id)).map((id) => ({ id, name: placeNameOf(guildId, id), writable: null }))];
+    const rows = entries.map((entry) => {
+      const lines = linesSince(guildId, entry.id, lastLookAt(guildId, entry.id)).filter((line) => !line.said);
+      return {
+        id: entry.id,
+        name: entry.name,
+        writable: entry.writable,
+        lines: lines.length,
+        people: new Set(lines.map((line) => line.by).filter(Boolean)).size,
+        newestAt: lines.length > 0 ? Math.max(...lines.map((line) => line.at)) : null,
+        attended: attended.has(entry.id),
+      };
+    });
+    return placesPage(rows, { filter, sort: PLACE_SORTS.includes(sort) ? sort : 'recent', page, pageSize: size });
   }
 
   /** Today's review drawn (once per local day, persisted); the wake when its moment came. */
@@ -751,10 +997,23 @@ export function createInnerLife({
       }
       const review = await reviewDue(guildId, settings, at);
       if (review) listed.push(review);
+      if (intentions && intentionsOn(config)) {
+        await refreshPlaces(guildId, at, settings);
+        listed.push(...attendWakes(guildId, at));
+      }
       const state = stateOf(guildId);
       let submitted = 0;
       for (const wake of listed) {
         if (state.handled[wake.id] || state.queue.some((queued) => queued.id === wake.id)) continue;
+        // One queued wake per attention: a newer burst replaces the queued one (its history covers the gap).
+        if (wake.kind === 'attend') {
+          const older = state.queue.filter((queued) => queued.kind === 'attend' && queued.intentionIds?.[0] === wake.intentionIds[0] && !running.has(queued.id));
+          if (older.length > 0) {
+            state.queue = state.queue.filter((queued) => !older.includes(queued));
+            save(guildId);
+            for (const previous of older) note(guildId, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
+          }
+        }
         await enqueue(guildId, wake);
         submitted += 1;
       }
@@ -768,17 +1027,21 @@ export function createInnerLife({
     }
   }
 
-  /** The conversation an inner turn of `group` runs in, or null. */
+  /**
+   * The conversation an inner turn of `group` runs in, or null. An attend wake's place may be one
+   * she can only read: she listens there and posts, if at all, through a call elsewhere.
+   */
   async function conversationFor(guildId, group) {
     const anchor = group.find((wake) => wake.kind !== 'review') ?? null;
     const candidates = anchor ? [anchor.channelId] : (stateOf(guildId).review?.channels ?? []);
+    const readOnlyOk = anchor?.kind === 'attend';
     for (const channelId of candidates) {
       if (!channelId) continue;
       const channel = await Promise.resolve(client?.channels?.fetch?.(String(channelId))).catch(() => null);
       if (!channel) continue;
       // A private chat only while private chats are on (features.privateMessages, read now).
       if (!channel.guild && hot.config?.features?.privateMessages !== true) continue;
-      if (channel.guild && typeof discord?.canSend === 'function') {
+      if (channel.guild && !readOnlyOk && typeof discord?.canSend === 'function') {
         let writable = false;
         try {
           writable = discord.canSend(channel);
@@ -825,10 +1088,32 @@ export function createInnerLife({
       if (state.queue.length === 0) return { dropped: stale.length };
     }
 
-    const group = coalesceGroup(state.queue);
+    const timezone = timezoneOf();
+    // An attention past its own per-day bound: its wakes wait for the next local day, the rest go on.
+    const day = zonedDay(at, timezone);
+    const overDay = (wake) => {
+      if (wake.kind !== 'attend') return false;
+      const record = openOf(wake.intentionIds[0]);
+      return Boolean(record?.attend) && attendCounter(record, day).wakes >= record.attend.perDay;
+    };
+    const held = state.queue.filter(overDay);
+    let heldFresh = 0;
+    for (const wake of held) {
+      if (wake.capped === 'attend-per-day') continue;
+      wake.capped = 'attend-per-day';
+      heldFresh += 1;
+      note(guildId, { event: 'capped', cap: 'attend-per-day', wake: wakeFields(wake) });
+    }
+    if (heldFresh > 0) {
+      save(guildId);
+      log.info('inner: capped', { guildId, cap: 'attend-per-day', wakes: heldFresh });
+    }
+    const eligible = state.queue.filter((wake) => !held.includes(wake));
+    if (eligible.length === 0) return { refused: 'attend-per-day' };
+
+    const group = coalesceGroup(eligible);
     const anchor = group.find((wake) => wake.kind !== 'review') ?? group[0];
     const chainId = anchor.chainId;
-    const timezone = timezoneOf();
     const budgets = budgetsOf(state, settings, { now: at, timezone, reserved: reserved.get(String(guildId)) ?? 0 });
     const chain = chainBudget(state, chainId, settings.caps.perChain);
     const reserve = turnReserve(state, settings);
@@ -869,14 +1154,29 @@ export function createInnerLife({
     }
     const shadow = settings.mode !== 'live';
     const posts = () => budgetsOf(stateOf(guildId), innerSettings(hot.config), { now: now(), timezone: timezoneOf() }).posts;
+    // An attend wake's facts for `<wake>`: the place's name and the people's names (ids when unknown).
+    const attendOf = (wake) => {
+      if (!wake.attend) return {};
+      const name = (id) => {
+        try {
+          return (typeof nameOf === 'function' ? nameOf(String(guildId), id) : null) ?? id;
+        } catch {
+          return id;
+        }
+      };
+      return { attend: { ...wake.attend, placeName: placeNameOf(guildId, wake.attend.place), peopleNames: wake.attend.people.map(name) } };
+    };
+    const placesInWake = settings.attention.placesInWake;
     const info = {
       kind: anchor.kind,
-      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null })),
+      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake) })),
       intentions: records,
       ...(Object.keys(notes).length > 0 ? { notes } : {}),
       now: at,
       timezone,
       channels: group.some((wake) => wake.kind === 'review') ? channelNames(guildId) : [],
+      // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
+      ...(placesInWake > 0 ? { places: places(guildId, { sort: 'recent', page: 1, pageSize: placesInWake }) } : {}),
       budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
       chainId,
     };
@@ -944,7 +1244,11 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome });
+    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))] });
+    // Each attention woken for counts the wake on its day (its own per-day bound).
+    if (typeof intentions?.countAttendWake === 'function') {
+      for (const id of new Set(group.filter((wake) => wake.kind === 'attend').flatMap((wake) => wake.intentionIds))) intentions.countAttendWake(guildId, id);
+    }
     if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
     after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
@@ -1060,7 +1364,7 @@ export function createInnerLife({
    */
   function status(guildId = getGuildId()) {
     const settings = innerSettings(hot.config);
-    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null, chains: 0, spentUsd: 0, heldUsd: 0, intentions: null, next: null, lastTurn: null };
+    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, budgets: null, chains: 0, spentUsd: 0, heldUsd: 0, intentions: null, attention: null, next: null, lastTurn: null };
     const state = stateOf(guildId);
     const at = now();
     const timezone = timezoneOf();
@@ -1075,6 +1379,20 @@ export function createInnerLife({
     }
     const countOf = (name) => open.filter((record) => record.status === name).length;
     const last = state.turns.reduce((latest, turn) => (!latest || turn.at >= latest.at ? turn : latest), null);
+    // Her attention today: the attend wakes handled (run: a turn ran for it) and the queued ones.
+    const attention = { open: open.filter((record) => record.status === 'pending' && isAttend(record)).length, listed: 0, run: 0, spoken: 0, skipped: 0, waiting: 0 };
+    for (const [id, entry] of Object.entries(state.handled)) {
+      if (!id.startsWith(ATTEND_PREFIX) || !(entry?.at >= start)) continue;
+      attention.listed += 1;
+      if (TURN_OUTCOMES.has(entry.outcome)) attention.run += 1;
+      if (entry.outcome === 'spoke') attention.spoken += 1;
+      if (entry.outcome === 'skip') attention.skipped += 1;
+    }
+    for (const wake of state.queue) {
+      if (wake.kind !== 'attend') continue;
+      attention.listed += 1;
+      if (wake.capped) attention.waiting += 1;
+    }
     return {
       on: innerOn(hot.config),
       mode: settings.mode,
@@ -1087,6 +1405,7 @@ export function createInnerLife({
       spentUsd: Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) / 10000,
       heldUsd: Math.round(heldUsd(state, at) * 10000) / 10000,
       intentions: { pending: countOf('pending'), waiting: countOf('waiting'), proposed: countOf('proposed') },
+      attention,
       next: nextWakeOf(state, open, at),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
     };
@@ -1115,5 +1434,5 @@ export function createInnerLife({
     timer = null;
   }
 
-  return { tick, drain, onWake, onTaskFinished, mayAct, stop, start, status, startTimer, stopTimer, state: stateOf };
+  return { tick, drain, onWake, onTaskFinished, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf };
 }
