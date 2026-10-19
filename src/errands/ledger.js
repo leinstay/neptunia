@@ -101,13 +101,12 @@ export function transitionArgs(ledgerId, to, closeReason = null) {
 
 /**
  * The args of the triage of ledger task `ledgerId` (`task.transition` to `triaged`, the triage
- * fields set in the same call): the agent as the role, a `usd` limit the caller passes (the core sets none)
- * as `budget_usd`, `limits.steps` as `step_cap`, `limits.seconds` (else the client's default) in whole minutes as
- * `estimate_minutes`. A limit that is not a positive number is left out.
+ * fields set in the same call): the agent as the role, `limits.steps` as `step_cap`, `limits.seconds` (else the
+ * client's default) in whole minutes as `estimate_minutes`. No dollar budget: the engine has no dollar limits.
+ * A limit that is not a positive number is left out.
  */
 export function triageArgs(ledgerId, task, limits) {
   const set = { role: task.agent };
-  if (Number.isFinite(limits?.usd) && limits.usd > 0) set.budget_usd = limits.usd;
   if (Number.isFinite(limits?.steps) && limits.steps > 0) set.step_cap = Math.floor(limits.steps);
   const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
   set.estimate_minutes = Math.ceil(seconds / 60);
