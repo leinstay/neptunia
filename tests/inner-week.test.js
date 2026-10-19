@@ -457,6 +457,18 @@ test('inner-week: in a live run the fixture gate is informational and live-reaso
   assert.equal(gate(stub, 'live-reasons'), undefined);
 });
 
+test('inner-week: in a live run the attention gate is informational too (attention (stub expectations), info); in stub mode it judges', () => {
+  const at = Date.parse('2026-11-02T10:00:00Z');
+  const fx = { ...fixture(), expect: { ...fixture().expect, attention: { turns: [{ day: 1, lines: 3 }], capped: 0, listenOnly: null } } };
+  const live = computeGates(bareRun({ turns: [liveTurn(at, ['<skip/>'])] }), fx, effectsOf);
+  assert.equal(gate(live, 'attention'), undefined);
+  assert.deepEqual([gate(live, 'attention (stub expectations)').pass, gate(live, 'attention (stub expectations)').info], [true, true]);
+  assert.match(gate(live, 'attention (stub expectations)').detail, /attend turns \[\] != \[1:3\]/);
+  const stub = computeGates(bareRun({ turns: [turnAt(at)] }), fx, effectsOf);
+  assert.equal(gate(stub, 'attention (stub expectations)'), undefined);
+  assert.equal(gate(stub, 'attention').pass, false);
+});
+
 test('inner-week: the report of a live run shows her steps and the informational gate', async () => {
   const fx = readFixture('ordinary-talk', { dir: FIXTURES });
   const { run } = await week(fx);

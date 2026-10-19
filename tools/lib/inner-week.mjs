@@ -1262,6 +1262,7 @@ export function computeGates(run, fixture, effectsOf) {
     const seen = occurrences(run);
     for (const [code, n] of Object.entries(fixture.expect.occurrences)) if (seen[code] !== n) problems.push(`${code} ${seen[code]} != ${n}`);
   }
+  const live = run.turns.some((turn) => turn.voice === 'live');
   if (fixture.expect.attention) {
     // Her attention: no wake where she does not listen, one wake per burst with its lines, none after
     // the drop, the capped ones ran after the reset, the listen-only place on the page with its lines.
@@ -1283,10 +1284,12 @@ export function computeGates(run, fixture, effectsOf) {
       const listed = run.turns.some((turn) => (turn.places?.items ?? []).some((place) => place.id === expected.listenOnly && place.writable === false && place.lines > 0));
       if (!listed) issues.push(`the listen-only place ${expected.listenOnly} never on the page with lines`);
     }
-    gates.push({ name: 'attention', pass: issues.length === 0, detail: issues.length === 0 ? `${seen.turns.length} attend turn(s), ${seen.capped.length} waited on perDay` : issues.join('; ') });
+    const attentionDetail = issues.length === 0 ? `${seen.turns.length} attend turn(s), ${seen.capped.length} waited on perDay` : issues.join('; ');
+    // The expectations were written for the stub voice: in a live run she decides, so they are shown, never a verdict on her.
+    if (live) gates.push({ name: 'attention (stub expectations)', pass: true, info: true, detail: attentionDetail });
+    else gates.push({ name: 'attention', pass: issues.length === 0, detail: attentionDetail });
   }
   const detail = problems.length === 0 ? 'exercised as expected' : problems.join('; ');
-  const live = run.turns.some((turn) => turn.voice === 'live');
   if (live) {
     // The expectations were written for the stub voice: shown, never a verdict on her.
     gates.push({ name: 'fixture (stub expectations)', pass: true, info: true, detail });
