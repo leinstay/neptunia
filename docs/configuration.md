@@ -258,6 +258,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `reactions.fetchTimeoutMs` | `2000` | How long a turn waits for those fetches before going on with counts; what is still running finishes in the background and shows on a later turn |
 | `replyQuoteChars` | `80` | Code points of the parent message's text shown in a reply tag. The quote is cut at a word boundary. `0` shows the whole text |
 | `otherProfiles` | `6` | Max other profiles shown |
+| `failedTurnsKept` | `3` | When an addressed turn ends `error` with nothing posted, the engine keeps a record of it per channel: the message id, the author, the time and the error code. At most this many per channel, within 24 hours. Her next request in that channel carries one `labels.task.failedEarlier` line per kept failure, after the task text. The entries clear once shown. In process memory only: a restart forgets them |
 | `askedAboutProfiles` | `3` | Members named in recent messages whose profiles are shown in full, ahead of the other participants |
 | `askedAboutEpisodes` | `3` | Episodes shown per member who is asked about. `0` hides episodes for asked-about members. In a private chat, shown when `features.privateLikeServer` is on (the default); hidden otherwise |
 | `attitudes` | `6` | Members shown in the `<attitudes>` block, ranked by attitude score strength, warm and cool mixed. `0` turns the block off |
@@ -1070,6 +1071,8 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `loop.timeBudgetMs` | `180000` | How long the calls and follow-ups of one inner turn may run, counted from its first call. Once it is spent, the next request is her last |
 | `loop.maxCallsPerStep` | `4` | The most calls of one answer of an inner turn that run; the rest are dropped and logged `skills: extra-call` with `loop: true` |
 | `loop.callTimeoutMs` | `60000` | The most one call of an inner turn may run: this, or what is left of `loop.timeBudgetMs` (2 seconds at least), whichever is smaller. A call that runs out of it is reported as `unknown` and never retried, as on every turn (`skills.callTimeoutMs` is not read for an inner turn's loop) |
+| `retry.delaysMinutes` | `[1, 5, 15, 60]` | When an inner turn fails with `provider-limit`, `provider-error` or `timeout`, its wakes go back to the queue after the next delay in this list (minutes). The first failure uses the first value, the second failure the second, and so on; the last value repeats. See [Inner life: when a provider call fails](inner-life.md#when-a-provider-call-fails) |
+| `retry.maxHours` | `6` | Retries continue as long as the first failure of that group is younger than this many hours. Past the window the wakes are dropped with code `provider` and told to her as a `wakeDropped` fact |
 | `memory.enabled` | `true` | What an inner turn's reads found, with her thinking, goes to the memory analyzer as lines of hers ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)); shadow turns too. `false`: no episode is buffered |
 
 `loop.strayFollowUps` is retired. If set, a startup warning names it; the key is ignored. Output tags are lowered into calls now, so the stray follow-up step no longer exists.

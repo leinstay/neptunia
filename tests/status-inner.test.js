@@ -26,6 +26,7 @@ const LABELS = {
   nextKinds: { queue: 'queued', intention: 'intention', review: 'review' },
   lastLine: 'last {outcome} at {at}',
   lastNone: 'last: none',
+  lastErrorLine: 'error {code} at {at}',
   outcomeUnknown: '?',
   intentionsLine: 'open {pending}/{waiting}/{proposed}',
   attentionLine: 'attention {open} open, wakes {listed}/{run}/{spoken}/{skipped}/{waiting}',
@@ -111,4 +112,10 @@ test('status inner: a stopped inner life, no wake known, no turn yet', () => {
   assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3/24, chains 2', 'usd 0.60 + 0.30 / 4', 'posts 1/2', 'next: none', 'last: none']);
   assert.equal(innerLines({ ...STATUS, lastTurn: { at: AT, outcome: null } }, { status: { inner: LABELS } })[5], 'last ? at 2026-10-19 12:30 UTC');
   assert.deepEqual(innerLines(STATUS, {}), [], 'no labels, no lines');
+});
+
+test('innerLines: the last failed turn shows its code and moment after the last-turn line; none without one', () => {
+  const lines = innerLines({ ...STATUS, lastError: { at: AT, code: 'provider-limit' } }, { status: { inner: LABELS } });
+  assert.equal(lines[6], 'error provider-limit at 2026-10-19 12:30 UTC');
+  assert.equal(innerLines({ ...STATUS, lastError: null }, { status: { inner: LABELS } }).some((line) => line.startsWith('error ')), false);
 });

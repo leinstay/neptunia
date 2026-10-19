@@ -1,0 +1,149 @@
+// Tests for the failed addressed turns told at her next request in the channel
+// (src/behavior/turn.js, src/behavior/prompt.js#renderTasks): an addressed reply turn that ended
+// `error` with nothing posted is kept per channel (at most context.failedTurnsKept, 24 hours); the
+// next request there ends its task with one labels.task.failedEarlier line per entry, then the
+// entries are gone. Fake client, fake llm, injected clock; no network.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createTurnRunner } from '../src/behavior/turn.js';
+import { userText } from '../src/behavior/prompt.js';
+import { createFakeAdapter } from '../src/interface/fake.js';
+import { labels } from './fixtures/labels.js';
+import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+const DISCORD = createDiscordInterface().capabilities;
+const NOW = Date.parse('2026-10-19T12:00:00Z');
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const clock = { t: NOW };
+
+function rawMessage({ id, authorId = 'u1', authorName = 'Zoë', ts = NOW - 10 * MINUTE, content = 'καλημέρα' }) {
+  return { id, channelId: '77', author: { id: authorId, bot: false, globalName: authorName, username: authorName }, member: { displayName: authorName }, cleanContent: content, createdTimestamp: ts, reference: null, attachments: new Map(), stickers: new Map() };
+}
+
+function triggerOf(raw) {
+  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
+}
+
+function fakeChannel(historyMessages) {
+  const guild = { id: '55', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
+  return {
+    id: '77',
+    name: 'general',
+    guild,
+    sendTyping: async () => {},
+    send: async () => ({ id: 'sent' }),
+    messages: {
+      cache: new Map(),
+      fetch: async (arg) => (arg && typeof arg === 'object' && 'limit' in arg ? new Map(historyMessages.map((m) => [m.id, m])) : (historyMessages.find((m) => m.id === arg) ?? null)),
+    },
+  };
+}
+
+const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {}, markDirty() {} } };
+
+function hotWith(context = {}) {
+  return {
+    config: {
+      bot: { timezone: 'UTC', dryRunChannelId: '' },
+      context: { channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6, failedTurnsKept: 3, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 }, vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 }, ...context },
+      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
+      features: { typingSimulation: false },
+      media: { maxPerTurn: 6, filePreviewChars: 500 },
+      mention: { oneAtATime: true },
+    },
+    prompts: { 'system-prompt': 'You are a regular member of this chat.', 'character-card': 'You are friendly and terse.', format: 'Use <msg> tags.', reply: 'Someone called you: {{author}}.', interject: 'Jump in.', initiate: 'Start a topic.', labels },
+  };
+}
+
+/** A runner whose llm throws while `fail.on` and answers a skip otherwise. */
+function setup({ history, context } = {}) {
+  const channel = fakeChannel(history);
+  const fail = { on: true, error: Object.assign(new Error('OpenRouter HTTP 429'), { statusCode: 429, body: '{}' }) };
+  const calls = [];
+  const llm = {
+    complete: async (messages) => {
+      calls.push(messages);
+      if (fail.on) throw fail.error;
+      return { text: '<skip/>', usage: {}, estimated: 10 };
+    },
+  };
+  const turns = createTurnRunner({ discord: DISCORD, hot: hotWith(context), store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), now: () => clock.t });
+  const run = (raw, triggerKind = 'mention') => withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: triggerOf(raw), triggerKind }));
+  const taskOf = (call = calls.length - 1) => userText(calls[call][1].content).split('\n').filter((line) => line.startsWith('unanswered:'));
+  return { run, fail, calls, taskOf };
+}
+
+test.beforeEach(() => {
+  clock.t = NOW;
+});
+
+test('a failed addressed turn carries its code and is told at the next request there, once: the number, the person, the age', async () => {
+  const first = rawMessage({ id: '101' });
+  const second = rawMessage({ id: '102', authorId: 'u2', authorName: 'Αλέξης', ts: NOW + 4 * MINUTE });
+  const { run, fail, taskOf, calls } = setup({ history: [first, second] });
+  const failed = await run(first);
+  assert.equal(failed.result.outcome, 'error');
+  assert.equal(failed.result.reason, 'provider-limit');
+  fail.on = false;
+  clock.t = NOW + 5 * MINUTE;
+  const next = await run(second);
+  assert.equal(next.result.outcome, 'skip');
+  assert.deepEqual(taskOf(1), ['unanswered: Zoë #1 5 min ago (provider-limit)']);
+  await run(second);
+  assert.deepEqual(taskOf(2), [], 'cleared once shown and answered');
+  assert.equal(calls.length, 3);
+});
+
+test('a failed message outside the transcript is named by its link; an overheard turn is not kept', async () => {
+  const first = rawMessage({ id: '101' });
+  const second = rawMessage({ id: '102', ts: NOW + MINUTE });
+  const { run, fail, taskOf } = setup({ history: [second] });
+  await run(first);
+  await run(rawMessage({ id: '103' }), 'overheard');
+  fail.on = false;
+  await run(second);
+  const lines = taskOf(2);
+  assert.equal(lines.length, 1, 'only the addressed failure');
+  assert.match(lines[0], /^unanswered: Zoë https:\/\/discord\.com\/channels\/55\/77\/101 /);
+});
+
+test('at most context.failedTurnsKept entries per channel, the newest; none older than 24 hours', async () => {
+  const messages = ['101', '102', '103', '104'].map((id, i) => rawMessage({ id, ts: NOW - (10 - i) * MINUTE }));
+  const { run, fail, taskOf } = setup({ history: messages });
+  for (const raw of messages) {
+    clock.t += MINUTE;
+    await run(raw);
+  }
+  fail.on = false;
+  clock.t += MINUTE;
+  await run(rawMessage({ id: '105' }));
+  assert.deepEqual(taskOf(4).map((line) => line.split(' ')[2]), ['#2', '#3', '#4']);
+
+  const aged = setup({ history: messages });
+  await aged.run(messages[0]);
+  aged.fail.on = false;
+  clock.t = NOW + 25 * HOUR;
+  await aged.run(rawMessage({ id: '106' }));
+  assert.deepEqual(aged.taskOf(1), [], 'past 24 hours it is forgotten');
+});
+
+test('the entries stay when the request that showed them fails too; a retry of the same message is not told about itself', async () => {
+  const first = rawMessage({ id: '101' });
+  const second = rawMessage({ id: '102', ts: NOW + MINUTE });
+  const { run, fail, taskOf, calls } = setup({ history: [first, second] });
+  await run(first);
+  clock.t = NOW + 2 * MINUTE;
+  await run(second);
+  assert.equal(taskOf(1).length, 1);
+  fail.on = false;
+  clock.t = NOW + 3 * MINUTE;
+  await run(second);
+  assert.equal(taskOf(2).length, 1, 'the first failure is told; the message being answered is not');
+  clock.t = NOW + 4 * MINUTE;
+  await run(rawMessage({ id: '103', ts: NOW + 3 * MINUTE }));
+  assert.equal(calls.length, 4);
+  assert.deepEqual(taskOf(3), [], 'the retry that spoke or skipped cleared them');
+});

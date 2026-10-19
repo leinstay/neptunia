@@ -101,6 +101,8 @@ export function placesBlockText(page, labels) {
  * without its two labels or an item), `now`, `timezone`, `channels`, `places`, `budgets`), ''
  * when `labels.wake.header` is missing. An `attend` item fills `{place}` (its name), `{lines}`,
  * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
+ * An item with `delayed` (`{ minutes, code }`: a wake retried after a failed turn) is followed by one
+ * `labels.wake.delayed` (`{minutes}` since it was due, `{code}`); without the label no line.
  * A `feedback` item (`facts`) is followed by one `labels.wake.feedbackItem` (`{fact}`:
  * feedbackFactText's) per fact; facts without a label are left out.
  * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
@@ -141,6 +143,8 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
       const note = code && typeof labels?.intentions?.notes?.[code] === 'string' ? fill(labels.intentions.notes[code], { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
     }
+    // A wake that ran late because its first turn failed: how long since it was due, and the failure's code.
+    if (item.delayed && typeof l.delayed === 'string' && l.delayed) lines.push(fill(l.delayed, { minutes: String(item.delayed.minutes ?? 0), code: String(item.delayed.code ?? '') }));
     if (item.kind === 'feedback' && typeof l.feedbackItem === 'string' && l.feedbackItem) {
       for (const fact of Array.isArray(item.facts) ? item.facts : []) {
         const text = feedbackFactText(fact, l);

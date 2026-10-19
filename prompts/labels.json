@@ -354,6 +354,7 @@
       "nextKinds": { "queue": "queued", "intention": "intention", "review": "daily review" },
       "lastLine": "last turn {outcome} · {at}",
       "lastNone": "last turn: none yet",
+      "lastErrorLine": "last error {code} · {at}",
       "outcomeUnknown": "unknown",
       "intentionsLine": "intentions · {pending} pending · {waiting} waiting · {proposed} proposed",
       "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
@@ -455,6 +456,7 @@
     "part": "This message has {total} parts; you are answering part {index}: {part}. The rest ({others}) get their own turns, so do not answer them or say you will get to them. Answer this part, or let it pass.",
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
+    "failedEarlier": "You never answered {author} {n} ({ago} ago). Your turn failed: {code}.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
@@ -517,6 +519,7 @@
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
       "feedback": "Your previous turn: not everything went through."
     },
+    "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
     "feedbackItem": "- {fact}",
     "feedback": {
       "callFailed": "Your {skill} call ended {status} ({code})",
