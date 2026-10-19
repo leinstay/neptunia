@@ -16,6 +16,8 @@
 // (`attend`, model.js) is set and changed through the same calls (`attend`, `people`, `settle`,
 // `perDay`; a due time or a recurrence on it is refused) and carries the day's wake counter the
 // scheduler bumps (`countAttendWake`) and reads (`attendToday`, the local day of `bot.timezone`).
+// An expired one is told to her once, in her next review's `<wake>`: the scheduler lists the
+// expired records not yet marked and marks them (`markExpiredShown`) once that review turn ran.
 // Settings are read at the moment of use (`intentions.*`, `innerLife.attention.*`,
 // `features.intentions`); logs carry ids and codes, never text.
 
@@ -39,6 +41,7 @@ import {
   duplicates,
   expireAt,
   intentionSettings,
+  markExpiredShown as markShown,
   intentionsOn,
   isOpen,
   newIntentionId,
@@ -442,6 +445,19 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: 'recurred', dueAt: result.intention.dueAt });
   }
 
+  /**
+   * Expired intention `id` marked as shown to her (`expiredShownAt`, src/intentions/model.js#markExpiredShown):
+   * the scheduler calls it once the review turn that listed it ran. An unexpired, unknown or already
+   * marked record changes nothing. `{ ok, intention, changed }` or `{ ok: false, code }`.
+   */
+  function markExpiredShown(guildId, id) {
+    const store = storeOf(guildId);
+    if (!store) return { ok: false, code: 'no-guild' };
+    const result = store.update(id, (current) => markShown(current, now()));
+    if (result.ok && result.changed) log.info('intentions: expired shown', { guildId: store.guildId, id: String(id) });
+    return result;
+  }
+
   /** The guild's open attentions (`pending` records with an `attend` place), the expired swept first. */
   function attending(guildId) {
     return list(guildId, { all: true }).filter((record) => record.status === 'pending' && isAttend(record));
@@ -576,5 +592,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
 }

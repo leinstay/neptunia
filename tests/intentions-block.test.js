@@ -78,6 +78,34 @@ test('intentionsBlockText: an external candidate carries labels.intentions.exter
   assert.equal(intentionsBlockText([external], bare), 'H\nC\ni2|άνοιξε|"άνοιξε τη σελίδα"');
 });
 
+test('intentionsBlockText: an intention with no due time and no wait says so with its expiry; every line past the notice window shows its expiry; neither without its label', () => {
+  const DAY = 24 * HOUR;
+  const labels = { intentions: { ...LABELS.intentions, noDue: 'no date, expires {expires}', expiresSoon: 'expires {when}' } };
+  const dateless = own('i1');
+  const dated = own('i2', { dueAt: T0 + HOUR });
+  // Dateless: the no-date part in the due slot, with its expiry (14 days by default: far from the notice window).
+  assert.equal(intentionsBlockText([dateless, dated], labels, { now: T0 }), ['H', `i1|P|σκοπός i1 · no date, expires ${at(T0 + 14 * DAY)}`, `i2|P|σκοπός i2 · due ${at(T0 + HOUR)}`].join('\n'));
+  // Inside the notice window (2 days by default) a dated line, a waiting one and a recurring one show their expiry at the end.
+  const soon = own('i3', { dueAt: T0 + HOUR, expiresAt: T0 + DAY, destination: 'c9' });
+  const waiting = waitOn(own('i4', { expiresAt: T0 + 36 * HOUR }), { taskId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
+  const daily = own('i5', { dueAt: T0 + 2 * HOUR, every: { period: 'day', at: '12:00' }, expiresAt: T0 + 2 * DAY });
+  assert.equal(intentionsBlockText([soon, daily, waiting], labels, { now: T0, channelNameOf: () => 'γενικά' }), [
+    'H',
+    `i3|P|σκοπός i3 · due ${at(T0 + HOUR)} · to #γενικά · expires ${at(T0 + DAY)}`,
+    `i5|P|σκοπός i5 · due ${at(T0 + 2 * HOUR)} · each day · expires ${at(T0 + 2 * DAY)}`,
+    `i4|W|σκοπός i4 · wait t7 until ${at(T0 + 2 * HOUR)} · expires ${at(T0 + 36 * HOUR)}`,
+  ].join('\n'));
+  // The window is the setting: with one day only the 36-hour one is outside it; a dateless line inside it carries its expiry once.
+  const near = own('i6', { expiresAt: T0 + 12 * HOUR });
+  assert.equal(intentionsBlockText([waiting, near], labels, { now: T0, expiryNoticeDays: 1 }), ['H', `i4|W|σκοπός i4 · wait t7 until ${at(T0 + 2 * HOUR)}`, `i6|P|σκοπός i6 · no date, expires ${at(T0 + 12 * HOUR)}`].join('\n'));
+  // An attention has no due time by design and is not dateless; a candidate's line is never touched.
+  const attention = own('i7', { attend: { place: 'c9' } });
+  const candidate = createIntention({ purpose: 'x', provenance: { kind: 'candidate', span: 'y' }, now: T0, id: 'i8' }).intention;
+  assert.equal(intentionsBlockText([attention, candidate], labels, { now: T0 }), ['H', 'i7|P|σκοπός i7', 'C', 'i8|x|"y"'].join('\n'));
+  // Without the labels the lines stand as before.
+  assert.equal(intentionsBlockText([dateless, soon], LABELS, { now: T0 }), ['H', 'i1|P|σκοπός i1', `i3|P|σκοπός i3 · due ${at(T0 + HOUR)} · to #c9`].join('\n'));
+});
+
 test('intentionsBlockText: cut to the budget by whole lines, the candidates header only with a candidate under it; nothing without labels', () => {
   const records = [own('i1'), own('i2'), createIntention({ purpose: 'x', provenance: { kind: 'candidate', span: 'y' }, now: T0, id: 'i3' }).intention];
   const lineCost = () => 10;

@@ -58,7 +58,7 @@ const MOVES = Object.freeze({
 });
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 });
+export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2 });
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
 export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people one attention names. */
@@ -86,7 +86,7 @@ const MIN_FORGET_NAME = 3;
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
-  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours') };
+  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays') };
 }
 
 /**
@@ -570,6 +570,39 @@ export function arrive(record, task, { now }) {
 export function expireAt(record, now) {
   if (!isOpen(record?.status) || !(now >= record.expiresAt)) return { ok: true, intention: record, changed: false };
   return transition(record, 'expired', { now, by: 'engine', code: 'expired' });
+}
+
+/** When `record` expired: its last history entry's `at` (the expiry's), else `updatedAt`. */
+export function expiredAtOf(record) {
+  const last = Array.isArray(record?.history) ? record.history.at(-1) : null;
+  return Number.isFinite(last?.at) ? last.at : record?.updatedAt ?? 0;
+}
+
+/**
+ * The expired intentions of hers she has not been told about yet, for the `<wake>` of her next
+ * review (docs/inner-life.md): `expired` records without `expiredShownAt`, a candidate
+ * (provenance `candidate`: never hers) left out, the newest expiry first, at most `max` as
+ * `items` (`{ id, purpose, at }`, `at` the expiry's moment, expiredAtOf) and the rest counted
+ * in `more`. Pure.
+ * @param {object[]} records
+ * @param {{ max?: number }} [options]
+ * @returns {{ items: { id: string, purpose: string, at: number }[], more: number }}
+ */
+export function expiredToShow(records, { max = 5 } = {}) {
+  const list = (Array.isArray(records) ? records : [])
+    .filter((record) => record?.status === 'expired' && !Number.isFinite(record.expiredShownAt) && record.provenance?.kind !== 'candidate')
+    .sort((a, b) => expiredAtOf(b) - expiredAtOf(a));
+  const cap = Math.max(0, Math.floor(max));
+  return { items: list.slice(0, cap).map((record) => ({ id: record.id, purpose: record.purpose, at: expiredAtOf(record) })), more: Math.max(0, list.length - cap) };
+}
+
+/**
+ * `record` marked as shown to her after its expiry (`expiredShownAt: now`), a store `update`
+ * move: an expired record not yet marked changes; any other answers unchanged.
+ */
+export function markExpiredShown(record, now) {
+  if (record?.status !== 'expired' || Number.isFinite(record.expiredShownAt)) return { ok: true, intention: record, changed: false };
+  return { ok: true, intention: { ...record, expiredShownAt: now }, changed: true };
 }
 
 /**

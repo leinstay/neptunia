@@ -54,7 +54,10 @@ Who may accept a candidate (`intent.update` with `state:pending`):
 
 `proposed` -> `pending` | `cancelled` | `expired`; `pending` -> `waiting` | `done` | `cancelled` | `expired`;
 `waiting` -> `pending` | `done` | `cancelled` | `expired`. `done`, `cancelled` and `expired` are final. Every intention
-has an expiry (`intentions.expiresDays` by default; an accepted candidate from its acceptance). An attention is
+has an expiry (`intentions.expiresDays` by default; an accepted candidate from its acceptance). An intention with no due
+time and no wait never wakes her. It only expires, and its `<intentions>` line says so, with the expiry. One of hers that
+expires untouched is told to her once, in the `<wake>` of her next [daily review](inner-life.md#what-wakes-her); the
+record keeps `expiredShownAt` once that review turn ran. A candidate that expired is not told. An attention is
 `pending` while it is open and keeps its day counter on the record (`attend.today`: the local day and the attend
 wakes of that day), which starts again each day. At most
 `intentions.maxOpen` of hers are open at once, and `intentions.maxCandidates` candidates.
@@ -89,8 +92,9 @@ holds the copy).
 ## What she sees
 
 `<intentions>` in the tail of every turn but a diary post: her open intentions (pending, then waiting, with due
-times, the awaited errand, an outcome or how a wait ended; an attention with its place, the day's wakes against her
-bound, the settle and the people), then the candidates with the words of her line they came
+times (or, with no due time and no wait, the fact and the expiry), the awaited errand, an outcome or how a wait
+ended; an attention with its place, the day's wakes against her bound, the settle and the people; a line whose
+expiry is within `intentions.expiryNoticeDays` ends with it), then the candidates with the words of her line they came
 from (an `external` one marked with `labels.intentions.externalMarker`, so she knows it waits for an ordinary turn of
 hers), cut to `context.caps.intentions` tokens. See the [prompt contract](prompt-contract.md) and
 [configuration](configuration.md#intentions).

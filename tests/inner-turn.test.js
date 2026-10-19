@@ -24,7 +24,7 @@ import { createAdmin } from '../src/admin.js';
 import { placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
-import { fill } from '../src/format.js';
+import { fill, formatClock, formatDate } from '../src/format.js';
 import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createTaskStores } from '../src/errands/store.js';
@@ -325,6 +325,21 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
   assert.equal(wakeBlockText({ ...WAKE, places }, { ...labels, wake: { ...labels.wake, places: undefined } }).includes('#κήπος'), false, 'no page without its lead label');
   assert.equal(placesBlockText(places, labels), ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2'].join('\n'));
   assert.equal(placesBlockText(null, labels), '');
+});
+
+test('wakeBlockText: a review\'s expired intentions follow the wake lines -- the lead, one line each with its moment, the rest counted; none without the labels or items', () => {
+  const l = { ...labels, wake: { ...labels.wake, expired: 'gone:', expiredItem: '- {id} {purpose} at {when}', expiredMore: '+{more} gone' } };
+  const at = NOW - 3_600_000;
+  const expired = { items: [{ id: 'i9', purpose: 'κάτι  που\nξέχασα', at }, { id: 'i8', purpose: 'άλλο', at: at - 60_000 }], more: 2 };
+  const review = { ...WAKE, kind: 'review', items: [{ kind: 'review', reason: 'review', intentionIds: [], taskId: null }], channels: ['γενικά'], expired };
+  const lines = wakeBlockText(review, l).split('\n');
+  assert.deepEqual(lines.slice(1, 6), ['review', 'gone:', `- i9 κάτι που ξέχασα at ${formatDate(at, 'UTC')} ${formatClock(at, 'UTC')}`, `- i8 άλλο at ${formatDate(at - 60_000, 'UTC')} ${formatClock(at - 60_000, 'UTC')}`, '+2 gone']);
+  assert.ok(lines[6].startsWith('now: '), 'the moment follows the expired list');
+  assert.equal(wakeBlockText({ ...review, expired: { ...expired, more: 0 } }, l).includes('gone'), true);
+  assert.equal(wakeBlockText({ ...review, expired: { ...expired, more: 0 } }, l).includes('+'), false, 'no "more" line when nothing follows');
+  assert.equal(wakeBlockText({ ...review, expired: { items: [], more: 0 } }, l).includes('gone:'), false, 'no lead without an item');
+  assert.equal(wakeBlockText(review, labels).includes('i9'), false, 'nothing without the labels');
+  assert.equal(wakeBlockText(review, { ...labels, wake: { ...labels.wake, expired: 'gone:' } }).includes('gone:'), false, 'the lead needs the item label too');
 });
 
 test('wakeLanes: the purposes of the intentions as one wake lane; none for a review alone', () => {

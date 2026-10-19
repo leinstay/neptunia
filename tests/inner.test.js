@@ -28,6 +28,7 @@ import {
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
+import { createIntention } from '../src/intentions/model.js';
 import { localHour } from '../src/format.js';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -768,6 +769,64 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await settle();
   assert.equal(service.store(GUILD).get(last.id).status, 'expired');
   assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
+});
+
+test('inner: a review tells her once which intentions of hers expired untouched -- the newest first, capped with the rest counted, never a candidate; a held review lists them again; the rest come next time', async () => {
+  const dataDir = tempDir('nep-inner-');
+  const hot = hotWith({ innerLife: { review: { enabled: true, historyDays: 14, expiredMax: 2 } } });
+  const service = realIntentions(hot, dataDir);
+  let held = true;
+  const turns = fakeTurns({ answer: () => (held ? { outcome: 'busy' } : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], stray: null, turnId: 't-rv' } }) });
+  const lines = [];
+  for (let d = 1; d <= 5; d += 1) lines.push({ kind: 'said', occurredAt: new Date(Date.parse('2026-10-19T15:20:00Z') - d * DAY_MS).toISOString(), scope: { channel: 'c1' } });
+  const record = { async *iterate() { for (const line of lines) yield line; } };
+  const run = setup({ service, hot, turns, dataDir, record });
+  // Three of hers with no due time, set a day ago, expiring one after another; one alive; a candidate that expires too.
+  clock.t = NOW - DAY_MS;
+  const a = service.set(GUILD, { purpose: 'first', expiresAt: NOW - 3 * HOUR_MS, channelId: 'c1', scope: 'group' }).intention;
+  const b = service.set(GUILD, { purpose: 'second', expiresAt: NOW - 2 * HOUR_MS, channelId: 'c1', scope: 'group' }).intention;
+  const c = service.set(GUILD, { purpose: 'third', expiresAt: NOW - HOUR_MS, channelId: 'c1', scope: 'group' }).intention;
+  service.set(GUILD, { purpose: 'alive', channelId: 'c1', scope: 'group' });
+  const candidate = createIntention({ purpose: 'never hers', provenance: { kind: 'candidate', span: 'x' }, expiresAt: NOW - 30 * MINUTE_MS, now: clock.t, id: 'i0cand000' }).intention;
+  assert.equal(service.store(GUILD).add(candidate).ok, true);
+  for (const t of [NOW - 3 * HOUR_MS, NOW - 2 * HOUR_MS, NOW - HOUR_MS, NOW]) {
+    clock.t = t;
+    service.list(GUILD);
+  }
+  assert.deepEqual(service.list(GUILD, { closed: true }).filter((r) => r.status === 'expired').map((r) => r.id).sort(), [a.id, b.id, c.id, candidate.id].sort());
+  // The review drawn at noon, run at its moment: held by the runner, it lists them and marks nothing.
+  await run.inner.tick();
+  const review = run.inner.status(GUILD).review;
+  clock.t = review.at + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  const expected = { items: [{ id: c.id, purpose: 'third', at: NOW - HOUR_MS }, { id: b.id, purpose: 'second', at: NOW - 2 * HOUR_MS }], more: 1 };
+  assert.deepEqual(run.turns.calls[0].inner.wake.expired, expected);
+  assert.equal(service.store(GUILD).get(c.id).expiredShownAt, undefined, 'a held review shows nothing');
+  // Free: the same list, then the listed ones are marked at the turn's end; the one past the cap is not.
+  held = false;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 2);
+  assert.deepEqual(run.turns.calls[1].inner.wake.expired, expected);
+  assert.equal(service.store(GUILD).get(c.id).expiredShownAt, clock.t);
+  assert.equal(service.store(GUILD).get(b.id).expiredShownAt, clock.t);
+  assert.equal(service.store(GUILD).get(a.id).expiredShownAt, undefined);
+  assert.equal(service.store(GUILD).get(candidate.id).expiredShownAt, undefined, 'a candidate is never listed nor marked');
+  // The next day's review carries the one that was counted but not listed; the day after, nothing.
+  clock.t = Date.parse('2026-10-20T08:00:00Z');
+  await run.inner.tick();
+  clock.t = run.inner.status(GUILD).review.at + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 3);
+  assert.deepEqual(run.turns.calls[2].inner.wake.expired, { items: [{ id: a.id, purpose: 'first', at: NOW - 3 * HOUR_MS }], more: 0 });
+  assert.equal(service.store(GUILD).get(a.id).expiredShownAt, clock.t);
+  clock.t = Date.parse('2026-10-21T08:00:00Z');
+  await run.inner.tick();
+  clock.t = run.inner.status(GUILD).review.at + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 4);
+  assert.equal(run.turns.calls[3].inner.wake.expired, undefined, 'nothing left to tell');
+  assert.equal(run.turns.calls[3].inner.wake.kind, 'review');
 });
 
 // ---- her attention ------------------------------------------------------------------------

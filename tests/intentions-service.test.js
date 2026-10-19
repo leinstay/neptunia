@@ -287,6 +287,22 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
   });
 });
 
+test('intentions: markExpiredShown marks an expired intention once; an open one, an unknown id and a second call change nothing', async () => {
+  const { intentions, clock } = makeEnv();
+  const own = intentions.set('g1', { purpose: 'soon gone', expiresAt: T0 + HOUR, channelId: 'c1', scope: 'group' }).intention;
+  assert.deepEqual(intentions.markExpiredShown('g1', own.id), { ok: true, intention: own, changed: false }, 'still open: nothing to mark');
+  clock.t = T0 + HOUR;
+  assert.equal(intentions.list('g1', { closed: true })[0].status, 'expired', 'the sweep expired it');
+  clock.t = T0 + 2 * HOUR;
+  const marked = intentions.markExpiredShown('g1', own.id);
+  assert.equal(marked.changed, true);
+  assert.equal(marked.intention.expiredShownAt, T0 + 2 * HOUR);
+  assert.equal(intentions.store('g1').get(own.id).expiredShownAt, T0 + 2 * HOUR, 'written');
+  assert.equal(intentions.markExpiredShown('g1', own.id).changed, false, 'once');
+  assert.deepEqual(intentions.markExpiredShown('g1', 'i00000000'), { ok: false, code: 'not-found' });
+  assert.equal(intentions.markExpiredShown(null, own.id).changed, false, 'the default guild is the same store');
+});
+
 test('candidates: nothing with features.intentions off', async () => {
   const { intentions } = makeEnv({ features: {} });
   const out = await intentions.addCandidates('g1', [{ span: 'θα το κάνω', purpose: 'do it' }], [{ id: 'm1', self: true, content: 'θα το κάνω', ts: T0 }]);
