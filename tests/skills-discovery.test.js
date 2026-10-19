@@ -255,5 +255,16 @@ test('coreToolRows: her granted tools among web.search, web.read, memory.search 
   assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
   assert.equal(rows[0].args[0].body, true, 'the question is the body');
   assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'memory.search', 'task.run']);
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'memory.search', 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
+});
+
+test('coreToolRows: the intent rows follow task.run when intentions are on and granted, and are absent with features.intentions off', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const access = Object.fromEntries(['task.run', 'intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map((name) => [name, grant]));
+  const on = coreToolRows({ config: { features: { skills: true, intentions: true }, bot: { access } }, selfId: self, registry });
+  assert.deepEqual(on.map((row) => row.name), ['task.run', 'intent.set', 'intent.update', 'intent.cancel'], 'intent.list is not a tool row');
+  const off = coreToolRows({ config: { features: { skills: true, intentions: false }, bot: { access } }, selfId: self, registry });
+  assert.deepEqual(off.map((row) => row.name), ['task.run']);
 });
