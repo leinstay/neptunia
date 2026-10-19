@@ -3,7 +3,8 @@
 // Her active intentions first (`pending`, then `waiting` with the errand it awaits and the wait's
 // deadline), each with its due time and, after a wait ended, the errand's outcome or the reason
 // the wait ended; then the candidates the analyzer proposed from her own lines, under their own
-// header, each with the line it came from. Cut to a token budget (`context.caps.intentions`):
+// header, each with the line it came from (and a marker on one whose words came from outside
+// material, which only an ordinary turn of hers may accept). Cut to a token budget (`context.caps.intentions`):
 // whole lines only, in order, the candidates' header only with a candidate under it. Pure: every
 // word comes from `labels.intentions` (prompts/labels.json); without its header or line label
 // the block is left out (''). Ids, codes and times are data, not wording.
@@ -41,9 +42,15 @@ function activeLine(record, l, { timezone, locale, channelNameOf }) {
   return pieces.filter(Boolean).join(' · ');
 }
 
-/** One candidate's line. */
+/**
+ * One candidate's line; `{marker}` is `labels.intentions.externalMarker` for a candidate whose
+ * words came from outside material (`provenance.origin` `external`: only an ordinary turn of hers
+ * may accept it), empty for her own.
+ */
 function candidateLine(record, l) {
-  return part(l, 'candidate', { id: record.id, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS), span: clampWithEllipsis(oneLine(record.provenance?.span ?? ''), SPAN_LINE_CHARS) });
+  const external = record.provenance?.origin === 'external';
+  const marker = external && typeof l.externalMarker === 'string' ? l.externalMarker : '';
+  return part(l, 'candidate', { id: record.id, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS), span: clampWithEllipsis(oneLine(record.provenance?.span ?? ''), SPAN_LINE_CHARS), marker });
 }
 
 /**

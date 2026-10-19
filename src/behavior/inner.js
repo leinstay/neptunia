@@ -15,7 +15,12 @@
 // runs -- the estimate, or the costliest recent inner turn's real cost when more -- then what it
 // actually cost -- every `llm: usage` and `images: generated` line logged inside it -- and the
 // errands it handed off when they end; a turn reaching the ceiling mid-way makes no further call
-// or request), public posts per local day.
+// or request), public posts per local day. An errand an inner turn hands off (`task.run`, live)
+// holds its most possible cost -- its agent's per-errand dollar limit, `agents.<agent>.limits.usd`
+// -- against the day's dollars from its dispatch (`reserveErrand`, refused `inner-usd-cap` when it
+// does not fit); its end replaces the hold with its real cost, and a lost one (it never ends) is
+// released at its wait's deadline or after `innerLife.errandReserveMaxMinutes`, whichever comes
+// first. The holds are persisted with the state.
 // Over a cap no turn runs and the refusal is journalled once per wake. What is left and when it
 // resets reach her as facts in `<wake>`, never as a rule.
 //
@@ -48,6 +53,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   estimatedTurnUsd: 0.15,
+  errandReserveMaxMinutes: 60,
   review: Object.freeze({ enabled: true, historyDays: 14 }),
   caps: Object.freeze({ perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }),
 });
@@ -93,6 +99,7 @@ export function innerSettings(config) {
     queueMax: Math.max(1, Math.floor(count(raw.queueMax, d.queueMax))),
     chatMessages: Math.max(1, Math.floor(count(raw.chatMessages, d.chatMessages))),
     estimatedTurnUsd: count(raw.estimatedTurnUsd, d.estimatedTurnUsd),
+    errandReserveMaxMinutes: Math.max(1, count(raw.errandReserveMaxMinutes, d.errandReserveMaxMinutes)),
     review: { enabled: review.enabled !== false, historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)) },
     caps: {
       perDay: Math.floor(count(caps.perDay, d.caps.perDay)),
@@ -106,7 +113,7 @@ export function innerSettings(config) {
 
 /** A fresh state. */
 export function emptyState() {
-  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, turns: [], spend: [], posts: [], chains: {}, turnIds: [] };
+  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, turns: [], spend: [], posts: [], chains: {}, turnIds: [], holds: [] };
 }
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -129,10 +136,14 @@ export function normalizeState(raw) {
     posts: list(raw.posts).filter(Number.isFinite),
     chains: object(raw.chains),
     turnIds: list(raw.turnIds).filter((id) => typeof id === 'string'),
+    holds: list(raw.holds).filter((hold) => typeof hold?.id === 'string' && Number.isFinite(hold.usd) && Number.isFinite(hold.until)),
   };
 }
 
-/** `state` without what is older than its windows (handled ids, turns, spend, posts, idle chains). */
+/**
+ * `state` without what is older than its windows (handled ids, turns, spend, posts, idle chains,
+ * errand holds released long ago: an expired hold stays until the tick journals its release).
+ */
 export function pruneState(state, now) {
   const since = now - KEEP_MS;
   const handled = Object.fromEntries(Object.entries(state.handled).filter(([, entry]) => Number.isFinite(entry?.at) && entry.at >= now - CHAIN_KEEP_MS));
@@ -145,7 +156,13 @@ export function pruneState(state, now) {
     spend: state.spend.filter((item) => item.at >= since),
     posts: state.posts.filter((at) => at >= since),
     turnIds: state.turnIds.slice(-TURN_IDS_MAX),
+    holds: list(state.holds).filter((hold) => hold.until >= since),
   };
+}
+
+/** The dollars the errand holds of `state` keep reserved at `now` (an expired hold none). */
+export function heldUsd(state, now) {
+  return list(state?.holds).reduce((sum, hold) => (hold.until > now ? sum + hold.usd : sum), 0);
 }
 
 /** Where an intention lands: its destination, else the conversation it came from; and whether that is a private chat. */
@@ -269,7 +286,7 @@ function dayBounds(now, timezone) {
 
 /**
  * What is left of each cap at `now` (her local day in `timezone`; the hour rolling): `day`,
- * `hour`, `usd` (the reserved estimate counted as spent), `posts`, each `{ used, cap, left,
+ * `hour`, `usd` (the reserved estimate and the errand holds counted as spent), `posts`, each `{ used, cap, left,
  * resetAt }` (`resetAt` null when nothing is used in a rolling window). Pure.
  */
 export function budgetsOf(state, settings, { now, timezone, reserved = 0 }) {
@@ -277,7 +294,7 @@ export function budgetsOf(state, settings, { now, timezone, reserved = 0 }) {
   const caps = settings.caps;
   const today = state.turns.filter((turn) => turn.at >= start);
   const hour = state.turns.filter((turn) => turn.at > now - HOUR_MS);
-  const spent = state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) + reserved;
+  const spent = state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) + reserved + heldUsd(state, now);
   const posts = state.posts.filter((at) => at >= start).length;
   const round = (value) => Math.round(value * 10000) / 10000;
   return {
@@ -315,6 +332,17 @@ export function capRefusal(budgets, chain, estimate) {
   if (budgets.usd.used + estimate > budgets.usd.cap) return 'usd-per-day';
   if (chain.left <= 0) return 'per-chain';
   return null;
+}
+
+/**
+ * Whether an errand holding `usd` may be handed off now: null when the day's dollars (`usd`, budgetsOf's,
+ * the real spend, other turns' reservations and the holds already counted) plus the handing turn's
+ * share (`share`) plus `usd` stay within the ceiling, else `inner-usd-cap` (also for an errand whose
+ * most possible cost is unknown: nothing bounds it).
+ */
+export function errandRefusal(usdBudget, share, usd) {
+  if (!(Number.isFinite(usd) && usd >= 0)) return 'inner-usd-cap';
+  return usdBudget.used + share + usd > usdBudget.cap + 1e-9 ? 'inner-usd-cap' : null;
 }
 
 /**
@@ -376,6 +404,9 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {() => boolean} [options.isWarmingUp]
  * @param {() => boolean} [options.peopleWaiting]  Calls queued for the attention (people first).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
+ * @param {((agent: string) => number|null)|null} [options.errandLimitUsd]  The most an errand of
+ *   `agent` may cost (`agents.<agent>.limits.usd` over the profile's default,
+ *   src/errands/service.js#limitsOf): what a handed-off errand holds. Without it errands hold nothing.
  * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
  *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
  * @param {() => number} [options.rng]
@@ -399,6 +430,7 @@ export function createInnerLife({
   peopleWaiting = () => false,
   meter = null,
   onEpisode = null,
+  errandLimitUsd = null,
   rng = Math.random,
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -411,6 +443,7 @@ export function createInnerLife({
   // The ids of the wakes an inner turn is running for now (a stop leaves them to that turn).
   const running = new Set();
   let ticking = false;
+  let holdSeq = 0;
   let timer = null;
   let stopped = false;
 
@@ -561,6 +594,99 @@ export function createInnerLife({
     return reviewWake(day, review.at);
   }
 
+  /** The deadline of an intention's wait on errand `taskId` (epoch ms), or null. */
+  function waitDeadlineOf(guildId, taskId) {
+    if (!taskId) return null;
+    try {
+      const records = intentions?.store?.(guildId)?.list?.() ?? [];
+      const waiting = records.find((record) => record?.status === 'waiting' && record.awaitingTaskId === String(taskId) && Number.isFinite(record.waitDeadline));
+      return waiting ? waiting.waitDeadline : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * An errand of `agent` an inner turn hands off now: its most possible cost (errandLimitUsd's) held
+   * against the day's dollars (persisted) when the day's dollars with `others` (what other running
+   * turns hold reserved), the handing turn's `share` and this hold fit the ceiling; else refused
+   * (`inner-usd-cap`, journalled). `key` is the call's idempotency key (its errand carries it).
+   * Answers `{ ok: true, id }` or `{ ok: false, code }`.
+   */
+  function holdErrand(guildId, { agent, key = null, share = 0, others = 0 }) {
+    const settings = innerSettings(hot.config);
+    const at = now();
+    const limit = typeof errandLimitUsd === 'function' ? errandLimitUsd(String(agent ?? '')) : null;
+    const usd = typeof limit === 'number' ? limit : NaN;
+    const state = stateOf(guildId);
+    const budget = budgetsOf(state, settings, { now: at, timezone: timezoneOf(), reserved: others }).usd;
+    const refusal = errandRefusal(budget, share, usd);
+    if (refusal) {
+      log.info('inner: errand refused', { guildId, agent: String(agent ?? ''), code: refusal });
+      note(guildId, { event: 'errand-refused', agent: String(agent ?? ''), usd: Number.isFinite(usd) ? usd : null, code: refusal });
+      return { ok: false, code: refusal };
+    }
+    holdSeq += 1;
+    const base = typeof key === 'string' && key ? `hold:${key}` : `hold:${at}`;
+    const id = state.holds.some((hold) => hold.id === base) || !(typeof key === 'string' && key) ? `${base}:${holdSeq}` : base;
+    state.holds.push({ id, agent: String(agent), usd, at, until: at + settings.errandReserveMaxMinutes * MINUTE_MS, taskId: null, key: typeof key === 'string' && key ? key : null });
+    save(guildId);
+    note(guildId, { event: 'errand-held', holdId: id, agent: String(agent), usd });
+    return { ok: true, id };
+  }
+
+  /**
+   * Hold `holdId` bound to the errand `taskId` it became: released at the deadline of an intention's
+   * wait on it when that comes before the hold's own end. A second hold of the same errand goes.
+   */
+  function bindErrand(guildId, holdId, taskId) {
+    const state = stateOf(guildId);
+    const hold = state.holds.find((item) => item.id === holdId);
+    if (!hold || !taskId) return false;
+    if (state.holds.some((item) => item !== hold && item.taskId === String(taskId))) {
+      state.holds = state.holds.filter((item) => item !== hold);
+    } else {
+      hold.taskId = String(taskId);
+      const deadline = waitDeadlineOf(guildId, taskId);
+      if (Number.isFinite(deadline) && deadline < hold.until) hold.until = deadline;
+    }
+    save(guildId);
+    return true;
+  }
+
+  /** Hold `holdId` released: its call never handed an errand off. */
+  function releaseErrand(guildId, holdId) {
+    const state = stateOf(guildId);
+    const before = state.holds.length;
+    state.holds = state.holds.filter((item) => item.id !== holdId);
+    if (state.holds.length === before) return false;
+    save(guildId);
+    note(guildId, { event: 'errand-released', holdId, reason: 'not-dispatched' });
+    return true;
+  }
+
+  /**
+   * The holds of errands that never ended released (journalled `errand-released`, `lost`): at an
+   * intention's wait deadline on the errand, or at the hold's own end.
+   */
+  function expireHolds(guildId, at) {
+    const state = stateOf(guildId);
+    if (state.holds.length === 0) return 0;
+    for (const hold of state.holds) {
+      const deadline = waitDeadlineOf(guildId, hold.taskId);
+      if (Number.isFinite(deadline) && deadline < hold.until) hold.until = deadline;
+    }
+    const lost = state.holds.filter((hold) => hold.until <= at);
+    if (lost.length === 0) return 0;
+    state.holds = state.holds.filter((hold) => hold.until > at);
+    save(guildId);
+    for (const hold of lost) {
+      log.info('inner: errand hold released', { guildId, taskId: hold.taskId, usd: hold.usd });
+      note(guildId, { event: 'errand-released', holdId: hold.id, taskId: hold.taskId, usd: hold.usd, reason: 'lost' });
+    }
+    return lost.length;
+  }
+
   /** Whether her actions may leave an inner turn now: the switch on, not stopped, not paused. */
   function mayAct(guildId) {
     return innerOn(hot.config) && !stateOf(guildId).stopped && !paused();
@@ -585,6 +711,8 @@ export function createInnerLife({
       const settings = innerSettings(config);
       const at = now();
       const listed = [];
+      // Holds of errands that never ended, released at their wait's deadline or their own end.
+      expireHolds(guildId, at);
       if (intentions && intentionsOn(config)) {
         let due = [];
         try {
@@ -734,6 +862,14 @@ export function createInnerLife({
       const so = typeof costs.running === 'function' ? costs.running() : null;
       return usd.used + (so?.usd ?? 0) + (so?.peak ?? 0) <= usd.cap + 1e-9;
     };
+    // Asked right before an errand of hers is handed off (task.run, live): its most possible cost
+    // held against the day's dollars, beside this turn's own share (its reservation, or what it has
+    // cost so far and one more request as costly as its costliest, when more).
+    const reserveErrand = ({ agent, key: callKey = null } = {}) => {
+      const so = typeof costs.running === 'function' ? costs.running() : null;
+      const share = Math.max(reserve, (so?.usd ?? 0) + (so?.peak ?? 0));
+      return holdErrand(guildId, { agent, key: callKey, share, others: Math.max(0, (reserved.get(key) ?? 0) - reserve) });
+    };
     for (const wake of group) running.add(wake.id);
     let measured;
     try {
@@ -748,6 +884,9 @@ export function createInnerLife({
             shadow,
             mayAct: () => mayAct(guildId),
             spendAllowed,
+            ...(typeof errandLimitUsd === 'function'
+              ? { reserveErrand, bindErrand: (holdId, taskId) => bindErrand(guildId, holdId, taskId), releaseErrand: (holdId) => releaseErrand(guildId, holdId) }
+              : {}),
             postAllowed: () => posts().left > 0,
             onPosted: () => {
               stateOf(guildId).posts.push(now());
@@ -811,20 +950,26 @@ export function createInnerLife({
   }
 
   /**
-   * An errand's end: one an inner turn handed off counts its cost against the day's dollars.
-   * Never throws.
+   * An errand's end: one an inner turn handed off counts its cost against the day's dollars, in
+   * place of the hold it kept (found by the errand's id, else by its call's idempotency key).
+   * Answers whether a cost was counted. Never throws.
    */
   function onTaskFinished(task, guildId = getGuildId()) {
     try {
-      if (!guildId || !task?.origin?.turnId) return false;
+      if (!guildId || !task?.id) return false;
       const state = stateOf(guildId);
-      if (!state.turnIds.includes(String(task.origin.turnId))) return false;
+      const id = String(task.id);
+      const ikey = typeof task.idempotencyKey === 'string' && task.idempotencyKey ? task.idempotencyKey : null;
+      const held = state.holds.filter((hold) => hold.taskId === id || (ikey !== null && hold.key === ikey));
+      if (held.length > 0) state.holds = state.holds.filter((hold) => !held.includes(hold));
+      const handedOff = held.length > 0 || (task.origin?.turnId && state.turnIds.includes(String(task.origin.turnId)));
       const usd = Number(task.usage?.usd);
-      if (!Number.isFinite(usd) || usd <= 0) return false;
-      state.spend.push({ at: now(), usd });
+      const counted = Boolean(handedOff) && Number.isFinite(usd) && usd > 0;
+      if (counted) state.spend.push({ at: now(), usd });
+      if (!counted && held.length === 0) return false;
       save(guildId);
-      note(guildId, { event: 'errand-cost', taskId: String(task.id), usd });
-      return true;
+      note(guildId, { event: 'errand-cost', taskId: id, usd: counted ? usd : 0, ...(held.length > 0 ? { heldUsd: held.reduce((sum, hold) => sum + hold.usd, 0) } : {}) });
+      return counted;
     } catch (err) {
       log.warn('inner: errand cost not counted', { code: err?.code ?? null });
       return false;

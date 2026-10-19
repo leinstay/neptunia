@@ -16,6 +16,7 @@ import {
   createInnerLife,
   drawReviewAt,
   emptyState,
+  errandRefusal,
   hourWeights,
   innerSettings,
   reviewWake,
@@ -54,7 +55,7 @@ function fakeIntentions(records) {
     due: () => records.filter((r) => r.status === 'pending' && Number.isFinite(r.dueAt) && r.dueAt <= NOW + 10 * DAY_MS && r.dueAt <= clock.t).map((r) => ({ intention: r, reason: 'due', at: r.dueAt })),
     reconcile: () => ({ arrived: 0, missing: 0, deadline: 0, expired: 0 }),
     list: () => records.filter((r) => ['pending', 'waiting', 'proposed'].includes(r.status)),
-    store: () => ({ get: (id) => records.find((r) => r.id === id) ?? null }),
+    store: () => ({ get: (id) => records.find((r) => r.id === id) ?? null, list: () => records }),
   };
 }
 
@@ -93,7 +94,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, errandLimitUsd = null } = {}) {
   const journal = [];
   const intentions = fakeIntentions(records);
   let inner;
@@ -115,6 +116,7 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     rng,
     now: () => clock.t,
     onEpisode,
+    errandLimitUsd,
     log: SILENT,
   });
   return { inner, turns, journal, intentions, dataDir, door, hot };
@@ -530,4 +532,110 @@ test('inner: inside a turn spendAllowed counts the day\'s real spend, the turn\'
   assert.deepEqual(asked, [true, true, false]);
   // The turn's real 0.6 counts: the next turn (reserving 0.6) is refused, not admitted on the estimate.
   assert.deepEqual((await run.inner.tick()).drained, { refused: 'usd-per-day' });
+});
+
+// ---- errands an inner turn hands off hold their most possible cost ----------------------------
+
+test('errandRefusal: an errand fits when the day, the turn\'s share and its hold stay within the ceiling; an unknown limit never fits', () => {
+  assert.equal(errandRefusal({ used: 0.4, cap: 1 }, 0.15, 0.4), null);
+  assert.equal(errandRefusal({ used: 0.5, cap: 1 }, 0.15, 0.4), 'inner-usd-cap');
+  assert.equal(errandRefusal({ used: 0, cap: 1 }, 0, Number.NaN), 'inner-usd-cap');
+});
+
+test('budgetsOf: an errand hold counts as spent until its end, whatever day it was taken', () => {
+  const settings = innerSettings(hotWith().config);
+  const state = { ...emptyState(), holds: [{ id: 'h1', agent: 'web', usd: 0.4, at: NOW - DAY_MS, until: NOW + HOUR_MS, taskId: 'k1', key: null }] };
+  assert.equal(budgetsOf(state, settings, { now: NOW, timezone: 'UTC' }).usd.used, 0.4);
+  assert.equal(budgetsOf(state, settings, { now: NOW + HOUR_MS, timezone: 'UTC' }).usd.used, 0);
+});
+
+/** A live inner life whose one turn asks to hand off `count` errands of the web agent (each binds to `k<n>`). */
+function errandSetup({ count, records = [intention('i1')], usdPerDay = 1, limit = 0.4, dataDir = tempDir('nep-inner-hold-'), maxMinutes = 60 } = {}) {
+  const answers = [];
+  const turns = fakeTurns({
+    answer: (params) => {
+      for (let n = 1; n <= count; n += 1) {
+        const held = params.inner.reserveErrand({ agent: 'web', key: `t-hold.1:${n}` });
+        answers.push(held);
+        if (held.ok) params.inner.bindErrand(held.id, `k${n}`);
+      }
+      return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: 't-hold' } };
+    },
+  });
+  const hot = hotWith({ innerLife: { mode: 'live', errandReserveMaxMinutes: maxMinutes, caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay, publicPostsPerDay: 2 } } });
+  const run = setup({ records, turns, hot, dataDir, meterUsd: 0.1, errandLimitUsd: (agent) => (agent === 'web' ? limit : null) });
+  return { ...run, answers };
+}
+
+test('inner: errands an inner turn hands off hold their limit from dispatch; one past the day\'s dollars is refused; holds survive a restart; an end replaces its hold with the real cost', async () => {
+  clock.t = NOW;
+  const run = errandSetup({ count: 3 });
+  await run.inner.tick();
+  await settle();
+  // 0 + 0.15 (the turn's reservation) + 0.4 fits; 0.4 + 0.15 + 0.4 fits; 0.8 + 0.15 + 0.4 does not.
+  assert.deepEqual(run.answers.map((a) => a.ok), [true, true, false]);
+  assert.equal(run.answers[2].code, 'inner-usd-cap');
+  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.9, 'the turn\'s real 0.1 and two holds of 0.4');
+  assert.equal(run.journal.filter((r) => r.event === 'errand-held').length, 2);
+  assert.equal(run.journal.filter((r) => r.event === 'errand-refused').length, 1);
+  const onDisk = JSON.parse(fs.readFileSync(path.join(run.dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
+  assert.deepEqual(onDisk.holds.map((h) => [h.taskId, h.usd]), [['k1', 0.4], ['k2', 0.4]]);
+  // A restart reads the holds back.
+  const again = setup({ records: [], dataDir: run.dataDir, hot: run.hot, errandLimitUsd: () => 0.4 });
+  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.9);
+  // The first errand ends at 0.25: its hold gives way to what it cost. One by its call's key.
+  assert.equal(again.inner.onTaskFinished({ id: 'k1', origin: { turnId: 't-hold' }, usage: { usd: 0.25 } }, GUILD), true);
+  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.75);
+  assert.equal(again.inner.onTaskFinished({ id: 'other', idempotencyKey: 't-hold.1:2', origin: { turnId: 't-hold' }, usage: { usd: 0 } }, GUILD), false);
+  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.35);
+  assert.deepEqual(again.inner.state(GUILD).holds, []);
+});
+
+test('inner: a lost errand releases its hold at the wait\'s deadline when that comes first, else after errandReserveMaxMinutes', async () => {
+  clock.t = NOW;
+  const waiting = { ...intention('i9', { dueAt: null }), status: 'waiting', awaitingTaskId: 'k1', waitDeadline: NOW + 20 * MINUTE_MS };
+  const run = errandSetup({ count: 1, records: [intention('i1'), waiting] });
+  await run.inner.tick();
+  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.5);
+  clock.t = NOW + 19 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.inner.state(GUILD).holds.length, 1);
+  clock.t = NOW + 20 * MINUTE_MS;
+  await run.inner.tick();
+  await settle();
+  assert.deepEqual(run.inner.state(GUILD).holds, []);
+  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.1);
+  assert.deepEqual(run.journal.filter((r) => r.event === 'errand-released').map((r) => [r.taskId, r.reason]), [['k1', 'lost']]);
+
+  clock.t = NOW;
+  const plain = errandSetup({ count: 1, maxMinutes: 30 });
+  await plain.inner.tick();
+  clock.t = NOW + 29 * MINUTE_MS;
+  await plain.inner.tick();
+  assert.equal(plain.inner.state(GUILD).holds.length, 1);
+  clock.t = NOW + 30 * MINUTE_MS;
+  await plain.inner.tick();
+  assert.deepEqual(plain.inner.state(GUILD).holds, []);
+  clock.t = NOW;
+});
+
+test('inner: a hold whose call handed nothing off is released at once; without errandLimitUsd a turn gets no hold hooks', async () => {
+  clock.t = NOW;
+  let released = null;
+  const turns = fakeTurns({
+    answer: (params) => {
+      const held = params.inner.reserveErrand({ agent: 'web', key: 'k' });
+      released = params.inner.releaseErrand(held.id);
+      return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: 't-r' } };
+    },
+  });
+  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ innerLife: { mode: 'live' } }), errandLimitUsd: () => 0.4 });
+  await run.inner.tick();
+  await settle();
+  assert.equal(released, true);
+  assert.deepEqual(run.inner.state(GUILD).holds, []);
+  assert.ok(run.journal.some((r) => r.event === 'errand-released' && r.reason === 'not-dispatched'));
+  const bare = setup({ records: [intention('i2')] });
+  await bare.inner.tick();
+  assert.equal(bare.turns.calls[0].inner.reserveErrand, undefined);
 });

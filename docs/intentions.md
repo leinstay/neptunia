@@ -82,7 +82,8 @@ holds the copy).
 
 `<intentions>` in the tail of every turn but a diary post: her open intentions (pending, then waiting, with due
 times, the awaited errand, an outcome or how a wait ended), then the candidates with the words of her line they came
-from, cut to `context.caps.intentions` tokens. See the [prompt contract](prompt-contract.md) and
+from (an `external` one marked with `labels.intentions.externalMarker`, so she knows it waits for an ordinary turn of
+hers), cut to `context.caps.intentions` tokens. See the [prompt contract](prompt-contract.md) and
 [configuration](configuration.md#intentions).
 
 ## Turning it on

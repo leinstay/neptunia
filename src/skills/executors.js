@@ -419,14 +419,15 @@ function fromPort(result) {
  * author for a reply's notification; not back within `deps.timeoutMs` (`skills.callTimeoutMs`)
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
- * read -- with its code when it is not `ok`, and `ref` when a message went out. Files it answers
+ * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
+ * queued an errand (`task.run`: an inner turn binds the errand's dollar hold to it). Files it answers
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
  * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
  * arguments her call maps to (`command.toCall`, as above), under the same timeout; its result is the call's as it is (a result without a
  * known status is `failed`).
- * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null }>}
+ * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null, taskId?: string }>}
  */
 export async function executeCall(resolved, deps) {
   try {
@@ -482,7 +483,7 @@ export async function executeCall(resolved, deps) {
     const status = callStatus(result);
     const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
     const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? 'error') }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}) };
+    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? 'error') }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}) };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
     const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));

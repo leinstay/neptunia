@@ -1,0 +1,49 @@
+{
+  "name": "errand-reserve",
+  "description": "An inner turn hands off three errands, each able to cost up to its agent's 0.40 USD limit, under a 1 USD day. Each errand holds its limit from its dispatch: the first two fit, the third is refused (inner-usd-cap). Both errands end at their full limit, the next turn of the day is refused before it would push the day over and waits for the next day. On day two an errand that never ends releases its hold after errandReserveMaxMinutes. Without the holds the third errand would run and the first day would end at 1.26 USD.",
+  "start": "2026-11-02",
+  "days": 3,
+  "timezone": "UTC",
+  "seed": 59,
+  "innerLife": { "estimatedTurnUsd": 0.15, "errandReserveMaxMinutes": 60, "review": { "enabled": false }, "caps": { "usdPerDay": 1 } },
+  "agents": { "web": { "limits": { "usd": 0.4 } } },
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" },
+    { "id": "c-music", "name": "music" }
+  ],
+  "history": { "selfHours": [12], "channel": "c-general" },
+  "stub": { "usdPerRequest": 0.03, "intention_due": [[{ "skill": "web.search", "args": { "q": "news" } }]] },
+  "intentions": [
+    {
+      "key": "a",
+      "purpose": "compare the three tournament brackets",
+      "channel": "c-general",
+      "due": "1 09:00",
+      "stub": {
+        "intention_due": [[
+          { "skill": "task.run", "args": { "agent": "web", "goal": "find the first bracket" } },
+          { "skill": "task.run", "args": { "agent": "web", "goal": "find the second bracket" } },
+          { "skill": "task.run", "args": { "agent": "web", "goal": "find the third bracket" } }
+        ]]
+      }
+    },
+    { "key": "b", "purpose": "look up the patch notes", "channel": "c-games", "due": "1 12:00" },
+    {
+      "key": "c",
+      "purpose": "look up the new album",
+      "channel": "c-music",
+      "due": "2 09:00",
+      "stub": { "intention_due": [[{ "skill": "task.run", "args": { "agent": "web", "goal": "find the album tracklist" } }]] }
+    }
+  ],
+  "events": [
+    { "kind": "errand_end", "at": "1 09:20", "task": "task-1", "state": "done", "usd": 0.4 },
+    { "kind": "errand_end", "at": "1 09:40", "task": "task-2", "state": "done", "usd": 0.4 }
+  ],
+  "expect": {
+    "capped": ["usd-per-day"],
+    "turns": { "min": 3, "max": 3 },
+    "journal": { "errand-held": 3, "errand-refused": 1, "errand-cost": 2, "errand-released": 1 }
+  }
+}

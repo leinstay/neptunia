@@ -516,6 +516,7 @@
     "queueMax": 20,
     "chatMessages": 30,
     "estimatedTurnUsd": 0.15,
+    "errandReserveMaxMinutes": 60,
     "review": { "enabled": true, "historyDays": 14 },
     "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "usdPerDay": 4, "publicPostsPerDay": 2 },
     "memory": {

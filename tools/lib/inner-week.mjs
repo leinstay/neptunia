@@ -3,9 +3,9 @@
 // intention service (src/intentions/service.js) over a temporary data directory, driven by a fake
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
 // a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
-// cap's reset) instead of ticking every second. Every jump lands on the scheduler's tick grid
-// (`innerLife.tickSeconds` from the start of the week), so the scheduler sees what it would see
-// live, at most one tick late.
+// cap's reset, the end of an errand's dollar hold) instead of ticking every second. Every jump
+// lands on the scheduler's tick grid (`innerLife.tickSeconds` from the start of the week), so the
+// scheduler sees what it would see live, at most one tick late.
 //
 // The fixture (tools/fixtures/inner-week/*.json, `parseFixture`) scripts the week: the people's
 // messages (with times and channels; one addressed to her holds the one attention for
@@ -18,8 +18,9 @@
 // the real voice in shadow (tools/inner-week.mjs `--live`) on selected days. The stub's calls pass
 // a gate that mirrors the turn runner's inner gate (src/behavior/turn.js#innerVerdict: a read
 // runs, shadow proposes everything else, live asks the kill switch and the public-post cap right
-// before the call) and, when they run, act on the week's world: intentions through the real
-// service, an errand into the week's task list, a post into the week's record.
+// before the call, and an errand holds its agent's per-errand dollar limit from its dispatch) and,
+// when they run, act on the week's world: intentions through the real service, an errand into the
+// week's task list, a post into the week's record.
 //
 // The run is collected (`runWeek`) and judged (`computeGates`): zero cap violations (recounted from
 // the turns, not read from the scheduler), zero unauthorized actions (a non-read executed in shadow
@@ -42,6 +43,7 @@ import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseWhen, isOpen } from '../../src/intentions/model.js';
 import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
+import { agentProfileOf } from '../../src/agent-runner/profiles.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
@@ -328,6 +330,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
     mode: data.mode === 'shadow' ? 'shadow' : 'live',
     turnSeconds: Number.isFinite(data.turnSeconds) && data.turnSeconds >= 0 ? data.turnSeconds : 20,
     innerLife: isObject(data.innerLife) ? data.innerLife : {},
+    agents: isObject(data.agents) ? data.agents : {},
     intentionsConfig: isObject(data.intentionsConfig) ? data.intentionsConfig : {},
     channels,
     people,
@@ -365,6 +368,7 @@ export function fixtureConfig(fixture, { mode = fixture.mode } = {}) {
     features: { innerLife: true, intentions: true, journal: true, privateMessages: false },
     mention: { oneAtATime: true },
     intentions: { expiresDays: 14, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, ...(fixture.intentionsConfig ?? {}) },
+    agents: fixture.agents ?? {},
     innerLife: {
       ...life,
       mode,
@@ -431,11 +435,13 @@ export function createStubVoice(fixture) {
 /**
  * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): past the
  * day's dollars (`spendAllowed`) every call is refused (`inner-usd-cap`); a read runs; in shadow
- * anything else is proposed; live, a stopped inner life refuses (`inner-stopped`) and a public
- * post past the day's cap is refused (`inner-post-cap`).
- * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean }}
+ * anything else is proposed; live, a stopped inner life refuses (`inner-stopped`), a public
+ * post past the day's cap is refused (`inner-post-cap`), and an errand (`task.run` naming its
+ * `agent`) runs only when `reserveErrand` holds its most possible cost (`hold` names the hold;
+ * `inner-usd-cap` otherwise).
+ * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean, hold?: string }}
  */
-export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, spendAllowed = null, privateChat = false }) {
+export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, spendAllowed = null, privateChat = false, reserveErrand = null, agent = null, key = null }) {
   if (effects === null || effects === undefined) return { status: 'refused', code: 'unknown-skill' };
   if (typeof spendAllowed === 'function' && !spendAllowed()) return { status: 'refused', code: 'inner-usd-cap' };
   if (effects === 'read') return { status: 'executed', public: false };
@@ -443,6 +449,11 @@ export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, spend
   if (!mayAct()) return { status: 'refused', code: 'inner-stopped' };
   const isPublic = POSTING_SKILLS.includes(skill) && !privateChat;
   if (isPublic && !postAllowed()) return { status: 'refused', code: 'inner-post-cap' };
+  if (skill === 'task.run' && typeof reserveErrand === 'function' && typeof agent === 'string' && agent) {
+    const held = reserveErrand({ agent, key });
+    if (!held?.ok) return { status: 'refused', code: held?.code ?? 'inner-usd-cap' };
+    return { status: 'executed', public: isPublic, hold: held.id };
+  }
   return { status: 'executed', public: isPublic };
 }
 
@@ -579,12 +590,18 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     // What her reads returned this turn: outside material her later posts may repeat.
     const seen = [];
     const findings = [];
-    for (const call of planned) {
+    for (const [index, call] of planned.entries()) {
       const effects = skills.effectsOf(call.skill);
-      const verdict = stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed, spendAllowed: params.inner.spendAllowed });
+      const key = `${turnId}.1:${index}`;
+      const verdict = stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed, spendAllowed: params.inner.spendAllowed, reserveErrand: params.inner.reserveErrand ?? null, agent: typeof call.args?.agent === 'string' ? call.args.agent : null, key });
       const action = { skill: call.skill, status: verdict.status, ...(verdict.code ? { code: verdict.code } : {}), args: call.args };
       if (verdict.status === 'executed') {
-        const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen });
+        const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen, key });
+        // The errand's hold: bound to the errand it became, released when none was queued.
+        if (verdict.hold) {
+          if (done.ok && done.taskId) params.inner.bindErrand?.(verdict.hold, done.taskId);
+          else params.inner.releaseErrand?.(verdict.hold);
+        }
         if (done.code) action.code = done.code;
         action.result = done.ok ? 'ok' : 'failed';
         if (done.ok && verdict.public) params.inner.onPosted?.();
@@ -613,7 +630,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call, { turnId, channelId, at, chainId = null, seen = [] }) {
+  function act(call, { turnId, channelId, at, chainId = null, seen = [], key = null }) {
     const args = call.args ?? {};
     if (call.skill === 'intent.set') {
       const created = intentions.set(guildId, {
@@ -649,12 +666,12 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     if (call.skill === 'task.run') {
       world.taskSeq += 1;
       const id = `task-${world.taskSeq}`;
-      world.tasks.set(id, { id, agent: String(args.agent ?? 'web'), state: 'running', origin: { turnId }, createdAt: at });
+      world.tasks.set(id, { id, agent: String(args.agent ?? 'web'), state: 'running', origin: { turnId }, ...(key ? { idempotencyKey: key } : {}), createdAt: at });
       if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
         const waited = intentions.update(guildId, args.id, { taskId: id, deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS), by: 'persona', turnId });
-        if (!waited.ok) return { ok: true, code: `wait-${waited.code}` };
+        if (!waited.ok) return { ok: true, code: `wait-${waited.code}`, taskId: id };
       }
-      return { ok: true };
+      return { ok: true, taskId: id };
     }
     if (POSTING_SKILLS.includes(call.skill)) {
       const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : channelId;
@@ -685,6 +702,11 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       store: { state: { data: {} } },
       getGuildId: () => guildId,
       meter,
+      // An errand's most possible cost, as src/errands/service.js#limitsOf reads it.
+      errandLimitUsd: (agent) => {
+        const set = hot.config.agents?.[agent]?.limits?.usd;
+        return Number.isFinite(set) && set > 0 ? set : (agentProfileOf(agent)?.defaultLimits?.usd ?? null);
+      },
       rng: world.rng ?? (world.rng = seededRng(fixture.seed)),
       now: clock.now,
       log,
@@ -796,6 +818,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     }
     const state = inner.state(guildId);
     if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now) out.push(state.review.at);
+    // An errand's hold lapses at a tick: the end of each one still held.
+    for (const hold of state.holds ?? []) if (Number.isFinite(hold.until) && hold.until > now) out.push(hold.until);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
     if (state.queue.length > 0) {
       const status = inner.status(guildId);
@@ -1108,7 +1132,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
     }),
     refusals: run.journal.filter((e) => e.event === 'capped').map((e) => ({ at: iso(e.at), cap: e.cap, id: e.wake.id })),
     dropped: run.journal.filter((e) => ['overflow', 'stale', 'no-channel'].includes(e.event)).map((e) => ({ at: iso(e.at), event: e.event, id: e.wake.id })),
-    events: run.journal.filter((e) => ['stopped', 'started', 'review-drawn', 'review-missed', 'errand-cost', 'harness-restart', 'harness-analyzer', 'harness-intend-failed'].includes(e.event)).map((e) => ({ ...e, at: iso(e.at) })),
+    events: run.journal.filter((e) => ['stopped', 'started', 'review-drawn', 'review-missed', 'errand-held', 'errand-refused', 'errand-released', 'errand-cost', 'harness-restart', 'harness-analyzer', 'harness-intend-failed'].includes(e.event)).map((e) => ({ ...e, at: iso(e.at) })),
     dispositions: dispositions(run).map((item) => ({ id: item.id, kind: item.kind, due: iso(item.dueAt), disposition: item.disposition })),
     intentions: run.intentions.map((record) => ({
       id: record.id,
@@ -1157,7 +1181,7 @@ export function renderReport(report) {
     for (const e of report.events) {
       const detail = e.event === 'harness-analyzer'
         ? ` added ${e.added} (external ${e.external ?? 0}), duplicate ${e.duplicate}, capped ${e.capped}, dropped ${JSON.stringify(e.dropped)}`
-        : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${e.code ? ` ${e.key} ${e.code}` : ''}`;
+        : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
       lines.push(`- ${e.at} ${e.event}${detail}`);
     }
   }

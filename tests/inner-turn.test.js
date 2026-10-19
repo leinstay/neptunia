@@ -21,6 +21,9 @@ import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill } from '../src/format.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createTaskStores } from '../src/errands/store.js';
+import { createErrandService } from '../src/errands/service.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-19T12:00:00Z');
@@ -150,22 +153,29 @@ const WAKE = {
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
  * the inner parameter (mayAct, postAllowed, onPosted).
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
   const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
+  // A real errand service over a temp task store, its runner a fake whose runs never end.
+  let errands = null;
+  if (withErrands) {
+    hot.config.agents = { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } };
+    const stores = createTaskStores({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config });
+    errands = createErrandService({ client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true }, stores, hot, getGuildId: () => 'g1' });
+  }
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...(errands ? { errands } : {}) });
   const llm = sequenceLlm(answers, { onCall });
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, ...(errands ? { errands } : {}) });
   const posted = [];
   const inner = { wake: WAKE, shadow, mayAct: () => true, postAllowed: () => true, onPosted: () => posted.push(NOW), ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, posted };
+  return { result, logs, llm, sends, posted, tasks: errands ? errands.store('g1').recent(10) : [] };
 }
 
 test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
@@ -316,6 +326,34 @@ test('inner turn: what her reads found, her thinks and her other calls come back
   assert.deepEqual(episode.actions, [{ skill: 'message.create', status: 'proposed' }], 'reads are findings, not actions');
   const silent = await innerTurn({ answers: ['<skip/>'] });
   assert.equal(silent.result.inner.episode, null, 'nothing found: no episode');
+});
+
+test('inner turn, live: an errand is handed off only when its hold fits; the hold is bound to the errand, a refused one queues nothing', async () => {
+  const asked = [];
+  const bound = [];
+  const released = [];
+  const gate = {
+    reserveErrand: (input) => (asked.push(input), asked.length === 1 ? { ok: true, id: 'h1' } : { ok: false, code: 'inner-usd-cap' }),
+    bindErrand: (hold, taskId) => bound.push([hold, taskId]),
+    releaseErrand: (hold) => released.push(hold),
+  };
+  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες τον πρώτο πίνακα</call><call skill="task.run" agent="web">βρες τον δεύτερο πίνακα</call>', '<skip/>'], shadow: false, allowed: ['task.run'], gate, withErrands: true });
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['task.run:executed:', 'task.run:refused:inner-usd-cap']);
+  assert.deepEqual(asked.map((a) => a.agent), ['web', 'web']);
+  assert.ok(asked.every((a) => typeof a.key === 'string' && a.key), 'each hold carries its call\'s idempotency key');
+  assert.equal(run.tasks.length, 1, 'the refused errand was never queued');
+  assert.deepEqual(bound, [['h1', run.tasks[0].id]]);
+  assert.equal(run.tasks[0].idempotencyKey, asked[0].key);
+  assert.deepEqual(released, []);
+});
+
+test('inner turn, live: a hold whose errand was not queued (the operation refused it) is released', async () => {
+  const released = [];
+  const gate = { reserveErrand: () => ({ ok: true, id: 'h1' }), bindErrand: () => assert.fail('nothing to bind'), releaseErrand: (hold) => released.push(hold) };
+  // The agent's runner is not set up: the operation refuses the errand (`not-configured`).
+  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες κάτι</call>', '<skip/>'], shadow: false, allowed: ['task.run'], gate, withErrands: true, errandConfigured: false });
+  assert.notEqual(run.result.inner.actions[0].result, 'ok');
+  assert.deepEqual(released, ['h1']);
 });
 
 test('inner turn: once the day\'s dollars are spent her calls are refused (inner-usd-cap) and the loop makes no further request', async () => {
