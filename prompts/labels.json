@@ -543,7 +543,7 @@
       "chain": "turns for this thread: {left} remaining of {cap}",
       "usd": "dollars today: {left} remaining of {cap} (resets {reset})",
       "posts": "public posts today: {left} remaining of {cap} (resets {reset})",
-      "postsDelivery": "TODO(writer): a delivery of this intention to {channel} does not count"
+      "postsDelivery": "a delivery of this intention to {channel} does not count"
     }
   },
   "journal": {
