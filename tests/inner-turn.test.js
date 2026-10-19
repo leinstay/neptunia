@@ -235,6 +235,17 @@ test('inner turn, live: a <msg> to the channel that asked is a delivery (exempt 
   assert.ok(userText(capped.llm.calls[1][1].content).includes(labels.skills.result.reasons['inner-post-cap']), 'worded by the reason label');
 });
 
+test('inner turn: <skills_tools> lists the posting skills after the reads when granted; an addressed turn\'s does not', async () => {
+  const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
+  const run = await innerTurn({ answers: ['<skip/>'], allowed });
+  const text = userText(run.llm.calls[0][1].content);
+  const block = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(text)?.[1] ?? '';
+  const at = (name) => block.indexOf(name);
+  assert.ok(at('web.read') >= 0 && at('message.create') > at('web.read') && at('message.react.add') > at('message.create') && at('draw.create') > at('message.react.add'), block);
+  const bare = await innerTurn({ answers: ['<skip/>'], allowed: ['lore.list', 'web.read'] });
+  assert.ok(!userText(bare.llm.calls[0][1].content).includes('message.create'), 'not granted: not listed');
+});
+
 test('inner turn, shadow: the tags are only proposed, as a message.create call is', async () => {
   const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'] });
   assert.deepEqual(run.sends, []);
