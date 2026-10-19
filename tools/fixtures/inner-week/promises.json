@@ -30,6 +30,8 @@
     { "kind": "analyzer", "at": "1 13:00", "channel": "c-general", "candidates": [{ "span": "finish the puzzle book by Saturday", "purpose": "finish the puzzle book by Saturday" }] },
     { "kind": "message", "at": "1 14:00", "channel": "c-general", "author": "Ivo", "text": "I am on the last chapter of that mystery book, finally", "addressed": true },
     { "kind": "self", "at": "1 14:01", "channel": "c-general", "text": "no spoilers now, I will ask you how it ended tomorrow afternoon" },
+    { "kind": "message", "at": "1 15:30", "channel": "c-games", "author": "Ivo", "text": "which map do you play these days?", "addressed": true },
+    { "kind": "self", "at": "1 15:31", "channel": "c-games", "text": "the island map, the link is https://example.org/maps/island" },
     { "kind": "message", "at": "1 16:00", "channel": "c-games", "author": "Sanne", "text": "can you send me that map you mentioned?", "addressed": true },
     { "kind": "self", "at": "1 16:01", "channel": "c-games", "text": "sure, I will send you the map link on Wednesday evening" },
     { "kind": "message", "at": "1 18:00", "channel": "c-general", "author": "Sanne", "text": "could you announce the game night in announcements on Friday evening?", "addressed": true },
