@@ -1954,8 +1954,9 @@ export function createTurnRunner({
    * (`inner-post-cap`), and an errand (`task.run`) is let through only when its most possible cost
    * can be held against the day's dollars (`reserveErrand`, asked now: `inner-usd-cap` otherwise;
    * `hold` names the hold, bound to the errand or released once the call answered).
-   * `public` says whether a call that runs is a public post.
-   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean, hold?: string }|null}
+   * `public` says whether a call that runs is a public post; `delivery` marks a post to one of `inner.deliveryChannels`
+   * (a promise kept to the channel that asked): exempt from the cap and not counted.
+   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean, delivery?: true, hold?: string }|null}
    */
   function innerVerdict(inner, skill, { channel, args, key = null }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
@@ -1965,6 +1966,10 @@ export function createTurnRunner({
     if (inner.shadow) return { proposed: true };
     if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
     const isPublic = POSTING_SKILLS.includes(skill) && (Boolean(channel.guild) || typeof args?.channel === 'string');
+    // A promised delivery (an intention set in an addressed turn, due now) to the channel that asked is no initiative: the cap neither refuses nor counts it.
+    const target = typeof args?.channel === 'string' && args.channel ? args.channel : channel?.id != null ? String(channel.id) : null;
+    const delivery = isPublic && target !== null && inner.deliveryChannels instanceof Set && inner.deliveryChannels.has(target);
+    if (delivery) return { public: false, delivery: true };
     if (isPublic && typeof inner.postAllowed === 'function' && !inner.postAllowed()) return { refusal: { code: 'inner-post-cap', reason: 'innerLife.caps.publicPostsPerDay' } };
     // An errand's most possible cost held from its dispatch (an agent-less call is the operation's to refuse).
     if (skill === 'task.run' && typeof inner.reserveErrand === 'function' && typeof args?.agent === 'string' && args.agent) {
@@ -2041,7 +2046,7 @@ export function createTurnRunner({
       // an intent.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
       const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
-      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
+      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}), ...(innerGate?.delivery && ran ? { delivery: true } : {}) });
       if (named) (draft.innerIntentIds ??= new Set()).add(named);
       // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
@@ -5196,7 +5201,7 @@ export function createTurnRunner({
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
-   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean,
+   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean, deliveryChannels?: Set<string>,
    *   onPosted?: () => void, spendAllowed?: () => boolean, reserveErrand?: Function, bindErrand?: Function,
    *   releaseErrand?: Function }|null} [params.inner]  An inner turn (src/behavior/inner.js,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
@@ -5596,7 +5601,7 @@ export function createTurnRunner({
       selfName,
       thinks: Array.isArray(draft.innerThinks) ? [...draft.innerThinks] : [],
       findings: findings.map((finding) => ({ ...finding })),
-      actions: (draft.innerActions ?? []).filter((action) => registry.get(action.skill)?.effects !== 'read').map((action) => ({ skill: action.skill, status: action.status })),
+      actions: (draft.innerActions ?? []).filter((action) => registry.get(action.skill)?.effects !== 'read').map((action) => ({ skill: action.skill, status: action.status, ...(action.delivery ? { delivery: true } : {}) })),
     };
   }
 

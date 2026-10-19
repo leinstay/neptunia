@@ -169,6 +169,28 @@ test('inner: a due intention is one wake through the door and one inner turn; th
   assert.equal(run.turns.calls.length, 2);
 });
 
+test('inner: the turn gets the channel that asked as a delivery channel only for an intention someone else set; the feedback wake carries it on', async () => {
+  const asked = { ...intention('i1', { purpose: 'send the cats' }), provenance: { kind: 'self', channelId: 'c1', scope: 'group', participants: ['u1'] } };
+  const alone = { ...intention('i2', { channelId: 'c2' }), provenance: { kind: 'self', channelId: 'c2', scope: 'group', participants: [] } };
+  const first = setup({ records: [asked] });
+  await first.inner.tick();
+  assert.deepEqual([...first.turns.calls[0].inner.deliveryChannels], ['c1']);
+  assert.deepEqual(first.turns.calls[0].inner.wake.delivery, ['chan-c1']);
+  const second = setup({ records: [alone] });
+  await second.inner.tick();
+  assert.equal(second.turns.calls[0].inner.deliveryChannels.size, 0);
+  assert.equal(second.turns.calls[0].inner.wake.delivery, undefined);
+  // The feedback turn of the asked intention keeps the delivery channel.
+  const episode = { turnId: 't-1', shadow: false, channelId: 'c1', findings: [], actions: [] };
+  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
+  const again = setup({ records: [{ ...asked }], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
+  await again.inner.tick();
+  clock.t = NOW + MINUTE_MS;
+  await again.inner.tick();
+  assert.deepEqual([...again.turns.calls[1].inner.deliveryChannels], ['c1']);
+  assert.equal(again.turns.calls[1].inner.wake.kind, 'feedback');
+});
+
 test('inner: wakes of one conversation and the day\'s review coalesce into one turn; another conversation waits for its own', async () => {
   const run = setup({ records: [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c2' }), intention('i3', { dueAt: NOW - MINUTE_MS })] });
   run.turns.busy = true;

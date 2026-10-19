@@ -272,6 +272,34 @@ test('inner turn, live: a public post past the day\'s cap is refused; a read sti
   assert.equal(run.result.inner.actions[1].code, 'inner-post-cap');
 });
 
+test('inner turn, live: a post to the channel that asked is a delivery: past the cap, executed, not counted, the GIF goes with it', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<call skill="message.create" gif="g1">νιάου</call>', '<skip/>'], shadow: false, gifs, gate: { postAllowed: () => false, deliveryChannels: new Set(['c1']) } });
+  assert.equal(run.sends.length, 2, 'the text and its GIF');
+  assert.ok(JSON.stringify(run.sends).includes('νιάου'));
+  assert.ok(JSON.stringify(run.sends).includes('tenor.example/cat'));
+  assert.equal(run.posted.length, 0, 'a delivery is not counted against the cap');
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.delivery === true}`), ['message.create:executed:true']);
+});
+
+test('inner turn, live: a post to another channel than the one that asked, or with no asker on record, is a public post as before', async () => {
+  const other = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false, gate: { postAllowed: () => false, deliveryChannels: new Set(['c9']) } });
+  assert.deepEqual(other.sends, []);
+  assert.equal(other.result.inner.actions[0].code, 'inner-post-cap');
+  assert.equal(other.result.inner.actions[0].delivery, undefined);
+  const none = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false, gate: { postAllowed: () => false, deliveryChannels: new Set() } });
+  assert.deepEqual(none.sends, []);
+  assert.equal(none.result.inner.actions[0].code, 'inner-post-cap');
+});
+
+test('wakeBlockText: the delivery sentence joins the posts line only on a wake with delivery channels', () => {
+  const plain = wakeBlockText(WAKE, labels).split('\n');
+  assert.ok(plain.some((line) => line.startsWith('posts 2/2 until ') && !line.includes('delivery')), plain.join('\n'));
+  const lines = wakeBlockText({ ...WAKE, delivery: ['general'] }, labels).split('\n');
+  assert.ok(lines.some((line) => line.startsWith('posts 2/2 until ') && line.endsWith(' delivery to #general does not count')), lines.join('\n'));
+  assert.equal(wakeBlockText({ ...WAKE, delivery: ['general'] }, { ...labels, wake: { ...labels.wake, budget: { ...labels.wake.budget, postsDelivery: undefined } } }).includes('delivery'), false);
+});
+
 test('inner turn: an ordinary reply\'s request is the same with the inner life on or off', async () => {
   const requestOf = async (innerLife) => {
     const history = [rawMessage({ id: 'm1', content: 'γεια' })];

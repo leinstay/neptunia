@@ -175,7 +175,11 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     const entry = budgets[key];
     const template = l.budget?.[key];
     if (!entry || typeof template !== 'string' || !template) return '';
-    return fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
+    const line = fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
+    // A promise kept to the channel that asked is no initiative: the posts line says it does not count.
+    const names = key === 'posts' && Array.isArray(wake.delivery) ? wake.delivery.filter(Boolean).map((name) => `#${name}`) : [];
+    const extra = names.length > 0 ? part(l.budget, 'postsDelivery', { channel: names.join(', ') }) : '';
+    return extra ? `${line} ${extra}` : line;
   }).filter(Boolean);
   if (budgetLines.length > 0) {
     if (typeof l.budgets === 'string' && l.budgets) lines.push(l.budgets);

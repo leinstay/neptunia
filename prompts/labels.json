@@ -542,7 +542,8 @@
       "hour": "inner turns this hour: {left} remaining of {cap}",
       "chain": "turns for this thread: {left} remaining of {cap}",
       "usd": "dollars today: {left} remaining of {cap} (resets {reset})",
-      "posts": "public posts today: {left} remaining of {cap} (resets {reset})"
+      "posts": "public posts today: {left} remaining of {cap} (resets {reset})",
+      "postsDelivery": "a delivery of this intention to {channel} does not count"
     }
   },
   "journal": {

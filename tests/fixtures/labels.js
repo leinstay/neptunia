@@ -556,6 +556,6 @@ export const labels = {
     placeAttended: ' *',
     placesMore: '+{more}',
     budgets: 'budgets:',
-    budget: { day: 'day {left}/{cap} until {reset}', hour: 'hour {left}/{cap} until {reset}', chain: 'chain {left}/{cap}', usd: 'usd {left}/{cap} until {reset}', posts: 'posts {left}/{cap} until {reset}' },
+    budget: { day: 'day {left}/{cap} until {reset}', hour: 'hour {left}/{cap} until {reset}', chain: 'chain {left}/{cap}', usd: 'usd {left}/{cap} until {reset}', posts: 'posts {left}/{cap} until {reset}', postsDelivery: 'delivery to {channel} does not count' },
   },
 };
