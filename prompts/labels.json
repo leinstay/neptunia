@@ -509,7 +509,7 @@
       "intention_due": "Intention {id} is due: {purpose}",
       "review": "Your daily review: look over your intentions and what you have been doing.",
       "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
-      "attend": "People are talking in #{place}, a place you chose to listen to (intention {id}: {purpose}): {lines} new lines since you last looked there ({since}), by {people}. Joining is your choice."
+      "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice."
     },
     "now": "Now: {now}",
     "channels": "You were active lately in: {channels}",
