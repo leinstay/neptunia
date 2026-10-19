@@ -2568,6 +2568,8 @@ export function createTurnRunner({
     let made = 0;
     // The failed results of the latest calls (they were not shown back to her when the step after them failed).
     let latestFailed = [];
+    // The inner actions of the calls just run: marked `presented` once a request that showed their results completed.
+    let ranActions = [];
     // The open follow-up due (an inner turn's, after a post with woken intentions still unnamed) and whether the turn had its one.
     let openDue = false;
     let openTaken = false;
@@ -2581,7 +2583,9 @@ export function createTurnRunner({
       if (pending && pending.plans.length > 0) {
         const leftMs = settings.timeBudgetMs - (clock() - startedAt);
         const callTimeoutMs = Math.min(callTimeoutCap, Math.max(LOOP_MIN_CALL_MS, leftMs));
+        const actionsBefore = draft?.innerActions?.length ?? 0;
         const results = await runCalls(pending.plans, { ...pending.context, timeoutMs: callTimeoutMs });
+        ranActions = draft?.innerActions?.slice(actionsBefore) ?? [];
         made += results.length;
         const terminal = pending.terminal === true;
         pending = null;
@@ -2627,6 +2631,7 @@ export function createTurnRunner({
       }
       // The step after a failed call did not come: she never read how it went, so it is a fact (an inner turn's actions already are).
       if ((!answer || answer.cutOff) && !inner && draft) (draft.unseenFailed ??= []).push(...latestFailed.map((result) => ({ kind: 'callFailed', skill: result.skill, status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed', code: typeof result.code === 'string' && result.code ? result.code : null, ...callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) })));
+      if (answer) for (const action of ranActions) action.presented = true;
       if (!answer) break;
       if (answer.cutOff) {
         cutOff = true;

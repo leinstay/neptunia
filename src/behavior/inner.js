@@ -141,7 +141,7 @@ export const FACTS_SHOWN_MAX = 12;
  * What did not go through in one inner turn, from its result (src/behavior/turn.js's
  * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
  * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call whose status was not `ok`
- * (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the
+ * and not `presented` in a later step of the turn (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the
  * operation's own `text` when it said one; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intent.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
@@ -162,7 +162,8 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
   };
   for (const action of actions) {
     if (!action || typeof action.skill !== 'string') continue;
-    if (action.status === 'proposed') continue;
+    // A call whose result a later step of the turn showed her is told already.
+    if (action.status === 'proposed' || action.presented === true) continue;
     const refused = action.status === 'refused';
     const result = typeof action.result === 'string' ? action.result : 'ok';
     if (!refused && result === 'ok') continue;

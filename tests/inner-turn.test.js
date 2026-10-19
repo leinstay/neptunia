@@ -600,7 +600,13 @@ test('inner turn: the result carries the loop\'s end state, a refused post as th
   // A refused post (no current channel) is an action the episode and the feedback facts carry.
   const refused = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { currentChannel: null } });
   assert.deepEqual(refused.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:destination-required']);
-  assert.deepEqual(feedbackFacts(refused.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
+  assert.equal(refused.result.inner.actions[0].presented, true, 'a step followed: she read the refusal');
+  assert.deepEqual(feedbackFacts(refused.result).filter((fact) => fact.kind === 'callFailed'), [], 'told in the turn: no fact');
+  // The same refusal on the last step has no step after it: it is a fact.
+  const last = await innerTurn({ answers: ['<call skill="lore.list"/>', '<msg>γεια σας</msg>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, gate: { currentChannel: null } });
+  assert.equal(last.llm.calls.length, 2, 'nothing follows the terminal call');
+  assert.equal(last.result.inner.actions.at(-1).presented, undefined);
+  assert.deepEqual(feedbackFacts(last.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
   assert.ok(refused.result.inner.episode, 'a turn with a refused post has an episode for the feedback facts to ride');
   // No loop at all: zeros.
   const silent = await innerTurn({ answers: ['<skip/>'] });
@@ -704,7 +710,9 @@ test('inner turn, live: a call that did not work carries the operation\'s own wo
   const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες τον πίνακα</call>', '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true, errandConfigured: false });
   const [action] = run.result.inner.actions;
   assert.notEqual(action.result, 'ok');
-  const [fact] = feedbackFacts(run.result);
+  assert.equal(action.presented, true);
+  assert.deepEqual(feedbackFacts(run.result), [], 'her next step showed the outcome: no fact');
+  const [fact] = feedbackFacts({ inner: { actions: [{ ...action, presented: undefined }] } });
   assert.equal(fact.kind, 'callFailed');
   assert.equal(fact.skill, 'task.run');
   assert.equal(fact.status, ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown', 'timeout', 'refused'].includes(action.result) ? action.result : 'failed');
