@@ -79,6 +79,20 @@ The owner's `/nep status` `inner` field adds her attention today: attentions ope
 
 The old authors of unasked turns (`features.spontaneous`, `features.eavesdrop`, the room scheduling) are retired in a later step, after a shadow comparison beside the attention wakes.
 
+## When a provider call fails
+
+When an inner turn ends `error` because the LLM provider refused the request or timed out, the engine does not drop the wakes. It puts them back in the queue after a delay and tries again.
+
+Three error codes are retried: `provider-limit` (the provider returned 429 for a daily or rate limit), `provider-error` (any other 4xx or 5xx from the provider) and `timeout`. Every other error code drops the wakes as before.
+
+The delays are in `innerLife.retry.delaysMinutes` (default `[1, 5, 15, 60]`): the first failure waits 1 minute, the second 5, the third 15, and every later one 60 minutes. Retries continue as long as the first failure of that group is younger than `innerLife.retry.maxHours` (default 6) hours. Once that window passes, the wakes are dropped with the code `provider` and reach her as the existing `wakeDropped` fact at her next turn.
+
+On a retried run that succeeds, each wake in `<wake>` carries one `labels.wake.delayed` line after its kind line (`{minutes}` since it was originally due, `{code}`): a fact that the wake came late because a provider call failed, nothing more.
+
+A failed attempt does not count against the day and hour caps. A retried wake group is never coalesced with a fresh wake of another chain.
+
+The journal's `inner` record of a failed turn carries `error: { code }`, and a retry is journalled as its own `retry` event with the attempt number and the next try's time.
+
 ## Bounds
 
 Code enforces them; she reads what is left as facts in `<wake>`. Defaults (a ceiling, the owner's word):
