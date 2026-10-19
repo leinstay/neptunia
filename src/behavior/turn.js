@@ -2482,8 +2482,11 @@ export function createTurnRunner({
     if (calls.length > 0) {
       if (final) {
         // An inner turn's last step still takes one terminal action (its natural ending is a call).
-        const terminal = innerTurn ? (calls.find((call) => INNER_TERMINAL_SKILLS.includes(call?.skill)) ?? null) : null;
-        const dropped = calls.length - (terminal ? 1 : 0);
+        // Her lowered tags are her speech and all run; the bound is on her explicit calls.
+        const tags = innerTurn ? calls.filter((call) => call?.lowered === true) : [];
+        const explicit = calls.filter((call) => !tags.includes(call));
+        const terminal = innerTurn ? (explicit.find((call) => INNER_TERMINAL_SKILLS.includes(call?.skill)) ?? null) : null;
+        const dropped = explicit.length - (terminal ? 1 : 0);
         if (dropped > 0) {
           const capReason = continued ? reason : 'no-continuation';
           log.info('skills: loop cap', { channel: channel.id, reason: capReason, step, dropped });
@@ -2491,7 +2494,7 @@ export function createTurnRunner({
           // An inner turn's result says how its loop ended (toolLoop's `draft.innerLoop`).
           if (draft) draft.loopCut = { reason: capReason, dropped: (draft.loopCut?.dropped ?? 0) + dropped };
         }
-        if (terminal) next = { ...(await planNext([terminal], routing)), terminal: true };
+        if (terminal || tags.length > 0) next = { ...(await planNext([...tags, ...(terminal ? [terminal] : [])], routing)), terminal: true };
       } else {
         next = await planNext(calls, routing);
       }
@@ -6681,7 +6684,8 @@ export function createTurnRunner({
         // her own calls, in the order an addressed turn acts in (src/behavior/inner-output.js).
         if (draft.inner) {
           const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
-          const lowered = innerOutputCalls(parsed, { current: current ? String(current) : null, turnChannel: String(channel.id) });
+          // Marked as tags: the last loop step runs every one of them (loopStep); only her explicit calls are bounded there.
+          const lowered = innerOutputCalls(parsed, { current: current ? String(current) : null, turnChannel: String(channel.id) }).map((call) => ({ ...call, lowered: true }));
           parsed.calls = [...lowered, ...(Array.isArray(parsed.calls) ? parsed.calls : [])];
           parsed.call = parsed.calls[0] ?? null;
           if (lowered.length > 0) log.info('turn: inner output lowered', { channel: channel.id, calls: lowered.length });

@@ -651,6 +651,16 @@ test('inner turn, open follow-up: once per turn; none when her post named the in
   assert.equal(beside.result.inner.openFollowUp, undefined);
 });
 
+test('inner turn, last step: her tags all run, in order, beside the one terminal call; of two explicit calls only the first runs', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<call skill="lore.list"/>', '<msg>πρώτο</msg><gif>g1</gif><call skill="message.create">τρίτο</call>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, gifs });
+  assert.deepEqual(run.sends.map((send) => send.text), ['πρώτο', 'https://tenor.example/cat', 'τρίτο']);
+  assert.equal(run.logs.find((l) => l.msg === 'skills: loop cap'), undefined, 'nothing she wrote as a tag is counted as cut');
+  const two = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="message.create">ένα</call><call skill="message.create">δύο</call>', '<skip/>'], shadow: false, loop: { maxSteps: 1 } });
+  assert.deepEqual(two.sends.map((send) => send.text), ['ένα']);
+  assert.equal(two.logs.find((l) => l.msg === 'skills: loop cap')?.dropped, 1);
+});
+
 test('inner turn, open follow-up: on the last step the open line comes with continueInnerLast, and the intention change still runs', async () => {
   const run = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call>', '<call skill="intent.update" id="i1" state="done"/>', '<skip/>'], loop: { maxSteps: 1 }, allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
   assert.equal(run.llm.calls.length, 2, 'the extra step is the last one; its terminal action ends the turn');
