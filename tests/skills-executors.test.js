@@ -255,6 +255,15 @@ test('resolveCall: an intention body reads its option lines; a post body stays a
   assert.equal(post.args.text, 'see you\nchannel: #c2003', 'a post keeps such a line');
 });
 
+test('resolveCall: option lines at the head of a post body are its options; the first ordinary line starts the text', () => {
+  const led = resolve('message.create', {}, 'channel=#Νέα\ntext=https://example.com/cats\ncats with delivery');
+  assert.equal(led.ok, true);
+  assert.deepEqual([led.args.channel, led.args.text], [NEWS, 'https://example.com/cats\ncats with delivery']);
+  const plain = resolve('message.create', {}, 'see you\nchannel: #Νέα');
+  assert.equal(plain.args.text, 'see you\nchannel: #Νέα', 'a line after the text stays text');
+  assert.equal(resolve('message.create', {}, 'channel=#Νέα\nchannel=#Νέα\nhi').reason, 'args.channel:twice');
+});
+
 test('resolveCall: a post keeps `name: value` lines in its text', () => {
   const body = 'Καλημέρα\nchannel: #Νέα\nterms: a';
   assert.deepEqual(resolve('message.create', {}, body).args, { text: body });

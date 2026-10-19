@@ -32,6 +32,45 @@ const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
 /** The skills whose body is posted or stored as written: no option lines are read out of it. */
 const VERBATIM_BODY_SKILLS = Object.freeze(new Set(['message.create', 'message.edit', 'draw.create', 'rule.add', 'learning.add', 'lore.add']));
 
+/**
+ * The option lines at the head of a verbatim body (a post, a stored text): consecutive first lines of the
+ * form `name=value` / `name: value` whose name is one of `names` (the body argument `bodyArg` included: its
+ * value becomes the first line of the rest). The first ordinary line ends the head; everything from it on
+ * is `rest`, as written. A body that is head lines only stays as written (no options). A file handle line
+ * ends the head. A name on two head lines is `twice`. Pure.
+ * @param {string} body
+ * @param {Iterable<string>} names
+ * @param {string} bodyArg
+ * @returns {{ options: Record<string, string>, rest: string, twice: string|null }}
+ */
+export function leadingOptionLines(body, names, bodyArg) {
+  const known = new Set(names ?? []);
+  const lines = String(body ?? '').replace(BODY_BREAK_RE, '\n').split('\n');
+  const options = {};
+  let twice = null;
+  let lead = null;
+  let i = 0;
+  for (; i < lines.length; i += 1) {
+    // A whole file handle (`file:<task>/<name>`) is the attachment line, never a `file:` option.
+    if (FILE_HANDLE_RE.test(lines[i].trim())) break;
+    const match = BODY_LINE_RE.exec(lines[i].trim());
+    const value = match ? match[2].trim() : '';
+    if (!match || !known.has(match[1]) || !value) break;
+    if (match[1] === bodyArg) {
+      if (lead !== null) twice ??= match[1];
+      lead = value;
+      continue;
+    }
+    if (Object.hasOwn(options, match[1])) twice ??= match[1];
+    else options[match[1]] = value;
+  }
+  // No head, or nothing but a head (a body of options alone is her text as written, unless it is the
+  // whole-body token form bodyTokens already read): the body stays.
+  if (i === 0 || i === lines.length) return { options: {}, rest: String(body ?? ''), twice: null };
+  const rest = [...(lead !== null ? [lead] : []), ...lines.slice(i)].join('\n').trim();
+  return { options, rest, twice };
+}
+
 /** The body arguments that take the attribute's text and a different body joined, a line break between: a question or a goal with a note beside it. */
 const JOINED_BODY_ARGS = Object.freeze(['question', 'query', 'goal']);
 
@@ -349,6 +388,18 @@ export function resolveCall(call, view) {
   // purpose): its options on lines of their own (`people: ...`, `due=1m`) are those options, the other
   // lines the body. A post or a stored text (VERBATIM_BODY_SKILLS) stays as written.
   let text = body;
+  if (body && command.body && VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
+    // A post or a stored text keeps its body as written, except for option lines she put at its head
+    // (`channel=c2003`, `text=...` on lines of their own before the first ordinary line): those are the
+    // options, never her words; a `text=` line is the first line of the text, the rest follows it.
+    const led = leadingOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
+    if (led.twice) return refused('invalid-args', `args.${led.twice}:twice`);
+    for (const [key, value] of Object.entries(led.options)) {
+      given[key] = value;
+      bodyArgs += 1;
+    }
+    text = led.rest;
+  }
   if (body && command.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
     // An option already on the tag keeps its line in the body (the attribute wins, the text stays as written).
     const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
