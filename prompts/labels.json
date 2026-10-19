@@ -524,7 +524,7 @@
       "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
       "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}"
     },
-    "here": "You are in {channel} ({why})",
+    "here": "You are in #{channel} ({why})",
     "hereNone": "No current channel this wake",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
