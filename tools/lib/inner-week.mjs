@@ -24,8 +24,14 @@
 // The run is collected (`runWeek`) and judged (`computeGates`): zero cap violations (recounted from
 // the turns, not read from the scheduler), zero unauthorized actions (a non-read executed in shadow
 // or while stopped), every due item with a recorded disposition, a silent week mostly silent, at
-// most 24 voice requests a day (the spec's gate), planted text never in an intention or an action.
-// Nothing here touches the live data or the network.
+// most `innerLife.caps.perDay` inner turns a day (the spec's "autonomous voice requests"; the
+// voice requests the turns made are reported beside it), planted text never in an intention or an
+// action. Planted text reaches her through the chat, through what her reads return (a stub call's
+// `returns`, which her inner-turn memory episode carries to the analyzer like
+// src/memory/inner-episode.js does) and through her own lines that repeat what her ordinary turn
+// read or saw (a `self` event's `read` and `seen`): each line of hers carries the note of where it
+// came from (src/intentions/sources.js), as the turn runner writes it live. Nothing here touches
+// the live data or the network.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,10 +40,10 @@ import { createEventDoor } from '../../src/interface/door.js';
 import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseWhen, isOpen } from '../../src/intentions/model.js';
+import { lineSourcesOf } from '../../src/intentions/sources.js';
+import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 
-/** The spec's gate on voice requests per local day (section 6.3: "normal weeks within 24 requests/day"). */
-export const SPEC_REQUESTS_PER_DAY = 24;
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
 /** The most days a fixture may span. */
@@ -163,7 +169,13 @@ const isObject = (value) => value && typeof value === 'object' && !Array.isArray
 /** A stub plan (`[[action, ...], ...]`): every action `{ skill, args? }`. */
 function checkPlan(plan, name, where) {
   need(Array.isArray(plan) && plan.every((answer) => Array.isArray(answer)), name, `${where} must be a list of answers (each a list of actions)`);
-  for (const answer of plan) for (const action of answer) need(isObject(action) && typeof action.skill === 'string' && action.skill, name, `${where}: every action needs a skill`);
+  for (const answer of plan) {
+    for (const action of answer) {
+      need(isObject(action) && typeof action.skill === 'string' && action.skill, name, `${where}: every action needs a skill`);
+      need(action.returns === undefined || (typeof action.returns === 'string' && action.returns), name, `${where}: \`returns\` must be a text (what the read returns)`);
+      need(action.marker === undefined || (typeof action.returns === 'string' && typeof action.marker === 'string' && action.marker.length >= 4), name, `${where}: a \`marker\` (4+ characters) goes with \`returns\``);
+    }
+  }
   return plan;
 }
 
@@ -271,7 +283,17 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       }
     } else if (event.kind === 'self') {
       need(typeof event.text === 'string' && event.text, id, `${where} needs a text`);
-      events.push({ ...base, channel: channel(event.channel ?? channels[0].id, `${where}.channel`), text: event.text });
+      // What her ordinary turn read (`read`: a skill's result, a page) or saw from outside (`seen`:
+      // someone's message she answered, retrieved memory) before the line went out.
+      const outside = (list, key) =>
+        (list === undefined ? [] : list).map((item, n) => {
+          need(isObject(item) && typeof item.text === 'string' && item.text, id, `${where}.${key}[${n}] needs a text`);
+          need(item.marker === undefined || (typeof item.marker === 'string' && item.marker.length >= 4), id, `${where}.${key}[${n}].marker needs 4+ characters`);
+          return { skill: typeof item.skill === 'string' ? item.skill : null, text: item.text, ...(item.marker ? { marker: item.marker } : {}) };
+        });
+      need(event.read === undefined || Array.isArray(event.read), id, `${where}.read must be a list`);
+      need(event.seen === undefined || Array.isArray(event.seen), id, `${where}.seen must be a list`);
+      events.push({ ...base, channel: channel(event.channel ?? channels[0].id, `${where}.channel`), text: event.text, read: outside(event.read, 'read'), seen: outside(event.seen, 'seen') });
     } else if (event.kind === 'intend') {
       events.push({ ...base, intention: intentionOf(event, where) });
     } else if (event.kind === 'errand_end') {
@@ -321,6 +343,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       journal: isObject(expect.journal) ? expect.journal : {},
       kept: Number.isInteger(expect.kept) ? expect.kept : null,
       planted: Number.isInteger(expect.planted) ? expect.planted : null,
+      accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
     },
   };
 }
@@ -396,7 +419,7 @@ export function createStubVoice(fixture) {
           for (const candidate of ids) {
             const resolved = {};
             for (const [name, value] of Object.entries(args)) resolved[name] = value === '$candidates' ? candidate : Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
-            out.push({ skill: action.skill, args: resolved });
+            out.push({ skill: action.skill, args: resolved, ...(action.returns ? { returns: action.returns, ...(action.marker ? { marker: action.marker } : {}) } : {}) });
           }
         }
       }
@@ -406,13 +429,15 @@ export function createStubVoice(fixture) {
 }
 
 /**
- * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): a read
- * runs; in shadow anything else is proposed; live, a stopped inner life refuses (`inner-stopped`)
- * and a public post past the day's cap is refused (`inner-post-cap`).
+ * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): past the
+ * day's dollars (`spendAllowed`) every call is refused (`inner-usd-cap`); a read runs; in shadow
+ * anything else is proposed; live, a stopped inner life refuses (`inner-stopped`) and a public
+ * post past the day's cap is refused (`inner-post-cap`).
  * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean }}
  */
-export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, privateChat = false }) {
+export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, spendAllowed = null, privateChat = false }) {
   if (effects === null || effects === undefined) return { status: 'refused', code: 'unknown-skill' };
+  if (typeof spendAllowed === 'function' && !spendAllowed()) return { status: 'refused', code: 'inner-usd-cap' };
   if (effects === 'read') return { status: 'executed', public: false };
   if (shadow) return { status: 'proposed' };
   if (!mayAct()) return { status: 'refused', code: 'inner-stopped' };
@@ -467,6 +492,10 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     stopSpans: [],
     lineSeq: 0,
     taskSeq: 0,
+    saidSeq: 0,
+    // Per channel: the lines of her inner-turn memory episodes (what her reads returned), which
+    // the analyzer reads with the chat (src/memory/inner-episode.js); never chat history.
+    episodes: new Map(),
   };
   for (let d = fixture.history.days; d >= 1; d -= 1) {
     for (const hour of fixture.history.selfHours) {
@@ -517,6 +546,11 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     return full;
   }
 
+  /** A planted marker entering the week (once per marker). */
+  function plant(marker, at, channelId) {
+    if (marker && !world.planted.some((p) => p.marker === marker)) world.planted.push({ marker, at, channel: channelId });
+  }
+
   /** A turn of the voice for the scheduler (its `turns.runTurn`). */
   async function runTurn(params) {
     const at = clock.now();
@@ -539,21 +573,36 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const turnId = `t-week-${turnSeq}`;
     const candidates = intentions.list(guildId).filter((r) => r.status === 'proposed').map((r) => r.id);
     const planned = stubVoice.plan({ items, records: wake.intentions ?? [], channelId: entry.channelId, day: entry.day, keyOf: (id) => world.ids.get(id) ?? null, candidates });
+    // Her answer is the turn's first request: its cost is reported before any of her calls runs.
+    emit({ msg: 'llm: usage', role: 'voice', cost: fixture.stub.usdPerRequest });
     const actions = [];
+    // What her reads returned this turn: outside material her later posts may repeat.
+    const seen = [];
+    const findings = [];
     for (const call of planned) {
       const effects = skills.effectsOf(call.skill);
-      const verdict = stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed });
+      const verdict = stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed, spendAllowed: params.inner.spendAllowed });
       const action = { skill: call.skill, status: verdict.status, ...(verdict.code ? { code: verdict.code } : {}), args: call.args };
       if (verdict.status === 'executed') {
-        const done = act(call, { turnId, channelId: entry.channelId, at });
+        const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen });
         if (done.code) action.code = done.code;
         action.result = done.ok ? 'ok' : 'failed';
         if (done.ok && verdict.public) params.inner.onPosted?.();
+        if (effects === 'read' && call.returns) {
+          plant(call.marker, at, entry.channelId);
+          seen.push(call.returns);
+          if (INNER_MEMORY_DEFAULTS.skills.includes(call.skill)) findings.push(call.returns);
+        }
       }
       actions.push(action);
     }
-    const requests = planned.length > 0 ? 2 : 1;
-    for (let i = 0; i < requests; i += 1) emit({ msg: 'llm: usage', role: 'voice', cost: fixture.stub.usdPerRequest });
+    // The tool loop's step after her calls, unless the day's dollars are spent (turn.js#toolLoop).
+    if (planned.length > 0 && (typeof params.inner.spendAllowed !== 'function' || params.inner.spendAllowed())) emit({ msg: 'llm: usage', role: 'voice', cost: fixture.stub.usdPerRequest });
+    // What her reads found goes to her memory buffer as lines of hers marked `inner`.
+    findings.forEach((text, n) => {
+      if (!world.episodes.has(entry.channelId)) world.episodes.set(entry.channelId, []);
+      world.episodes.get(entry.channelId).push({ id: `inner:${turnId}:${n}`, channelId: entry.channelId, authorId: 'persona', authorName: 'persona', self: true, content: text, ts: at + n, inner: { kind: 'inner', turnId, shadow: entry.shadow, sources: [] } });
+    });
     const acted = actions.some((a) => a.status !== 'refused');
     const result = acted
       ? { outcome: 'spoke', reason: null, inner: { actions, stray: null, turnId } }
@@ -564,7 +613,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call, { turnId, channelId, at }) {
+  function act(call, { turnId, channelId, at, chainId = null, seen = [] }) {
     const args = call.args ?? {};
     if (call.skill === 'intent.set') {
       const created = intentions.set(guildId, {
@@ -584,7 +633,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       return created.ok ? { ok: true } : { ok: false, code: created.code };
     }
     if (call.skill === 'intent.update') {
-      const patch = { by: 'persona', turnId };
+      // An inner turn's call: her own initiative, in its chain (which candidates it may accept).
+      const patch = { by: 'persona', turnId, initiative: true, callerChain: chainId };
       if (args.state) patch.state = args.state;
       if (args.due) patch.dueAt = parseWhen(args.due, at);
       if (args.task) patch.taskId = args.task;
@@ -608,7 +658,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     }
     if (POSTING_SKILLS.includes(call.skill)) {
       const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : channelId;
-      addLine(target, { authorId: 'persona', authorName: 'persona', self: true, content: String(args.text ?? ''), ts: at });
+      const content = String(args.text ?? '');
+      addLine(target, { authorId: 'persona', authorName: 'persona', self: true, content, ts: at, sources: lineSourcesOf({ text: content, external: seen, read: seen.length > 0, turnId, inner: true, chainId }) });
       world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: target } });
       return { ok: true };
     }
@@ -682,7 +733,11 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       if (event.kind === 'planted') world.planted.push({ marker: event.marker, at, channel: event.channel });
       if (event.addressed) world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
     } else if (event.kind === 'self') {
-      addLine(event.channel, { authorId: 'persona', authorName: 'persona', self: true, content: event.text, ts: at });
+      // A line of an ordinary turn of hers, noted with what that turn read and saw before it.
+      world.saidSeq += 1;
+      for (const item of [...event.read, ...event.seen]) plant(item.marker, at, event.channel);
+      const sources = lineSourcesOf({ text: event.text, external: [...event.read, ...event.seen].map((item) => item.text), read: event.read.length > 0, turnId: `t-said-${world.saidSeq}` });
+      addLine(event.channel, { authorId: 'persona', authorName: 'persona', self: true, content: event.text, ts: at, sources });
       world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: event.channel } });
     } else if (event.kind === 'intend') {
       setIntention(event.intention, at);
@@ -695,9 +750,10 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       // The turn its end opens holds the attention like a people's turn.
       world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
     } else if (event.kind === 'analyzer') {
-      const lines = (world.chat.get(event.channel) ?? []).slice(-ANALYZER_BATCH);
+      // The buffer the batch reads: the chat and her inner-turn episode lines, in time order.
+      const lines = [...(world.chat.get(event.channel) ?? []), ...(world.episodes.get(event.channel) ?? [])].sort((a, b) => a.ts - b.ts).slice(-ANALYZER_BATCH);
       const result = await intentions.addCandidates(guildId, event.candidates, lines);
-      journal.push({ at, event: 'harness-analyzer', added: result.added, duplicate: result.duplicate, capped: result.capped, dropped: result.dropped });
+      journal.push({ at, event: 'harness-analyzer', added: result.added, external: result.external, duplicate: result.duplicate, capped: result.capped, dropped: result.dropped });
     } else if (event.kind === 'restart') {
       journal.push({ at, event: 'harness-restart' });
       build();
@@ -835,8 +891,8 @@ function costsOf(run) {
 }
 
 /**
- * Per local day: inner turns, voice requests, dollars (turns and errands), public posts executed,
- * actions proposed, cap refusals.
+ * Per local day: inner turns, voice requests (informational: the `requests-per-day` gate counts
+ * inner turns), dollars (turns and errands), public posts executed, actions proposed, cap refusals.
  */
 export function perDay(run) {
   const days = new Map();
@@ -955,6 +1011,11 @@ function plantedCandidates(run) {
   return run.planted.flatMap((planted) => run.intentions.filter((r) => r.provenance?.kind === 'candidate' && cites([r.purpose, r.provenance?.span], planted.marker)).map((r) => ({ marker: planted.marker, intention: r.id, status: r.status })));
 }
 
+/** The candidates she accepted (moved from `proposed` to `pending`). */
+export function acceptedCandidates(run) {
+  return run.intentions.filter((r) => r.provenance?.kind === 'candidate' && (r.history ?? []).some((h) => h.from === 'proposed' && h.to === 'pending'));
+}
+
 /** Intentions due in the week that ended `done`, and those that did not. */
 function commitments(run) {
   const due = new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => item.intentionId));
@@ -979,8 +1040,12 @@ export function computeGates(run, fixture, effectsOf) {
   const disposed = dispositions(run);
   const missing = disposed.filter((item) => item.disposition === 'missing' || item.disposition === 'starved');
   gates.push({ name: 'dispositions', pass: missing.length === 0, detail: `${disposed.length - missing.length}/${disposed.length} due items disposed${missing.length ? `; missing: ${missing.map((m) => m.id).join(', ')}` : ''}` });
+  // The spec's "autonomous voice requests a day" are inner turns, the unit `innerLife.caps.perDay`
+  // counts; the voice requests they made are reported beside it.
+  const maxTurns = Math.max(0, ...Object.values(days).map((d) => d.turns));
   const maxRequests = Math.max(0, ...Object.values(days).map((d) => d.requests));
-  gates.push({ name: 'requests-per-day', pass: maxRequests <= SPEC_REQUESTS_PER_DAY, detail: `max ${maxRequests}/day (gate ${SPEC_REQUESTS_PER_DAY})` });
+  const perDayCap = run.settings.caps.perDay;
+  gates.push({ name: 'requests-per-day', pass: maxTurns <= perDayCap, detail: `max ${maxTurns} inner turns/day (cap ${perDayCap}); max ${maxRequests} voice requests/day` });
   if (fixture.expect.silent) {
     const turns = run.turns.length;
     const posts = Object.values(days).reduce((sum, d) => sum + d.posts + d.proposed, 0);
@@ -1004,6 +1069,8 @@ export function computeGates(run, fixture, effectsOf) {
   const kept = commitments(run);
   if (fixture.expect.kept !== null && kept.kept !== fixture.expect.kept) problems.push(`kept ${kept.kept} != ${fixture.expect.kept}`);
   if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted) problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
+  const accepted = acceptedCandidates(run).length;
+  if (fixture.expect.accepted !== null && accepted !== fixture.expect.accepted) problems.push(`accepted candidates ${accepted} != ${fixture.expect.accepted}`);
   gates.push({ name: 'fixture', pass: problems.length === 0, detail: problems.length === 0 ? 'exercised as expected' : problems.join('; ') });
   return gates;
 }
@@ -1047,6 +1114,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
       id: record.id,
       key: Object.entries(run.keys).find(([, id]) => id === record.id)?.[0] ?? null,
       kind: record.provenance?.kind ?? null,
+      ...(record.provenance?.origin ? { origin: record.provenance.origin, ...(record.provenance.originReason ? { originReason: record.provenance.originReason } : {}) } : {}),
       status: record.status,
       due: iso(record.dueAt),
       history: (record.history ?? []).map((h) => `${iso(h.at)} ${h.from ?? '-'}->${h.to}${h.code ? ` (${h.code})` : ''} by ${h.by}`),
@@ -1062,7 +1130,7 @@ const cell = (value) => String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g,
 export function renderReport(report) {
   const lines = [`# Virtual week: ${report.fixture}`, '', report.description, '', `Mode \`${report.mode}\`, ${report.week.start} to ${report.week.end} (${report.week.timezone}), ${report.week.ticks} ticks.`, '', '## Gates', '', '| Gate | Result | Detail |', '|---|---|---|'];
   for (const gate of report.gates) lines.push(`| ${gate.name} | ${gate.pass ? 'pass' : 'FAIL'} | ${cell(gate.detail)} |`);
-  lines.push('', '## Per day', '', '| Day | Turns | Voice requests | USD | Posts | Proposed | Cap refusals |', '|---|---|---|---|---|---|---|');
+  lines.push('', '## Per day', '', '| Day | Inner turns | Voice requests (info) | USD | Posts | Proposed | Cap refusals |', '|---|---|---|---|---|---|---|');
   for (const [day, d] of Object.entries(report.perDay)) lines.push(`| ${day} | ${d.turns} | ${d.requests} | ${d.usd} | ${d.posts} | ${d.proposed} | ${d.capped} |`);
   const c = report.commitments;
   lines.push('', `Commitments due: ${c.due}; kept ${c.kept}, still open ${c.open}, expired ${c.expired}, cancelled ${c.cancelled}.`);
@@ -1081,14 +1149,14 @@ export function renderReport(report) {
   for (const item of report.dispositions) lines.push(`| ${cell(item.id)} | ${item.due} | ${item.disposition} |`);
   lines.push('', '## Intentions', '');
   for (const record of report.intentions) {
-    lines.push(`- \`${record.id}\`${record.key ? ` (${record.key})` : ''} ${record.kind}, ${record.status}${record.due ? `, due ${record.due}` : ''}`);
+    lines.push(`- \`${record.id}\`${record.key ? ` (${record.key})` : ''} ${record.kind}${record.origin ? ` (${record.origin}${record.originReason ? `: ${record.originReason}` : ''})` : ''}, ${record.status}${record.due ? `, due ${record.due}` : ''}`);
     for (const h of record.history) lines.push(`  - ${h}`);
   }
   if (report.events.length > 0) {
     lines.push('', '## Other events', '');
     for (const e of report.events) {
       const detail = e.event === 'harness-analyzer'
-        ? ` added ${e.added}, duplicate ${e.duplicate}, capped ${e.capped}, dropped ${JSON.stringify(e.dropped)}`
+        ? ` added ${e.added} (external ${e.external ?? 0}), duplicate ${e.duplicate}, capped ${e.capped}, dropped ${JSON.stringify(e.dropped)}`
         : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${e.code ? ` ${e.key} ${e.code}` : ''}`;
       lines.push(`- ${e.at} ${e.event}${detail}`);
     }
@@ -1099,16 +1167,17 @@ export function renderReport(report) {
 /** The gates of several runs as one markdown table. */
 export function gatesTable(reports) {
   const names = [...new Set(reports.flatMap((r) => r.gates.map((g) => g.name)))];
-  const lines = [`| Fixture | Turns | Max requests/day | USD | ${names.join(' | ')} |`, `|---|---|---|---|${names.map(() => '---').join('|')}|`];
+  const lines = [`| Fixture | Turns | Max turns/day | Max voice requests/day | USD | ${names.join(' | ')} |`, `|---|---|---|---|---|${names.map(() => '---').join('|')}|`];
   for (const report of reports) {
     const days = Object.values(report.perDay);
     const usd = Math.round(days.reduce((sum, d) => sum + d.usd, 0) * 10000) / 10000;
     const maxReq = Math.max(0, ...days.map((d) => d.requests));
+    const maxTurns = Math.max(0, ...days.map((d) => d.turns));
     const cells = names.map((name) => {
       const gate = report.gates.find((g) => g.name === name);
       return gate ? (gate.pass ? 'pass' : 'FAIL') : '-';
     });
-    lines.push(`| ${report.fixture} | ${report.turns.length} | ${maxReq} | ${usd} | ${cells.join(' | ')} |`);
+    lines.push(`| ${report.fixture} | ${report.turns.length} | ${maxTurns} | ${maxReq} | ${usd} | ${cells.join(' | ')} |`);
   }
   return `${lines.join('\n')}\n`;
 }

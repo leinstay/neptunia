@@ -1,0 +1,25 @@
+{
+  "name": "expensive-turns",
+  "description": "Every inner turn costs well over the per-turn estimate (two requests at 0.20 USD against a 0.15 estimate) under a 1 USD day. After the first turn the reservation follows what turns really cost, so the third turn of the day is refused before it would push the day over, and waits for the next day.",
+  "start": "2026-11-02",
+  "days": 3,
+  "timezone": "UTC",
+  "seed": 113,
+  "innerLife": { "estimatedTurnUsd": 0.15, "review": { "enabled": false }, "caps": { "usdPerDay": 1 } },
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" },
+    { "id": "c-music", "name": "music" },
+    { "id": "c-art", "name": "art" }
+  ],
+  "history": { "selfHours": [12], "channel": "c-general" },
+  "stub": { "usdPerRequest": 0.2, "intention_due": [[{ "skill": "web.search", "args": { "q": "news" } }]] },
+  "intentions": [
+    { "key": "a", "purpose": "look up the tournament results", "channel": "c-games", "due": "1 09:00" },
+    { "key": "b", "purpose": "look up the new album", "channel": "c-music", "due": "1 10:00" },
+    { "key": "c", "purpose": "look up the art contest", "channel": "c-art", "due": "1 11:00" },
+    { "key": "d", "purpose": "look up the server event", "channel": "c-general", "due": "1 12:00" }
+  ],
+  "events": [],
+  "expect": { "capped": ["usd-per-day"], "turns": { "min": 4, "max": 4 } }
+}

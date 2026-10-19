@@ -150,7 +150,7 @@ const WAKE = {
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
  * the inner parameter (mayAct, postAllowed, onPosted).
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {} }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
   const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
@@ -160,7 +160,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers, { onCall });
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions });
   const posted = [];
   const inner = { wake: WAKE, shadow, mayAct: () => true, postAllowed: () => true, onPosted: () => posted.push(NOW), ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
@@ -316,4 +316,26 @@ test('inner turn: what her reads found, her thinks and her other calls come back
   assert.deepEqual(episode.actions, [{ skill: 'message.create', status: 'proposed' }], 'reads are findings, not actions');
   const silent = await innerTurn({ answers: ['<skip/>'] });
   assert.equal(silent.result.inner.episode, null, 'nothing found: no episode');
+});
+
+test('inner turn: once the day\'s dollars are spent her calls are refused (inner-usd-cap) and the loop makes no further request', async () => {
+  let spent = false;
+  const run = await innerTurn({ answers: ['<call skill="lore.list"/>', '<skip/>'], shadow: false, gate: { spendAllowed: () => !spent }, onCall: () => (spent = true) });
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['lore.list:refused:inner-usd-cap']);
+  assert.equal(run.llm.calls.length, 1, 'no step after the refusal');
+});
+
+test('inner turn, live: the line she posts is noted with its turn and chain, and as read when a read of the turn returned something first', async () => {
+  const notes = [];
+  const intentions = { noteLine: (id, sources) => notes.push({ id, ...sources }) };
+  const wake = { ...WAKE, chainId: 'chain:greet' };
+  await innerTurn({ answers: ['<call skill="message.create">καλημέρα σε όλους</call>'], shadow: false, gate: { wake }, intentions });
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].inner, true);
+  assert.equal(notes[0].chainId, 'chain:greet');
+  assert.equal(notes[0].read, undefined, 'nothing read before it');
+  notes.length = 0;
+  await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="message.create">καλημέρα σε όλους</call>', '<skip/>'], shadow: false, gate: { wake }, intentions });
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].read, true);
 });

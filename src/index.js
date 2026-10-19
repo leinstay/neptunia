@@ -425,6 +425,8 @@ const memory = createMemoryUpdater({
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
   // features.intentions: the intention candidates a batch found in her own lines.
   onIntentionCandidates: (guildId, raw, messages) => intentions.addCandidates(guildId, raw, messages),
+  // Where her lines came from (src/intentions/sources.js), kept with them in the buffer.
+  lineSourcesOf: (messageId) => intentions.lineSources(messageId),
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
 const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });

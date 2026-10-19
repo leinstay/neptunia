@@ -12,12 +12,14 @@ import {
   capRefusal,
   chainBudget,
   coalesceGroup,
+  createCostMeter,
   createInnerLife,
   drawReviewAt,
   emptyState,
   hourWeights,
   innerSettings,
   reviewWake,
+  turnReserve,
   wakeOfDue,
 } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
@@ -91,7 +93,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null } = {}) {
   const journal = [];
   const intentions = fakeIntentions(records);
   let inner;
@@ -109,7 +111,7 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
     peopleWaiting,
-    meter: { run: async (fn) => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
+    meter: meter ?? { run: async (fn) => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
     rng,
     now: () => clock.t,
     onEpisode,
@@ -454,4 +456,78 @@ test('inner: what a turn did and found is handed to her memory, shadow or not; a
   const broken = setup({ records: [intention('i4')], turns: fakeTurns({ answer: () => ({ outcome: 'skip', inner: { actions: [], turnId: 't-2', episode } }) }), onEpisode: () => { throw new Error('boom'); } });
   const result = await broken.inner.tick();
   assert.equal(result.ran, true);
+});
+
+/** A real cost meter over its own listeners, and `emit` to log a line into it. */
+function ownMeter() {
+  const listeners = new Set();
+  const meter = createCostMeter({ subscribe: (fn) => (listeners.add(fn), () => listeners.delete(fn)) });
+  return { meter, emit: (entry) => listeners.forEach((fn) => fn(entry)) };
+}
+
+test('turnReserve: the estimate, or the costliest kept inner turn\'s real cost when more', () => {
+  const settings = innerSettings(hotWith().config);
+  assert.equal(turnReserve(emptyState(), settings), 0.15);
+  assert.equal(turnReserve({ ...emptyState(), turns: [{ at: NOW, usd: 0.1 }, { at: NOW, usd: 0.42 }, { at: NOW }] }, settings), 0.42);
+});
+
+test('createCostMeter: running() says what the run has cost so far and its costliest request; zeros outside it', async () => {
+  const { meter, emit } = ownMeter();
+  const seen = [];
+  const out = await meter.run(async () => {
+    emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
+    seen.push(meter.running());
+    emit({ msg: 'llm: usage', role: 'helper', upstreamCost: 0.05, cost: 9 });
+    seen.push(meter.running());
+  });
+  assert.deepEqual(seen, [{ usd: 0.2, peak: 0.2 }, { usd: 0.25, peak: 0.2 }]);
+  assert.deepEqual([out.usd, out.requests, out.voice], [0.25, 2, 1]);
+  assert.deepEqual(meter.running(), { usd: 0, peak: 0 });
+});
+
+test('inner: a turn that cost more than the estimate raises the next reservation; the day is refused before it goes over', async () => {
+  const { meter, emit } = ownMeter();
+  const turns = fakeTurns({
+    answer: () => {
+      emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
+      emit({ msg: 'llm: usage', role: 'voice', cost: 0.2 });
+      return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: `t-${turns.calls.length}` } };
+    },
+  });
+  const records = [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c2' }), intention('i3', { dueAt: NOW - MINUTE_MS, channelId: 'c3' })];
+  const run = setup({ records, turns, meter, hot: hotWith({ innerLife: { estimatedTurnUsd: 0.15, caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 1, publicPostsPerDay: 2 } } }) });
+  await run.inner.tick();
+  await run.inner.tick();
+  // 0.8 really spent: with the estimate alone (0.15) a third turn would run and end the day at 1.2.
+  assert.deepEqual((await run.inner.tick()).drained, { refused: 'usd-per-day' });
+  assert.equal(run.turns.calls.length, 2);
+  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.8);
+  await settle();
+  assert.deepEqual(run.journal.filter((r) => r.event === 'turn').map((r) => r.cost.reservedUsd), [0.15, 0.4]);
+  // The next day the real total starts again from nothing.
+  clock.t = NOW + DAY_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 3);
+});
+
+test('inner: inside a turn spendAllowed counts the day\'s real spend, the turn\'s so far and one more request as costly as its costliest', async () => {
+  const { meter, emit } = ownMeter();
+  const asked = [];
+  const turns = fakeTurns({
+    answer: (params) => {
+      asked.push(params.inner.spendAllowed());
+      emit({ msg: 'llm: usage', role: 'voice', cost: 0.3 });
+      asked.push(params.inner.spendAllowed());
+      emit({ msg: 'llm: usage', role: 'voice', cost: 0.3 });
+      asked.push(params.inner.spendAllowed());
+      return { outcome: 'spoke', inner: { actions: [], stray: null, turnId: `t-${turns.calls.length}` } };
+    },
+  });
+  const caps = { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 0.8, publicPostsPerDay: 2 };
+  const run = setup({ records: [intention('i1'), intention('i2', { channelId: 'c2' })], turns, meter, hot: hotWith({ innerLife: { estimatedTurnUsd: 0.15, caps } }) });
+  await run.inner.tick();
+  // Before anything 0; then 0.3 + 0.3 = 0.6; then 0.6 + 0.3 = 0.9 over 0.8: no further call or request.
+  assert.deepEqual(asked, [true, true, false]);
+  // The turn's real 0.6 counts: the next turn (reserving 0.6) is refused, not admitted on the estimate.
+  assert.deepEqual((await run.inner.tick()).drained, { refused: 'usd-per-day' });
 });

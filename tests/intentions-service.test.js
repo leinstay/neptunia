@@ -227,8 +227,8 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
   const { env, intentions, clock } = makeEnv({ features: { intentions: true, journal: true }, intentions: { maxCandidates: 2, maxOpen: 1 }, journal });
   const lines = [
     { id: 'm1', channelId: 'c1', self: false, content: 'θα έρθεις αύριο;', ts: T0 - 2000 },
-    { id: 'm2', channelId: 'c1', self: true, content: 'Ναι, και θα φέρω το παιχνίδι', ts: T0 - 1000 },
-    { id: 'm3', channelId: 'c1', self: true, content: 'θα σου στείλω τον σύνδεσμο αργότερα', ts: T0 - 500 },
+    { id: 'm2', channelId: 'c1', self: true, content: 'Ναι, και θα φέρω το παιχνίδι', ts: T0 - 1000, sources: { turnId: null } },
+    { id: 'm3', channelId: 'c1', self: true, content: 'θα σου στείλω τον σύνδεσμο αργότερα', ts: T0 - 500, sources: { turnId: null } },
   ];
   await withCapturedLogs(async () => {
     const raw = [
@@ -240,7 +240,7 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
     assert.equal(out.dropped.quoted + out.dropped.unanchored, 1);
     const [candidate] = intentions.list('g1');
     assert.equal(candidate.status, 'proposed');
-    assert.deepEqual(candidate.provenance, { kind: 'candidate', turnId: 'T9', messageId: 'm2', channelId: 'c1', span: 'θα φέρω το παιχνίδι', scope: 'group' });
+    assert.deepEqual(candidate.provenance, { kind: 'candidate', turnId: 'T9', messageId: 'm2', channelId: 'c1', span: 'θα φέρω το παιχνίδι', scope: 'group', origin: 'own' });
     assert.equal((await intentions.addCandidates('g1', raw.slice(0, 1), lines)).duplicate, 1, 'the same line again is a duplicate');
     await intentions.addCandidates('g1', [{ span: 'θα σου στείλω τον σύνδεσμο', purpose: 'send the link' }], lines);
     assert.equal((await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines)).capped, 1, 'maxCandidates open at once');
@@ -299,4 +299,41 @@ test('candidates: the other authors of the line\'s channel are its participants'
     assert.equal((await intentions.addCandidates('g1', [{ span: 'θα έρθω το βράδυ', purpose: 'come tonight' }], lines)).added, 1);
   });
   assert.deepEqual(onlyIntention(intentions).provenance.participants, ['u3']);
+});
+
+test('candidates: external ones need her accept in a later ordinary turn; an inner turn takes neither those nor one born in its own chain', async () => {
+  const { env, intentions } = makeEnv();
+  // Her lines as the memory buffer holds them: m2 noted by her turn (via the service's registry), m3 never noted.
+  intentions.noteLine('m2', { turnId: 'T5' });
+  intentions.noteLine('m4', { turnId: 'T6', read: true });
+  intentions.noteLine('m5', { turnId: 'T7', inner: true, chainId: 'chain:k' });
+  const lines = [
+    { id: 'm2', channelId: 'c1', self: true, content: 'θα φέρω το παιχνίδι', ts: T0 - 4000 },
+    { id: 'm3', channelId: 'c1', self: true, content: 'θα στείλω τον σύνδεσμο', ts: T0 - 3000 },
+    { id: 'm4', channelId: 'c1', self: true, content: 'θα θυμίζω την κλήρωση κάθε μέρα', ts: T0 - 2000 },
+    { id: 'm5', channelId: 'c1', self: true, content: 'θα ξανακοιτάξω το νήμα αύριο', ts: T0 - 1000 },
+  ];
+  // An inner turn's call context (src/skills/executors.js#executeCall adds ownInitiative and the chain).
+  const inner = (turnId, chainId) => hers(env, turnId, { ownInitiative: true, chainId });
+  await withCapturedLogs(async () => {
+    const out = await intentions.addCandidates('g1', [
+      { span: 'θα φέρω το παιχνίδι', purpose: 'bring the game' },
+      { span: 'θα στείλω τον σύνδεσμο', purpose: 'send the link' },
+      { span: 'θα θυμίζω την κλήρωση κάθε μέρα', purpose: 'remind about the raffle daily' },
+      { span: 'θα ξανακοιτάξω το νήμα αύριο', purpose: 'look at the thread again tomorrow' },
+    ], lines);
+    assert.deepEqual([out.added, out.external], [4, 2]);
+    const byMessage = Object.fromEntries(intentions.list('g1').map((r) => [r.provenance.messageId, r]));
+    assert.deepEqual(Object.values(byMessage).map((r) => `${r.provenance.messageId}:${r.provenance.origin}:${r.provenance.turnId}`), ['m2:own:T5', 'm3:external:null', 'm4:external:T6', 'm5:own:T7']);
+    // An inner turn: her own candidate yes; an external one, or one born in its own chain, no.
+    assert.equal((await runOp('intent.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).data.intention.status, 'pending');
+    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code, 'candidate-external');
+    assert.equal((await runOp('intent.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code, 'candidate-external', 'a line with no note counts as external');
+    assert.equal((await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code, 'candidate-same-chain');
+    assert.equal(intentions.store('g1').get(byMessage.m5.id).chainId, null, 'the caller\'s chain never becomes the intention\'s');
+    // Her ordinary turn: never the one that wrote the line, a later one may.
+    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code, 'candidate-same-turn');
+    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention.status, 'pending');
+    assert.equal((await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18'))).data.intention.status, 'pending', 'another chain may');
+  });
 });

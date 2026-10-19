@@ -15,7 +15,9 @@ import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { DAY_MS, HOUR_MS } from '../time.js';
 import { isToolTask, isOpenState } from '../errands/store.js';
+import { createLineSources } from './sources.js';
 import {
+  acceptRefusal,
   arrive,
   candidatesFromAnswer,
   createIntention,
@@ -45,12 +47,17 @@ const ACTIVE = Object.freeze(['pending', 'waiting']);
  * @param {{ store(guildId: string): ({ get(id: string): object|null }|null) }|null} [options.tasks]  The errand
  *   service (src/errands/service.js): the task store a wait is checked against.
  * @param {{ findTurn?: Function }|null} [options.journal]  Where a candidate's turn is looked up.
+ * @param {{ note: Function, get: Function }|null} [options.lineSources]  The notes of where her lines
+ *   came from (src/intentions/sources.js#createLineSources; one of its own by default): the turn
+ *   runner notes each line she posts (`noteLine`), the memory buffer takes the note with the line
+ *   (`lineSources`), and a candidate is judged by it (`addCandidates`, strict: a line of hers with
+ *   no note counts as external).
  * @param {() => string|null} [options.getGuildId]
  * @param {() => number} [options.now]
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createIntentionService({ stores, hot, tasks = null, journal = null, getGuildId = () => null, now = Date.now, uuid = randomUUID, log = defaultLog }) {
+export function createIntentionService({ stores, hot, tasks = null, journal = null, lineSources = createLineSources(), getGuildId = () => null, now = Date.now, uuid = randomUUID, log = defaultLog }) {
   function storeOf(guildId) {
     return stores.get(guildId || getGuildId?.() || '');
   }
@@ -163,6 +170,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
+   * `patch.initiative` (an inner turn's call), `patch.callerChain` (its chain) and `patch.turnId`
+   * decide whether a candidate may be accepted (model.js#acceptRefusal: `candidate-same-turn`,
+   * `candidate-external`, `candidate-same-chain`).
    */
   function update(guildId, id, patch = {}) {
     const store = storeOf(guildId);
@@ -171,6 +181,16 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!current || !visibleTo(current, patch)) return { ok: false, code: 'not-found' };
     if (!isOpen(current.status)) return { ok: false, code: 'terminal' };
     const by = patch.by ?? 'persona';
+    // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
+    // turn that wrote its line, and from an inner turn neither an external one nor one born in an
+    // inner turn of the same chain.
+    if (patch.state === 'pending' && current.status === 'proposed') {
+      const refused = acceptRefusal(current, { by, initiative: patch.initiative === true, chainId: patch.callerChain ?? null, turnId: patch.turnId ?? null });
+      if (refused) {
+        log.info('intentions: accept refused', { guildId: store.guildId, id: String(id), code: refused });
+        return { ok: false, code: refused };
+      }
+    }
     if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: 'cap-open' };
     const plan = patch.taskId || Number.isFinite(patch.deadline) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
     if (plan && !plan.ok) return plan;
@@ -357,16 +377,17 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * and filtered by the model (candidatesFromAnswer), each not repeating an open one, while the
    * open candidates stay under `intentions.maxCandidates`; each one's turn looked up in the journal
    * (`findTurn` of the line's message, null when unknown). With `features.intentions` off, nothing.
-   * Never throws; `{ added, duplicate, capped, dropped }`.
+   * Each carries its origin (model.js#candidatesFromAnswer over the line's note: the buffered
+   * line's `sources`, else `lineSources`; strict). Never throws; `{ added, external, duplicate, capped, dropped }`.
    */
   async function addCandidates(guildId, raw, messages) {
-    const out = { added: 0, duplicate: 0, capped: 0, dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 } };
+    const out = { added: 0, external: 0, duplicate: 0, capped: 0, dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 } };
     try {
       if (!intentionsOn(hot.config) || !Array.isArray(raw) || raw.length === 0) return out;
       const store = storeOf(guildId);
       if (!store) return out;
       const limits = settings();
-      const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: limits.maxCandidates });
+      const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: limits.maxCandidates, sourcesOf: (line) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null, strict: Boolean(lineSources) });
       out.dropped = dropped;
       for (const candidate of candidates) {
         const open = store.list().filter((record) => isOpen(record.status));
@@ -378,8 +399,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
           out.capped += 1;
           continue;
         }
-        let turnId = null;
-        if (typeof journal?.findTurn === 'function' && hot.config?.features?.journal === true && Number.isFinite(candidate.ts)) {
+        let turnId = candidate.turnId ?? null;
+        if (!turnId && typeof journal?.findTurn === 'function' && hot.config?.features?.journal === true && Number.isFinite(candidate.ts)) {
           try {
             turnId = (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn?.turnId ?? null;
           } catch {
@@ -388,17 +409,32 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         }
         const created = createIntention({
           purpose: candidate.purpose,
-          provenance: { kind: 'candidate', turnId, messageId: candidate.messageId, channelId: candidate.channelId, span: candidate.span, scope: 'group', participants: candidate.participants },
+          provenance: {
+            kind: 'candidate',
+            turnId,
+            messageId: candidate.messageId,
+            channelId: candidate.channelId,
+            span: candidate.span,
+            scope: 'group',
+            participants: candidate.participants,
+            origin: candidate.origin,
+            originReason: candidate.originReason,
+            bornInner: candidate.bornInner === true,
+            innerChainId: candidate.innerChainId ?? null,
+          },
           now: now(),
           settings: limits,
           id: freshId(store),
           by: 'analyzer',
         });
         if (!created.ok) continue;
-        if (store.add(created.intention).ok) out.added += 1;
+        if (store.add(created.intention).ok) {
+          out.added += 1;
+          if (created.intention.provenance.origin === 'external') out.external += 1;
+        }
       }
       const skipped = out.duplicate + out.capped + Object.values(out.dropped).reduce((sum, n) => sum + n, 0);
-      if (out.added + skipped > 0) log.info('intentions: candidates', { guildId: store.guildId, added: out.added, duplicate: out.duplicate, capped: out.capped, ...out.dropped });
+      if (out.added + skipped > 0) log.info('intentions: candidates', { guildId: store.guildId, added: out.added, external: out.external, duplicate: out.duplicate, capped: out.capped, ...out.dropped });
     } catch (err) {
       log.warn('intentions: candidates not stored', { error: err });
     }
@@ -423,5 +459,15 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return store ? store.wipe() : { files: 0 };
   }
 
-  return { set, update, cancel, list, view, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, forgetUser, wipe, store: storeOf };
+  /** Note where her posted line `messageId` came from (src/intentions/sources.js#lineSourcesOf's note). */
+  function noteLine(messageId, sources) {
+    lineSources?.note?.(String(messageId ?? ''), sources);
+  }
+
+  /** The note of her line `messageId`, or null. */
+  function lineSourcesOfLine(messageId) {
+    return lineSources?.get?.(String(messageId ?? '')) ?? null;
+  }
+
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, forgetUser, wipe, store: storeOf };
 }
