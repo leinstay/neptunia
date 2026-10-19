@@ -190,7 +190,7 @@ test('skillArgs: a derived skill lists its command\'s options, the same each tim
   const registry = skillRegistry();
   assert.deepEqual(skillArgs(registry.get('memory.journal.read')), [
     { name: 'day', required: false },
-    { name: 'kind', required: false, values: ['turn', 'action', 'memory', 'system', 'answer', 'all'] },
+    { name: 'kind', required: false, values: ['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all'] },
     { name: 'n', required: false, minimum: 1, maximum: 50 },
     { name: 'message', required: false },
   ]);

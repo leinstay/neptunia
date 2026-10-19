@@ -117,7 +117,7 @@ function choicesOf(values) {
 export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role));
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
-export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'all']);
+export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
 
 /** `/nep memory refresh`'s `kind` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
 export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server']);
@@ -453,6 +453,13 @@ export const COMMAND_TABLE = Object.freeze([
           const channelId = options.getChannel('channel')?.id;
           return channelId ? { ...out, channelId } : out;
         },
+      },
+      {
+        // The kill switch of the persona's inner life (src/ops/inner.js): owner-only.
+        name: 'inner',
+        description: "The persona's inner life: stop, start or show it.",
+        options: [{ type: STRING, name: 'action', description: 'What to do.', required: true, choices: choicesOf(['stop', 'start', 'status']) }],
+        args: (options) => ({ action: options.getString('action', true) }),
       },
       {
         name: 'search',

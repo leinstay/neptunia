@@ -40,6 +40,9 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
   'access.revoke',
   'bot.pause',
   'bot.resume',
+  // Her inner life's kill switch is the owner's alone (src/ops/inner.js).
+  'inner.stop',
+  'inner.start',
 ]);
 
 /**
@@ -52,6 +55,10 @@ export const FEATURE_SKILLS = Object.freeze({
   'intent.update': 'intentions',
   'intent.cancel': 'intentions',
   'intent.list': 'intentions',
+  // The inner life's kill switch (owner-only): absent with the inner life off, so no request changes.
+  'inner.stop': 'innerLife',
+  'inner.start': 'innerLife',
+  'inner.status': 'innerLife',
 });
 
 /** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */

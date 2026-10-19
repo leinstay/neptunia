@@ -32,6 +32,7 @@ import './memory.js';
 import './message.js';
 import './task.js';
 import './intent.js';
+import './inner.js';
 import './search.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
@@ -68,7 +69,7 @@ const byKind = (kinds) => byOption('kind', kinds);
 /**
  * The command keys of the tree (src/ops/catalog.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
- * the arguments pick the operation (`media`, `memory.private`, `message.react` and `task.intent` by `action`, `memory.refresh`
+ * the arguments pick the operation (`media`, `memory.private`, `message.react`, `task.intent` and `task.inner` by `action`, `memory.refresh`
  * by `kind`, `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
@@ -128,6 +129,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.search': 'web.search',
   'task.read': 'web.read',
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
+  'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'memory.search': 'memory.search',
 });
 

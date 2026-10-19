@@ -78,6 +78,9 @@ export const OP_EFFECTS = Object.freeze({
   'intent.update': 'write',
   'intent.cancel': 'write',
   'intent.list': 'read',
+  'inner.stop': 'administrative',
+  'inner.start': 'administrative',
+  'inner.status': 'read',
 });
 
 /**
