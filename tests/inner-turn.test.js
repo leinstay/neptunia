@@ -155,16 +155,13 @@ const WAKE = {
   timezone: 'UTC',
   channels: [],
   budgets: {
-    day: { used: 1, cap: 24, left: 23, resetAt: Date.parse('2026-10-20T00:00:00Z') },
-    hour: { used: 1, cap: 4, left: 3, resetAt: NOW + 3_000_000 },
     chain: { used: 0, cap: 3, left: 3 },
-    posts: { used: 0, cap: 2, left: 2, resetAt: Date.parse('2026-10-20T00:00:00Z') },
   },
 };
 
 /**
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
- * the inner parameter (mayAct, postAllowed, onPosted); `loop` overrides of `innerLife.loop` (the
+ * the inner parameter (mayAct); `loop` overrides of `innerLife.loop` (the
  * inner turn's bounds), `skillsLoop` of `skills.loop` (an ordinary turn's); `clock` the turn's
  * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
@@ -190,11 +187,10 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const slow = (fn) => (slowMs > 0 ? async (...a) => { await new Promise((resolve) => setTimeout(resolve, slowMs)); return fn(...a); } : fn);
   const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: clock, port, skills: skillRegistry(), journal, runCommand: slow(admin.runCommand), runOwnCommand: slow(admin.runOwnCommand), runInitiativeCommand: slow(admin.runInitiativeCommand), intentions, ...(errands ? { errands } : {}) });
-  const posted = [];
-  const inner = { wake: WAKE, shadow, mayAct: () => true, postAllowed: () => true, onPosted: () => posted.push(NOW), ...gate };
+  const inner = { wake: WAKE, shadow, mayAct: () => true, ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history, { listed }), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, posted, store, tasks: errands ? errands.store('g1').recent(10) : [] };
+  return { result, logs, llm, sends, store, tasks: errands ? errands.store('g1').recent(10) : [] };
 }
 
 test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
@@ -209,29 +205,16 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
   assert.equal(run.result.reason, 'nothing-to-do');
 });
 
-test('inner turn, live: her <msg> and <gif> are public actions in the current channel, run through the gate like message.create calls and counted', async () => {
+test('inner turn, live: her <msg> and <gif> are public actions in the current channel, run through the gate like message.create calls', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
   const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'], shadow: false, gifs });
   assert.deepEqual(run.sends.map((send) => send.text), ['γεια σας', 'https://tenor.example/cat']);
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`), ['message.create:executed:ok', 'message.create:executed:ok']);
-  assert.equal(run.posted.length, 2, 'two posts against the day\'s cap');
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.result.delivered, true);
   assert.equal(run.result.inner.actions[0].target.channel, undefined, 'the turn\'s own channel is the default: no channel argument');
 });
 
-test('inner turn, live: a <msg> to the channel that asked is a delivery (exempt from the cap, not counted); past the cap any other tag is refused and she reads it', async () => {
-  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
-  const promised = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'], shadow: false, gifs, gate: { postAllowed: () => false, deliveryChannels: new Set(['c1']) } });
-  assert.equal(promised.sends.length, 2);
-  assert.equal(promised.posted.length, 0);
-  assert.deepEqual(promised.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.delivery === true}`), ['message.create:executed:true', 'message.create:executed:true']);
-  const capped = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { postAllowed: () => false } });
-  assert.deepEqual(capped.sends, []);
-  assert.deepEqual(capped.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:inner-post-cap']);
-  assert.equal(capped.llm.calls.length, 2, 'the refusal came back to her');
-  assert.ok(userText(capped.llm.calls[1][1].content).includes(labels.skills.result.reasons['inner-post-cap']), 'worded by the reason label');
-});
 
 test('inner turn: <skills_tools> lists the posting skills after the reads when granted; an addressed turn\'s does not', async () => {
   const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
@@ -248,7 +231,6 @@ test('inner turn, shadow: the tags are only proposed, as a message.create call i
   const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'] });
   assert.deepEqual(run.sends, []);
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:proposed', 'message.create:proposed']);
-  assert.equal(run.posted.length, 0);
 });
 
 test('inner turn: with no current channel a <msg>, <gif> or <draw> is refused destination-required before any side effect; message.create with a channel goes', async () => {
@@ -256,7 +238,6 @@ test('inner turn: with no current channel a <msg>, <gif> or <draw> is refused de
   const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<call skill="message.create" channel="#general">καλημέρα</call>', '<skip/>'], shadow: false, gifs, gate: { currentChannel: null } });
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['message.create:refused:destination-required', 'message.create:refused:destination-required', 'message.create:executed:']);
   assert.deepEqual(run.sends.map((send) => send.text), ['καλημέρα']);
-  assert.equal(run.posted.length, 1, 'only the explicit post counted');
   assert.ok(userText(run.llm.calls[1][1].content).includes(labels.skills.result.reasons['destination-required']), 'she reads the refusal');
 });
 
@@ -283,7 +264,6 @@ test('inner turn, shadow: a read runs, a post is only proposed and journalled as
   assert.deepEqual(run.sends, [], 'nothing left the turn');
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['lore.list:executed', 'message.create:proposed']);
   assert.equal(run.result.shadow, true);
-  assert.equal(run.posted.length, 0);
   assert.equal(run.llm.calls.length, 2, 'the read came back to her');
   const skillLines = lines.filter((l) => l.kind === 'action' && l.name === 'skill');
   const proposed = skillLines.filter((l) => l.input?.skill === 'message.create');
@@ -299,14 +279,13 @@ test('inner turn, shadow: a read runs, a post is only proposed and journalled as
   assert.equal(start.trigger.kind, 'inner');
 });
 
-test('inner turn, live: her post runs through the gateway on her own grant and counts as a public post', async () => {
+test('inner turn, live: her post runs through the gateway on her own grant', async () => {
   const run = await innerTurn({ answers: ['<call skill="message.create">καλημέρα σε όλους</call>', '<skip/>'], shadow: false });
   assert.equal(run.sends.length, 1);
   assert.equal(run.llm.calls.length, 2, 'the open follow-up step: i1 is still untouched');
   assert.equal(run.sends[0].to, 'c1');
   assert.equal(run.sends[0].text, 'καλημέρα σε όλους');
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:executed']);
-  assert.equal(run.posted.length, 1);
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.result.delivered, true);
 });
@@ -318,39 +297,12 @@ test('inner turn, live: a stop between her answer and the action refuses the act
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:inner-stopped']);
 });
 
-test('inner turn, live: a public post past the day\'s cap is refused; a read still runs', async () => {
-  const run = await innerTurn({ answers: ['<call skill="lore.list"/><call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false, gate: { postAllowed: () => false } });
-  assert.deepEqual(run.sends, []);
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['lore.list:executed', 'message.create:refused']);
-  assert.equal(run.result.inner.actions[1].code, 'inner-post-cap');
-});
-
-test('inner turn, live: a post to the channel that asked is a delivery: past the cap, executed, not counted, the GIF goes with it', async () => {
-  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
-  const run = await innerTurn({ answers: ['<call skill="message.create" gif="g1">νιάου</call>', '<skip/>'], shadow: false, gifs, gate: { postAllowed: () => false, deliveryChannels: new Set(['c1']) } });
-  assert.equal(run.sends.length, 2, 'the text and its GIF');
-  assert.ok(JSON.stringify(run.sends).includes('νιάου'));
-  assert.ok(JSON.stringify(run.sends).includes('tenor.example/cat'));
-  assert.equal(run.posted.length, 0, 'a delivery is not counted against the cap');
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.delivery === true}`), ['message.create:executed:true']);
-});
-
-test('inner turn, live: a post to another channel than the one that asked, or with no asker on record, is a public post as before', async () => {
-  const other = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false, gate: { postAllowed: () => false, deliveryChannels: new Set(['c9']) } });
-  assert.deepEqual(other.sends, []);
-  assert.equal(other.result.inner.actions[0].code, 'inner-post-cap');
-  assert.equal(other.result.inner.actions[0].delivery, undefined);
-  const none = await innerTurn({ answers: ['<call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false, gate: { postAllowed: () => false, deliveryChannels: new Set() } });
-  assert.deepEqual(none.sends, []);
-  assert.equal(none.result.inner.actions[0].code, 'inner-post-cap');
-});
-
-test('wakeBlockText: the delivery sentence joins the posts line only on a wake with delivery channels', () => {
-  const plain = wakeBlockText(WAKE, labels).split('\n');
-  assert.ok(plain.some((line) => line.startsWith('posts 2/2 until ') && !line.includes('delivery')), plain.join('\n'));
-  const lines = wakeBlockText({ ...WAKE, delivery: ['general'] }, labels).split('\n');
-  assert.ok(lines.some((line) => line.startsWith('posts 2/2 until ') && line.endsWith(' delivery to #general does not count')), lines.join('\n'));
-  assert.equal(wakeBlockText({ ...WAKE, delivery: ['general'] }, { ...labels, wake: { ...labels.wake, budget: { ...labels.wake.budget, postsDelivery: undefined } } }).includes('delivery'), false);
+test('inner turn, live: no count of posts refuses a post; a read still runs', async () => {
+  const run = await innerTurn({ answers: ['<call skill="lore.list"/><call skill="message.create">καλημέρα</call>', '<skip/>'], shadow: false });
+  assert.equal(run.sends.length, 1);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['lore.list:executed', 'message.create:executed']);
+  assert.equal(run.result.inner.actions[1].code, undefined);
+  assert.equal(run.result.inner.actions[1].delivery, undefined);
 });
 
 test('inner turn: an ordinary reply\'s request is the same with the inner life on or off', async () => {
@@ -393,7 +345,7 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   assert.ok(lines.some((line) => line.startsWith('due: i1 πες καλημέρα')), text);
   assert.ok(lines.some((line) => line.startsWith('now: ')));
   assert.ok(lines.includes('recent channels: #général'));
-  assert.ok(lines.includes('day 23/24 until 10/20/2026 12:00 AM') || lines.some((line) => line.startsWith('day 23/24 until ')), text);
+  assert.ok(!lines.some((line) => line.startsWith('day ') || line.startsWith('hour ') || line.startsWith('posts ')), text);
   assert.ok(lines.includes('chain 3/3'));
   assert.equal(wakeBlockText(WAKE, { ...labels, wake: undefined }), '');
   // A recurring intention's last occurrence before its expiry: the note joins its line.
@@ -514,11 +466,10 @@ test('inner turn, live: a <msg> that leaves nothing to show while a woken intent
   assert.equal(run.sends.length, 1);
 });
 
-test('inner turn, live: message.create with gif= posts the text then the GIF, and counts as one public post', async () => {
+test('inner turn, live: message.create with gif= posts the text then the GIF', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
   const run = await innerTurn({ answers: ['<call skill="message.create" gif="g1">νιάου</call>', '<skip/>'], shadow: false, gifs });
   assert.deepEqual(run.sends.map((send) => send.text), ['νιάου', 'https://tenor.example/cat']);
-  assert.equal(run.posted.length, 1, 'text and GIF are one public post');
   assert.equal(run.store.state.data.gifCount, 1);
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:executed']);
 });

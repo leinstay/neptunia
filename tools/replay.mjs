@@ -2055,8 +2055,7 @@ export function innerReplayWake({ inner, kind, intention = null, state, settings
   const wake = kind === 'review'
     ? inner.reviewWake(day, now)
     : inner.wakeOfDue({ intention, reason: kind === 'errand_deadline' ? 'wait-deadline' : 'due', at: Number.isFinite(intention?.dueAt) ? intention.dueAt : now });
-  const budgets = inner.budgetsOf(state, settings, { now, timezone });
-  const chain = inner.chainBudget(state, wake.chainId, settings.caps.perChain);
+  const chain = inner.chainBudget(state, wake.chainId, settings.caps.perChain, { now, timezone });
   return {
     wake,
     info: {
@@ -2066,7 +2065,7 @@ export function innerReplayWake({ inner, kind, intention = null, state, settings
       now,
       timezone,
       channels: kind === 'review' ? channelNames : [],
-      budgets: { day: budgets.day, hour: budgets.hour, chain, usd: budgets.usd, posts: budgets.posts },
+      budgets: { chain },
       chainId: wake.chainId,
     },
   };
@@ -2224,7 +2223,7 @@ async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
 
     let result;
     try {
-      result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { wake: info, shadow: true, mayAct: () => false, postAllowed: () => false, onPosted: () => {} } });
+      result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { wake: info, shadow: true, mayAct: () => false } });
     } catch (err) {
       result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
     }

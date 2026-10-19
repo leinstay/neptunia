@@ -517,7 +517,7 @@
     "queueMax": 20,
     "chatMessages": 30,
     "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
-    "caps": { "perDay": 24, "perHour": 4, "perChain": 3, "publicPostsPerDay": 2 },
+    "caps": { "perChain": 3 },
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },
     "retry": { "delaysMinutes": [1, 5, 15, 60], "maxHours": 6 },

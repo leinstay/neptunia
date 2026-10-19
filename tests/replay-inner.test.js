@@ -41,12 +41,12 @@ test('innerReplayHot: shadow forced, the switch on, no dry run, no journal, no m
 
 test('innerReplayWake: the scheduler\'s wake for the intention, its budgets from the state read', () => {
   const settings = inner.innerSettings({});
-  const state = { ...inner.emptyState(), turns: [{ at: NOW - 60_000, chainId: 'intention:i1', usd: 0.2 }], chains: { 'intention:i1': { turns: 1, lastAt: NOW - 60_000 } } };
+  const state = { ...inner.emptyState(), turns: [{ at: NOW - 60_000, chainId: 'intention:i1', usd: 0.2 }] };
   const intention = { id: 'i1', status: 'pending', purpose: 'p', dueAt: NOW - 5_000, provenance: { channelId: 'c1', scope: 'group' } };
   const { wake, info } = innerReplayWake({ inner, kind: 'intention_due', intention, state, settings, now: NOW, timezone: 'UTC', day: '2026-10-19' });
   assert.equal(wake.id, `inner.wake:intention_due:i1:${NOW - 5_000}`);
   assert.deepEqual(info.items, [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }]);
-  assert.equal(info.budgets.day.left, 23);
+  assert.equal(info.budgets.day, undefined);
   assert.equal(info.budgets.chain.left, 2);
   const review = innerReplayWake({ inner, kind: 'review', state, settings, now: NOW, timezone: 'UTC', day: '2026-10-19', channelNames: ['général'] });
   assert.equal(review.wake.kind, 'review');

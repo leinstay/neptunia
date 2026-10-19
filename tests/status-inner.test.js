@@ -1,5 +1,5 @@
 // The inner life on the owner's `/nep status` card: the `inner` field shows the inner life's status
-// (mode, switch, turns, chains, dollars, posts, next wake, last turn, open intentions) through
+// (mode, switch, turns, chains, dollars, next wake, last turn, open intentions) through
 // `labels.status.inner`; it is absent with features.innerLife off, hidden from a member, and
 // `field:inner` shows it alone. A fake inner life with the real status shape; no network.
 import { test } from 'node:test';
@@ -18,9 +18,8 @@ const LABELS = {
   modeLine: 'mode {mode} / {state}',
   running: 'running',
   stopped: 'stopped since {at}',
-  turnsLine: 'turns {used}/{cap}, chains {chains}',
+  turnsLine: 'turns {used}, chains {chains}',
   usdLine: 'usd {spent}',
-  postsLine: 'posts {used}/{cap}',
   nextLine: 'next {at} ({kind})',
   nextNone: 'next: none',
   nextKinds: { queue: 'queued', intention: 'intention', review: 'review' },
@@ -38,7 +37,7 @@ const STATUS = {
   mode: 'shadow',
   stopped: false,
   stoppedAt: null,
-  budgets: { day: { used: 3, cap: 24 }, posts: { used: 1, cap: 2 } },
+  turnsToday: 3,
   chains: 2,
   spentUsd: 0.6,
   intentions: { pending: 2, waiting: 1, proposed: 4 },
@@ -69,9 +68,8 @@ test('status inner: the owner reads the inner life\'s lines through the labels; 
   assert.deepEqual(fields.map((f) => f.name), ['inner']);
   assert.deepEqual(fields[0].value.split('\n'), [
     'mode shadow / running',
-    'turns 3/24, chains 2',
+    'turns 3, chains 2',
     'usd 0.60',
-    'posts 1/2',
     'next 2026-10-19 13:30 UTC (review)',
     'last skip at 2026-10-19 12:30 UTC',
     'open 2/1/4',
@@ -108,13 +106,13 @@ test('status inner: absent with features.innerLife off, hidden from a member', a
 
 test('status inner: a stopped inner life, no wake known, no turn yet', () => {
   const lines = innerLines({ ...STATUS, mode: 'live', stopped: true, stoppedAt: AT, next: null, lastTurn: null, intentions: null, attention: null }, { status: { inner: LABELS } });
-  assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3/24, chains 2', 'usd 0.60', 'posts 1/2', 'next: none', 'last: none']);
-  assert.equal(innerLines({ ...STATUS, lastTurn: { at: AT, outcome: null } }, { status: { inner: LABELS } })[5], 'last ? at 2026-10-19 12:30 UTC');
+  assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3, chains 2', 'usd 0.60', 'next: none', 'last: none']);
+  assert.equal(innerLines({ ...STATUS, lastTurn: { at: AT, outcome: null } }, { status: { inner: LABELS } })[4], 'last ? at 2026-10-19 12:30 UTC');
   assert.deepEqual(innerLines(STATUS, {}), [], 'no labels, no lines');
 });
 
 test('innerLines: the last failed turn shows its code and moment after the last-turn line; none without one', () => {
   const lines = innerLines({ ...STATUS, lastError: { at: AT, code: 'provider-limit' } }, { status: { inner: LABELS } });
-  assert.equal(lines[6], 'error provider-limit at 2026-10-19 12:30 UTC');
+  assert.equal(lines[5], 'error provider-limit at 2026-10-19 12:30 UTC');
   assert.equal(innerLines({ ...STATUS, lastError: null }, { status: { inner: LABELS } }).some((line) => line.startsWith('error ')), false);
 });

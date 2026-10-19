@@ -40,10 +40,7 @@ const handlers = perEnv((env) => {
     const lines = [`inner life: ${s.on ? 'on' : 'off (features.innerLife)'}, mode ${s.mode}, ${s.stopped ? `stopped since ${stamp(s.stoppedAt)}` : 'running'}`];
     lines.push(`queue: ${s.queue.length}${s.queue.length > 0 ? ` (${s.queue.map((wake) => `${wake.kind} due ${stamp(wake.dueAt)}${wake.capped ? ` capped ${wake.capped}` : ''}`).join('; ')})` : ''}`);
     lines.push(`review: ${s.review ? `${s.review.day} ${s.review.done ? 'done' : `at ${stamp(s.review.at)}`}` : 'not drawn'}`);
-    const b = s.budgets;
-    if (b) {
-      lines.push(`today: turns ${b.day.used}/${b.day.cap}, this hour ${b.hour.used}/${b.hour.cap}, public posts ${b.posts.used}/${b.posts.cap}; resets ${stamp(b.day.resetAt)}`);
-    }
+    if (s.turnsToday != null) lines.push(`today: turns ${s.turnsToday}`);
     return lines.join('\n');
   }
 

@@ -2,7 +2,7 @@
 // inner turn `<react>`, `<msg>`, `<gif>` and `<draw>` are public actions in the turn's current
 // channel, lowered here into the same call objects her own `<call>`s are -- `message.react.add`,
 // `message.create` (a message, or a GIF with `gif=`) and `draw.create` -- so they are planned,
-// gated (the dollar cap, the public-posts cap or the promised-delivery exemption), journalled
+// gated (the kill switch in live mode, shadow proposals), journalled
 // and counted by the one path every call of hers takes. A tag that cannot act carries a
 // `refuse` (`{ code, reason }`) the planner turns into a refusal result she reads like any
 // other: `target-required` for a reaction with no message named, `destination-required` for a

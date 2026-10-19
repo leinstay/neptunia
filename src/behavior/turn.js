@@ -1958,12 +1958,9 @@ export function createTurnRunner({
   /**
    * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
    * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
-   * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`), and a
-   * public post (POSTING_SKILLS in a server channel) past the day's cap (`postAllowed`) is refused
-   * (`inner-post-cap`).
-   * `public` says whether a call that runs is a public post; `delivery` marks a post to one of `inner.deliveryChannels`
-   * (a promise kept to the channel that asked): exempt from the cap and not counted.
-   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean, delivery?: true }|null}
+   * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`). No count of posts refuses a call.
+   * `public` says whether a call that runs is a public post.
+   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean }|null}
    */
   function innerVerdict(inner, skill, { channel, args }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
@@ -1971,11 +1968,6 @@ export function createTurnRunner({
     if (inner.shadow) return { proposed: true };
     if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
     const isPublic = POSTING_SKILLS.includes(skill) && (Boolean(channel.guild) || typeof args?.channel === 'string');
-    // A promised delivery (an intention set in an addressed turn, due now) to the channel that asked is no initiative: the cap neither refuses nor counts it.
-    const target = typeof args?.channel === 'string' && args.channel ? args.channel : channel?.id != null ? String(channel.id) : null;
-    const delivery = isPublic && target !== null && inner.deliveryChannels instanceof Set && inner.deliveryChannels.has(target);
-    if (delivery) return { public: false, delivery: true };
-    if (isPublic && typeof inner.postAllowed === 'function' && !inner.postAllowed()) return { refusal: { code: 'inner-post-cap', reason: 'innerLife.caps.publicPostsPerDay' } };
     return { public: isPublic };
   }
 
@@ -2045,13 +2037,12 @@ export function createTurnRunner({
       // an intent.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
       const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
-      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}), ...(innerGate?.delivery && ran ? { delivery: true } : {}) });
+      (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
       if (named) (draft.innerIntentIds ??= new Set()).add(named);
       // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
         (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
       }
-      if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
       // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
       if (innerGate?.proposed) {
         log.info('skills: proposed', { channel: channel.id, skill, shadow: true });
@@ -5197,8 +5188,7 @@ export function createTurnRunner({
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
-   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, postAllowed?: () => boolean, deliveryChannels?: Set<string>,
-   *   onPosted?: () => void, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.js,
+   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.js,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
    *   request carries `<wake>` (src/behavior/wake.js over `wake`) and the task `prompts.inner`, its
    *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
@@ -5209,7 +5199,7 @@ export function createTurnRunner({
    *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
    *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
    *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
-   *   and a public post needs `postAllowed()` (then `onPosted()`). An answer with no action ends
+   *   (no count of posts refuses one). An answer with no action ends
    *   `skip` with `reason: 'nothing-to-do'`; after a post that left nothing to show while an intention she woke for is
    *   still untouched, the tool loop makes one open follow-up step (toolLoop: `task.continueInner` with the open line,
    *   once per turn). The last loop step still runs one terminal action call of hers (a post, an
