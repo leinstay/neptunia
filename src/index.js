@@ -476,8 +476,6 @@ const inner = createInnerLife({
   submit: (event) => door.submit(event),
   // What an inner turn did and found becomes lines of hers for the memory analyzer.
   onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
-  // An errand an inner turn hands off holds its agent's per-errand dollar limit against the day.
-  errandLimitUsd: (agent) => errands.limitsOf(agent).usd ?? null,
   log,
 });
 const tagHistory = createTagHistory();

@@ -2625,7 +2625,7 @@ function fakeErrandClient() {
 async function runErrandLaneTurn({ classifier }) {
   const hot = lookupHot({ typingSimulation: false }, {}, {
     skills: { safeMode: false, resultMaxChars: 2000 },
-    agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } },
+    agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } },
   });
   hot.config.bot.owners = ['o9'];
   hot.config.bot.access = personaGrants(['task.run']);

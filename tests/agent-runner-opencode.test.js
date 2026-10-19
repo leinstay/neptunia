@@ -1,7 +1,7 @@
 // Tests for src/agent-runner/opencode.js: one task driven by a FAKE OpenCode
 // child (an injected spawn returning a controllable process that prints a
 // canned JSON event stream) -- a done task with summed usage and sources,
-// the usd cap stopping the child, cancel, the per-step refusal of a withheld
+// a costly step never stopping the child, cancel, the per-step refusal of a withheld
 // path in a filtered scope (the task goes on), the secret redaction of the
 // result, missing prompt file, files collected from the task dir, the model
 // taken from the profile's model role, the task's secrets from the core
@@ -38,7 +38,7 @@ function fakeProfile(promptFile, name = 'web') {
     promptFiles: [promptFile],
     modelRole: name === 'web' ? 'web' : 'server',
     defaultModel: 'openrouter/x-ai/default-model',
-    defaultLimits: { steps: 25, usd: 0.5, seconds: 300 },
+    defaultLimits: { steps: 25, seconds: 300 },
     defaultSearchProvider: 'exa',
     buildConfig: () => ({ agent: {} }),
   };
@@ -117,21 +117,23 @@ test('opencode: a step without a cost raises costUnknown', async () => {
   await ws.cleanup();
 });
 
-test('opencode: the usd cap stops the child and fails the task', async () => {
+test('opencode: a costly step is only counted; it never stops the child', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
   const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
-  const { result } = await withCapturedLogs(async () => {
-    const p = runner.run({ id: 't', goal: 'g', limits: { usd: 0.1 }, context: { scope: 'core' } });
+  const { result: ran } = await withCapturedLogs(async () => {
+    const p = runner.run({ id: 't', goal: 'g', context: { scope: 'core' } });
     const child = await spawn.waitForChild();
-    emit(child, { type: 'step_finish', part: { cost: 0.5, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'step_finish', part: { cost: 50, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'done anyway', time: { end: 1 } } });
     await new Promise((r) => setImmediate(r));
-    assert.ok(child.killed.includes('SIGTERM'), 'child was asked to stop');
-    child.emit('close', null);
-    return p;
+    const stopped = [...child.killed];
+    child.emit('close', 0);
+    return { result: await p, killed: stopped };
   });
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error, 'usd-cap');
+  assert.deepEqual(ran.killed, []);
+  assert.equal(ran.result.status, 'done');
+  assert.equal(ran.result.usage.usd, 50);
   await ws.cleanup();
 });
 

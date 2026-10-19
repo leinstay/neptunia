@@ -3,7 +3,7 @@
 // intention service (src/intentions/service.js) over a temporary data directory, driven by a fake
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
 // a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
-// cap's reset, the end of an errand's dollar hold) instead of ticking every second. Every jump
+// cap's reset) instead of ticking every second. Every jump
 // lands on the scheduler's tick grid (`innerLife.tickSeconds` from the start of the week), so the
 // scheduler sees what it would see live, at most one tick late.
 //
@@ -27,7 +27,7 @@
 // the real voice in shadow (tools/inner-week.mjs `--live`) on selected days. The stub's calls pass
 // a gate that mirrors the turn runner's inner gate (src/behavior/turn.js#innerVerdict: a read
 // runs, shadow proposes everything else, live asks the kill switch and the public-post cap right
-// before the call, and an errand holds its agent's per-errand dollar limit from its dispatch) and,
+// before the call) and,
 // when they run, act on the week's world: intentions through the real service, an errand into the
 // week's task list, a post into the week's record.
 //
@@ -52,7 +52,6 @@ import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
 import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
-import { agentProfileOf } from '../../src/agent-runner/profiles.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
 
@@ -469,7 +468,7 @@ export function fixtureConfig(fixture, { mode = fixture.mode } = {}) {
       ...life,
       mode,
       review: { enabled: true, historyDays: 14, ...(life.review ?? {}) },
-      caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2, ...(life.caps ?? {}) },
+      caps: { perDay: 24, perHour: 4, perChain: 3, publicPostsPerDay: 2, ...(life.caps ?? {}) },
     },
   };
 }
@@ -535,27 +534,18 @@ export function createStubVoice(fixture) {
 }
 
 /**
- * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): past the
- * day's dollars (`spendAllowed`) every call is refused (`inner-usd-cap`); a read runs; in shadow
- * anything else is proposed; live, a stopped inner life refuses (`inner-stopped`), a public
- * post past the day's cap is refused (`inner-post-cap`), and an errand (`task.run` naming its
- * `agent`) runs only when `reserveErrand` holds its most possible cost (`hold` names the hold;
- * `inner-usd-cap` otherwise).
- * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean, hold?: string }}
+ * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): a read
+ * runs; in shadow anything else is proposed; live, a stopped inner life refuses (`inner-stopped`)
+ * and a public post past the day's cap is refused (`inner-post-cap`).
+ * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean }}
  */
-export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, spendAllowed = null, privateChat = false, reserveErrand = null, agent = null, key = null }) {
+export function stubVerdict({ effects, skill, shadow, mayAct, postAllowed, privateChat = false }) {
   if (effects === null || effects === undefined) return { status: 'refused', code: 'unknown-skill' };
-  if (typeof spendAllowed === 'function' && !spendAllowed()) return { status: 'refused', code: 'inner-usd-cap' };
   if (effects === 'read') return { status: 'executed', public: false };
   if (shadow) return { status: 'proposed' };
   if (!mayAct()) return { status: 'refused', code: 'inner-stopped' };
   const isPublic = POSTING_SKILLS.includes(skill) && !privateChat;
   if (isPublic && !postAllowed()) return { status: 'refused', code: 'inner-post-cap' };
-  if (skill === 'task.run' && typeof reserveErrand === 'function' && typeof agent === 'string' && agent) {
-    const held = reserveErrand({ agent, key });
-    if (!held?.ok) return { status: 'refused', code: held?.code ?? 'inner-usd-cap' };
-    return { status: 'executed', public: isPublic, hold: held.id };
-  }
   return { status: 'executed', public: isPublic };
 }
 
@@ -703,17 +693,12 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     for (const [index, call] of planned.entries()) {
       const effects = skills.effectsOf(call.skill);
       const key = `${turnId}.1:${index}`;
-      const verdict = call.refuse ? { status: 'refused', code: call.refuse } : stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed, spendAllowed: params.inner.spendAllowed, reserveErrand: params.inner.reserveErrand ?? null, agent: typeof call.args?.agent === 'string' ? call.args.agent : null, key });
+      const verdict = call.refuse ? { status: 'refused', code: call.refuse } : stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct, postAllowed: params.inner.postAllowed });
       // The intention an intent.* call named and the state an intent.update set, as the turn runner records them.
       const named = ['intent.update', 'intent.cancel'].includes(call.skill) && typeof call.args?.id === 'string' && call.args.id ? call.args.id : null;
       const action = { skill: call.skill, status: verdict.status, ...(verdict.code ? { code: verdict.code } : {}), args: call.args, ...(named ? { intentionId: named } : {}), ...(call.skill === 'intent.update' && typeof call.args?.state === 'string' ? { state: call.args.state } : {}) };
       if (verdict.status === 'executed') {
         const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen, key });
-        // The errand's hold: bound to the errand it became, released when none was queued.
-        if (verdict.hold) {
-          if (done.ok && done.taskId) params.inner.bindErrand?.(verdict.hold, done.taskId);
-          else params.inner.releaseErrand?.(verdict.hold);
-        }
         if (done.code) action.code = done.code;
         action.result = done.ok ? 'ok' : 'failed';
         if (done.ok && verdict.public) params.inner.onPosted?.();
@@ -725,8 +710,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       }
       actions.push(action);
     }
-    // The tool loop's step after her calls, unless the day's dollars are spent (turn.js#toolLoop).
-    if (planned.length > 0 && (typeof params.inner.spendAllowed !== 'function' || params.inner.spendAllowed())) emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
+    // The tool loop's step after her calls.
+    if (planned.length > 0) emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
     // What her reads found goes to her memory buffer as lines of hers marked `inner`.
     findings.forEach((text, n) => {
       if (!world.episodes.has(entry.channelId)) world.episodes.set(entry.channelId, []);
@@ -830,11 +815,6 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       store: { state: { data: {} } },
       getGuildId: () => guildId,
       meter,
-      // An errand's most possible cost, as src/errands/service.js#limitsOf reads it.
-      errandLimitUsd: (agent) => {
-        const set = hot.config.agents?.[agent]?.limits?.usd;
-        return Number.isFinite(set) && set > 0 ? set : (agentProfileOf(agent)?.defaultLimits?.usd ?? null);
-      },
       rng: world.rng ?? (world.rng = seededRng(fixture.seed)),
       now: clock.now,
       log,
@@ -960,14 +940,12 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     }
     const state = inner.state(guildId);
     if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now) out.push(state.review.at);
-    // An errand's hold lapses at a tick: the end of each one still held.
-    for (const hold of state.holds ?? []) if (Number.isFinite(hold.until) && hold.until > now) out.push(hold.until);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
     if (state.queue.length > 0) {
       const status = inner.status(guildId);
       if (lastDrain?.deferred === 'busy' || lastDrain?.deferred === 'people') out.push(world.busyUntil);
       else if (lastDrain?.refused === 'per-hour') out.push(status.budgets.hour.resetAt ?? now + tickMs);
-      else if (lastDrain?.refused === 'per-day' || lastDrain?.refused === 'usd-per-day' || lastDrain?.refused === 'attend-per-day') out.push(status.budgets.day.resetAt);
+      else if (lastDrain?.refused === 'per-day' || lastDrain?.refused === 'attend-per-day') out.push(status.budgets.day.resetAt);
       else out.push(now + tickMs);
     }
     return out;
@@ -1099,7 +1077,6 @@ export function capViolations(run) {
   const days = perDay(run);
   for (const [day, counts] of Object.entries(days)) {
     if (counts.turns > caps.perDay) out.push({ cap: 'per-day', day, value: counts.turns, limit: caps.perDay });
-    if (counts.usd > caps.usdPerDay + 1e-9) out.push({ cap: 'usd-per-day', day, value: counts.usd, limit: caps.usdPerDay });
     if (counts.posts > caps.publicPostsPerDay) out.push({ cap: 'public-posts-per-day', day, value: counts.posts, limit: caps.publicPostsPerDay });
   }
   const times = run.turns.map((turn) => turn.at).sort((a, b) => a - b);

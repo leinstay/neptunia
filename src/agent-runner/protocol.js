@@ -21,7 +21,7 @@ export const EVENTS = Object.freeze(['progress', 'end', 'pong', 'error']);
 /** The final states of a task, as an `end` event carries them. */
 export const RESULT_STATUSES = Object.freeze(['done', 'failed', 'cancelled']);
 /** The limit keys a `run` may carry (each a positive finite number). */
-export const LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds', 'toolResultChars', 'maxDownloadBytes']);
+export const LIMIT_KEYS = Object.freeze(['steps', 'seconds', 'toolResultChars', 'maxDownloadBytes']);
 
 /** A task id: letters, digits, `_` and `-`, 1..64 characters. */
 export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;

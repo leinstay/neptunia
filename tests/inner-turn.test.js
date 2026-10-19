@@ -158,7 +158,6 @@ const WAKE = {
     day: { used: 1, cap: 24, left: 23, resetAt: Date.parse('2026-10-20T00:00:00Z') },
     hour: { used: 1, cap: 4, left: 3, resetAt: NOW + 3_000_000 },
     chain: { used: 0, cap: 3, left: 3 },
-    usd: { used: 0.15, cap: 4, left: 3.85, resetAt: Date.parse('2026-10-20T00:00:00Z') },
     posts: { used: 0, cap: 2, left: 2, resetAt: Date.parse('2026-10-20T00:00:00Z') },
   },
 };
@@ -182,7 +181,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   // A real errand service over a temp task store, its runner a fake whose runs never end.
   let errands = null;
   if (withErrands) {
-    hot.config.agents = { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } };
+    hot.config.agents = { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } };
     const stores = createTaskStores({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config });
     errands = createErrandService({ client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true }, stores, hot, getGuildId: () => 'g1' });
   }
@@ -471,39 +470,11 @@ test('inner turn: what her reads found, her thinks and her other calls come back
   assert.equal(silent.result.inner.episode, null, 'nothing found: no episode');
 });
 
-test('inner turn, live: an errand is handed off only when its hold fits; the hold is bound to the errand, a refused one queues nothing', async () => {
-  const asked = [];
-  const bound = [];
-  const released = [];
-  const gate = {
-    reserveErrand: (input) => (asked.push(input), asked.length === 1 ? { ok: true, id: 'h1' } : { ok: false, code: 'inner-usd-cap' }),
-    bindErrand: (hold, taskId) => bound.push([hold, taskId]),
-    releaseErrand: (hold) => released.push(hold),
-  };
-  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες τον πρώτο πίνακα</call><call skill="task.run" agent="web">βρες τον δεύτερο πίνακα</call>', '<skip/>'], shadow: false, allowed: ['task.run'], gate, withErrands: true });
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['task.run:executed:', 'task.run:refused:inner-usd-cap']);
-  assert.deepEqual(asked.map((a) => a.agent), ['web', 'web']);
-  assert.ok(asked.every((a) => typeof a.key === 'string' && a.key), 'each hold carries its call\'s idempotency key');
-  assert.equal(run.tasks.length, 1, 'the refused errand was never queued');
-  assert.deepEqual(bound, [['h1', run.tasks[0].id]]);
-  assert.equal(run.tasks[0].idempotencyKey, asked[0].key);
-  assert.deepEqual(released, []);
-});
-
-test('inner turn, live: a hold whose errand was not queued (the operation refused it) is released', async () => {
-  const released = [];
-  const gate = { reserveErrand: () => ({ ok: true, id: 'h1' }), bindErrand: () => assert.fail('nothing to bind'), releaseErrand: (hold) => released.push(hold) };
-  // The agent's runner is not set up: the operation refuses the errand (`not-configured`).
-  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες κάτι</call>', '<skip/>'], shadow: false, allowed: ['task.run'], gate, withErrands: true, errandConfigured: false });
-  assert.notEqual(run.result.inner.actions[0].result, 'ok');
-  assert.deepEqual(released, ['h1']);
-});
-
-test('inner turn: once the day\'s dollars are spent her calls are refused (inner-usd-cap) and the loop makes no further request', async () => {
-  let spent = false;
-  const run = await innerTurn({ answers: ['<call skill="lore.list"/>', '<skip/>'], shadow: false, gate: { spendAllowed: () => !spent }, onCall: () => (spent = true) });
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['lore.list:refused:inner-usd-cap']);
-  assert.equal(run.llm.calls.length, 1, 'no step after the refusal');
+test('inner turn, live: errands she hands off are queued like any call, with no hold and no dollar check', async () => {
+  const run = await innerTurn({ answers: ['<call skill="task.run" agent="web">βρες τον πρώτο πίνακα</call><call skill="task.run" agent="web">βρες τον δεύτερο πίνακα</call>', '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true });
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['task.run:executed:', 'task.run:executed:']);
+  assert.equal(run.tasks.length, 2);
+  assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
 });
 
 test('inner turn, live: the line she posts is noted with its turn and chain, and as read when a read of the turn returned something first', async () => {

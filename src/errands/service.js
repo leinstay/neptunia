@@ -52,7 +52,7 @@ import { createLedgerMirror } from './ledger.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
-const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
+const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds']);
 /** `agents.recentLines` when it is missing (config.json carries the same). */
 export const DEFAULT_RECENT_LINES = 6;
 /** The least time between two pings a `runner-down` refusal sends to recheck its runner (ms). */
@@ -286,12 +286,11 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
 
   /**
    * The cap code of a refusal as the caller needs it: `{ code, key, used, cap }` (the setting
-   * `agents.<agent>.daily.<tasks|usd>` and today's use against it).
+   * `agents.<agent>.daily.tasks` and today's use against it).
    */
   function capOf(store, agent, code) {
     const today = store.today(agent);
-    const field = code === 'cap-usd' ? 'usd' : 'tasks';
-    return { code, key: `agents.${agent}.daily.${field}`, used: today[field], cap: today.caps[field] };
+    return { code, key: `agents.${agent}.daily.tasks`, used: today.tasks, cap: today.caps.tasks };
   }
 
   /** `run()` of a tool, cut off after `seconds` (a run still going then is let go, its late answer dropped). */
@@ -307,7 +306,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   /**
    * One run of the tool agent `agent` here and now, as a task record: `run()` (the agent's tool)
    * is awaited by the caller. The task is added (the agent's daily caps refuse it first:
-   * `{ ok: false, code: 'cap-tasks' | 'cap-usd', key, used, cap }`), started, and closed with the
+   * `{ ok: false, code: 'cap-tasks', key, used, cap }`), started, and closed with the
    * tool's outcome: `{ output, usage, result }` on success -- `{ ok: true, task, output }` --
    * or, when `run` throws, `failed` with the error's `code` (kebab-case, else `error`) --
    * `{ ok: false, code, task, error }`, `error` the thrown value, in memory only. A run over
@@ -324,7 +323,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
       try {
         const added = store.add({ agent, goal, requester, origin, scope });
         if (added.ok) task = store.start(added.task.id) ?? added.task;
-        else if (added.code === 'cap-tasks' || added.code === 'cap-usd') return { ok: false, ...capOf(store, agent, added.code) };
+        else if (added.code === 'cap-tasks') return { ok: false, ...capOf(store, agent, added.code) };
         else log.warn('errands: tool run unrecorded', { agent, code: added.code });
       } catch (err) {
         log.warn('errands: tool run unrecorded', { agent, error: err });

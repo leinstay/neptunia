@@ -28,7 +28,6 @@ const GOAL_LINE_CHARS = 80;
 const REFUSALS = Object.freeze({
   'cap-open': 'failed',
   'cap-tasks': 'failed',
-  'cap-usd': 'failed',
   'not-configured': 'failed',
   'no-guild': 'failed',
   'unknown-agent': 'invalid',

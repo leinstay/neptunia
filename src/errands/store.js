@@ -6,9 +6,8 @@
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
 // directly); a finished task is never reopened, and an end that arrives after a cancel is
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
-// `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks and
-// `agents.<profile>.daily.usd` dollars per UTC day (`cap-tasks`, `cap-usd`; a task counts on
-// the day it was queued, its dollars on the day it ended, from its usage). Those daily numbers
+// `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks per UTC day (`cap-tasks`; a task counts on
+// the day it was queued). That daily number
 // and the owner card's `costs.agents` come from one place: src/errands/costs.js#agentCosts over
 // the store's spend records, one per task of the last KEEP_DAYS days (read from tasks.jsonl at
 // load, then kept with every transition; a forget and a wipe drop theirs with their lines).
@@ -352,7 +351,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   function dailyCaps(agent) {
     const defaults = agentProfileOf(agent)?.defaultDaily ?? {};
     const set = agentsConfig()?.[agent]?.daily ?? {};
-    return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks, usd: Number.isFinite(set.usd) ? set.usd : defaults.usd };
+    return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks };
   }
 
   /**
@@ -378,7 +377,6 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     const caps = dailyCaps(agent);
     const used = usedToday(agent);
     if (Number.isFinite(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
-    if (Number.isFinite(caps.usd) && used.usd >= caps.usd) return 'cap-usd';
     return null;
   }
 
@@ -402,7 +400,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
 
   /**
    * A new task, `queued`, or the cap it hits: `{ ok: true, task }` | `{ ok: false, code }`
-   * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`, `cap-usd`). The persona's own call
+   * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`). The persona's own call
    * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.js) and
    * its turn (`origin.turnId`): a task the store still holds under the same key is answered as it
    * is, `{ ok: true, task, duplicate: true }`, before any cap -- a retried call never queues a
@@ -555,7 +553,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    */
   function budget(agent) {
     const code = agentProfileOf(agent) ? capHit(agent) : 'unknown-agent';
-    const key = { 'cap-open': 'agents.maxOpen', 'cap-tasks': `agents.${agent}.daily.tasks`, 'cap-usd': `agents.${agent}.daily.usd` }[code] ?? null;
+    const key = { 'cap-open': 'agents.maxOpen', 'cap-tasks': `agents.${agent}.daily.tasks` }[code] ?? null;
     return { spent: code !== null, key, code };
   }
 

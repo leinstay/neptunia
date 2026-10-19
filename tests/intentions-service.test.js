@@ -53,7 +53,7 @@ function makeEnv({ features = { intentions: true }, agents = {}, intentions: set
     config: {
       bot: { owners: [OWNER], access: {} },
       features,
-      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } }, ...agents },
+      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, ...agents },
       intentions: { expiresDays: 14, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, ...settings },
     },
     prompts: { labels: {} },

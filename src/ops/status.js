@@ -103,7 +103,7 @@ export function innerLines(s, labels, { tokens = null } = {}) {
   return [
     labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
     b ? labelLine(L.turnsLine, { used: b.day.used, cap: b.day.cap, chains: s.chains ?? 0 }) : null,
-    b ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2), held: (s.heldUsd ?? 0).toFixed(2), cap: b.usd.cap }) : null,
+    b ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
     b ? labelLine(L.postsLine, { used: b.posts.used, cap: b.posts.cap }) : null,
     s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
     s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),

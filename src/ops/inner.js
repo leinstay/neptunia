@@ -42,7 +42,7 @@ const handlers = perEnv((env) => {
     lines.push(`review: ${s.review ? `${s.review.day} ${s.review.done ? 'done' : `at ${stamp(s.review.at)}`}` : 'not drawn'}`);
     const b = s.budgets;
     if (b) {
-      lines.push(`today: turns ${b.day.used}/${b.day.cap}, this hour ${b.hour.used}/${b.hour.cap}, usd ${b.usd.used}/${b.usd.cap}, public posts ${b.posts.used}/${b.posts.cap}; resets ${stamp(b.day.resetAt)}`);
+      lines.push(`today: turns ${b.day.used}/${b.day.cap}, this hour ${b.hour.used}/${b.hour.cap}, public posts ${b.posts.used}/${b.posts.cap}; resets ${stamp(b.day.resetAt)}`);
     }
     return lines.join('\n');
   }

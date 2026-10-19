@@ -179,8 +179,8 @@ export function createDrawingTool({ images, hot, client = null, imageFetcher = n
  * The error a failed `runInline` outcome stands for, for the call sites: the original error of
  * the generation when the tool ran here (so `key`, `used`, `cap`, `statusCode` are exactly what
  * the Images client threw), else the one its code maps to (`errorOfCode`): a refusal of the
- * agent's daily caps (`cap-tasks`, `cap-usd`) is an `ImageCapError('daily')` naming
- * `agents.drawing.daily.<tasks|usd>`, the same notice `image.maxPerDay` gives.
+ * agent's daily caps (`cap-tasks`) is an `ImageCapError('daily')` naming
+ * `agents.drawing.daily.tasks`, the same notice `image.maxPerDay` gives.
  * @param {{ code: string, error?: unknown, key?: string, used?: number, cap?: number }} outcome
  * @returns {Error}
  */
@@ -189,7 +189,7 @@ export function drawErrorOf(outcome) {
   if (cause instanceof ImageCapError || cause instanceof ImageGenError || cause instanceof UnsupportedImageModelError) return cause;
   // Anything else the tool threw is passed on as it was.
   if (outcome?.error instanceof DrawToolError && cause instanceof Error) return cause;
-  if (outcome?.code === 'cap-tasks' || outcome?.code === 'cap-usd') {
+  if (outcome?.code === 'cap-tasks') {
     return errorOfCode(DRAW_CODES.capDaily, { key: outcome.key, used: outcome.used, cap: outcome.cap, message: `daily drawing cap reached (${outcome.key})` });
   }
   // The service's own cut-off of a run (`agents.drawing.limits.seconds`) is a generation that timed out.

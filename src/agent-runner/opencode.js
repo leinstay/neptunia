@@ -280,7 +280,6 @@ export function createOpencodeRunner({
     const usage = { input: 0, output: 0, usd: 0, steps: 0, seconds: 0, costUnknown: 0 };
     const sources = new Set();
     const steps = Number.isFinite(limits.steps) && limits.steps > 0 ? Math.floor(limits.steps) : profile.defaultLimits.steps;
-    const usdCap = Number.isFinite(limits.usd) && limits.usd > 0 ? limits.usd : profile.defaultLimits.usd;
     const secondsCap = Number.isFinite(limits.seconds) && limits.seconds > 0 ? limits.seconds : profile.defaultLimits.seconds;
 
     const dir = path.join(outDir, id);
@@ -458,7 +457,6 @@ export function createOpencodeRunner({
           if (typeof stepCost === 'number' && Number.isFinite(stepCost) && stepCost > 0) usage.usd += stepCost;
           else usage.costUnknown += 1;
           progress({ step: usage.steps, tool: null, note: '' });
-          if (usage.usd >= usdCap) stopChild('usd-cap');
           return;
         }
         if (type === 'text') {
@@ -512,7 +510,7 @@ export function createOpencodeRunner({
       base.error = 'cancelled';
       return base;
     }
-    if (capHit === 'time-cap' || capHit === 'usd-cap') {
+    if (capHit === 'time-cap') {
       base.status = 'failed';
       base.error = capHit;
       return base;

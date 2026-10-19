@@ -19,7 +19,7 @@ const LABELS = {
   running: 'running',
   stopped: 'stopped since {at}',
   turnsLine: 'turns {used}/{cap}, chains {chains}',
-  usdLine: 'usd {spent} + {held} / {cap}',
+  usdLine: 'usd {spent}',
   postsLine: 'posts {used}/{cap}',
   nextLine: 'next {at} ({kind})',
   nextNone: 'next: none',
@@ -38,10 +38,9 @@ const STATUS = {
   mode: 'shadow',
   stopped: false,
   stoppedAt: null,
-  budgets: { day: { used: 3, cap: 24 }, usd: { used: 0.9, cap: 4 }, posts: { used: 1, cap: 2 } },
+  budgets: { day: { used: 3, cap: 24 }, posts: { used: 1, cap: 2 } },
   chains: 2,
   spentUsd: 0.6,
-  heldUsd: 0.3,
   intentions: { pending: 2, waiting: 1, proposed: 4 },
   attention: { open: 1, listed: 5, run: 4, spoken: 1, skipped: 3, waiting: 1 },
   next: { at: AT + 3600000, kind: 'review' },
@@ -71,7 +70,7 @@ test('status inner: the owner reads the inner life\'s lines through the labels; 
   assert.deepEqual(fields[0].value.split('\n'), [
     'mode shadow / running',
     'turns 3/24, chains 2',
-    'usd 0.60 + 0.30 / 4',
+    'usd 0.60',
     'posts 1/2',
     'next 2026-10-19 13:30 UTC (review)',
     'last skip at 2026-10-19 12:30 UTC',
@@ -109,7 +108,7 @@ test('status inner: absent with features.innerLife off, hidden from a member', a
 
 test('status inner: a stopped inner life, no wake known, no turn yet', () => {
   const lines = innerLines({ ...STATUS, mode: 'live', stopped: true, stoppedAt: AT, next: null, lastTurn: null, intentions: null, attention: null }, { status: { inner: LABELS } });
-  assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3/24, chains 2', 'usd 0.60 + 0.30 / 4', 'posts 1/2', 'next: none', 'last: none']);
+  assert.deepEqual(lines, ['mode live / stopped since 2026-10-19 12:30 UTC', 'turns 3/24, chains 2', 'usd 0.60', 'posts 1/2', 'next: none', 'last: none']);
   assert.equal(innerLines({ ...STATUS, lastTurn: { at: AT, outcome: null } }, { status: { inner: LABELS } })[5], 'last ? at 2026-10-19 12:30 UTC');
   assert.deepEqual(innerLines(STATUS, {}), [], 'no labels, no lines');
 });

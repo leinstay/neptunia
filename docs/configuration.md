@@ -992,8 +992,8 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode's price catalog fetch is disabled in the sandbox). Set it to the price of the model in `models.agents.web` |
 | `socket` | `"/run/neptunia-agent-web/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-web/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
-| `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
-| `daily` | `{ "tasks": 40, "usd": 8 }` | Per-day caps (UTC day), applied core-side when a task is asked for: `cap-tasks` past `tasks`, `cap-usd` once the day's ended tasks reported `usd` or more |
+| `limits` | `{ "steps": 25, "seconds": 300 }` | Per-task caps: model calls, wall-clock seconds |
+| `daily` | `{ "tasks": 40 }` | Per-day cap (UTC day), applied core-side when a task is asked for: `cap-tasks` past `tasks` |
 | `search` | `{ "provider": "exa" }` | OpenCode web search provider: `exa` (no key) or `parallel` (needs a key in `OPENCODE_WEBSEARCH_KEY`) |
 
 ### `agents.server`
@@ -1004,8 +1004,8 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate; the price of the model in `models.agents.server` |
 | `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
-| `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |
-| `daily` | `{ "tasks": 40, "usd": 3 }` | Per-day caps (UTC day), applied core-side, as for `web` |
+| `limits` | `{ "steps": 20, "seconds": 120 }` | Per-task caps: model calls, wall-clock seconds |
+| `daily` | `{ "tasks": 40 }` | Per-day cap (UTC day), applied core-side, as for `web` |
 
 ### `agents.drawing`
 
@@ -1014,7 +1014,7 @@ The drawing agent (a `tool` agent: the core runs it, no runner). See [The drawin
 | Key | Default | Meaning |
 |---|---|---|
 | `limits` | `{ "seconds": 300 }` | How long one picture may take (wall-clock seconds); a longer run is cut off and counts as a timed-out generation |
-| `daily` | `{ "tasks": 100, "usd": 5 }` | Per-day caps (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` is a picture count; `usd` is the total cost reported by finished pictures that day |
+| `daily` | `{ "tasks": 100 }` | Per-day cap (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` is a picture count |
 
 ### `agents.thinker`, `agents.dev`, `agents.writer`
 
@@ -1023,8 +1023,7 @@ The development agents: they run outside this engine (the ledger's attempt runne
 | Key | Default | Meaning |
 |---|---|---|
 | `cost` | thinker `{ "input": 4, "output": 20 }`, dev `{ "input": 2, "output": 10 }`, writer `{ "input": 5, "output": 25 }` | Model price (USD per million tokens) for OpenCode's cost estimate; the price of the agent's model in `models.agents` |
-| `limits` | thinker `{ "usd": 10, "steps": 400, "minutes": 60 }`, dev `{ "usd": 10, "steps": 300, "minutes": 60 }`, writer `{ "usd": 5, "steps": 150, "minutes": 45 }` | Caps of one run (a thinker turn, a dev or writer attempt): estimated USD, model calls, wall-clock minutes |
-| `daily` | thinker `{ "usd": 60 }`, dev `{ "usd": 40 }`, writer `{ "usd": 20 }` | Estimated USD per UTC day, counted from the ledger's figures (the same ones as `costs.agents`) |
+| `limits` | thinker `{ "steps": 400, "minutes": 60 }`, dev `{ "steps": 300, "minutes": 60 }`, writer `{ "steps": 150, "minutes": 45 }` | Caps of one run (a thinker turn, a dev or writer attempt): model calls, wall-clock minutes |
 | `contextLimit` | `350000` | Thinker only: the context size (tokens) its model is given in OpenCode, which compacts its session before reaching it |
 | `contextHard` | `400000` | Thinker only: a turn that ends above this context (tokens) without a compaction is followed by a handover and a fresh session |
 
@@ -1052,22 +1051,19 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `tickSeconds` | `60` | How often the scheduler looks at what is due (seconds); ticks missed while the bot was down coalesce into the first one after it |
 | `queueMax` | `20` | At most this many wakes wait at once; one more is journalled as an overflow and not queued |
 | `chatMessages` | `30` | How many of the conversation's last messages an inner turn reads |
-| `estimatedTurnUsd` | `0.15` | The cost reserved against `caps.usdPerDay` before an inner turn runs (or what the costliest inner turn of the last two days really cost, when that was more); replaced by what it actually cost when it ends |
-| `errandReserveMaxMinutes` | `60` | How long the hold of an errand an inner turn handed off (its agent's `agents.<agent>.limits.usd`, held against `caps.usdPerDay` from its dispatch) lasts when the errand never ends; an intention's wait on the errand releases it at the wait's deadline when that comes first. An errand that ends replaces its hold with its real cost |
 | `review.enabled` | `true` | Whether she has a daily review at all |
 | `review.historyDays` | `14` | How many days of her own lines in the record decide her active hours (when she usually speaks) for the review's random moment |
 | `review.expiredMax` | `5` | At most this many of her intentions that expired untouched since she was last told are listed in a review's `<wake>` (the newest first; the rest counted and told next time); a candidate is never listed. Each listed one is marked shown on its record once the review turn ran |
 | `caps.perDay` | `24` | Inner turns per local day (`bot.timezone`) |
 | `caps.perHour` | `4` | Inner turns per rolling hour |
 | `caps.perChain` | `3` | Inner turns per causal chain: an intention's `chain`, else the intention itself; a review is its day's chain. A spent chain's wakes are dropped |
-| `caps.usdPerDay` | `4` | Dollars per local day for inner turns: their requests (voice and helpers) as reported, plus the errands they handed off when those end. A turn starts only when the real spend, the reservations held and its own fit under it; a turn that reaches it makes no further call or request (`inner-usd-cap`). An errand she hands off in a live inner turn holds its agent's per-errand limit (`agents.<agent>.limits.usd`) from its dispatch; one that would not fit is refused (`inner-usd-cap`) |
 | `caps.publicPostsPerDay` | `2` | Posts of her own initiative in server channels per local day (live mode); one more is refused. A post delivering an intention someone asked for, to the channel it was asked in, is not counted ([Inner life](inner-life.md)) |
 | `attention.settleSeconds` | `90` | The quiet an attention waits for before it wakes her: the newest line of the attended place must be this many seconds old (so she does not cut into a line being typed). The default of `intent.set attend=`; she may set her own `settle=`, 0 included ([Inner life](inner-life.md#her-attention)) |
 | `attention.perDayDefault` | `12` | An attention's own bound: attend wakes per local day. The default of `intent.set attend=`; she sets her own with `perday=`. Past it the wake waits in the queue (`attend-per-day`) and runs the next local day |
 | `attention.pageSize` | `12` | Places per page of her `places.list` skill (`page=` turns them; the total and how many more are always said) |
 | `attention.placesInWake` | `8` | How many places (by recent activity, with the total) the page inside `<wake>` shows on every inner turn, and the `<places>` block of an addressed turn with `context.places` on. `0` keeps the view to her `places.list` skill |
 | `attention.lookbackHours` | `24` | How far back the record is indexed for the places' lines: the lines and people since her last look there are counted within this window at most. An attention counts nothing from before it was set |
-| `loop.maxSteps` | `4` | The tool loop's bounds of an inner turn, in place of `skills.loop` (which never reaches an inner turn; nobody waits for one, so its budget is generous, and `caps.usdPerDay` and `llm.maxRequestsPerDay` bound the cost as before): the most follow-up requests one inner turn makes after her calls. The last one tells her no call will run; one post or intention change she writes there still runs ([Inner life](inner-life.md)) |
+| `loop.maxSteps` | `4` | The tool loop's bounds of an inner turn, in place of `skills.loop` (which never reaches an inner turn; nobody waits for one, so its budget is generous, and `llm.maxRequestsPerDay` bounds the cost as before): the most follow-up requests one inner turn makes after her calls. The last one tells her no call will run; one post or intention change she writes there still runs ([Inner life](inner-life.md)) |
 | `loop.timeBudgetMs` | `180000` | How long the calls and follow-ups of one inner turn may run, counted from its first call. Once it is spent, the next request is her last |
 | `loop.maxCallsPerStep` | `4` | The most calls of one answer of an inner turn that run; the rest are dropped and logged `skills: extra-call` with `loop: true` |
 | `loop.callTimeoutMs` | `60000` | The most one call of an inner turn may run: this, or what is left of `loop.timeBudgetMs` (2 seconds at least), whichever is smaller. A call that runs out of it is reported as `unknown` and never retried, as on every turn (`skills.callTimeoutMs` is not read for an inner turn's loop) |

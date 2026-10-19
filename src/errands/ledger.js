@@ -101,8 +101,8 @@ export function transitionArgs(ledgerId, to, closeReason = null) {
 
 /**
  * The args of the triage of ledger task `ledgerId` (`task.transition` to `triaged`, the triage
- * fields set in the same call): the agent as the role, `limits.usd` as `budget_usd`,
- * `limits.steps` as `step_cap`, `limits.seconds` (else the client's default) in whole minutes as
+ * fields set in the same call): the agent as the role, a `usd` limit the caller passes (the core sets none)
+ * as `budget_usd`, `limits.steps` as `step_cap`, `limits.seconds` (else the client's default) in whole minutes as
  * `estimate_minutes`. A limit that is not a positive number is left out.
  */
 export function triageArgs(ledgerId, task, limits) {

@@ -1,11 +1,11 @@
 {
   "name": "self-rescheduling",
-  "description": "She keeps pushing the same intention ten minutes ahead, and keeps setting a new one in the same chain: the per-chain cap ends both. A cheap day budget runs out after a few turns and the rest wait for the next day; five conversations due at once on a fresh day meet the hourly cap.",
+  "description": "She keeps pushing the same intention ten minutes ahead, and keeps setting a new one in the same chain: the per-chain cap ends both. Five conversations due at once on a fresh day meet the hourly cap.",
   "start": "2026-11-02",
   "days": 5,
   "timezone": "UTC",
   "seed": 79,
-  "innerLife": { "estimatedTurnUsd": 0.15, "review": { "enabled": false }, "caps": { "usdPerDay": 0.5 } },
+  "innerLife": { "review": { "enabled": false } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" },
@@ -31,5 +31,5 @@
     { "key": "d5-e", "purpose": "say hi in memes", "channel": "c-memes", "due": "5 15:00", "stub": { "intention_due": [[]] } }
   ],
   "events": [],
-  "expect": { "capped": ["per-chain", "usd-per-day", "per-hour"] }
+  "expect": { "capped": ["per-chain", "per-hour"] }
 }

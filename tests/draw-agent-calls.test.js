@@ -259,7 +259,7 @@ test('draw agent: a member\'s <draw> is posted and recorded as a task of the dra
 test('draw agent: a refusal by its daily caps tells the member who asked, as an image cap does, and draws nothing', async () => {
   const images = recordingImages();
   const hotValue = hot();
-  hotValue.config.agents = { drawing: { daily: { tasks: 0, usd: 5 } } };
+  hotValue.config.agents = { drawing: { daily: { tasks: 0 } } };
   const { errands, records } = errandsOf(hotValue);
   const { raw, trigger } = memberTrigger();
   const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse</draw>', images, errands, hotValue });
@@ -274,7 +274,7 @@ test('draw agent: a refusal by its daily caps tells the member who asked, as an 
 test('draw agent: a diary set is recorded picture by picture; the avatar is fetched once; the caps end the set like an image cap and the rest is posted', async () => {
   const images = recordingImages();
   const hotValue = hot();
-  hotValue.config.agents = { drawing: { daily: { tasks: 2, usd: 5 } } };
+  hotValue.config.agents = { drawing: { daily: { tasks: 2 } } };
   const { errands, records } = errandsOf(hotValue);
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
   const answer = '<msg>a walk</msg><draw self="yes">me at the harbour gate</draw><draw>boats in the harbour</draw><draw>a café terrace</draw>';
@@ -303,7 +303,7 @@ test('draw agent: /nep draw is recorded as the owner\'s picture; a cap makes the
   assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester.kind, task.seen]), [['drawing', 'done', 'owner', true]]);
 
   const capped = hot();
-  capped.config.agents = { drawing: { daily: { tasks: 5, usd: 0 } } };
+  capped.config.agents = { drawing: { daily: { tasks: 0 } } };
   const refused = errandsOf(capped);
   const { result: outcome } = await withCapturedLogs(async () => {
     try {

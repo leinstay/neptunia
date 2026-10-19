@@ -50,7 +50,7 @@ function fakeClient({ configured = true } = {}) {
 function makeEnv({ agents = {}, configured = true } = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
-    config: { bot: { owners: [OWNER], access: {} }, features: {}, agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } }, server: { enabled: true, daily: { tasks: 10, usd: 5 } }, ...agents } },
+    config: { bot: { owners: [OWNER], access: {} }, features: {}, agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } }, ...agents } },
     prompts: { labels: {} },
     rootDir,
     reloadConfig: () => true,
@@ -82,7 +82,7 @@ test('task.run: a member may run the web agent; the answer is at once, the erran
     await new Promise((r) => setImmediate(r));
     assert.equal(client.runs.length, 1);
     assert.equal(client.runs[0].context.scope, 'group');
-    assert.deepEqual(client.runs[0].limits, { steps: 25, usd: 0.5, seconds: 300 }, 'the profile defaults under agents.web.limits');
+    assert.deepEqual(client.runs[0].limits, { steps: 25, seconds: 300 }, 'the profile defaults under agents.web.limits');
     assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes models.agents.web');
     assert.equal(stores.get('g1').get(id).state, 'running');
     client.end(id);
@@ -172,7 +172,7 @@ test('task.status and task.list: the open ones, one by id, a private chat\'s onl
 
 test('task.status: a finished task whose files the runner deleted says files-expired', async () => {
   const out = tempDir('nep-ops-task-out-');
-  const { env, client, errands } = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10, usd: 5 } } } });
+  const { env, client, errands } = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10 } } } });
   await withCapturedLogs(async () => {
     const id = (await runOp('task.run', { agent: 'web', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
     while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));

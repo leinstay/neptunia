@@ -605,7 +605,7 @@ function fromPort(result) {
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
- * queued an errand (`task.run`: an inner turn binds the errand's dollar hold to it). Files it answers
+ * queued an errand (`task.run`). Files it answers
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn

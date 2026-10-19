@@ -19,12 +19,10 @@ import {
   currentChannelOf,
   drawReviewAt,
   emptyState,
-  errandRefusal,
   feedbackFacts,
   hourWeights,
   innerSettings,
   reviewWake,
-  turnReserve,
   wakeOfDue,
   DELIVERY_SKILLS,
   WAKE_KINDS,
@@ -97,13 +95,13 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
       bot: { timezone },
       features: { innerLife: true, intentions: true, journal: true, ...features },
       mention: { oneAtATime: true },
-      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, estimatedTurnUsd: 0.15, review: { enabled: false, historyDays: 14 }, caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 }, ...innerLife },
+      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, caps: { perDay: 24, perHour: 4, perChain: 3, publicPostsPerDay: 2 }, ...innerLife },
     },
   };
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, errandLimitUsd = null, service = null } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, service = null } = {}) {
   const journal = [];
   const intentions = service ?? fakeIntentions(records);
   let inner;
@@ -125,7 +123,6 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     rng,
     now: () => clock.t,
     onEpisode,
-    errandLimitUsd,
     log: SILENT,
   });
   return { inner, turns, journal, intentions, dataDir, door, hot };
@@ -324,7 +321,7 @@ test('inner: the day\'s review is drawn once from her record inside her hours, w
 });
 
 test('inner: the day cap refuses the next turn and journals it once per wake', async () => {
-  const run = setup({ records: [intention('i1', { dueAt: NOW - 2 * MINUTE_MS }), intention('i2', { dueAt: NOW - MINUTE_MS, channelId: 'c2' })], hot: hotWith({ innerLife: { caps: { perDay: 1, perHour: 4, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 } } }) });
+  const run = setup({ records: [intention('i1', { dueAt: NOW - 2 * MINUTE_MS }), intention('i2', { dueAt: NOW - MINUTE_MS, channelId: 'c2' })], hot: hotWith({ innerLife: { caps: { perDay: 1, perHour: 4, perChain: 3, publicPostsPerDay: 2 } } }) });
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
   const refused = await run.inner.tick();
@@ -339,8 +336,8 @@ test('inner: the day cap refuses the next turn and journals it once per wake', a
   assert.equal(run.turns.calls.length, 2);
 });
 
-test('inner: the hour cap rolls, the chain cap ends the chain, the dollar cap counts the reserve', async () => {
-  const caps = { perDay: 24, perHour: 1, perChain: 3, usdPerDay: 4, publicPostsPerDay: 2 };
+test('inner: the hour cap rolls, the chain cap ends the chain', async () => {
+  const caps = { perDay: 24, perHour: 1, perChain: 3, publicPostsPerDay: 2 };
   const hourly = setup({ records: [intention('i1', { dueAt: NOW - 2 * MINUTE_MS }), intention('i2', { dueAt: NOW - MINUTE_MS, channelId: 'c2' })], hot: hotWith({ innerLife: { caps } }) });
   await hourly.inner.tick();
   assert.deepEqual((await hourly.inner.tick()).drained, { refused: 'per-hour' });
@@ -354,24 +351,17 @@ test('inner: the hour cap rolls, the chain cap ends the chain, the dollar cap co
   assert.deepEqual((await chained.inner.tick()).drained, { refused: 'per-chain' });
   assert.equal(chained.inner.status(GUILD).queue.length, 0, 'a spent chain\'s wakes are done with');
   assert.equal(chained.turns.calls.length, 1);
-
-  const poor = setup({ records: [intention('i1')], hot: hotWith({ innerLife: { estimatedTurnUsd: 0.15, caps: { ...caps, usdPerDay: 0.1 } } }) });
-  assert.deepEqual((await poor.inner.tick()).drained, { refused: 'usd-per-day' });
-  assert.equal(poor.turns.calls.length, 0);
 });
 
 test('budgetsOf and capRefusal: the facts she is given and the order of the caps', () => {
   const settings = innerSettings(hotWith().config);
   const state = { ...emptyState(), turns: [{ at: NOW - 10 * MINUTE_MS, chainId: 'a', usd: 1 }], spend: [{ at: NOW - 10 * MINUTE_MS, usd: 1 }], posts: [NOW - MINUTE_MS] };
-  const b = budgetsOf(state, settings, { now: NOW, timezone: 'UTC', reserved: 0.5 });
+  const b = budgetsOf(state, settings, { now: NOW, timezone: 'UTC' });
   assert.deepEqual(b.day, { used: 1, cap: 24, left: 23, resetAt: Date.parse('2026-10-20T00:00:00Z') });
   assert.equal(b.hour.resetAt, NOW + 50 * MINUTE_MS);
-  assert.equal(b.usd.used, 1.5);
-  assert.equal(b.usd.left, 2.5);
   assert.equal(b.posts.left, 1);
-  assert.equal(capRefusal(b, chainBudget(state, 'a', 3), 0.15), null);
-  assert.equal(capRefusal(b, chainBudget({ ...state, chains: { a: { turns: 3, lastAt: NOW } } }, 'a', 3), 0.15), 'per-chain');
-  assert.equal(capRefusal({ ...b, usd: { ...b.usd, used: 3.9 } }, chainBudget(state, 'a', 3), 0.15), 'usd-per-day');
+  assert.equal(capRefusal(b, chainBudget(state, 'a', 3)), null);
+  assert.equal(capRefusal(b, chainBudget({ ...state, chains: { a: { turns: 3, lastAt: NOW } } }, 'a', 3)), 'per-chain');
 });
 
 test('inner: the public post cap is asked by the turn, and each post counts', async () => {
@@ -446,7 +436,7 @@ test('inner: the journal records the wake and the turn with its outcome, actions
   assert.equal(turn.turnId, 't-9');
   assert.equal(run.inner.onTaskFinished({ id: 'k1', origin: { turnId: 't-9' }, usage: { usd: 0.5 } }, GUILD), true);
   assert.equal(run.inner.onTaskFinished({ id: 'k2', origin: { turnId: 'other' }, usage: { usd: 0.5 } }, GUILD), false);
-  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.62);
+  assert.equal(run.inner.status(GUILD).spentUsd, 0.62);
 });
 
 test('wakeOfDue: a wait past its deadline names its errand; the chain is the intention\'s', () => {
@@ -460,7 +450,7 @@ test('wakeOfDue: a wait past its deadline names its errand; the chain is the int
 test('inner: what one drain hands off (a stale wake, then a spent chain) is all on disk afterwards', async () => {
   const dataDir = tempDir('nep-inner-drain-');
   const records = [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' })];
-  const hot = hotWith({ innerLife: { caps: { perDay: 24, perHour: 4, perChain: 1, usdPerDay: 4, publicPostsPerDay: 2 } } });
+  const hot = hotWith({ innerLife: { caps: { perDay: 24, perHour: 4, perChain: 1, publicPostsPerDay: 2 } } });
   const run = setup({ records, dataDir, hot });
   run.turns.busy = true;
   await run.inner.tick();
@@ -498,12 +488,6 @@ function ownMeter() {
   return { meter, emit: (entry) => listeners.forEach((fn) => fn(entry)) };
 }
 
-test('turnReserve: the estimate, or the costliest kept inner turn\'s real cost when more', () => {
-  const settings = innerSettings(hotWith().config);
-  assert.equal(turnReserve(emptyState(), settings), 0.15);
-  assert.equal(turnReserve({ ...emptyState(), turns: [{ at: NOW, usd: 0.1 }, { at: NOW, usd: 0.42 }, { at: NOW }] }, settings), 0.42);
-});
-
 test('createCostMeter: running() says what the run has cost so far and its costliest request; zeros outside it', async () => {
   const { meter, emit } = ownMeter();
   const seen = [];
@@ -518,157 +502,38 @@ test('createCostMeter: running() says what the run has cost so far and its costl
   assert.deepEqual(meter.running(), { usd: 0, peak: 0 });
 });
 
-test('inner: a turn that cost more than the estimate raises the next reservation; the day is refused before it goes over', async () => {
+test('inner: what turns cost never refuses the next one; the day\'s spend is only reported', async () => {
   const { meter, emit } = ownMeter();
   const turns = fakeTurns({
     answer: () => {
-      emit({ msg: 'llm: usage', role: 'core', cost: 0.2 });
-      emit({ msg: 'llm: usage', role: 'core', cost: 0.2 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 5 });
+      emit({ msg: 'llm: usage', role: 'core', cost: 5 });
       return { outcome: 'spoke', inner: { actions: [], turnId: `t-${turns.calls.length}` } };
     },
   });
   const records = [intention('i1', { dueAt: NOW - 3 * MINUTE_MS }), intention('i2', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c2' }), intention('i3', { dueAt: NOW - MINUTE_MS, channelId: 'c3' })];
-  const run = setup({ records, turns, meter, hot: hotWith({ innerLife: { estimatedTurnUsd: 0.15, caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 1, publicPostsPerDay: 2 } } }) });
+  const run = setup({ records, turns, meter });
   await run.inner.tick();
   await run.inner.tick();
-  // 0.8 really spent: with the estimate alone (0.15) a third turn would run and end the day at 1.2.
-  assert.deepEqual((await run.inner.tick()).drained, { refused: 'usd-per-day' });
-  assert.equal(run.turns.calls.length, 2);
-  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.8);
-  await settle();
-  assert.deepEqual(run.journal.filter((r) => r.event === 'turn').map((r) => r.cost.reservedUsd), [0.15, 0.4]);
-  // The next day the real total starts again from nothing.
-  clock.t = NOW + DAY_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 3);
+  assert.equal(run.inner.status(GUILD).spentUsd, 30);
 });
 
-test('inner: inside a turn spendAllowed counts the day\'s real spend, the turn\'s so far and one more request as costly as its costliest', async () => {
-  const { meter, emit } = ownMeter();
-  const asked = [];
-  const turns = fakeTurns({
-    answer: (params) => {
-      asked.push(params.inner.spendAllowed());
-      emit({ msg: 'llm: usage', role: 'core', cost: 0.3 });
-      asked.push(params.inner.spendAllowed());
-      emit({ msg: 'llm: usage', role: 'core', cost: 0.3 });
-      asked.push(params.inner.spendAllowed());
-      return { outcome: 'spoke', inner: { actions: [], turnId: `t-${turns.calls.length}` } };
-    },
-  });
-  const caps = { perDay: 24, perHour: 4, perChain: 3, usdPerDay: 0.8, publicPostsPerDay: 2 };
-  const run = setup({ records: [intention('i1'), intention('i2', { channelId: 'c2' })], turns, meter, hot: hotWith({ innerLife: { estimatedTurnUsd: 0.15, caps } }) });
-  await run.inner.tick();
-  // Before anything 0; then 0.3 + 0.3 = 0.6; then 0.6 + 0.3 = 0.9 over 0.8: no further call or request.
-  assert.deepEqual(asked, [true, true, false]);
-  // The turn's real 0.6 counts: the next turn (reserving 0.6) is refused, not admitted on the estimate.
-  assert.deepEqual((await run.inner.tick()).drained, { refused: 'usd-per-day' });
-});
-
-// ---- errands an inner turn hands off hold their most possible cost ----------------------------
-
-test('errandRefusal: an errand fits when the day, the turn\'s share and its hold stay within the ceiling; an unknown limit never fits', () => {
-  assert.equal(errandRefusal({ used: 0.4, cap: 1 }, 0.15, 0.4), null);
-  assert.equal(errandRefusal({ used: 0.5, cap: 1 }, 0.15, 0.4), 'inner-usd-cap');
-  assert.equal(errandRefusal({ used: 0, cap: 1 }, 0, Number.NaN), 'inner-usd-cap');
-});
-
-test('budgetsOf: an errand hold counts as spent until its end, whatever day it was taken', () => {
-  const settings = innerSettings(hotWith().config);
-  const state = { ...emptyState(), holds: [{ id: 'h1', agent: 'web', usd: 0.4, at: NOW - DAY_MS, until: NOW + HOUR_MS, taskId: 'k1', key: null }] };
-  assert.equal(budgetsOf(state, settings, { now: NOW, timezone: 'UTC' }).usd.used, 0.4);
-  assert.equal(budgetsOf(state, settings, { now: NOW + HOUR_MS, timezone: 'UTC' }).usd.used, 0);
-});
-
-/** A live inner life whose one turn asks to hand off `count` errands of the web agent (each binds to `k<n>`). */
-function errandSetup({ count, records = [intention('i1')], usdPerDay = 1, limit = 0.4, dataDir = tempDir('nep-inner-hold-'), maxMinutes = 60 } = {}) {
-  const answers = [];
-  const turns = fakeTurns({
-    answer: (params) => {
-      for (let n = 1; n <= count; n += 1) {
-        const held = params.inner.reserveErrand({ agent: 'web', key: `t-hold.1:${n}` });
-        answers.push(held);
-        if (held.ok) params.inner.bindErrand(held.id, `k${n}`);
-      }
-      return { outcome: 'spoke', inner: { actions: [], turnId: 't-hold' } };
-    },
-  });
-  const hot = hotWith({ innerLife: { mode: 'live', errandReserveMaxMinutes: maxMinutes, caps: { perDay: 24, perHour: 4, perChain: 3, usdPerDay, publicPostsPerDay: 2 } } });
-  const run = setup({ records, turns, hot, dataDir, meterUsd: 0.1, errandLimitUsd: (agent) => (agent === 'web' ? limit : null) });
-  return { ...run, answers };
-}
-
-test('inner: errands an inner turn hands off hold their limit from dispatch; one past the day\'s dollars is refused; holds survive a restart; an end replaces its hold with the real cost', async () => {
+test('inner: an errand an inner turn handed off has its cost recorded when it ends, as a figure with no hold', async () => {
   clock.t = NOW;
-  const run = errandSetup({ count: 3 });
+  const turns = fakeTurns({ answer: () => ({ outcome: 'spoke', inner: { actions: [], turnId: 't-e' } }) });
+  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
   await run.inner.tick();
   await settle();
-  // 0 + 0.15 (the turn's reservation) + 0.4 fits; 0.4 + 0.15 + 0.4 fits; 0.8 + 0.15 + 0.4 does not.
-  assert.deepEqual(run.answers.map((a) => a.ok), [true, true, false]);
-  assert.equal(run.answers[2].code, 'inner-usd-cap');
-  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.9, 'the turn\'s real 0.1 and two holds of 0.4');
-  assert.equal(run.journal.filter((r) => r.event === 'errand-held').length, 2);
-  assert.equal(run.journal.filter((r) => r.event === 'errand-refused').length, 1);
-  const onDisk = JSON.parse(fs.readFileSync(path.join(run.dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
-  assert.deepEqual(onDisk.holds.map((h) => [h.taskId, h.usd]), [['k1', 0.4], ['k2', 0.4]]);
-  // A restart reads the holds back.
-  const again = setup({ records: [], dataDir: run.dataDir, hot: run.hot, errandLimitUsd: () => 0.4 });
-  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.9);
-  // The first errand ends at 0.25: its hold gives way to what it cost. One by its call's key.
-  assert.equal(again.inner.onTaskFinished({ id: 'k1', origin: { turnId: 't-hold' }, usage: { usd: 0.25 } }, GUILD), true);
-  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.75);
-  assert.equal(again.inner.onTaskFinished({ id: 'other', idempotencyKey: 't-hold.1:2', origin: { turnId: 't-hold' }, usage: { usd: 0 } }, GUILD), false);
-  assert.equal(again.inner.status(GUILD).budgets.usd.used, 0.35);
-  assert.deepEqual(again.inner.state(GUILD).holds, []);
-});
-
-test('inner: a lost errand releases its hold at the wait\'s deadline when that comes first, else after errandReserveMaxMinutes', async () => {
-  clock.t = NOW;
-  const waiting = { ...intention('i9', { dueAt: null }), status: 'waiting', awaitingTaskId: 'k1', waitDeadline: NOW + 20 * MINUTE_MS };
-  const run = errandSetup({ count: 1, records: [intention('i1'), waiting] });
-  await run.inner.tick();
-  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.5);
-  clock.t = NOW + 19 * MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.inner.state(GUILD).holds.length, 1);
-  clock.t = NOW + 20 * MINUTE_MS;
-  await run.inner.tick();
+  assert.equal(run.inner.onTaskFinished({ id: 'k1', origin: { turnId: 't-e' }, usage: { usd: 0.25 } }, GUILD), true);
+  assert.equal(run.inner.onTaskFinished({ id: 'k2', origin: { turnId: 'elsewhere' }, usage: { usd: 0.25 } }, GUILD), false);
+  assert.equal(run.inner.status(GUILD).spentUsd, 0.35, 'the turn\'s real 0.1 and the errand\'s 0.25');
   await settle();
-  assert.deepEqual(run.inner.state(GUILD).holds, []);
-  assert.equal(run.inner.status(GUILD).budgets.usd.used, 0.1);
-  assert.deepEqual(run.journal.filter((r) => r.event === 'errand-released').map((r) => [r.taskId, r.reason]), [['k1', 'lost']]);
-
-  clock.t = NOW;
-  const plain = errandSetup({ count: 1, maxMinutes: 30 });
-  await plain.inner.tick();
-  clock.t = NOW + 29 * MINUTE_MS;
-  await plain.inner.tick();
-  assert.equal(plain.inner.state(GUILD).holds.length, 1);
-  clock.t = NOW + 30 * MINUTE_MS;
-  await plain.inner.tick();
-  assert.deepEqual(plain.inner.state(GUILD).holds, []);
-  clock.t = NOW;
-});
-
-test('inner: a hold whose call handed nothing off is released at once; without errandLimitUsd a turn gets no hold hooks', async () => {
-  clock.t = NOW;
-  let released = null;
-  const turns = fakeTurns({
-    answer: (params) => {
-      const held = params.inner.reserveErrand({ agent: 'web', key: 'k' });
-      released = params.inner.releaseErrand(held.id);
-      return { outcome: 'spoke', inner: { actions: [], turnId: 't-r' } };
-    },
-  });
-  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ innerLife: { mode: 'live' } }), errandLimitUsd: () => 0.4 });
-  await run.inner.tick();
-  await settle();
-  assert.equal(released, true);
-  assert.deepEqual(run.inner.state(GUILD).holds, []);
-  assert.ok(run.journal.some((r) => r.event === 'errand-released' && r.reason === 'not-dispatched'));
-  const bare = setup({ records: [intention('i2')] });
-  await bare.inner.tick();
-  assert.equal(bare.turns.calls[0].inner.reserveErrand, undefined);
+  const cost = run.journal.find((r) => r.event === 'errand-cost');
+  assert.equal(cost.taskId, 'k1');
+  assert.equal(cost.usd, 0.25);
+  assert.equal('heldUsd' in cost, false);
 });
 
 test('inner status: chains, spend, open intentions, the next wake and the last turn for the status card', async () => {
@@ -692,7 +557,6 @@ test('inner status: chains, spend, open intentions, the next wake and the last t
   assert.equal(after.budgets.day.used, 1);
   assert.equal(after.chains, 1);
   assert.equal(after.spentUsd, 0.25);
-  assert.equal(after.heldUsd, 0);
   assert.deepEqual(after.lastTurn, { at: NOW, outcome: 'skip' });
   assert.deepEqual(after.next, { at: NOW + HOUR_MS, kind: 'intention' }, 'the next intention to come due, the handled one behind');
 });

@@ -6,6 +6,6 @@
   "override": null,
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill"],
   "effort": "medium",
-  "limits": { "usd": 10, "steps": 300, "minutes": 60 },
+  "limits": { "steps": 300, "minutes": 60 },
   "description": "Writes code within one development task."
 }

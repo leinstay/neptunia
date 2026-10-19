@@ -188,9 +188,9 @@ test('server external_directory: allowed in core, the path tools\' withheld deni
 });
 
 test('defaults: limits, daily, model, env names', () => {
-  assert.deepEqual(WEB.defaultLimits, { steps: 25, usd: 0.5, seconds: 300 });
-  assert.deepEqual(SERVER.defaultLimits, { steps: 20, usd: 0.2, seconds: 120 });
-  assert.deepEqual(WEB.defaultDaily, { tasks: 40, usd: 8 });
+  assert.deepEqual(WEB.defaultLimits, { steps: 25, seconds: 300 });
+  assert.deepEqual(SERVER.defaultLimits, { steps: 20, seconds: 120 });
+  assert.deepEqual(WEB.defaultDaily, { tasks: 40 });
   assert.ok(WEB.envNames.includes('OPENROUTER_AGENT_KEY'));
   assert.ok(WEB.envNames.includes('PROXY_URL'));
   assert.deepEqual([...SERVER.envNames], ['OPENROUTER_AGENT_KEY']);
@@ -643,8 +643,8 @@ function workerProfile(id, changes = {}) {
     override: `agent-${id}.md`,
     tools: ['read', 'list'],
     shell: 'server-read-only',
-    limits: { steps: 5, usd: 0.1, seconds: 60 },
-    daily: { tasks: 3, usd: 1 },
+    limits: { steps: 5, seconds: 60 },
+    daily: { tasks: 3 },
     searchProvider: null,
     socket: `/run/test-${id}/sock`,
     out: `/var/lib/test-${id}/out`,
@@ -696,8 +696,8 @@ test('loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
     assert.equal(probe.modelRole, 'server');
     assert.equal(probe.defaultModel, ROLE_DEFAULTS.server);
     assert.deepEqual(probe.promptFiles, [path.join('/private', 'prompts.local', 'agent-probe.md'), path.join(rootDir, 'agents', 'probe', 'prompt.md')]);
-    assert.deepEqual(probe.defaultLimits, { steps: 5, usd: 0.1, seconds: 60 });
-    assert.deepEqual(probe.defaultDaily, { tasks: 3, usd: 1 });
+    assert.deepEqual(probe.defaultLimits, { steps: 5, seconds: 60 });
+    assert.deepEqual(probe.defaultDaily, { tasks: 3 });
     assert.equal(probe.defaultSearchProvider, null);
     assert.equal(probe.defaultSocket, '/run/test-probe/sock');
     assert.equal(probe.defaultOut, '/var/lib/test-probe/out');
@@ -728,7 +728,7 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   withAgentsTree({ probe: workerProfile('probe', { env: undefined }) }, (rootDir) => assertRefused(rootDir, 'probe', 'env'));
   withAgentsTree({ probe: workerProfile('probe', { kind: undefined }) }, (rootDir) => assertRefused(rootDir, 'probe', 'kind'));
   withAgentsTree({ probe: workerProfile('probe', { command: 'rm -rf /' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'command'));
-  withAgentsTree({ probe: workerProfile('probe', { limits: { steps: 5, usd: 0.1 } }) }, (rootDir) => assertRefused(rootDir, 'probe', 'limits.seconds'));
+  withAgentsTree({ probe: workerProfile('probe', { limits: { steps: 5 } }) }, (rootDir) => assertRefused(rootDir, 'probe', 'limits.seconds'));
   withAgentsTree({ probe: workerProfile('probe', { id: 'other' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'id'));
   withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'prompt'));
   withAgentsTree({ probe: workerProfile('probe', { role: 'core' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
@@ -760,7 +760,7 @@ function developmentProfile(id, changes = {}) {
     override: null,
     tools: ['bash', 'read', 'edit'],
     effort: 'medium',
-    limits: { usd: 2, steps: 50, minutes: 30 },
+    limits: { steps: 50, minutes: 30 },
     description: 'A test development agent.',
   };
   const merged = { ...base, ...changes };
@@ -789,9 +789,9 @@ test('development profiles: a bad key is refused with AgentProfileError naming t
     [{ tools: ['read', 'read'] }, 'tools'],
     [{ effort: 'extreme' }, 'effort'],
     [{ effort: undefined }, 'effort'],
-    [{ limits: { usd: 2, steps: 50 } }, 'limits.minutes'],
-    [{ limits: { usd: 2, steps: 1.5, minutes: 30 } }, 'limits.steps'],
-    [{ limits: { usd: 2, steps: 50, minutes: 30, seconds: 60 } }, 'limits.seconds'],
+    [{ limits: { steps: 50 } }, 'limits.minutes'],
+    [{ limits: { steps: 1.5, minutes: 30 } }, 'limits.steps'],
+    [{ limits: { steps: 50, minutes: 30, seconds: 60 } }, 'limits.seconds'],
     [{ prompt: null }, 'prompt'],
     [{ shell: 'server-read-only' }, 'shell'],
     [{ socket: '/run/x/sock' }, 'socket'],
@@ -848,7 +848,7 @@ function toolProfile(id, changes = {}) {
     override: null,
     tool: 'draw',
     limits: { seconds: 60 },
-    daily: { tasks: 5, usd: 1 },
+    daily: { tasks: 5 },
     description: 'A test tool agent.',
   };
   const merged = { ...base, ...changes };
@@ -870,7 +870,7 @@ test('tool profiles: listed by listAgents and loadToolProfiles, skipped by loadP
       modelRole: 'drawing',
       tool: 'draw',
       defaultLimits: { seconds: 60 },
-      defaultDaily: { tasks: 5, usd: 1 },
+      defaultDaily: { tasks: 5 },
     });
     assert.deepEqual(listAgents({ rootDir }).map((agent) => [agent.id, agent.kind]), [['pic', 'tool'], ['probe', 'worker']]);
   });
@@ -884,7 +884,7 @@ test('tool profiles: a bad key is refused with AgentProfileError naming the agen
     [{ tool: undefined }, 'tool'],
     [{ limits: { seconds: 0 } }, 'limits.seconds'],
     [{ limits: { seconds: 60, steps: 3 } }, 'limits.steps'],
-    [{ daily: { tasks: 5 } }, 'daily.usd'],
+    [{ daily: { tasks: 5, usd: 1 } }, 'daily.usd'],
     [{ daily: undefined }, 'daily'],
     [{ tools: ['read'] }, 'tools'],
     [{ shell: 'server-read-only' }, 'shell'],

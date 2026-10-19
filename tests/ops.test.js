@@ -297,7 +297,7 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
     agentEstimate: 'est.',
   };
   const NOW = Date.parse('2026-10-18T12:00:00Z');
-  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { web: { daily: { tasks: 40, usd: 8 } }, server: { daily: { tasks: 40, usd: 3 } } } };
+  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { web: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } } };
   const hot = { config, prompts: { labels: { status: { costs } } }, promptSources: {}, rootDir };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const reads = [];
@@ -340,7 +340,7 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
     'drawing: none',
     'est.',
   ]);
-  assert.deepEqual(tasks.today('web'), { tasks: 1, usd: 0.12, caps: { tasks: 40, usd: 8 } }, 'the web cap reads the same today');
+  assert.deepEqual(tasks.today('web'), { tasks: 1, usd: 0.12, caps: { tasks: 40 } }, 'the web cap reads the same today');
 
   const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
   const [empty] = (await runOp('status.show', { field: 'costs.agents' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
@@ -396,7 +396,7 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
   const inner = {
     stop: (guildId, { by }) => (calls.push(['stop', guildId, by]), { ok: true, already: false, dropped: 2 }),
     start: (guildId, { by }) => (calls.push(['start', guildId, by]), { ok: true, already: false }),
-    status: () => ({ on: true, mode: 'shadow', stopped: false, stoppedAt: null, queue: [{ id: 'w', kind: 'review', dueAt: 0, capped: null }], review: { day: '2026-10-19', at: 0, done: false }, budgets: { day: { used: 1, cap: 24, resetAt: 0 }, hour: { used: 1, cap: 4 }, usd: { used: 0.1, cap: 4 }, posts: { used: 0, cap: 2 } } }),
+    status: () => ({ on: true, mode: 'shadow', stopped: false, stoppedAt: null, queue: [{ id: 'w', kind: 'review', dueAt: 0, capped: null }], review: { day: '2026-10-19', at: 0, done: false }, budgets: { day: { used: 1, cap: 24, resetAt: 0 }, hour: { used: 1, cap: 4 }, posts: { used: 0, cap: 2 } } }),
   };
   const env = { ...makeEnv(), inner };
   const owner = { env, userId: '42', guildId: 'g1' };

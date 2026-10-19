@@ -6,6 +6,6 @@
   "override": null,
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "todowrite", "skill"],
   "effort": "high",
-  "limits": { "usd": 5, "steps": 150, "minutes": 45 },
+  "limits": { "steps": 150, "minutes": 45 },
   "description": "Writes prompt and documentation text within one development task."
 }
