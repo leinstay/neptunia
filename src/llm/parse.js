@@ -201,7 +201,7 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
   }
 
   for (const match of text.matchAll(/<react(\s[^>]*)?>([\s\S]*?)<\/react>/gi)) {
-    const target = /\b(?:to|reply)\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
+    const target = /\bto\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
     const to = target ? parseIndex(target[1]) : null;
     const emoji = match[2].trim();
     const fits = emoji.length <= MAX_REACTION_CHARS || CUSTOM_REACTION_RE.test(emoji);

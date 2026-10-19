@@ -96,10 +96,11 @@ test('parseOutput: a reaction alone is not silence', () => {
   assert.deepEqual(result.reactions, [{ to: 5, emoji: '💀' }]);
 });
 
-test('parseOutput: a reaction names its message by to or reply; one naming none is kept apart, not a skip', () => {
-  const both = parseOutput('<react to="#5">💀</react><react reply="#6">🔥</react>');
-  assert.deepEqual(both.reactions, [{ to: 5, emoji: '💀' }, { to: 6, emoji: '🔥' }]);
+test('parseOutput: a reaction names its message by to; one naming none is kept apart, not a skip', () => {
+  const both = parseOutput('<react to="#5">💀</react>');
+  assert.deepEqual(both.reactions, [{ to: 5, emoji: '💀' }]);
   assert.deepEqual(both.untargetedReactions, []);
+  assert.deepEqual(parseOutput('<react reply="#6">🔥</react>').untargetedReactions, [{ emoji: '🔥' }]);
   const bare = parseOutput('<react>👍</react>');
   assert.deepEqual(bare.reactions, []);
   assert.deepEqual(bare.untargetedReactions, [{ emoji: '👍' }]);

@@ -258,8 +258,6 @@ test('inner turn, live: a <react> needs a target; without one it is refused targ
   assert.ok(userText(bare.llm.calls[1][1].content).includes(labels.skills.result.reasons['target-required']));
   const targeted = await innerTurn({ answers: ['<react to="#2">👍</react>', '<skip/>'], shadow: false });
   assert.deepEqual(targeted.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:executed']);
-  const replied = await innerTurn({ answers: ['<react reply="#2">👍</react>', '<skip/>'], shadow: false });
-  assert.deepEqual(replied.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.react.add:executed']);
 });
 
 test('inner turn, live: <msg reply="#N"> replies to that line; the tags go first, in the order of an addressed turn, then her calls', async () => {
