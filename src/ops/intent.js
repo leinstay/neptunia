@@ -25,6 +25,7 @@
 // refused (`attend-with-due`, `attend-with-every`).
 // Answers are operator lines (ids, states, times, the recurrence, the place), the purpose cut to one short line.
 
+import { formatClock, formatDate } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
 import { isOwnerId } from './grants.js';
@@ -120,9 +121,15 @@ const handlers = perEnv((env) => {
     return { id: undefined, args };
   }
 
-  /** The time of `ts` for an answer line (UTC, minutes). */
+  /**
+   * The time of `ts` for an answer line: the date and the clock in `bot.timezone`, as the
+   * `<intentions>` block writes them (src/intentions/blocks.js#when), so a due she set reads
+   * against the clock her prompt shows and never as a UTC figure she takes for a past moment.
+   */
   function stamp(ts) {
-    return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
+    const timezone = hot.config?.bot?.timezone ?? 'UTC';
+    const locale = hot.prompts?.labels?.locale ?? 'en-US';
+    return `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}`;
   }
 
   /** One intention as an answer line. */
