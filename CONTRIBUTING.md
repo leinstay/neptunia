@@ -8,7 +8,7 @@ cd neptunia && npm install
 npm test
 ```
 
-Node.js 20 or newer. No build step, no TypeScript, no `dotenv`. Tests run with `node --test` and need no network, Discord connection or LLM calls.
+Node.js 24 (the major version is pinned: `engines` in `package.json`, `.nvmrc`). No build step, no TypeScript, no `dotenv`. Tests run with `node --test` and need no network, Discord connection or LLM calls.
 
 ## Before you start
 
