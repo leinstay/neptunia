@@ -29,7 +29,7 @@ The same voice, memory prefetch and tools as any turn of hers, with nobody's mes
 - the last `innerLife.chatMessages` (30) messages of the conversation;
 - `<retrieved>`: the prefetch, searched with the purposes of the intentions she woke for;
 - her `<intentions>` and `<tasks>`, as on every turn;
-- the task `prompts/inner.md`.
+- the task `prompts/inner.md`; on a heartbeat wake `prompts/heartbeat.md` instead (missing or blank: `inner.md`).
 
 The current channel comes from the cause of the wake: an `intention_due` wake uses the intention's `destination` when recorded, else its `provenance.channelId`; an `attend` wake uses the place; an `errand_deadline` wake uses the errand's channel; a `feedback` wake uses the channel of the turn it reports; a `review` and a wake with no channel have none. A DM-born intention's current channel is that DM (today's `privateChat` rule).
 
@@ -49,11 +49,13 @@ A wake with no outside reason: she is awake and sees facts, built by one functio
 
 What the `<wake>` shows her:
 
-- **People.** Up to `innerLife.heartbeat.people` members by affinity, each with when and where she last talked with them (the record; else the profile's last seen), their top 3 interests, where they wrote lately and whether they are around now.
-- **Places.** The places page of the review.
-- **Her life.** What she did in the last day (executed calls of her inner turns, her errands, her diary posts), her open intentions and attentions, and her latest closed intentions of any state (`heartbeat.closedShown` listed newest first, each with its outcome or reason, the rest counted).
+- **Places.** Where others wrote in the last `heartbeat.placesHours` (from the record, her own lines left out), the busiest first, at most `heartbeat.placesShown`, a place with no line left out: its name, how many lines, who wrote, and its last `heartbeat.placeLines` lines (author, time, a preview cut to 140 characters, a marker when the line has a link, video, picture or GIF). Each quoted line carries a `#N` handle she can use in `message.create reply=`, `media.look` and a reaction: the handles are numbered past the turn's own lines and registered like a `memory.search` quote's (`draft.searchRefs`), so they resolve in the turn and its loop steps. The review keeps its places page.
+- **People.** Up to `innerLife.heartbeat.people` members by affinity, each with when and where she last talked with them (the record; else the profile's last seen), their own newest line within `heartbeat.historyDays` (when, where, a preview cut to 120 characters, a handle), their top 3 interests and where they wrote lately.
+- **Her life.** What she did in the last day (her posts with the place and a preview, the other executed calls of her inner turns, her errands with their goal, her diary posts, each listed once), her open intentions and attentions, and her latest closed intentions of any state (`heartbeat.closedShown` listed newest first, each with its outcome or reason, the rest counted).
 - **What she can do.** Her granted skills by family and the errand agents; the chain budget stands in the usual budget lines.
-- **Since the last heartbeat** (the last day for the first one): the counts of what was done; what was not done or counted on (intentions expired or missed, errands failed or past their deadline, sends whose outcome is unknown, turns that ended in an error, the facts already told to her as one count); and what was filtered without her (the missed helper's dismissals with place and time, at most `heartbeat.filteredShown`, the rest counted). The address helper's "not to her" verdicts are only logged today, so that list stays empty until something stores them.
+- **Since the last heartbeat** (the last day for the first one): the counts of what was done; what was not done or counted on (intentions expired or missed, errands failed or past their deadline, sends of hers whose outcome is unknown and that did not arrive later, turns that ended in an error, the facts already told to her as one count); and what was filtered without her (the missed helper's dismissals and the address helper's "not to her" verdicts with place, time, author, a preview and a handle when the record still holds the line, at most `heartbeat.filteredShown`, the rest counted).
+
+The whole block is capped at `heartbeat.maxTokens`: over it, the lists shed their last items in this order, the filtered lines, the lines of her life, the places beyond 3, the people beyond 5, and the count line says how many.
 
 This is an experiment. It starts in live mode within the existing daily inner-turn spend (no new cap) and is measured for a week: per wake, the outcome, what she did, who it touched, and the owner's label on a sample. Doing nothing every time is a valid result.
 
@@ -66,7 +68,7 @@ When a turn ends, some of what she did may not have gone through: a call whose s
 The scheduler (`feedbackFacts` in `src/behavior/inner.js`, pure) collects facts from a turn's result in this order:
 
 - `callFailed`: one per call whose status was not `ok` (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`), with the skill, the code and the operation's own text cut to `skills.markTextMaxChars`. A refused `<msg>`, `<gif>` or `<draw>` shows as a refused `message.create` or `draw.create` with its code.
-- `doneWithoutDelivery`: one per intention closed by an executed `intent.update state=done` while no delivery call (`message.create`, `draw.create`, `task.run`, `diary.post`) ran in that turn. A shadow turn's proposed `done` closed nothing and is no fact.
+- `doneWithoutDelivery`: one per intention closed by an executed `intent.update state=done` while no delivery call (`message.create`, `draw.create`, `task.run`) ran in that turn. A shadow turn's proposed `done` closed nothing and is no fact.
 - `loopCut`: the loop ended on its step or time bound, or the calls past `innerLife.loop.maxCallsPerStep` had no step to be told in (`inner.loop`: `steps`, `cut`: `steps`, `time`, `no-continuation` or `extra-call`, `droppedCalls`). When a step follows, the dropped calls are told in its task (`labels.task.callsDropped`) instead.
 - `turnFailed`: the turn ended `error` (any code) or `refused`.
 - `wakeDropped`, recorded at the moment it happens (not through this list): every wake that ends without a turn (`stopped`, `overflow`, `stale` with sub-code `done`, `cancelled`, `expired` or `forgotten`, `superseded`, `no-channel` with sub-code `dm-off`, `not-writable`, `unavailable` or `no-review-channel`, and `error` or `provider` with the turn's error code). A wake with no intention (a review, a feedback wake) is worded by its kind alone.

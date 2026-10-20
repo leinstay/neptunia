@@ -258,8 +258,6 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   // `/nep media action:status`: the action is the skill, the kind and the days (read by the pictures recache only) its arguments
   assert.deepEqual(skillRegistry().get('media.status').command.fixed, { action: 'status' });
   assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind', 'days']);
-  // `/nep diary post`: kind and topic, as the command offers them
-  assert.deepEqual(skillRegistry().get('diary.post').argsSchema.properties, { kind: { type: 'string', minLength: 1, maxLength: 6000 }, topic: { type: 'string', minLength: 1, maxLength: 1000 } });
   // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call;
   // a file one of her errands brought back, optional
   const create = skillRegistry().get('message.create');
@@ -274,7 +272,7 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.deepEqual(skillRegistry().get('route.set').argsSchema.properties.fallbacks, { type: 'boolean' });
   assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
   assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
-  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field']);
+  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field', 'part']);
 });
 
 test('skills schema: types, bounds, enums, arrays and anyOf', () => {
@@ -334,19 +332,16 @@ test('skills access: her reply tags are carried over in the current conversation
 });
 
 test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
-  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['diary.post', 'diary.show', 'draw.create', 'intent.cancel', 'intent.list', 'intent.set', 'intent.update', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
+  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['draw.create', 'intent.cancel', 'intent.list', 'intent.set', 'intent.update', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
   for (const name of SELF_OWNED_OPS) assert.ok(skillRegistry().has(name), name);
   const member = { id: MEMBER };
-  // a member with no right of their own on them: hers alone decides, owner-only diary included
-  assert.deepEqual(check({ skill: 'diary.post', args: { kind: 'photos' }, granted: ['diary.post'], requester: member }), { ok: true });
-  assert.deepEqual(check({ skill: 'diary.show', granted: ['diary.show'], requester: member }), { ok: true });
+  // a member with no right of their own on them: hers alone decides
   assert.deepEqual(check({ skill: 'message.edit', args: { message: 'm1', text: 'σωστό' }, granted: ['message.edit'], requester: member }), { ok: true });
   assert.deepEqual(check({ skill: 'draw.create', args: { text: 'ένα δέντρο' }, granted: ['draw.create'], requester: member, images: imagesWith({}) }), { ok: true });
   // still closed until granted to her
   assert.equal(check({ skill: 'message.edit', args: { message: 'm1', text: 'σωστό' }, requester: member }).code, 'not-allowed');
   // nobody asked: only a read; several people asked: no write
-  assert.deepEqual(check({ skill: 'diary.post', args: {}, granted: ['diary.post'], requester: null }), { ok: false, code: 'no-requester', reason: 'no-requester' });
-  assert.deepEqual(check({ skill: 'diary.show', granted: ['diary.show'], requester: null }), { ok: true });
+  assert.deepEqual(check({ skill: 'message.edit', args: { message: 'm1', text: 'σωστό' }, granted: ['message.edit'], requester: null }), { ok: false, code: 'no-requester', reason: 'no-requester' });
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, mixedRequesters: true }), { ok: false, code: 'mixed-requesters', reason: 'mixed-requesters' });
   // anything else still needs the requester's own right
   assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κ' }, granted: ['lore.add'], requester: member }), { ok: false, code: 'requester-denied', reason: 'not-granted' });
@@ -434,7 +429,7 @@ test('skills gateway: features.skills off refuses everything; safe mode lets onl
 // ---- the catalogue view -----------------------------------------------------------------
 
 test('skills list: one row per skill with its texts, allowed or not and why', () => {
-  const cfg = granting(['message.edit', 'memory.wipe', 'diary.post', 'memory.private.read']);
+  const cfg = granting(['message.edit', 'memory.wipe', 'draw.create', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
   // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
@@ -451,7 +446,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const row = (name, requester) => listSkills({ config: cfg, selfId: SELF, texts: {}, requester, audience }).find((entry) => entry.name === name);
   assert.deepEqual([row('memory.private.read', { id: OWNER }).allowed, row('memory.private.read', { id: OWNER }).reason], [true, 'allowed']);
   assert.deepEqual([row('memory.private.read', { id: MEMBER }).allowed, row('memory.private.read', { id: MEMBER }).reason], [false, 'requester-denied']);
-  assert.deepEqual([row('diary.post', { id: MEMBER }).allowed, row('diary.post', { id: MEMBER }).reason], [true, 'allowed']);
+  assert.deepEqual([row('message.edit', { id: MEMBER }).allowed, row('message.edit', { id: MEMBER }).reason], [true, 'allowed']);
   const off = listSkills({ config: granting(['message.edit'], config({ features: { skills: false } })), selfId: SELF, texts, requester: null, audience });
   assert.ok(off.every((row) => row.allowed === false && row.reason === 'skills-off'));
 });
@@ -477,22 +472,22 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
   const t = makeEnv();
   const owner = { env: t.env, guildId: 'g1', userId: OWNER, roleIds: [] };
   try {
-    for (const name of ['diary.post', 'memory.private.read', 'message.edit', 'lore.add']) {
+    for (const name of ['memory.private.read', 'message.edit', 'lore.add']) {
       const result = await runOp('access.grant', { command: name, userId: SELF }, owner);
       assert.equal(result.status, 'ok', `${name}: ${result.summary}`);
     }
     const access = t.stored();
-    for (const name of ['diary.post', 'memory.private.read', 'message.edit', 'lore.add']) assert.deepEqual(access[name].users, [SELF], name);
-    const diary = skillRegistry().get('diary.post');
-    assert.deepEqual(skillAccess({ skill: diary, config: config({ access }), selfId: SELF }), { allowed: true, reason: 'allowed' });
+    for (const name of ['memory.private.read', 'message.edit', 'lore.add']) assert.deepEqual(access[name].users, [SELF], name);
+    const forgetPrivate = skillRegistry().get('memory.private.read');
+    assert.deepEqual(skillAccess({ skill: forgetPrivate, config: config({ access }), selfId: SELF }), { allowed: true, reason: 'allowed' });
     // for a person the owner-only operation stays closed, as before
-    const person = await runOp('access.grant', { command: 'diary.post', userId: MEMBER }, owner);
-    assert.deepEqual([person.status, person.summary], ['invalid', 'diary.post is owner-only and cannot be granted']);
+    const person = await runOp('access.grant', { command: 'memory.private.read', userId: MEMBER }, owner);
+    assert.deepEqual([person.status, person.summary], ['invalid', 'memory.private.read is owner-only and cannot be granted']);
     // `/nep access list` shows her grants like anyone's, owner-only ones included
     const list = (await runOp('access.list', {}, owner)).summary.split('\n');
-    for (const name of ['diary.post', 'memory.private.read', 'message.edit', 'lore.add']) assert.ok(list.includes(`${name}: user id:${SELF}`), name);
-    assert.equal((await runOp('access.revoke', { command: 'diary.post', userId: SELF }, owner)).status, 'ok');
-    assert.equal(skillAccess({ skill: diary, config: config({ access: t.stored() }), selfId: SELF }).allowed, false);
+    for (const name of ['memory.private.read', 'message.edit', 'lore.add']) assert.ok(list.includes(`${name}: user id:${SELF}`), name);
+    assert.equal((await runOp('access.revoke', { command: 'memory.private.read', userId: SELF }, owner)).status, 'ok');
+    assert.equal(skillAccess({ skill: forgetPrivate, config: config({ access: t.stored() }), selfId: SELF }).allowed, false);
     const unknown = await runOp('access.grant', { command: 'message.pin', userId: SELF }, owner);
     assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill']);
   } finally {
@@ -523,8 +518,8 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
     const access = t.stored();
     const reads = [...skillRegistry().values()].filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name)).map((skill) => skill.name);
     assert.deepEqual(Object.keys(access).sort(), [...reads].sort());
-    for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'diary.show']) assert.ok(access[name], name);
-    for (const name of ['message.edit', 'lore.add', 'memory.wipe', 'diary.post']) assert.equal(access[name], undefined, name);
+    for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'intent.list']) assert.ok(access[name], name);
+    for (const name of ['message.edit', 'lore.add', 'memory.wipe', 'draw.create']) assert.equal(access[name], undefined, name);
     assert.deepEqual(access['lore.list'], { everyone: false, roles: [], users: [SELF], via: { [`user:${SELF}`]: '*' } });
     const t2 = makeEnv();
     try {

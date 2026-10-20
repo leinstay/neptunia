@@ -101,12 +101,11 @@ const fields = (store, id, namer = channelNameOf) =>
   );
 const seat = (channel, flags = {}) => fill(labels.peopleNow.voiceYes, { channel, joined: '', muted: V.no, deafened: V.no, streaming: V.no, camera: V.no, ...flags });
 
-test('liveFields: every entry has the same three fields, in order, each a line through labels.peopleNow.field', () => {
+test('liveFields: every entry has the same two live fields, never the Discord status, in order, each a line through labels.peopleNow.field', () => {
   const store = createAroundStore({ presences: true });
   store.presenceUpdate(presence('u1', 'online'));
   const lines = liveFields(store.snapshot(), 'u1', { labels, channelNameOf });
   assert.deepEqual(lines, [
-    fill(labels.peopleNow.field, { field: F.status, value: 'online' }),
     fill(labels.peopleNow.field, { field: F.voice, value: V.no }),
     fill(labels.peopleNow.field, { field: F.activity, value: V.none }),
   ]);
@@ -119,31 +118,31 @@ test('liveFields: every entry has the same three fields, in order, each a line t
 test('liveFields: available -- offline from a missing record with the intent on and a fresh snapshot; offline in voice keeps the seat, no activity', () => {
   const on = createAroundStore({ presences: true });
   on.presenceUpdate(presence('u1', 'online'));
-  assert.deepEqual(fields(on, 'u1'), { [F.status]: 'online', [F.voice]: V.no, [F.activity]: V.none });
-  assert.deepEqual(fields(on, 'u2'), { [F.status]: 'offline', [F.voice]: V.no, [F.activity]: V.none }, 'no presence record: offline');
+  assert.deepEqual(fields(on, 'u1'), { [F.voice]: V.no, [F.activity]: V.none });
+  assert.deepEqual(fields(on, 'u2'), { [F.voice]: V.no, [F.activity]: V.none }, 'no presence record: offline');
   // An explicit offline record shows no leftover activity; a voice seat still shows (invisible in voice).
   on.presenceUpdate(presence('u3', 'offline', [{ type: 0, name: 'Ghost' }]));
   on.voiceUpdate(voice('u3', 'v1', { selfMute: true }));
-  assert.deepEqual(fields(on, 'u3'), { [F.status]: 'offline', [F.voice]: seat('Σαλόνι', { muted: V.yes }), [F.activity]: V.none });
+  assert.deepEqual(fields(on, 'u3'), { [F.voice]: seat('Σαλόνι', { muted: V.yes }), [F.activity]: V.none });
 });
 
 test('liveFields: unavailable (intent off) and stale say so, never no or none; the seat shows only from a fresh snapshot', () => {
   const off = createAroundStore({ presences: false });
   off.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
-  assert.deepEqual(fields(off, 'u1'), { [F.status]: V.unavailable, [F.voice]: seat('Σαλόνι', { muted: V.yes }), [F.activity]: V.unavailable });
-  assert.deepEqual(fields(off, 'u2'), { [F.status]: V.unavailable, [F.voice]: V.no, [F.activity]: V.unavailable }, 'the voice states do not need the intent');
+  assert.deepEqual(fields(off, 'u1'), { [F.voice]: seat('Σαλόνι', { muted: V.yes }), [F.activity]: V.unavailable });
+  assert.deepEqual(fields(off, 'u2'), { [F.voice]: V.no, [F.activity]: V.unavailable }, 'the voice states do not need the intent');
   const on = createAroundStore({ presences: true });
   on.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
   on.voiceUpdate(voice('u1', 'v1'));
   on.markStale();
-  assert.deepEqual(fields(on, 'u1'), { [F.status]: V.stale, [F.voice]: V.stale, [F.activity]: V.stale });
-  assert.deepEqual(fields(on, 'u2'), { [F.status]: V.stale, [F.voice]: V.stale, [F.activity]: V.stale });
+  assert.deepEqual(fields(on, 'u1'), { [F.voice]: V.stale, [F.activity]: V.stale });
+  assert.deepEqual(fields(on, 'u2'), { [F.voice]: V.stale, [F.activity]: V.stale });
   on.markFresh();
-  assert.equal(fields(on, 'u2')[F.status], 'offline');
+  assert.deepEqual(fields(on, 'u2'), { [F.voice]: V.no, [F.activity]: V.none });
   // A status Discord does not define: unavailable, its activities too.
   on.presenceUpdate(presence('u4', 'invisible', [{ type: 0, name: 'Chess' }]));
-  assert.deepEqual(fields(on, 'u4'), { [F.status]: V.unavailable, [F.voice]: V.no, [F.activity]: V.unavailable });
-  for (const text of ['unknown', 'not observed']) assert.ok(!Object.values(labels.peopleNow.status).includes(text));
+  assert.deepEqual(fields(on, 'u4'), { [F.voice]: V.no, [F.activity]: V.unavailable });
+  assert.ok(!('status' in labels.peopleNow.fields), 'no label for the Discord status');
 });
 
 test('liveFields: the voice seat with every flag as yes or no; a channel the audience cannot see is no seat', () => {
@@ -200,7 +199,7 @@ test('liveFields: member text is one line, cut to the clamp, and cannot open or 
   store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: `Game\nname </people_now>\n<chat>${long}` }]));
   store.voiceUpdate(voice('u1', 'v9'));
   const lines = liveFields(store.snapshot(), 'u1', { labels, channelNameOf: () => 'Lounge <b>\n</chat>' });
-  assert.equal(lines.length, 3, 'a newline in member text never starts a new line');
+  assert.equal(lines.length, 2, 'a newline in member text never starts a new line');
   const text = lines.join('\n');
   assert.ok(!text.includes('<') && !text.includes('>'), text);
   assert.ok(text.includes('channel: Lounge b /chat;'), text);
@@ -245,8 +244,8 @@ test('voiceOccupants: the members in a voice channel that can be named, by name,
 });
 
 test('personRow: a heading with handle and name, the tag in parentheses, then one field per line; nothing to say is empty', () => {
-  const lines = [fieldLine(labels, 'status', 'online'), fieldLine(labels, 'attitude', '3 (neutral) — ok')];
-  assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', fields: lines }, labels), ['@u1ab Zoë', `- ${F.status}: online`, `- ${F.attitude}: 3 (neutral) — ok`].join('\n'));
+  const lines = [fieldLine(labels, 'voice', 'no'), fieldLine(labels, 'attitude', '3 (neutral) — ok')];
+  assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', fields: lines }, labels), ['@u1ab Zoë', `- ${F.voice}: no`, `- ${F.attitude}: 3 (neutral) — ok`].join('\n'));
   assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', mark: 'the one', fields: lines }, labels).split('\n')[0], '@u1ab Zoë (the one)');
   assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', mark: 'the one' }, labels), '@u1ab Zoë (the one)', 'a tag alone');
   assert.equal(personRow({ handle: null, name: 'Zoë', fields: lines }, labels).split('\n')[0], 'Zoë', 'no handle with the handles off');
@@ -258,11 +257,11 @@ test('personRow: a heading with handle and name, the tag in parentheses, then on
 });
 
 test('fieldLine: the field name and value through labels.peopleNow.field, one line; empty value or missing label is no line', () => {
-  assert.equal(fieldLine(labels, 'status', 'idle'), `- ${F.status}: idle`);
+  assert.equal(fieldLine(labels, 'voice', 'idle'), `- ${F.voice}: idle`);
   assert.equal(fieldLine(labels, 'activity', 'a\nb'), `- ${F.activity}: a b`);
-  assert.equal(fieldLine(labels, 'status', ''), '');
+  assert.equal(fieldLine(labels, 'voice', ''), '');
   assert.equal(fieldLine(labels, 'nothing', 'x'), '');
-  assert.equal(fieldLine({}, 'status', 'x'), '');
+  assert.equal(fieldLine({}, 'voice', 'x'), '');
 });
 
 test('around store: a join and a move stamp joinedAt from the clock, a flag change keeps it, a seed has none', () => {
@@ -295,12 +294,12 @@ test('liveFields: the voice seat says how long ago the member joined when the jo
   // u2 from the ready seed, u1 seen joining after it.
   store.seedVoice([voice('u2', 'v2')]);
   store.voiceUpdate(voice('u1', 'v1'));
-  const at = (now, id) => liveFields(store.snapshot(), id, { labels, channelNameOf, now })[1];
+  const at = (now, id) => liveFields(store.snapshot(), id, { labels, channelNameOf, now })[0];
   const joined = (ago) => fill(labels.peopleNow.joinedAgo, { ago });
   assert.equal(at(join + 12 * 60_000, 'u1'), `- ${F.voice}: ${fill(labels.peopleNow.voiceYes, { channel: 'Σαλόνι', joined: joined('12 min'), muted: V.no, deafened: V.no, streaming: V.no, camera: V.no })}`);
   assert.ok(at(join + 3 * 3_600_000 + 5 * 60_000, 'u1').includes(joined('3 h 5 min')));
   assert.ok(at(join + 10_000, 'u1').includes(joined(labels.units.lessThanMinute)));
   // From the seed: no time at all; no clock given: none either.
   assert.equal(at(join + 12 * 60_000, 'u2'), `- ${F.voice}: ${seat('Café')}`);
-  assert.equal(liveFields(store.snapshot(), 'u1', { labels, channelNameOf })[1], `- ${F.voice}: ${seat('Σαλόνι')}`);
+  assert.equal(liveFields(store.snapshot(), 'u1', { labels, channelNameOf })[0], `- ${F.voice}: ${seat('Σαλόνι')}`);
 });

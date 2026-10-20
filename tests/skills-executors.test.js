@@ -12,7 +12,6 @@ import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/ops/index.js';
 import { createAdmin } from '../src/admin.js';
-import { createDiary } from '../src/behavior/diary.js';
 import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, bodyTokens, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
@@ -190,8 +189,6 @@ test('resolveCall: a body of `name: value` lines for a skill without text is rea
   assert.deepEqual([read.ok, read.args, read.bodyArgs, 'bodyIgnored' in read], [true, { day: '2026-10-14', kind: 'all', n: 50 }, 3, false]);
   const both = resolve('memory.journal.read', { kind: 'errors' }, 'kind: all\nn = 5');
   assert.deepEqual([both.args, both.bodyArgs], [{ kind: 'errors', n: 5 }, 1], 'the attribute given explicitly wins');
-  const tagged = resolve('diary.post', { kind: 'photos' }, '<topic>θάλασσα</topic>');
-  assert.deepEqual([tagged.args, tagged.bodyArgs], [{ kind: 'photos', topic: 'θάλασσα' }, 1]);
   // Anything else in the body: her comment, left out as before.
   for (const body of ['day: 2026-10-14\nreading it now', 'day: 2026-10-14\nwho: Zoë']) {
     const ignored = resolve('memory.journal.read', { kind: 'all' }, body);
@@ -300,8 +297,8 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
   assert.deepEqual([resolve('message.edit', { message: '#1' }, 'όχι').code], ['not-own-message']);
   assert.deepEqual([resolve('message.delete', { message: '#3' }).code], ['not-own-message']);
   assert.deepEqual([resolve('message.delete', { message: '#7' }).code, resolve('message.delete', { message: '#7' }).reason], ['unknown-message', 'message']);
-  // the channel she names must be the line's
-  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).code], ['unknown-message']);
+  // the channel she names does not hold it: the line's own channel wins
+  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).args.channel], [NEWS]);
   // a reaction on anyone's line; a reply records whom it answers
   assert.deepEqual(resolve('message.react.add', { message: '#3', emoji: '🎉' }).args, { message: '1003', emoji: '🎉', channel: NEWS });
   const reply = resolve('message.create', { reply: '#3' }, 'απάντηση');
@@ -309,10 +306,10 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
 });
 
 /** An admin over a fake store and the fake port, with the operations a call reaches. */
-function makeAdmin({ cfg = config(), diary = null, port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 }), channels = clientChannels(), extra = {} } = {}) {
+function makeAdmin({ cfg = config(), port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 }), channels = clientChannels(), extra = {} } = {}) {
   const hot = { config: cfg, prompts: { labels: {} } };
   const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: (guildId, userId) => userId === '8' };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF }, channels: { cache: channels } }, getGuildId: () => 'g1', diary, port, ...extra });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF }, channels: { cache: channels } }, getGuildId: () => 'g1', port, ...extra });
   return { admin, hot, store, port };
 }
 
@@ -330,66 +327,12 @@ function deps(admin, port, { requester = { id: OWNER, roleIds: [] }, ...over } =
   };
 }
 
-test('executeCall: a member asks her to post photos to the diary and the diary is not connected -- the operation\'s own text comes back to her', async () => {
-  // A real diary over a config with kinds but no channel: its forced post says why it did not post.
-  const cfg = config();
-  const hot = { config: cfg, prompts: { labels: {} } };
-  const diary = createDiary({ discord: DISCORD, hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
-  const { admin, port } = makeAdmin({ cfg, diary });
-  const resolved = resolve('diary.post', { kind: 'photos' });
-  assert.equal(resolved.ok, true);
-
-  // The owner asked: the operation runs and answers it has no channel -- not_configured, its line as data.
-  const result = await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'the diary has no channel set' } });
-  assert.equal(needsFollowUp('diary.post', result), true, 'she hears it in the follow-up');
-  const block = skillResultBlock({ skill: 'diary.post', ...result }, labels);
-  assert.ok(block.startsWith('<result skill="diary.post" status="not_configured">\n'), block);
-  assert.ok(block.includes('the diary has no channel set'), block);
-  assert.ok(block.includes(labels.skills.result.failed.split('{reason}')[0]), 'told with the nearest label the labels have');
-
-  // Without a running diary at all: the same, its own text.
-  const bare = makeAdmin({ cfg });
-  const none = await executeCall(resolved, deps(bare.admin, bare.port));
-  assert.deepEqual(none, { status: 'not_configured', code: 'not-configured', data: { text: 'diary not running' } });
-
-  // A member who asked: her diary is hers (a self-owned operation), the same answer.
-  const member = await executeCall(resolved, deps(admin, port, { requester: { id: MEMBER, roleIds: [] } }));
-  assert.deepEqual(member, result);
-});
-
-test('executeCall: her diary post inside her own turn is queued for right after it, once per invocation; its outcome journaled', async () => {
-  const forced = [];
-  let idle;
-  const turns = { waitIdle: () => new Promise((resolve) => { idle = resolve; }) };
-  const diary = { force: async (request) => { forced.push(request); return { outcome: 'spoke' }; } };
-  const records = [];
-  const journal = { system: async (guildId, record) => records.push({ guildId, ...record }) };
-  const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true, journal: true } };
-  const { admin, port } = makeAdmin({ cfg, diary, extra: { turns, journal } });
-  const resolved = resolve('diary.post', { kind: 'photos' });
-  const first = await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(first, { status: 'ok', data: { text: 'diary post photos: queued, posting after this turn' } });
-  assert.equal(needsFollowUp('diary.post', first), true, 'she hears it is queued');
-  // the same invocation again: queued once
-  await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(forced, [], 'nothing runs while her turn holds the attention');
-  idle();
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(forced, [{ kind: 'photos' }]);
-  assert.deepEqual(records, [{ guildId: 'g1', event: 'skill-deferred', op: 'diary.post', invocationId: 'inv-1', outcome: 'spoke', reason: null }]);
-  // a person's own command is not queued: it waits and posts as before
-  const person = await admin.runCommand('diary.post', { kind: 'photos' }, { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] });
-  assert.deepEqual([person.status, person.summary], ['ok', 'diary post photos: spoke']);
-});
-
 test('runOwnCommand: only her own expressive operations, without the requester\'s right', async () => {
-  const { admin } = makeAdmin({ diary: { force: async () => ({ outcome: 'spoke' }), status: () => ({ slots: [], history: 0 }) } });
+  const { admin } = makeAdmin();
   const other = await admin.runOwnCommand('lore.list', {}, { guildId: 'g1', userId: MEMBER });
   assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
-  const own = await admin.runOwnCommand('diary.show', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
-  assert.equal(own.status, 'ok', 'an owner-only diary read, for her, whoever asked');
+  const own = await admin.runOwnCommand('intent.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
+  assert.notEqual(own.code, 'not-self-owned', 'her own operation, for her, whoever asked');
 });
 
 test('executeCall: on her own initiative the operation hears it, and the inner turn\'s chain; a turn somebody asked carries neither', async () => {
@@ -754,8 +697,11 @@ test('resolveCall: a message link names the message and its channel; a raw id pa
   assert.deepEqual(resolve('message.react.add', { message: 'https://ptb.discord.com/channels/111/555/1009', emoji: '🎉' }).args, { message: '1009', emoji: '🎉', channel: '555' });
   const reply = resolve('message.create', { reply: link }, 'απάντηση');
   assert.deepEqual([reply.ok, reply.args], [true, { reply: '1009', text: 'απάντηση', channel: '555' }]);
-  // the channel she names must be the link's
-  assert.deepEqual([resolve('message.delete', { message: link, channel: '#γενικά' }).code, resolve('message.delete', { message: link, channel: '#γενικά' }).reason], ['unknown-message', 'conversation']);
+  // the channel she names does not hold it: the link's own channel wins
+  const fixed = resolve('message.delete', { message: link, channel: '#γενικά' });
+  assert.deepEqual([fixed.ok, fixed.args, fixed.channelFixed], [true, { message: '1009', channel: '555' }, true]);
+  // elsewhere than the five message calls the channel she names must still be the link's
+  assert.equal(resolve('conversation.read', { before: link, channel: '#γενικά' }).reason, 'conversation');
   // a raw id: as written, its channel the one she names
   assert.deepEqual(resolve('message.delete', { message: '123456789012345678', channel: '#νέα' }).args, { message: '123456789012345678', channel: NEWS });
 });
@@ -891,13 +837,13 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   const of = (refusal) => outcomeDetail({ status: refusalStatus(refusal.code), code: refusal.code, reason: refusal.reason });
   assert.deepEqual(of(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια')), { kind: 'unknown-arg', code: 'invalid-args', arg: 'who' });
   // An argument the skill does not take, with the ones it does: the mark can name them.
-  const diaryCall = resolve('diary.post', { channel: '#νέα' }, 'δεν μπορώ να κοιμηθώ');
-  assert.deepEqual(outcomeDetail({ status: 'invalid', code: diaryCall.code, reason: diaryCall.reason }, { argNames: ['kind', 'topic'] }), { kind: 'unknown-arg', code: 'invalid-args', arg: 'channel', values: ['kind', 'topic'] });
+  const journalCall = resolve('memory.journal.read', { channel: '#νέα' });
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: journalCall.code, reason: journalCall.reason }, { argNames: ['kind', 'day'] }), { kind: 'unknown-arg', code: 'invalid-args', arg: 'channel', values: ['kind', 'day'] });
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: 'invalid-args', reason: 'args.text:max-length' }, { argNames: ['text'] }), { kind: 'too-long', code: 'invalid-args', arg: 'text' }, 'only an unknown argument lists them');
   assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
   assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });
-  assert.deepEqual(of(resolve('message.delete', { message: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
+  assert.deepEqual(of(resolve('conversation.read', { before: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
   assert.deepEqual(of(resolve('message.delete', { message: '#1' })), { kind: 'not-own-message', code: 'not-own-message', arg: 'message' });
   assert.deepEqual(detail('unknown-member', 'ambiguous'), { kind: 'member-ambiguous', code: 'unknown-member', arg: null });
   // Any other code is its own kind; nothing without a code, nothing for an ok outcome.
@@ -978,43 +924,6 @@ test('message.create gif=: the text went out and the GIF did not -- partial, gif
   assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });
 });
 
-test('diary.post: the outcome of the post queued for after her turn is written back -- nothing for a post that went out, the code for one that did not', async () => {
-  const cases = [
-    [{ outcome: 'spoke' }, null],
-    [{ outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: 2, cap: 2 } }, 'daily-cap'],
-    [{ outcome: 'not-now', reason: 'no-channel' }, 'not-configured'],
-    [{ outcome: 'busy' }, 'busy'],
-    [new Error('planner down'), 'error'],
-  ];
-  for (const [outcome, expected] of cases) {
-    const notes = [];
-    const turns = { waitIdle: () => Promise.resolve(), noteDeferred: (note) => notes.push(note) };
-    const diary = { force: async () => { if (outcome instanceof Error) throw outcome; return outcome; } };
-    const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true } };
-    const { admin, port } = makeAdmin({ cfg, diary, extra: { turns } });
-    const answered = await executeCall(resolve('diary.post', { kind: 'photos' }), deps(admin, port));
-    assert.equal(answered.status, 'ok', 'the immediate answer stays "queued"');
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
-    if (expected === null) assert.deepEqual(notes, []);
-    else assert.deepEqual(notes, [{ skill: 'diary.post', guildId: 'g1', channelId: HERE, ownInitiative: false, chainId: null, code: expected, id: 'inv-1' }]);
-  }
-});
-
-test('diary.post: asked in an inner turn, the write-back says so and carries the chain', async () => {
-  const notes = [];
-  const turns = { waitIdle: () => Promise.resolve(), noteDeferred: (note) => notes.push(note) };
-  const diary = { force: async () => ({ outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: 1, cap: 1 } }) };
-  const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true } };
-  const { admin, port } = makeAdmin({ cfg, diary, extra: { turns } });
-  const initiative = Object.freeze({ actor: 'persona', requester: null, mixed: false, invocationId: 'inv-9', originChannelId: HERE, ownInitiative: true, chainId: 'chain:k' });
-  const answered = await executeCall(resolve('diary.post', { kind: 'photos' }), deps(admin, port, { envelope: initiative, runInitiativeCommand: admin.runInitiativeCommand }));
-  assert.equal(answered.status, 'ok');
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(notes, [{ skill: 'diary.post', guildId: 'g1', channelId: HERE, ownInitiative: true, chainId: 'chain:k', code: 'daily-cap', id: 'inv-9' }]);
-});
-
 test('needsFollowUp: in an addressed turn a quiet success is seen too, a failure and the full stop as before', () => {
   for (const skill of QUIET_ON_OK) {
     assert.equal(needsFollowUp(skill, { status: 'ok' }), false, skill);
@@ -1023,4 +932,51 @@ test('needsFollowUp: in an addressed turn a quiet success is seen too, a failure
   assert.equal(needsFollowUp('message.create', { status: 'ok', code: 'skills-off' }, { addressed: true }), false);
   assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: '' } }, { addressed: true }), false, 'a read with nothing to show');
   assert.equal(needsFollowUp('message.edit', { status: 'failed' }, { addressed: true }), true);
+});
+
+test('resolveCall: a body that is only a message reference fills the message argument of a command that takes one', () => {
+  const byNumber = resolve('memory.journal.read', {}, '#2');
+  assert.deepEqual([byNumber.ok, byNumber.args, byNumber.bodyArgs, 'bodyIgnored' in byNumber], [true, { message: '1002' }, 1, false]);
+  const byId = resolve('memory.journal.read', {}, '1500000000000000001');
+  assert.deepEqual([byId.ok, byId.args.message, byId.bodyArgs], [true, '1500000000000000001', 1]);
+  const explicit = resolve('memory.journal.read', { message: '#1' }, '#2');
+  assert.equal(explicit.args.message, '1001', 'the attribute wins');
+  assert.equal(explicit.bodyIgnored, true, 'the body left over is still a comment');
+  assert.equal(resolve('memory.journal.read', {}, '#999').code, 'unknown-message');
+  assert.equal(resolve('memory.journal.read', {}, 'some words').bodyIgnored, true);
+});
+
+test('resolveCall: a body of quoted pairs, an <args/> element or <param> elements gives the declared arguments; a tag attribute wins', () => {
+  const expected = { message: '1003', emoji: '❤️', channel: NEWS };
+  assert.deepEqual(resolve('message.react.add', {}, 'message="#3" emoji="❤️" channel="#💖νέα"').args, expected);
+  assert.deepEqual(resolve('message.react.add', {}, "message='#3' emoji='❤️' channel='#💖νέα'").args, expected, 'single quotes too');
+  assert.deepEqual(resolve('message.react.add', {}, '<args message="#3" emoji="❤️" channel="#💖νέα"/>').args, expected);
+  assert.deepEqual(resolve('message.react.add', {}, '<param name="message">#3</param><param name="emoji">❤️</param>').args, { message: '1003', emoji: '❤️', channel: NEWS });
+  const wins = resolve('message.react.add', { emoji: '👍' }, 'message="#3" emoji="❤️"');
+  assert.deepEqual([wins.args.emoji, wins.bodyArgs], ['👍', 1]);
+  // an unknown name or other text: no pairs taken, the body is her comment as before
+  const unknown = resolve('message.react.add', { message: '#3', emoji: '👍' }, 'why="because" emoji="❤️"');
+  assert.deepEqual([unknown.ok, unknown.args.emoji, unknown.bodyIgnored], [true, '👍', true]);
+});
+
+test('resolveCall: quoted pairs on the head line of a post are options; her words after them stay the text, and a text with quotes stays as written', () => {
+  const led = resolve('message.create', {}, 'channel="#💖νέα"\nκαλημέρα');
+  assert.deepEqual([led.ok, led.args.channel, led.args.text], [true, NEWS, 'καλημέρα']);
+  const text = 'είπε emoji="x" και τέλος';
+  assert.deepEqual(resolve('message.create', { channel: '#💖νέα' }, text).args, { channel: NEWS, text });
+  const whole = resolve('message.create', {}, "channel='#💖νέα' text='γεια'");
+  assert.deepEqual([whole.args.channel, whole.args.text], [NEWS, 'γεια']);
+});
+
+test('resolveCall: the channel of a #N message wins over a channel that does not hold it, for the five message calls only (conversation.read still refuses)', () => {
+  for (const [skill, args] of [['message.react.add', { message: '#3', emoji: '🎉' }], ['message.react.remove', { message: '#3', emoji: '🎉' }], ['message.delete', { message: '#4' }]]) {
+    const r = resolve(skill, { ...args, channel: '#γενικά' });
+    assert.deepEqual([r.ok, r.args.channel, r.channelFixed], [true, NEWS, true], skill);
+  }
+  const edit = resolve('message.edit', { message: '#4', channel: '#γενικά' }, 'νέο');
+  assert.deepEqual([edit.ok, edit.args.channel], [true, NEWS]);
+  const reply = resolve('message.create', { reply: '#3', channel: '#γενικά' }, 'ναι');
+  assert.deepEqual([reply.ok, reply.args.channel, reply.repliedAuthorId], [true, NEWS, MEMBER]);
+  assert.equal(resolve('message.react.add', { message: '#3', emoji: '🎉', channel: '#💖νέα' }).channelFixed, undefined, 'the right channel is no fix');
+  assert.equal(resolve('conversation.read', { before: '#3', channel: '#γενικά' }).reason, 'conversation');
 });

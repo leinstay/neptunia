@@ -458,7 +458,6 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "failedEarlier": "You never answered {author} {n} ({ago} ago). Your turn failed: {code}.",
-    "diaryFailedEarlier": "A diary post you called for {ago} ago did not go through: {code}.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
@@ -554,7 +553,7 @@
       }
     },
     "here": "You are in #{channel} ({why})",
-    "hereNone": "No current channel this wake",
+    "hereNone": "You are not in any channel. The conversation shown above is the last place you were, kept for context only; nobody there is waiting for you, and a quiet channel says nothing about this wake.",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
     "expiredMore": "... and {more} more",
@@ -577,11 +576,18 @@
       "contactNoPlace": "last seen {when}",
       "interests": "cares about {interests}",
       "activeIn": "writes lately in {places}",
+      "lastWrote": "last wrote {when} in #{place}: {handle} {text}{media}",
+      "activity": "Where people wrote lately:",
+      "activityPlace": "#{name}: {lines} lines from {people}",
+      "activityLine": "{handle} {who}, {when}: {text}{media}",
+      "media": " [{kinds}]",
+      "mediaTitled": " [{kinds}: {title}]",
       "life": "What you did in the last day:",
       "action": "{when}: {skill}{where}",
       "where": " in #{place}",
-      "errand": "{when}: errand to {agent} ({state})",
-      "diary": "{when}: a diary post",
+      "errand": "{when}: errand to {agent} ({state}): {goal}",
+      "diary": "{when}: a diary post: {gist}",
+      "post": "{when}: you wrote in #{place}: {text}{media}",
       "open": "Your open intentions:",
       "openItem": "{id} · {purpose}{due}",
       "due": " · due {when}",
@@ -605,6 +611,8 @@
       "filtered": "Seen and left without you:",
       "filteredAddress": "{when} #{place}: a line judged not for you",
       "filteredMissed": "{when} #{place}: a line judged not owed an answer ({verdict})",
+      "filteredAddressLine": "{when} #{place}: {who} {handle} {text}{media}: a line judged not for you",
+      "filteredMissedLine": "{when} #{place}: {who} {handle} {text}{media}: a line judged not owed an answer ({verdict})",
       "more": "... and {more} more"
     }
   },
@@ -633,11 +641,13 @@
     "proposedOff": "Might fit here but not switched on for you: {names}.",
     "proposedDenied": "Might also fit, but the person asking has no right to them: {names}.",
     "granted": {
-      "lead": "Your skills, by family (details come when a skill fits the message, or on request):",
+      "lead": "Your skills, by family. Call skills.describe to see a skill's full description and arguments before using it:",
       "line": "{family}: {names}"
     },
     "result": {
       "alreadyPosted": "You already posted this turn: {text}",
+      "described": "This is the first time you call this skill in this turn. Here is how it works:",
+      "bodyIgnored": "This skill takes named arguments only. The free text you wrote in the body was not used. Its arguments:",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
       "denied": "Your skill was blocked: {reason}.",
@@ -661,7 +671,7 @@
         "unknown-member": "nobody by that name is in your memory",
         "requester-denied": "the person asking may not see or do this",
         "daily-cap": "the limit for today is used up",
-        "channel-not-visible": "you cannot search that channel",
+        "channel-not-visible": "you cannot see that channel",
         "gif-failed": "your text posted but the GIF failed to attach",
         "empty-query": "nothing left to search after cleaning the query",
         "provider": "the search engines did not answer ({status})",
@@ -797,10 +807,25 @@
         "degraded": "The meaning index was not reachable; only word matches were used.",
         "partial": "{failed} of {total} searches were cut short; some results may be missing."
       },
+      "describe": {
+        "closest": "No skill by that name. The closest: {names}."
+      },
+      "conversation": {
+        "source": "Source: conversation.read, #{channel}. Messages in order, each with its time and author.",
+        "handles": "The number before each line is a message number you can use in your calls like any other in the chat.",
+        "none": "No messages in that span.",
+        "cut": "{dropped} lines not shown for room.",
+        "earlier": "To read earlier: before=#{n}",
+        "later": "To read later: after=#{n}"
+      },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "off": "{feature} is off."
+      },
+      "find": {
+        "source": "Source: media.find, your GIF library. {count} results for \"{query}\".",
+        "none": "No GIFs matched."
       }
     },
     "diagnostics": {
@@ -833,7 +858,6 @@
     },
     "field": "- {field}: {value}",
     "fields": {
-      "status": "Discord status",
       "voice": "In voice",
       "activity": "Current activity",
       "attitude": "Attitude",
@@ -846,12 +870,6 @@
       "none": "none",
       "unavailable": "unavailable",
       "stale": "stale"
-    },
-    "status": {
-      "online": "online",
-      "idle": "idle",
-      "dnd": "do not disturb",
-      "offline": "offline"
     },
     "voiceYes": "yes (channel: {channel}{joined}; muted: {muted}; deafened: {deafened}; streaming: {streaming}; camera: {camera})",
     "joinedAgo": "; joined {ago} ago",

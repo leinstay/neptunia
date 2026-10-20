@@ -314,7 +314,7 @@ test('createDiscordInterface: the capabilities are the package\'s own functions,
     'channelDirectoryOf', 'lastActivity', 'snowflakeTime', 'audienceOf', 'fetchHistory', 'fetchHistoryWindow', 'fetchMessage',
     'fetchReplyParents', 'fetchNeighbors', 'withTextPreviews', 'normalizeMessage', 'normalizeOptions', 'PAGE',
     'audienceAllows', 'captionPulled', 'checkPull', 'createPullViews', 'fetchPull', 'searchMessages', 'searchMembers',
-    'fetchAround', 'fetchAfter', 'reactorIdsOf', 'normalizedOf', 'toEvent',
+    'fetchAround', 'fetchAfter', 'fetchBefore', 'reactorIdsOf', 'normalizedOf', 'toEvent',
   ]);
   for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
   assert.ok(Object.isFrozen(capabilities));

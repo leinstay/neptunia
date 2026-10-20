@@ -24,7 +24,6 @@ import './model.js';
 import './route.js';
 import './rule.js';
 import './access.js';
-import './diary.js';
 import './alias.js';
 import './learning.js';
 import './lore.js';
@@ -33,6 +32,7 @@ import './message.js';
 import './task.js';
 import './intent.js';
 import './places.js';
+import './skills.js';
 import './inner.js';
 import './search.js';
 import { CODE } from '../skills/codes.js';
@@ -95,10 +95,6 @@ export const COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'diary.set': 'diary.set',
-  'diary.show': 'diary.show',
-  'diary.off': 'diary.off',
-  'diary.post': 'diary.post',
   'alias.add': 'alias.add',
   'alias.remove': 'alias.remove',
   'learning.add': 'learning.add',
@@ -132,9 +128,12 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.search': 'web.search',
   'task.read': 'web.read',
   'task.look': 'media.look',
+  'task.find': 'media.find',
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'task.places': 'places.list',
+  'task.skills': 'skills.describe',
+  'task.conversation': 'conversation.read',
   'memory.search': 'memory.search',
 });
 
@@ -169,10 +168,6 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'diary.set': 'diary.set',
-  'diary.show': 'diary.show',
-  'diary.off': 'diary.off',
-  'diary.post': 'diary.post',
   'alias.add': 'alias.add',
   'alias.remove': 'alias.remove',
   'learned.add': 'learning.add',

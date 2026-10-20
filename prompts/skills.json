@@ -1,7 +1,7 @@
 {
   "status.show": {
     "title": "Runtime state",
-    "whenToUse": "Read your limits, models, coverage and what is on and off.",
+    "whenToUse": "Read how the instance is doing right now. part= picks one section so you get only what you need: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits, what was spent today, per-role costs), models (which model each role runs, core and agents), memory (how much of each kind of memory is stored, record coverage, index state), inner (your inner life: mode, turns today, next wake, open intentions, attended places), errands (running errands and what each agent spent), features (which feature switches are on and off), all (every section at once).",
     "whenNotToUse": "Returns operational data about the running instance."
   },
   "config.set": {
@@ -108,26 +108,6 @@
     "title": "List grants",
     "whenToUse": "Read every stored access grant and who holds each.",
     "whenNotToUse": "Does not change any grant."
-  },
-  "diary.set": {
-    "title": "Set diary channel",
-    "whenToUse": "Pick the channel where you post diary entries.",
-    "whenNotToUse": "Administrative; changes which channel, not the content."
-  },
-  "diary.show": {
-    "title": "Diary state",
-    "whenToUse": "Read the diary's status for today: channel, post count, windows.",
-    "whenNotToUse": "Does not post or change anything."
-  },
-  "diary.off": {
-    "title": "Stop the diary",
-    "whenToUse": "Turn the diary off; past posts stay, new ones stop.",
-    "whenNotToUse": "Administrative; the diary can be turned back on with diary.set."
-  },
-  "diary.post": {
-    "title": "Post a diary entry",
-    "whenToUse": "Trigger one diary post now. The diary writes the entry itself. Kind and topic steer the subject.",
-    "whenNotToUse": "Body text in the call is not used. Refuses when the diary has no channel or the daily cap is hit."
   },
   "alias.add": {
     "title": "Add an alias",
@@ -324,10 +304,20 @@
     "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (question= or body; both are joined, question= first), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
     "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
   },
+  "media.find": {
+    "title": "Find a GIF",
+    "whenToUse": "Search your GIF library by what the GIFs show: query= or body describes what you are looking for, n= sets how many to return (default 5, at most 10). Matching handles come back in this same turn; use them with gif= on message.create or with <gif>.",
+    "whenNotToUse": "Only searches your own library by stored descriptions. Does not download or look up anything new."
+  },
   "memory.search": {
     "title": "Search this server's messages",
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match); option lines in the body (people: ..., when: ...) are read as those options. Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
+  },
+  "conversation.read": {
+    "title": "Read a channel",
+    "whenToUse": "Read messages in order from any channel you may see: channel= (name, #handle or id; default this one). Pick a span with one of three modes: around=#N or a message link (before= and after= set how many lines each side, default 10), since= (a delay like 2h, a clock time like 12:00, or a date-time), last=N (default 20, max 60). Lines come back in this same turn, each with a message number you can use in later calls. The closing line tells you how to page on (before=#N to go earlier, after=#N to go later).",
+    "whenNotToUse": "Not for what the chat already shows you. To find something by topic, use memory.search."
   },
   "intent.set": {
     "title": "Set an intention",
@@ -368,5 +358,10 @@
     "title": "See the server's places",
     "whenToUse": "See which places the server has, how many lines and people since you last looked there, whether you can write there and whether you listen to it. filter= keeps places whose name contains it, sort= orders by recent (default), name or lines, page= turns the pages. To listen to a place, set an attention with intent.set attend=<place>.",
     "whenNotToUse": "The places are names and counts. To read what people said, use the chat or memory.search."
+  },
+  "skills.describe": {
+    "title": "Describe a skill",
+    "whenToUse": "Read the full description of one skill: name= takes a skill name (memory.search, intent.set, ...) and returns its title, when to use it, when not, and its arguments. Give a family name instead (memory, intent, ...) to get every skill in that family with a one-line summary each. Use it before a call whose arguments you are not sure about.",
+    "whenNotToUse": "A read only. Does not run the skill."
   }
 }

@@ -3,13 +3,16 @@
 // read`: one page's own text, cut, no summary), `media.look` (`/nep task look`: a picture or a
 // video of a message looked at again with a question, through the describer's second look) and
 // `memory.search` (`/nep memory search`: the server's own message history through the recall
-// runner, quoted as it was, no summary).
+// runner, quoted as it was, no summary) and `conversation.read` (a channel read in order, from the
+// record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
 // Her own calls of them run inside her turn with its context (src/behavior/turn.js, the tool
 // loop of features.coreTools); a command runs the same code (src/skills/tools.js) over what an
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
 // every member while features.memberCommands is on (rights.member), as `task.status` is.
 
-import { firstLinkIn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { fetchSpan, recordMessages, runConversationRead } from '../skills/conversation-read.js';
+import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
@@ -109,7 +112,49 @@ const handlers = perEnv((env) => {
     return asOpResult(result);
   }
 
-  return { cmdWebSearch, cmdWebRead, cmdMediaLook, cmdMemorySearch };
+  /** `/nep task find query [n]`: her GIF library searched by the stored descriptions. */
+  function cmdMediaFind(args, context) {
+    return asOpResult(runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId: resolvedGuildId(context), args }), 'find');
+  }
+
+  /**
+   * `conversation.read` outside a turn (a command key `task.conversation`, never in the Discord tree): a
+   * channel read in order (src/skills/conversation-read.js), the lines rendered like the chat, without
+   * handles (no turn to number them in). The channel the call came from by default; another must pass
+   * the pull rail.
+   */
+  async function cmdConversationRead(args, context) {
+    const here = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
+    const discord = env.discord;
+    const guild = here?.guild ?? null;
+    if (!here || !guild || typeof discord?.fetchHistory !== 'function') return asOpResult({ status: 'not_configured', code: CODE.NOT_CONFIGURED }, 'conversation');
+    const config = hot.config;
+    const labels = hot.prompts?.labels ?? {};
+    const guildId = resolvedGuildId(context);
+    const channelOf = (id) => (String(id) === String(here.id) ? here : (guild.channels?.cache?.get?.(String(id)) ?? null));
+    const selfId = client?.user?.id ?? null;
+    const selfName = guild.members?.me?.displayName ?? client?.user?.username ?? '';
+    const nameOf = (id) => guild.members?.cache?.get?.(id)?.displayName ?? null;
+    const timezone = config.bot?.timezone ?? 'UTC';
+    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
+    const result = await runConversationRead({
+      args,
+      labels,
+      config,
+      channelId: String(here.id),
+      channelNameOf: (id) => channelOf(id)?.name ?? null,
+      allowed: (id) => String(id) === String(here.id) || (typeof discord.checkPull === 'function' && discord.checkPull({ guild, channelId: String(id), destination: here, config, now: now() }).skip === null),
+      readRecord: ({ channelId, from }) => (config.features?.record === true && env.record ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName }) : Promise.resolve([])),
+      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      render: () => ({ timezone, gapMinutes: config.context?.gapMarkerMinutes, maxChars: config.context?.maxMessageChars ?? 2000, selfName, labels, seeReactions: config.features?.seeReactions !== false, reactionsPerMessage: config.context?.reactionsPerMessage }),
+      now: now(),
+      timezone,
+      maxChars: recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+    });
+    return asOpResult(result, 'conversation');
+  }
+
+  return { cmdWebSearch, cmdWebRead, cmdMediaLook, cmdMediaFind, cmdMemorySearch, cmdConversationRead };
 });
 
 defineOp({
@@ -128,7 +173,17 @@ defineOp({
   run: (args, ctx) => handlers(ctx.env).cmdMediaLook(args, ctx),
 });
 defineOp({
+  name: 'media.find',
+  rights: { kind: 'read', member: true },
+  run: (args, ctx) => handlers(ctx.env).cmdMediaFind(args, ctx),
+});
+defineOp({
   name: 'memory.search',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdMemorySearch(args, ctx),
+});
+defineOp({
+  name: 'conversation.read',
+  rights: { kind: 'read', member: true },
+  run: (args, ctx) => handlers(ctx.env).cmdConversationRead(args, ctx),
 });

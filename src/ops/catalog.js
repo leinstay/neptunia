@@ -47,8 +47,6 @@ export const DEFERRED_OPS = Object.freeze(new Set([
   'memory.private.forget',
   'memory.private.purge',
   'media.rescan',
-  'diary.set',
-  'diary.post',
   'draw.create',
 ]));
 
@@ -100,6 +98,13 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * in src/ops/status.js, which imports this module.
  */
 export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed']);
+
+/**
+ * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
+ * card's fields (src/ops/status.js#PART_FIELDS): `overview` (the default of her call), `limits`,
+ * `models`, `memory`, `inner`, `errands`, `features` and `all` (the whole card).
+ */
+export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
@@ -168,7 +173,8 @@ export function readFlag(options, name) {
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
  * the Discord JSON of the node (`buildCommandTree` drops `args`); `personaOptions` are options
- * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord. Option names are lowercase;
+ * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord; a leaf
+ * with `personaOnly` is her skill alone and is left out of the Discord tree. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
 export const COMMAND_TABLE = Object.freeze([
@@ -178,7 +184,9 @@ export const COMMAND_TABLE = Object.freeze([
     options: [
       { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, choices: choicesOf(STATUS_FIELDS) },
     ],
-    args: (options) => ({ field: options.getString('field') ?? null }),
+    // Her own call may ask for a part instead (an argument only she has, never shown to Discord).
+    personaOptions: [{ type: STRING, name: 'part', description: 'A part of the card.', required: false, choices: choicesOf(STATUS_PARTS) }],
+    args: (options) => ({ field: options.getString('field') ?? null, ...(options.getString('part') ? { part: options.getString('part') } : {}) }),
   },
   {
     name: 'set',
@@ -222,7 +230,7 @@ export const COMMAND_TABLE = Object.freeze([
     options: [
       { type: STRING, name: 'kind', description: 'emoji, gifs, or pictures (recache only).', required: true, choices: choicesOf(['emoji', 'gifs', 'pictures']) },
       { type: STRING, name: 'action', description: 'status, rescan (recount) or recache.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
-      { type: INTEGER, name: 'days', description: 'pictures recache: descriptions used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
+      { type: INTEGER, name: 'days', description: 'Recache: pictures used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
     ],
     args: (options) => {
       const days = options.getInteger('days');
@@ -374,32 +382,6 @@ export const COMMAND_TABLE = Object.freeze([
     ],
   },
   {
-    name: 'diary',
-    description: 'The diary.',
-    subcommands: [
-      {
-        name: 'set',
-        description: 'Set the diary channel.',
-        options: [channelOption('Channel.', true)],
-        args: (options) => ({ channelId: options.getChannel('channel', true).id }),
-      },
-      { name: 'show', description: 'Diary state today.', args: none },
-      { name: 'off', description: 'Stop the diary.', args: none },
-      {
-        name: 'post',
-        description: 'Post one entry now.',
-        options: [
-          { type: STRING, name: 'kind', description: 'Kind.', required: false },
-          { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 1000 },
-        ],
-        args: (options) => {
-          const topic = options.getString('topic');
-          return { kind: options.getString('kind') ?? undefined, ...(topic != null ? { topic } : {}) };
-        },
-      },
-    ],
-  },
-  {
     name: 'task',
     description: "The persona's errands, run by her agents.",
     subcommands: [
@@ -476,6 +458,14 @@ export const COMMAND_TABLE = Object.freeze([
         },
       },
       {
+        // One skill or a family in full (src/ops/skills.js): her read skill `skills.describe`.
+        name: 'skills',
+        personaOnly: true,
+        description: 'Skill info.',
+        options: [{ type: STRING, name: 'name', description: 'Name.', required: true, max_length: 60 }],
+        args: (options) => ({ name: options.getString('name', true) }),
+      },
+      {
         // The places the interfaces publish (src/ops/places.js, docs/inner-life.md "Her attention"):
         // her read skill `places.list`, with a filter, a sort and a page.
         name: 'places',
@@ -489,6 +479,33 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => {
           const page = options.getInteger('page');
           return { filter: options.getString('filter') ?? undefined, sort: options.getString('sort') ?? undefined, ...(page == null ? {} : { page }) };
+        },
+      },
+      {
+        // A channel read in order (src/ops/search.js, src/skills/conversation-read.js): her read skill
+        // `conversation.read`, with no slash command (`personaOnly`: the tree has no room left under
+        // Discord's size limit). `around`, `before` and `after` take a message id or link, `before` and
+        // `after` a count beside `around`; `since` a delay (2h), a clock time or an ISO date.
+        name: 'conversation',
+        personaOnly: true,
+        description: 'Read a channel in order.',
+        options: [
+          channelOption('Channel; leave out for this one.'),
+          { type: STRING, name: 'around', description: 'Message id or link.', required: false, max_length: 200 },
+          { type: STRING, name: 'before', description: 'Message id or link, or a count.', required: false, max_length: 200 },
+          { type: STRING, name: 'after', description: 'Message id or link, or a count.', required: false, max_length: 200 },
+          { type: STRING, name: 'since', description: 'A delay, a time or a date.', required: false, max_length: 40 },
+          { type: INTEGER, name: 'last', description: 'Lines (default 20).', required: false, min_value: 1, max_value: 60 },
+        ],
+        args: (options) => {
+          const last = options.getInteger('last');
+          const out = {};
+          for (const name of ['around', 'before', 'after', 'since']) {
+            const value = options.getString(name);
+            if (value !== null && value !== undefined) out[name] = value;
+          }
+          const channelId = options.getChannel('channel')?.id;
+          return { ...out, ...(channelId ? { channelId } : {}), ...(last == null ? {} : { last }) };
         },
       },
       {
@@ -520,15 +537,28 @@ export const COMMAND_TABLE = Object.freeze([
         // The persona's own second look at a picture or a video (src/ops/search.js, features.coreTools):
         // her call names a message she sees as `#N`; the owner gives its id or link.
         name: 'look',
-        description: 'Look again at a picture or video of a message, with a question.',
+        description: 'Look again at a picture or video of a message.',
         options: [
           { type: STRING, name: 'message', description: 'The message id or link (in this channel).', required: true, max_length: 200 },
           { type: STRING, name: 'question', description: 'What to look for.', required: true, max_length: 500 },
-          { type: INTEGER, name: 'item', description: 'Which picture or video of the message (default 1).', required: false, min_value: 1, max_value: 20 },
+          { type: INTEGER, name: 'item', description: 'Which one (default 1).', required: false, min_value: 1, max_value: 20 },
         ],
         args: (options) => {
           const item = options.getInteger('item');
           return { message: options.getString('message', true), question: options.getString('question', true), ...(item == null ? {} : { item }) };
+        },
+      },
+      {
+        // The persona's own search of her GIF library by the stored descriptions (src/ops/search.js).
+        name: 'find',
+        personaOnly: true,
+        description: 'Search the GIF library.',
+        options: [{ type: STRING, name: 'query', description: 'What it shows.', required: true, max_length: 200 }],
+        // How many come back: an argument only her own call has (never shown to Discord, the tree's size).
+        personaOptions: [{ type: INTEGER, name: 'n', description: 'How many (default 5).', required: false, min_value: 1, max_value: 10 }],
+        args: (options) => {
+          const n = options.getInteger('n');
+          return { query: options.getString('query', true), ...(n == null ? {} : { n }) };
         },
       },
     ],

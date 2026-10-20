@@ -24,6 +24,7 @@ import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
 import { diagnosticLines, diagnosticText, feedbackFactText, feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { feedbackFacts } from '../src/behavior/inner.js';
+import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill, formatClock, formatDate } from '../src/format.js';
@@ -216,7 +217,7 @@ test('inner turn, live: her <msg> and <gif> are public actions in the current ch
 });
 
 
-test('inner turn: <skills_tools> lists the posting skills after the reads when granted; an addressed turn\'s does not', async () => {
+test('inner turn: <skills_tools> lists the posting skills after the reads when granted', async () => {
   const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
   const run = await innerTurn({ answers: ['<skip/>'], allowed });
   const text = userText(run.llm.calls[0][1].content);
@@ -257,6 +258,29 @@ test('inner turn, live: <msg reply="#N"> replies to that line; the tags go first
   assert.equal(run.sends[1].replyTo, undefined);
 });
 
+
+test('inner turn, live: a #N handle the heartbeat showed on a line resolves for <msg reply> in the turn and in its next step', async () => {
+  const seenLine = { kind: 'seen', messageId: 'hb-1', revision: 1, by: 'u2', occurredAt: new Date(NOW - 150 * 60_000).toISOString(), scope: { channel: 'c1' }, text: 'they still make clips for this song', media: ['link'], participants: ['u2'] };
+  const facts = await buildHeartbeatFacts({
+    guildId: 'g1',
+    now: NOW,
+    record: { iterate: async function* iterate() { yield seenLine; } },
+    nameOf: () => 'Zoë',
+    placeName: () => 'general',
+  });
+  const wake = { ...WAKE, kind: 'heartbeat', items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }], intentions: [], heartbeat: facts };
+  const looked = await innerTurn({ answers: ['<skip/>'], shadow: false, gate: { wake } });
+  const request = looked.llm.calls[0].map((message) => userText(message.content)).join('\n');
+  const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
+  assert.ok(handle, 'the request quotes the line under a handle');
+  assert.ok(Number(handle.slice(1)) > 3, 'numbered past the turn\'s own lines');
+  const direct = await innerTurn({ answers: [`<msg reply="${handle}">nice</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  assert.equal(direct.sends[0].replyTo?.messageId, 'hb-1');
+  // A read first: the reply comes in the loop's next step, over a transcript rebuilt around the same handle.
+  const stepped = await innerTurn({ answers: ['<call skill="lore.list"></call>', `<msg reply="${handle}">still here</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  assert.ok(stepped.llm.calls.length >= 2, 'the read gave the loop a second step');
+  assert.equal(stepped.sends[0]?.replyTo?.messageId, 'hb-1');
+});
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
   const { journal, lines } = journalOverMemory();
@@ -389,18 +413,17 @@ test('wakeLanes: the purposes of the intentions as one wake lane; none for a rev
   assert.deepEqual(wakeLanes([]), { lanes: [], skip: 'no-trigger' });
 });
 
-test('inner turn, shadow: a diary.post with a channel she gave it is refused, and she hears why within the turn (no lasting mark)', async () => {
-  // The call shape of a recorded shadow review: an attribute diary.post does not take, her entry as the body.
+test('inner turn, shadow: a lore.add with an argument it does not take is refused, and she hears why within the turn (no lasting mark)', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await innerTurn({
-    answers: ['<call skill="diary.post" channel="#general">δεν μπορώ να κοιμηθώ</call>', '<call skill="diary.post" topic="δεν μπορώ να κοιμηθώ"/>', '<skip/>'],
-    allowed: ['diary.post'],
+    answers: ['<call skill="lore.add" channel="#general" title="δεν" keys="μπορώ" text="να κοιμηθώ"/>', '<call skill="lore.add" title="δεν" keys="μπορώ" text="να κοιμηθώ"/>', '<skip/>'],
+    allowed: ['lore.add'],
     journal,
   });
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['diary.post:refused:invalid-args', 'diary.post:proposed:shadow']);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['lore.add:refused:invalid-args', 'lore.add:proposed:shadow']);
   assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
   const step = userText(run.llm.calls[1][1].content);
-  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'kind, topic' });
+  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
   assert.ok(step.includes(reason), step);
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
 });
@@ -767,4 +790,43 @@ test('diagnosticText and diagnosticLines: one line per parser diagnostic from sk
 test('feedbackFacts: a parser diagnostic that no step showed her is a diagnostic fact with its kind and fields', () => {
   const facts = feedbackFacts({ outcome: 'skip', inner: { actions: [], intentIds: [], loop: {}, diagnostics: [{ kind: 'badCall', reason: 'unclosed' }, { kind: 'messageCut', chars: 3 }] } });
   assert.deepEqual(facts, [{ kind: 'diagnostic', diagnostic: 'badCall', reason: 'unclosed' }, { kind: 'diagnostic', diagnostic: 'messageCut', chars: 3 }]);
+});
+
+test('inner turn: a heartbeat turn and an addressed reply in the same channel share the system message and the stable segment; the caller\'s profile is the reply\'s alone, everything else of a heartbeat is in the tail', async () => {
+  const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
+  const allowed = ['lore.list', 'web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list'];
+  const requestOf = async (kind, withProfile) => {
+    const hot = hotWith({ features: { intentions: true }, access: personaGrants(allowed) });
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+    for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
+    const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
+    const llm = sequenceLlm(['<skip/>']);
+    const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
+    const alice = { id: 'u1', names: ['Alice'], character: 'talkative', interests: [], facts: [] };
+    const store = { ...fakeStore(), ...(withProfile ? { getUser: (guildId, id) => (id === 'u1' ? alice : null), listUserProfiles: () => [alice], countUsers: () => 1 } : {}) };
+    const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry() });
+    const trigger = { id: 'm2', channelId: 'c1', authorId: 'u1', authorName: 'Alice', self: false, bot: false, content: 'τρίτο', ts: NOW - 30_000, replyToId: null, attachments: [], stickers: [] };
+    if (kind === 'heartbeat') {
+      const wake = { ...WAKE, kind: 'heartbeat', items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }], intentions: [] };
+      await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake, shadow: true, mayAct: () => true } }));
+    } else {
+      await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'reply', trigger, triggerKind: 'mention' }));
+    }
+    return llm.calls[0];
+  };
+  const segmentsOf = (messages) => Object.fromEntries(messages[1].content.map((part) => [part.cacheSegment ?? 'tail', part.text]));
+  for (const withProfile of [false, true]) {
+    const beat = await requestOf('heartbeat', withProfile);
+    const reply = await requestOf('reply', withProfile);
+    const a = segmentsOf(beat);
+    const b = segmentsOf(reply);
+    assert.ok(a.stable && b.stable, 'both carry a stable segment');
+    assert.ok(a.stable.includes('<skills_tools>') && a.stable.includes('message.create') && a.stable.includes('task.read'), 'the tools block lists the posting and task rows');
+    assert.deepEqual(beat[0], reply[0], 'the same system message');
+    assert.equal(a.stable, b.stable);
+    assert.ok(a.tail.includes('<wake>') && !b.tail.includes('<wake>'), 'the wake sits in the tail');
+    // The profiles segment is the interlocutor's profile alone: a heartbeat has no interlocutor, so it has none.
+    assert.equal(a.profiles, undefined);
+    assert.equal(b.profiles !== undefined, withProfile);
+  }
 });

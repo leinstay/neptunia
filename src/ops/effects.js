@@ -33,10 +33,6 @@ export const OP_EFFECTS = Object.freeze({
   'access.grant': 'administrative',
   'access.revoke': 'administrative',
   'access.list': 'read',
-  'diary.set': 'administrative',
-  'diary.show': 'read',
-  'diary.off': 'administrative',
-  'diary.post': 'write',
   'alias.add': 'write',
   'alias.remove': 'destructive',
   'learning.add': 'write',
@@ -76,19 +72,22 @@ export const OP_EFFECTS = Object.freeze({
   'web.search': 'read',
   'web.read': 'read',
   'media.look': 'read',
+  'media.find': 'read',
   'memory.search': 'read',
+  'conversation.read': 'read',
   'intent.set': 'write',
   'intent.update': 'write',
   'intent.cancel': 'write',
   'intent.list': 'read',
   'places.list': 'read',
+  'skills.describe': 'read',
   'inner.stop': 'administrative',
   'inner.start': 'administrative',
   'inner.status': 'read',
 });
 
 /**
- * The persona's own expressive operations -- her messages, reactions, drawings, diary -- and her
+ * The persona's own expressive operations -- her messages, reactions, drawings -- and her
  * own intentions: run for her on her own grant alone, whoever asked (the owner's decision: "messages and drawings are
  * hers"); every other operation also needs the right of the person who asked
  * (src/skills/gateway.js). Their own rules still hold (edit and delete only her own messages, a
@@ -102,8 +101,6 @@ export const SELF_OWNED_OPS = Object.freeze([
   'message.react.add',
   'message.react.remove',
   'draw.create',
-  'diary.post',
-  'diary.show',
   // Her intentions are her own state (src/ops/intent.js).
   'intent.set',
   'intent.update',

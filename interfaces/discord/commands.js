@@ -53,10 +53,14 @@ const NOT_ALLOWED_MESSAGE = 'Not allowed';
 /** Discord's cap on one application command's combined text (see `commandSize`). */
 const COMMAND_SIZE_LIMIT = 8000;
 
-/** One table node as Discord JSON: `args` and `personaOptions` dropped, a group's leaves under `options`. */
+/**
+ * One table node as Discord JSON: `args` and `personaOptions` dropped, a group's leaves under `options`,
+ * a leaf flagged `personaOnly` (a skill of hers with no slash command, which Discord's size limit has no
+ * room for) left out.
+ */
 function nodeJson(node, type) {
-  const { args: _args, personaOptions: _persona, subcommands, options, ...rest } = node;
-  if (subcommands) return { type: SUBCOMMAND_GROUP, ...rest, options: subcommands.map((sub) => nodeJson(sub, SUBCOMMAND)) };
+  const { args: _args, personaOptions: _persona, personaOnly: _only, subcommands, options, ...rest } = node;
+  if (subcommands) return { type: SUBCOMMAND_GROUP, ...rest, options: subcommands.filter((sub) => sub.personaOnly !== true).map((sub) => nodeJson(sub, SUBCOMMAND)) };
   return options ? { type, ...rest, options } : { type, ...rest };
 }
 

@@ -606,7 +606,6 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   for (const [name, request] of Object.entries(cases)) assert.equal(profilesPart(request), cached, name);
   // Each change is there, in the tail's <people_now> row.
   assert.deepEqual(fieldsOf(rowOf(online, 'Alice')), {
-    [F.status]: 'online',
     [F.voice]: V.no,
     [F.activity]: 'playing Chess',
     [F.attitude]: '12 (warm) — kind words',
@@ -4950,7 +4949,6 @@ test('buildRequest: people_now -- in the tail right after <skills> and before <c
       labels.peopleNow.lead,
       [
         `${handle.get('author-1')} Alice (${labels.peopleNow.marks.interlocutor})`,
-        fieldText('status', 'online'),
         fieldText('voice', V.no),
         fieldText('activity', 'playing Chess'),
         fieldText('attitude', '12 (warm) — kind words'),
@@ -4959,12 +4957,11 @@ test('buildRequest: people_now -- in the tail right after <skills> and before <c
       ].join('\n'),
       [
         `${handle.get('p2')} Carl`,
-        fieldText('status', 'idle'),
         fieldText('voice', voiceYes({ streaming: V.yes })),
         fieldText('activity', 'listening to Spotify: Fado - Lisboa'),
         fieldText('attitude', V.none),
       ].join('\n'),
-      [`${handle.get('v-user')} Ηλέκτρα`, fieldText('status', 'offline'), fieldText('voice', voiceYes({ muted: V.yes })), fieldText('activity', V.none)].join('\n'),
+      [`${handle.get('v-user')} Ηλέκτρα`, fieldText('voice', voiceYes({ muted: V.yes })), fieldText('activity', V.none)].join('\n'),
     ].join('\n\n'),
   );
   assert.ok(handle.get('v-user'), 'a person in voice with no profile gets a handle to be mentioned by');
@@ -4984,13 +4981,12 @@ test('buildRequest: people_now -- <people> holds no live line, no attitude, no m
   assert.equal(tailPeople(request), `## Carl (@${handleOf('p2')})\ncharacter: talkative`, 'the compact profile, with its handle');
   // Carl is a compact participant: the attitude and its one move at most, no count.
   assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), {
-    [F.status]: 'idle',
     [F.voice]: voiceYes({ streaming: V.yes }),
     [F.activity]: 'listening to Spotify: Fado - Lisboa',
     [F.attitude]: '-4 (neutral) — rude once',
     [F.moves]: V.none,
   });
-  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.status]: 'online', [F.voice]: V.no, [F.activity]: 'playing Chess', ...ALICE_STATE });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.voice]: V.no, [F.activity]: 'playing Chess', ...ALICE_STATE });
 });
 
 test('buildRequest: people_now -- a tail entry is paid for with its profile and lives and dies with it', () => {
@@ -5000,7 +4996,7 @@ test('buildRequest: people_now -- a tail entry is paid for with its profile and 
   // A member with nothing learned stays out, entry and all; in voice, they are one of the people in voice instead.
   const bare = buildRequest(aroundScene({ otherProfiles: [{ id: 'p2', names: ['Carl'] }] }));
   assert.equal(tailPeople(bare), '');
-  assert.deepEqual(fieldsOf(rowOf(bare, 'Carl')), { [F.status]: 'idle', [F.voice]: voiceYes({ streaming: V.yes }), [F.activity]: 'listening to Spotify: Fado - Lisboa' }, 'no fields of memory');
+  assert.deepEqual(fieldsOf(rowOf(bare, 'Carl')), { [F.voice]: voiceYes({ streaming: V.yes }), [F.activity]: 'listening to Spotify: Fado - Lisboa' }, 'no fields of memory');
   // <people> cut by its cap: the entry goes too (Carl is not in voice here, so no other entry).
   const store = createAroundStore({ presences: true, now: joinClock });
   store.presenceUpdate({ userId: 'p2', status: 'online', activities: [{ type: 0, name: 'Chess' }] });
@@ -5018,15 +5014,14 @@ test('buildRequest: people_now -- available: every live field explicit; offline 
   store.voiceUpdate({ id: 'v-user', channelId: 'vc1', member: { displayName: 'Ηλέκτρα' } });
   const request = buildRequest(aroundScene({ around: { snapshot: store.snapshot(), channelNameOf: (id) => (id === 'vc1' ? 'Σαλόνι' : null) } }));
   assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), {
-    [F.status]: 'do not disturb',
     [F.voice]: voiceYes({ deafened: V.yes, camera: V.yes }),
     [F.activity]: 'playing Dota 2; listening to Spotify: Fado - Lisboa',
     ...ALICE_STATE,
   });
   // Carl: no presence record with the intent on and a fresh snapshot is offline; not in voice; no activity.
-  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.status]: 'offline', [F.voice]: V.no, [F.activity]: V.none, [F.attitude]: V.none });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.voice]: V.no, [F.activity]: V.none, [F.attitude]: V.none });
   // Ηλέκτρα: offline (invisible) and still in voice.
-  assert.deepEqual(fieldsOf(rowOf(request, 'Ηλέκτρα')), { [F.status]: 'offline', [F.voice]: voiceYes(), [F.activity]: V.none });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Ηλέκτρα')), { [F.voice]: voiceYes(), [F.activity]: V.none });
   const body = peopleNowOf(request);
   assert.ok(!body.includes(labels.peopleNow.stale) && !body.includes(labels.peopleNow.unavailable), 'no notice');
   assert.ok(!body.includes(V.unavailable) && !body.includes(V.stale));
@@ -5036,9 +5031,9 @@ test('buildRequest: people_now -- unavailable (intent off): status and activity 
   const request = buildRequest(aroundScene({ around: aroundInput({ presences: false }) }));
   const body = peopleNowOf(request);
   assert.deepEqual(body.split('\n\n')[0].split('\n'), [labels.peopleNow.lead, labels.peopleNow.unavailable]);
-  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.status]: V.unavailable, [F.voice]: V.no, [F.activity]: V.unavailable, ...ALICE_STATE });
-  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.status]: V.unavailable, [F.voice]: voiceYes({ streaming: V.yes }), [F.activity]: V.unavailable, [F.attitude]: V.none });
-  assert.deepEqual(fieldsOf(rowOf(request, 'Ηλέκτρα')), { [F.status]: V.unavailable, [F.voice]: voiceYes({ muted: V.yes }), [F.activity]: V.unavailable });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.voice]: V.no, [F.activity]: V.unavailable, ...ALICE_STATE });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.voice]: voiceYes({ streaming: V.yes }), [F.activity]: V.unavailable, [F.attitude]: V.none });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Ηλέκτρα')), { [F.voice]: voiceYes({ muted: V.yes }), [F.activity]: V.unavailable });
   assert.ok(!/\b(online|offline|idle|playing|listening)\b/.test(body.split('\n\n').slice(1).join('\n')), body);
 });
 
@@ -5050,8 +5045,8 @@ test('buildRequest: people_now -- stale: one notice, status, voice and activity 
   const request = buildRequest(aroundScene({ around: { snapshot: store.snapshot(), channelNameOf: (id) => (id === 'vc1' ? 'Σαλόνι' : null) } }));
   const body = peopleNowOf(request);
   assert.deepEqual(body.split('\n\n')[0].split('\n'), [labels.peopleNow.lead, labels.peopleNow.stale]);
-  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.status]: V.stale, [F.voice]: V.stale, [F.activity]: V.stale, ...ALICE_STATE });
-  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.status]: V.stale, [F.voice]: V.stale, [F.activity]: V.stale, [F.attitude]: V.none });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), { [F.voice]: V.stale, [F.activity]: V.stale, ...ALICE_STATE });
+  assert.deepEqual(fieldsOf(rowOf(request, 'Carl')), { [F.voice]: V.stale, [F.activity]: V.stale, [F.attitude]: V.none });
   assert.equal(rowOf(request, 'Ηλέκτρα'), null);
   assert.ok(!/\b(online|offline|idle|Chess)\b/.test(body), body);
 });
@@ -5074,7 +5069,7 @@ test('buildRequest: people_now -- member text in an entry is one line per field,
 });
 
 test('buildRequest: people_now -- no live fields with the switch off, no input, in a private chat or a diary post; the fields of memory stay', () => {
-  const live = (request) => (peopleNowOf(request) ?? '').includes(`- ${F.status}:`);
+  const live = (request) => (peopleNowOf(request) ?? '').includes(`- ${F.voice}:`);
   assert.ok(live(buildRequest(aroundScene())), 'the control shows it');
   for (const [name, request] of Object.entries({
     'no input': buildRequest(aroundScene({ around: undefined })),
@@ -5153,7 +5148,7 @@ test('buildRequest: people_now -- a caller with no profile: no entry without liv
     peopleNowOf(live),
     [
       labels.peopleNow.lead,
-      [`${handlesOf(live).get('n1')} Νέα (${labels.peopleNow.marks.interlocutor})`, fieldText('status', 'do not disturb'), fieldText('voice', V.no), fieldText('activity', V.none)].join('\n'),
+      [`${handlesOf(live).get('n1')} Νέα (${labels.peopleNow.marks.interlocutor})`, fieldText('voice', V.no), fieldText('activity', V.none)].join('\n'),
     ].join('\n\n'),
   );
 });

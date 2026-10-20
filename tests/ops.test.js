@@ -28,7 +28,6 @@ const AGREED = new Set([
   'route.list', 'route.set', 'route.remove',
   'rule.add', 'rule.list', 'rule.remove',
   'access.grant', 'access.revoke', 'access.list',
-  'diary.set', 'diary.show', 'diary.off', 'diary.post',
   'alias.add', 'alias.remove',
   'learning.add', 'learning.remove',
   'lore.add', 'lore.list', 'lore.show', 'lore.remove',
@@ -37,9 +36,11 @@ const AGREED = new Set([
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
   'task.run', 'task.status', 'task.cancel', 'task.list', 'task.read', 'task.resolve',
-  'web.search', 'web.read', 'media.look', 'memory.search',
+  'web.search', 'web.read', 'media.look', 'media.find', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
   'places.list',
+  'skills.describe',
+  'conversation.read',
   'inner.stop', 'inner.start', 'inner.status',
 ]);
 

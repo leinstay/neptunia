@@ -35,7 +35,7 @@ function episode(overrides = {}) {
       { skill: 'lore.list', args: {}, text: 'three entries' },
     ],
     actions: [
-      { skill: 'diary.post', status: 'refused' },
+      { skill: 'draw.create', status: 'refused' },
       { skill: 'message.create', status: 'proposed' },
     ],
     ...overrides,
@@ -77,7 +77,7 @@ test('innerEpisodeLines: her thinks and calls first, then one line per kept find
   assert.equal(new Set(lines.map((line) => line.id)).size, 2);
   const head = lines[0].content;
   assert.ok(head.includes(fill(labels.memory.inner.think, { text: 'Ας δω τι λέει ο κόσμος για το παιχνίδι.' })), head);
-  assert.ok(head.includes(fill(labels.memory.inner.notDone, { skills: 'diary.post, message.create' })), 'proposed and refused calls are not done');
+  assert.ok(head.includes(fill(labels.memory.inner.notDone, { skills: 'draw.create, message.create' })), 'proposed and refused calls are not done');
   assert.ok(!head.split('\n').some((line) => line.startsWith(labels.memory.inner.done.split('{')[0])), 'nothing was done');
   const found = lines[1].content;
   assert.ok(found.startsWith(fill(labels.memory.inner.found, { skill: 'web.search', asked: fill(labels.memory.inner.asked, { text: 'παιχνίδι κόσμος όνομα' }), text: '' }).trim()), found);

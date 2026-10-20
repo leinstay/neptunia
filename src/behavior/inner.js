@@ -99,7 +99,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
-  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14 }),
+  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500 }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -136,9 +136,9 @@ const HELD = new Set(['busy', 'paused']);
 /** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
 const TURN_OUTCOMES = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 /** The skills that post where people read. */
-export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'diary.post']);
-/** The calls that deliver something out of an inner turn: a post, a picture, an errand, a diary entry. */
-export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run', 'diary.post']);
+export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create']);
+/** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
+export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
 export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'diagnostic']);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
@@ -297,6 +297,10 @@ export function innerSettings(config) {
       filteredShown: Math.floor(count(heartbeat.filteredShown, d.heartbeat.filteredShown)),
       closedShown: Math.floor(count(heartbeat.closedShown, d.heartbeat.closedShown)),
       historyDays: Math.max(1, count(heartbeat.historyDays, d.heartbeat.historyDays)),
+      placesHours: Math.max(1, count(heartbeat.placesHours, d.heartbeat.placesHours)),
+      placesShown: Math.floor(count(heartbeat.placesShown, d.heartbeat.placesShown)),
+      placeLines: Math.floor(count(heartbeat.placeLines, d.heartbeat.placeLines)),
+      maxTokens: Math.floor(count(heartbeat.maxTokens, d.heartbeat.maxTokens)),
     },
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
@@ -1624,31 +1628,6 @@ export function createInnerLife({
   }
 
   /**
-   * A call of an inner turn that came back `ok` but did not take effect after the turn ended (a
-   * deferred `diary.post` that was refused): one `callFailed` feedback wake in its chain and
-   * channel, due now, so she hears it at her next inner turn. Answers whether it was queued.
-   * Never throws.
-   * @param {{ guildId?: string|null, channelId: string, chainId?: string|null, skill: string, code?: string|null, id?: string }} note
-   */
-  async function noteLateFailure({ guildId = getGuildId(), channelId, chainId = null, skill, code = null, id = null }) {
-    try {
-      if (!guildId || !channelId || !innerOn(hot.config)) return false;
-      const at = now();
-      const wakeId = `inner.wake:feedback:late:${id ?? `${skill}:${at}`}`;
-      const state = stateOf(guildId);
-      if (state.handled[wakeId] || state.queue.some((queued) => queued.id === wakeId)) return true;
-      const facts = [{ kind: 'callFailed', skill: String(skill), status: 'refused', code: typeof code === 'string' && code ? code : null }];
-      const kept = facts.map((fact) => addFact(state, { at, channelId: String(channelId), privateChat: false, ...fact }));
-      save(guildId);
-      await enqueue(guildId, { id: wakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: at, channelId: String(channelId), privateChat: false, here: String(channelId), turnId: null, facts, factIds: kept.map((fact) => fact.id), deliveryFor: [] });
-      return true;
-    } catch (err) {
-      log.warn('inner: late failure not queued', { error: err });
-      return false;
-    }
-  }
-
-  /**
    * An errand's end: one an inner turn handed off has its cost recorded in the day's spend.
    * Answers whether a cost was counted. Never throws.
    */
@@ -1825,5 +1804,5 @@ export function createInnerLife({
     timer = null;
   }
 
-  return { tick, drain, onWake, onTaskFinished, noteLateFailure, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf, facts: factsApi };
+  return { tick, drain, onWake, onTaskFinished, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf, facts: factsApi };
 }

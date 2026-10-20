@@ -30,7 +30,7 @@ import {
   validatePlan,
   withoutPictureKinds,
 } from './diary.js';
-import { channelPullOn, pullSettings, pullTargets } from './pull.js';
+import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
 import { isTaggedCall } from './mention.js';
 import { resolveHandles } from './handles.js';
@@ -76,11 +76,12 @@ import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
+import { coreToolRows, discoveryOn, skillArgs, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
-import { skillRegistry } from '../skills/registry.js';
+import { describeSkill, skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { fetchSpan, runConversationRead, recordMessages } from '../skills/conversation-read.js';
+import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { innerOutputCalls } from './inner-output.js';
@@ -260,7 +261,7 @@ const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']
  * is bounded there; every other result at `skills.resultMaxChars`.
  */
 function resultCharsFor(result, config) {
-  if (result?.skill === 'memory.search') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
+  if (result?.skill === 'memory.search' || result?.skill === 'conversation.read') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
   return config?.skills?.resultMaxChars ?? 4500;
 }
 
@@ -1166,7 +1167,7 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     messageAt: (n) => {
       // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
       const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
-      if (found) return { id: String(found.id), conversationId: String(found.channelId ?? channel.id), authorId: found.authorId ?? null, self: found.self === true };
+      if (found) return { id: String(found.id), conversationId: String(found.channelId ?? channel.id), authorId: found.authorId ?? null, self: found.self === true, ...(found.deleted === true ? { deleted: true } : {}) };
       const id = idByIndex?.get(n);
       if (!id) return null;
       const line = (lines ?? []).find((entry) => entry.id === id);
@@ -1552,13 +1553,12 @@ function callTextOf(result, maxChars = 200) {
  * text }` each, named under `labels.task.missed`. `failedEarlier`: the
  * addressed turns of this channel that failed with nothing posted
  * (`{ author, messageId, link, at, code }`), one `labels.task.failedEarlier`
- * line each. `diaryFailedEarlier`: the diary posts she asked for in an earlier addressed turn of
- * this channel that did not go out (`{ at, code }`), one `labels.task.diaryFailedEarlier` line each.
+ * line each.
  * `input` is null when there is nothing to say.
  * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
  *   added: string[], missed: { author: string, text: string }[], failedEarlier: object[] }|null, deferred: Set<string> }}
  */
-export function taskInput({ part, queued, added, missed = null, failedEarlier = null, diaryFailedEarlier = null, labels, channelId }) {
+export function taskInput({ part, queued, added, missed = null, failedEarlier = null, labels, channelId }) {
   let waiting = [];
   if (typeof queued === 'function') {
     try {
@@ -1578,8 +1578,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
     ? missed.filter((item) => item && typeof item.text === 'string' && item.text).map((item) => ({ author: typeof item.author === 'string' ? item.author : '', text: item.text }))
     : [];
   const failedItems = Array.isArray(failedEarlier) && labels?.task?.failedEarlier ? failedEarlier.filter((entry) => entry?.messageId) : [];
-  const diaryItems = Array.isArray(diaryFailedEarlier) && labels?.task?.diaryFailedEarlier ? diaryFailedEarlier.filter((entry) => entry && Number.isFinite(entry.at)) : [];
-  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0 && diaryItems.length === 0) return { input: null, deferred };
+  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0) return { input: null, deferred };
   return {
     input: {
       part: part ?? null,
@@ -1588,7 +1587,6 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
       added: addedTexts,
       missed: missedItems,
       failedEarlier: failedItems,
-      diaryFailedEarlier: diaryItems,
     },
     deferred,
   };
@@ -2054,6 +2052,8 @@ export function createTurnRunner({
     if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
+    // The message's own channel taken over the one she named: logged, never the ids.
+    if (resolved.channelFixed) log.info('skills: message channel taken from the message', { skill: resolved.skill, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope, draft });
     return { call, op, envelope, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
   }
@@ -2201,9 +2201,29 @@ export function createTurnRunner({
     });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
     const followUp = needsFollowUp(skill, result, { addressed: draft?.addressed === true });
+    const teach = teachOf(skill, plan.resolved, draft, inner);
     // A quiet call that went out and is seen only because someone waits for the turn: delivered all the same.
     const stepOnly = followUp && result.status === 'ok' && !needsFollowUp(skill, result);
-    return { skill, ...result, followUp, ...(stepOnly ? { stepOnly: true } : {}) };
+    return { skill, ...result, followUp, ...(stepOnly ? { stepOnly: true } : {}), ...(teach ? { teach } : {}), ...(plan.resolved?.bodyIgnored ? { bodyIgnored: true } : {}) };
+  }
+
+  /**
+   * What a call teaches her of its skill (features.coreTools): the skill's row (title, when to use, arguments), `first`
+   * when this is the turn's first call of a skill that `<skills_tools>` did not list (once per skill per turn,
+   * `draft.describedSkills`), else only for a call whose body was left out (the arguments she can use). Null otherwise.
+   * @returns {{ row: object, first: boolean }|null}
+   */
+  function teachOf(skill, resolved, draft, inner) {
+    if (!coreToolsOn(hot.config)) return null;
+    const registry = skills ?? defaultSkills();
+    const definition = registry.get(skill);
+    if (!definition || !grantedSkillNames({ config: hot.config, selfId: client?.user?.id ?? null, registry }).includes(skill)) return null;
+    const listed = coreToolRows({ config: hot.config, selfId: client?.user?.id ?? null, registry, texts: hot.prompts?.skills, inner: Boolean(inner), unreadTasks: true }).some((row) => row.name === skill);
+    const described = (draft ? (draft.describedSkills ??= new Set()) : new Set());
+    const first = !listed && !described.has(skill);
+    if (!first && resolved?.bodyIgnored !== true) return null;
+    if (first) described.add(skill);
+    return { row: { ...describeSkill(definition, hot.prompts?.skills), args: skillArgs(definition) }, first };
   }
 
   /**
@@ -2261,7 +2281,7 @@ export function createTurnRunner({
     const labels = input.prompts?.labels ?? {};
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
-      .filter((outcome) => outcome.status === 'ok' && outcome.data)
+      .filter((outcome) => (outcome.status === 'ok' && outcome.data) || outcome.teach || outcome.bodyIgnored)
       .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultCharsFor(outcome, hot.config) }))
       .filter(Boolean)
       .join('\n\n');
@@ -2377,6 +2397,7 @@ export function createTurnRunner({
             return true;
           },
         }),
+      'media.find': (args) => runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
       'memory.search': (args) =>
         runMemorySearch({
           recall,
@@ -2395,7 +2416,73 @@ export function createTurnRunner({
           now: clock(),
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
+      'conversation.read': (args) => readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }),
     };
+  }
+
+  /**
+   * One conversation.read of hers (src/skills/conversation-read.js): the channel she names (default
+   * this one) read in order from the record first, the interface's history when the record lacks
+   * the span, rendered like the chat with each line's `#N` handle in the turn's registry
+   * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
+   * toward this turn's channel, a private chat on its partner's behalf); this channel always does.
+   * `not_configured` without a guild or in a private chat without its partner. Never throws.
+   */
+  async function readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }) {
+    if (!guild || (!channel.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    const config = hot.config;
+    const labels = hot.prompts?.labels ?? {};
+    const channelOf = (id) => (String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null));
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), p]));
+    const nameOf = (id) => (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ?? guild.members?.cache?.get?.(id)?.displayName ?? null;
+    const settings = recallSettings(config);
+    const timezone = config.bot?.timezone ?? 'UTC';
+    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
+    return runConversationRead({
+      args,
+      labels,
+      config,
+      channelId: String(channel.id),
+      channelNameOf: (id) => channelOf(id)?.name ?? null,
+      allowed: (id) => {
+        if (String(id) === String(channel.id) && channel.guild) return true;
+        try {
+          return checkPull({ guild, channelId: String(id), destination: channel, partner, config, now: clock() }).skip === null;
+        } catch {
+          return false;
+        }
+      },
+      readRecord: ({ channelId, from }) =>
+        config.features?.record === true ? recordMessages(record, guildId, { channelId, from, nameOf, selfName }) : Promise.resolve([]),
+      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      render: (slice) => {
+        let descriptions;
+        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+          const { items, rest, emoji } = pullPictures(slice, 0);
+          const wanted = [...items, ...rest, ...emoji];
+          try {
+            if (wanted.length > 0) descriptions = describer.cachedDescriptions(guildId, wanted) ?? undefined;
+          } catch {
+            descriptions = undefined;
+          }
+        }
+        return {
+          timezone,
+          gapMinutes: config.context?.gapMarkerMinutes,
+          maxChars: config.context?.maxMessageChars ?? 2000,
+          selfName,
+          labels,
+          descriptions,
+          seeReactions: config.features?.seeReactions !== false,
+          reactionsPerMessage: config.context?.reactionsPerMessage,
+        };
+      },
+      refs: draft ? searchHandles(draft) : null,
+      now: clock(),
+      timezone,
+      maxChars: settings?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+    });
   }
 
   // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
@@ -2767,8 +2854,7 @@ export function createTurnRunner({
   // The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
   // (src/behavior/inner.js, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
   // `error` or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
-  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`), a diary post she asked for that did not go out
-  // (`diaryFailed`: `{ code }`, `labels.task.diaryFailedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
+  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
   // `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
   let factsSource = null; // set via setFactsSource()
   const localFacts = createLocalFacts({ now: () => clock() });
@@ -2793,24 +2879,6 @@ export function createTurnRunner({
     const live = factsOfKind(guildId, scope, kind, at);
     const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
     if (over.length > 0) store.markTold(guildId, over);
-  }
-  let onDeferredFailure = null; // set via setOnDeferredFailure(): a deferred call of an inner turn that failed
-  /**
-   * What became of a call of hers that was queued for after her turn (`diary.post`) when it did
-   * not go out: in an inner turn the inner life hears it as a feedback fact; in an addressed turn
-   * the channel's next request names it (`diaryFailed`). Never throws.
-   */
-  function noteDeferred({ skill, guildId = null, channelId, ownInitiative = false, chainId = null, code = null, id = null, at = clock() }) {
-    try {
-      if (skill !== 'diary.post' || !channelId) return;
-      if (ownInitiative) {
-        Promise.resolve(onDeferredFailure?.({ guildId, channelId: String(channelId), chainId, skill, code, id })).catch((err) => log.warn('turn: deferred failure not handed on', { error: err }));
-        return;
-      }
-      keepFact(guildId, { channelId: String(channelId), privateChat: privateChannels.has(String(channelId)) }, 'diaryFailed', { code: typeof code === 'string' && code ? code : CODE.ERROR }, at);
-    } catch (err) {
-      log.warn('turn: deferred outcome not kept', { error: err });
-    }
   }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
@@ -6782,15 +6850,12 @@ export function createTurnRunner({
         at: fact.at,
         code: fact.code,
       }));
-      // The diary posts she asked for in an earlier addressed turn here that did not go out, told the same way.
-      const diaryFacts = prompts?.labels?.task?.diaryFailedEarlier ? pendingFacts.filter((fact) => fact.kind === 'diaryFailed' && fact.channelId === factScope.channelId && now - fact.at < FAILED_TURN_KEEP_MS) : [];
-      const diaryFailedEarlier = diaryFacts.map((fact) => ({ at: fact.at, code: fact.code }));
       // What else was kept for her (a drop, a hold, a call or a message that failed): a `<wake>`-shaped block before the task.
-      const otherFacts = pendingFacts.filter((fact) => fact.kind !== 'failedTurn' && fact.kind !== 'diaryFailed').slice(0, FACTS_SHOWN_MAX);
+      const otherFacts = pendingFacts.filter((fact) => fact.kind !== 'failedTurn').slice(0, FACTS_SHOWN_MAX);
       const factsText = otherFacts.length > 0 ? feedbackInTurnText(otherFacts.map(factPayload), prompts?.labels, { timezone: config.bot?.timezone ?? 'UTC', locale: prompts?.labels?.locale }) : '';
-      const shownIds = [...failedFacts, ...diaryFacts, ...(factsText ? otherFacts : [])].map((fact) => fact.id);
+      const shownIds = [...failedFacts, ...(factsText ? otherFacts : [])].map((fact) => fact.id);
       if (shownIds.length > 0) draft.factsShown = shownIds;
-      const tasks = taskInput({ part, queued, added, missed, failedEarlier, diaryFailedEarlier, labels: prompts?.labels, channelId: channel.id });
+      const tasks = taskInput({ part, queued, added, missed, failedEarlier, labels: prompts?.labels, channelId: channel.id });
       // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
       // named, and on a part of a split message every line after the message -- a call that came
       // while the chain ran waits for its own turn after the chain.
@@ -6814,6 +6879,12 @@ export function createTurnRunner({
       const skillsInventory = asked && !answersDrawFailure ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
       // Kept: a skill call's follow-up rebuilds this very request over the channel as it stands then.
+      // A heartbeat's lines carry handles (`#N`) numbered on past the request's own lines, like a memory.search's quotes:
+      // the text is worded once with a provisional base, then again when the request says where its own numbering ends.
+      const heartbeatRefs = Array.isArray(draft.inner?.wake?.heartbeat?.refs) ? draft.inner.wake.heartbeat.refs : [];
+      const heartbeatHandleBase = heartbeatRefs.length > 0 ? SEARCH_HANDLE_GAP + 1 : null;
+      let shownHeartbeatRefs = [];
+      const wakeTextOf = (handleBase) => wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale, handleBase, onRefs: (refs) => (shownHeartbeatRefs = refs) });
       const requestInput = turnRequestInput({
         config,
         prompts,
@@ -6900,8 +6971,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
-        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only; an inner turn's also lists the posting skills its tags stand for.
-        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills, inner: Boolean(draft.inner), unreadTasks: listedTasks({ guildId, channel, isPrivate, taskResult }).some((task) => task.state !== 'queued' && task.state !== 'running') }) : null,
+        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only, the same rows on every turn kind (the stable part stays cached).
+        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills }) : null,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
@@ -6909,7 +6980,9 @@ export function createTurnRunner({
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
-        wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : factsText || null,
+        wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
+        // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
+        wakeKind: draft.inner?.wake?.kind ?? null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
         places: !draft.inner && !isPrivate && finalMode !== 'diary' ? placesInputFor({ guildId, config, labels: prompts?.labels }) : null,
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
@@ -6917,7 +6990,18 @@ export function createTurnRunner({
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
         stableFreeze: stableFreezeOf(guildId),
       });
-      const request = buildRequest(requestInput);
+      let request = buildRequest(requestInput);
+      if (heartbeatRefs.length > 0) {
+        const floor = Math.max(0, ...request.idByIndex.keys());
+        const base = floor + SEARCH_HANDLE_GAP + 1;
+        if (base !== heartbeatHandleBase) {
+          requestInput.wake = wakeTextOf(base);
+          request = buildRequest(requestInput);
+        }
+        // The handles the block kept resolve in this turn and in the steps of its loop (the registry of memory.search's quotes).
+        draft.handleFloor = floor;
+        searchHandles(draft).take(shownHeartbeatRefs.filter((index) => heartbeatRefs[index]).map((index) => ({ n: base + index, ...heartbeatRefs[index] })));
+      }
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
@@ -7433,11 +7517,6 @@ export function createTurnRunner({
     /** Called (never awaited by runTurn) every time a turn finishes anywhere, once the channel is freed. */
     setOnIdle: (fn) => {
       onIdle = fn;
-    },
-    noteDeferred,
-    /** Called with a deferred call of an inner turn that did not go out (src/behavior/inner.js#noteLateFailure). */
-    setOnDeferredFailure: (fn) => {
-      onDeferredFailure = fn;
     },
     /**
      * The facts kept for her next request in a conversation (src/behavior/inner.js's `facts`: `enabled`, `add`,

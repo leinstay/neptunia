@@ -22,7 +22,22 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
-const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
+const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around']);
+
+/**
+ * The options of conversation.read that are a message when written as `#N` or a link and a count
+ * otherwise (`before=#40`, `before=5`).
+ */
+const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] });
+
+/** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
+function namesMessage(skill, option, text) {
+  if (MESSAGE_OPTIONS.includes(option)) return true;
+  return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')));
+}
+
+/** The options a body that is only a message reference (`#22`, an id, a link) fills, in order of preference. */
+const BODY_MESSAGE_OPTIONS = Object.freeze(['message', 'messageId']);
 
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS = Object.freeze(['file']);
@@ -54,6 +69,18 @@ export function leadingOptionLines(body, names, bodyArg) {
   for (; i < lines.length; i += 1) {
     // A whole file handle (`file:<task>/<name>`) is the attachment line, never a `file:` option.
     if (FILE_HANDLE_RE.test(lines[i].trim())) break;
+    // A head line of quoted pairs only (`message="#59" emoji="x"`): each pair an option.
+    const pairLine = pairsAsArguments(quotedPairs(lines[i]), known);
+    if (pairLine) {
+      for (const [key, pairValue] of Object.entries(pairLine)) {
+        if (key === bodyArg) {
+          if (lead !== null) twice ??= key;
+          lead = pairValue;
+        } else if (Object.hasOwn(options, key)) twice ??= key;
+        else options[key] = pairValue;
+      }
+      continue;
+    }
     const match = BODY_LINE_RE.exec(lines[i].trim());
     const value = match ? match[2].trim() : '';
     if (!match || !known.has(match[1]) || !value) break;
@@ -306,6 +333,70 @@ export function bodyTokens(body, names) {
   return out;
 }
 
+/** One quoted `name="value"` / `name='value'` pair (spaces around `=` allowed). */
+const QUOTED_PAIR_RE = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+
+/** `[name, value]` pairs when all of `text` is quoted pairs separated by whitespace; else null. */
+function quotedPairs(text) {
+  let rest = String(text ?? '').trim();
+  if (!rest) return null;
+  const pairs = [];
+  while (rest) {
+    const match = QUOTED_PAIR_RE.exec(rest);
+    if (!match) return null;
+    pairs.push([match[1], match[2] ?? match[3]]);
+    rest = rest.slice(match[0].length);
+    if (rest && !/^\s/.test(rest)) return null;
+    rest = rest.trim();
+  }
+  return pairs;
+}
+
+/** The pairs as `{ name: value }` when every name is known, given once, and every value non-empty; else null. */
+function pairsAsArguments(pairs, known) {
+  if (!pairs || pairs.length === 0) return null;
+  const out = {};
+  for (const [name, raw] of pairs) {
+    const value = String(raw ?? '').trim();
+    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
+    out[name] = value;
+  }
+  return out;
+}
+
+const ARGS_ELEMENT_RE = /^<args\b([^>]*?)\/?>(?:\s*<\/args\s*>)?$/i;
+const PARAM_ELEMENT_RE = /^<param\s+name\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:>([\s\S]*?)<\/param\s*>|value\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>)/i;
+
+/**
+ * The arguments a call's body spells out as attribute-like markup when the model wrote them
+ * there instead of on the tag: the whole body being quoted `name="value"` / `name='value'`
+ * pairs, one `<args name="value" .../>` element, or `<param name="x">value</param>` elements.
+ * `{ name: value }` when every name is one of `names`, given once, every value non-empty; else
+ * null (any other text, an unknown or repeated name). Pure.
+ * @param {string} body
+ * @param {Iterable<string>} names
+ * @returns {Record<string, string>|null}
+ */
+export function bodyAttributes(body, names) {
+  const known = new Set(names ?? []);
+  const text = String(body ?? '').replace(BODY_BREAK_RE, '\n').trim();
+  if (!text) return null;
+  const element = ARGS_ELEMENT_RE.exec(text);
+  if (element) return pairsAsArguments(quotedPairs(element[1]), known);
+  if (text.startsWith('<')) {
+    const pairs = [];
+    let rest = text;
+    while (rest) {
+      const match = PARAM_ELEMENT_RE.exec(rest);
+      if (!match) return null;
+      pairs.push([match[1] ?? match[2], match[3] ?? match[4] ?? match[5] ?? '']);
+      rest = rest.slice(match[0].length).trim();
+    }
+    return pairsAsArguments(pairs, known);
+  }
+  return pairsAsArguments(quotedPairs(text), known);
+}
+
 /**
  * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
  * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
@@ -366,7 +457,12 @@ export function resolveCall(call, view) {
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
   // A body where the command takes none: its options spelled out (an attribute wins), else her
   // comment on the call, left out -- never a refusal.
-  const fromBody = body && !command.body ? bodyArguments(body, byName.keys()) : null;
+  let fromBody = body && !command.body ? (bodyAttributes(body, byName.keys()) ?? bodyArguments(body, byName.keys())) : null;
+  // A body that is only a message (`#22`, an id, a link) for a command that takes one: that argument (like idOf for intent ids).
+  if (body && !command.body && !fromBody) {
+    const target = BODY_MESSAGE_OPTIONS.find((option) => byName.has(option) && !Object.hasOwn(given, option));
+    if (target && (transcriptNumber(body) !== null || /^\d{15,25}$/.test(body) || MESSAGE_LINK_RE.test(body.replace(/^<(.*)>$/, '$1')))) fromBody = { [target]: body };
+  }
   const bodyIgnored = Boolean(body) && !command.body && !fromBody;
   let bodyArgs = 0;
   for (const [key, value] of Object.entries(fromBody ?? {})) {
@@ -376,7 +472,7 @@ export function resolveCall(call, view) {
   }
   // A body where the command takes text that is only `name=value` tokens of options the tag
   // left out: the arguments she meant (`state=done`), not a note; else the body is her text.
-  const tokens = body && command.body ? bodyTokens(body, byName.keys()) : null;
+  const tokens = body && command.body ? (bodyAttributes(body, byName.keys()) ?? bodyTokens(body, byName.keys())) : null;
   const fromTokens = tokens && !Object.keys(tokens).some((key) => Object.hasOwn(given, key)) ? tokens : null;
   for (const [key, value] of Object.entries(fromTokens ?? {})) {
     given[key] = value;
@@ -494,11 +590,12 @@ export function resolveCall(call, view) {
           args[option] = text;
           break;
         }
-        const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
+        const isMessage = namesMessage(name, option, text);
+        const n = isMessage ? transcriptNumber(text) : null;
         // A message link (in angle brackets too) names the message and its channel.
-        const link = MESSAGE_OPTIONS.includes(option) && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
+        const link = isMessage && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
         // A message the record holds as deleted and the history does not: refused as deleted.
-        const deletedHere = (id) => MESSAGE_OPTIONS.includes(option) && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
+        const deletedHere = (id) => isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
           if (deletedHere(link[2])) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           linked[option] = link[1];
@@ -521,11 +618,16 @@ export function resolveCall(call, view) {
 
   // A line names its channel: the one the call gave must be it, else it fills the channel option.
   let repliedAuthorId = null;
+  let channelFixed = false;
   for (const [option, line] of Object.entries(lines)) {
     const at = String(line.conversationId);
     if (byName.has('channel')) {
       if (args.channel === undefined) args.channel = at;
-      else if (String(args.channel) !== at) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+      else if (String(args.channel) !== at) {
+        if (!messageChannelWins(name, option)) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+        args.channel = at;
+        channelFixed = true;
+      }
     }
     if (option === 'message' && (name === 'message.edit' || name === 'message.delete')) {
       const selfId = view?.selfId ?? null;
@@ -538,13 +640,25 @@ export function resolveCall(call, view) {
   for (const at of Object.values(linked)) {
     if (!byName.has('channel')) continue;
     if (args.channel === undefined) args.channel = at;
-    else if (String(args.channel) !== at) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+    else if (String(args.channel) !== at) {
+      if (!Object.keys(linked).every((option) => messageChannelWins(name, option))) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+      args.channel = at;
+      channelFixed = true;
+    }
   }
   // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}), ...(channelFixed ? { channelFixed: true } : {}) };
+}
+
+/** The calls where the message's own channel wins over a `channel` that does not hold it. */
+const OWN_CHANNEL_SKILLS = Object.freeze({ 'message.react.add': ['message'], 'message.react.remove': ['message'], 'message.edit': ['message'], 'message.delete': ['message'], 'message.create': ['reply'] });
+
+/** Whether, for `skill`, the channel of the message in `option` wins over the one the call gave. */
+function messageChannelWins(skill, option) {
+  return (OWN_CHANNEL_SKILLS[skill] ?? []).includes(option);
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may

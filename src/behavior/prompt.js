@@ -1449,8 +1449,7 @@ function numberedItems(texts, first) {
  * without a usable part, `labels.task.queued`), then
  * `labels.task.queuedOthers`, then `labels.task.added`, then one `labels.task.failedEarlier` line
  * per `failedEarlier` entry (`{ author, messageId, link, at, code }`: `{author}`, `{n}` the
- * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`), then one
- * `labels.task.diaryFailedEarlier` line per `diaryFailedEarlier` entry (`{ at, code }`: `{ago}`, `{code}`).
+ * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`).
  * '' when nothing applies.
  * @param {{ part?: { index: number, total?: number, parts: string[] }|null, queued?: string[],
  *   queuedOthers?: { author: string, text: string }[], added?: string[],
@@ -1498,11 +1497,6 @@ function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
       });
     });
     texts.push(lines.join('\n'));
-  }
-  // Diary posts she asked for that did not go out, after the failed turns.
-  const diaryFailed = Array.isArray(tasks.diaryFailedEarlier) ? tasks.diaryFailedEarlier.filter((entry) => entry && Number.isFinite(entry.at)) : [];
-  if (diaryFailed.length > 0 && labels.task?.diaryFailedEarlier && labels.units) {
-    texts.push(diaryFailed.map((entry) => fill(labels.task.diaryFailedEarlier, { ago: formatDuration(Math.max(0, now - entry.at), labels.units), code: entry.code ?? '' })).join('\n'));
   }
   return texts.join('\n\n');
 }
@@ -1976,10 +1970,19 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
     if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
   }
+  // The skill's full description when this call is the first of a skill outside `<skills_tools>` (result.teach: its row), and
+  // a note when the body was left out; both come before the call's own answer.
+  const teachRow = result.teach && typeof result.teach === 'object' ? [{ ...result.teach.row, allowed: true, reason: 'allowed' }] : [];
+  const taught = teachRow.length > 0 ? skillsInventoryText(teachRow, labels) : '';
+  const notes = [
+    result.bodyIgnored === true && typeof words.bodyIgnored === 'string' ? words.bodyIgnored : '',
+    result.teach?.first === true && typeof words.described === 'string' ? words.described : '',
+  ].filter(Boolean);
+  const description = taught ? [...notes, taught].join('\n') : '';
   const said = typeof words.alreadyPosted === 'string' && words.alreadyPosted
     ? (Array.isArray(posted) ? posted : []).filter((text) => typeof text === 'string' && text).map((text) => fill(words.alreadyPosted, { text }))
     : [];
-  const body = [...said, [lead, data].filter(Boolean).join('\n') || code].join('\n');
+  const body = [...said, description, [lead, data].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
   return `<result skill="${result.skill}" status="${status}">\n${body}\n</result>`;
 }
 
@@ -3142,7 +3145,10 @@ export function withoutSentenceOf(text, placeholder) {
  * @param {string|null} [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.js, rendered
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
  *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
- *   The task of mode `inner` is `prompts.inner`, like any mode's.
+ *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat wake (`input.wakeKind`)
+ *   it is `prompts.heartbeat` when that file is present and non-blank.
+ * @param {string|null} [input.wakeKind]  An inner turn's wake kind (`heartbeat`, ...): a heartbeat takes
+ *   `prompts.heartbeat` as its task text in place of `prompts.inner`; null or any other kind keeps the mode's.
  * @param {string|null} [input.places]  An addressed turn's `<places>` body (src/behavior/wake.js#placesBlockText,
  *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
  *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
@@ -3425,6 +3431,9 @@ export function buildRequest(input) {
   // An overheard turn has its own task text (prompts.overheard) INSTEAD of the mode's; without
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask = overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
+  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without
+  // it (missing or blank) inner.md applies (degraded).
+  const heartbeatTask = mode === 'inner' && input.wakeKind === 'heartbeat' && typeof prompts.heartbeat === 'string' && prompts.heartbeat.trim() ? prompts.heartbeat : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
   // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
@@ -3480,7 +3489,7 @@ export function buildRequest(input) {
       target: callItem ? `#${callItem.index}` : '',
       ...(sourceChannel ? { channel: sourceChannel.name, destination: here } : {}),
     };
-    const baseTask = fillPromptTemplate(overheardTask ?? errandTask ?? followUpTask ?? prompts[mode] ?? '', taskValues);
+    const baseTask = fillPromptTemplate(overheardTask ?? errandTask ?? followUpTask ?? heartbeatTask ?? prompts[mode] ?? '', taskValues);
     // Owner-forced turn (`/nep interject`/`/nep initiate`): tell the model
     // `<skip/>` is not the expected outcome this time -- optional, missing
     // prompts.forced (an older/undeployed labels layer) leaves the task as-is.

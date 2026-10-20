@@ -775,3 +775,29 @@ test('media.look is no skill of hers with the tool loop off: refused as switched
   assert.equal(describer.calls.length, 0);
   assert.ok(!userText(run.llm.calls[0][1].content).includes('media.look'));
 });
+
+test('a skill outside <skills_tools>: its first call carries its description in the result, the second call of the turn does not; a body left out is told', async () => {
+  const run = await coreTurn({
+    answers: ['<msg>κοιτάζω</msg><call skill="lore.list">what did I think</call>', '<msg>ξανά</msg><call skill="lore.list" query="x"></call>', '<msg>τέλος</msg>'],
+    allowed: ['lore.list'],
+    
+    prompts: { skills: { 'lore.list': { title: 'Journal', whenToUse: 'read the lore' } }, labels: { ...labels, skills: { ...labels.skills, line: '{name}: {title} -- {whenToUse} {args}', args: { list: '({list})' } } } },
+  });
+  assert.equal(run.llm.calls.length, 3);
+  const described = labels.skills.result.described;
+  const ignored = labels.skills.result.bodyIgnored;
+  const second = requestText(run.llm, 1);
+  const third = requestText(run.llm, 2);
+  assert.equal(second.split(described).length - 1, 1, second);
+  assert.ok(second.includes(ignored), 'the dropped body is told');
+  assert.ok(/lore\.list/.test(second.slice(second.indexOf(described))), 'the description names the skill');
+  assert.ok(second.slice(second.indexOf(described)).includes('query'), 'the arguments are listed');
+  assert.equal(third.split(described).length - 1, 1, 'the second call does not repeat it');
+  assert.equal(third.split(ignored).length - 1, 1, 'a call with no body has nothing left out to tell');
+});
+
+test('a skill in <skills_tools> carries no description in its result', async () => {
+  const run = await coreTurn({ answers: ['<msg>μισό</msg><call skill="web.search">τελικός 2026</call>', '<msg>τέλος</msg>'], allowed: ['web.search'], features: { webLookup: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup() } });
+  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['web.search:ok']);
+  assert.ok(!requestText(run.llm, 1).includes(labels.skills.result.described));
+});

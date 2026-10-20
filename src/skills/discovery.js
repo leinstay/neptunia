@@ -17,29 +17,42 @@ import { describeSkill, skillNames } from './registry.js';
 import { CODE } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
-export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search']);
+// `conversation.read` and `media.find` are built on their own branches; a name with no registered skill is skipped everywhere it is used.
+export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find']);
 
 /**
- * Her own tools listed in full on every turn under features.coreTools: the in-turn tools, the errand
- * hand-off, then the intention skills that set, change and drop one (no classifier names a skill for
- * her then, so this is the only place she learns how), then `places.list` (the places she can read,
- * docs/inner-life.md "Her attention"). `intent.list` stays out: the `<intentions>` block shows them.
- * Each row still needs her grant and its feature switch (grantedSkillNames).
- */
-export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
-
-/** The skills for a finished errand's result she has not read: shown after `task.run` only while there is one (coreToolRows). */
-export const UNREAD_TASK_SKILLS = Object.freeze(['task.read', 'task.resolve']);
-
-/**
- * The posting skills an inner turn's tags stand for (docs/inner-life.md): shown in `<skills_tools>`
- * on an inner turn only, after the reads, with their arguments, because her output tags there are
- * these calls (src/behavior/inner-output.js). An addressed turn's tags post by themselves.
+ * The posting skills her output tags stand for on an inner turn (docs/inner-life.md, src/behavior/inner-output.js).
+ * Listed on every turn kind all the same: `<skills_tools>` sits in the cached stable part, so it must not change
+ * between an inner and an addressed turn.
  */
 export const INNER_POSTING_SKILLS = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
 
-/** CORE_TOOL_SKILLS as an inner turn lists them: the posting skills follow the reads, before the errand and the intentions. */
-export const INNER_CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, ...INNER_POSTING_SKILLS, ...CORE_TOOL_SKILLS.filter((name) => !IN_TURN_TOOLS.includes(name))]);
+/**
+ * Her own tools listed in full on every turn under features.coreTools, identical for every turn kind (inner,
+ * heartbeat, review, addressed, interject): the in-turn tools, the posting skills, the errand hand-off with the
+ * skills for its result (what is unread shows in `<tasks>`), then the intention skills that set, change and drop
+ * one (no classifier names a skill for her then, so this is the only place she learns how), then `places.list`
+ * (the places she can read, docs/inner-life.md "Her attention"). `intent.list` stays out: the `<intentions>` block
+ * shows them. Then the reads she may need to look at herself: `skills.describe` (any skill in full), `status.show`,
+ * `task.list`, `memory.journal.read`, `memory.profile.read`, and `conversation.read`, `media.find` once they exist.
+ * Each row still needs her grant and its feature switch (grantedSkillNames).
+ */
+export const CORE_TOOL_SKILLS = Object.freeze([
+  ...IN_TURN_TOOLS,
+  ...INNER_POSTING_SKILLS,
+  'task.run',
+  'task.read',
+  'task.resolve',
+  'intent.set',
+  'intent.update',
+  'intent.cancel',
+  'places.list',
+  'skills.describe',
+  'status.show',
+  'task.list',
+  'memory.journal.read',
+  'memory.profile.read',
+]);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
@@ -250,18 +263,62 @@ export function proposedRows(proposals, rows) {
  * (grantedSkillNames: her grants only, never a requester or a channel), with its texts from the
  * skills layer (`texts`: `hot.prompts.skills`, read by the caller now) and its arguments
  * (skillArgs). The requester's own right is not reflected: the gateway still refuses per call.
- * On an inner turn (`inner`) the posting skills follow the reads (INNER_CORE_TOOL_SKILLS). While
- * she has an errand's result unread (`unreadTasks`) `task.read` and `task.resolve` follow `task.run`
- * (UNREAD_TASK_SKILLS). Pure.
- * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object, inner?: boolean, unreadTasks?: boolean }} input
+ * The same rows on every turn kind. Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object }} input
  * @returns {object[]}
  */
-export function coreToolRows({ config, selfId = null, registry = null, texts = undefined, inner = false, unreadTasks = false }) {
+export function coreToolRows({ config, selfId = null, registry = null, texts = undefined }) {
   const granted = new Set(grantedSkillNames({ config, selfId, registry }));
-  const base = inner ? INNER_CORE_TOOL_SKILLS : CORE_TOOL_SKILLS;
-  const names = unreadTasks === true ? base.flatMap((name) => (name === 'task.run' ? [name, ...UNREAD_TASK_SKILLS] : [name])) : base;
-  return names.filter((name) => granted.has(name) && registry.has(name)).map((name) => {
+  return CORE_TOOL_SKILLS.filter((name) => granted.has(name) && registry.has(name)).map((name) => {
     const skill = registry.get(name);
     return { ...describeSkill(skill, texts), args: skillArgs(skill) };
   });
+}
+
+/** The edit distance of two short strings (insert, delete, replace), for the closest names of an unknown skill. */
+function editDistance(a, b) {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j += 1) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+/** The most names an unknown skill answers with. */
+export const MAX_CLOSEST = 5;
+
+/**
+ * The skills `skills.describe` (src/ops/skills.js) answers for `name`: an exact skill name gives that skill in full
+ * (title, when to use, when not to, arguments, as a core row), a family (`memory`, `intent`: the part of a name before
+ * its first dot) gives each of its skills with no arguments, one line each; a name that is neither gives no row and the
+ * closest skill names. Every row is `allowed: true` and its `reason` says whether she has the skill now (`allowed`, or
+ * `not-allowed` for one not switched on for her: her grants only, as grantedSkillNames). Skills whose feature switch is off do not
+ * exist for her. Matching ignores letter case and surrounding space. Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object, name?: unknown }} input
+ * @returns {{ rows: object[], closest: string[] }}
+ */
+export function describeRows({ config, selfId = null, registry = null, texts = undefined, name = '' }) {
+  const wanted = String(name ?? '').trim().toLowerCase();
+  if (!wanted || !(registry instanceof Map)) return { rows: [], closest: [] };
+  const granted = new Set(grantedSkillNames({ config, selfId, registry }));
+  const skills = [...registry.values()].filter((skill) => skillFeatureOn(skill.name, config));
+  const row = (skill, withArgs) => ({
+    ...describeSkill(skill, texts),
+    args: withArgs ? skillArgs(skill) : [],
+    allowed: true,
+    reason: granted.has(skill.name) ? 'allowed' : 'not-allowed',
+  });
+  const exact = skills.find((skill) => skill.name.toLowerCase() === wanted);
+  if (exact) return { rows: [row(exact, true)], closest: [] };
+  const family = skills.filter((skill) => skill.name.split('.')[0].toLowerCase() === wanted);
+  if (family.length > 0) return { rows: byFamily(family).flat().map((skill) => row(skill, false)), closest: [] };
+  const closest = skills
+    .map((skill) => ({ name: skill.name, score: skill.name.toLowerCase().includes(wanted) || wanted.includes(skill.name.toLowerCase()) ? 0 : editDistance(wanted, skill.name.toLowerCase()) }))
+    .filter((item) => item.score <= Math.max(3, Math.floor(wanted.length / 2)))
+    .sort((a, b) => a.score - b.score || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .slice(0, MAX_CLOSEST)
+    .map((item) => item.name);
+  return { rows: [], closest };
 }

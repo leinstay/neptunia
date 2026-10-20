@@ -35,7 +35,7 @@ import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../memory/index.js';
 import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from './grants.js';
-import { MODEL_ROLES, STATUS_FIELDS } from './catalog.js';
+import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.js';
 import { AGENT_ROLES, CORE_ROLE, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { plannerOn } from '../behavior/planner.js';
@@ -53,6 +53,21 @@ import { defineOp, perEnv } from './registry.js';
 
 /** The card's field names, in order (src/ops/catalog.js#STATUS_FIELDS, the `field` option's choices). */
 export { STATUS_FIELDS };
+
+/**
+ * The card's fields each part of her `status.show part=` call shows, in card order (STATUS_PARTS; `all` is the whole
+ * card). `features` is no card field: the switches of `features` in the live config, one per line (featuresValue).
+ */
+export const PART_FIELDS = Object.freeze({
+  overview: ['state', 'limits'],
+  limits: ['limits', 'costs.base'],
+  models: ['models.base', 'models.agents'],
+  memory: ['memory'],
+  inner: ['inner'],
+  errands: ['tasks', 'costs.agents'],
+  features: ['features'],
+  all: null,
+});
 
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.agents', 'inner', 'memory', 'speed']);
@@ -771,6 +786,13 @@ const handlers = perEnv((env) => {
     }
   }
 
+  /** The features part: each `features` switch of the live config that is a plain true or false, `<name> on|off`, sorted by name. */
+  function featuresValue(cfg) {
+    const features = isPlainObject(cfg?.features) ? cfg.features : {};
+    const lines = Object.keys(features).filter((name) => typeof features[name] === 'boolean').sort().map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
   /** The memory field (the coverage of every kind of memory), one line per kind. */
   async function computeMemory(guildId) {
     const cfg = hot.config;
@@ -837,14 +859,18 @@ const handlers = perEnv((env) => {
    * coverage for another field); any other `field` gives the whole card. Reads the freshest data/
    * even mid-pause.
    */
-  async function cmdStatusCard({ owner, field = null }) {
+  async function cmdStatusCard({ owner, field = null, part = null }) {
     freshenIfPaused();
     const cfg = hot.config;
     const data = store.state.data ?? {};
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
     const visible = STATUS_FIELDS.filter((name) => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg)));
-    const shown = visible.includes(field) ? [field] : visible;
+    // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
+    const partFields = typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
+    const probe = partFields === null && part !== 'all';
+    const shown = partFields ? partFields.filter((name) => name === 'features' || visible.includes(name)) : visible.includes(field) ? [field] : visible;
+    if (partFields && shown.length === 0) return { fields: [{ name: part, value: '-', inline: false }] };
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
     const compute = {
@@ -852,10 +878,11 @@ const handlers = perEnv((env) => {
       state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
       tasks: () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
-      'models.base': () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
+      features: () => featuresValue(cfg),
+      'models.base': () => (owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
       'keys.base': () => keyCostsValue(cfg),
       'costs.base': () => roleCostsValue(),
-      'models.agents': () => (owner && typeof llm?.complete === 'function' ? probedAgentsValue(cfg) : agentsValue(cfg)),
+      'models.agents': () => (owner && probe && typeof llm?.complete === 'function' ? probedAgentsValue(cfg) : agentsValue(cfg)),
       'costs.agents': () => agentCostsValue(guildId),
       inner: () => innerValue(guildId),
       limits: () => limitsValue(cfg, data),
@@ -876,7 +903,10 @@ defineOp({
   run: async (args, ctx) => {
     const owner = isOwnerId(ctx.env.hot.config, ctx?.userId);
     const field = typeof args?.field === 'string' ? args.field : null;
-    const card = await handlers(ctx.env).cmdStatusCard({ owner, field });
+    // Her own call without a part gets the short overview; the owner's command without a field, the whole card.
+    const asked = typeof args?.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;
+    const part = asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null);
+    const card = await handlers(ctx.env).cmdStatusCard({ owner, field, part });
     return { text: '', embeds: [card] };
   },
 });
