@@ -272,8 +272,8 @@ const ENTRIES = [
     effects: 'destructive',
     toArgs: (a) => ({ number: val(a, 'number') }),
   }),
-  def('access.grant', { params: ACCESS_PARAMS(), refs: { role: 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
-  def('access.revoke', { params: ACCESS_PARAMS(), refs: { role: 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
+  def('access.grant', { params: ACCESS_PARAMS(), refs: { 'role': 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
+  def('access.revoke', { params: ACCESS_PARAMS(), refs: { 'role': 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
   def('access.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('alias.add', {
     params: obj({ user: ref(), name: str() }, ['user', 'name']),
