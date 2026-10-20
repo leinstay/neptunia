@@ -559,6 +559,9 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *     unknown(result?: object): Promise<void> },
  *   pending(guildId: string, query: { day?: string, days?: string[], before?: number }): Promise<Array<{ opId: string,
  *     turnId: string|null, name: string|null, intent: object|null, channelId: string|null }>>,
+ *   turnOperations(guildId: string, query: { turnId: string, days: string[], privateUserId?: string|null }): Promise<Array<{ opId: string,
+ *     name: string|null, by: string|null, phase: 'succeeded'|'failed'|'unknown'|'open'|'proposed', skill: string|null, text: string|null,
+ *     dryRun: boolean, shadow: boolean }>>,
  *   reconcile(guildId: string, options: { days: string[], before?: number, fetchOwnMessages: (channelId: string, n: number) =>
  *     Promise<Array<{ id: string, content: string, replyToId: string|null, createdAt: unknown }>> }):
  *     Promise<{ succeeded: number, unknown: number }>,
@@ -893,6 +896,32 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       intent: record.intent ?? null,
       channelId: record.scope?.channel ?? null,
     }));
+  }
+
+  /**
+   * The operations of one turn (`turnId`) in the journal of `days`, each `{ opId, name, by, phase, skill, text, dryRun, shadow }`:
+   * `phase` is how it ended (`succeeded`, `failed`, `unknown`; `open` when it started and has no closing line; `proposed`
+   * when it never started). `privateUserId` reads that member's private journal instead of the guild's.
+   */
+  async function turnOperations(guildId, { turnId, days, privateUserId = null } = {}) {
+    const ops = new Map();
+    if (typeof turnId !== 'string' || !turnId) return [];
+    for (const day of Array.isArray(days) ? days : []) {
+      for (const record of await read(guildId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER, privateUserId })) {
+        if (record.turnId !== turnId || typeof record.opId !== 'string' || !record.opId) continue;
+        const op = ops.get(record.opId) ?? { opId: record.opId, name: null, by: null, phase: 'proposed', skill: null, text: null, dryRun: false, shadow: false, started: false };
+        op.name = record.name ?? op.name;
+        op.by = record.by ?? op.by;
+        op.skill = record.input?.skill ?? op.skill;
+        op.text = record.intent?.text ?? op.text;
+        op.dryRun = op.dryRun || record.dryRun === true;
+        op.shadow = op.shadow || record.shadow === true;
+        if (record.phase === 'started') op.started = true;
+        if (CLOSING_PHASES.has(record.phase)) op.phase = record.phase;
+        ops.set(record.opId, op);
+      }
+    }
+    return [...ops.values()].map(({ started, ...op }) => (op.phase === 'proposed' && started ? { ...op, phase: 'open' } : op));
   }
 
   /** The persona's last own messages of `channelId`, fetched once per reconciliation; null when the fetch failed. */
@@ -1268,6 +1297,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     dayFile,
     op,
     pending,
+    turnOperations,
     reconcile,
     stalled,
     forgetUser,

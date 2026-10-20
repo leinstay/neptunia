@@ -292,6 +292,7 @@ function boot(chat, {
   runErrand = null,
   die = false,
   store = fakeStore(gifs),
+  ready = undefined,
 } = {}) {
   const intentions = fakeIntentions(records);
   const timers = [];
@@ -365,6 +366,7 @@ function boot(chat, {
     journal,
     client,
     discord: { canSend: (channel) => !unwritableIds.has(String(channel.id)) },
+    ...(ready ? { ready } : {}),
     submit: (event) => {
       accepted.add(event.id);
       return door.submit(event);
@@ -517,22 +519,66 @@ test('row 2: the process dies right after a message was sent -- the journal clos
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the reconciliation sends nothing');
 });
 
-test('row 2: the process dies after an inner turn sent a message and before the turn ended -- the reload does not run the turn again and post it twice', { todo: 'the inner state keeps no record of a turn in flight: the wake stays queued and the turn runs again after the restart' }, async () => {
+/** A journal over the scenario's data directory, and the start-up reconciliation of its open operations from the chat (src/index.js). */
+function journalFor(chat, dataDir) {
+  const journal = createJournal({ appendStore: createAppendStore({ fsyncMs: 0, log: SILENT }), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const ready = () => journal.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
+  return { journal, ready };
+}
+
+test('row 2: the process dies after an inner turn sent a message and before the turn ended -- the reload does not run the turn again and post it twice, and she is told the turn was cut off', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1')];
-  const hot = hotWith({ grants: ['message.create'] });
-  const before = boot(chat, { dataDir, records, hot });
+  const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
+  const wake = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt });
+  const before = boot(chat, { dataDir, records, hot, journal: journalFor(chat, dataDir).journal });
   chat.script = ['<msg>καλημέρα</msg>'];
   chat.dieAfterSend(1);
   await dieDuring(chat, () => before.inner.tick());
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα']);
+  const mark = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8')).inflight;
+  assert.deepEqual([mark.wakeIds, mark.kind, mark.channelId, typeof mark.turnId], [[wake.id], 'intention_due', 'c1', 'string'], 'the turn in flight is on disk');
 
-  const after = boot(chat, { dataDir, records, hot });
+  const reborn = journalFor(chat, dataDir);
+  const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
   chat.script = ['<msg>καλημέρα</msg>'];
   await after.tick();
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'no resend');
-  assertNoSilentFailure(after, { accepted: [wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt }).id] });
+  assert.equal(chat.llm.calls.length, 1, 'the cut-off turn was not run again');
+  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue], ['interrupted', null, []]);
+  const [fact] = after.state().facts;
+  assert.deepEqual([fact.kind, fact.wake, fact.channelId, fact.privateChat, fact.told], ['interrupted', 'intention_due', 'c1', false, false]);
+  assert.ok(fact.done.includes('message.create'), fact.done);
+
+  // Her next request in that channel carries it, once.
+  chat.script = ['<skip/>'];
+  await after.ask('c1', 'hello');
+  assert.ok(requestText(chat, 1).includes('cut off after') && requestText(chat, 1).includes('message.create'), requestText(chat, 1));
+  assert.equal(after.state().facts[0].told !== false, true);
+  assertNoSilentFailure(after, { accepted: [wake.id] });
+});
+
+test('row 2: the process dies in an inner turn before anything went out -- the reload runs the wake again, once, and nothing is told as cut off', async () => {
+  const dataDir = tempDir('nep-fault-');
+  const chat = makeChat();
+  const records = [intentionRecord('i1')];
+  const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
+  const wake = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt });
+  const before = boot(chat, { dataDir, records, hot, journal: journalFor(chat, dataDir).journal });
+  chat.script = [HANG];
+  await dieDuring(chat, () => before.inner.tick());
+  assert.deepEqual(chat.textsFromSelf('c1'), [], 'nothing went out');
+
+  const reborn = journalFor(chat, dataDir);
+  const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
+  chat.script = ['<msg>καλημέρα</msg>'];
+  await after.tick();
+  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the wake ran again and said it once');
+  assert.ok(chat.llm.calls.length >= 2, 'the interrupted call and the new turn');
+  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight], ['spoke', null]);
+  assert.deepEqual(after.state().facts.filter((fact) => fact.kind === 'interrupted'), []);
+  assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
 test('row 3: the process dies after an errand\'s result was stored and before its result turn ran -- the turn is reopened after the reload and task.read gives the whole text', async () => {
@@ -871,10 +917,87 @@ test('row 12: a memory write fails -- the failure is logged, nothing is consumed
   assertNoSilentFailure(run);
 });
 
-test('row 12: a memory write fails -- she is told, in the turn where she can read it, that what she was to remember was not kept', { todo: 'no mechanism carries an analyzer failure to her: it is a log line and a back-off, and the fact ledger has no memory kind' }, () => {
-  const updater = createMemoryUpdater({ hot: { config: { bot: { timezone: 'UTC' } }, prompts: { labels } }, store: createStore({ dataDir: tempDir('nep-fault-') }), llm: { complete: async () => ({ text: '{}', usage: {}, estimated: 0 }) }, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
-  // The updater has no entry to hand a failure to the fact ledger (inner.facts), so no request of hers can carry it.
-  assert.equal(typeof updater.setFactsSource, 'function');
+/** A memory updater over a store whose profile writes fail, with `lines` buffered lines of `channelId` (a DM when `privateUserId` is given). */
+function failingMemory({ lines = 20, privateUserId = null, channelId = 'c1' } = {}) {
+  const store = createStore({ dataDir: tempDir('nep-fault-') });
+  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { core: 'x/y', helpers: { extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
+  const llm = { complete: async () => ({ text: JSON.stringify({ users: { [privateUserId ?? '1']: { relationship: 'something to keep' } } }), usage: {}, estimated: 10 }) };
+  const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => clock.t });
+  const broken = () => {
+    throw new Error('disk refused');
+  };
+  store.applyProfileOps = broken;
+  store.applyPrivateOps = broken;
+  const line = (id) => ({ id, channelId, channelName: 'general', authorId: privateUserId ?? '1', authorName: 'Alice', self: false, bot: false, content: 'hello there', ts: clock.t, replyToId: null, attachments: [], stickers: [] });
+  for (let i = 0; i < lines; i += 1) {
+    if (privateUserId) store.pushPrivateBuffer(GUILD, privateUserId, line(`m${i}`), 100);
+    else store.pushBuffer(GUILD, line(`m${i}`), 100);
+  }
+  return { store, updater };
+}
+
+test('row 12: a memory write fails -- she is told, in the turn where she can read it, that what she was to remember was not kept, once per failing batch', async () => {
+  const { store, updater } = failingMemory();
+  const chat = makeChat();
+  const run = boot(chat, { dataDir: tempDir('nep-fault-') });
+  updater.setFactsSource(run.inner.facts);
+  const failed = () => run.state().facts.filter((fact) => fact.kind === 'memoryFailed');
+
+  await withCapturedLogs(async () => {
+    await updater.run(GUILD);
+    await updater.run(GUILD); // the back-off retry of the same batch
+  });
+  assert.equal(store.getBuffer(GUILD).length, 20, 'nothing was consumed');
+  assert.equal(failed().length, 1, 'one fact for the failing batch, not one per retry');
+  const [fact] = failed();
+  assert.deepEqual([fact.code, fact.waiting, fact.channelId, fact.privateChat, fact.told], ['apply-error', 20, null, false, false]);
+
+  // The next turn of hers, anywhere in the server, carries it; the fact is told once.
+  await run.ask('c1', 'did you keep that?');
+  assert.ok(requestText(chat, 0).includes('memory not kept apply-error 20 waiting'), requestText(chat, 0));
+  assert.equal(failed()[0].told !== false, true);
+  await run.ask('c1', 'and again');
+  assert.ok(!requestText(chat, 1).includes('memory not kept'), 'told once');
+
+  // The same batch failing again is not told again; once it is applied, a later failure is a new one.
+  await withCapturedLogs(() => updater.run(GUILD));
+  assert.equal(failed().length, 1);
+  store.applyProfileOps = () => ({});
+  await withCapturedLogs(() => updater.run(GUILD));
+  assert.equal(store.getBuffer(GUILD).length < 20, true, 'the batch was applied');
+  store.applyProfileOps = () => {
+    throw new Error('disk refused');
+  };
+  for (let i = 0; i < 20; i += 1) store.pushBuffer(GUILD, { id: `n${i}`, channelId: 'c1', channelName: 'general', authorId: '1', authorName: 'Alice', self: false, bot: false, content: 'hello again', ts: clock.t, replyToId: null, attachments: [], stickers: [] }, 100);
+  await withCapturedLogs(() => updater.run(GUILD));
+  assert.equal(failed().length, 2, 'a failure after a success is a new fact');
+  assertNoSilentFailure(run);
+});
+
+test('row 12: with no fact ledger (or the inner life off) a failed memory write stays a log line and the batch is kept', async () => {
+  const { store, updater } = failingMemory();
+  const { logs } = await withCapturedLogs(() => updater.run(GUILD));
+  assert.ok(logs.some((entry) => entry.reason === 'apply-error'));
+  updater.setFactsSource({ enabled: () => false, add: () => assert.fail('a disabled ledger takes nothing') });
+  await withCapturedLogs(() => updater.run(GUILD));
+  assert.equal(store.getBuffer(GUILD).length, 20);
+});
+
+test('row 12: a private layer write fails -- she is told in that private chat only', async () => {
+  const mark = 'PRIVATE-LAYER-MARK';
+  const { updater } = failingMemory({ lines: 20, privateUserId: 'u1', channelId: 'd1' });
+  const chat = makeChat();
+  const run = boot(chat, { dataDir: tempDir('nep-fault-') });
+  updater.setFactsSource(run.inner.facts);
+  await withCapturedLogs(() => updater.runPrivate(GUILD, 'u1'));
+  const [fact] = run.state().facts;
+  assert.deepEqual([fact.kind, fact.code, fact.channelId, fact.privateChat, fact.told], ['memoryFailed', 'apply-error', 'd1', true, false]);
+
+  await run.ask('c1', 'hello');
+  assert.ok(!requestText(chat, 0).includes('memory not kept'), 'not in a server channel');
+  await run.ask('d1', 'hello in private', { dm: true });
+  assert.ok(requestText(chat, 1).includes('memory not kept apply-error 20 waiting'), requestText(chat, 1));
+  assertNoSilentFailure(run, { privateMarks: [mark], privateChats: ['d1'] });
 });
 
 test('row 13: a fact born in a DM is not shown in a server channel, and is shown in the next DM turn', async () => {

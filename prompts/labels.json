@@ -547,6 +547,8 @@
       "sendFailed": "{n} of {total} messages went out; the rest failed ({code})",
       "sendUnknown": "A message may not have gone out ({code}); it was not found in the chat afterward; {n} of {total} went out",
       "stateLost": "Your inner state could not be read ({code}); you started empty",
+      "memoryFailed": "Something you were to remember could not be saved ({code}); {n} lines are waiting and will be tried again",
+      "interrupted": "Your {kind} turn was cut off by a restart after it did this: {done}",
       "codes": {
         "done": "the intention is already done",
         "cancelled": "the intention was cancelled",

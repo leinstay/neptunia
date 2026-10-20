@@ -832,3 +832,10 @@ test('inner turn: a heartbeat turn and an addressed reply in the same channel sh
     assert.equal(b.profiles !== undefined, withProfile);
   }
 });
+
+test('feedbackFactText: a memoryFailed fact names the code and how many lines wait, an interrupted fact the turn and what it did; without their labels, nothing', () => {
+  assert.equal(feedbackFactText({ kind: 'memoryFailed', code: 'apply-error', waiting: 20 }, labels.wake), fill(labels.wake.feedback.memoryFailed, { code: 'apply-error', n: '20' }));
+  assert.equal(feedbackFactText({ kind: 'interrupted', wake: 'intention_due', done: 'post "x"' }, labels.wake), fill(labels.wake.feedback.interrupted, { kind: 'intention_due', done: 'post "x"' }));
+  assert.equal(feedbackFactText({ kind: 'memoryFailed', code: 'apply-error', waiting: 20 }, { feedback: {} }), '');
+  assert.equal(feedbackFactText({ kind: 'interrupted', wake: 'review', done: 'x' }, { feedback: {} }), '');
+});

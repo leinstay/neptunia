@@ -935,3 +935,23 @@ test('createOffPeriodsReader: reads the window once a minute and gives [] with a
   // No reader at all: nothing to show.
   assert.deepEqual(await createOffPeriodsReader({ journal: null })('g1', { windowHours: 24 }), []);
 });
+
+test('journal: turnOperations gives the operations of one turn with how each ended; a started one without a closing line is open, a proposed one never started stays proposed', async () => {
+  const clock = { ms: DAY_D };
+  const { journal } = journalAt(clock);
+  const post = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: null, text: 'Ελένη' } });
+  await post.started();
+  await post.succeeded({ messageId: 's1' });
+  const call = journal.op('g1', { turnId: 't-1', name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'message.create', invocationId: 'i1' } });
+  await call.proposed();
+  await call.started();
+  const refused = journal.op('g1', { turnId: 't-1', name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'draw.create', invocationId: 'i2' } });
+  await refused.proposed();
+  const other = journal.op('g1', { turnId: 't-2', name: 'react', by: 'persona', channelId: 'c1' });
+  await other.started();
+  await other.succeeded({});
+  const ops = await journal.turnOperations('g1', { turnId: 't-1', days: ['2026-10-13'] });
+  assert.deepEqual(ops.map((op) => [op.name, op.phase, op.skill, op.text]), [['post', 'succeeded', null, 'Ελένη'], ['skill', 'open', 'message.create', null], ['skill', 'proposed', 'draw.create', null]]);
+  assert.deepEqual(await journal.turnOperations('g1', { turnId: 't-9', days: ['2026-10-13'] }), []);
+  assert.deepEqual(await journal.turnOperations('g1', { turnId: null, days: ['2026-10-13'] }), []);
+});
