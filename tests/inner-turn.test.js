@@ -216,7 +216,7 @@ test('inner turn, live: her <msg> and <gif> are public actions in the current ch
 });
 
 
-test('inner turn: <skills_tools> lists the posting skills after the reads when granted; an addressed turn\'s does not', async () => {
+test('inner turn: <skills_tools> lists the posting skills after the reads when granted', async () => {
   const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
   const run = await innerTurn({ answers: ['<skip/>'], allowed });
   const text = userText(run.llm.calls[0][1].content);
@@ -767,4 +767,43 @@ test('diagnosticText and diagnosticLines: one line per parser diagnostic from sk
 test('feedbackFacts: a parser diagnostic that no step showed her is a diagnostic fact with its kind and fields', () => {
   const facts = feedbackFacts({ outcome: 'skip', inner: { actions: [], intentIds: [], loop: {}, diagnostics: [{ kind: 'badCall', reason: 'unclosed' }, { kind: 'messageCut', chars: 3 }] } });
   assert.deepEqual(facts, [{ kind: 'diagnostic', diagnostic: 'badCall', reason: 'unclosed' }, { kind: 'diagnostic', diagnostic: 'messageCut', chars: 3 }]);
+});
+
+test('inner turn: a heartbeat turn and an addressed reply in the same channel share the system message and the stable segment; the caller\'s profile is the reply\'s alone, everything else of a heartbeat is in the tail', async () => {
+  const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
+  const allowed = ['lore.list', 'web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list'];
+  const requestOf = async (kind, withProfile) => {
+    const hot = hotWith({ features: { intentions: true }, access: personaGrants(allowed) });
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+    for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
+    const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
+    const llm = sequenceLlm(['<skip/>']);
+    const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
+    const alice = { id: 'u1', names: ['Alice'], character: 'talkative', interests: [], facts: [] };
+    const store = { ...fakeStore(), ...(withProfile ? { getUser: (guildId, id) => (id === 'u1' ? alice : null), listUserProfiles: () => [alice], countUsers: () => 1 } : {}) };
+    const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry() });
+    const trigger = { id: 'm2', channelId: 'c1', authorId: 'u1', authorName: 'Alice', self: false, bot: false, content: 'τρίτο', ts: NOW - 30_000, replyToId: null, attachments: [], stickers: [] };
+    if (kind === 'heartbeat') {
+      const wake = { ...WAKE, kind: 'heartbeat', items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }], intentions: [] };
+      await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake, shadow: true, mayAct: () => true } }));
+    } else {
+      await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'reply', trigger, triggerKind: 'mention' }));
+    }
+    return llm.calls[0];
+  };
+  const segmentsOf = (messages) => Object.fromEntries(messages[1].content.map((part) => [part.cacheSegment ?? 'tail', part.text]));
+  for (const withProfile of [false, true]) {
+    const beat = await requestOf('heartbeat', withProfile);
+    const reply = await requestOf('reply', withProfile);
+    const a = segmentsOf(beat);
+    const b = segmentsOf(reply);
+    assert.ok(a.stable && b.stable, 'both carry a stable segment');
+    assert.ok(a.stable.includes('<skills_tools>') && a.stable.includes('message.create') && a.stable.includes('task.read'), 'the tools block lists the posting and task rows');
+    assert.deepEqual(beat[0], reply[0], 'the same system message');
+    assert.equal(a.stable, b.stable);
+    assert.ok(a.tail.includes('<wake>') && !b.tail.includes('<wake>'), 'the wake sits in the tail');
+    // The profiles segment is the interlocutor's profile alone: a heartbeat has no interlocutor, so it has none.
+    assert.equal(a.profiles, undefined);
+    assert.equal(b.profiles !== undefined, withProfile);
+  }
 });

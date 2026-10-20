@@ -523,7 +523,6 @@ export const labels = {
     },
     field: '- {field}: {value}',
     fields: {
-      status: 'status',
       voice: 'in voice',
       activity: 'activity',
       attitude: 'attitude',
@@ -536,12 +535,6 @@ export const labels = {
       none: 'none',
       unavailable: 'unavailable',
       stale: 'stale',
-    },
-    status: {
-      online: 'online',
-      idle: 'idle',
-      dnd: 'do not disturb',
-      offline: 'offline',
     },
     voiceYes: 'yes (channel: {channel}{joined}; muted: {muted}; deafened: {deafened}; streaming: {streaming}; camera: {camera})',
     joinedAgo: '; joined {ago} ago',

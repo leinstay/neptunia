@@ -833,7 +833,6 @@
     },
     "field": "- {field}: {value}",
     "fields": {
-      "status": "Discord status",
       "voice": "In voice",
       "activity": "Current activity",
       "attitude": "Attitude",
@@ -846,12 +845,6 @@
       "none": "none",
       "unavailable": "unavailable",
       "stale": "stale"
-    },
-    "status": {
-      "online": "online",
-      "idle": "idle",
-      "dnd": "do not disturb",
-      "offline": "offline"
     },
     "voiceYes": "yes (channel: {channel}{joined}; muted: {muted}; deafened: {deafened}; streaming: {streaming}; camera: {camera})",
     "joinedAgo": "; joined {ago} ago",

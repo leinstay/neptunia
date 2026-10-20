@@ -6900,8 +6900,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
-        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only; an inner turn's also lists the posting skills its tags stand for.
-        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills, inner: Boolean(draft.inner), unreadTasks: listedTasks({ guildId, channel, isPrivate, taskResult }).some((task) => task.state !== 'queued' && task.state !== 'running') }) : null,
+        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only, the same rows on every turn kind (the stable part stays cached).
+        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills }) : null,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).

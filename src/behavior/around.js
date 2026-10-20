@@ -1,5 +1,5 @@
 // The `<people_now>` rows of the live snapshot interfaces/discord/around.js keeps: for each person a
-// request is about, their status, the voice channel they sit in (muted, deafened, streaming,
+// request is about, the voice channel they sit in (muted, deafened, streaming,
 // camera on) and what they are doing; and who else sits in a voice channel.
 // src/behavior/prompt.js puts them in the `<people_now>` rows, one per person.
 //
@@ -88,21 +88,19 @@ function activityPhrase(activity, l) {
 }
 
 /**
- * The live field lines of one member's `<people_now>` row (fieldLine), in this order:
- * - `status`: the `labels.peopleNow.status` word. With the presences intent on and a fresh
- *   snapshot a member without a presence record is offline. With the intent off the value is
- *   `values.unavailable`, with a stale snapshot `values.stale`, and a status Discord does not
- *   define reads as unavailable: never a guess.
+ * The live field lines of one member's `<people_now>` row (fieldLine), in this order. The Discord status
+ * (online, idle, do not disturb, offline) is never shown: only the presence record's activities use it
+ * (an offline member's are not kept, never a guess):
  * - `voice`: from the voice snapshot (the voice states do not depend on the presences intent):
  *   `labels.peopleNow.voiceYes` (`{channel}` `{joined}` `{muted}` `{deafened}` `{streaming}`
  *   `{camera}`, each flag a yes/no word; `{joined}` is `labels.peopleNow.joinedAgo` with `{ago}`
  *   through formatDuration and `labels.units` when the record has `joinedAt` and `now` is given,
  *   else empty: never a guess) when the member sits in a voice channel `channelNameOf` names
  *   (one the audience may see), else `values.no`; `values.stale` with a stale snapshot. An
- *   offline member in voice shows it (an invisible status).
+ *   offline member in voice shows it.
  * - `activity`: every activity Discord shows (a game and Spotify at once, say), each through
  *   `activityPhrase`, joined by `; `, else `values.none` -- also for an offline member, whose
- *   activities are not kept. Unavailable or stale as the status is, never `none` then.
+ *   activities are not kept. Unavailable with the presences intent off or a status Discord does not define, stale when stale: never `none` then.
  * Custom statuses are never kept. [] with no snapshot, no member id or no labels.
  * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().snapshot().
  * @param {string} memberId
@@ -117,9 +115,9 @@ export function liveFields(snapshot, memberId, { labels, channelNameOf, now } = 
   const stale = snapshot.stale === true;
   const record = snapshot.presence.get(memberId);
   const status = record ? record.status : 'offline';
-  // What the presence side may say: a status word, or one word for why it says nothing.
+  // What the activity side may say: the activities, or one word for why it says nothing.
   const unknown = stale ? 'stale' : snapshot.presences !== true || !STATUSES.has(status) ? 'unavailable' : null;
-  const lines = [fieldLine(labels, 'status', unknown ? (values[unknown] ?? '') : (l.status?.[status] ?? ''))];
+  const lines = [];
 
   const here = snapshot.voice.get(memberId);
   const channel = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
@@ -145,7 +143,7 @@ export function liveFields(snapshot, memberId, { labels, channelNameOf, now } = 
 /**
  * The block-level notices of `<people_now>`, in this order: `labels.peopleNow.stale` when the
  * gateway dropped since the last update (what is held may be out of date), then
- * `labels.peopleNow.unavailable` when the presences intent is off (no status and no activity
+ * `labels.peopleNow.unavailable` when the presences intent is off (no activity
  * can be known). [] for a fresh snapshot with the intent on, no snapshot or no labels. The
  * caller shows them only when the block has rows anyway.
  * @param {{ presences: boolean, stale: boolean }|null} snapshot
