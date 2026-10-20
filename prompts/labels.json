@@ -456,7 +456,7 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "failedEarlier": "You never answered {author} {n} ({ago} ago). Your turn failed: {code}.",
-    "diaryFailedEarlier": "The diary post you asked for {ago} ago did not go out: {code}.",
+    "diaryFailedEarlier": "A diary post you called for {ago} ago did not go through: {code}.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
@@ -464,11 +464,11 @@
     "continueToolsLast": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. This is your last step: answer from what you have now. A call here will not run.",
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
-    "callsDropped": "{count} of your calls did not run ({why}).",
+    "callsDropped": "{count} of your calls were dropped this step ({why}).",
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
-    "header": "Your errands (open, or finished and not yet seen by you):",
+    "header": "Your errands (open, or finished and not yet read by you):",
     "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
     "states": {
       "queued": "waiting",
@@ -476,11 +476,11 @@
       "done": "done",
       "failed": "failed",
       "cancelled": "cancelled",
-      "expired": "done, files expired"
+      "expired": "done, files gone"
     },
-    "unread": "(result not read yet)",
-    "unreadMore": "{count} more finished errands with results you have not read; task.status lists them.",
-    "resultTurnFailed": "(the turn for this result did not run)",
+    "unread": "(not read yet)",
+    "unreadMore": "{count} more finished errands not read yet. Use task.status to list them.",
+    "resultTurnFailed": "(result turn did not complete)",
     "result": {
       "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
       "text": "What it brought back:",
@@ -525,26 +525,26 @@
       "feedback": "Your previous turn: not everything went through."
     },
     "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
-    "feedbackInTurn": "Kept for you and not told yet:",
+    "feedbackInTurn": "Since you were last told:",
     "feedbackItem": "- {fact}",
     "feedback": {
-      "callFailed": "Your {skill} call ended {status} ({code}) {text}",
+      "callFailed": "Your {skill} call ended {status} ({code}). {text}",
       "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture, errand or diary entry went through that turn",
       "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
-      "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code} {why}",
-      "wakeDroppedKind": "Your {kind} wake did not run: {code} {why}",
-      "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held: {code}; it can run {until}",
-      "turnFailed": "Your {kind} turn failed: {code}",
-      "sendFailed": "A message did not go out ({code}); {n} of {total} went out",
+      "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}, {why}",
+      "wakeDroppedKind": "Your {kind} wake did not run: {code}, {why}",
+      "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held ({code}) and can run {until}",
+      "turnFailed": "Your {kind} turn did not go through: {code}",
+      "sendFailed": "{n} of {total} messages went out; the rest failed ({code})",
       "codes": {
-        "done": "the intention is done",
+        "done": "the intention is already done",
         "cancelled": "the intention was cancelled",
         "expired": "the intention expired",
-        "forgotten": "the intention is gone",
-        "dm-off": "private chats are off",
+        "forgotten": "the intention no longer exists",
+        "dm-off": "private messages are off",
         "not-writable": "you cannot write there",
         "unavailable": "the place is not reachable",
-        "no-review-channel": "no channel to review in"
+        "no-review-channel": "no channel to run the review in"
       }
     },
     "here": "You are in #{channel} ({why})",
@@ -617,24 +617,24 @@
         "unknown-member": "nobody by that name is in your memory",
         "requester-denied": "the person asking may not see or do this",
         "daily-cap": "the limit for today is used up",
-        "channel-not-visible": "that channel is not one you can search",
-        "gif-failed": "the text went out but the GIF did not",
-        "empty-query": "nothing is left of the query to search for",
-        "provider": "the search engines failed (status {status})",
-        "cap": "the limit of searches for today is used up",
+        "channel-not-visible": "you cannot search that channel",
+        "gif-failed": "your text posted but the GIF failed to attach",
+        "empty-query": "nothing left to search after cleaning the query",
+        "provider": "the search engines did not answer ({status})",
+        "cap": "today's search limit is reached",
         "no-budget": "there is no budget for it now",
         "unsupported": "this chat cannot do that",
         "not-configured": "what it needs is not set up",
         "not-grantable": "that skill cannot be granted to you yet",
         "cooldown": "a destructive skill was used recently in this channel",
         "self-grant": "the persona cannot change her own rights",
-        "timeout": "the chat did not answer in time",
+        "timeout": "the request timed out",
         "cap-open": "too many of your errands are open already",
         "cap-tasks": "today's errands for that agent are used up",
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",
-        "file-expired": "that file has expired and is gone",
+        "file-expired": "that file expired and is no longer available",
         "unknown-gif": "no GIF by that handle in your library",
         "gif-cap": "the limit of GIFs for today is used up",
         "attachment-too-large": "the file is too large for this chat",
@@ -664,7 +664,7 @@
         "source": "Source: web.search, query \"{query}\". Raw search results: title, link, site, date when known, snippet per result. The pages were not opened.",
         "goal": "Goal: {goal}",
         "none": "Nothing found.",
-        "more": "{count} more results not shown."
+        "more": "{count} more results left out for room."
       },
       "read": {
         "source": "Source: web.read, {url}. The page's own text as extracted, not a summary; at most {maxChars} characters.",
@@ -678,13 +678,13 @@
         "windowCut": "({dropped} more lines not shown)",
         "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, channel, people or terms to see them.",
         "none": "No matching messages found.",
-        "degraded": "The search by meaning was unavailable, so only exact words were searched.",
-        "partial": "{failed} of {total} searches did not finish, so the results may be incomplete."
+        "degraded": "The meaning index was not reachable; only word matches were used.",
+        "partial": "{failed} of {total} searches were cut short; some results may be missing."
       },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
-        "off": "{feature} is switched off."
+        "off": "{feature} is off."
       }
     },
     "refusals": {

@@ -291,13 +291,13 @@
   },
   "task.read": {
     "title": "Read an errand's result",
-    "whenToUse": "Read the full result of a finished errand by its id, in pages.",
-    "whenNotToUse": "Not for open errands."
+    "whenToUse": "Get the full result of a finished errand by its id, in pages: text, sources, error and file handles. Marks it read. A private chat errand's result is only in that chat.",
+    "whenNotToUse": "A result turn already shows the output. Use this when the result turn did not complete or you need to page through a long result. Not for open errands."
   },
   "task.resolve": {
-    "title": "Close an errand",
-    "whenToUse": "Mark a finished errand as dealt with by its id.",
-    "whenNotToUse": "Not for open errands."
+    "title": "Close a finished errand",
+    "whenToUse": "Mark a finished errand as resolved by its id so it leaves your tasks block.",
+    "whenNotToUse": "Not needed after a result turn you answered. Not for open errands."
   },
   "task.cancel": {
     "title": "Cancel an errand",
