@@ -536,15 +536,27 @@ export const COMMAND_TABLE = Object.freeze([
         // The persona's own second look at a picture or a video (src/ops/search.js, features.coreTools):
         // her call names a message she sees as `#N`; the owner gives its id or link.
         name: 'look',
-        description: 'Look again at a picture or video of a message, with a question.',
+        description: 'Look again at a picture or video of a message.',
         options: [
           { type: STRING, name: 'message', description: 'The message id or link (in this channel).', required: true, max_length: 200 },
           { type: STRING, name: 'question', description: 'What to look for.', required: true, max_length: 500 },
-          { type: INTEGER, name: 'item', description: 'Which picture or video (default 1).', required: false, min_value: 1, max_value: 20 },
+          { type: INTEGER, name: 'item', description: 'Which one (default 1).', required: false, min_value: 1, max_value: 20 },
         ],
         args: (options) => {
           const item = options.getInteger('item');
           return { message: options.getString('message', true), question: options.getString('question', true), ...(item == null ? {} : { item }) };
+        },
+      },
+      {
+        // The persona's own search of her GIF library by the stored descriptions (src/ops/search.js).
+        name: 'find',
+        description: 'Search the GIF library.',
+        options: [{ type: STRING, name: 'query', description: 'What it shows.', required: true, max_length: 200 }],
+        // How many come back: an argument only her own call has (never shown to Discord, the tree's size).
+        personaOptions: [{ type: INTEGER, name: 'n', description: 'How many (default 5).', required: false, min_value: 1, max_value: 10 }],
+        args: (options) => {
+          const n = options.getInteger('n');
+          return { query: options.getString('query', true), ...(n == null ? {} : { n }) };
         },
       },
     ],

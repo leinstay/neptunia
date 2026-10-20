@@ -324,6 +324,11 @@
     "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (question= or body; both are joined, question= first), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
     "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
   },
+  "media.find": {
+    "title": "TODO(writer): title of media.find",
+    "whenToUse": "TODO(writer): find GIFs of your library by what they show; query= or body, n= (default 5, at most 10); handles come back for gif= and <gif>.",
+    "whenNotToUse": "TODO(writer): when not to use media.find"
+  },
   "memory.search": {
     "title": "Search this server's messages",
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match); option lines in the body (people: ..., when: ...) are read as those options. Quoted messages come back in this same turn.",

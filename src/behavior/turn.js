@@ -80,7 +80,7 @@ import { coreToolRows, discoveryOn, skillArgs, grantedSkillNames, proposalVerdic
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { describeSkill, skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { innerOutputCalls } from './inner-output.js';
@@ -2397,6 +2397,7 @@ export function createTurnRunner({
             return true;
           },
         }),
+      'media.find': (args) => runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
       'memory.search': (args) =>
         runMemorySearch({
           recall,

@@ -9,7 +9,7 @@
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
 // every member while features.memberCommands is on (rights.member), as `task.status` is.
 
-import { firstLinkIn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
@@ -109,7 +109,12 @@ const handlers = perEnv((env) => {
     return asOpResult(result);
   }
 
-  return { cmdWebSearch, cmdWebRead, cmdMediaLook, cmdMemorySearch };
+  /** `/nep task find query [n]`: her GIF library searched by the stored descriptions. */
+  function cmdMediaFind(args, context) {
+    return asOpResult(runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId: resolvedGuildId(context), args }), 'find');
+  }
+
+  return { cmdWebSearch, cmdWebRead, cmdMediaLook, cmdMediaFind, cmdMemorySearch };
 });
 
 defineOp({
@@ -126,6 +131,11 @@ defineOp({
   name: 'media.look',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdMediaLook(args, ctx),
+});
+defineOp({
+  name: 'media.find',
+  rights: { kind: 'read', member: true },
+  run: (args, ctx) => handlers(ctx.env).cmdMediaFind(args, ctx),
 });
 defineOp({
   name: 'memory.search',

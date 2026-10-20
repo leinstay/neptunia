@@ -17,7 +17,10 @@
 // wrote it to the describer's existing second-look path (src/memory/describe.js#relookImage,
 // #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the
 // answer comes back named as that model's observation with what was asked -- no classifier picks
-// the item or words the question for her.
+// the item or words the question for her. `media.find` searches her own GIF library by meaning of
+// the stored descriptions, ranked by words only (no description vectors exist; computing them
+// would be a new background job) and returns the library's handles, which post exactly as the
+// `<gifs>` block's do.
 
 import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
@@ -25,6 +28,9 @@ import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
+import { foldText } from '../memory/recent.js';
+import { rankGifs } from '../memory/gifs.js';
+import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
 import { IN_TURN_TOOLS } from './discovery.js';
 import { CODE, FEATURE, WHAT, isCode } from './codes.js';
 
@@ -551,6 +557,110 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
     const said = typeof answer?.text === 'string' ? answer.text.trim() : '';
     if (!said) return { status: 'failed', code: CODE.ERROR };
     return { status: 'ok', data: { text: mediaLookText({ kind, name: item.name, question: text(answer.question) || question, text: said }, { labels }) } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/** `media.find` result count: the default and the most one call returns. */
+export const FIND_DEFAULT = 5;
+export const FIND_MAX = 10;
+/** A word shorter than this is matched whole only; from it on a shared stem of this many letters counts as a near match. */
+const STEM_MIN = 4;
+
+/** The words of `value` folded for comparison (lower case, no accents), letters and digits only, one letter words dropped. */
+function wordsOf(value) {
+  return foldText(value).split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1);
+}
+
+/** How well query word `q` matches document word `d`: 1 equal, 0.6 one starts with the other (both at least STEM_MIN long), else 0. */
+function wordScore(q, d) {
+  if (q === d) return 1;
+  if (q.length >= STEM_MIN && d.length >= STEM_MIN && (d.startsWith(q) || q.startsWith(d))) return 0.6;
+  return 0;
+}
+
+/**
+ * The library's GIFs that match `query`, best first: each entry's stored description (its reaction,
+ * its action and its on-screen text, from the describer cache) scored word by word against the
+ * query's words (folded: case and accents ignored, so descriptions in either language match; the
+ * best match of each query word counts, the reaction field double); entries scoring nothing are left
+ * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
+ * FIND_DEFAULT when not a number). Pure.
+ * @param {unknown} gifs  The stored library (store.getGifs).
+ * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
+ * @param {string} query
+ * @param {{ n?: unknown, halfLifeDays?: number }} [options]
+ * @returns {object[]}  Library entries (`id` is the handle), best first.
+ */
+export function findGifs(gifs, mediaCache, query, { n = FIND_DEFAULT, halfLifeDays = 30 } = {}) {
+  const wanted = [...new Set(wordsOf(query))];
+  if (wanted.length === 0) return [];
+  const count = Number.isFinite(Number(n)) && Number(n) >= 1 ? Math.min(FIND_MAX, Math.floor(Number(n))) : FIND_DEFAULT;
+  const scored = [];
+  for (const [at, entry] of rankGifs(gifs, halfLifeDays).entries()) {
+    const cached = mediaCache?.[entry.itemId];
+    if (!cached || cached.miss) continue;
+    const fields = gifFields(entry, mediaCache, { reactionChars: 0, actionChars: 0 });
+    const parts = fields
+      ? [[fields.reaction, 2], [fields.action, 1], [fields.text, 1]]
+      : [[typeof cached.text === 'string' ? cached.text : '', 1]];
+    const docs = parts.map(([value, weight]) => ({ words: wordsOf(value), weight }));
+    if (docs.every((doc) => doc.words.length === 0)) continue;
+    let score = 0;
+    for (const q of wanted) {
+      let best = 0;
+      for (const doc of docs) for (const d of doc.words) best = Math.max(best, wordScore(q, d) * doc.weight);
+      score += best;
+    }
+    if (score > 0) scored.push({ entry, score, at });
+  }
+  scored.sort((a, b) => b.score - a.score || a.at - b.at);
+  return scored.slice(0, count).map((item) => item.entry);
+}
+
+/**
+ * The text of a media.find result: `labels.skills.tools.find.source` (`{query}`, `{count}`), then one
+ * line per GIF as the `<gifs>` block writes an entry (its handle and stored description, gifLine:
+ * `labels.gifs.entryFields` / `.entry`); `labels.skills.tools.find.none` when there is none. A missing
+ * label adds nothing. Pure.
+ * @param {object[]} found  findGifs' entries.
+ * @param {{ query?: string, labels: object, mediaCache?: object|null, config?: object }} options
+ * @returns {string}
+ */
+export function mediaFindText(found, { query = '', labels, mediaCache = null, config = {} }) {
+  const l = toolLabels(labels, 'find');
+  const lines = [];
+  if (found.length === 0) {
+    if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: '0' }));
+    if (l.none) lines.push(l.none);
+    return lines.join('\n');
+  }
+  if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: String(found.length) }));
+  const chars = gifFieldChars(config?.gifs);
+  for (const entry of found) lines.push(gifLine(entry, mediaCache, labels, { ...chars, ownMarkHours: 0, now: 0 }));
+  return lines.join('\n');
+}
+
+/**
+ * One media.find: her `args.query` (her words) against the descriptions of the guild's GIF library
+ * (src/memory/gifs.js, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
+ * model request, no cap. `invalid` (`invalid-args`) without a query or one with no word in it;
+ * `not_configured` without the store or while `features.gifs` is false (read now); else `ok` with
+ * mediaFindText as its `data.text` -- an empty result is an ok with `find.none`. Never throws.
+ * @param {{ store: object|null, config: object, labels: object, guildId: string|null, args: object }} input
+ * @returns {{ status: string, code?: string, reason?: string, data?: { text: string } }}
+ */
+export function runMediaFind({ store, config, labels, guildId, args }) {
+  try {
+    const query = text(args?.query);
+    if (!query || wordsOf(query).length === 0) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+    if (!store || typeof store.getGifs !== 'function' || !guildId || config?.features?.gifs === false) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    const given = args?.n;
+    if (given !== undefined && given !== null && given !== '' && (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
+    const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
+    const found = findGifs(store.getGifs(guildId), mediaCache, query, { n: given, halfLifeDays: config?.gifs?.halfLifeDays ?? 30 });
+    return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
