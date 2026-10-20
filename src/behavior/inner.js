@@ -148,7 +148,8 @@ export const FACTS_SHOWN_MAX = 12;
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
  * to the result's `inner.intentIds`; `intentionId`,
  * `purpose` from `intentions` when known); `loopCut` when the loop ended by its step or time
- * bound with calls dropped (`cut`, `droppedCalls`, `steps`). [] when nothing is wrong. Pure.
+ * bound with calls dropped (`cut`, `droppedCalls`, `steps`); one `diagnostic` per parser diagnostic of her output that
+ * no later step showed her (`inner.diagnostics`; `diagnostic` its kind). [] when nothing is wrong. Pure.
  * @param {object|null} turnResult
  * @param {{ named?: string[], posting?: readonly string[], intentions?: object[] }} [options]
  * @returns {object[]}
@@ -185,6 +186,13 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
   const loop = inner.loop;
   if (loop && typeof loop.cut === 'string' && loop.cut && Number.isFinite(loop.droppedCalls) && loop.droppedCalls > 0) {
     facts.push({ kind: 'loopCut', cut: loop.cut, droppedCalls: loop.droppedCalls, steps: Number.isFinite(loop.steps) ? loop.steps : 0 });
+  }
+  // What the parser did with her output that no later step told her (src/llm/parse.js diagnostics).
+  for (const diagnostic of list(inner.diagnostics)) {
+    if (diagnostic && typeof diagnostic.kind === 'string') {
+      const { kind, ...rest } = diagnostic;
+      facts.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
+    }
   }
   return facts;
 }

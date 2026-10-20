@@ -386,6 +386,7 @@ export const labels = {
     continueTools: 'continue this turn after your {skill} call; results above; another call may run',
     continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
     callsDropped: 'dropped {count} calls ({why})',
+    diagnostics: 'what became of your last answer:',
     continueInner: 'continue this inner turn after your {skill} call; results above; another call may run\n{open}',
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
     continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, only a post or an intention change still runs\n{open}',
@@ -496,6 +497,14 @@ export const labels = {
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found' },
       look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', off: '{feature} is off' },
+    },
+    diagnostics: {
+      badCall: 'call not run: {reason} {skill}',
+      callInText: 'call inside a message not run {skill}',
+      messageCut: 'message cut by {chars}',
+      messagesMerged: '{count} messages joined',
+      thinkUnclosed: 'think never closed',
+      reasons: { quotes: 'value not in double quotes', attribute: 'attribute repeated or unreadable', name: 'skill name missing or invalid', unclosed: 'call never closed' },
     },
     refusals: {
       agentRequired: '{arg} missing, pick one of: {agents}',

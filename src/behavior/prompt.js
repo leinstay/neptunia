@@ -105,6 +105,7 @@ import { assignChannelHandles, assignHandles, channelDirectoryEntries, directory
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { CODE, reasonText } from '../skills/codes.js';
+import { diagnosticLines } from './wake.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
@@ -3463,8 +3464,10 @@ export function buildRequest(input) {
   if (typeof continueTemplate === 'string' && !channelToken) continueTemplate = withoutSentenceOf(continueTemplate, '{channel}');
   // The calls dropped by the per-step bound since the last step, said once in the step that follows (`labels.task.callsDropped`: `{count}`, `{why}`).
   const droppedLine = input.continuation?.dropped && typeof labels.task?.callsDropped === 'string' && labels.task.callsDropped.trim() ? fill(labels.task.callsDropped, { count: String(input.continuation.dropped.count ?? 0), why: String(input.continuation.dropped.why ?? '') }) : '';
+  // What the parser did with her last answer that she may not know (a call it could not read, a call cut out of a message, a message cut or joined): said once, in the step that follows.
+  const diagnosticsBlock = diagnosticLines(input.continuation?.diagnostics, labels).join('\n');
   const continueTask =
-    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine].filter(Boolean).join('\n') : '';
+    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine, diagnosticsBlock].filter(Boolean).join('\n') : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {

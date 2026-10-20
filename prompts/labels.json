@@ -465,6 +465,7 @@
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
     "callsDropped": "{count} of your calls were dropped this step ({why}).",
+    "diagnostics": "What became of your last answer:",
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
@@ -757,6 +758,19 @@
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "off": "{feature} is off."
+      }
+    },
+    "diagnostics": {
+      "badCall": "A call was not run because it was not written correctly: {reason} {skill}",
+      "callInText": "A call written inside a message was not run {skill}",
+      "messageCut": "A message was too long and {chars} characters were cut",
+      "messagesMerged": "{count} messages were joined into the last one",
+      "thinkUnclosed": "Your thinking was never closed, so nothing was posted",
+      "reasons": {
+        "quotes": "a value was not in double quotes",
+        "attribute": "an attribute was repeated or not readable",
+        "name": "the skill name was missing or not valid",
+        "unclosed": "the call was never closed"
       }
     },
     "refusals": {

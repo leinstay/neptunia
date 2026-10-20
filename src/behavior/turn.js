@@ -1037,6 +1037,28 @@ function closeResult(op, result) {
   return op.failed(result?.error?.code ?? result?.status ?? CODE.ERROR);
 }
 
+/**
+ * What the parser left unsaid about an answer (src/llm/parse.js `diagnostics`), kept in the draft
+ * until a request that carried it completed (`told`) or the turn ended and it became a fact. An
+ * unclosed `<think>` counts only when the answer stopped on its own (`stop`): a cut-off one is the
+ * cut-off's own business.
+ * @param {{ diagnostics?: object[] }|null} draft
+ * @param {{ diagnostics?: object[] }} parsed
+ * @param {{ finishReason?: string }|null} completion
+ */
+function noteDiagnostics(draft, parsed, completion) {
+  if (!draft || !Array.isArray(parsed?.diagnostics)) return;
+  for (const diagnostic of parsed.diagnostics) {
+    if (diagnostic.kind === 'thinkUnclosed' && completion?.finishReason === 'length') continue;
+    (draft.diagnostics ??= []).push({ ...diagnostic, told: false });
+  }
+}
+
+/** The diagnostics of `draft` not told yet, without the bookkeeping. */
+function untoldDiagnostics(draft) {
+  return (draft?.diagnostics ?? []).filter((diagnostic) => diagnostic.told !== true).map(({ told, ...rest }) => rest);
+}
+
 /** How many characters of a message's text its send hash covers (what survives a trailing link or a cut). */
 const SEND_HASH_CHARS = 80;
 
@@ -2186,7 +2208,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null, dropped = null }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null, dropped = null, diagnostics = null }) {
     const { input, history, shownLines = [] } = continuation;
     let fetched = [];
     try {
@@ -2200,7 +2222,7 @@ export function createTurnRunner({
     // `names`: the calls the step follows when they left no result to show (an inner turn's open follow-up).
     const skillNames = [...new Set((Array.isArray(names) && names.length > 0 ? names : outcomes.map((outcome) => outcome.skill)).filter(Boolean))].join(', ');
     const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
-    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '', ...(dropped ? { dropped } : {}) } });
+    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '', ...(dropped ? { dropped } : {}), ...(Array.isArray(diagnostics) && diagnostics.length > 0 ? { diagnostics } : {}) } });
     const labels = input.prompts?.labels ?? {};
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
@@ -2240,7 +2262,7 @@ export function createTurnRunner({
     let routing = null;
     let completion;
     try {
-      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null }));
+      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null, diagnostics: untoldDiagnostics(draft) }));
       else {
         const labels = hot.prompts?.labels ?? {};
         const block = skillResultBlock(called, labels, { maxChars: resultCharsFor(called, hot.config), posted: firstPass(acted, labels) });
@@ -2253,6 +2275,7 @@ export function createTurnRunner({
     }
     dumpTurnRequest(guildId, draft, messages, completion, 1);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
+    noteDiagnostics(draft, parsed, completion);
     if (parsed.call || parsed.callError) log.info('skills: extra-call', { channel: channel.id, count: 1, followUp: true, ...(continued ? { continuation: true } : {}) });
     parsed.call = null;
     parsed.gif = resolveGif(guildId, parsed.gif, channel.id, draft?.limits ?? null);
@@ -2502,21 +2525,23 @@ export function createTurnRunner({
         // An inner turn continues under its own labels (no message started it, none of hers went out).
         const label = innerTurn ? (final ? 'continueInnerLast' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
         const open = innerTurn && posted ? openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) : '';
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names, dropped }));
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names, dropped, diagnostics: untoldDiagnostics(draft) }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars: resultCharsFor(result, hot.config), ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
         messages = withSkillResult(sentMessages, blocks.filter(Boolean).join('\n\n'));
       }
       completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });
-      // The answer completed with the line on: the dropped calls are told.
+      // The answer completed with the line on: the dropped calls and the parser's diagnostics are told.
       if (continued && dropped) draft.pendingDropped = 0;
+      if (continued) for (const diagnostic of draft?.diagnostics ?? []) diagnostic.told = true;
     } catch (err) {
       log.warn('skills: follow-up failed', { channel: channel.id, skill: results[0]?.skill ?? null, step, error: err });
       return null;
     }
     dumpTurnRequest(guildId, draft, messages, completion, step);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
+    noteDiagnostics(draft, parsed, completion);
     // An inner turn keeps each step's think for its memory episode.
     if (draft?.inner && parsed.think) (draft.innerThinks ??= []).push(parsed.think);
     const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
@@ -5457,6 +5482,8 @@ export function createTurnRunner({
       if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
       if (draft.loopCut?.dropped > 0) entries.push({ kind: 'loopCut', cut: draft.loopCut.reason, droppedCalls: draft.loopCut.dropped, steps: draft.loopSteps ?? 0 });
       entries.push(...(draft.unseenFailed ?? []));
+      // What the parser left unsaid about her answers and no later request carried.
+      for (const { kind, ...rest } of untoldDiagnostics(draft)) entries.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
       if (entries.length === 0) return;
       const guildId = args.guildId ?? channel.guild?.id ?? null;
       const at = clock();
@@ -5698,7 +5725,7 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], loop: draft.innerLoop ?? { ...NO_LOOP }, ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], loop: draft.innerLoop ?? { ...NO_LOOP }, ...(untoldDiagnostics(draft).length > 0 ? { diagnostics: untoldDiagnostics(draft) } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 
@@ -6904,6 +6931,7 @@ export function createTurnRunner({
         return parsed;
       };
       const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft.limits }));
+      noteDiagnostics(draft, parsed, completion);
       // A set post (the plan's kind in diary.setKinds): the first diary.set.pictures[1] <draw> tags
       // (none while drawing is off), never the single drawing.
       const setDraws =
