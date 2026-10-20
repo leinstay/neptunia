@@ -642,13 +642,13 @@
     "proposedOff": "Might fit here but not switched on for you: {names}.",
     "proposedDenied": "Might also fit, but the person asking has no right to them: {names}.",
     "granted": {
-      "lead": "TODO(writer): Your skills, by family (calling one shows its arguments):",
+      "lead": "Your skills, by family. Call skills.describe to see a skill's full description and arguments before using it:",
       "line": "{family}: {names}"
     },
     "result": {
       "alreadyPosted": "You already posted this turn: {text}",
-      "described": "TODO(writer): the skill you just called, in full:",
-      "bodyIgnored": "TODO(writer): this skill takes no free text, what you wrote in the body was left out; its arguments:",
+      "described": "This is the first time you call this skill in this turn. Here is how it works:",
+      "bodyIgnored": "This skill takes named arguments only. The free text you wrote in the body was not used. Its arguments:",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
       "denied": "Your skill was blocked: {reason}.",
@@ -672,7 +672,7 @@
         "unknown-member": "nobody by that name is in your memory",
         "requester-denied": "the person asking may not see or do this",
         "daily-cap": "the limit for today is used up",
-        "channel-not-visible": "you cannot search that channel",
+        "channel-not-visible": "you cannot see that channel",
         "gif-failed": "your text posted but the GIF failed to attach",
         "empty-query": "nothing left to search after cleaning the query",
         "provider": "the search engines did not answer ({status})",
@@ -809,20 +809,24 @@
         "partial": "{failed} of {total} searches were cut short; some results may be missing."
       },
       "describe": {
-        "closest": "TODO(writer): No such skill. The closest names: {names}."
+        "closest": "No skill by that name. The closest: {names}."
       },
       "conversation": {
-        "source": "[writer] conversation.read source line, channel {channel}",
-        "handles": "[writer] the number before each line is a message number usable in calls",
-        "none": "[writer] no messages in that span",
-        "cut": "[writer] {dropped} lines not shown for room",
-        "earlier": "[writer] read on earlier: before=#{n}",
-        "later": "[writer] read on later: after=#{n}"
+        "source": "Source: conversation.read, #{channel}. Messages in order, each with its time and author.",
+        "handles": "The number before each line is a message number you can use in your calls like any other in the chat.",
+        "none": "No messages in that span.",
+        "cut": "{dropped} lines not shown for room.",
+        "earlier": "To read earlier: before=#{n}",
+        "later": "To read later: after=#{n}"
       },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "off": "{feature} is off."
+      },
+      "find": {
+        "source": "Source: media.find, your GIF library. {count} results for \"{query}\".",
+        "none": "No GIFs matched."
       }
     },
     "diagnostics": {

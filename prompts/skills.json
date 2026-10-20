@@ -1,7 +1,7 @@
 {
   "status.show": {
     "title": "Runtime state",
-    "whenToUse": "TODO(writer): Read how the instance is doing. part= picks what you get: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits and what was spent today), models (which model each role runs), memory (how much of each kind of memory is stored), inner (your inner life: mode, turns today, next wake, open intentions), errands (the errands running and what the agents spent), features (which feature switches are on and off), all (everything above).",
+    "whenToUse": "Read how the instance is doing right now. part= picks one section so you get only what you need: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits, what was spent today, per-role costs), models (which model each role runs, core and agents), memory (how much of each kind of memory is stored, record coverage, index state), inner (your inner life: mode, turns today, next wake, open intentions, attended places), errands (running errands and what each agent spent), features (which feature switches are on and off), all (every section at once).",
     "whenNotToUse": "Returns operational data about the running instance."
   },
   "config.set": {
@@ -325,9 +325,9 @@
     "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
   },
   "media.find": {
-    "title": "TODO(writer): title of media.find",
-    "whenToUse": "TODO(writer): find GIFs of your library by what they show; query= or body, n= (default 5, at most 10); handles come back for gif= and <gif>.",
-    "whenNotToUse": "TODO(writer): when not to use media.find"
+    "title": "Find a GIF",
+    "whenToUse": "Search your GIF library by what the GIFs show: query= or body describes what you are looking for, n= sets how many to return (default 5, at most 10). Matching handles come back in this same turn; use them with gif= on message.create or with <gif>.",
+    "whenNotToUse": "Only searches your own library by stored descriptions. Does not download or look up anything new."
   },
   "memory.search": {
     "title": "Search this server's messages",
@@ -335,9 +335,9 @@
     "whenNotToUse": "Not for what the chat already shows you."
   },
   "conversation.read": {
-    "title": "[writer] Read a channel in order",
-    "whenToUse": "[writer] conversation.read: channel= (name, #handle or id; default this one); one of around=#N or a message link (before= and after= count the lines each side, default 10), since= (2h, 12:00 or a date-time), last= (default 20, max 60). Lines come back in this same turn with message numbers; the closing line says how to read on (before=#N / after=#N).",
-    "whenNotToUse": "[writer] Not for what the chat already shows you; to find something, use memory.search."
+    "title": "Read a channel",
+    "whenToUse": "Read messages in order from any channel you may see: channel= (name, #handle or id; default this one). Pick a span with one of three modes: around=#N or a message link (before= and after= set how many lines each side, default 10), since= (a delay like 2h, a clock time like 12:00, or a date-time), last=N (default 20, max 60). Lines come back in this same turn, each with a message number you can use in later calls. The closing line tells you how to page on (before=#N to go earlier, after=#N to go later).",
+    "whenNotToUse": "Not for what the chat already shows you. To find something by topic, use memory.search."
   },
   "intent.set": {
     "title": "Set an intention",
@@ -380,8 +380,8 @@
     "whenNotToUse": "The places are names and counts. To read what people said, use the chat or memory.search."
   },
   "skills.describe": {
-    "title": "TODO(writer): Describe a skill",
-    "whenToUse": "TODO(writer): Read the full description of a skill (name= a skill name such as memory.search) or the one-line contracts of a family (name= memory). Use it before a call you are unsure how to write.",
-    "whenNotToUse": "TODO(writer): Does not run anything."
+    "title": "Describe a skill",
+    "whenToUse": "Read the full description of one skill: name= takes a skill name (memory.search, intent.set, ...) and returns its title, when to use it, when not, and its arguments. Give a family name instead (memory, intent, ...) to get every skill in that family with a one-line summary each. Use it before a call whose arguments you are not sure about.",
+    "whenNotToUse": "A read only. Does not run the skill."
   }
 }
