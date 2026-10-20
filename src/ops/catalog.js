@@ -349,8 +349,7 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 },
           { type: STRING, name: 'file', description: 'A file handle of one of her errands.', required: false, max_length: 300 },
           { type: STRING, name: 'gif', description: 'A handle of a GIF in her library.', required: false, max_length: 40 },
-          // TEXT-PLACEHOLDER (writer): option descriptions.
-          { type: STRING, name: 'media', description: 'A message of hers (number or link) whose attachment to post again.', required: false, max_length: 300 },
+          { type: STRING, name: 'media', description: 'Her message (#N or link) whose attachment to post again.', required: false, max_length: 300 },
           { type: INTEGER, name: 'item', description: 'Which attachment of that message (default 1).', required: false, min_value: 1, max_value: 20 },
         ],
         args: (options) => ({ channelId: options.getChannel('channel')?.id, replyTo: options.getString('reply') ?? undefined, text: options.getString('text') ?? undefined, file: options.getString('file') ?? undefined, gif: options.getString('gif') ?? undefined, media: options.getString('media') ?? undefined, item: options.getInteger('item') ?? undefined }),
