@@ -525,7 +525,7 @@ const USAGE =
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>]';
+  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
@@ -673,7 +673,7 @@ export function parseArgs(argv) {
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
     diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false, steps: false,
-    inner: null, intention: null, review: false,
+    inner: null, intention: null, review: false, hideChannels: [], hideMessages: [],
   };
   const positional = [];
   const pathValue = (value) => {
@@ -706,6 +706,10 @@ export function parseArgs(argv) {
       const kind = argv[(i += 1)];
       if (!INNER_KINDS.includes(kind)) throw new CliError(USAGE);
       out.inner = kind;
+    } else if (arg === '--hide-channel' || arg === '--hide-message') {
+      const id = argv[(i += 1)];
+      if (!/^\d{1,25}$/.test(id ?? '')) throw new CliError(USAGE);
+      (arg === '--hide-channel' ? out.hideChannels : out.hideMessages).push(id);
     } else if (arg === '--intention') {
       const id = argv[(i += 1)];
       if (!INTENTION_ID.test(id ?? '')) throw new CliError(USAGE);
@@ -767,7 +771,7 @@ export function parseArgs(argv) {
     }
     return { ...out, review, samples: out.samples ?? 1, channelId: null, triggerId: null };
   }
-  if (out.intention !== null || out.review) throw new CliError(USAGE);
+  if (out.intention !== null || out.review || out.hideChannels.length > 0 || out.hideMessages.length > 0) throw new CliError(USAGE);
   if (out.diaryDay) {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
     if (
@@ -1862,7 +1866,7 @@ async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canA
  * `port`: the interface port the turn acts through (else the default Discord adapter);
  * `rng` / `now`: the runner's random stream and clock (else its defaults).
  */
-export function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port = null, rng = null, now = null, extra = {} }) {
+export function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port = null, rng = null, now = null, extra = {}, wrapDiscord = null }) {
   const imageFetcher = mods.createImageFetcher();
   const describer = mods.createDescriber({ hot, store, llm, imageFetcher, videoFetcher: mods.createVideoFetcher(), state, youtubeApiKey: process.env.YOUTUBE_API_KEY || null });
   const lookup = mods.createLookup({
@@ -1872,7 +1876,7 @@ export function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, gui
   });
   // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
   // is the default adapter it builds over `client` (createPort) unless one is given.
-  const capabilities = mods.createDiscordInterface({ client }).capabilities;
+  const capabilities = wrapDiscord ? wrapDiscord(mods.createDiscordInterface({ client }).capabilities) : mods.createDiscordInterface({ client }).capabilities;
   return mods.createTurnRunner({
     hot, store, llm, calibrator, client, discord: capabilities, createPort: mods.createDiscordAdapter, describer, imageFetcher, lookup, images,
     recall: mods.createRecall({ hot, store, llm, discord: capabilities, describer }),
@@ -2114,6 +2118,78 @@ function blockNames(text) {
 }
 
 /**
+ * The ids `--hide-channel` / `--hide-message` name, as sets (an experiment: salient items removed from a frozen moment).
+ * @param {{ hideChannels?: string[], hideMessages?: string[] }} args  From parseArgs.
+ * @returns {{ channels: Set<string>, messages: Set<string>, any: boolean }}
+ */
+export function hideSetsOf(args = {}) {
+  const channels = new Set((args.hideChannels ?? []).map(String));
+  const messages = new Set((args.hideMessages ?? []).map(String));
+  return { channels, messages, any: channels.size > 0 || messages.size > 0 };
+}
+
+/** True when a record line is in a hidden channel or is (or was made of) a hidden message. */
+function recordLineHidden(line, hide) {
+  const channel = line?.scope?.channel;
+  if (typeof channel === 'string' && hide.channels.has(channel)) return true;
+  if (typeof line?.messageId === 'string' && hide.messages.has(line.messageId)) return true;
+  return Array.isArray(line?.sourceMessageIds) && line.sourceMessageIds.some((id) => hide.messages.has(String(id)));
+}
+
+/**
+ * The record with the hidden channels' and messages' lines left out of what it iterates (every other method
+ * passes through). Nothing is written; the real record is only read.
+ */
+export function hiddenRecord(record, hide) {
+  if (!hide?.any || !record) return record;
+  return new Proxy(record, {
+    get(target, prop) {
+      if (prop === 'iterate') {
+        return async function* iterate(...args) {
+          for await (const line of target.iterate(...args)) if (!recordLineHidden(line, hide)) yield line;
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/** The places list without the hidden channels (the channel directory is another list and stays whole). */
+export function hiddenPlaces(places, hide) {
+  if (!hide?.any || typeof places !== 'function') return places;
+  return (...args) => places(...args).filter((entry) => !hide.channels.has(String(entry?.id)));
+}
+
+/**
+ * The Discord interface's capabilities with the hidden channels and messages filtered out of what the request reads:
+ * the turn's history (a hidden channel gives none, hidden messages are dropped after the fetch), the neighbours
+ * (a hidden channel is not a candidate, a neighbour left without lines goes), the pulled channels (a hidden one is
+ * skipped as not found; hidden lines leave the window). The channel directory is not touched.
+ */
+export function hiddenCapabilities(capabilities, hide) {
+  if (!hide?.any) return capabilities;
+  const keep = (messages) => (Array.isArray(messages) ? messages.filter((message) => !hide.messages.has(String(message?.id))) : messages);
+  return Object.freeze({
+    ...capabilities,
+    fetchHistory: async (channel, options) => (hide.channels.has(String(channel?.id)) ? [] : keep(await capabilities.fetchHistory(channel, options))),
+    fetchNeighbors: async (channel, config, selfId, now, { accept } = {}) => {
+      const found = await capabilities.fetchNeighbors(channel, config, selfId, now, {
+        accept: (other) => !hide.channels.has(String(other?.id)) && (typeof accept !== 'function' || accept(other)),
+      });
+      return found.map((neighbor) => ({ ...neighbor, messages: keep(neighbor.messages) })).filter((neighbor) => neighbor.messages.length > 0);
+    },
+    fetchPull: async (args = {}) => {
+      if (hide.channels.has(String(args.channelId))) return { pulled: null, skip: 'not-found' };
+      const found = await capabilities.fetchPull(args);
+      if (!found?.pulled) return found;
+      const messages = keep(found.pulled.messages);
+      return messages.length > 0 ? { ...found, pulled: { ...found.pulled, messages } } : { pulled: null, skip: 'not-found' };
+    },
+  });
+}
+
+/**
  * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.js#createInnerLife)
  * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
@@ -2203,6 +2279,7 @@ export function innerAnswerOf(text, parseOutput) {
 export function innerReportMarkdown(result) {
   const fence = (text) => `~~~\n${String(text ?? '')}\n~~~`;
   const lines = [`# Inner turn: ${result.kind}${result.intention ? ` (${result.intention})` : ''}`, '', `Channel: ${result.channelId ?? '-'}`, ''];
+  if (result.hidden && (result.hidden.channels?.length > 0 || result.hidden.messages?.length > 0)) lines.push(`Hidden channels: ${(result.hidden.channels ?? []).join(', ') || '-'}`, `Hidden messages: ${(result.hidden.messages ?? []).join(', ') || '-'}`, '');
   if (result.wake) lines.push('## wake', '', fence(result.wake), '');
   if (result.request?.messages) lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
   (result.samples ?? []).forEach((sample, index) => {
@@ -2297,7 +2374,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
       return queueRequest(request);
     };
-    const capabilities = mods.createDiscordInterface({ client }).capabilities;
+    const hide = hideSetsOf(args);
+    const capabilities = hiddenCapabilities(mods.createDiscordInterface({ client }).capabilities, hide);
 
     // Her intentions and errands, read only; her inner state as it stands.
     const taskStore = createTaskStore({ dataDir, guildId, config: () => hot.config, journal: null });
@@ -2336,7 +2414,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         },
       });
       const appendStore = createAppendStore({ log });
-      const record = createRecord({ appendStore, dataDir, log });
+      const record = hiddenRecord(createRecord({ appendStore, dataDir, log }), hide);
       const journalRead = createJournal({ appendStore, dataDir, config: () => ({}), log });
       const caught = await heartbeatReplayWake({
         inner: mods,
@@ -2349,7 +2427,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           intentions,
           record,
           journal: { read: (...a) => journalRead.read(...a) },
-          places: (id) => {
+          places: hiddenPlaces((id) => {
             const guild = client.guilds.cache.get(String(id));
             if (!guild) return [];
             return capabilities.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
@@ -2362,7 +2440,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
               }
               return { id: entry.id, name: entry.name, writable };
             });
-          },
+          }, hide),
           nameOf: (id, memberId) => store.getUser(id, memberId)?.names?.[0] ?? null,
           client,
           discord: capabilities,
@@ -2388,7 +2466,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       } else {
         channelIds = innerState.review?.channels ?? [];
         if (channelIds.length === 0) {
-          const record = createRecord({ appendStore: createAppendStore({ log }), dataDir, log });
+          const record = hiddenRecord(createRecord({ appendStore: createAppendStore({ log }), dataDir, log }), hide);
           const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
           const own = [];
           for await (const line of record.iterate(guildId, { from })) if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
@@ -2411,7 +2489,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const port = createFakeAdapter({ iface: 'replay', selfId: self.id, now: Date.now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
     const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, getGuildId: () => guildId, dataDir: null });
     const turns = diaryTurnRunner(mods, {
-      hot, store, llm, calibrator, client, guildId, self, images: null, state, port,
+      hot, store, llm, calibrator, client, guildId, self, images: null, state, port, wrapDiscord: (found) => hiddenCapabilities(found, hide),
       extra: { skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, errands },
     });
     log.info('replay-cli: inner ready', { guildId, channelId: channel.id, kind: args.inner, intention: intention?.id ?? null, samples: args.samples });
@@ -2466,6 +2544,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       kind: args.inner,
       intention: intention?.id ?? null,
       channelId: String(channel.id),
+      hidden: hide.any ? { channels: [...hide.channels], messages: [...hide.messages] } : null,
       wake: blocks.wake ?? null,
       request: { blocks: blockNames(firstRequest?.text ?? ''), ...blocks, ...(args.showRequest && firstRequest?.messages ? { messages: firstRequest.messages } : {}) },
       samples,

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { heartbeatReplayWake, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs } from '../tools/replay.mjs';
+import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs } from '../tools/replay.mjs';
 import { parseOutput } from '../src/llm/parse.js';
 import * as inner from '../src/behavior/inner.js';
 
@@ -137,4 +137,65 @@ test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the 
     usage: { requests: 1, promptTokens: 10, completionTokens: 5, cost: 0.0123 },
   });
   for (const part of ['# Inner turn: heartbeat', '## wake', 'STEP 2: b', '- hello', '"channel": "c1"', 'proposed', '0.0123 USD']) assert.ok(markdown.includes(part), part);
+});
+
+test('replay --inner: --hide-channel and --hide-message repeat, take ids, and belong to --inner only', () => {
+  const args = parseArgs(['--inner', 'heartbeat', '--hide-channel', '11', '--hide-channel', '12', '--hide-message', '99']);
+  assert.deepEqual(args.hideChannels, ['11', '12']);
+  assert.deepEqual(args.hideMessages, ['99']);
+  assert.deepEqual(parseArgs(['--inner', 'heartbeat']).hideChannels, []);
+  for (const argv of [['--inner', 'heartbeat', '--hide-channel', 'abc'], ['--inner', 'heartbeat', '--hide-message'], ['--hide-channel', '11'], ['--hide-message', '5', 'c1', 'm1']]) {
+    assert.throws(() => parseArgs(argv), /usage/, argv.join(' '));
+  }
+});
+
+test('hiddenRecord: lines of a hidden channel or message are not iterated, the rest passes through', async () => {
+  const lines = [
+    { kind: 'seen', messageId: '1', scope: { channel: 'c1' }, by: 'u1' },
+    { kind: 'seen', messageId: '2', scope: { channel: 'c2' }, by: 'u1' },
+    { kind: 'seen', messageId: '3', scope: { channel: 'c1' }, by: 'u2' },
+    { kind: 'said', messageId: '4', scope: { channel: 'c1' }, sourceMessageIds: ['3'] },
+  ];
+  const record = { async *iterate() { yield* lines; }, other: () => 'kept' };
+  const hide = hideSetsOf({ hideChannels: ['c2'], hideMessages: ['1'] });
+  const seen = [];
+  for await (const line of hiddenRecord(record, hide).iterate('g')) seen.push(line.messageId);
+  assert.deepEqual(seen, ['3', '4']);
+  assert.equal(hiddenRecord(record, hide).other(), 'kept');
+  assert.equal(hiddenRecord(record, hideSetsOf({})), record);
+});
+
+test('hiddenPlaces drops hidden channels from the list', () => {
+  const places = () => [{ id: 'a' }, { id: 'b' }];
+  assert.deepEqual(hiddenPlaces(places, hideSetsOf({ hideChannels: ['a'] }))('g'), [{ id: 'b' }]);
+});
+
+test('hiddenCapabilities: history, neighbours and pulls lose the hidden channels and messages; the directory stays', async () => {
+  const seenAccept = [];
+  const base = {
+    channelDirectoryOf: () => [{ id: 'c2' }],
+    fetchHistory: async () => [{ id: 'm1' }, { id: 'm2' }],
+    fetchNeighbors: async (channel, config, selfId, now, { accept }) => {
+      seenAccept.push(accept({ id: 'c2' }), accept({ id: 'c3' }));
+      return [{ channelId: 'c3', messages: [{ id: 'm1' }, { id: 'm5' }] }, { channelId: 'c4', messages: [{ id: 'm1' }] }];
+    },
+    fetchPull: async ({ channelId }) => ({ pulled: { channelId, messages: channelId === 'c5' ? [{ id: 'm1' }] : [{ id: 'm1' }, { id: 'm6' }] }, skip: null }),
+  };
+  const hide = hideSetsOf({ hideChannels: ['c2', 'c9'], hideMessages: ['m1'] });
+  const wrapped = hiddenCapabilities(base, hide);
+  assert.deepEqual(wrapped.channelDirectoryOf(), [{ id: 'c2' }]);
+  assert.deepEqual(await wrapped.fetchHistory({ id: 'c1' }, {}), [{ id: 'm2' }]);
+  assert.deepEqual(await wrapped.fetchHistory({ id: 'c9' }, {}), []);
+  assert.deepEqual(await wrapped.fetchNeighbors({}, {}, 's', 0, { accept: () => true }), [{ channelId: 'c3', messages: [{ id: 'm5' }] }]);
+  assert.deepEqual(seenAccept, [false, true]);
+  assert.deepEqual((await wrapped.fetchPull({ channelId: 'c6' })).pulled.messages, [{ id: 'm6' }]);
+  assert.deepEqual(await wrapped.fetchPull({ channelId: 'c9' }), { pulled: null, skip: 'not-found' });
+  assert.equal((await wrapped.fetchPull({ channelId: 'c5' })).skip, 'not-found');
+  assert.equal(hiddenCapabilities(base, hideSetsOf({})), base);
+});
+
+test('innerReportMarkdown prints the hidden ids in the header', () => {
+  const md = innerReportMarkdown({ kind: 'heartbeat', channelId: 'c1', hidden: { channels: ['11'], messages: ['99', '98'] }, samples: [], usage: {} });
+  assert.match(md, /Hidden channels: 11/);
+  assert.match(md, /Hidden messages: 99, 98/);
 });
