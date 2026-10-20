@@ -2798,6 +2798,8 @@ export function createTurnRunner({
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
+  // The channels an exchange keeps pulled, by destination (process memory, like pullViews): `{ channelIds, at, turns, authorId }`.
+  const keptPulls = new Map();
   // Posted message id -> the id of the message that started the turn which posted it, in
   // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest
   // links go first past TRIGGER_LINKS_MAX. Her transcript lines read it (linkTriggers).
@@ -5134,12 +5136,15 @@ export function createTurnRunner({
       if (!judged.has(id)) judged.set(id, { skip: judge(id), pullReason: judging });
       return judged.get(id).skip === null;
     };
-    const targetsWith = (extra, { pullable = isPullable, more = channelPull } = {}) =>
+    // The channels the exchange with this author keeps from an earlier turn (context.pull.keepMinutes / keepTurns).
+    const keptIds = drawFailure ? [] : keptPullIds(channel.id, trigger, now, settings);
+    const targetsWith = (extra, { pullable = isPullable, more = channelPull, kept = [] } = {}) =>
       pullTargets({
         source,
         history,
         trigger,
         extra,
+        kept,
         currentChannelId: channel.id,
         scanMessages: settings.scanMessages,
         maxChannels: settings.maxChannels,
@@ -5185,6 +5190,7 @@ export function createTurnRunner({
       });
 
     let targets = targetsWith([]);
+    let picked = false;
     const sourceTarget = source ? (targets.find((target) => target.channelId === source.channelId) ?? null) : null;
     let sourcePulled = null;
     if (sourceTarget) {
@@ -5203,11 +5209,62 @@ export function createTurnRunner({
         : await routeIds({ guildId, channel, guild, partner, history: routedLines ?? history, trigger: candidate, triggerKind, selfName, config });
       judging = 'route';
       for (const pick of picks) if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
-      if (picks.length > 0) targets = targetsWith(picks.map((pick) => pick.id));
+      if (picks.length > 0) {
+        targets = targetsWith(picks.map((pick) => pick.id));
+        picked = true;
+      }
     }
-    const fetched = await Promise.all(targets.filter((target) => target.channelId !== sourceTarget?.channelId).map(pullOne));
+    // A pick of the router (or a mention) replaces the kept channel; otherwise it fills a free slot.
+    if (!picked && keptIds.length > 0 && channelPull && targets.length < settings.maxChannels) {
+      judging = 'kept';
+      targets = targetsWith([], { kept: keptIds });
+    }
+    const rest = targets.filter((target) => target.channelId !== sourceTarget?.channelId);
+    const fetched = await Promise.all(rest.map(pullOne));
     logRefused();
+    const got = rest.filter((target, i) => fetched[i].pulled);
+    noteKeptPull(channel.id, trigger, now, settings, { fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.channelId), keptWanted: keptIds.length > 0, keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.channelId), drawFailure });
     return { pulled: [sourcePulled, ...fetched.map((result) => result.pulled)].filter(Boolean), sourceSkip: null };
+  }
+
+  /**
+   * The channels a turn in `destinationId` keeps pulled from an earlier turn of the exchange:
+   * only for a turn with a trigger from the author who pulled them, within `context.pull.keepMinutes`
+   * of the pull and at most `context.pull.keepTurns` kept turns. An entry that no longer qualifies
+   * is dropped; a turn without a trigger (spontaneous, inner) leaves it alone. Logged `pull: kept`
+   * (`pullReason` `kept`) by noteKeptPull when it is used.
+   * @returns {string[]}
+   */
+  function keptPullIds(destinationId, trigger, now, settings) {
+    const entry = keptPulls.get(destinationId);
+    if (!entry || !trigger) return [];
+    const live = settings.keepTurns > 0 && entry.turns < settings.keepTurns && now - entry.at < settings.keepMinutes * 60000 && trigger.authorId && trigger.authorId === entry.authorId;
+    if (!live) {
+      keptPulls.delete(destinationId);
+      return [];
+    }
+    return entry.channelIds;
+  }
+
+  /**
+   * What pullChannels pulled, for the exchange to keep: channels pulled by a mention or the router
+   * (`fresh`) start a new keep for the trigger's author; kept ones that were pulled again
+   * (`keptUsed`) count one turn; kept ones that could not be pulled end the keep.
+   */
+  function noteKeptPull(destinationId, trigger, now, settings, { fresh, keptWanted, keptUsed, drawFailure }) {
+    if (drawFailure || !trigger || settings.keepTurns <= 0) return;
+    if (fresh.length > 0) {
+      keptPulls.set(destinationId, { channelIds: fresh, at: now, turns: 0, authorId: trigger.authorId ?? null });
+      return;
+    }
+    const entry = keptPulls.get(destinationId);
+    if (!entry || !keptWanted) return;
+    if (keptUsed.length === 0) {
+      keptPulls.delete(destinationId);
+      return;
+    }
+    entry.turns += 1;
+    log.info('pull: kept', { channel: destinationId, source: keptUsed.join(','), pullReason: 'kept', turns: entry.turns });
   }
 
   /**

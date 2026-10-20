@@ -4014,6 +4014,57 @@ test('runTurn: a channel mention in the trigger itself pulls that channel', asyn
   assert.ok(channelViewOf(llm)?.includes('σήμερα έβαψα τον τοίχο μπλε'));
 });
 
+test('runTurn: a pulled channel stays for the same author\'s next turns within the limits; another author, a spent limit or the router\'s pick drops or replaces it', async () => {
+  const kept = pullScene({ mention: false });
+  const named = { ...kept.trigger, mentionedChannelIds: [DIARY] };
+  const next = (id, extra = {}) => ({ ...kept.trigger, id, ...extra });
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: named, triggerKind: 'mention' }));
+  assert.equal(kept.other.fetches.length, 1, 'pulled by the mention');
+  // The follow-up names no channel: the same author keeps the pull; its lines are numbered on after the chat.
+  const before = kept.llm.calls.length;
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m10'), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2, 'fetched again for the follow-up');
+  const view = channelViewOf({ calls: [kept.llm.calls[before]] });
+  assert.ok(view?.includes('σήμερα έβαψα τον τοίχο μπλε') && view.includes('#3 '), view);
+  // Another author, no channel named: dropped.
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m11', { authorId: 'u9' }), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2);
+  // And gone for the original author too.
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m12'), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2);
+
+  // keepTurns: the pull is kept for that many turns after the one that pulled it.
+  const limited = pullScene({ mention: false, context: { pull: { keepTurns: 2 } } });
+  await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
+  for (const id of ['m10', 'm11', 'm12']) await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, id }, triggerKind: 'followUp' }));
+  assert.equal(limited.other.fetches.length, 3, 'the pulling turn and two kept ones');
+
+  // keepMinutes 0 and keepTurns 0 keep nothing.
+  for (const pull of [{ keepMinutes: 0 }, { keepTurns: 0 }]) {
+    const off = pullScene({ mention: false, context: { pull } });
+    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
+    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+    assert.equal(off.other.fetches.length, 1, JSON.stringify(pull));
+  }
+});
+
+test('runTurn: the router\'s pick in a later turn replaces the kept channel', async () => {
+  const answers = [[DIARY], [NOTES]];
+  const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
+  const notes = addChannel(scene.channel, {
+    id: NOTES,
+    name: 'notes',
+    messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })],
+  });
+  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const before = scene.llm.calls.length;
+  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: { ...scene.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+  assert.equal(notes.fetches.length, 1);
+  assert.equal(scene.other.fetches.length, 1, 'the kept channel is not fetched again');
+  const view = channelViewOf({ calls: [scene.llm.calls[before]] });
+  assert.ok(view.includes('σημειώσεις για αύριο') && !view.includes('σήμερα έβαψα'), view);
+});
+
 test('runTurn: a spontaneous turn pulls a channel mentioned in its history', async () => {
   const describer = pullDescriber();
   const { turns, channel, llm } = pullScene({ features: { mediaDescriptions: true }, describer });
