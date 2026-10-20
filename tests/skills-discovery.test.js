@@ -298,14 +298,15 @@ test('coreToolRows: the intent rows follow task.run when intentions are on and g
   assert.deepEqual(off.map((row) => row.name), ['task.run']);
 });
 
-test('coreToolRows: the read tools are listed when granted, a name with no registered skill (conversation.read, media.find) is skipped', () => {
+test('coreToolRows: the read tools are listed when granted, in the core order', () => {
   const registry = skillRegistry();
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
   const names = ['skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read', 'conversation.read', 'media.find'];
-  const config = { features: { skills: true }, bot: { access: Object.fromEntries(names.map((name) => [name, grant])) } };
+  const config = { features: { skills: true, coreTools: true }, bot: { access: Object.fromEntries(names.map((name) => [name, grant])) } };
   const rows = coreToolRows({ config, selfId: self, registry });
-  assert.deepEqual(rows.map((row) => row.name), ['skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read'].filter((name) => registry.has(name)));
+  assert.deepEqual(rows.map((row) => row.name), [...CORE_TOOL_SKILLS].filter((name) => names.includes(name) && registry.has(name)));
+  assert.ok(rows.some((row) => row.name === 'conversation.read') && rows.some((row) => row.name === 'media.find'));
   assert.ok(rows.some((row) => row.name === 'skills.describe'));
   const status = rows.find((row) => row.name === 'status.show');
   assert.deepEqual(status.args.find((arg) => arg.name === 'part').values, ['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
