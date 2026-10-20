@@ -1756,11 +1756,11 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `skills: bad-call` and ignored; a diary post drops it) is planned before her reply is acted on
  * (planCall: on an immutable envelope built by code, callEnvelope; journaled `proposed` with its
  * invocation id, resolved on the server's side, checked) and made after it (runCall: checked
- * again right before, then run by src/skills/executors.js through `runCommand(key, args,
- * context)` -- src/admin.js#runCommand, the command's own path, the requester's rights checked
+ * again right before, then run by src/skills/executors.js through `runOp(op, args,
+ * context)` -- src/admin.js#runSkillOp, the command's own path, the requester's rights checked
  * again; absent, a call is `not_configured`; her own expressive operations through
- * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone; an inner turn's calls through
- * `runInitiativeCommand`, src/admin.js#runInitiativeCommand, her grant alone). An operation's answer -- an error or a refusal
+ * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
+ * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). An operation's answer -- an error or a refusal
  * included -- or any call that did not succeed (never under features.skills off) brings one
  * follow-up request that continues the turn (followUp, features.followUpContinuation; a missing
  * key counts as on): the turn's request rebuilt over the channel as it stands then -- her posts of
@@ -1809,9 +1809,9 @@ export function createTurnRunner({
   createPort = null,
   discord,
   skills = null,
-  runCommand = null,
-  runOwnCommand = null,
-  runInitiativeCommand = null,
+  runOp = null,
+  runOwnOp = null,
+  runInitiativeOp = null,
   around = null,
   reactors = null,
   errands = null,
@@ -2114,7 +2114,7 @@ export function createTurnRunner({
    * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
    * operation writes `started` with the ids it aims at, a destructive one is stamped for its
    * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
-   * `runCommand` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
+   * `runOp` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
    * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
@@ -2156,9 +2156,9 @@ export function createTurnRunner({
           refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
           renderText,
           envelope,
-          runCommand,
-          runOwnCommand,
-          runInitiativeCommand,
+          runOp,
+          runOwnOp,
+          runInitiativeOp,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
           timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.

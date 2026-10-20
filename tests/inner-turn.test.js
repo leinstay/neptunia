@@ -187,7 +187,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   const llm = sequenceLlm(answers, { onCall });
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const slow = (fn) => (slowMs > 0 ? async (...a) => { await new Promise((resolve) => setTimeout(resolve, slowMs)); return fn(...a); } : fn);
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: clock, port, skills: skillRegistry(), journal, runCommand: slow(admin.runCommand), runOwnCommand: slow(admin.runOwnCommand), runInitiativeCommand: slow(admin.runInitiativeCommand), intentions, ...(errands ? { errands } : {}) });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: clock, port, skills: skillRegistry(), journal, runOp: slow(admin.runSkillOp), runOwnOp: slow(admin.runOwnSkillOp), runInitiativeOp: slow(admin.runInitiativeSkillOp), intentions, ...(errands ? { errands } : {}) });
   const inner = { wake: WAKE, shadow, mayAct: () => true, ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history, { listed }), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));

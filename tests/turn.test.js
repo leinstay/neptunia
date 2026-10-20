@@ -2619,7 +2619,7 @@ function fakeErrandClient() {
 /**
  * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`,
  * over a real errand service and task store (a temp data/ directory), a fake errand client and a
- * real admin's runCommand; `task.run` granted to the persona and the web agent enabled, so an
+ * real admin's runSkillOp; `task.run` granted to the persona and the web agent enabled, so an
  * errand could be queued if anything tried.
  */
 async function runErrandLaneTurn({ classifier }) {
@@ -2642,7 +2642,7 @@ async function runErrandLaneTurn({ classifier }) {
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', errands });
   const llm = lookupLlm(classifier);
   const lookup = fakeLookup();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup, errands, skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup, errands, skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' }));
   return { result, logs, lookup, errandClient, tasks: errands.store('g1').recent(10), request: llm.turnCalls[0].messages, classified: logs.find((l) => l.msg === 'lookup: classified') };
 }
@@ -8908,7 +8908,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
     if (llm.calls.length === 1) history.push(...later);
     return answer;
   };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, ...(emoji ? { emoji } : {}) });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, port, sends, channel, store, hot };
@@ -9253,7 +9253,7 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };
-  const runner = () => createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
+  const runner = () => createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp });
   const turns = runner();
   const run = (where, raw, on = turns) => withCapturedLogs(() => on.runTurn({ channel: where, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   return { history, channel, news, port, llm, clock, turns, runner, run };

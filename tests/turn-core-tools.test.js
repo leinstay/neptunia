@@ -147,7 +147,7 @@ function journalOverMemory() {
 /**
  * One mention by Alice (u1, an owner) in #general (c1) answered with `answers` in turn, with the
  * tool loop on (`coreTools`) and `loop` as skills.loop; `allowed` skills granted to the persona;
- * `wrapCommand` wraps the admin's runCommand; `runner` and `adminExtra` go to the runner and the
+ * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
 async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [] }) {
@@ -167,10 +167,10 @@ async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read']
   const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1', members: { me: { displayName: 'Bot' } } }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map([['c2', jardin]]) } };
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...adminExtra });
-  const runCommand = wrapCommand ? wrapCommand(admin.runCommand) : admin.runCommand;
+  const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand, runOwnCommand: admin.runOwnCommand, ...runner });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, ...runner });
   const again = () => turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
@@ -250,14 +250,14 @@ test('parser diagnostics: a call written inside a message is cut out of the post
 
 test('tool loop: several calls of one answer run together, both results come back in one step; past maxCallsPerStep the rest is dropped', async () => {
   const events = [];
-  const wrapCommand = (runCommand) => async (key, args, context) => {
+  const wrapCommand = (runOp) => async (key, args, context) => {
     events.push(`start:${key}`);
     await new Promise((resolve) => setImmediate(resolve));
     events.push(`end:${key}`);
-    return runCommand(key, args, context);
+    return runOp(key, args, context);
   };
   const run = await coreTurn({ answers: ['<call skill="lore.list"/><call skill="memory.server.read"/>', '<msg>έτοιμο</msg>'], wrapCommand });
-  assert.deepEqual(events, ['start:lore.list', 'start:memory.server', 'end:lore.list', 'end:memory.server'], 'the reads run alongside each other');
+  assert.deepEqual(events, ['start:lore.list', 'start:memory.server.read', 'end:lore.list', 'end:memory.server.read'], 'the reads run alongside each other');
   assert.equal(run.llm.calls.length, 2);
   assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['lore.list:ok', 'memory.server.read:ok']);
   assert.deepEqual(run.sends.map((send) => send.text), ['έτοιμο']);

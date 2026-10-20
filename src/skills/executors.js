@@ -732,11 +732,11 @@ function fromPort(result) {
  * writing (`message.create`, `message.edit`) is first rendered as a `<msg>` of hers is posted
  * (`deps.renderText`: the text, or `{ text, userIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.js#renderPost), the members it mentions handed to the
- * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runCommand(key, args, context)`
- * (src/admin.js#runCommand) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
- * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right), and on
+ * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
+ * (src/admin.js#runSkillOp) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
+ * `deps.runOwnOp` (src/admin.js#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
- * `deps.runInitiativeCommand` (src/admin.js#runInitiativeCommand, the same for any operation) -- on
+ * `deps.runInitiativeOp` (src/admin.js#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
@@ -782,9 +782,9 @@ export async function executeCall(resolved, deps) {
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
-    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : initiative ? deps.runInitiativeCommand : deps.runCommand;
+    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnOp : initiative ? deps.runInitiativeOp : deps.runOp;
     if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
-    const result = await withTimeout(run(call.key, call.args, {
+    const result = await withTimeout(run(call.op, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],

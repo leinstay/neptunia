@@ -309,7 +309,7 @@ function boot(chat, {
   };
   const port = chat.port;
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port });
-  const runCommand = failOps.length === 0 ? admin.runCommand : async (key, args, context) => (failOps.includes(key) ? { status: 'failed', code: 'error', summary: 'it did not work', data: null } : admin.runCommand(key, args, context));
+  const runOp = failOps.length === 0 ? admin.runSkillOp : async (op, args, context) => (failOps.includes(op) ? { status: 'failed', code: 'error', summary: 'it did not work', data: null } : admin.runSkillOp(op, args, context));
 
   // The errand service over the real task store; its runner is a fake that ends at once.
   const stores = createTaskStores({ dataDir, config: () => hot.config, log: SILENT });
@@ -334,9 +334,9 @@ function boot(chat, {
     port,
     skills: skillRegistry(),
     journal,
-    runCommand,
-    runOwnCommand: admin.runOwnCommand,
-    runInitiativeCommand: admin.runInitiativeCommand,
+    runOp,
+    runOwnOp: admin.runOwnSkillOp,
+    runInitiativeOp: admin.runInitiativeSkillOp,
     errands,
     ...(recall ? { recall } : {}),
   });

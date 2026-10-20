@@ -157,7 +157,7 @@ export async function coreToolsOffScenes(load, { coreTools } = {}) {
     const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1' });
     const turns = createTurnRunner({
       discord, createPort: createDiscordAdapter, hot, store, llm, calibrator, client, lookup: fakeLookup(), recall: fakeRecall(),
-      skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, now: () => NOW,
+      skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
     });
     await turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
     return JSON.parse(JSON.stringify(llm.requests));

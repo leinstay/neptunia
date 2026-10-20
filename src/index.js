@@ -387,14 +387,13 @@ const turns = createTurnRunner({
   record,
   port: iface,
   skills: skillRegistry(),
-  // Her skills are the owner commands: each runs through the command's own path, the
-  // requester's rights checked again (src/admin.js#runCommand); read at call time, the admin
-  // being created below.
-  runCommand: (key, args, context) => admin.runCommand(key, args, context),
+  // Her skills run by operation name, the requester's rights checked again
+  // (src/admin.js#runSkillOp); read at call time, the admin being created below.
+  runOp: (op, args, context) => admin.runSkillOp(op, args, context),
   // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
-  runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
+  runOwnOp: (op, args, context) => admin.runOwnSkillOp(op, args, context),
   // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
-  runInitiativeCommand: (key, args, context) => admin.runInitiativeCommand(key, args, context),
+  runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
   // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
   errands,
   // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
