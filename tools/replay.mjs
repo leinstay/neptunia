@@ -46,8 +46,8 @@
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
-//   cd /opt/neptunia/app && node tools/replay.mjs --inner <intention_due|errand_deadline|review>
-//        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--spend <usd>]
+//   cd /opt/neptunia/app && node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat>
+//        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>]
 //
 // `--inner <kind>`: the inner turn the scheduler would run for one wake, against the live data
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
@@ -60,6 +60,20 @@
 // and every other call is only proposed; features.dryRun and the journal off; intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
+//
+// `--inner heartbeat`: the heartbeat's turn. The wake is built by the scheduler itself (a real
+// src/behavior/inner.js life over a throwaway copy of inner.json, with a turn runner that only
+// records the wake and the conversation it was handed), so its `<wake>` is the one the live
+// heartbeat would carry now: the heartbeat view over the stores, read only. Takes neither
+// `--intention` nor `--review`. Every `--inner` kind takes `--samples n` (n independent runs of
+// the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
+// the live prompts.local/ as `--diary --prompts` does: a directory holding only heartbeat.md
+// replaces only that file, so a variant of the task text is tried without a deploy) and
+// `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
+// sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
+// the actions (proposed, executed, refused), the cost; the same report in Markdown goes to
+// stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
+// last sample's would pass it.
 //
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
@@ -489,6 +503,7 @@
 
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -510,9 +525,9 @@ const USAGE =
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--spend <usd>]';
+  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>]';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
-export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review']);
+export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
 /** An intention id (src/intentions/model.js#newIntentionId). */
@@ -738,17 +753,19 @@ export function parseArgs(argv) {
   if (out.steps && out.showRequestTurn === null) throw new CliError(USAGE);
   const [channelId, triggerId, extra] = positional;
   if (out.inner !== null) {
-    // --intention for an intention's wake, --review only with the review; --snapshot, --show-request and --spend; no positionals.
+    // --intention for an intention's wake, --review only with the review (the heartbeat takes neither); --snapshot, --show-request,
+    // --samples, --prompts, --out and --spend; no positionals.
     const review = out.inner === 'review';
+    const bare = review || out.inner === 'heartbeat';
     if (
-      positional.length > 0 || (review ? out.intention !== null : out.intention === null || out.review) || out.diaryDay || out.diary !== null || out.skills !== null ||
-      out.showRequestTurn !== null || out.pair || out.triggers !== null || out.split || out.recall || out.samples !== null || out.text !== null || out.budget !== null ||
-      out.hideSelfAll || out.hideSelf.length > 0 || out.asOfMoment || out.before !== null || out.count !== null || out.topic !== null || out.prompts !== null || out.dry ||
-      out.pairPrompts !== null || out.coreTools || out.pairCoreTools || out.outDir !== null || out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null
+      positional.length > 0 || (bare ? out.intention !== null : out.intention === null || out.review) || (out.review && !review) || out.diaryDay || out.diary !== null || out.skills !== null ||
+      out.showRequestTurn !== null || out.pair || out.triggers !== null || out.split || out.recall || out.text !== null || out.budget !== null ||
+      out.hideSelfAll || out.hideSelf.length > 0 || out.asOfMoment || out.before !== null || out.count !== null || out.topic !== null || out.dry ||
+      out.pairPrompts !== null || out.coreTools || out.pairCoreTools || out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, review, samples: 1, channelId: null, triggerId: null };
+    return { ...out, review, samples: out.samples ?? 1, channelId: null, triggerId: null };
   }
   if (out.intention !== null || out.review) throw new CliError(USAGE);
   if (out.diaryDay) {
@@ -2097,10 +2114,120 @@ function blockNames(text) {
 }
 
 /**
- * The `--inner` mode (see the header): one inner turn for one wake, in shadow, against the live
- * data (or `--snapshot`) read only. Returns `{ code, result }`.
+ * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.js#createInnerLife)
+ * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
+ * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
+ * records what it was handed (the `<wake>` facts, the conversation, the current channel) and ends the turn
+ * as a skip. So the facts are the ones the live heartbeat would carry now (heartbeat-view.js over the
+ * stores). Nothing is written under `dataDir`; the throwaway directory is removed. A CliError when the drain
+ * ran no turn (stopped, paused, no conversation).
+ * @param {object} input
+ * @param {object} input.inner  src/behavior/inner.js's module.
+ * @param {object} input.hot
+ * @param {string} input.dataDir
+ * @param {string} input.guildId
+ * @param {number} input.now
+ * @param {object} [input.deps]  The createInnerLife options besides hot, dataDir and turns:
+ *   intentions, record, journal (reads only), places, nameOf, client, discord, store, heartbeat.
+ * @param {string} [input.tmpRoot]  Where the throwaway directory is made (default the OS temp directory).
+ * @param {object} [input.log]
+ * @returns {Promise<{ info: object, channel: object, currentChannel: string|null }>}
  */
-async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
+export async function heartbeatReplayWake({ inner, hot, dataDir, guildId, now, deps = {}, tmpRoot = os.tmpdir(), log = { info() {}, warn() {} } }) {
+  const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
+  try {
+    const stateFile = path.join(dataDir, 'guilds', String(guildId), 'inner.json');
+    if (fs.existsSync(stateFile)) {
+      // A copy with the kill switch lifted (a stopped life would queue nothing; a preview is wanted anyway).
+      const kept = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      fs.mkdirSync(path.join(scratch, 'guilds', String(guildId)), { recursive: true });
+      fs.writeFileSync(path.join(scratch, 'guilds', String(guildId), 'inner.json'), JSON.stringify({ ...kept, stopped: false }));
+    }
+    let seen = null;
+    const life = inner.createInnerLife({
+      ...deps,
+      hot,
+      dataDir: scratch,
+      turns: {
+        runTurn: async (turn) => {
+          seen = { info: turn.inner.wake, channel: turn.channel, currentChannel: turn.inner.currentChannel ?? null };
+          return { outcome: 'skip', reason: 'replay-capture' };
+        },
+      },
+      getGuildId: () => guildId,
+      journal: deps.journal ?? null,
+      now: () => now,
+      rng: () => 0.5,
+      setTimer: () => null,
+      log,
+    });
+    const queued = life.onWake({ kind: 'inner.wake', at: now, id: `inner.wake:heartbeat:${now}`, guildId, wake: inner.heartbeatWake(now) });
+    if (queued?.status !== 'queued') throw new CliError(`replay-cli: the heartbeat wake was not queued (${queued?.status ?? 'unknown'})`);
+    const drained = await life.drain(guildId);
+    if (!seen) {
+      const why = drained?.deferred ?? drained?.refused ?? (drained?.dropped ? 'no conversation (no channel she spoke in lately that she can write in)' : 'nothing ran');
+      throw new CliError(`replay-cli: the scheduler would not run the heartbeat now: ${why}`);
+    }
+    return seen;
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * One reply of an `--inner` run, as the report shows it: her `<think>` whole, her messages, her calls with
+ * their arguments, her reactions, gif and drawing, whether she skipped. Pure.
+ * @param {string|null} text  The raw reply.
+ * @param {Function} parseOutput  src/llm/parse.js#parseOutput.
+ */
+export function innerAnswerOf(text, parseOutput) {
+  const parsed = parseOutput(String(text ?? ''));
+  return {
+    think: parsed.think,
+    messages: parsed.messages.map((message) => message.text),
+    calls: parsed.calls.map((call) => ({ skill: call.skill, args: call.args, body: call.body })),
+    reactions: parsed.reactions,
+    gif: parsed.gif,
+    draws: parsed.draws,
+    skip: parsed.skip,
+    text: String(text ?? ''),
+  };
+}
+
+/**
+ * The Markdown report of an `--inner` result (`runInner`'s): the `<wake>` block once, then per sample her think,
+ * her answer, the actions and the cost. Pure.
+ * @param {object} result
+ * @returns {string}
+ */
+export function innerReportMarkdown(result) {
+  const fence = (text) => `~~~\n${String(text ?? '')}\n~~~`;
+  const lines = [`# Inner turn: ${result.kind}${result.intention ? ` (${result.intention})` : ''}`, '', `Channel: ${result.channelId ?? '-'}`, ''];
+  if (result.wake) lines.push('## wake', '', fence(result.wake), '');
+  if (result.request?.messages) lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
+  (result.samples ?? []).forEach((sample, index) => {
+    lines.push(`## Sample ${index + 1}`, '', `Outcome: ${sample.outcome ?? '-'}${sample.reason ? ` (${sample.reason})` : ''}`, '');
+    sample.answers.forEach((answer, step) => {
+      lines.push(`### Answer ${step + 1}`, '', 'think:', '', fence(answer.think || '(none)'), '');
+      if (answer.messages.length > 0) lines.push('messages:', '', ...answer.messages.map((message) => `- ${message.replace(/\n/g, '\n  ')}`), '');
+      if (answer.calls.length > 0) lines.push('calls:', '', fence(JSON.stringify(answer.calls, null, 2)), '');
+      if (answer.reactions?.length > 0) lines.push('reactions:', '', fence(JSON.stringify(answer.reactions)), '');
+      if (answer.gif) lines.push('gif:', '', fence(JSON.stringify(answer.gif)), '');
+      if (answer.draws?.length > 0) lines.push('drawings:', '', fence(JSON.stringify(answer.draws)), '');
+      if (answer.skip) lines.push('skip', '');
+    });
+    lines.push('actions:', '', sample.actions.length > 0 ? fence(JSON.stringify(sample.actions, null, 2)) : '(none)', '');
+    lines.push(`posted: ${sample.posted}; requests: ${sample.usage.requests}; tokens: ${sample.usage.promptTokens} in, ${sample.usage.completionTokens} out; cost: ${Number(sample.usage.cost ?? 0).toFixed(4)} USD`, '');
+  });
+  lines.push(`Total cost: ${Number(result.usage?.cost ?? 0).toFixed(4)} USD${result.stopped ? ` (stopped: ${result.stopped})` : ''}`, '');
+  return lines.join('\n');
+}
+
+/**
+ * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
+ * live data (or `--snapshot`) read only. Returns `{ code, result }`.
+ */
+async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, budget = null }) {
   const mods = {
     ...(await loadDiaryMods(load)),
     ...(await load('behavior/inner.js')),
@@ -2114,22 +2241,33 @@ async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
     ...(await load('behavior/prompt.js')),
   };
   await load('ops/index.js');
+  const { createJournal } = await load('memory/journal.js');
+  const { grantedSkillNames } = await load('skills/discovery.js');
+  const { PROFILES: AGENT_PROFILES, TOOL_PROFILES } = await load('agent-runner/profiles.js');
+  const { deepMerge } = await load('config.js');
   const { createStore, createCalibrator, createLlm, resolveGuild, createFakeAdapter, createIntentionStores, createIntentionService, createTaskStore, createAppendStore, createRecord, createAdmin, skillRegistry, userText } = mods;
   const liveData = defaultDataDir(root);
   const dataDir = args.snapshot !== null ? path.resolve(root, args.snapshot) : liveData;
   if (!fs.existsSync(dataDir)) throw new CliError(`replay-cli: no data directory at ${dataDir}`);
+  const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
+  if (outFile !== null && [liveData, dataDir].some((dir) => outFile === dir || outFile.startsWith(`${dir}${path.sep}`))) throw new CliError('replay-cli: --out may not be under data/');
 
   loadDotEnv(privateDirOf(root));
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
   const openrouterKey = simKey('replay-cli');
 
-  const hot = innerReplayHot(liveHot);
-  const config = hot.config;
-  const settings = mods.innerSettings(config);
-  const timezone = config.bot?.timezone ?? 'UTC';
+  let layered = null;
   let client = null;
   try {
+    if (args.prompts !== null) {
+      layered = overlayPromptsHot(createHot, root, args.prompts, { mergeJson: deepMerge });
+      log.info('replay-cli: inner prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
+    }
+    const hot = innerReplayHot(layered?.hot ?? liveHot);
+    const config = hot.config;
+    const settings = mods.innerSettings(config);
+    const timezone = config.bot?.timezone ?? 'UTC';
     const { store, state } = unflushedStore(createStore({ dataDir }));
     const calibrator = createCalibrator(state.data.calibration);
     const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
@@ -2159,6 +2297,7 @@ async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
       if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
       return queueRequest(request);
     };
+    const capabilities = mods.createDiscordInterface({ client }).capabilities;
 
     // Her intentions and errands, read only; her inner state as it stands.
     const taskStore = createTaskStore({ dataDir, guildId, config: () => hot.config, journal: null });
@@ -2178,79 +2317,173 @@ async function runInner({ args, root, load, hot: liveHot, loadDotEnv, log }) {
 
     const now = Date.now();
     let intention = null;
-    let channelIds = [];
-    if (args.inner !== 'review') {
-      intention = intentions.store(guildId)?.get(args.intention) ?? null;
-      if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
-      if (!['pending', 'waiting'].includes(intention.status)) log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', { status: intention.status });
-      const privateChat = intention.provenance?.scope === 'dm';
-      const target = privateChat ? intention.provenance?.channelId : (intention.destination ?? intention.provenance?.channelId);
-      if (target) channelIds = [String(target)];
-    } else {
-      channelIds = innerState.review?.channels ?? [];
-      if (channelIds.length === 0) {
-        const record = createRecord({ appendStore: createAppendStore({ log }), dataDir, log });
-        const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
-        const own = [];
-        for await (const line of record.iterate(guildId, { from })) if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
-        own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
-        channelIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
-      }
-    }
     let channel = null;
-    for (const id of channelIds) {
-      channel = await client.channels.fetch(id).catch(() => null);
-      if (channel) break;
-    }
-    if (!channel) throw new CliError('replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)');
+    let info = null;
+    let currentChannel;
     const refuse = (name) => async () => {
       throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
     };
+    if (args.inner === 'heartbeat') {
+      // The scheduler builds it: the heartbeat view over the stores as they are, in the conversation it picks.
+      if (!settings.heartbeat.enabled) log.warn('replay-cli: innerLife.heartbeat.enabled is off; the live scheduler would not wake her', {});
+      // A pause of hers would hold the live drain; a preview is wanted anyway (the copy of the store is not written).
+      if (state.data.paused) log.warn('replay-cli: she is paused; the live scheduler would hold the heartbeat, the preview runs it', {});
+      const schedulerStore = new Proxy(store, {
+        get(target, prop) {
+          if (prop === 'state') return { ...state, data: { ...state.data, paused: false } };
+          const value = Reflect.get(target, prop, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      const appendStore = createAppendStore({ log });
+      const record = createRecord({ appendStore, dataDir, log });
+      const journalRead = createJournal({ appendStore, dataDir, config: () => ({}), log });
+      const caught = await heartbeatReplayWake({
+        inner: mods,
+        hot,
+        dataDir,
+        guildId,
+        now,
+        log,
+        deps: {
+          intentions,
+          record,
+          journal: { read: (...a) => journalRead.read(...a) },
+          places: (id) => {
+            const guild = client.guilds.cache.get(String(id));
+            if (!guild) return [];
+            return capabilities.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
+              let writable = null;
+              try {
+                const found = guild.channels.cache.get(entry.id);
+                writable = found ? capabilities.canSend(found) : null;
+              } catch {
+                writable = null;
+              }
+              return { id: entry.id, name: entry.name, writable };
+            });
+          },
+          nameOf: (id, memberId) => store.getUser(id, memberId)?.names?.[0] ?? null,
+          client,
+          discord: capabilities,
+          store: schedulerStore,
+          heartbeat: {
+            tasks: () => taskStore.recent(100),
+            skills: () => grantedSkillNames({ config: hot.config, selfId: self.id, registry: skillRegistry() }),
+            agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
+            selfId: () => self.id,
+          },
+        },
+      });
+      ({ info, channel, currentChannel } = caught);
+    } else {
+      let channelIds = [];
+      if (args.inner !== 'review') {
+        intention = intentions.store(guildId)?.get(args.intention) ?? null;
+        if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
+        if (!['pending', 'waiting'].includes(intention.status)) log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', { status: intention.status });
+        const privateChat = intention.provenance?.scope === 'dm';
+        const target = privateChat ? intention.provenance?.channelId : (intention.destination ?? intention.provenance?.channelId);
+        if (target) channelIds = [String(target)];
+      } else {
+        channelIds = innerState.review?.channels ?? [];
+        if (channelIds.length === 0) {
+          const record = createRecord({ appendStore: createAppendStore({ log }), dataDir, log });
+          const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
+          const own = [];
+          for await (const line of record.iterate(guildId, { from })) if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
+          own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+          channelIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
+        }
+      }
+      for (const id of channelIds) {
+        channel = await client.channels.fetch(id).catch(() => null);
+        if (channel) break;
+      }
+      if (!channel) throw new CliError('replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)');
+      const channelNames = channelIds.map((id) => client.channels.cache.get(id)?.name ?? null).filter(Boolean);
+      info = innerReplayWake({ inner: mods, kind: args.inner, intention, state: innerState, settings, now, timezone, day: mods.zonedDay(now, timezone), channelNames }).info;
+    }
     channel.send = refuse('send');
     channel.sendTyping = refuse('sendTyping');
-    const channelNames = channelIds.map((id) => client.channels.cache.get(id)?.name ?? null).filter(Boolean);
-    const { info } = innerReplayWake({ inner: mods, kind: args.inner, intention, state: innerState, settings, now, timezone, day: mods.zonedDay(now, timezone), channelNames });
 
     // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
     const port = createFakeAdapter({ iface: 'replay', selfId: self.id, now: Date.now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
-    const capabilities = mods.createDiscordInterface({ client }).capabilities;
     const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, getGuildId: () => guildId, dataDir: null });
     const turns = diaryTurnRunner(mods, {
       hot, store, llm, calibrator, client, guildId, self, images: null, state, port,
       extra: { skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, errands },
     });
-    log.info('replay-cli: inner ready', { guildId, channelId: channel.id, kind: args.inner, intention: intention?.id ?? null });
+    log.info('replay-cli: inner ready', { guildId, channelId: channel.id, kind: args.inner, intention: intention?.id ?? null, samples: args.samples });
 
-    let result;
-    try {
-      result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { wake: info, shadow: true, mayAct: () => false } });
-    } catch (err) {
-      result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
-    }
-    const replies = requests.filter((request) => request.purpose === 'reply');
-    const firstText = replies[0] ? userText(replies[0].messages[1]?.content) : '';
-    const blocks = {};
-    for (const tag of ['wake', 'intentions', 'tasks', 'retrieved', 'task']) {
-      const whole = blockOf(firstText, tag);
-      if (whole) blocks[tag] = whole;
-    }
-    const usage = addUsage({ requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 }, calls);
-    return {
-      code: result?.outcome === 'error' ? 1 : 0,
-      result: {
-        kind: args.inner,
-        intention: intention?.id ?? null,
-        channelId: String(channel.id),
+    const samples = [];
+    let firstRequest = null;
+    let total = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
+    let stopped = null;
+    let lastCost = 0;
+    let code = 0;
+    let posted = 0;
+    for (let n = 0; n < args.samples; n += 1) {
+      // The same request again, independent runs; none starts when its expected cost would pass --spend.
+      if (n > 0 && budget !== null && total.cost + lastCost > budget) {
+        stopped = 'spend';
+        break;
+      }
+      requests.length = 0;
+      calls.length = 0;
+      let result;
+      try {
+        result = await turns.runTurn({
+          channel, guildId, mode: 'inner', triggerKind: 'inner',
+          inner: { wake: structuredClone(info), shadow: true, mayAct: () => false, ...(args.inner === 'heartbeat' ? { currentChannel } : {}) },
+        });
+      } catch (err) {
+        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+      }
+      const replies = requests.filter((request) => request.purpose === 'reply');
+      if (n === 0) firstRequest = { text: replies[0] ? userText(replies[0].messages[1]?.content) : '', messages: replies[0]?.messages ?? null };
+      const usage = addUsage({ requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 }, calls);
+      total = { requests: total.requests + usage.requests, promptTokens: total.promptTokens + usage.promptTokens, completionTokens: total.completionTokens + usage.completionTokens, cost: total.cost + usage.cost };
+      lastCost = usage.cost;
+      const sent = port.calls.filter((call) => call.op === 'send').length;
+      if (result?.outcome === 'error') code = 1;
+      samples.push({
         outcome: result?.outcome ?? null,
         reason: result?.reason ?? null,
-        request: { blocks: blockNames(firstText), ...blocks, ...(args.showRequest && replies[0] ? { messages: replies[0].messages } : {}) },
-        answers: calls.filter((call) => call.purpose === 'reply').map((call) => call.text),
+        answers: calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput)),
         actions: result?.inner?.actions ?? [],
-        posted: port.calls.filter((call) => call.op === 'send').length,
+        posted: sent - posted,
         usage,
-      },
+      });
+      posted = sent;
+    }
+    const blocks = {};
+    for (const tag of ['wake', 'intentions', 'tasks', 'retrieved', 'task']) {
+      const whole = blockOf(firstRequest?.text ?? '', tag);
+      if (whole) blocks[tag] = whole;
+    }
+    const report = {
+      kind: args.inner,
+      intention: intention?.id ?? null,
+      channelId: String(channel.id),
+      wake: blocks.wake ?? null,
+      request: { blocks: blockNames(firstRequest?.text ?? ''), ...blocks, ...(args.showRequest && firstRequest?.messages ? { messages: firstRequest.messages } : {}) },
+      samples,
+      usage: total,
+      ...(stopped ? { stopped } : {}),
     };
+    const markdown = innerReportMarkdown(report);
+    if (outFile !== null) {
+      fs.mkdirSync(path.dirname(outFile), { recursive: true });
+      fs.writeFileSync(outFile, markdown);
+    }
+    process.stderr.write(`${markdown}\n`);
+    return { code, result: report };
   } finally {
+    if (layered) {
+      layered.hot.close();
+      fs.rmSync(layered.dir, { recursive: true, force: true });
+    }
     if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
   }
 }
@@ -4415,7 +4648,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const requests = args.dry
       ? 0
       : args.inner
-        ? INNER_REQUESTS
+        ? INNER_REQUESTS * args.samples
       : args.diary
         ? DIARY_REQUESTS_PER_BRIEF * args.count
         : args.pairCoreTools
@@ -4455,7 +4688,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   }
   if (args.inner) {
     try {
-      return await runInner({ args, root, load, hot, loadDotEnv, log });
+      return await runInner({ args, root, load, hot, createHot, loadDotEnv, log, budget: spendBudget });
     } finally {
       hot.close();
     }
