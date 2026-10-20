@@ -270,9 +270,14 @@ function heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, li
     return tidy('diary', { when: when(row.at), gist: one(row.gist ?? '') });
   });
   block('life', lifeText, (life.actions?.more ?? 0) + (life.posts?.more ?? 0) + (life.errands?.more ?? 0) + (life.diary?.more ?? 0) + (lifeRows.length - shownLife.length));
-  block('open', rows(life.open, (i) => make('openItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '' })), life.open?.more ?? 0);
+  block('open', rows(life.open, (i) => make('openItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '', origin: i.origin === 'heartbeat' ? make('openOrigin', {}) : '' })), life.open?.more ?? 0);
   block('attending', rows(life.attending, (i) => make('attendingItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), place: one(i.place) })), life.attending?.more ?? 0);
   block('closed', rows(life.closed, (i) => make('closedItem', { id: one(i.id), state: one(i.state), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), why: one(i.why), when: when(i.at) })), life.closed?.more ?? 0);
+  // What this wake accepts (innerLife.heartbeat.intentionsOnly), before the list of what she can do.
+  if (facts.intentionsOnly === true) {
+    const only = make('intentionsOnly', {});
+    if (only) out.push(only);
+  }
   const skills = Array.isArray(facts.skills) ? facts.skills : [];
   const agents = Array.isArray(facts.agents) ? facts.agents : [];
   block('skills', [...skills.map((s) => make('skill', { family: one(s.family), names: s.names.map(one).join(', ') })), agents.length > 0 ? make('agentsLine', { agents: agents.map(one).join(', ') }) : ''], 0);

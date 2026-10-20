@@ -27,10 +27,10 @@ STEP 2: Is this worth doing
 STEP 3: Choose, or leave it
 [Choose at most one candidate you actually want to pursue now. A worthwhile candidate can still wait; it need not become an intention unless you mean to return to it. If nothing is left, say why in a line; this wake then ends with `<skip/>`. End with "So:" and your decision.]
 
-STEP 4: Make it happen
-[Choose a workable next action using the capabilities and limits actually available to you. Combine skills when that helps the purpose. Distinguish what you can do now from what depends on information or results you do not yet have. If you genuinely mean to act later, save an intention with its purpose, due time, destination, and enough context to resume it. Check whether an existing intention already covers it. End with "So:" and your decision.]
+STEP 4: Write the intention
+[Turn what you chose into an intention a later turn can carry out without seeing this think. Say what and why, with enough detail to act on it later; where it happens (a person, a place, a channel); and when. "Now" is allowed: it runs as its own turn right after this wake. Give the first step. When this wake has no way to tell whether the thing is still needed, make that first step a check. Say when it is done and when to skip it. Only things your skills in `<wake>` actually allow. Before creating, compare with your open and recently closed intentions of the same purpose and place: update one or leave it instead of writing a second. If you would like to do it regularly, make it recurring (each run may do nothing). End with "So:" and your decision.]
 
 Final check
 [Does the proposed action still serve what you chose? Does it fit the relationship and destination, respect applicable boundaries, and avoid duplicating recent actions or existing intentions? Are any assumptions important enough to verify before acting? Revise or leave it if needed.]
 
-The decision record is not a message to anyone. After `</think>`, use tool calls for action or saving an intention; otherwise return `<skip/>`. Do not reproduce the decision record in outgoing messages. If your calls return results and you answer again, the decision is already made: continue from it with the next step, without going through the steps again.
+The decision record is not a message to anyone. After `</think>`, make one intention call (`intent.set`, `intent.update` or `intent.cancel`) or return `<skip/>`. Nothing else is accepted in this wake; the intention's own turn does the thing. Do not copy the decision record into the intention. If a call is refused and you answer again, the decision is already made: correct the call without going through the steps again.

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs, readOnlyJournal } from '../tools/replay.mjs';
+import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs, readOnlyJournal, recordingLlm } from '../tools/replay.mjs';
 import { parseOutput } from '../src/llm/parse.js';
 import * as inner from '../src/behavior/inner.js';
 
@@ -209,4 +209,31 @@ test('replay --inner: --answers-dir is accepted with its timeout and samples', (
   const ok = parseArgs(['--inner', 'heartbeat', '--answers-dir', 'd', '--answers-timeout-min', '5', '--samples', '3']);
   assert.equal(ok.answersDir, 'd');
   assert.equal(ok.answersTimeoutMin, 5);
+});
+
+test('innerAnswerOf and innerReportMarkdown: a failed step is an error step, not an empty answer or a skip', () => {
+  const ok = innerAnswerOf('<think>one</think><msg>hi</msg>', parseOutput);
+  const failed = innerAnswerOf(null, parseOutput, 'provider-limit');
+  assert.deepEqual(failed.failed, { code: 'provider-limit' });
+  assert.equal(failed.skip, false);
+  assert.equal(ok.failed, undefined);
+  const usage = { requests: 2, promptTokens: 1, completionTokens: 1, cost: 0 };
+  const markdown = innerReportMarkdown({
+    kind: 'heartbeat', intention: null, channelId: 'c1', usage,
+    samples: [{ outcome: 'ok', reason: null, answers: [ok, failed], actions: [], posted: 0, usage }],
+  });
+  assert.ok(markdown.includes('### Step 2: error (provider-limit)'));
+  assert.ok(markdown.includes('Failed steps: 1 of 2'));
+  assert.ok(markdown.includes('ended in error (provider-limit)'));
+  const afterFailed = markdown.split('### Step 2')[1].split('actions:')[0];
+  assert.ok(!afterFailed.includes('think:') && !afterFailed.includes('skip'));
+});
+
+test('recordingLlm notes the failure code of a failed completion', async () => {
+  const calls = [];
+  const err = Object.assign(new Error('rate limited'), { statusCode: 429 });
+  const llm = recordingLlm({ complete: async () => { throw err; } }, calls, { errorCodeOf: (e) => (e.statusCode === 429 ? 'provider-limit' : 'error') });
+  await assert.rejects(llm.complete([], { purpose: 'reply' }));
+  assert.equal(calls[0].code, 'provider-limit');
+  assert.match(calls[0].error, /rate limited/);
 });

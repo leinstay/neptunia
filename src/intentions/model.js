@@ -90,6 +90,23 @@ export const PARTICIPANTS_MAX = 20;
 /** A name shorter than this (in letters and digits) is never matched by a forget. */
 const MIN_FORGET_NAME = 3;
 
+/** The `origin` of an intention a heartbeat turn created (docs/inner-life.md "What a heartbeat may do"). */
+export const HEARTBEAT_ORIGIN = 'heartbeat';
+/** What a heartbeat may hold open at once (`innerLife.heartbeat.maxOpen` / `maxRecurring`; config.json carries the same). */
+export const HEARTBEAT_LIMITS = Object.freeze({ maxOpen: 3, maxRecurring: 1 });
+
+/** `innerLife.heartbeat.maxOpen` and `maxRecurring`, read from the live config now, each a whole number >= 0 or the default. */
+export function heartbeatLimits(config) {
+  const set = config?.innerLife?.heartbeat ?? {};
+  const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? Math.floor(set[key]) : HEARTBEAT_LIMITS[key]);
+  return { maxOpen: pick('maxOpen'), maxRecurring: pick('maxRecurring') };
+}
+
+/** The open (pending or waiting) intentions a heartbeat created, among `records`. */
+export function openFromHeartbeat(records) {
+  return (Array.isArray(records) ? records : []).filter((record) => record?.origin === HEARTBEAT_ORIGIN && (record.status === 'pending' || record.status === 'waiting'));
+}
+
 /** The `intentions` section's numbers, read from the live config now, each falling back to DEFAULTS. */
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
@@ -444,7 +461,7 @@ function withHistory(record, entry) {
  *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
  *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
  */
-export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, dropped = false, reason = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
+export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, origin = null, dropped = false, reason = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
@@ -494,6 +511,8 @@ export function createIntention({ purpose, provenance, dueAt = null, every = nul
     completionCondition: line(completionCondition, CONDITION_CHARS) || null,
     chainId: line(chainId, CHAIN_CHARS) || null,
     attend: attention,
+    // Where the engine made it, when that matters (`heartbeat`): stamped by the engine, kept through every update, never read for priority.
+    ...(origin === HEARTBEAT_ORIGIN ? { origin: HEARTBEAT_ORIGIN } : {}),
     history: [{ at: now, to: status, by }],
   };
   return { ok: true, intention };

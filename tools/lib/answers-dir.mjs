@@ -118,8 +118,13 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
  * @param {Function} createLlm
  * @param {{ answer: Function }} answers
  * @param {(config: object, purpose?: string) => string} modelOf  The model a request without `model` uses.
+ * @param {{ firstOnly?: boolean }} [opts]  firstOnly: only a turn's first answer goes to the files; a tool-loop
+ *   step continuing it (its task text says so, labels task.continue*) goes to the real model.
  */
-export function withAnswersDir(createLlm, answers, modelOf) {
+/** A tool-loop step's task text (labels task.continue*): the engine re-renders the turn as one user message. */
+const CONTINUED_RE = /This is the same (inner )?turn, continued after/;
+
+export function withAnswersDir(createLlm, answers, modelOf, { firstOnly = false } = {}) {
   return (deps) => {
     const real = createLlm(deps);
     return new Proxy(real, {
@@ -127,7 +132,8 @@ export function withAnswersDir(createLlm, answers, modelOf) {
         if (prop === 'complete') {
           return (messages, options = {}) => {
             const model = options.model ?? modelOf(deps.getConfig(), options.purpose);
-            return isAnthropicModel(model) ? answers.answer(model, messages, options) : target.complete(messages, options);
+            const continued = firstOnly && Array.isArray(messages) && messages.some((m) => m?.role === 'assistant' || CONTINUED_RE.test(contentText(m?.content)));
+            return isAnthropicModel(model) && !continued ? answers.answer(model, messages, options) : target.complete(messages, options);
           };
         }
         const value = Reflect.get(target, prop, target);

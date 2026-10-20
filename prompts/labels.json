@@ -23,7 +23,8 @@
     "deleted": "message deleted",
     "triggeredBy": "(turn triggered by #{n})",
     "triggeredByOlder": "(turn triggered by an older message)",
-    "called": "[you called {skill}{target}: {status}{posted}]",
+    "called": "[you called {skill}{target}{args}: {status}{posted}]",
+    "calledArgs": " ({args})",
     "calledTargetMessage": " on #{n}",
     "calledTargetLink": " on {link}",
     "calledTargetChannel": " in #{channel}",
@@ -517,10 +518,15 @@
     "candidate": "{id} · {purpose} · from your line: \"{span}\"{marker}",
     "externalMarker": " · [from outside]"
   },
+  "previousThink": {
+    "note": "This is your own reasoning from your previous step, kept so you know what you were doing and why. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
+    "same": "(this turn, your previous step)",
+    "earlier": "(an earlier turn here, {ago} ago)"
+  },
   "wake": {
     "header": "Why you are awake (nobody wrote to you):",
     "kinds": {
-      "intention_due": "Intention {id} is due: {purpose}",
+      "intention_due": "Intention {id} is due: {purpose}. This is your earlier decision, not a fresh request: check that it still holds before you act.",
       "review": "Your daily review: look over your intentions and what you have been doing.",
       "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
@@ -569,6 +575,7 @@
       "chain": "turns for this thread: {left} remaining of {cap}"
     },
     "heartbeat": {
+      "intentionsOnly": "This wake accepts one intention change (intent.set, intent.update, intent.cancel) or <skip/>, nothing else.",
       "people": "People you are closest to:",
       "person": "{name}: {parts}",
       "partsJoin": "; ",
@@ -589,8 +596,9 @@
       "diary": "{when}: a diary post: {gist}",
       "post": "{when}: you wrote in #{place}: {text}{media}",
       "open": "Your open intentions:",
-      "openItem": "{id} · {purpose}{due}",
+      "openItem": "{id} · {purpose}{due}{origin}",
       "due": " · due {when}",
+      "openOrigin": " · from a heartbeat",
       "attending": "Places you listen to:",
       "attendingItem": "{id} · #{place}: {purpose}",
       "closed": "Your closed intentions:",
@@ -685,6 +693,9 @@
         "timeout": "{what} timed out",
         "cap-open": "too many of your errands are open already",
         "cap-tasks": "today's errands for that agent are used up",
+        "heartbeat-only": "only one intention change or a skip per heartbeat wake, nothing else",
+        "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
+        "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",

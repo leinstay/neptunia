@@ -102,7 +102,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, service = null } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, service = null, log = SILENT } = {}) {
   const journal = [];
   const intentions = service ?? fakeIntentions(records);
   let inner;
@@ -124,7 +124,7 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     rng,
     now: () => clock.t,
     onEpisode,
-    log: SILENT,
+    log,
   });
   return { inner, turns, journal, intentions, dataDir, door, hot };
 }
@@ -1446,7 +1446,7 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
   assert.equal(call.inner.currentChannel, null);
   assert.equal(call.inner.wake.here, null);
   assert.equal(call.inner.wake.chainId, `heartbeat:${due}`);
-  assert.deepEqual(Object.keys(call.inner.wake.heartbeat).sort(), ['activity', 'agents', 'life', 'maxTokens', 'people', 'places', 'refs', 'since', 'skills']);
+  assert.deepEqual(Object.keys(call.inner.wake.heartbeat).sort(), ['activity', 'agents', 'intentionsOnly', 'life', 'maxTokens', 'people', 'places', 'refs', 'since', 'skills']);
   await run.inner.tick();
   assert.deepEqual(run.inner.state(GUILD).heartbeat, { nextAt: clock.t + 180 * MINUTE_MS, lastAt: due + MINUTE_MS });
   assert.equal(run.turns.calls.length, 1, 'once per moment');
@@ -1466,6 +1466,36 @@ test('heartbeat: never coalesced with another wake and never held behind one: it
   await run.inner.tick();
   assert.deepEqual(run.turns.calls.map((call) => call.inner.wake.items.map((item) => item.kind)), [['heartbeat'], ['intention_due']]);
   assert.deepEqual(coalesceGroup([wakeOfDue({ intention: intention('i2'), reason: 'due', at: 1 }), heartbeatWake(2), reviewWake('2026-10-19', 3)]).map((wake) => wake.kind), ['heartbeat']);
+});
+
+test('heartbeat: an intention it makes due now is not run inside the heartbeat; the next tick wakes her for it as an ordinary intention_due turn', async () => {
+  const dataDir = tempDir('nep-inner-');
+  const hot = hotWith({ innerLife: BEAT });
+  const service = createIntentionService({ stores: createIntentionStores({ dataDir, now: () => clock.t }), hot, getGuildId: () => GUILD, now: () => clock.t, log: SILENT });
+  const lines = [];
+  const log = { info: (msg, fields) => lines.push({ msg, ...fields }), warn() {}, error() {} };
+  const turns = fakeTurns({
+    answer: (params) => {
+      if (params.inner.wake.kind === 'heartbeat') {
+        const made = service.set(GUILD, { purpose: 'look at the thread', dueAt: clock.t, destination: 'c1', origin: 'heartbeat' });
+        return { outcome: 'spoke', inner: { actions: [{ skill: 'intent.set', status: 'executed', result: 'ok', createdId: made.intention.id }], intentIds: [], turnId: 't-beat' } };
+      }
+      return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], intentIds: [], turnId: 't-due' } };
+    },
+  });
+  const run = setup({ service, turns, record: sayings(), hot, rng: () => 0.5, dataDir, log });
+  await run.inner.tick();
+  clock.t = NOW + 182 * MINUTE_MS;
+  await run.inner.tick();
+  assert.deepEqual(turns.calls.map((call) => call.inner.wake.kind), ['heartbeat'], 'the heartbeat turn ran alone');
+  const outcome = lines.find((line) => line.msg === 'inner: heartbeat outcome');
+  assert.deepEqual([outcome.result, outcome.skill, outcome.openFromHeartbeat, outcome.refused], ['change', 'intent.set', 1, []]);
+  assert.equal(outcome.intentionId, service.list(GUILD, { all: true })[0].id);
+  await run.inner.tick();
+  assert.deepEqual(turns.calls.map((call) => call.inner.wake.kind), ['heartbeat', 'intention_due']);
+  assert.equal(turns.calls[1].inner.wake.intentions[0].origin, 'heartbeat');
+  const due = lines.find((line) => line.msg === 'inner: heartbeat intention due');
+  assert.deepEqual([due.intentionId, due.result, due.recurring], [outcome.intentionId, 'no-op', false]);
 });
 
 test('heartbeat: a running turn holds it to the next tick, due time kept; its chain cap is its own, so a chain of another kind at its cap does not touch it', async () => {

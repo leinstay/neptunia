@@ -801,3 +801,73 @@ test('a skill in <skills_tools> carries no description in its result', async () 
   assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['web.search:ok']);
   assert.ok(!requestText(run.llm, 1).includes(labels.skills.result.described));
 });
+
+// --- her one previous think (src/behavior/previous-think.js) -----------------
+
+const thinkBlock = (text) => /<previous_think>\n([\s\S]*?)\n<\/previous_think>/.exec(text)?.[1] ?? null;
+
+test('previous think, tool loop: a step carries the think of the step just before it, none when that step had none, the first request none', async () => {
+  const run = await coreTurn({ answers: ['<think>why I look at the lore</think><call skill="lore.list"/>', '<call skill="memory.server.read"/>', '<think>last</think><msg>τέλος</msg>'] });
+  assert.equal(run.llm.calls.length, 3);
+  assert.equal(thinkBlock(requestText(run.llm, 0)), null);
+  const second = thinkBlock(requestText(run.llm, 1));
+  assert.ok(second.includes('why I look at the lore') && second.includes(labels.previousThink.same), second);
+  assert.equal(thinkBlock(requestText(run.llm, 2)), null, 'the step before had no think: nothing older is carried');
+  const sources = run.logs.filter((entry) => entry.msg === 'turn: previous think');
+  assert.deepEqual(sources.map((entry) => entry.relation ?? entry.none), ['none-in-window', 'same', 'no-think']);
+});
+
+test('previous think, tool loop: features.previousThink off carries none', async () => {
+  const run = await coreTurn({ answers: ['<think>hidden</think><call skill="lore.list"/>', '<msg>τέλος</msg>'], features: { previousThink: false } });
+  assert.ok(!requestText(run.llm, 1).includes('previous_think'));
+});
+
+const MIN_MS = 60_000;
+// The fixture's context with the window this test sets (coreTurn's `config` replaces the whole key).
+const withWindow = (minutes) => ({
+  context: {
+    channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800,
+    gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+    vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+    pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+    previousThink: { minutes },
+  },
+});
+
+test('previous think, new turn: the latest finished turn of the place within the window carries its think with its age; past the window none', async () => {
+  const clock = { t: NOW };
+  const run = await coreTurn({ answers: ['<think>she asked about the book</think><msg>ναι</msg>', '<msg>ξανά</msg>'], config: withWindow(30), runner: { now: () => clock.t } });
+  clock.t = NOW + 10 * MIN_MS;
+  await run.again();
+  const carried = thinkBlock(requestText(run.llm, 1));
+  assert.ok(carried?.includes('she asked about the book') && carried.includes('10 min ago'), carried);
+  clock.t = NOW + 90 * MIN_MS;
+  const { logs } = await withCapturedLogs(() => run.again());
+  assert.equal(thinkBlock(requestText(run.llm, 2)), null);
+  assert.ok(logs.some((entry) => entry.msg === 'turn: previous think' && entry.none === 'none-in-window'));
+});
+
+test('previous think, new turn: a turn that failed carries nothing and the older think does not come through it', async () => {
+  const clock = { t: NOW };
+  const script = ['<think>kept?</think><msg>ναι</msg>', 'FAIL', '<msg>ξανά</msg>'];
+  let n = 0;
+  const llm = {
+    calls: [],
+    complete: async (messages) => {
+      if (messages[0].content.startsWith('Decide whether') || messages[0].content.startsWith('Pick a second look')) return { text: 'none', usage: {}, estimated: 5 };
+      llm.calls.push(messages);
+      const answer = script[Math.min(n, script.length - 1)];
+      n += 1;
+      if (answer === 'FAIL') throw new Error('provider down');
+      return { text: answer, usage: {}, estimated: 10 };
+    },
+  };
+  const run = await coreTurn({ answers: ['<skip/>'], config: withWindow(30), runner: { now: () => clock.t, llm } });
+  clock.t = NOW + MIN_MS;
+  await withCapturedLogs(() => run.again());
+  clock.t = NOW + 2 * MIN_MS;
+  const { logs } = await withCapturedLogs(() => run.again());
+  const last = llm.calls.at(-1);
+  assert.equal(thinkBlock(userText(last[1].content)), null);
+  assert.ok(logs.some((entry) => entry.msg === 'turn: previous think' && entry.none === 'failed'), JSON.stringify(logs.filter((entry) => entry.msg === 'turn: previous think')));
+});

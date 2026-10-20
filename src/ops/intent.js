@@ -28,7 +28,7 @@
 
 import { formatClock, formatDate } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
+import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
 import { isOwnerId } from './grants.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
@@ -163,7 +163,9 @@ const handlers = perEnv((env) => {
       return { status: 'ok', code: CODE.OK, summary: `intention ${verb}: ${line}`, data: { text: `intention ${verb}: ${line}`, intention: { id: result.intention.id, status: result.intention.status } } };
     }
     const status = INVALID.has(result.code) ? 'invalid' : 'failed';
-    return { status, code: result.code, summary: `intention not ${verb}: ${result.code}`, data: null };
+    // A heartbeat's cap names the open ones from heartbeats, so she can update or cancel one instead.
+    const open = Array.isArray(result.open) && result.open.length > 0 ? `; open from heartbeats: ${result.open.map((record) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}` : '';
+    return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
   }
 
   /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
@@ -191,6 +193,8 @@ const handlers = perEnv((env) => {
       channelId: context?.channelId ? String(context.channelId) : null,
       scope: inPrivate(context) ? 'dm' : 'group',
       participants: participantsOf(context),
+      // The engine's stamp: what her heartbeat turn creates (the wake kind comes from the envelope, never from her words).
+      origin: persona && context?.wakeKind === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null,
     };
   }
 

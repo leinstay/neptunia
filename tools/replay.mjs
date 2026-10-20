@@ -75,7 +75,9 @@
 // stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
-// `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model.
+// `--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]` (any mode that sends requests): the offline model
+// (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go to the real model,
+// so a frozen first answer is continued live).
 // Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
@@ -535,7 +537,7 @@ const USAGE =
   '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
-  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
+  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]])';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
@@ -683,7 +685,7 @@ export function parseArgs(argv) {
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
     diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false, steps: false,
-    inner: null, intention: null, review: false, hideChannels: [], hideMessages: [], answersDir: null, answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
+    inner: null, intention: null, review: false, hideChannels: [], hideMessages: [], answersDir: null, answersFirstOnly: false, answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -702,6 +704,7 @@ export function parseArgs(argv) {
     else if (arg === '--out') out.outDir = pathValue(argv[(i += 1)]);
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
     else if (arg === '--answers-dir') out.answersDir = pathValue(argv[(i += 1)]);
+    else if (arg === '--answers-first-only') out.answersFirstOnly = true;
     else if (arg === '--answers-timeout-min') out.answersTimeoutMin = intFlag(argv[(i += 1)], 1, 1440);
     else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
     else if (arg === '--dry') out.dry = true;
@@ -1790,14 +1793,15 @@ export async function loadDiaryMods(load) {
 /**
  * The llm client of a diary run: every request the tool's own (`origin: 'replay'`, never
  * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
- * recorded in `calls` as `{ purpose, text, usage, error }`.
+ * recorded in `calls` as `{ purpose, text, usage, error, code }` (`code`: the short failure code of
+ * `errorCodeOf`, when given, else `error`).
  */
-export function recordingLlm(realLlm, calls, { noCache = false } = {}) {
+export function recordingLlm(realLlm, calls, { noCache = false, errorCodeOf = null } = {}) {
   return new Proxy(realLlm, {
     get(target, prop) {
       if (prop === 'complete') {
         return async (messages, options = {}) => {
-          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null };
+          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null, code: null };
           calls.push(call);
           try {
             const completion = await target.complete(messages, {
@@ -1808,6 +1812,7 @@ export function recordingLlm(realLlm, calls, { noCache = false } = {}) {
             return completion;
           } catch (err) {
             call.error = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
+            call.code = typeof errorCodeOf === 'function' ? errorCodeOf(err) : 'error';
             throw err;
           }
         };
@@ -2277,8 +2282,13 @@ export async function heartbeatReplayWake({ inner, hot, dataDir, guildId, now, d
  * their arguments, her reactions, gif and drawing, whether she skipped. Pure.
  * @param {string|null} text  The raw reply.
  * @param {Function} parseOutput  src/llm/parse.js#parseOutput.
+ * @param {string|null} [failedCode]  The failure code when the model request of this step failed (no reply).
  */
-export function innerAnswerOf(text, parseOutput) {
+export function innerAnswerOf(text, parseOutput, failedCode = null) {
+  if (failedCode) {
+    // The request itself failed: no answer exists, and an empty one would read as her choosing to skip.
+    return { failed: { code: String(failedCode) }, think: '', messages: [], calls: [], reactions: [], gif: null, draws: [], skip: false, text: '' };
+  }
   const parsed = parseOutput(String(text ?? ''));
   return {
     think: parsed.think,
@@ -2305,8 +2315,15 @@ export function innerReportMarkdown(result) {
   if (result.wake) lines.push('## wake', '', fence(result.wake), '');
   if (result.request?.messages) lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
   (result.samples ?? []).forEach((sample, index) => {
-    lines.push(`## Sample ${index + 1}`, '', `Outcome: ${sample.outcome ?? '-'}${sample.reason ? ` (${sample.reason})` : ''}`, '');
+    const failedSteps = sample.answers.filter((answer) => answer.failed).length;
+    const lastFailed = sample.answers.at(-1)?.failed ?? null;
+    lines.push(`## Sample ${index + 1}`, '', `Outcome: ${sample.outcome ?? '-'}${sample.reason ? ` (${sample.reason})` : ''}${lastFailed ? `; ended in error (${lastFailed.code})` : ''}`, '');
+    if (failedSteps > 0) lines.push(`Failed steps: ${failedSteps} of ${sample.answers.length} (the model request failed; these are not her answers)`, '');
     sample.answers.forEach((answer, step) => {
+      if (answer.failed) {
+        lines.push(`### Step ${step + 1}: error (${answer.failed.code})`, '');
+        return;
+      }
       lines.push(`### Answer ${step + 1}`, '', 'think:', '', fence(answer.think || '(none)'), '');
       if (answer.messages.length > 0) lines.push('messages:', '', ...answer.messages.map((message) => `- ${message.replace(/\n/g, '\n  ')}`), '');
       if (answer.calls.length > 0) lines.push('calls:', '', fence(JSON.stringify(answer.calls, null, 2)), '');
@@ -2373,7 +2390,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
     const calls = [];
     const requests = [];
-    const recorded = recordingLlm(realLlm, calls, { noCache: true });
+    const recorded = recordingLlm(realLlm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
     const llm = new Proxy(recorded, {
       get(target, prop) {
         if (prop === 'complete') {
@@ -2548,10 +2565,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       lastCost = usage.cost;
       const sent = port.calls.filter((call) => call.op === 'send').length;
       if (result?.outcome === 'error') code = 1;
+      const answers = calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null));
       samples.push({
         outcome: result?.outcome ?? null,
         reason: result?.reason ?? null,
-        answers: calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput)),
+        failedSteps: answers.filter((answer) => answer.failed).length,
+        ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1).failed.code } : {}),
+        answers,
         actions: result?.inner?.actions ?? [],
         posted: sent - posted,
         usage,
@@ -4701,6 +4721,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
   const answers = createAnswersDir({ dir: path.resolve(root, args.answersDir), timeoutMin: args.answersTimeoutMin, estimate: (messages) => estimateMessages(messages) });
+  answers.firstOnly = args.answersFirstOnly;
   let code = 1;
   try {
     const out = await runMain(args, { root, signal, rng, answers });
@@ -4724,7 +4745,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { roleModel } = await loadModule('llm/roles.js');
     load = async (rel) => {
       const mod = await loadModule(rel);
-      return rel === 'llm/openrouter.js' ? { ...mod, createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose)) } : mod;
+      return rel === 'llm/openrouter.js' ? { ...mod, createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose), { firstOnly: Boolean(answers.firstOnly) }) } : mod;
     };
   }
 

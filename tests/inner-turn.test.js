@@ -166,9 +166,9 @@ const WAKE = {
  * inner turn's bounds), `skillsLoop` of `skills.loop` (an ordinary turn's); `clock` the turn's
  * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, skillsLoop = null, listed = true, clock = () => NOW, slowMs = 0, gifs = null }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, skillsLoop = null, listed = true, clock = () => NOW, slowMs = 0, gifs = null, innerLife = {} }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
-  const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
+  const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed), innerLife });
   if (loop) hot.config.innerLife.loop = { ...loop };
   if (skillsLoop) hot.config.skills.loop = { ...hot.config.skills.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
@@ -274,10 +274,12 @@ test('inner turn, live: a #N handle the heartbeat showed on a line resolves for 
   const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
   assert.ok(handle, 'the request quotes the line under a handle');
   assert.ok(Number(handle.slice(1)) > 3, 'numbered past the turn\'s own lines');
-  const direct = await innerTurn({ answers: [`<msg reply="${handle}">nice</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  // These two post from a heartbeat, so the intention-only limit is off for them.
+  const innerLife = { heartbeat: { intentionsOnly: false } };
+  const direct = await innerTurn({ answers: [`<msg reply="${handle}">nice</msg>`, '<skip/>'], shadow: false, gate: { wake }, innerLife });
   assert.equal(direct.sends[0].replyTo?.messageId, 'hb-1');
   // A read first: the reply comes in the loop's next step, over a transcript rebuilt around the same handle.
-  const stepped = await innerTurn({ answers: ['<call skill="lore.list"></call>', `<msg reply="${handle}">still here</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  const stepped = await innerTurn({ answers: ['<call skill="lore.list"></call>', `<msg reply="${handle}">still here</msg>`, '<skip/>'], shadow: false, gate: { wake }, innerLife });
   assert.ok(stepped.llm.calls.length >= 2, 'the read gave the loop a second step');
   assert.equal(stepped.sends[0]?.replyTo?.messageId, 'hb-1');
 });
