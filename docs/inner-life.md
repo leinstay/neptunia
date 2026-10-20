@@ -17,7 +17,7 @@ Each item becomes an `inner.wake` event through the core's event door (`src/inte
 - **People first.** A wake waits while a turn holds the one attention (`mention.oneAtATime`) or a direct ping waits in the queue, keeping its due time.
 - **Coalescing.** Wakes of the same conversation (an intention's destination, else the conversation it was set in; an attend wake's place) run as one inner turn; the day's review joins any server one. Wakes elsewhere wait for their own turn.
 - **Stale and overflow.** A wake whose intentions were closed meanwhile (done, cancelled, expired) is dropped as stale. At most `innerLife.queueMax` (20) wakes wait; one more is journalled as an overflow and not queued. Each drop is a fact she is told ([feedback](#feedback-on-her-own-turn)).
-- **Where.** The intention's conversation, if the persona can write there (a private chat only with `features.privateMessages` on); an attend wake's place even when she can only read there (she listens; a post of hers goes through a call to a place she can write in); a review runs in the channel she was last active in. None usable: the wakes are dropped, journalled `no-channel`.
+- **Where.** The intention's conversation, if the persona can write there (a private chat only with `features.privateMessages` on); an attend wake's place even when she can only read there (she listens; a post of hers goes through a call to a place she can write in); a review runs in the channel she was last active in. None usable: the wakes are dropped, journalled `no-channel` (the day's review that came with a server wake whose conversation is gone is not dropped with it; it runs alone at the next drain).
 
 ## The inner turn
 

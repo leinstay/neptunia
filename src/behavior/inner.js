@@ -1294,11 +1294,14 @@ export function createInnerLife({
 
     const { channel, why: noChannelWhy } = await conversationFor(guildId, group);
     if (!channel) {
-      markHandled(state, group, 'no-channel', at, { guildId, why: noChannelWhy });
+      // The day's review rides with a server wake only for company: when that wake's conversation is gone the
+      // review stays queued and goes on alone at the next drain.
+      const dropping = anchor.kind === 'review' ? group : group.filter((wake) => wake.kind !== 'review');
+      markHandled(state, dropping, 'no-channel', at, { guildId, why: noChannelWhy });
       save(guildId);
-      log.info('inner: no conversation', { guildId, wakes: group.length });
-      for (const wake of group) note(guildId, { event: 'no-channel', wake: wakeFields(wake) });
-      return { dropped: group.length };
+      log.info('inner: no conversation', { guildId, wakes: dropping.length });
+      for (const wake of dropping) note(guildId, { event: 'no-channel', wake: wakeFields(wake) });
+      return { dropped: dropping.length };
     }
 
     const records = [...new Set(group.flatMap((wake) => wake.intentionIds))].map(openOf).filter(Boolean);
