@@ -38,8 +38,6 @@ import {
   candidatesFromAnswer,
   createIntention,
   dropIntention,
-  droppedAtOf,
-  droppedList,
   dueList as dueOf,
   duplicates,
   expireAt,
@@ -191,7 +189,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   /**
    * A new record born `dropped` (`set` with `state: 'dropped'`): a desire she considered and let
    * go, with its `reason` (`reason-required` without one). It is not active (no `maxOpen` check),
-   * never wakes, and is kept `intentions.droppedDays`.
+   * never wakes, and is kept like any closed one.
    */
   function setDropped(store, input, by) {
     const created = createIntention({
@@ -335,15 +333,10 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return result;
   }
 
-  /** Every open intention past its `expiresAt` expired and written. How many. Dropped ones past `droppedDays` are pruned too. */
+  /** Every open intention past its `expiresAt` expired and written. How many. */
   function sweepExpired(store) {
     let count = 0;
     const at = now();
-    try {
-      store.prune?.((record) => record.status === 'dropped' && droppedAtOf(record) + settings().droppedDays * DAY_MS <= at);
-    } catch (err) {
-      log.warn('intentions: prune failed', { guildId: store.guildId, error: err });
-    }
     for (const record of store.list()) {
       if (!isOpen(record.status) || !(at >= record.expiresAt)) continue;
       const result = store.update(record.id, (current) => expireAt(current, at));
@@ -363,20 +356,6 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!store) return [];
     sweepExpired(store);
     return store.list().filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
-  }
-
-  /**
-   * The intentions she dropped since `sinceMs` (default: `intentions.droppedDays` back) as
-   * `{ id, purpose, reason, at }`, the newest first, for the heartbeat's view; the same visibility as
-   * `list` (a private chat's own only where the caller is, `privateChannelId`, or all with `all`).
-   * Empty with `features.intentions` off.
-   */
-  function dropped(guildId, { sinceMs = null, privateChannelId = null, all = false } = {}) {
-    const store = storeOf(guildId);
-    if (!store || !intentionsOn(hot.config)) return [];
-    sweepExpired(store);
-    const since = Number.isFinite(sinceMs) ? sinceMs : now() - settings().droppedDays * DAY_MS;
-    return droppedList(store.list().filter((record) => visibleTo(record, { privateChannelId, all })), { sinceMs: since });
   }
 
   /**
@@ -646,5 +625,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, dropped, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
 }

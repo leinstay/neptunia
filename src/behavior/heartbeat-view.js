@@ -11,14 +11,15 @@
 //   places     the places page the review gets (passed in, built by inner.js#places);
 //   life       what she did in the last day (the actions of her inner turns from the journal that
 //              really ran, her errands, her diary posts), her open intentions and attentions, and
-//              what she wanted and dropped within `heartbeat.droppedDays`, with the reason;
+//              the latest `heartbeat.closedShown` closed ones of hers of any state (done, cancelled, expired,
+//              dropped), newest first, each with its outcome or reason, the rest counted;
 //   skills     the names granted to her by family, and the errand agents;
 //   since      what happened since her previous heartbeat (or the last day): what was done (counts),
 //              what was not done or counted on (intentions expired, a recurring one missed, errands
 //              failed or past their deadline, sends whose outcome is unknown, turns that ended in an
 //              error, the facts already told to her as one count) and what was filtered without her
-//              (the missed helper's dismissals from the journal; the address helper's "not to her"
-//              verdicts only when a source for them is given -- today they are logged, not stored).
+//              (the missed helper's dismissals and the address helper's "not to her"
+//              verdicts, both from the journal's `answer` records).
 //
 // Every list is capped, the rest counted. A source that is missing or throws leaves its list empty
 // (never the whole view); the log carries codes, never text. Pure apart from the reads it is given.
@@ -38,7 +39,7 @@ const POSTED_SKILLS = Object.freeze(['message.create', 'draw.create']);
 /** The missed helper's verdicts that mean "left alone without her". */
 export const DISMISSED_VERDICTS = Object.freeze(['intentional-skip', 'stale', 'uncertain']);
 /** The defaults of the settings (`innerLife.heartbeat`; config.json carries the same). */
-export const VIEW_DEFAULTS = Object.freeze({ people: 8, filteredShown: 10, droppedDays: 7, droppedShown: 5, historyDays: 14 });
+export const VIEW_DEFAULTS = Object.freeze({ people: 8, filteredShown: 10, closedShown: 10, historyDays: 14 });
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => (typeof value === 'string' ? oneLine(value) : '');
@@ -67,10 +68,12 @@ function movedAt(record) {
   return Number.isFinite(at) ? at : num(record?.updatedAt);
 }
 
-/** Why a dropped intention was dropped: its own `reason`, else the last history entry's, else ''. */
+/** Why a closed intention ended: its own `reason`, else the last history entry's, its note, its errand's outcome, else ''. */
 function reasonOf(record) {
   const move = lastMove(record);
   for (const value of [record?.reason, record?.droppedReason, move?.reason, record?.note]) if (typeof value === 'string' && value.trim()) return oneLine(value);
+  const outcome = record?.outcome;
+  if (outcome && typeof outcome === 'object') return oneLine([outcome.state, outcome.error].filter((part) => typeof part === 'string' && part).join(' '));
   return '';
 }
 
@@ -150,8 +153,8 @@ async function peopleOf({ profiles, selfId, settings, record, guildId, now, name
   });
 }
 
-/** Her life: the last day, her open and dropped intentions. */
-function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, dropped: droppedGiven, placeName }) {
+/** Her life: the last day, her open intentions and the latest closed ones. */
+function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName }) {
   const dayAgo = now - DAY_MS;
   const actions = [];
   for (const turn of innerTurns) {
@@ -177,14 +180,11 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, dropped: 
   const attending = intentions
     .filter((record) => record?.status === 'pending' && record.attend)
     .map((record) => ({ id: String(record.id), purpose: text(record.purpose), place: placeName(String(record.attend.place ?? '')) }));
-  const droppedFrom = now - settings.droppedDays * DAY_MS;
-  // The intention service's own list (`dropped(guildId, { sinceMs })`, newest first) when given, else the records filtered here.
-  const dropped = (Array.isArray(droppedGiven) ? droppedGiven.map((item) => ({ id: String(item.id), purpose: text(item.purpose), reason: text(item.reason), at: num(item.at) })) : intentions
-    .filter((record) => record?.status === 'dropped' && (movedAt(record) ?? 0) >= droppedFrom)
+  const closed = intentions
+    .filter((record) => ['done', 'cancelled', 'expired', 'dropped'].includes(record?.status) && record.provenance?.kind !== 'candidate')
     .sort((a, b) => (movedAt(b) ?? 0) - (movedAt(a) ?? 0))
-    .map((record) => ({ id: String(record.id), purpose: text(record.purpose), reason: reasonOf(record), at: movedAt(record) })))
-    .filter((item) => !Number.isFinite(item.at) || item.at >= droppedFrom);
-  return { actions: capped(actions), errands: capped(errands), diary: capped(posts), open: capped(open), attending: capped(attending), dropped: capped(dropped, settings.droppedShown) };
+    .map((record) => ({ id: String(record.id), purpose: text(record.purpose), state: record.status, why: reasonOf(record), at: movedAt(record) }));
+  return { actions: capped(actions), errands: capped(errands), diary: capped(posts), open: capped(open), attending: capped(attending), closed: capped(closed, settings.closedShown) };
 }
 
 /** Skills by family (the part of the name before its first dot), in the order given. */
@@ -269,13 +269,12 @@ function sinceOf({ from, now, settings, innerTurns, tasks, intentions, diary, un
  * @param {string} input.guildId
  * @param {number} input.now
  * @param {number|null} [input.since]  Her previous heartbeat (epoch ms); null: the last day.
- * @param {{ people?: number, filteredShown?: number, droppedDays?: number, droppedShown?: number, historyDays?: number }} [input.settings]
+ * @param {{ people?: number, filteredShown?: number, closedShown?: number, historyDays?: number }} [input.settings]
  * @param {object[]} [input.profiles]  The member profiles (store.listUserProfiles).
  * @param {string|null} [input.selfId]  Her own member id (left out of the people).
  * @param {{ iterate?: Function }|null} [input.record]  The record, for the last contact.
  * @param {{ read?: Function }|null} [input.journal]  The journal: her inner turns, unknown sends, the missed helper's verdicts.
  * @param {object[]} [input.intentions]  Her intention records, every status.
- * @param {object[]|null} [input.dropped]  `intentions.dropped(guildId, { sinceMs })`: `{ id, purpose, reason, at }`, newest first; null: derived from `intentions`.
  * @param {object[]} [input.tasks]  Her errands (the task store's recent list).
  * @param {object[]} [input.diary]  Her diary posts (`{ at, kind }`).
  * @param {object|null} [input.places]  The places page of the review (inner.js#places).
@@ -300,7 +299,6 @@ export async function buildHeartbeatFacts({
   record = null,
   journal = null,
   intentions = [],
-  dropped = null,
   tasks = [],
   diary = [],
   places = null,
@@ -340,7 +338,7 @@ export async function buildHeartbeatFacts({
     warn('address', error);
   }
   const people = await peopleOf({ profiles, selfId, settings: s, record, guildId, now, nameOf, placeName: place, activePlaces, around, warn });
-  const common = { now, settings: s, dropped, innerTurns, tasks: list(tasks), diary: list(diary), intentions: list(intentions).filter(Boolean), placeName: place };
+  const common = { now, settings: s, innerTurns, tasks: list(tasks), diary: list(diary), intentions: list(intentions).filter(Boolean), placeName: place };
   return {
     people,
     places: places ?? null,

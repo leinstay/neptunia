@@ -1419,7 +1419,7 @@ test('drawHeartbeatAt: the interval with an even jitter either way, never less t
 
 test('innerSettings: the heartbeat defaults and a bad value taking the default', () => {
   const d = innerSettings({}).heartbeat;
-  assert.deepEqual([d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.droppedDays, d.droppedShown], [true, 180, 60, 8, 10, 7, 5]);
+  assert.deepEqual([d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.closedShown], [true, 180, 60, 8, 10, 10]);
   const set = innerSettings({ innerLife: { heartbeat: { enabled: false, everyMinutes: 'x', people: 3 } } }).heartbeat;
   assert.deepEqual([set.enabled, set.everyMinutes, set.people], [false, 180, 3]);
 });

@@ -24,7 +24,6 @@ import {
   concernsMember,
   createIntention,
   dropIntention,
-  droppedList,
   dueList,
   duplicates,
   expireAt,
@@ -475,7 +474,7 @@ test('dropped: any open record can be dropped with a reason; it is final, never 
   assert.equal(dropIntention(mine({ id: 'i4' }), { reason: 'x'.repeat(400), now: T0 }).intention.reason.length, 300);
 });
 
-test('createIntention dropped: born dropped with its reason, no due or recurrence; her own only; droppedDays is the setting', () => {
+test('createIntention dropped: born dropped with its reason, no due or recurrence; her own only', () => {
   const base = { purpose: 'πήγαινε στην παραλία', provenance: { kind: 'self', turnId: 't1' }, now: T0, id: 'i1', dropped: true };
   assert.equal(createIntention(base).code, 'reason-required');
   assert.equal(createIntention({ ...base, reason: 'too cold', provenance: { kind: 'candidate' } }).code, 'bad-provenance');
@@ -483,16 +482,6 @@ test('createIntention dropped: born dropped with its reason, no due or recurrenc
   assert.equal(made.ok, true, made.code);
   assert.deepEqual([made.intention.status, made.intention.reason, made.intention.dueAt, made.intention.every, made.intention.droppedAt], ['dropped', 'too cold', null, null, T0]);
   assert.equal(checkInvariants(made.intention), null);
-  assert.equal(made.intention.expiresAt, T0 + DEFAULTS.droppedDays * DAY);
-  assert.equal(intentionSettings({ intentions: { droppedDays: 3 } }).droppedDays, 3);
-  assert.equal(intentionSettings({}).droppedDays, DEFAULTS.droppedDays);
+  assert.equal(made.intention.expiresAt, T0);
 });
 
-test('droppedList: dropped records since a moment, newest first, with id, purpose, reason and at', () => {
-  const a = dropIntention(mine({ id: 'a' }), { reason: 'one', now: T0 + 10 }).intention;
-  const b = dropIntention(mine({ id: 'b' }), { reason: 'two', now: T0 + 20 }).intention;
-  const open = mine({ id: 'c' });
-  assert.deepEqual(droppedList([a, open, b]).map((x) => [x.id, x.reason, x.at]), [['b', 'two', T0 + 20], ['a', 'one', T0 + 10]]);
-  assert.deepEqual(droppedList([a, b], { sinceMs: T0 + 15 }).map((x) => x.id), ['b']);
-  assert.equal(droppedList([a, b])[0].purpose, b.purpose);
-});

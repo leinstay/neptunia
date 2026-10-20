@@ -11,7 +11,7 @@
 // and let go, with a required `reason` (REASON_CHARS) and its moment `droppedAt`; a record may also
 // be born `dropped` (createIntention with `dropped: true`: no due time, no recurrence, no
 // attention). `done`, `cancelled`, `expired` and `dropped` are terminal: nothing moves out of them
-// (a dropped one is not open, never due, and kept `intentions.droppedDays`). The
+// (a dropped one is not open, never due, and kept like any closed one). The
 // invariants every record keeps (checkInvariants): an `expiresAt` (every intention ends), and a
 // `waiting` one has both `awaitingTaskId` and `waitDeadline` -- there is no wait without a real
 // errand and a deadline. Expiry comes from the clock (expireAt); `dueList` lists what is due for
@@ -64,7 +64,7 @@ const MOVES = Object.freeze({
 });
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2, droppedDays: 7 });
+export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2 });
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
 export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people one attention names. */
@@ -94,7 +94,7 @@ const MIN_FORGET_NAME = 3;
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
-  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays'), droppedDays: pick('droppedDays') };
+  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays') };
 }
 
 /**
@@ -502,7 +502,7 @@ export function createIntention({ purpose, provenance, dueAt = null, every = nul
 /**
  * A record born `dropped` (createIntention's `dropped: true`): the purpose and the required
  * `reason` (`reason-required` without one), her own only (a candidate is `bad-provenance`), no due
- * time, recurrence or attention; it is kept until `droppedDays` after `now` (its `expiresAt`).
+ * time, recurrence or attention; its `expiresAt` is `now` (it is closed, nothing ever expires it).
  */
 function createDropped({ text, provenance, reason, now, settings, id, by }) {
   if (provenance.kind !== 'self') return { ok: false, code: CODE.BAD_PROVENANCE };
@@ -527,7 +527,7 @@ function createDropped({ text, provenance, reason, now, settings, id, by }) {
     updatedAt: now,
     dueAt: null,
     every: null,
-    expiresAt: now + (settings.droppedDays ?? DEFAULTS.droppedDays) * DAY_MS,
+    expiresAt: now,
     awaitingTaskId: null,
     waitDeadline: null,
     destination: null,
@@ -550,23 +550,6 @@ export function dropIntention(record, { reason, now, by = 'persona' }) {
   const why = line(reason, REASON_CHARS);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
   return transition(record, 'dropped', { now, by, code: CODE.DROPPED, patch: { reason: why, droppedAt: now } });
-}
-
-/** When dropped `record` was dropped: `droppedAt`, else `updatedAt`. */
-export function droppedAtOf(record) {
-  return Number.isFinite(record?.droppedAt) ? record.droppedAt : record?.updatedAt ?? 0;
-}
-
-/**
- * The dropped intentions of `records` since `sinceMs` (epoch ms; none given: all) as
- * `{ id, purpose, reason, at }`, the newest drop first. A candidate (provenance `candidate`) is
- * never listed. Pure.
- */
-export function droppedList(records, { sinceMs = 0 } = {}) {
-  return (Array.isArray(records) ? records : [])
-    .filter((record) => record?.status === 'dropped' && droppedAtOf(record) >= sinceMs)
-    .sort((a, b) => droppedAtOf(b) - droppedAtOf(a))
-    .map((record) => ({ id: record.id, purpose: record.purpose, reason: record.reason, at: droppedAtOf(record) }));
 }
 
 /**

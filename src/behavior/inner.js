@@ -99,7 +99,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
-  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, droppedDays: 7, droppedShown: 5, historyDays: 14 }),
+  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14 }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -295,8 +295,7 @@ export function innerSettings(config) {
       jitterMinutes: count(heartbeat.jitterMinutes, d.heartbeat.jitterMinutes),
       people: Math.floor(count(heartbeat.people, d.heartbeat.people)),
       filteredShown: Math.floor(count(heartbeat.filteredShown, d.heartbeat.filteredShown)),
-      droppedDays: positive(heartbeat.droppedDays, d.heartbeat.droppedDays),
-      droppedShown: Math.floor(count(heartbeat.droppedShown, d.heartbeat.droppedShown)),
+      closedShown: Math.floor(count(heartbeat.closedShown, d.heartbeat.closedShown)),
       historyDays: Math.max(1, count(heartbeat.historyDays, d.heartbeat.historyDays)),
     },
     caps: {
@@ -1296,7 +1295,6 @@ export function createInnerLife({
         return fallback;
       }
     };
-    const sinceMs = at - settings.heartbeat.droppedDays * DAY_MS;
     try {
       return await buildHeartbeatFacts({
         guildId,
@@ -1307,8 +1305,7 @@ export function createInnerLife({
         selfId: guarded(() => heartbeatSources.selfId?.(), null),
         record,
         journal,
-        intentions: guarded(() => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true }) : []), []),
-        dropped: guarded(() => (intentionsOn(hot.config) && typeof intentions?.dropped === 'function' ? intentions.dropped(guildId, { sinceMs }) : null), null),
+        intentions: guarded(() => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true, closed: true }) : []), []),
         tasks: guarded(() => heartbeatSources.tasks?.(guildId), []),
         diary: guarded(() => store?.getDiary?.(guildId)?.posts, []),
         places: placesInWakeOf(guildId, settings),

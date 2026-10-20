@@ -49,7 +49,7 @@ A wake with no outside reason: she is awake and sees facts, built by one functio
 
 - **People.** Up to `innerLife.heartbeat.people` members by affinity, each with when and where she last talked with them (the record; else the profile's last seen), their top 3 interests, where they wrote lately and whether they are around now.
 - **Places.** The places page of the review.
-- **Her life.** What she did in the last day (executed calls of her inner turns, her errands, her diary posts), her open intentions and attentions, and the intentions she let go within `heartbeat.droppedDays` with the reason (`heartbeat.droppedShown` listed, the rest counted); a dropped intention shows nowhere else.
+- **Her life.** What she did in the last day (executed calls of her inner turns, her errands, her diary posts), her open intentions and attentions, and her latest closed intentions of any state (`heartbeat.closedShown` listed newest first, each with its outcome or reason, the rest counted).
 - **What she can do.** Her granted skills by family and the errand agents; the chain budget stands in the usual budget lines.
 - **Since the last heartbeat** (the last day for the first one): the counts of what was done; what was not done or counted on (intentions expired or missed, errands failed or past their deadline, sends whose outcome is unknown, turns that ended in an error, the facts already told to her as one count); and what was filtered without her (the missed helper's dismissals with place and time, at most `heartbeat.filteredShown`, the rest counted). The address helper's "not to her" verdicts are only logged today, so that list stays empty until something stores them.
 

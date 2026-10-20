@@ -155,7 +155,7 @@ export function placesLines(page, l) {
  * The lines of a heartbeat's facts (src/behavior/heartbeat-view.js), every word from `labels.wake.heartbeat`
  * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `interests`, `activeIn`,
  * `aroundYes` / `aroundNo`, joined by `partsJoin`), her life (`life`: `action`, `errand`, `diary`; `open`,
- * `attending`; `dropped` with `droppedMore` counting the rest), what she can do (`skills`, `skill`, `agents`),
+ * `attending`; `closed` with its items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`),
  * and what happened since (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items). A list
  * over its cap ends with `more` ({more}). A list or line without its label is left out; an empty list
  * (or one with no label) says nothing, and so does a `done` line of zeros. [] for no facts.
@@ -196,7 +196,7 @@ export function heartbeatLines(facts, l, when, placesBlock = []) {
   ], (life.actions?.more ?? 0) + (life.errands?.more ?? 0) + (life.diary?.more ?? 0));
   block('open', rows(life.open, (i) => make('openItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '' })), life.open?.more ?? 0);
   block('attending', rows(life.attending, (i) => make('attendingItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), place: one(i.place) })), life.attending?.more ?? 0);
-  block('dropped', rows(life.dropped, (i) => make('droppedItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), reason: one(i.reason), when: when(i.at) })), life.dropped?.more ?? 0);
+  block('closed', rows(life.closed, (i) => make('closedItem', { id: one(i.id), state: one(i.state), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), why: one(i.why), when: when(i.at) })), life.closed?.more ?? 0);
   const skills = Array.isArray(facts.skills) ? facts.skills : [];
   const agents = Array.isArray(facts.agents) ? facts.agents : [];
   block('skills', [...skills.map((s) => make('skill', { family: one(s.family), names: s.names.map(one).join(', ') })), agents.length > 0 ? make('agentsLine', { agents: agents.map(one).join(', ') }) : ''], 0);

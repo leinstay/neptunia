@@ -1043,7 +1043,6 @@ Settings for the persona's intentions (`features.intentions`; [Intentions](inten
 | `candidateExpiresHours` | `48` | A candidate she neither accepts nor rejects expires after this many hours |
 | `waitHours` | `2` | The wait deadline when a wait on an errand names none |
 | `expiryNoticeDays` | `2` | An intention whose expiry is this many days away or less ends its `<intentions>` line with the expiry (`labels.intentions.expiresSoon`), one-off, recurring, waiting and attention alike. One with no due time and no wait carries its expiry on every turn instead (`labels.intentions.noDue`: nothing will wake her for it) |
-| `droppedDays` | `7` | How long a dropped intention (`state=dropped` with a reason) is kept before it is pruned; the heartbeat shows the drops of this window |
 
 ## `innerLife`
 
@@ -1062,9 +1061,8 @@ Settings for the persona's inner life (`features.innerLife`; [Inner life](inner-
 | `heartbeat.everyMinutes` | `180` | The interval of the heartbeat (minutes), a dial for the experiment: from minutes to hours. The next moment is drawn after each run (and at start when none is kept in the inner state) |
 | `heartbeat.jitterMinutes` | `60` | The interval is moved by a random amount in this many minutes either way, so the heartbeat has no fixed hour |
 | `heartbeat.people` | `8` | How many members (the closest by affinity) the heartbeat's people block lists |
-| `heartbeat.filteredShown` | `10` | How many lines the helpers filtered without her (the missed helper's dismissals, the address helper's "not to her" when a source keeps them) the heartbeat lists, newest first; the rest are counted |
-| `heartbeat.droppedDays` | `7` | How many days back the intentions she let go (`dropped`) with their reasons are shown in the heartbeat; they appear nowhere else |
-| `heartbeat.droppedShown` | `5` | At most this many dropped intentions are listed (the newest first); the rest are counted on one line |
+| `heartbeat.filteredShown` | `10` | How many lines the helpers filtered without her (the missed helper's dismissals, the address helper's "not to her", both from the journal) the heartbeat lists, newest first; the rest are counted |
+| `heartbeat.closedShown` | `10` | At most this many of her closed intentions (done, cancelled, expired or dropped, the newest first, each with its outcome or reason) are listed in the heartbeat after her open ones; the rest are counted on one line. Nothing is deleted: a closed record beyond the 50 the file keeps moves to `intentions-archive.jsonl` |
 | `heartbeat.historyDays` | `14` | How many days of the record are read for the last contact with each person in the people block |
 | `caps.perChain` | `3` | Inner turns of one chain per local day (`bot.timezone`): an intention's `chain`, else the intention itself; a review is its day's chain. Past the cap the chain's wakes wait as `per-chain` and run after the local midnight. A feedback wake is never held and does not count against this cap. See [Inner life: bounds](inner-life.md#bounds) |
 | `attention.settleSeconds` | `90` | The quiet an attention waits for before it wakes her: the newest line of the attended place must be this many seconds old (so she does not cut into a line being typed). The default of `intent.set attend=`; she may set her own `settle=`, 0 included ([Inner life](inner-life.md#her-attention)) |

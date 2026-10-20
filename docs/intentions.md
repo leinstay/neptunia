@@ -92,9 +92,8 @@ holds the copy).
 Dropped: `intent.update id=... state=dropped reason=...` lets go of an open intention (pending, waiting or proposed),
 and `intent.set state=dropped reason=...` records one that was considered and let go at once (a new record born
 dropped). The reason is required (`reason-required` without one) and cut to 300 characters. A dropped record never wakes
-her, is not open (it is not counted against `intentions.maxOpen` and is not in `<intentions>`), and is kept
-`intentions.droppedDays` before it is pruned. The service's `dropped(guildId, { sinceMs })` lists them, newest first, as
-`{ id, purpose, reason, at }`, for the heartbeat's view.
+her, is not open (it is not counted against `intentions.maxOpen` and is not in `<intentions>`), and is kept like any closed record: the file holds the latest 50 closed ones and an older one moves to
+`intentions-archive.jsonl` (append-only; only tools and the forget read it). The heartbeat's view lists the latest closed ones with their reasons.
 
 ## What she sees
 

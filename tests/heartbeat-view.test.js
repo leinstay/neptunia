@@ -91,25 +91,27 @@ test('life: her executed actions, errands and diary posts of the last day, open 
   assert.equal(capped.life.open.more, 4);
 });
 
-test('dropped: within droppedDays, newest first, capped at droppedShown with the rest counted; the service list is used when given, records are read defensively otherwise', async () => {
-  const given = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, purpose: `want ${i}`, reason: `why ${i}`, at: NOW - (i + 1) * HOUR_MS }));
-  const facts = await buildHeartbeatFacts(base({ dropped: given }));
-  assert.deepEqual(facts.life.dropped.items.map((d) => d.id), ['d0', 'd1', 'd2', 'd3', 'd4']);
-  assert.equal(facts.life.dropped.more, 2);
-  assert.equal(facts.life.dropped.items[0].reason, 'why 0');
-  const small = await buildHeartbeatFacts(base({ dropped: given, settings: { droppedShown: 2 } }));
-  assert.equal(small.life.dropped.items.length, 2);
-  assert.equal(small.life.dropped.more, 5);
-  // Without the service list: records with status dropped, the reason from the record or its last history entry, the window by droppedDays.
-  const records = [
-    { id: 'r1', status: 'dropped', purpose: 'a', reason: 'tired', history: [{ at: NOW - HOUR_MS }] },
-    { id: 'r2', status: 'dropped', purpose: 'b', history: [{ at: NOW - 2 * HOUR_MS, reason: 'from history' }] },
-    { id: 'r3', status: 'dropped', purpose: 'old', reason: 'x', history: [{ at: NOW - 9 * DAY_MS }] },
-    { id: 'r4', status: 'pending', purpose: 'open' },
+test('closed: the latest closed ones of any state, newest first, each with its outcome or reason, capped at closedShown with the rest counted; open ones and candidates are not in it', async () => {
+  const states = ['done', 'cancelled', 'expired', 'dropped'];
+  const records = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, status: states[i % 4], purpose: `want ${i}`, reason: i % 4 === 3 ? `why ${i}` : undefined, history: [{ at: NOW - (i + 1) * HOUR_MS }] }));
+  const facts = await buildHeartbeatFacts(base({ intentions: records }));
+  assert.deepEqual(facts.life.closed.items.map((d) => d.id), ['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9']);
+  assert.equal(facts.life.closed.more, 2);
+  assert.deepEqual(facts.life.closed.items.slice(0, 4).map((d) => d.state), states);
+  assert.equal(facts.life.closed.items[3].why, 'why 3');
+  const small = await buildHeartbeatFacts(base({ intentions: records, settings: { closedShown: 2 } }));
+  assert.equal(small.life.closed.items.length, 2);
+  assert.equal(small.life.closed.more, 10);
+  const mixed = [
+    { id: 'r1', status: 'dropped', purpose: 'a', history: [{ at: NOW - 2 * HOUR_MS, reason: 'from history' }] },
+    { id: 'r2', status: 'pending', purpose: 'open' },
+    { id: 'r3', status: 'expired', purpose: 'cand', provenance: { kind: 'candidate' }, history: [{ at: NOW - HOUR_MS }] },
+    { id: 'r4', status: 'pending', purpose: 'errand', outcome: { state: 'failed', error: 'timeout' } },
+    { id: 'r5', status: 'done', purpose: 'b', outcome: { state: 'done' }, history: [{ at: NOW - 3 * HOUR_MS }] },
   ];
-  const derived = await buildHeartbeatFacts(base({ intentions: records }));
-  assert.deepEqual(derived.life.dropped.items.map((d) => [d.id, d.reason]), [['r1', 'tired'], ['r2', 'from history']]);
-  assert.deepEqual((await buildHeartbeatFacts(base({ intentions: [{ id: 'r5', status: 'pending', purpose: 'x' }] }))).life.dropped, { items: [], more: 0 });
+  const derived = await buildHeartbeatFacts(base({ intentions: mixed }));
+  assert.deepEqual(derived.life.closed.items.map((d) => [d.id, d.state, d.why]), [['r1', 'dropped', 'from history'], ['r5', 'done', 'done']]);
+  assert.deepEqual((await buildHeartbeatFacts(base({ intentions: [{ id: 'r6', status: 'pending', purpose: 'x' }] }))).life.closed, { items: [], more: 0 });
 });
 
 test('skills are grouped by family and the agents listed', async () => {
@@ -192,13 +194,12 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
     around: () => true,
     activePlaces: () => ['general'],
     places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 2, people: 1, writable: true }] },
-    dropped: [{ id: 'd1', purpose: 'learn a song', reason: 'no time', at: NOW - HOUR_MS }],
     skills: ['web.search'],
     agents: ['web'],
-    intentions: [{ id: 'x1', status: 'expired', purpose: 'old plan', history: [{ at: NOW - HOUR_MS }] }],
+    intentions: [{ id: 'x1', status: 'expired', purpose: 'old plan', history: [{ at: NOW - HOUR_MS }] }, { id: 'd1', status: 'dropped', purpose: 'learn a song', reason: 'no time', history: [{ at: NOW - HOUR_MS }] }],
   }));
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', places: facts.places, heartbeat: facts, here: null }, labels);
-  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'around now', 'last talked', '#general 2/1', l.dropped, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
+  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'around now', 'last talked', '#general 2/1', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.ok(!text.includes(l.filtered), 'no filtered list without filtered lines');
@@ -211,8 +212,8 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
 });
 
 test('wake: a capped list ends with the count line', async () => {
-  const given = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, purpose: `want ${i}`, reason: 'r', at: NOW - (i + 1) * HOUR_MS }));
-  const facts = await buildHeartbeatFacts(base({ dropped: given }));
+  const given = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, status: 'dropped', purpose: `want ${i}`, reason: 'r', history: [{ at: NOW - (i + 1) * HOUR_MS }] }));
+  const facts = await buildHeartbeatFacts(base({ intentions: given, settings: { closedShown: 5 } }));
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', heartbeat: facts, here: null }, labels);
   assert.ok(text.includes('want 4') && !text.includes('want 5'));
   assert.ok(text.includes(labels.wake.heartbeat.more.replace('{more}', '2')));
