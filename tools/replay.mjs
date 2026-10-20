@@ -47,7 +47,7 @@
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat>
-//        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>]
+//        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--answers-dir <dir>]
 //
 // `--inner <kind>`: the inner turn the scheduler would run for one wake, against the live data
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
@@ -57,7 +57,7 @@
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
 // memory store; `innerLife.mode` forced to `shadow`, so her reads run (on the simulator key)
-// and every other call is only proposed; features.dryRun and the journal off; intentions read
+// and every other call is only proposed; features.dryRun and the journal off (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
 //
@@ -75,6 +75,14 @@
 // stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
+// `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model.
+// Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
+// `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
+// under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
+// timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (no cost; the result carries
+// `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other
+// models still go to OpenRouter. The directory must hold no files of an earlier run. Such a run
+// needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
@@ -508,6 +516,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
+import { createAnswersDir, withAnswersDir, ANSWERS_TIMEOUT_MIN } from './lib/answers-dir.mjs';
 import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, spendGate } from './lib/cli.mjs';
 import {
   DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, diaryDayEstimate, fixtureImagesFetch, isDateKey, planDiaryDay, recordingImages, renderDiaryDayReport, seededRng,
@@ -525,7 +534,8 @@ const USAGE =
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...';
+  '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
+  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
@@ -673,7 +683,7 @@ export function parseArgs(argv) {
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
     diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false, steps: false,
-    inner: null, intention: null, review: false, hideChannels: [], hideMessages: [],
+    inner: null, intention: null, review: false, hideChannels: [], hideMessages: [], answersDir: null, answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -691,6 +701,8 @@ export function parseArgs(argv) {
     else if (arg === '--snapshot') out.snapshot = pathValue(argv[(i += 1)]);
     else if (arg === '--out') out.outDir = pathValue(argv[(i += 1)]);
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
+    else if (arg === '--answers-dir') out.answersDir = pathValue(argv[(i += 1)]);
+    else if (arg === '--answers-timeout-min') out.answersTimeoutMin = intFlag(argv[(i += 1)], 1, 1440);
     else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
     else if (arg === '--dry') out.dry = true;
     else if (arg === '--steps') out.steps = true;
@@ -2118,6 +2130,16 @@ function blockNames(text) {
 }
 
 /**
+ * The journal of `--inner`, read functions only (`read`, `findTurn`, `timeline`) over the data
+ * directory the run reads: a simulated `memory.journal.read` returns the real records, and
+ * nothing can be written (no `system`, no `start`).
+ * @param {object} journal  From src/memory/journal.js#createJournal.
+ */
+export function readOnlyJournal(journal) {
+  return { read: journal.read, findTurn: journal.findTurn, timeline: journal.timeline };
+}
+
+/**
  * The ids `--hide-channel` / `--hide-message` name, as sets (an experiment: salient items removed from a frozen moment).
  * @param {{ hideChannels?: string[], hideMessages?: string[] }} args  From parseArgs.
  * @returns {{ channels: Set<string>, messages: Set<string>, any: boolean }}
@@ -2313,6 +2335,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('errands/store.js')),
     ...(await load('memory/append-store.js')),
     ...(await load('memory/record.js')),
+    ...(await load('memory/journal.js')),
     ...(await load('admin.js')),
     ...(await load('skills/registry.js')),
     ...(await load('behavior/prompt.js')),
@@ -2487,7 +2510,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 
     // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
     const port = createFakeAdapter({ iface: 'replay', selfId: self.id, now: Date.now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
-    const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, getGuildId: () => guildId, dataDir: null });
+    const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, journal: readOnlyJournal(createJournal({ appendStore: createAppendStore({ log }), dataDir, config: () => ({}), log })), getGuildId: () => guildId, dataDir: null });
     const turns = diaryTurnRunner(mods, {
       hot, store, llm, calibrator, client, guildId, self, images: null, state, port, wrapDiscord: (found) => hiddenCapabilities(found, hide),
       extra: { skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, errands },
@@ -4674,9 +4697,36 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
  */
 export async function main(argv, { root = process.cwd(), signal, rng = Math.random } = {}) {
   const args = parseArgs(argv);
+  if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
+  // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
+  const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
+  const answers = createAnswersDir({ dir: path.resolve(root, args.answersDir), timeoutMin: args.answersTimeoutMin, estimate: (messages) => estimateMessages(messages) });
+  let code = 1;
+  try {
+    const out = await runMain(args, { root, signal, rng, answers });
+    code = out.code;
+    return { ...out, result: { ...out.result, answersDir: { dir: answers.dir, requests: answers.count() } } };
+  } catch (err) {
+    code = err instanceof CliError ? err.exitCode : 1;
+    throw err;
+  } finally {
+    answers.finish(code);
+  }
+}
+
+async function runMain(args, { root, signal, rng, answers }) {
   const src = path.join(root, 'src');
   if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.js'))) throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
-  const load = (rel) => import(pathToFileURL(path.join(src, rel)).href);
+  const loadModule = (rel) => import(pathToFileURL(path.join(src, rel)).href);
+  // With an answers directory every llm client built from src/llm/openrouter.js answers Anthropic models from files.
+  let load = loadModule;
+  if (answers) {
+    const { roleModel } = await loadModule('llm/roles.js');
+    load = async (rel) => {
+      const mod = await loadModule(rel);
+      return rel === 'llm/openrouter.js' ? { ...mod, createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose)) } : mod;
+    };
+  }
 
   // The triggers of a pair, read before anything else: their number is the estimate.
   let pairTriggers = null;
@@ -4743,7 +4793,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${loopBounds ? '' : ': her answer and the follow-up after a call'}${args.pairPrompts ? ', under both prompt layers' : ''}`;
     const pairDetail = `, per trigger ~${PRE_TURN_REQUESTS + 1} with features.coreTools off (the search classifier, a search's summary, her reply) and ${loopDetail} with it on`;
     const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairCoreTools ? pairDetail : ''}`;
-    const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
+    let gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
+    // Anthropic models are answered from files and bill nothing: without --spend the run goes on (other models would bill, unbudgeted).
+    if (!gate.ok && answers && args.spend === undefined) gate = { ...gate, ok: true, text: `${gate.text.split('\n')[0]}\nanswers-dir: Anthropic models are answered from files, not billed; give --spend <usd> to cap any other model` };
     if (!gate.ok) {
       hot.close();
       throw new CliError(`replay-cli: ${gate.text}`, { exitCode: REFUSED_EXIT });

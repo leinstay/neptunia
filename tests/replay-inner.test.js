@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs } from '../tools/replay.mjs';
+import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs, readOnlyJournal } from '../tools/replay.mjs';
 import { parseOutput } from '../src/llm/parse.js';
 import * as inner from '../src/behavior/inner.js';
 
@@ -198,4 +198,15 @@ test('innerReportMarkdown prints the hidden ids in the header', () => {
   const md = innerReportMarkdown({ kind: 'heartbeat', channelId: 'c1', hidden: { channels: ['11'], messages: ['99', '98'] }, samples: [], usage: {} });
   assert.match(md, /Hidden channels: 11/);
   assert.match(md, /Hidden messages: 99, 98/);
+});
+
+test('replay --inner: the journal handed to the operations can read and nothing else', () => {
+  const journal = readOnlyJournal({ read: 1, findTurn: 2, timeline: 3, system: 4, start: 5, withWriterLock: 6 });
+  assert.deepEqual(Object.keys(journal).sort(), ['findTurn', 'read', 'timeline']);
+});
+
+test('replay --inner: --answers-dir is accepted with its timeout and samples', () => {
+  const ok = parseArgs(['--inner', 'heartbeat', '--answers-dir', 'd', '--answers-timeout-min', '5', '--samples', '3']);
+  assert.equal(ok.answersDir, 'd');
+  assert.equal(ok.answersTimeoutMin, 5);
 });
