@@ -1000,6 +1000,17 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
   }
 
+  /**
+   * The messages after the first two as stored (`later`): role, content (a picture part reduced like
+   * `dumpPart`), an assistant message's `tool_calls`, a tool message's `tool_call_id`, kept as sent.
+   */
+  function dumpLater(later) {
+    return later.map((message) => {
+      if (!message || typeof message !== 'object') return message;
+      return Array.isArray(message.content) ? { ...message, content: message.content.map(dumpPart) } : { ...message };
+    });
+  }
+
   // The tool-definition copies written by this process (`requests/tools/<sha>.json`); cleared by a wipe.
   const toolsWritten = new Set();
 
@@ -1010,12 +1021,12 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
    * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. With `tools`
    * (the array the request carried) the dump holds `tools` (its sha256, `toolsHashOf`) and `toolChoice`,
    * the array itself stored once as `requests/tools/<sha>.json`; `toolCalls` (the answer's) sit beside
-   * `raw`. Rejects on a disk error; the caller logs it.
+   * `raw`. `later` (the messages after the first two: her assistant messages with their tool calls, the tool messages, appended user notes) is stored as `later`, pictures reduced; absent when there are none. Rejects on a disk error; the caller logs it.
    * @param {string} guildId
-   * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null, tools?: object[]|null, toolChoice?: string|object|null, toolCalls?: object[]|null }} dump
+   * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null, tools?: object[]|null, toolChoice?: string|object|null, toolCalls?: object[]|null, later?: object[]|null }} dump
    * @returns {Promise<void>}
    */
-  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null, tools = null, toolChoice = null, toolCalls = null } = {}) {
+  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null, tools = null, toolChoice = null, toolCalls = null, later = null } = {}) {
     if (keepRequests() === 0) return;
     const messages = Array.isArray(request?.messages) ? request.messages : [];
     const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
@@ -1033,6 +1044,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       v: JOURNAL_VERSION, turnId, attemptId, ...(stepped ? { step } : {}), recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage,
       ...(withTools ? { tools: toolsHash, toolChoice: toolChoice ?? 'auto' } : {}),
       ...(Array.isArray(toolCalls) && toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(Array.isArray(later) && later.length > 0 ? { later: dumpLater(later) } : {}),
     });
     await unlocked();
     if (withTools) {

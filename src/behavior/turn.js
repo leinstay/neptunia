@@ -1503,12 +1503,25 @@ function cutOffOf(completion, parsed, { channelId, empty, followUp }) {
   return { kept };
 }
 
+/** The format counts of a turn record: `thinkMissing`, `coerced`, `malformed`, `truncated`, `capped`, `held`, each a number (0 when unset). */
+function formatCountsOf(format) {
+  const count = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
+  return {
+    thinkMissing: count(format.thinkMissing),
+    coerced: count(format.coerced),
+    malformed: count(format.malformed),
+    truncated: count(format.truncated),
+    capped: count(format.capped),
+    held: count(format.held),
+  };
+}
+
 /**
  * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
  * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
  * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
  */
-function journalTurnRecord(draft, result) {
+export function journalTurnRecord(draft, result) {
   const seen = draft.seen ?? { messageIds: [], parents: [], parts: { filePreviews: [] } };
   return {
     turnId: draft.started.turnId,
@@ -1531,6 +1544,9 @@ function journalTurnRecord(draft, result) {
     limits: typeof draft.limits?.list === 'function' ? draft.limits.list() : [],
     // The skills a classifier named for this turn, each with the gateway's verdict (shadow, phase 0).
     ...(Array.isArray(draft.skillsProposed) && draft.skillsProposed.length > 0 ? { skillsProposed: draft.skillsProposed } : {}),
+    // The native-tools step engine's counts and step number; absent while no turn noted them.
+    ...(draft.format && typeof draft.format === 'object' ? { format: formatCountsOf(draft.format) } : {}),
+    ...(draft.steps !== undefined && draft.steps !== null ? { steps: draft.steps } : {}),
   };
 }
 
@@ -2038,7 +2054,7 @@ export function createTurnRunner({
   async function planCall({ call, channel, envelope, draft, view }) {
     // A call of an inner turn in shadow mode is only proposed: its lines say so (no call mark is drawn from them).
     const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId }, ...(draft?.inner?.shadow ? { shadow: true } : {}) });
-    if (op.opId) await op.proposed({ input: { skill: call.skill, invocationId: envelope.invocationId, args: Object.keys(call.args ?? {}), body: Boolean(call.body) } });
+    if (op.opId) await op.proposed({ input: { skill: call.skill, invocationId: envelope.invocationId, args: Object.keys(call.args ?? {}), body: Boolean(call.body), ...(typeof call.toolCallId === 'string' && call.toolCallId ? { toolCallId: call.toolCallId } : {}), ...(Array.isArray(call.coerced) && call.coerced.length > 0 ? { coerced: call.coerced.filter((name) => typeof name === 'string') } : {}) } });
     // A heartbeat turn that may only change an intention: any other call is refused before anything is resolved (she reads why).
     if (heartbeatOnly(draft) && !HEARTBEAT_INTENT_SKILLS.includes(call.skill)) {
       log.info('skill: refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only', channel: channel.id });
@@ -3137,8 +3153,9 @@ export function createTurnRunner({
    * follow-up, the tool loop's steps), none for the reply's own. Fire-and-forget, only for a
    * started turn with the journal on; a failure is logged with a count of one, never the contents.
    * `sent` (`{ tools, toolChoice }`) is what the request carried besides messages, when it had tools.
+   * `later` (the messages after the first two, when the turn's steps appended any) is stored with the dump.
    */
-  function dumpTurnRequest(guildId, draft, messages, completion, step = null, sent = null) {
+  function dumpTurnRequest(guildId, draft, messages, completion, step = null, sent = null, later = null) {
     if (!draft?.started || !journalOn() || typeof journal.dumpRequest !== 'function') return;
     Promise.resolve()
       .then(() =>
@@ -3153,6 +3170,7 @@ export function createTurnRunner({
           // A request that carried tools: the definitions and the choice sent, the answer's calls.
           ...(Array.isArray(sent?.tools) && sent.tools.length > 0 ? { tools: sent.tools, toolChoice: sent.toolChoice ?? 'auto' } : {}),
           ...(Array.isArray(completion.toolCalls) && completion.toolCalls.length > 0 ? { toolCalls: completion.toolCalls } : {}),
+          ...(Array.isArray(later) && later.length > 0 ? { later } : {}),
         }),
       )
       .catch((error) => log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1, ...(step !== null ? { step } : {}) }));

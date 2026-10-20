@@ -1607,6 +1607,17 @@ function journalRecords(dir) {
   return out;
 }
 
+/** One stored `later` message as shown: role, then tool_calls and tool_call_id when it has them, then content. */
+function laterView(message) {
+  if (!message || typeof message !== 'object') return message;
+  return {
+    role: message.role,
+    ...(Array.isArray(message.tool_calls) ? { tool_calls: message.tool_calls } : {}),
+    ...(typeof message.tool_call_id === 'string' ? { tool_call_id: message.tool_call_id } : {}),
+    content: message.content ?? null,
+  };
+}
+
 /**
  * The request dumps of `turnId` under a journal directory, every attempt, oldest day first, then
  * by attempt: the base dumps (`<turnId>-<attempt>.json`, the reply's request) only, unless `steps`
@@ -1647,6 +1658,8 @@ export function storedDumps(journalDir, turnId, { steps = false } = {}) {
             // the copy is missing: the hash stays
           }
         }
+        // The messages after the first two, shown as role, tool_calls and tool_call_id with their content.
+        if (Array.isArray(dump.later)) dump.later = dump.later.map(laterView);
         out.push({ file: path.join(root, day, name), dump });
       } catch {
         // a dump cut short: skipped
