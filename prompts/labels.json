@@ -536,6 +536,8 @@
       "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held ({code}) and can run {until}",
       "turnFailed": "Your {kind} turn did not go through: {code}",
       "sendFailed": "{n} of {total} messages went out; the rest failed ({code})",
+      "sendUnknown": "A message may not have gone out ({code}); it is not in the chat; {n} of {total} went out",
+      "stateLost": "Your inner state could not be read ({code}); you started empty",
       "codes": {
         "done": "the intention is already done",
         "cancelled": "the intention was cancelled",

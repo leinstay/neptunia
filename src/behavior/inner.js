@@ -132,7 +132,7 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'd
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand, a diary entry. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run', 'diary.post']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed']);
+export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'diagnostic']);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
 const CALL_STATUSES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
 /** The most facts one turn is shown; the rest stay for the next one. */
@@ -715,14 +715,44 @@ export function createInnerLife({
     const key = String(guildId);
     if (!states.has(key)) {
       let raw = null;
+      let lost = null;
       try {
         raw = JSON.parse(fs.readFileSync(fileOf(key), 'utf8'));
       } catch (err) {
-        if (err?.code !== 'ENOENT') log.warn('inner: state unreadable, starting empty', { guildId: key, code: err?.code ?? 'parse' });
+        if (err?.code !== 'ENOENT') lost = err?.code ?? 'parse';
       }
-      states.set(key, normalizeState(raw));
+      const state = normalizeState(raw);
+      states.set(key, state);
+      if (lost !== null) loseState(key, state, lost);
     }
     return states.get(key);
+  }
+
+  /**
+   * The state file could not be read: it is moved aside (`inner.json.bad-<ts>`, never overwritten),
+   * the loss is logged and journalled, and a `stateLost` fact tells her at her next turn that she
+   * started empty. Never a silent empty start. Never throws.
+   */
+  function loseState(key, state, code) {
+    const at = now();
+    const backup = `${fileOf(key)}.bad-${at}`;
+    let kept = true;
+    try {
+      fs.renameSync(fileOf(key), backup);
+    } catch (err) {
+      kept = false;
+      log.warn('inner: unreadable state could not be moved aside', { guildId: key, code: err?.code ?? null });
+    }
+    log.warn('inner: state unreadable, starting empty', { guildId: key, code, kept });
+    note(key, { event: 'stateLost', code, kept });
+    addFact(state, { at, kind: 'stateLost', code, channelId: null, privateChat: false });
+    // Written only when the old file is safe aside; if it could not be moved it stays where it is.
+    if (!kept) return;
+    try {
+      writeJsonAtomic(fileOf(key), state);
+    } catch (err) {
+      log.warn('inner: state write failed', { guildId: key, code: err?.code ?? null });
+    }
   }
 
   function save(guildId) {

@@ -31,14 +31,15 @@ export const WAKE_PURPOSE_CHARS = 200;
  * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
- * `sendFailed`: `{code}`, `{n}`, `{total}`. '' without the fact's label.
+ * `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty). '' without the fact's label.
  * @param {object} fact
  * @param {object} l  `labels.wake`.
  * @param {{ when?: (ts: number) => string }} [options]
  * @returns {string}
  */
 export function feedbackFactText(fact, l, { when = () => '' } = {}) {
-  const key = (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') && !fact.intentionId && typeof l?.feedback?.[`${fact.kind}Kind`] === 'string' ? `${fact.kind}Kind` : fact?.kind;
+  const unclear = fact?.kind === 'sendFailed' && fact.unknown === true && typeof l?.feedback?.sendUnknown === 'string' && l.feedback.sendUnknown !== '';
+  const key = unclear ? 'sendUnknown' : (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') && !fact.intentionId && typeof l?.feedback?.[`${fact.kind}Kind`] === 'string' ? `${fact.kind}Kind` : fact?.kind;
   const template = l?.feedback?.[key];
   if (typeof template !== 'string' || !template) return '';
   const n = (value) => String(Number.isFinite(value) ? value : 0);
@@ -59,6 +60,8 @@ export function feedbackFactText(fact, l, { when = () => '' } = {}) {
       return fill(template, { code: String(fact.code ?? ''), kind: String(fact.wake ?? '') });
     case 'sendFailed':
       return fill(template, { code: String(fact.code ?? ''), n: n(fact.n), total: n(fact.total) });
+    case 'stateLost':
+      return fill(template, { code: String(fact.code ?? '') });
     default:
       return '';
   }

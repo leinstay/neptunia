@@ -564,6 +564,8 @@ export const labels = {
       wakeHeld: 'held {kind} {id} {purpose} {code} until {until}',
       turnFailed: 'turn {kind} failed {code}',
       sendFailed: 'send failed {code} {n}/{total}',
+      sendUnknown: 'send unclear {code} {n}/{total}',
+      stateLost: 'inner state lost {code}',
       codes: { done: 'is done', cancelled: 'was cancelled', expired: 'expired', forgotten: 'is gone', 'dm-off': 'dm off', 'not-writable': 'not writable', unavailable: 'unavailable', 'no-review-channel': 'no review channel' },
     },
     here: 'here: #{channel} ({why})',

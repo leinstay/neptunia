@@ -12,7 +12,7 @@
 // post (a message, the GIF, the picture) answering such a line goes here
 // plain, with a jump link to it.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { block, buildDiaryPlanRequest, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, freezePerBucket, gifFieldChars, ownGifLines, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
@@ -1035,6 +1035,41 @@ const NO_OP = Object.freeze({
 function closeResult(op, result) {
   if (result?.status === 'unknown') return op.unknown();
   return op.failed(result?.error?.code ?? result?.status ?? CODE.ERROR);
+}
+
+/** How many characters of a message's text its send hash covers (what survives a trailing link or a cut). */
+const SEND_HASH_CHARS = 80;
+
+/**
+ * The hash of a message's text as a send whose answer never came records it, and as her own lines of
+ * the channel are checked against it later: the first SEND_HASH_CHARS characters with whitespace folded.
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function sendHash(text) {
+  const folded = Array.from(String(text ?? '').replace(/\s+/g, ' ').trim()).slice(0, SEND_HASH_CHARS).join('');
+  return createHash('sha1').update(folded).digest('hex').slice(0, 16);
+}
+
+/**
+ * The facts of `pending` with the sends whose answer never came (`sendFailed` with `unknown`) settled
+ * against `history` (the channel's lines as the turn fetched them): a message of hers with that hash
+ * after the send is there, so the fact is dropped and `dropped` names it; any other stays, to be
+ * told as it is. Pure.
+ * @param {object[]} pending
+ * @param {object[]} history
+ * @returns {{ kept: object[], dropped: object[] }}
+ */
+export function settleUnknownSends(pending, history) {
+  const own = (Array.isArray(history) ? history : []).filter((line) => line?.self === true && typeof line.content === 'string');
+  const kept = [];
+  const dropped = [];
+  for (const fact of pending) {
+    const found = fact.kind === 'sendFailed' && fact.unknown === true && typeof fact.hash === 'string'
+      && own.some((line) => sendHash(line.content) === fact.hash && (!Number.isFinite(line.ts) || !Number.isFinite(fact.at) || line.ts >= fact.at - 60_000));
+    (found ? dropped : kept).push(fact);
+  }
+  return { kept, dropped };
 }
 
 /** What the logs show of a port result's error: the platform's own error when the adapter kept it. */
@@ -3822,9 +3857,10 @@ export function createTurnRunner({
     const pingsOff = (userId) =>
       !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(guildId, userId);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
-    const failSend = (code) => {
+    // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
+    const failSend = (code, { unknown = false, text: sentText = '' } = {}) => {
       sendFailed = true;
-      if (draft) draft.sendFailure = { code, n: ownPosted.length, total: messages.length };
+      if (draft) draft.sendFailure = { code, n: ownPosted.length, total: messages.length, ...(unknown ? { unknown: true, hash: sendHash(sentText) } : {}) };
     };
     for (const [index, message] of messages.entries()) {
       if (!typedAbove(index) && typingOn) await sleep(between(cfg.betweenMessagesMs, rng));
@@ -3869,7 +3905,7 @@ export function createTurnRunner({
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);
         log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: portError(result) });
-        failSend(typeof result.code === 'string' && result.code ? result.code : CODE.SEND_FAILED);
+        failSend(typeof result.code === 'string' && result.code ? result.code : (result.error?.code ?? CODE.SEND_FAILED), { unknown: result.status === 'unknown', text });
         break;
       }
       const posted = postedOf(result);
@@ -6599,7 +6635,16 @@ export function createTurnRunner({
       const addressedHere = mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1);
       if (isPrivate) privateChannels.add(String(channel.id));
       const factScope = { channelId: String(channel.id), privateChat: isPrivate };
-      const pendingFacts = addressedHere ? facts().pending(guildId, factScope) : [];
+      let pendingFacts = addressedHere ? facts().pending(guildId, factScope) : [];
+      // A send of hers that may have gone out is looked for in the channel's lines first: found, the fact is dropped; not, it is told as unclear.
+      if (pendingFacts.some((fact) => fact.kind === 'sendFailed' && fact.unknown === true)) {
+        const settled = settleUnknownSends(pendingFacts, history);
+        if (settled.dropped.length > 0) {
+          facts().markTold(guildId, settled.dropped.map((fact) => fact.id));
+          log.info('turn: unknown send found in the channel', { channel: channel.id, count: settled.dropped.length });
+        }
+        pendingFacts = settled.kept;
+      }
       const failedFacts = pendingFacts.filter((fact) => fact.kind === 'failedTurn' && fact.channelId === factScope.channelId && now - fact.at < FAILED_TURN_KEEP_MS && fact.messageId !== trigger.id);
       const failedEarlier = failedFacts.map((fact) => ({
         author: history.find((m) => m.authorId === fact.authorId)?.authorName ?? store.getUser?.(guildId, fact.authorId)?.names?.[0] ?? '',

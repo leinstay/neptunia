@@ -22,7 +22,7 @@ import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
-import { feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
+import { feedbackFactText, feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { feedbackFacts } from '../src/behavior/inner.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
@@ -690,6 +690,11 @@ test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behin
   assert.equal(feedbackInTurnText([{ kind: 'unknownKind' }], labels), '');
   assert.equal(feedbackInTurnText(facts, { ...labels, wake: { ...labels.wake, feedbackInTurn: undefined } }), '');
   assert.equal(feedbackInTurnText(facts, { ...labels, wake: { ...labels.wake, feedbackItem: undefined } }), '');
+});
+
+test('feedbackFactText: a stateLost fact names the code; without its label, nothing', () => {
+  assert.equal(feedbackFactText({ kind: 'stateLost', code: 'parse' }, labels.wake), fill(labels.wake.feedback.stateLost, { code: 'parse' }));
+  assert.equal(feedbackFactText({ kind: 'stateLost', code: 'parse' }, { feedback: {} }), '');
 });
 
 test('feedbackFacts: every status that is not ok is a callFailed with its code and the operation\'s own text; a proposed call is none', () => {
