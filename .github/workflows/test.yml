@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ['24.x']
+        node: ['26.x']
     steps:
       - uses: actions/checkout@v4
       - name: No private files tracked
