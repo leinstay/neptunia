@@ -1132,13 +1132,14 @@ export function requesterOf(trigger, channel) {
  * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
- * (`skills`: a derived skill's options are resolved by its command), and `fileOf` (a file handle
+ * (`skills`: a derived skill's options are resolved by its command), `searchRefs` (the turn's quoted lines
+ * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, memberHandles = null, fileOf = null, triggerText = null, deletedIds = null }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, memberHandles = null, fileOf = null, triggerText = null, deletedIds = null, searchRefs = null }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1163,6 +1164,9 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     channelHandles: channelHandles instanceof Map ? channelHandles : null,
     memberHandles: memberHandles instanceof Map ? memberHandles : null,
     messageAt: (n) => {
+      // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
+      const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
+      if (found) return { id: String(found.id), conversationId: String(found.channelId ?? channel.id), authorId: found.authorId ?? null, self: found.self === true };
       const id = idByIndex?.get(n);
       if (!id) return null;
       const line = (lines ?? []).find((entry) => entry.id === id);
@@ -1178,6 +1182,34 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
     // The trigger message's text: a channel it names may take an errand's file.
     ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
+  };
+}
+
+/** The numbers left free between a request's own lines and the handles of a memory.search of the turn (its later steps add a few lines). */
+const SEARCH_HANDLE_GAP = 20;
+
+/**
+ * The turn's registry of the lines a memory.search quoted (`draft.searchRefs`): handles numbered
+ * on past the request's own numbering (`draft.handleFloor`, its highest line number, plus
+ * SEARCH_HANDLE_GAP, so the steps of the loop, which rebuild the transcript, keep them clear),
+ * each resolving to its message (channel and id) for the turn and its loop steps. `next()` is the
+ * next free number, `take(shown)` registers the quoted lines the result kept
+ * (`{ n, id, channelId, authorId, self, message }`).
+ * @param {object} draft
+ * @returns {{ next(): number, take(shown: object[]): void }}
+ */
+export function searchHandles(draft) {
+  const registry = () => (draft.searchRefs ??= { base: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1, next: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1, byNumber: new Map(), byId: new Map() });
+  return {
+    next: () => registry().next,
+    take: (shown) => {
+      const refs = registry();
+      for (const ref of shown) {
+        refs.byNumber.set(ref.n, ref);
+        refs.byId.set(String(ref.id), ref);
+        refs.next = Math.max(refs.next, ref.n + 1);
+      }
+    },
   };
 }
 
@@ -1948,9 +1980,9 @@ export function createTurnRunner({
   }
 
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
-  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, memberHandles = null, trigger = null, deletedIds = null }) {
+  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, memberHandles = null, trigger = null, deletedIds = null, searchRefs = null }) {
     const fileOf = typeof errands?.fileOf === 'function' ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) }) : null;
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, memberHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null, deletedIds });
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, memberHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null, deletedIds, searchRefs });
   }
 
   /**
@@ -2311,10 +2343,12 @@ export function createTurnRunner({
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls). Null with the switch off.
    */
-  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history }) {
+  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history, draft = null }) {
     if (!coreToolsOn(hot.config)) return null;
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
+    // A message the turn's history lacks but one of its memory.search results quoted.
+    const quotedMessage = (messageId) => draft?.searchRefs?.byId.get(String(messageId))?.message ?? null;
     return {
       'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
       'web.read': (args) =>
@@ -2325,7 +2359,7 @@ export function createTurnRunner({
           guildId,
           args,
           linkOf: (messageId) => {
-            const message = (history ?? []).find((item) => String(item?.id) === String(messageId));
+            const message = (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? quotedMessage(messageId);
             return message ? (collectReadableLinks(message)[0]?.url ?? firstLinkIn(message.content)) : null;
           },
         }),
@@ -2336,7 +2370,7 @@ export function createTurnRunner({
           labels: hot.prompts?.labels ?? {},
           guildId,
           args,
-          mediaOf: (messageId) => (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? null,
+          mediaOf: (messageId) => (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? quotedMessage(messageId),
           takeTurnSlot: () => {
             if (looks >= lookPerTurn(hot.config)) return false;
             looks += 1;
@@ -2359,6 +2393,7 @@ export function createTurnRunner({
           decorate: (lines) => linkCalls(lines, { channel, guildId }),
           args,
           now: clock(),
+          ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
     };
   }
@@ -7082,6 +7117,8 @@ export function createTurnRunner({
       // a member the model was not shown (another channel, a block the budget dropped) is
       // mentioned by a name nobody else in the served guild carries.
       const pulledIds = request.pulledIds ?? new Map();
+      // The highest line number of the request: a memory.search of the turn numbers its quotes on past it.
+      draft.handleFloor = Math.max(0, ...idByIndex.keys());
       const shownLines = shownPulled.flatMap(({ channelId, ids }) => {
         const shownIds = new Set(ids);
         return (pulled.find((entry) => entry.channelId === channelId)?.messages ?? []).filter((message) => shownIds.has(message.id));
@@ -7157,10 +7194,10 @@ export function createTurnRunner({
         return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true, chainId: draft.inner?.wake?.chainId ?? null });
       };
       const callPlan = parsed.call && !looping
-        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds }) })
+        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds, searchRefs: draft.searchRefs ?? null }) })
         : null;
       const loopPlans = looping && parsed.calls.length > 0
-        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds }), envelopeOf })
+        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, memberHandles: handles, trigger, deletedIds: draft.deletedIds, searchRefs: draft.searchRefs ?? null }), envelopeOf })
         : [];
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.
@@ -7205,12 +7242,13 @@ export function createTurnRunner({
       let called = null;
       let loopDelivered = false;
       // The calls of the reply and of every later step, run in the turn's context (runCall's).
-      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history }) };
+      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history, draft }) };
       if (loopPlans.length > 0) {
         // The next step's calls, planned over the transcript its request showed (`again`, continuationRequest's routing).
         const planNext = async (calls, again) => {
           const routed = again ?? { idByIndex, lines, pulledIds, handles, channelHandles };
-          const plans = await planCalls({ calls, channel, draft, view: callView({ channel, guildId, idByIndex: routed.idByIndex, lines: routed.lines, pulledIds: routed.pulledIds, memoryOn, channelHandles: routed.channelHandles, trigger }), envelopeOf });
+          draft.handleFloor = Math.max(draft.handleFloor ?? 0, ...routed.idByIndex.keys());
+          const plans = await planCalls({ calls, channel, draft, view: callView({ channel, guildId, idByIndex: routed.idByIndex, lines: routed.lines, pulledIds: routed.pulledIds, memoryOn, channelHandles: routed.channelHandles, trigger, searchRefs: draft.searchRefs ?? null }), envelopeOf });
           return { plans, context: { ...callContext, idByIndex: routed.idByIndex, lines: routed.lines, pulledIds: routed.pulledIds, handles: routed.handles ?? null, channelHandles: routed.channelHandles ?? null } };
         };
         const looped = await toolLoop({

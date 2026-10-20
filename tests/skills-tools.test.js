@@ -411,3 +411,30 @@ test('runMediaLook: a second look that is switched off names the switch', async 
   assert.equal(noVision.status, 'not_configured');
   assert.ok(noVision.data.text.length > 0, 'the video vision switch is named too');
 });
+
+test('memorySearchText: with a registry each quoted line carries a #N handle numbered on, the lines that stayed are registered, a cut line is not', () => {
+  const l = labels.skills.tools.memory;
+  const entry = (id, text) => ({ id, text, authorId: `u${id}`, self: id === 'm2', message: { id } });
+  const quotes = [
+    { channelId: 'c1', channelName: 'jardin', startTs: Date.UTC(2026, 8, 30, 9), lines: 'x', entries: [entry('m1', '[09:00] Éloïse: ένα κουνέλι'), entry('m2', '[09:01] Ana: ωραίο')] },
+    { channelId: 'c2', channelName: 'general', startTs: Date.UTC(2026, 9, 1, 18), lines: 'y', entries: [entry('m3', '>> [18:44] Βασίλης: το κουνέλι πέθανε')] },
+  ];
+  const taken = [];
+  const refs = { next: () => 85, take: (shown) => taken.push(...shown) };
+  assert.equal(memorySearchText(quotes, { labels, timezone: 'UTC', refs }), [
+    l.source,
+    l.handles,
+    fill(l.window, { date: '2026-09-30', channel: 'jardin' }),
+    '#85 [09:00] Éloïse: ένα κουνέλι',
+    '#86 [09:01] Ana: ωραίο',
+    fill(l.window, { date: '2026-10-01', channel: 'general' }),
+    '#87 >> [18:44] Βασίλης: το κουνέλι πέθανε',
+  ].join('\n'));
+  assert.deepEqual(taken.map((ref) => [ref.n, ref.id, ref.channelId, ref.authorId, ref.self]), [[85, 'm1', 'c1', 'um1', false], [86, 'm2', 'c1', 'um2', true], [87, 'm3', 'c2', 'um3', false]]);
+  // A stretch cut at windowChars registers only the lines that stayed.
+  const cut = [];
+  memorySearchText(quotes.slice(0, 1), { labels, timezone: 'UTC', windowChars: 30, refs: { next: () => 10, take: (shown) => cut.push(...shown) } });
+  assert.deepEqual(cut.map((ref) => ref.n), [10]);
+  // Without a registry the text is as before.
+  assert.ok(!memorySearchText(quotes, { labels, timezone: 'UTC' }).includes('#85'));
+});
