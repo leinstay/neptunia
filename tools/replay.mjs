@@ -2530,7 +2530,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, journal: readOnlyJournal(createJournal({ appendStore: createAppendStore({ log }), dataDir, config: () => ({}), log })), getGuildId: () => guildId, dataDir: null });
     const turns = diaryTurnRunner(mods, {
       hot, store, llm, calibrator, client, guildId, self, images: null, state, port, wrapDiscord: (found) => hiddenCapabilities(found, hide),
-      extra: { skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, errands },
+      extra: { skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, intentions, errands },
     });
     log.info('replay-cli: inner ready', { guildId, channelId: channel.id, kind: args.inner, intention: intention?.id ?? null, samples: args.samples });
 

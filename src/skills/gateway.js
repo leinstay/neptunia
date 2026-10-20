@@ -43,7 +43,7 @@ function noRequesterRefusal(skill) {
 
 /**
  * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
- * with the rights code). A skill on an owner's operation -- a derived one (src/skills/derive.js)
+ * with the rights code). A skill on an owner's operation -- one backed by an operation (src/skills/definitions.js)
  * or one on an owner-only operation -- runs only for a requester who may run that operation
  * themselves (src/ops/rights.js, the owner commands' own check: an owner passes everything, an
  * owner-only operation only an owner, a member as their grants say); with no requester (nobody
@@ -56,7 +56,7 @@ function noRequesterRefusal(skill) {
 function requesterRefusal(skill, requester, context) {
   // A turn answering several people at once: no write runs on their mixed authority.
   if (context?.mixedRequesters === true && skill.kind !== 'read') return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
-  const owners = skill.derived === true || skill.ownerOnly === true;
+  const owners = skill.opBacked === true || skill.ownerOnly === true;
   if (!owners && (!skill.sharedState || !requester)) return null;
   // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
   // unasked): her grants, checked before this, alone decide.
@@ -140,7 +140,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
   if (!access.allowed) return refused(access.reason, access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name);
 
   // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall); a GIF-only post: no text beside a `gif`.
-  const bodyArg = skill.command?.body;
+  const bodyArg = skill.dispatch?.body;
   const gifOnly = Boolean(bodyArg) && (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) && ((typeof args?.gif === 'string' && args.gif !== '') || (typeof args?.media === 'string' && args.media !== ''));
   const fileOnly = gifOnly || (Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '');
   const argsError = fileOnly

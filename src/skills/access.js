@@ -15,6 +15,7 @@
 
 import { isPlainObject } from '../config.js';
 import { CODE } from './codes.js';
+import { SKILL_DEFINITIONS } from './definitions.js';
 
 /** The skills behind the persona's current reply tags, allowed in the current conversation without a grant. */
 export const CARRIED_OVER = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
@@ -51,19 +52,7 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
  * -> `features.<key>`): off, they are refused (`feature-off`), never listed to her and never
  * offered to a classifier, so a request is as it was before them.
  */
-export const FEATURE_SKILLS = Object.freeze({
-  'intent.set': 'intentions',
-  'intent.update': 'intentions',
-  'intent.cancel': 'intentions',
-  'intent.list': 'intentions',
-  // The inner life's kill switch (owner-only): absent with the inner life off, so no request changes.
-  'inner.stop': 'innerLife',
-  'inner.start': 'innerLife',
-  'inner.status': 'innerLife',
-  // Her own second look at a picture or a video: a skill of her turn's tool loop only.
-  'media.look': 'coreTools',
-  'media.find': 'coreTools',
-});
+export const FEATURE_SKILLS = Object.freeze(Object.fromEntries(SKILL_DEFINITIONS.filter((definition) => definition.feature !== null).map((definition) => [definition.name, definition.feature])));
 
 /** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */
 export function skillFeatureOn(name, config) {

@@ -165,7 +165,7 @@ async function liveTurn({ answers, wake = BEAT_WAKE, beat = {}, seed = null, int
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, intentions });
   const llm = sequenceLlm(typeof answers === 'function' ? answers(intentions) : answers);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal: null, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal: null, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, intentions });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
   const sends = port.calls.filter((call) => call.op === 'send');

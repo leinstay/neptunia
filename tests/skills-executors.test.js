@@ -1,7 +1,7 @@
 // Tests for src/skills/executors.js and the operations her calls run: one `<call>` of the
 // persona's output resolved on the server's side (channels, members, roles, transcript numbers)
 // into the arguments of the /nep command behind the skill, then run through that command's own
-// path (src/admin.js#runCommand: the requester's rights checked again), the persona as the actor.
+// path (src/admin.js#runSkillOp: the requester's rights checked again), the persona as the actor.
 // Whatever the operation answers -- an error or a refusal included -- is her result, with a
 // structured status; the `/nep message` operations go through a fake interface adapter.
 import { test } from 'node:test';
@@ -135,7 +135,7 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
 
 test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, her text -- when the call leaves it out', () => {
   // Each skill declares the argument its body fills; a skill without one takes none.
-  const bodyOf = (name) => skillRegistry().get(name).command.body;
+  const bodyOf = (name) => skillRegistry().get(name).dispatch.body;
   assert.deepEqual(['task.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), ['goal', 'text', 'text', 'text']);
   for (const name of ['task.status', 'task.cancel', 'message.delete', 'memory.journal.read', 'rule.remove']) assert.equal(bodyOf(name), null, name);
   // The live call: agent on the tag, the goal in the body -- the errand goes through the gateway.
@@ -320,18 +320,18 @@ function deps(admin, port, { requester = { id: OWNER, roleIds: [] }, ...over } =
     refOf: (conversationId) => ({ iface: 'fake', conversationId: String(conversationId) }),
     renderText: (text) => text,
     envelope: Object.freeze({ actor: 'persona', requester, mixed: false, invocationId: 'inv-1', originChannelId: HERE }),
-    runCommand: admin.runCommand,
-    runOwnCommand: admin.runOwnCommand,
+    runOp: admin.runSkillOp,
+    runOwnOp: admin.runOwnSkillOp,
     opContext: { guildId: 'g1', channelId: HERE },
     ...over,
   };
 }
 
-test('runOwnCommand: only her own expressive operations, without the requester\'s right', async () => {
+test('runOwnSkillOp: only her own expressive operations, without the requester\'s right', async () => {
   const { admin } = makeAdmin();
-  const other = await admin.runOwnCommand('lore.list', {}, { guildId: 'g1', userId: MEMBER });
+  const other = await admin.runOwnSkillOp('lore.list', {}, { guildId: 'g1', userId: MEMBER });
   assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
-  const own = await admin.runOwnCommand('intent.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
+  const own = await admin.runOwnSkillOp('intent.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
   assert.notEqual(own.code, 'not-self-owned', 'her own operation, for her, whoever asked');
 });
 
@@ -342,8 +342,8 @@ test('executeCall: on her own initiative the operation hears it, and the inner t
   const resolved = resolve('lore.list', {});
   assert.equal(resolved.ok, true);
   const initiative = Object.freeze({ actor: 'persona', requester: null, mixed: false, invocationId: 'inv-2', originChannelId: HERE, ownInitiative: true, chainId: 'chain:k' });
-  await executeCall(resolved, deps(admin, port, { envelope: initiative, runInitiativeCommand: capture }));
-  await executeCall(resolved, deps(admin, port, { runCommand: capture }));
+  await executeCall(resolved, deps(admin, port, { envelope: initiative, runInitiativeOp: capture }));
+  await executeCall(resolved, deps(admin, port, { runOp: capture }));
   assert.deepEqual(contexts.map((c) => [c.ownInitiative ?? null, c.chainId ?? null]), [[true, 'chain:k'], [null, null]]);
 });
 
@@ -655,7 +655,7 @@ test('executeCall: edit and delete change her own message; the port refuses anyo
   assert.equal(port.messagesIn(NEWS).find((message) => message.ref.messageId === '1004').text, 'σωστό');
   // someone else's message, should a raw id get past the transcript: the port says no
   const skill = skillRegistry().get('message.edit');
-  const foreign = await executeCall({ ok: true, skill: 'message.edit', args: { message: '1003', text: 'όχι', channel: NEWS }, command: skill.command, repliedAuthorId: null }, deps(admin, port));
+  const foreign = await executeCall({ ok: true, skill: 'message.edit', args: { message: '1003', text: 'όχι', channel: NEWS }, dispatch: skill.dispatch, repliedAuthorId: null }, deps(admin, port));
   assert.deepEqual([foreign.status, foreign.code], ['failed', 'not-own-message']);
   const deleted = await executeCall(resolve('message.delete', { message: '#4' }), deps(admin, port));
   assert.equal(deleted.status, 'ok');
@@ -735,7 +735,7 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
 
 /** A call aimed at a raw channel id, as the server resolved it: `args` keyed by the command's options. */
 function direct(skill, args) {
-  return { ok: true, skill, args, command: skillRegistry().get(skill).command, repliedAuthorId: null };
+  return { ok: true, skill, args, dispatch: skillRegistry().get(skill).dispatch, repliedAuthorId: null };
 }
 
 test('executeCall: she may post in any text channel of the served guild where the bot may send -- no list; Discord permissions are the only limit', async () => {
@@ -801,15 +801,15 @@ test('executeCall: draw.create to a channel without Attach Files is refused befo
 });
 
 test('executeCall: an operation that does not answer in time is unknown, never retried', async () => {
-  const runCommand = () => new Promise(() => {});
+  const runOp = () => new Promise(() => {});
   // The executor's timer never holds a process open; this one keeps the test's loop alive meanwhile.
   const keepAlive = setTimeout(() => {}, 1000);
-  const result = await executeCall(resolve('lore.list'), { envelope: { requester: { id: OWNER } }, runCommand, opContext: {}, timeoutMs: 20 });
+  const result = await executeCall(resolve('lore.list'), { envelope: { requester: { id: OWNER } }, runOp, opContext: {}, timeoutMs: 20 });
   clearTimeout(keepAlive);
   assert.deepEqual(result, { status: 'unknown', code: 'timeout', values: { what: 'chat' }, data: { text: '' } });
   // the envelope, never the model, says who asked; the actor and the invocation id ride along
   const seen = [];
-  await executeCall(resolve('lore.list'), { envelope: { requester: { id: MEMBER, roleIds: ['r1'] }, invocationId: 'inv-9' }, runCommand: async (...args) => { seen.push(args); return { status: 'ok', summary: 'none' }; }, opContext: { guildId: 'g1', channelId: HERE } });
+  await executeCall(resolve('lore.list'), { envelope: { requester: { id: MEMBER, roleIds: ['r1'] }, invocationId: 'inv-9' }, runOp: async (...args) => { seen.push(args); return { status: 'ok', summary: 'none' }; }, opContext: { guildId: 'g1', channelId: HERE } });
   assert.deepEqual(seen, [['lore.list', { query: undefined }, { guildId: 'g1', channelId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' }]]);
 });
 
@@ -867,7 +867,7 @@ test('executeCall: an in-turn tool runs in place of the command, on the operatio
   const inTurn = { 'memory.search': async (args) => (seen.push(args), { status: 'ok', data: { text: 'βρέθηκαν' } }) };
   const resolved = resolve('memory.search', { channel: '#νέα', terms: 'λαγός' }, 'τι είπε η Ana');
   assert.equal(resolved.ok, true);
-  const result = await executeCall(resolved, deps(admin, port, { inTurn, runCommand: () => assert.fail('the command never runs') }));
+  const result = await executeCall(resolved, deps(admin, port, { inTurn, runOp: () => assert.fail('the command never runs') }));
   assert.deepEqual(result, { status: 'ok', data: { text: 'βρέθηκαν' } });
   assert.deepEqual(seen, [{ question: 'τι είπε η Ana', people: undefined, channelId: NEWS, when: undefined, terms: 'λαγός' }]);
   // A result without a known status is a failure; one not back in time is unknown, never retried.
@@ -877,7 +877,7 @@ test('executeCall: an in-turn tool runs in place of the command, on the operatio
   assert.deepEqual([slow.status, slow.code], ['unknown', 'timeout']);
   // A skill the turn holds no tool for goes through its command as before.
   const keys = [];
-  const other = await executeCall(resolve('lore.list'), deps(admin, port, { inTurn, runCommand: async (key) => (keys.push(key), { status: 'ok', code: 'ok', summary: 'κενό', data: { text: 'κενό' } }) }));
+  const other = await executeCall(resolve('lore.list'), deps(admin, port, { inTurn, runOp: async (op) => (keys.push(op), { status: 'ok', code: 'ok', summary: 'κενό', data: { text: 'κενό' } }) }));
   assert.deepEqual([other.status, keys], ['ok', ['lore.list']]);
   assert.deepEqual(seen.length, 1);
 });

@@ -41,7 +41,7 @@ test('skills.describe is a registered read skill with a name argument that the b
   assert.ok(skill);
   assert.equal(skill.kind, 'read');
   assert.deepEqual(Object.keys(skill.argsSchema.properties), ['name']);
-  assert.equal(skill.command.body, 'name');
+  assert.equal(skill.dispatch.body, 'name');
 });
 
 test('skills.describe: an exact name comes back in full with its arguments and whether it is on for her', async () => {

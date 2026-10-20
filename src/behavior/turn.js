@@ -1141,7 +1141,7 @@ export function requesterOf(trigger, channel) {
  * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
- * (`skills`: a derived skill's options are resolved by its command), `searchRefs` (the turn's quoted lines
+ * (`skills`: a skill's options are resolved by its dispatch), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -1161,7 +1161,7 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     for (const note of store.listChannels(guildId) ?? []) if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
   }
   if (typeof channel.name === 'string' && channel.name) conversations.push({ id: String(channel.id), name: channel.name });
-  // The guild's roles a derived skill's role option may name.
+  // The guild's roles a skill's role option may name.
   const roles = [];
   const roleCache = channel?.guild?.roles?.cache;
   if (roleCache && typeof roleCache.values === 'function') {
@@ -1756,11 +1756,11 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `skills: bad-call` and ignored; a diary post drops it) is planned before her reply is acted on
  * (planCall: on an immutable envelope built by code, callEnvelope; journaled `proposed` with its
  * invocation id, resolved on the server's side, checked) and made after it (runCall: checked
- * again right before, then run by src/skills/executors.js through `runCommand(key, args,
- * context)` -- src/admin.js#runCommand, the command's own path, the requester's rights checked
+ * again right before, then run by src/skills/executors.js through `runOp(op, args,
+ * context)` -- src/admin.js#runSkillOp, the command's own path, the requester's rights checked
  * again; absent, a call is `not_configured`; her own expressive operations through
- * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone; an inner turn's calls through
- * `runInitiativeCommand`, src/admin.js#runInitiativeCommand, her grant alone). An operation's answer -- an error or a refusal
+ * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
+ * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). An operation's answer -- an error or a refusal
  * included -- or any call that did not succeed (never under features.skills off) brings one
  * follow-up request that continues the turn (followUp, features.followUpContinuation; a missing
  * key counts as on): the turn's request rebuilt over the channel as it stands then -- her posts of
@@ -1809,9 +1809,9 @@ export function createTurnRunner({
   createPort = null,
   discord,
   skills = null,
-  runCommand = null,
-  runOwnCommand = null,
-  runInitiativeCommand = null,
+  runOp = null,
+  runOwnOp = null,
+  runInitiativeOp = null,
   around = null,
   reactors = null,
   errands = null,
@@ -2063,7 +2063,7 @@ export function createTurnRunner({
     // The body as the skill's main argument (an errand's goal, her text), the call leaving it out: named, never its text.
     if (resolved.bodyArg) log.info('skills: body as argument', { skill: resolved.skill, arg: resolved.bodyArg, channel: channel.id });
     // An errand's file handle written in the body: moved to the file argument (never the text).
-    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
+    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.dispatch?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
     // The message's own channel taken over the one she named: logged, never the ids.
@@ -2114,7 +2114,7 @@ export function createTurnRunner({
    * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
    * operation writes `started` with the ids it aims at, a destructive one is stamped for its
    * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
-   * `runCommand` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
+   * `runOp` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
    * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
@@ -2150,15 +2150,15 @@ export function createTurnRunner({
         if (op.opId) await op.started({ target: callTarget(plan.resolved.args) });
         ran = true;
         // A destructive call counts from its dispatch, whatever comes back.
-        if (plan.resolved.command && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive') destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
+        if (plan.resolved.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive') destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         result = await executeCall(plan.resolved, {
           port: iface,
           refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
           renderText,
           envelope,
-          runCommand,
-          runOwnCommand,
-          runInitiativeCommand,
+          runOp,
+          runOwnOp,
+          runInitiativeOp,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
           timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
@@ -2222,7 +2222,7 @@ export function createTurnRunner({
       // without a specific phrase, the operation's own message before the generic one: one line,
       // skills.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
       // never that message.
-      detail: outcomeDetail(result, { textChars: hot.config.skills?.markTextMaxChars ?? 200, argNames: (skills ?? defaultSkills()).get(skill)?.command?.options?.map((option) => option.name) ?? null }),
+      detail: outcomeDetail(result, { textChars: hot.config.skills?.markTextMaxChars ?? 200, argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
@@ -4985,7 +4985,7 @@ export function createTurnRunner({
 
   /**
    * The live part of `<people_now>` (interfaces/discord/around.js): the snapshot of the voice channels and
-   * of the statuses (the prompt builder derives each person's row from it) and the voice channels' names -- only those a member without any role may see, so
+   * of the statuses (the prompt builder computes each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.

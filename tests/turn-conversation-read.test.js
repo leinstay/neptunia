@@ -174,7 +174,7 @@ async function turn({ answers, allowed = ['conversation.read'], record = fakeRec
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal: null, record, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal: null, record, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: server.channels.get('c1'), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }));
   return { result, logs, llm, port, server, record };
 }

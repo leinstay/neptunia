@@ -197,20 +197,20 @@ export const MAX_ARG_VALUES = 12;
 
 /**
  * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.js#skillsInventoryText),
- * read off its argument schema (src/skills/derive.js#optionsSchema: the command's option names)
+ * read off its argument schema (the skills table's `params`, src/skills/definitions.js)
  * in the schema's order, so the list is the same on every call: `{ name, required }` each, plus
- * `body: true` for the option a `<call>` body fills (`skill.command.body`), `values` (strings) for
+ * `body: true` for the option a `<call>` body fills (`skill.dispatch.body`), `values` (strings) for
  * an enum -- its first MAX_ARG_VALUES, `more: true` when it has more -- or a boolean (`true`,
  * `false`, the words a call's attribute is read as), and `minimum` / `maximum` for a number's
  * bounds the schema sets. [] without a schema or properties. Pure.
- * @param {{ argsSchema?: object, command?: { body?: string|null } }|null|undefined} skill
+ * @param {{ argsSchema?: object, dispatch?: { body?: string|null } }|null|undefined} skill
  * @returns {{ name: string, required: boolean, body?: true, values?: string[], more?: true, minimum?: number, maximum?: number }[]}
  */
 export function skillArgs(skill) {
   const schema = skill?.argsSchema;
   const properties = isPlainObject(schema?.properties) ? schema.properties : {};
   const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
-  const body = typeof skill?.command?.body === 'string' ? skill.command.body : null;
+  const body = typeof skill?.dispatch?.body === 'string' ? skill.dispatch.body : null;
   return Object.entries(properties).map(([name, property]) => {
     const arg = { name, required: required.has(name) };
     if (name === body) arg.body = true;

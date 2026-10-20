@@ -157,7 +157,7 @@ export async function coreToolsOffScenes(load, { coreTools } = {}) {
     const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1' });
     const turns = createTurnRunner({
       discord, createPort: createDiscordAdapter, hot, store, llm, calibrator, client, lookup: fakeLookup(), recall: fakeRecall(),
-      skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, now: () => NOW,
+      skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
     });
     await turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
     return JSON.parse(JSON.stringify(llm.requests));
@@ -179,4 +179,34 @@ export async function coreToolsOffScenes(load, { coreTools } = {}) {
       access: grants(['lore.list', 'memory.server.read']),
     }),
   };
+}
+
+/**
+ * One turn over the same fakes, with the skills on: `answers` are the persona's replies in order,
+ * `access` the grants (a map name -> { everyone, roles, users }), `images` an optional image
+ * client for a `<draw>`. Returns the requests sent and the turn's result.
+ */
+export async function singleScene(load, { content = 'γεια', classifier = 'none', answers, access = {}, images = null } = {}) {
+  const { createTurnRunner } = await load('src/behavior/turn.js');
+  await load('src/ops/index.js');
+  const { skillRegistry } = await load('src/skills/registry.js');
+  const { createAdmin } = await load('src/admin.js');
+  const { createDiscordAdapter, createDiscordInterface } = await load('src/interface/discord.js');
+  const discord = createDiscordInterface().capabilities;
+  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
+  const history = [
+    rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }),
+    rawMessage({ id: 'm1', ts: NOW - 1000, content }),
+  ];
+  const hot = sceneHot({ coreTools: true, access });
+  const store = fakeStore();
+  const llm = sceneLlm({ classifier, answers });
+  const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1' });
+  const turns = createTurnRunner({
+    discord, createPort: createDiscordAdapter, hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client,
+    lookup: fakeLookup(), recall: fakeRecall(), images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,AAAA', bytes: 3, contentType: 'image/png' }) },
+    skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
+  });
+  const { result } = await turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }).then((result) => ({ result }));
+  return { requests: JSON.parse(JSON.stringify(llm.requests)), result };
 }

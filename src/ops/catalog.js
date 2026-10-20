@@ -173,7 +173,8 @@ export function readFlag(options, name) {
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
  * the Discord JSON of the node (`buildCommandTree` drops `args`); `personaOptions` are options
- * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord; a leaf
+ * only the persona's own call of the operation gives, never sent to Discord (kept for `/nep` until the native-tools stage 7;
+ * her skills no longer read them: src/skills/definitions.js is their source, tests/oracles/skills-derive.js the oracle); a leaf
  * with `personaOnly` is her skill alone and is left out of the Discord tree. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
@@ -342,7 +343,7 @@ export const COMMAND_TABLE = Object.freeze([
         description: 'Make the persona speak now: her turn, in her own words.',
         options: [channelOption('Channel; leave out to post here.'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
         // When the persona herself calls it, she gives her text: an argument only she has
-        // (src/skills/derive.js), never shown to Discord; the operation picks its mode by who acts.
+        // (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord; the operation picks its mode by who acts.
         // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.js),
         // and a GIF of her library (`gif`, a handle: src/media/gif-post.js).
         personaOptions: [
@@ -401,7 +402,7 @@ export const COMMAND_TABLE = Object.freeze([
         description: 'One task, or the open ones.',
         options: [{ type: STRING, name: 'id', description: 'Task id (omit for the open ones).', required: false }],
         // Her own call also reads a finished task's result in pages (`action: read`, from the
-        // character `from`) or closes it (`action: resolve`): arguments only she has (src/skills/derive.js),
+        // character `from`) or closes it (`action: resolve`): arguments only she has (her skills' table, src/skills/definitions.js, carries them now),
         // never shown to Discord, whose command tree is near its size limit.
         personaOptions: [
           { type: STRING, name: 'action', description: 'read or resolve a finished task.', required: false, choices: choicesOf(RESULT_ACTIONS) },
@@ -442,7 +443,7 @@ export const COMMAND_TABLE = Object.freeze([
           { type: INTEGER, name: 'perday', description: 'Wakes a day.', required: false, min_value: 1, max_value: 1000 },
         ],
         // Her own call also gives the reason of a dropped intention: an argument only she has
-        // (src/skills/derive.js), never shown to Discord, whose command tree is near its size limit.
+        // (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord, whose command tree is near its size limit.
         personaOptions: [{ type: STRING, name: 'reason', description: 'Why it is dropped.', required: false, max_length: 300 }],
         args: (options) => {
           const out = { action: options.getString('action', true) };
@@ -531,7 +532,7 @@ export const COMMAND_TABLE = Object.freeze([
         description: "Read one web page: its own text, cut (no summary).",
         options: [{ type: STRING, name: 'url', description: 'The page link (http or https).', required: false, max_length: 2000 }],
         // When the persona herself calls it she may name a message she sees (`#N`) instead of a
-        // link: an argument only she has (src/skills/derive.js), never shown to Discord.
+        // link: an argument only she has (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord.
         personaOptions: [{ type: STRING, name: 'message', description: 'A message whose link to read.', required: false, max_length: 100 }],
         args: (options) => ({ url: options.getString('url') ?? undefined, message: options.getString('message') ?? undefined }),
       },

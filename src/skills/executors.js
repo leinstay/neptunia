@@ -1,13 +1,12 @@
 // What one `<call>` of the persona's output (src/llm/parse.js) does once the gateway
-// (src/skills/gateway.js#checkSkill) let it pass. Her skills are the owner's /nep commands
-// (src/skills/derive.js): a call names an operation and gives the options of the command that
-// runs it as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
+// (src/skills/gateway.js#checkSkill) let it pass. Her skills have a table of their own
+// (src/skills/definitions.js): a call names an operation and gives its arguments as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
 // command's arguments on the server's side -- a channel reference she sees (`#handle`, `#name`,
 // `<#id>` or an id) into a channel id, a member's name or mention into a stored profile's id, a role into its
 // id, a transcript number `#N` or a message link (a `message` or `reply` option) into that
 // message's id and channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
-// taken as an id unchecked. `executeCall` then runs the operation through its slash command's own
-// path (src/admin.js#runCommand: the requester's rights checked again, as for their own command),
+// taken as an id unchecked. `executeCall` then runs the operation by its name
+// (src/admin.js#runSkillOp: the requester's rights checked again, as for their own command),
 // the persona as the actor; its answer -- an error or a refusal included -- is the text the owner
 // would see. Every result is `{ status, code?, data? }`, structured and honest (RESULT_STATUSES):
 // `ok` only when the operation answered ok; `denied` (a rule said no), `invalid` (the call was
@@ -426,7 +425,7 @@ export function bodyAttributes(body, names) {
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
  * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
- * skill's body argument (`command.body`, src/skills/derive.js#BODY_ARGS: an errand's `goal`, her
+ * skill's body argument (`dispatch.body`, src/skills/definitions.js: an errand's `goal`, her
  * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
  * attribute too with a different text; the same text both ways, after trimming, is one value and
  * no refusal -- and the result names it (`bodyArg`) for the caller to log. Before that, a body
@@ -456,27 +455,27 @@ export function bodyAttributes(body, names) {
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyArg?: string, fileFromBody?: true, bodyIgnored?: true, bodyArgs?: number }
+ * @returns {{ ok: true, skill: string, args: object, dispatch: object, repliedAuthorId: string|null, bodyArg?: string, fileFromBody?: true, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
   const name = String(call?.skill ?? '');
   const skill = view?.skills?.get?.(name);
-  if (!skill?.command) return refused(CODE.UNKNOWN_SKILL, name);
-  const { command } = skill;
-  const byName = new Map(command.options.map((option) => [option.name, option]));
+  if (!skill?.dispatch) return refused(CODE.UNKNOWN_SKILL, name);
+  const { dispatch } = skill;
+  const byName = new Map(dispatch.options.map((option) => [option.name, option]));
   const given = { ...(call?.args ?? {}) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused(CODE.INVALID_ARGS, `args.${key}:unknown`);
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
   // A body where the command takes none: its options spelled out (an attribute wins), else her
   // comment on the call, left out -- never a refusal.
-  let fromBody = body && !command.body ? (bodyAttributes(body, byName.keys()) ?? bodyArguments(body, byName.keys())) : null;
+  let fromBody = body && !dispatch.body ? (bodyAttributes(body, byName.keys()) ?? bodyArguments(body, byName.keys())) : null;
   // A body that is only a message (`#22`, an id, a link) for a command that takes one: that argument (like idOf for intent ids).
-  if (body && !command.body && !fromBody) {
+  if (body && !dispatch.body && !fromBody) {
     const target = BODY_MESSAGE_OPTIONS.find((option) => byName.has(option) && !Object.hasOwn(given, option));
     if (target && (transcriptNumber(body) !== null || /^\d{15,25}$/.test(body) || MESSAGE_LINK_RE.test(body.replace(/^<(.*)>$/, '$1')))) fromBody = { [target]: body };
   }
-  const bodyIgnored = Boolean(body) && !command.body && !fromBody;
+  const bodyIgnored = Boolean(body) && !dispatch.body && !fromBody;
   let bodyArgs = 0;
   for (const [key, value] of Object.entries(fromBody ?? {})) {
     if (Object.hasOwn(given, key)) continue;
@@ -485,7 +484,7 @@ export function resolveCall(call, view) {
   }
   // A body where the command takes text that is only `name=value` tokens of options the tag
   // left out: the arguments she meant (`state=done`), not a note; else the body is her text.
-  const tokens = body && command.body ? (bodyAttributes(body, byName.keys()) ?? bodyTokens(body, byName.keys())) : null;
+  const tokens = body && dispatch.body ? (bodyAttributes(body, byName.keys()) ?? bodyTokens(body, byName.keys())) : null;
   const fromTokens = tokens && !Object.keys(tokens).some((key) => Object.hasOwn(given, key)) ? tokens : null;
   for (const [key, value] of Object.entries(fromTokens ?? {})) {
     given[key] = value;
@@ -495,11 +494,11 @@ export function resolveCall(call, view) {
   // purpose): its options on lines of their own (`people: ...`, `due=1m`) are those options, the other
   // lines the body. A post or a stored text (VERBATIM_BODY_SKILLS) stays as written.
   let text = body;
-  if (body && command.body && VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
+  if (body && dispatch.body && VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
     // A post or a stored text keeps its body as written, except for option lines she put at its head
     // (`channel=c2003`, `text=...` on lines of their own before the first ordinary line): those are the
     // options, never her words; a `text=` line is the first line of the text, the rest follows it.
-    const led = leadingOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
+    const led = leadingOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), dispatch.body);
     if (led.twice) return refused(CODE.INVALID_ARGS, `args.${led.twice}:twice`);
     for (const [key, value] of Object.entries(led.options)) {
       given[key] = value;
@@ -507,9 +506,9 @@ export function resolveCall(call, view) {
     }
     text = led.rest;
   }
-  if (body && command.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
+  if (body && dispatch.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
     // An option already on the tag keeps its line in the body (the attribute wins, the text stays as written).
-    const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
+    const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), dispatch.body);
     if (lined.twice) return refused(CODE.INVALID_ARGS, `args.${lined.twice}:twice`);
     for (const [key, value] of Object.entries(lined.options)) {
       if (Object.hasOwn(given, key)) continue;
@@ -518,15 +517,15 @@ export function resolveCall(call, view) {
     }
     text = lined.rest;
   }
-  const bodyText = Boolean(text) && Boolean(command.body) && !fromTokens;
+  const bodyText = Boolean(text) && Boolean(dispatch.body) && !fromTokens;
   let fileFromBody = false;
   if (bodyText) {
     // The argument on the tag too: the same text is one value (the body's); a different one is her
     // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
-    const attribute = Object.hasOwn(given, command.body) ? String(given[command.body] ?? '').trim() : null;
-    const joined = JOINED_BODY_ARGS.includes(command.body);
-    if (attribute !== null && attribute !== text && !joined) return refused(CODE.INVALID_ARGS, `args.${command.body}:twice`);
-    given[command.body] = joined && attribute && attribute !== text ? `${attribute}\n${text}` : text;
+    const attribute = Object.hasOwn(given, dispatch.body) ? String(given[dispatch.body] ?? '').trim() : null;
+    const joined = JOINED_BODY_ARGS.includes(dispatch.body);
+    if (attribute !== null && attribute !== text && !joined) return refused(CODE.INVALID_ARGS, `args.${dispatch.body}:twice`);
+    given[dispatch.body] = joined && attribute && attribute !== text ? `${attribute}\n${text}` : text;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
     if (byName.has('file') && !Object.hasOwn(given, 'file')) {
@@ -535,7 +534,7 @@ export function resolveCall(call, view) {
       if (handles.length > 1) return refused(CODE.UNKNOWN_FILE, 'file:several');
       if (handles.length === 1) {
         given.file = handles[0].trim();
-        given[command.body] = lines.filter((line) => !FILE_HANDLE_RE.test(line.trim())).join('\n').trim();
+        given[dispatch.body] = lines.filter((line) => !FILE_HANDLE_RE.test(line.trim())).join('\n').trim();
         fileFromBody = true;
       }
     }
@@ -676,7 +675,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}), ...(channelFixed ? { channelFixed: true } : {}) };
+  return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(bodyText ? { bodyArg: dispatch.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}), ...(channelFixed ? { channelFixed: true } : {}) };
 }
 
 /** The calls where the message's own channel wins over a `channel` that does not hold it. */
@@ -728,15 +727,15 @@ function fromPort(result) {
 /**
  * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
- * own option mapper (`command.toCall`), must reach this very operation (else `invalid`); her own
+ * own option mapper (`dispatch.toOp`), must reach this very operation (else `invalid`); her own
  * writing (`message.create`, `message.edit`) is first rendered as a `<msg>` of hers is posted
  * (`deps.renderText`: the text, or `{ text, userIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.js#renderPost), the members it mentions handed to the
- * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runCommand(key, args, context)`
- * (src/admin.js#runCommand) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
- * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right), and on
+ * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
+ * (src/admin.js#runSkillOp) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
+ * `deps.runOwnOp` (src/admin.js#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
- * `deps.runInitiativeCommand` (src/admin.js#runInitiativeCommand, the same for any operation) -- on
+ * `deps.runInitiativeOp` (src/admin.js#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
@@ -749,7 +748,7 @@ function fromPort(result) {
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
  * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
- * arguments her call maps to (`command.toCall`, as above), under the same timeout; its result is the call's as it is (a result without a
+ * arguments her call maps to (`dispatch.toOp`, as above), under the same timeout; its result is the call's as it is (a result without a
  * known status is `failed`).
  * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null, taskId?: string }>}
  */
@@ -759,7 +758,7 @@ export async function executeCall(resolved, deps) {
     const tool = deps.inTurn && Object.hasOwn(deps.inTurn, resolved.skill) ? deps.inTurn[resolved.skill] : null;
     if (typeof tool === 'function') {
       // The operation's own arguments, mapped by its command as for the owner's command.
-      const mapped = resolved.command ? resolved.command.toCall(args) : { op: resolved.skill, args };
+      const mapped = resolved.dispatch ? resolved.dispatch.toOp(args) : { op: resolved.skill, args };
       if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
       const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
       if (answered?.timedOut === true) return { status: 'unknown', code: CODE.TIMEOUT, values: { what: TIMEOUT_WHAT[resolved.skill] ?? WHAT.chat }, data: { text: '' } };
@@ -775,16 +774,16 @@ export async function executeCall(resolved, deps) {
         if (Array.isArray(rendered.userIds)) mentionUserIds = rendered.userIds.filter((id) => typeof id === 'string' && id);
       }
     }
-    const call = resolved.command.toCall(args);
+    const call = resolved.dispatch.toOp(args);
     if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
     // Her own expressive operations run on her grant alone; any other on the requester's right too,
     // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
-    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : initiative ? deps.runInitiativeCommand : deps.runCommand;
+    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnOp : initiative ? deps.runInitiativeOp : deps.runOp;
     if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
-    const result = await withTimeout(run(call.key, call.args, {
+    const result = await withTimeout(run(call.op, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],

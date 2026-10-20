@@ -592,7 +592,7 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
       required: ['message', 'text'],
       additionalProperties: false,
     },
-    command: { key: 'message edit', toCall: () => ({}), body: 'text' },
+    dispatch: { op: 'message.edit', toOp: () => ({}), body: 'text' },
   })), { getOp: (name) => ({ name, rights: { kind: 'write' } }) });
   const rows = listSkills({ config, selfId: self, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
   const request = buildRequest(await turnInput({ skillsInventory: rows }));

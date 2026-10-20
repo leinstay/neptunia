@@ -192,8 +192,8 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
   assert.deepEqual(resolved.args, { message: postedId });
   const result = await executeCall(resolved, {
     envelope: Object.freeze({ actor: 'persona', requester: { id: OWNER, roleIds: [] }, mixed: false, invocationId: 'inv-1', originChannelId: 'c1' }),
-    runCommand: admin.runCommand,
-    runOwnCommand: admin.runOwnCommand,
+    runOp: admin.runSkillOp,
+    runOwnOp: admin.runOwnSkillOp,
     opContext: { guildId: 'g1', channelId: 'c1' },
   });
   assert.equal(result.status, 'ok');

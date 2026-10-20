@@ -269,7 +269,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     const admin = mods.createAdmin({ hot, store, client, discord: scriptedCapabilities, port, intentions, errands, getGuildId: () => guildId, dataDir: null });
     const turns = replay.diaryTurnRunner(mods, {
       hot, store, llm, calibrator, client, guildId, self, images: null, state, port, now: clock.now,
-      extra: { discord: scriptedCapabilities, skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, runInitiativeCommand: admin.runInitiativeCommand, intentions, errands },
+      extra: { discord: scriptedCapabilities, skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, intentions, errands },
     });
     const spent = () => calls.reduce((sum, call) => sum + (Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0) || 0), 0);
     const voice = {

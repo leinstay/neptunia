@@ -219,31 +219,34 @@ export function createAdmin(deps) {
   }
 
   /**
-   * One of the persona's own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) run for
-   * her through its command, WITHOUT the requester's rights check: her grant, checked by the skill
-   * gateway, alone decides (src/skills/executors.js). Any other operation is refused
-   * (`not-self-owned`): it goes through `runCommand`. Never throws.
+   * One operation run for the persona by its name (src/ops/index.js#runOp), the requester's full
+   * rights check included; no command key is resolved. Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
-  async function runOwnCommand(commandKey, args = {}, context = {}) {
-    const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
-    if (!SELF_OWNED_OPS.includes(target.op)) return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${target.op} is not the persona's own`, data: null };
-    return runOpPrechecked(target.op, target.args, { ...context, env });
+  async function runSkillOp(op, args = {}, context = {}) {
+    return runOp(op, args, { ...context, env });
+  }
+
+  /**
+   * One of the persona's own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) run for
+   * her by its name, WITHOUT the requester's rights check: her grant, checked by the skill
+   * gateway, alone decides (src/skills/executors.js). Any other operation is refused
+   * (`not-self-owned`): it goes through `runSkillOp`. Never throws.
+   * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
+   */
+  async function runOwnSkillOp(op, args = {}, context = {}) {
+    if (!SELF_OWNED_OPS.includes(op)) return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${op} is not the persona's own`, data: null };
+    return runOpPrechecked(op, args, { ...context, env });
   }
 
   /**
    * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.js:
-   * nobody asked) through its command, WITHOUT a requester's rights check: her grant, checked by
-   * the skill gateway as her own initiative, alone decides (src/skills/executors.js). Never throws.
+   * nobody asked) by its name, WITHOUT a requester's rights check: her grant, checked by the
+   * skill gateway as her own initiative, alone decides (src/skills/executors.js). Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
-  async function runInitiativeCommand(commandKey, args = {}, context = {}) {
-    const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
-    return runOpPrechecked(target.op, target.args, { ...context, env });
+  async function runInitiativeSkillOp(op, args = {}, context = {}) {
+    return runOpPrechecked(op, args, { ...context, env });
   }
 
   /** Once per guild at start: the stored grants re-expanded under the operation names
@@ -282,5 +285,5 @@ export function createAdmin(deps) {
     return choices;
   }
 
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runOwnCommand, runInitiativeCommand, migrateAccess };
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runSkillOp, runOwnSkillOp, runInitiativeSkillOp, migrateAccess };
 }
