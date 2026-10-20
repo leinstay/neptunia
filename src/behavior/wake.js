@@ -18,6 +18,7 @@
 
 import { fill, formatClock, formatDate, formatNow } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { estimateTokens } from '../llm/tokens.js';
 
 /** A purpose's length on a wake line (characters). */
 export const WAKE_PURPOSE_CHARS = 200;
@@ -151,24 +152,83 @@ export function placesLines(page, l) {
   return lines;
 }
 
+/** The places and people the budget never sheds below. */
+const KEEP_PLACES = 3;
+const KEEP_PEOPLE = 5;
+
 /**
  * The lines of a heartbeat's facts (src/behavior/heartbeat-view.js), every word from `labels.wake.heartbeat`
- * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `interests`, `activeIn`,
- * joined by `partsJoin`), her life (`life`: `action`, `errand`, `diary`; `open`,
- * `attending`; `closed` with its items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`),
- * and what happened since (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items). A list
- * over its cap ends with `more` ({more}). A list or line without its label is left out; an empty list
- * (or one with no label) says nothing, and so does a `done` line of zeros. [] for no facts.
+ * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `lastWrote` (their
+ * own newest line with its `#N` handle), `interests`, `activeIn`, joined by `partsJoin`), where people wrote lately
+ * (`activity`: `activityPlace` with its `activityLine`s, each with a handle; it replaces the places page when the
+ * facts carry it), her life (`life`: `action`, `post`, `errand`, `diary`; `open`, `attending`; `closed` with its
+ * items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`), and what happened since
+ * (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items, a line with its author, text and
+ * handle as `filteredAddressLine` / `filteredMissedLine`). A list over its cap ends with `more` ({more}). A list
+ * or line without its label is left out; an empty list (or one with no label) says nothing, and so does a `done`
+ * line of zeros. [] for no facts.
+ *
+ * A line the facts refer to (`ref`, an index into `facts.refs`) is worded with `{handle}`: `#N`, N numbered on
+ * from `options.handleBase` (the first ref is `handleBase`); without a base the handle is ''. `options.onRefs`
+ * gets the indexes of the refs the final block shows. When the block is over `facts.maxTokens` (the
+ * estimate of src/llm/tokens.js) its lists shed their last items, in this order: the filtered lines, the lines of
+ * her life, the places beyond 3, the people beyond 5; what is shed is counted in the list's `more`.
  * @param {object|null} facts
  * @param {object} l  `labels.wake.heartbeat`.
  * @param {(ts: number) => string} when
- * @param {string[]} [placesBlock]  The places page's lines (placesLines), shown right after the people.
+ * @param {string[]} [placesBlock]  The places page's lines (placesLines), shown right after the people when the facts have no `activity`.
+ * @param {{ handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]
  * @returns {string[]}
  */
-export function heartbeatLines(facts, l, when, placesBlock = []) {
+export function heartbeatLines(facts, l, when, placesBlock = [], { handleBase = null, onRefs = null } = {}) {
   if (!facts || typeof facts !== 'object' || !l || typeof l !== 'object') return [];
+  const people = Array.isArray(facts.people) ? facts.people : [];
+  const places = Array.isArray(facts.activity?.items) ? facts.activity.items : [];
+  const life = facts.life ?? {};
+  const lifeRows = lifeItems(life);
+  const filtered = Array.isArray(facts.since?.filtered?.items) ? facts.since.filtered.items : [];
+  const caps = { filtered: filtered.length, life: lifeRows.length, places: places.length, people: people.length };
+  const limit = Number.isFinite(facts.maxTokens) && facts.maxTokens > 0 ? facts.maxTokens : Infinity;
+  const stages = [
+    ['filtered', 0],
+    ['life', 0],
+    ['places', KEEP_PLACES],
+    ['people', KEEP_PEOPLE],
+  ];
+  for (;;) {
+    const used = new Set();
+    const out = heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, lifeRows });
+    const stage = stages.find(([key, keep]) => caps[key] > keep);
+    if (!stage || estimateTokens(out.join('\n')) <= limit) {
+      if (typeof onRefs === 'function') onRefs([...used].sort((a, b) => a - b));
+      return out;
+    }
+    caps[stage[0]] -= 1;
+  }
+}
+
+/** The rows of her life in the order they are worded: actions, posts, errands, diary posts. */
+function lifeItems(life) {
+  const take = (cap, kind) => (Array.isArray(cap?.items) ? cap.items.map((row) => ({ kind, row })) : []);
+  return [...take(life.actions, 'action'), ...take(life.posts, 'post'), ...take(life.errands, 'errand'), ...take(life.diary, 'diary')];
+}
+
+function heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, lifeRows }) {
   const one = (value) => oneLine(String(value ?? ''));
   const make = (key, values) => part(l, key, values);
+  // A line made of optional pieces (a handle, a media marker) that may be empty: single spaces, no edges.
+  const tidy = (key, values) => make(key, values).replace(/ {2,}/g, ' ').trim();
+  const handle = (ref) => {
+    if (!Number.isInteger(ref) || ref < 0 || !Number.isFinite(handleBase)) return '';
+    used.add(ref);
+    return `#${handleBase + ref}`;
+  };
+  const mediaText = (media) => {
+    if (!media) return '';
+    const kinds = Array.isArray(media.kinds) ? media.kinds.map(one).filter(Boolean).join('/') : '';
+    return media.title ? part(l, 'mediaTitled', { kinds, title: one(media.title) }) : part(l, 'media', { kinds });
+  };
+  const lineValues = (item) => ({ handle: handle(item.ref), when: when(item.at), text: one(item.text), media: mediaText(item.media) });
   const out = [];
   const block = (lead, rows, moreCount) => {
     const lines = rows.filter(Boolean);
@@ -176,23 +236,40 @@ export function heartbeatLines(facts, l, when, placesBlock = []) {
     out.push(l[lead], ...lines);
     if (moreCount > 0) out.push(make('more', { more: String(moreCount) }));
   };
-  const people = Array.isArray(facts.people) ? facts.people : [];
+  const allPeople = Array.isArray(facts.people) ? facts.people : [];
+  const people = allPeople.slice(0, caps.people);
+  // The places first (the handles are numbered in the order they are worded).
+  const activity = facts.activity ?? null;
+  const placeRows = [];
+  if (activity && Array.isArray(activity.items)) {
+    for (const place of activity.items.slice(0, caps.places)) {
+      placeRows.push(tidy('activityPlace', { name: one(place.name ?? place.id), lines: String(place.lines ?? 0), people: (place.people ?? []).map(one).join(', ') }));
+      for (const preview of Array.isArray(place.previews) ? place.previews : []) placeRows.push(tidy('activityLine', { ...lineValues(preview), who: one(preview.by ?? '') }));
+    }
+  }
+  const placesShed = activity && Array.isArray(activity.items) ? activity.items.length - Math.min(caps.places, activity.items.length) : 0;
+  if (activity) block('activity', placeRows, (activity.more ?? 0) + placesShed);
+  else out.push(...placesBlock);
   block('people', people.map((p) => {
+    const wrote = p.lastWrote ? tidy('lastWrote', { ...lineValues(p.lastWrote), place: one(p.lastWrote.place ?? '') }) : '';
     const parts = [
       Number.isFinite(p.lastAt) ? (p.lastPlace ? make('contact', { when: when(p.lastAt), place: one(p.lastPlace) }) : make('contactNoPlace', { when: when(p.lastAt) })) : '',
+      wrote,
       p.interests?.length > 0 ? make('interests', { interests: p.interests.map(one).join(', ') }) : '',
       p.places?.length > 0 ? make('activeIn', { places: p.places.map(one).join(', ') }) : '',
     ].filter(Boolean);
     return make('person', { name: one(p.name ?? p.id), parts: parts.join(l.partsJoin ?? '; ') });
-  }), 0);
-  out.push(...placesBlock);
+  }), allPeople.length - people.length);
   const life = facts.life ?? {};
   const rows = (cap, fn) => (Array.isArray(cap?.items) ? cap.items.map(fn) : []);
-  block('life', [
-    ...rows(life.actions, (a) => make('action', { when: when(a.at), skill: one(a.skill), where: a.place ? make('where', { place: one(a.place) }) : '' })),
-    ...rows(life.errands, (e) => make('errand', { when: when(e.at), agent: one(e.agent), state: one(e.state) })),
-    ...rows(life.diary, (d) => make('diary', { when: when(d.at) })),
-  ], (life.actions?.more ?? 0) + (life.errands?.more ?? 0) + (life.diary?.more ?? 0));
+  const shownLife = lifeRows.slice(0, caps.life);
+  const lifeText = shownLife.map(({ kind, row }) => {
+    if (kind === 'action') return make('action', { when: when(row.at), skill: one(row.skill), where: row.place ? make('where', { place: one(row.place) }) : '' });
+    if (kind === 'post') return tidy('post', { when: when(row.at), place: one(row.place ?? ''), text: one(row.text), media: mediaText(row.media) });
+    if (kind === 'errand') return tidy('errand', { when: when(row.at), agent: one(row.agent), state: one(row.state), goal: one(row.goal ?? '') });
+    return tidy('diary', { when: when(row.at), gist: one(row.gist ?? '') });
+  });
+  block('life', lifeText, (life.actions?.more ?? 0) + (life.posts?.more ?? 0) + (life.errands?.more ?? 0) + (life.diary?.more ?? 0) + (lifeRows.length - shownLife.length));
   block('open', rows(life.open, (i) => make('openItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '' })), life.open?.more ?? 0);
   block('attending', rows(life.attending, (i) => make('attendingItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), place: one(i.place) })), life.attending?.more ?? 0);
   block('closed', rows(life.closed, (i) => make('closedItem', { id: one(i.id), state: one(i.state), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), why: one(i.why), when: when(i.at) })), life.closed?.more ?? 0);
@@ -215,13 +292,21 @@ export function heartbeatLines(facts, l, when, placesBlock = []) {
     const notDoneMore = ['expired', 'missed', 'failedErrands', 'lateErrands', 'unknownSends', 'failedTurns'].reduce((sum, key) => sum + (nd[key]?.more ?? 0), 0);
     const told = nd.told > 0 ? make('told', { count: String(nd.told) }) : '';
     const filtered = since.filtered ?? {};
-    const filteredRows = (Array.isArray(filtered.items) ? filtered.items : []).map((x) => (x.by === 'address' ? make('filteredAddress', { when: when(x.at), place: one(x.place ?? '') }) : make('filteredMissed', { when: when(x.at), place: one(x.place ?? ''), verdict: one(x.verdict ?? '') })));
+    const allFiltered = Array.isArray(filtered.items) ? filtered.items : [];
+    const shownFiltered = allFiltered.slice(0, caps.filtered);
+    const filteredRows = shownFiltered.map((x) => {
+      const key = x.by === 'address' ? 'filteredAddress' : 'filteredMissed';
+      const values = { when: when(x.at), place: one(x.place ?? ''), verdict: one(x.verdict ?? '') };
+      // A line found in the record is worded with its author, its words and its handle; else the plain line.
+      if (x.ref !== undefined && x.ref !== null && typeof l[`${key}Line`] === 'string' && l[`${key}Line`]) return tidy(`${key}Line`, { ...values, ...lineValues(x), who: one(x.who ?? '') });
+      return make(key, values);
+    });
     if (typeof l.since === 'string' && l.since && (doneLine || notDone.some(Boolean) || told || filteredRows.some(Boolean))) {
       out.push(make('since', { from: when(since.from) }));
       if (doneLine) out.push(doneLine);
       block('notDone', notDone, notDoneMore);
       if (told) out.push(told);
-      block('filtered', filteredRows, filtered.more ?? 0);
+      block('filtered', filteredRows, (filtered.more ?? 0) + (allFiltered.length - shownFiltered.length));
     }
   }
   return out;
@@ -257,10 +342,10 @@ export function placesBlockText(page, labels) {
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
  *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
  * @param {object} labels
- * @param {{ locale?: string }} [options]
+ * @param {{ locale?: string, handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]  `handleBase`: the number of a heartbeat's first line handle, `onRefs` gets the heartbeat lines' refs that stayed in (heartbeatLines).
  * @returns {string}
  */
-export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
+export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = null, onRefs = null } = {}) {
   const l = labels?.wake;
   if (!wake || typeof l?.header !== 'string' || !l.header) return '';
   const timezone = wake.timezone || 'UTC';
@@ -321,7 +406,7 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     if (line) lines.push(line);
   }
   const placesBlock = placesLines(wake.heartbeat?.places ?? wake.places ?? null, l);
-  if (wake.heartbeat) lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock));
+  if (wake.heartbeat) lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   const budgets = wake.budgets ?? {};
   const budgetLines = WAKE_BUDGETS.map((key) => {

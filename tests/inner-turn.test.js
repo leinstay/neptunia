@@ -24,6 +24,7 @@ import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
 import { diagnosticLines, diagnosticText, feedbackFactText, feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { feedbackFacts } from '../src/behavior/inner.js';
+import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill, formatClock, formatDate } from '../src/format.js';
@@ -257,6 +258,29 @@ test('inner turn, live: <msg reply="#N"> replies to that line; the tags go first
   assert.equal(run.sends[1].replyTo, undefined);
 });
 
+
+test('inner turn, live: a #N handle the heartbeat showed on a line resolves for <msg reply> in the turn and in its next step', async () => {
+  const seenLine = { kind: 'seen', messageId: 'hb-1', revision: 1, by: 'u2', occurredAt: new Date(NOW - 150 * 60_000).toISOString(), scope: { channel: 'c1' }, text: 'they still make clips for this song', media: ['link'], participants: ['u2'] };
+  const facts = await buildHeartbeatFacts({
+    guildId: 'g1',
+    now: NOW,
+    record: { iterate: async function* iterate() { yield seenLine; } },
+    nameOf: () => 'Zoë',
+    placeName: () => 'general',
+  });
+  const wake = { ...WAKE, kind: 'heartbeat', items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }], intentions: [], heartbeat: facts };
+  const looked = await innerTurn({ answers: ['<skip/>'], shadow: false, gate: { wake } });
+  const request = looked.llm.calls[0].map((message) => userText(message.content)).join('\n');
+  const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
+  assert.ok(handle, 'the request quotes the line under a handle');
+  assert.ok(Number(handle.slice(1)) > 3, 'numbered past the turn\'s own lines');
+  const direct = await innerTurn({ answers: [`<msg reply="${handle}">nice</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  assert.equal(direct.sends[0].replyTo?.messageId, 'hb-1');
+  // A read first: the reply comes in the loop's next step, over a transcript rebuilt around the same handle.
+  const stepped = await innerTurn({ answers: ['<call skill="lore.list"></call>', `<msg reply="${handle}">still here</msg>`, '<skip/>'], shadow: false, gate: { wake } });
+  assert.ok(stepped.llm.calls.length >= 2, 'the read gave the loop a second step');
+  assert.equal(stepped.sends[0]?.replyTo?.messageId, 'hb-1');
+});
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
   const { journal, lines } = journalOverMemory();

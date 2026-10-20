@@ -1459,7 +1459,7 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
   assert.equal(call.inner.currentChannel, null);
   assert.equal(call.inner.wake.here, null);
   assert.equal(call.inner.wake.chainId, `heartbeat:${due}`);
-  assert.deepEqual(Object.keys(call.inner.wake.heartbeat).sort(), ['agents', 'life', 'people', 'places', 'since', 'skills']);
+  assert.deepEqual(Object.keys(call.inner.wake.heartbeat).sort(), ['activity', 'agents', 'life', 'maxTokens', 'people', 'places', 'refs', 'since', 'skills']);
   await run.inner.tick();
   assert.deepEqual(run.inner.state(GUILD).heartbeat, { nextAt: clock.t + 180 * MINUTE_MS, lastAt: due + MINUTE_MS });
   assert.equal(run.turns.calls.length, 1, 'once per moment');

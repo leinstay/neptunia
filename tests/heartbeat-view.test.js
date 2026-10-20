@@ -64,7 +64,7 @@ test('people: no line in the record falls back to the profile\'s lastSeen withou
 test('life: her executed actions, errands and diary posts of the last day, open intentions, attentions and what she let go; each capped with a count', async () => {
   const turn = (at, actions) => ({ kind: 'inner', event: 'turn', occurredAt: iso(at), actions });
   const journal = fakeJournal([
-    turn(NOW - HOUR_MS, [{ skill: 'message.create', status: 'executed', result: 'ok', target: { channel: 'c1' } }, { skill: 'web.search', status: 'proposed', result: 'ok' }, { skill: 'draw.create', status: 'executed', result: 'failed' }]),
+    turn(NOW - HOUR_MS, [{ skill: 'message.create', status: 'executed', result: 'ok', target: { channel: 'c1' } }, { skill: 'web.search', status: 'proposed', result: 'ok' }, { skill: 'draw.create', status: 'executed', result: 'failed' }, { skill: 'places.list', status: 'executed', result: 'ok' }]),
     turn(NOW - 2 * DAY_MS, [{ skill: 'message.create', status: 'executed', result: 'ok' }]),
   ]);
   const tasks = [
@@ -78,7 +78,8 @@ test('life: her executed actions, errands and diary posts of the last day, open 
     { id: 'i3', status: 'waiting', purpose: 'wait', dueAt: null },
   ];
   const facts = await buildHeartbeatFacts(base({ journal, tasks, intentions, diary: [{ at: NOW - HOUR_MS, kind: 'note' }, { at: NOW - 3 * DAY_MS, kind: null }] }));
-  assert.deepEqual(facts.life.actions.items, [{ at: NOW - HOUR_MS, skill: 'message.create', place: 'n-c1' }]);
+  // A message she sent is listed from the record and a diary post from the diary, never as a call.
+  assert.deepEqual(facts.life.actions.items, [{ at: NOW - HOUR_MS, skill: 'places.list', place: null }]);
   assert.deepEqual(facts.life.errands.items.map((e) => e.id), ['t1']);
   assert.equal(facts.life.diary.items.length, 1);
   assert.deepEqual(facts.life.open.items.map((i) => i.id), ['i1', 'i3']);
@@ -179,7 +180,7 @@ test('filtered: the missed helper\'s dismissals (not owed ones, not before the w
   const journalled = await buildHeartbeatFacts(base({ journal: fakeJournal([...rows, { kind: 'answer', event: 'address', verdict: 'not-addressed', messageId: 'm1', authorId: 'u1', channelId: 'c2', at: iso(NOW - MINUTE_MS), occurredAt: iso(NOW - MINUTE_MS), scope: { channel: 'c2' } }]), settings: { filteredShown: 4 } }));
   assert.equal(journalled.since.filtered.total, 7);
   assert.equal(journalled.since.filtered.more, 3);
-  assert.deepEqual(journalled.since.filtered.items[0], { at: NOW - MINUTE_MS, place: 'n-c2', by: 'address' });
+  assert.deepEqual(journalled.since.filtered.items[0], { at: NOW - MINUTE_MS, place: 'n-c2', by: 'address', who: 'u1' });
   assert.equal(journalled.since.filtered.items.length, 4);
   assert.deepEqual(joined.since.filtered.items[0], { at: NOW - MINUTE_MS, place: 'n-c2', by: 'address' });
 });
@@ -196,13 +197,14 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
     intentions: [{ id: 'x1', status: 'expired', purpose: 'old plan', history: [{ at: NOW - HOUR_MS }] }, { id: 'd1', status: 'dropped', purpose: 'learn a song', reason: 'no time', history: [{ at: NOW - HOUR_MS }] }],
   }));
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', places: facts.places, heartbeat: facts, here: null }, labels);
-  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'last talked', '#general 2/1', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
+  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'last talked', '#n-c1: 1 lines from name-b', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.ok(!text.includes(l.filtered), 'no filtered list without filtered lines');
+  assert.ok(text.includes(l.activity), 'the places block is the lines people wrote lately');
   assert.ok(!text.includes(l.life), 'no life lead without a life');
-  // The places page is not repeated by the heartbeat block.
-  assert.equal(text.split('#general 2/1').length, 2);
+  // The review's places page is not repeated by the heartbeat block.
+  assert.ok(!text.includes('#general 2/1'));
   // Without any facts the block is the plain wake.
   const bare = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', heartbeat: await buildHeartbeatFacts(base()), here: null }, labels);
   assert.ok(!bare.includes(l.people) && !bare.includes(l.since.slice(0, 5)));
@@ -214,4 +216,177 @@ test('wake: a capped list ends with the count line', async () => {
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', heartbeat: facts, here: null }, labels);
   assert.ok(text.includes('want 4') && !text.includes('want 5'));
   assert.ok(text.includes(labels.wake.heartbeat.more.replace('{more}', '2')));
+});
+
+// The record's lines as the view reads them: a full `seen` line with its message id, text and media kinds.
+const line = (messageId, by, at, channel, text, extra = {}) => ({ kind: 'seen', messageId, revision: 1, by, occurredAt: iso(at), scope: { channel }, text, media: [], participants: [by], ...extra });
+const ownLine = (messageId, at, channel, text, extra = {}) => ({ kind: 'said', messageId, revision: 1, occurredAt: iso(at), scope: { channel }, text, media: [], participants: [], ...extra });
+const wakeOf = (facts, options) => wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', heartbeat: facts, here: null }, labels, options);
+
+test('places: a link another member posted 2.5 hours ago shows in the place and in that person\'s own line, with one handle that resolves', async () => {
+  const link = line('m-yt', 'vertex', NOW - 2.5 * HOUR_MS, 'muzika', 'they still make clips for this song https://youtu.be/abc', { media: ['link'], links: [{ url: 'https://youtu.be/abc', title: 'The song', description: '', site: 'YouTube' }] });
+  const facts = await buildHeartbeatFacts(base({
+    profiles: [profile('vertex', 40, { names: ['Vertex'] })],
+    record: record([line('m-1', 'other', NOW - 5 * HOUR_MS, 'muzika', 'old chatter'), link, line('m-2', 'other', NOW - HOUR_MS, 'muzika', 'nice one')]),
+  }));
+  const [muzika] = facts.activity.items;
+  assert.equal(muzika.name, 'n-muzika');
+  assert.equal(muzika.lines, 3);
+  assert.deepEqual(muzika.previews.map((p) => p.text.slice(0, 12)), ['they still m', 'nice one']);
+  assert.equal(muzika.previews[0].by, 'Vertex');
+  assert.deepEqual(muzika.previews[0].media, { kinds: ['link'], title: 'The song' });
+  const person = facts.people[0];
+  assert.equal(person.lastWrote.place, 'n-muzika');
+  assert.equal(person.lastWrote.ref, muzika.previews[0].ref, 'one line, one handle');
+  const ref = facts.refs[person.lastWrote.ref];
+  assert.equal(ref.id, 'm-yt');
+  assert.equal(ref.channelId, 'muzika');
+  assert.equal(ref.authorId, 'vertex');
+  assert.equal(ref.self, false);
+  assert.equal(ref.message.links[0].url, 'https://youtu.be/abc');
+  const shown = [];
+  const text = wakeOf(facts, { handleBase: 50, onRefs: (refs) => shown.push(...refs) });
+  const handle = `#${50 + person.lastWrote.ref}`;
+  assert.ok(text.includes(`${handle} Vertex,`) && text.includes('they still make clips'), 'the place quotes the line under its handle');
+  assert.ok(text.includes(`last wrote`) && text.split(handle).length === 3, 'the person line carries the same handle');
+  assert.ok(text.includes('[link: The song]'));
+  assert.ok(shown.includes(person.lastWrote.ref));
+  assert.ok(!wakeOf(facts).includes('#5'), 'without a base there are no handles');
+});
+
+test('places: ranked by lines in the last placesHours, places without any dropped, her own lines and deleted ones left out, an edit replaces its earlier text, capped with the rest counted', async () => {
+  const lines = [
+    ...Array.from({ length: 3 }, (_, i) => line(`a${i}`, 'u1', NOW - (i + 1) * MINUTE_MS, 'busy', `line ${i}`)),
+    line('b0', 'u1', NOW - MINUTE_MS, 'quiet', 'one'),
+    line('c0', 'u1', NOW - 7 * HOUR_MS, 'stale', 'too old'),
+    line('d0', 'self', NOW - MINUTE_MS, 'mine', 'my own'),
+    ownLine('s0', NOW - MINUTE_MS, 'mine', 'said'),
+    line('e0', 'u1', NOW - MINUTE_MS, 'gone', 'deleted line'),
+    { kind: 'deleted', messageId: 'e0', occurredAt: iso(NOW - 30_000), scope: { channel: 'gone' }, participants: ['u1'] },
+    line('f0', 'u2', NOW - 30_000, 'edited', 'first words'),
+    line('f0', 'u2', NOW - 30_000, 'edited', 'edited words', { revision: 2 }),
+  ];
+  const facts = await buildHeartbeatFacts(base({ selfId: 'self', record: record(lines), settings: { placesShown: 2 } }));
+  assert.deepEqual(facts.activity.items.map((p) => [p.name, p.lines]), [['n-busy', 3], ['n-edited', 1]]);
+  assert.equal(facts.activity.total, 3);
+  assert.equal(facts.activity.more, 1);
+  assert.equal(facts.activity.items[0].previews.length, 2, 'placeLines: the last two');
+  assert.deepEqual(facts.activity.items[0].previews.map((p) => p.text), ['line 1', 'line 0']);
+  assert.equal(facts.activity.items[1].previews[0].text, 'edited words');
+  const wide = await buildHeartbeatFacts(base({ record: record(lines), settings: { placesHours: 8, placeLines: 1 } }));
+  assert.ok(wide.activity.items.some((p) => p.name === 'n-stale'));
+  assert.ok(wide.activity.items.every((p) => p.previews.length === 1));
+  assert.ok(!(await buildHeartbeatFacts(base({ selfId: 'self', record: record(lines) }))).activity.items.some((p) => p.name === 'n-gone'));
+  const text = wakeOf(facts, { handleBase: 1 });
+  assert.ok(text.includes(labels.wake.heartbeat.more.replace('{more}', '1')));
+});
+
+test('places: a preview is cut to about 140 characters and a line with only a picture still shows its marker', async () => {
+  const long = 'x'.repeat(300);
+  const facts = await buildHeartbeatFacts(base({ record: record([line('l1', 'u1', NOW - 2 * MINUTE_MS, 'c1', long), line('l2', 'u1', NOW - MINUTE_MS, 'c1', '', { media: ['image', 'image', 'video'] })]) }));
+  const [first, second] = facts.activity.items[0].previews;
+  assert.ok(first.text.length <= 140 && first.text.endsWith('…'));
+  assert.equal(second.text, '');
+  assert.deepEqual(second.media.kinds, ['image', 'video']);
+  assert.ok(wakeOf(facts, { handleBase: 1 }).includes('[image/video]'));
+});
+
+test('people: each person\'s own last line within historyDays (when, where, preview, handle); an older one is not shown', async () => {
+  const profiles = [profile('a', 9), profile('b', 8)];
+  const lines = [line('a1', 'a', NOW - 3 * DAY_MS, 'c1', 'first'), line('a2', 'a', NOW - 2 * DAY_MS, 'c2', 'y'.repeat(200)), line('b1', 'b', NOW - 20 * DAY_MS, 'c1', 'ancient'), said(NOW - HOUR_MS, 'c3', ['b'])];
+  const facts = await buildHeartbeatFacts(base({ profiles, record: record(lines) }));
+  const [a, b] = facts.people;
+  assert.equal(a.lastWrote.at, NOW - 2 * DAY_MS);
+  assert.equal(a.lastWrote.place, 'n-c2');
+  assert.ok(a.lastWrote.text.length <= 120);
+  assert.equal(facts.refs[a.lastWrote.ref].id, 'a2');
+  assert.equal(b.lastWrote, null);
+  assert.equal(b.lastAt, NOW - HOUR_MS, 'the last contact with her stays');
+  const text = wakeOf(facts, { handleBase: 10 });
+  assert.ok(text.includes('name-a: ') && text.includes('last wrote'));
+});
+
+test('not done: only her own sends count, an engine action never does, and a send whose message arrived later is dropped', async () => {
+  const unknown = (extra) => ({ kind: 'action', phase: 'unknown', occurredAt: iso(NOW - 30 * MINUTE_MS), scope: { channel: 'c5' }, ...extra });
+  const journal = fakeJournal([
+    unknown({ name: 'skill', by: 'persona', opId: 'op-1', input: { skill: 'message.create' } }),
+    unknown({ name: 'skill', by: 'persona', opId: 'op-2', input: { skill: 'message.create' } }),
+    { kind: 'action', phase: 'succeeded', name: 'skill', by: 'persona', opId: 'op-2', occurredAt: iso(NOW - 20 * MINUTE_MS), scope: { channel: 'c5' } },
+    unknown({ name: 'post', by: 'persona', opId: 'op-3' }),
+    unknown({ name: 'describe', by: 'engine', opId: 'op-4' }),
+    unknown({ name: 'skill', by: 'persona', opId: 'op-5', input: { skill: 'web.search' } }),
+    unknown({ name: 'skill', by: 'persona', opId: 'op-6', input: { skill: 'draw.create' } }),
+  ]);
+  const { since } = await buildHeartbeatFacts(base({ journal }));
+  assert.deepEqual(since.notDone.unknownSends.items.map((x) => x.skill).sort(), ['draw.create', 'message.create', 'post']);
+  assert.equal(since.notDone.unknownSends.items.length, 3);
+});
+
+test('filtered: each line with its author, a preview cut to about 100 characters and a handle that resolves; a line the record lacks keeps the plain row', async () => {
+  const rows = [
+    { kind: 'answer', event: 'verdict', verdict: 'stale', messageId: 'f1', authorId: 'u7', occurredAt: iso(NOW - 10 * MINUTE_MS), scope: { channel: 'c1' } },
+    { kind: 'answer', event: 'address', verdict: 'not-addressed', messageId: 'f2', authorId: 'u8', channelId: 'c2', at: iso(NOW - 5 * MINUTE_MS), occurredAt: iso(NOW - 5 * MINUTE_MS), scope: { channel: 'c2' } },
+    { kind: 'answer', event: 'verdict', verdict: 'stale', messageId: 'missing', authorId: 'u9', occurredAt: iso(NOW - 20 * MINUTE_MS), scope: { channel: 'c1' } },
+  ];
+  const facts = await buildHeartbeatFacts(base({
+    journal: fakeJournal(rows),
+    nameOf: (id) => ({ u7: 'Seven', u8: 'Eight' })[id] ?? null,
+    record: record([line('f1', 'u7', NOW - 11 * MINUTE_MS, 'c1', 'z'.repeat(250)), line('f2', 'u8', NOW - 6 * MINUTE_MS, 'c2', 'hello there', { media: ['gif'] })]),
+  }));
+  const [address, missed, plain] = facts.since.filtered.items;
+  assert.deepEqual([address.who, address.text, address.media.kinds], ['Eight', 'hello there', ['gif']]);
+  assert.ok(missed.text.length <= 100 && missed.who === 'Seven');
+  assert.equal(facts.refs[address.ref].id, 'f2');
+  assert.equal(plain.ref, undefined);
+  assert.equal(plain.who, 'u9');
+  const text = wakeOf(facts, { handleBase: 30 });
+  assert.ok(text.includes(`Eight #${30 + address.ref} hello there [gif]: a line judged not for you`));
+  assert.ok(text.includes('a line judged not owed an answer (stale)'));
+});
+
+test('life: her own posts with place and preview, errands with their goal, a diary post once', async () => {
+  const diary = [{ at: NOW - 2 * HOUR_MS, kind: 'note', gist: 'g'.repeat(200), messageIds: ['d-msg'] }];
+  const lines = [ownLine('p1', NOW - HOUR_MS, 'c1', 'p'.repeat(200)), ownLine('d-msg', NOW - 2 * HOUR_MS, 'diary', 'the diary text'), ownLine('p-old', NOW - 2 * DAY_MS, 'c1', 'yesterday')];
+  const tasks = [{ id: 't1', agent: 'web', state: 'done', createdAt: NOW - HOUR_MS, goal: 'find the song '.repeat(20), requester: { kind: 'persona' } }];
+  const journal = fakeJournal([{ kind: 'inner', event: 'turn', occurredAt: iso(NOW - HOUR_MS), actions: [{ skill: 'diary.post', status: 'executed', result: 'ok' }, { skill: 'message.create', status: 'executed', result: 'ok' }] }]);
+  const facts = await buildHeartbeatFacts(base({ record: record(lines), tasks, diary, journal }));
+  assert.equal(facts.life.posts.items.length, 1);
+  assert.equal(facts.life.posts.items[0].place, 'n-c1');
+  assert.ok(facts.life.posts.items[0].text.length <= 80);
+  assert.ok(facts.life.errands.items[0].goal.length <= 80 && facts.life.errands.items[0].goal.startsWith('find the song'));
+  assert.equal(facts.life.diary.items.length, 1);
+  assert.ok(facts.life.diary.items[0].gist.length <= 80);
+  assert.equal(facts.life.actions.items.length, 0, 'neither a message nor a diary post is listed a second time as a call');
+  const text = wakeOf(facts, { handleBase: 1 });
+  assert.equal(text.split('a diary post').length, 2);
+  assert.ok(text.includes('you wrote in #n-c1: ppp'));
+  assert.ok(text.includes('errand to web (done): find the song'));
+});
+
+test('budget: over heartbeat.maxTokens the lists shed their last items in order -- filtered, her life, places beyond 3, people beyond 5 -- and the shed ones are counted', async () => {
+  const profiles = Array.from({ length: 8 }, (_, i) => profile(`p${i}`, 100 - i));
+  const lines = Array.from({ length: 6 }, (_, i) => line(`m${i}`, `p${i}`, NOW - (i + 1) * MINUTE_MS, `ch${i}`, `says ${i} `.repeat(10)));
+  const rows = Array.from({ length: 6 }, (_, i) => ({ kind: 'answer', event: 'verdict', verdict: 'stale', messageId: `x${i}`, authorId: 'u1', occurredAt: iso(NOW - (i + 1) * MINUTE_MS), scope: { channel: 'c1' } }));
+  const tasks = Array.from({ length: 4 }, (_, i) => ({ id: `t${i}`, agent: 'web', state: 'done', createdAt: NOW - (i + 1) * MINUTE_MS, goal: 'goal', requester: { kind: 'persona' } }));
+  const input = { profiles, record: record(lines), journal: fakeJournal(rows), tasks };
+  const full = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: 0 } }));
+  const fullText = wakeOf(full, { handleBase: 1 });
+  assert.ok(fullText.includes('ch5') && fullText.includes('name-p7') && fullText.includes('errand to web'));
+  const tokens = (value) => Math.ceil(value.length / 3.5);
+  // A cap just under the full block: the filtered lines go first.
+  const first = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: tokens(fullText) - 30 } }));
+  const firstText = wakeOf(first, { handleBase: 1 });
+  assert.ok(firstText.includes('errand to web') && firstText.includes('name-p7') && firstText.includes('ch5'));
+  assert.ok((firstText.match(/judged not owed/g) ?? []).length < 6);
+  assert.ok(tokens(firstText.split('\n').slice(1).join('\n')) < tokens(fullText));
+  // A tight cap: filtered and her life gone, places cut to 3, people to 5, and the counts say so.
+  const tight = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: 1 } }));
+  const tightText = wakeOf(tight, { handleBase: 1 });
+  assert.ok(!tightText.includes('judged not owed') && !tightText.includes('errand to web'));
+  const rowsOf = (value, pattern) => value.split('\n').filter((row) => pattern.test(row)).length;
+  assert.equal(rowsOf(fullText, / lines from /), 6);
+  assert.equal(rowsOf(tightText, / lines from /), 3, 'places beyond 3 are shed');
+  assert.equal(rowsOf(fullText, /^name-p\d: /), 8);
+  assert.equal(rowsOf(tightText, /^name-p\d: /), 5, 'people beyond 5 are shed');
+  assert.ok(tightText.includes(labels.wake.heartbeat.more.replace('{more}', '3')), 'three places and three people are counted');
 });

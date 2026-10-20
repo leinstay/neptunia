@@ -6814,6 +6814,12 @@ export function createTurnRunner({
       const skillsInventory = asked && !answersDrawFailure ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
       // Kept: a skill call's follow-up rebuilds this very request over the channel as it stands then.
+      // A heartbeat's lines carry handles (`#N`) numbered on past the request's own lines, like a memory.search's quotes:
+      // the text is worded once with a provisional base, then again when the request says where its own numbering ends.
+      const heartbeatRefs = Array.isArray(draft.inner?.wake?.heartbeat?.refs) ? draft.inner.wake.heartbeat.refs : [];
+      const heartbeatHandleBase = heartbeatRefs.length > 0 ? SEARCH_HANDLE_GAP + 1 : null;
+      let shownHeartbeatRefs = [];
+      const wakeTextOf = (handleBase) => wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale, handleBase, onRefs: (refs) => (shownHeartbeatRefs = refs) });
       const requestInput = turnRequestInput({
         config,
         prompts,
@@ -6909,7 +6915,7 @@ export function createTurnRunner({
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
-        wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : factsText || null,
+        wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
         // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
         wakeKind: draft.inner?.wake?.kind ?? null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
@@ -6919,7 +6925,18 @@ export function createTurnRunner({
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
         stableFreeze: stableFreezeOf(guildId),
       });
-      const request = buildRequest(requestInput);
+      let request = buildRequest(requestInput);
+      if (heartbeatRefs.length > 0) {
+        const floor = Math.max(0, ...request.idByIndex.keys());
+        const base = floor + SEARCH_HANDLE_GAP + 1;
+        if (base !== heartbeatHandleBase) {
+          requestInput.wake = wakeTextOf(base);
+          request = buildRequest(requestInput);
+        }
+        // The handles the block kept resolve in this turn and in the steps of its loop (the registry of memory.search's quotes).
+        draft.handleFloor = floor;
+        searchHandles(draft).take(shownHeartbeatRefs.filter((index) => heartbeatRefs[index]).map((index) => ({ n: base + index, ...heartbeatRefs[index] })));
+      }
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
