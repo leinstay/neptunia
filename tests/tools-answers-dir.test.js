@@ -77,3 +77,12 @@ test('req-NNN.json carries the exact strings, system apart, roles kept', async (
   });
   assert.equal(JSON.parse(requestJson({ model: 'm', messages: [{ role: 'user', content: 'q' }] })).system, null);
 });
+
+test('withAnswersDir firstOnly: a tool-loop step of the turn goes to the real model', async () => {
+  const createLlm = () => ({ complete: async () => ({ text: 'real' }) });
+  const answers = { answer: async () => ({ text: 'file' }) };
+  const llm = withAnswersDir(createLlm, answers, () => 'anthropic/claude-core', { firstOnly: true })({ getConfig: () => ({}) });
+  assert.equal((await llm.complete([{ role: 'user', content: 'wake' }], {})).text, 'file');
+  assert.equal((await llm.complete([{ role: 'user', content: '<task>\nThis is the same inner turn, continued after your x call.' }], {})).text, 'real');
+  assert.equal((await llm.complete([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c' }], {})).text, 'real');
+});
