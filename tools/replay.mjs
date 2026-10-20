@@ -77,7 +77,7 @@
 //
 // `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model.
 // Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
-// `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
+// `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
 // timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (no cost; the result carries
 // `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other

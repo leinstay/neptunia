@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createAnswersDir, withAnswersDir, renderRequest, isAnthropicModel } from '../tools/lib/answers-dir.mjs';
+import { requestJson, createAnswersDir, withAnswersDir, renderRequest, isAnthropicModel } from '../tools/lib/answers-dir.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'answers-dir-'));
 
@@ -56,4 +56,24 @@ test('withAnswersDir sends only Anthropic models to the files', async () => {
   assert.equal((await llm.complete([], { model: 'anthropic/claude-y' })).text, 'file');
   assert.deepEqual(sent, ['google/gemini-x']);
   assert.equal(isAnthropicModel('openai/gpt'), false);
+});
+
+test('req-NNN.json carries the exact strings, system apart, roles kept', async () => {
+  const dir = tmp();
+  const answers = createAnswersDir({ dir, pollMs: 1, sleep: async () => { fs.writeFileSync(path.join(dir, 'ans-001.txt'), 'x'); } });
+  const messages = [
+    { role: 'system', content: 'sys\n## user\n  card' },
+    { role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] },
+    { role: 'assistant', content: 'mid' },
+    { role: 'user', content: 'last' },
+  ];
+  await answers.answer('anthropic/claude-x', messages, { purpose: 'reply' });
+  const json = JSON.parse(fs.readFileSync(path.join(dir, 'req-001.json'), 'utf8'));
+  assert.deepEqual(json, {
+    model: 'anthropic/claude-x',
+    purpose: 'reply',
+    system: 'sys\n## user\n  card',
+    messages: [{ role: 'user', content: 'a\nb' }, { role: 'assistant', content: 'mid' }, { role: 'user', content: 'last' }],
+  });
+  assert.equal(JSON.parse(requestJson({ model: 'm', messages: [{ role: 'user', content: 'q' }] })).system, null);
 });

@@ -2,6 +2,9 @@
 // Anthropic model the tool writes the request to a file and waits for the answer in another,
 // instead of calling OpenRouter. An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
 //
+//   <dir>/req-001.json the same request for machines, written first: { model, purpose, system, messages:
+//                      [{ role, content }] } with the exact strings (system = the system messages joined
+//                      with a blank line, null when there is none; messages = the others in order)
 //   <dir>/req-001.md   model: <id>, purpose: <purpose|none>, then every message in order under
 //                      `## system` / `## user` / `## assistant` headings, verbatim (content parts
 //                      joined with a newline; an image part is the line `[image]`)
@@ -46,6 +49,18 @@ export function renderRequest({ model, purpose = null, messages }) {
   return parts.join('\n');
 }
 
+/** The body of `req-<n>.json`: exact strings, so a reader never parses the Markdown. */
+export function requestJson({ model, purpose = null, messages }) {
+  const list = messages ?? [];
+  const system = list.filter((m) => m?.role === 'system').map((m) => contentText(m.content));
+  return JSON.stringify({
+    model,
+    purpose: purpose ?? null,
+    system: system.length > 0 ? system.join('\n\n') : null,
+    messages: list.filter((m) => m?.role !== 'system').map((m) => ({ role: m?.role ?? 'user', content: contentText(m?.content) })),
+  }, null, 2) + '\n';
+}
+
 function writeAtomic(file, text) {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, text);
@@ -59,7 +74,7 @@ const pad = (n) => String(n).padStart(3, '0');
  */
 export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs = ANSWERS_POLL_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, estimate = () => 0 }) {
   fs.mkdirSync(dir, { recursive: true });
-  const stale = fs.readdirSync(dir).filter((name) => /^(req-\d+\.md|ans-\d+\.txt|done)$/.test(name));
+  const stale = fs.readdirSync(dir).filter((name) => /^(req-\d+\.(?:md|json)|ans-\d+\.txt|done)$/.test(name));
   if (stale.length > 0) throw new Error(`answers-dir: ${dir} holds files of an earlier run (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', ...' : ''}); use an empty directory`);
   let count = 0;
 
@@ -69,6 +84,7 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
     const id = pad(count);
     const reqFile = path.join(dir, `req-${id}.md`);
     const ansFile = path.join(dir, `ans-${id}.txt`);
+    writeAtomic(path.join(dir, `req-${id}.json`), requestJson({ model, purpose: options?.purpose ?? null, messages }));
     writeAtomic(reqFile, renderRequest({ model, purpose: options?.purpose ?? null, messages }));
     const deadline = now() + timeoutMin * 60_000;
     for (;;) {
