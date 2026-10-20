@@ -37,6 +37,9 @@ export function estimateMessages(messages, tokensPerImage) {
   let total = 0;
   for (const message of messages) {
     total += MESSAGE_OVERHEAD;
+    if (Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls) total += estimateTokens(call?.function?.name) + estimateTokens(call?.function?.arguments) + estimateTokens(call?.id);
+    }
     if (typeof message.content === 'string') {
       total += estimateTokens(message.content);
       continue;
@@ -47,6 +50,12 @@ export function estimateMessages(messages, tokensPerImage) {
     }
   }
   return total;
+}
+
+/** Raw estimate for a `tools` array: its JSON as the provider reads it, plus a little per definition. */
+export function estimateTools(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return 0;
+  return estimateTokens(JSON.stringify(tools)) + tools.length * MESSAGE_OVERHEAD;
 }
 
 const RATIO_MIN = 0.6;
