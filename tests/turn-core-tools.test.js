@@ -42,11 +42,11 @@ function normalizedTrigger(raw) {
   return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
 }
 
-function fakeChannel(historyMessages) {
+function fakeChannel(historyMessages, neighbours = []) {
   return {
     id: 'c1',
     name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
+    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map(neighbours.map((c) => [c.id, c])) } },
     viewable: true,
     permissionsFor: () => ({ has: () => true }),
     sendTyping: async () => {},
@@ -150,7 +150,7 @@ function journalOverMemory() {
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [] }) {
+async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },
@@ -163,15 +163,19 @@ async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read']
   port.seed('c1', { authorId: 'u2', messageId: 'm0', text: 'καλημέρα' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: content });
   for (const seed of seeds) port.seed(seed.conversationId, seed);
+  if (setup) setup(port);
   // #jardin (c2): a neighbour of the same guild where the bot may do anything (a message quoted from it can be edited).
   const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1', members: { me: { displayName: 'Bot' } } }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map([['c2', jardin]]) } };
+  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map([['c2', jardin]]) }, ...clientExtra };
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...adminExtra });
   const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, ...runner });
-  const again = () => turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, ...runner });
+  // An inner turn (`inner`: the wake): nobody asked, no trigger.
+  const again = inner
+    ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
+    : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, sends, hot, admin, again, port };
@@ -870,4 +874,123 @@ test('previous think, new turn: a turn that failed carries nothing and the older
   const last = llm.calls.at(-1);
   assert.equal(thinkBlock(userText(last[1].content)), null);
   assert.ok(logs.some((entry) => entry.msg === 'turn: previous think' && entry.none === 'failed'), JSON.stringify(logs.filter((entry) => entry.msg === 'turn: previous think')));
+});
+
+// draw.create as an in-turn tool: the picture is made and posted by the turn itself, every failure comes back as a result.
+
+const DRAW_PROMPTS = { draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}', appearance: '{{name}} has silver hair.' };
+const DRAW_CONFIG = { image: { maxPromptChars: 1000, reference: 'none' }, models: { helpers: { analyzer: 'x/text' }, agents: { drawing: 'openai/image-model' } } };
+
+/** An image client whose generate() answers from `outcomes` in turn (a function throws, anything else is the picture), every call recorded. */
+function fakeImages(outcomes = [null]) {
+  const calls = [];
+  return {
+    calls,
+    familyOf: () => 'openai',
+    quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
+    generate: async (args) => {
+      calls.push(structuredClone(args));
+      const outcome = outcomes[Math.min(calls.length - 1, outcomes.length - 1)];
+      if (outcome) throw outcome;
+      return { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0, usage: {}, model: 'openai/image-model' };
+    },
+  };
+}
+
+async function drawTurn({ answers, images = fakeImages(), allowed = ['draw.create'], features = {}, runner = {}, ...rest }) {
+  return coreTurn({
+    answers,
+    allowed,
+    features: { imageGeneration: true, ...features },
+    config: DRAW_CONFIG,
+    prompts: DRAW_PROMPTS,
+    runner: { images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,QQ==', bytes: 1, contentType: 'image/png' }) }, ...runner },
+    ...rest,
+  });
+}
+
+const calledLogs = (run) => run.logs.filter((entry) => entry.msg === 'skills: called' && entry.skill === 'draw.create');
+
+test('draw.create in the loop: the turn makes the picture from her scene and posts it as a file in this channel, the member who asked charged', async () => {
+  const images = fakeImages();
+  const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος το σούρουπο</call>', '<skip/>'], images });
+  assert.equal(images.calls.length, 1);
+  assert.equal(images.calls[0].userId, 'u1', 'the asking member\'s rail');
+  assert.match(images.calls[0].prompt, /Scene: ένας φάρος το σούρουπο$/);
+  const picture = run.sends.find((send) => send.attachments?.length === 1);
+  assert.equal(picture.to, 'c1');
+  assert.equal(picture.attachments[0].contentType, 'image/png');
+  assert.equal(picture.replyTo, undefined);
+  assert.deepEqual(calledLogs(run).map((entry) => [entry.status, entry.code ?? null]), [['ok', null]]);
+  assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked === false));
+});
+
+test('draw.create: the daily caps and the generation failures come back as results with their own codes; no limit notice, no drawFailed turn', async () => {
+  const { ImageCapError, ImageGenError } = await import('../src/llm/images.js');
+  const cases = [
+    [new ImageCapError('daily'), 'image-cap-daily'],
+    [new ImageCapError('userDaily'), 'image-cap-user-daily'],
+    [new ImageGenError('moderation'), 'image-moderation'],
+    [new ImageGenError('timeout'), 'image-timeout'],
+    [new ImageGenError('error'), 'image-error'],
+    [new ImageGenError('empty'), 'image-error'],
+  ];
+  for (const [failure, code] of cases) {
+    const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images: fakeImages([failure]) });
+    assert.deepEqual(calledLogs(run).map((entry) => [entry.status, entry.code]), [['failed', code]], code);
+    assert.equal(run.sends.filter((send) => send.attachments?.length).length, 0, `${code}: nothing posted`);
+    assert.equal(run.sends.length, 0, `${code}: no limit notice`);
+    assert.ok(requestText(run.llm, 1).includes('[called draw.create: failed'), `${code}: the mark says it failed`);
+    assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked !== true), code);
+  }
+});
+
+test('draw.create: an upload the port could not confirm is unknown, one it refused is failed; the picture is generated once either way', async () => {
+  for (const status of ['unknown', 'failed']) {
+    const images = fakeImages();
+    const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images, setup: (port) => port.failNext('send', { status, error: { code: 'timeout' } }) });
+    assert.equal(images.calls.length, 1, status);
+    assert.deepEqual(calledLogs(run).map((entry) => [entry.status, entry.code]), [[status, 'timeout']], status);
+    assert.equal(run.sends.length, 1, `${status}: the one upload that was tried`);
+  }
+});
+
+test('draw.create: reply quotes that message here; a channel she names is where it goes', async () => {
+  const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1' }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
+  const here = await drawTurn({ answers: ['<call skill="draw.create" reply="#2">ένας φάρος</call>', '<skip/>'] });
+  const quoted = here.sends.find((send) => send.attachments?.length === 1);
+  assert.deepEqual([quoted.to, quoted.replyTo.conversationId, quoted.replyTo.messageId], ['c1', 'c1', 'm1']);
+  const there = await drawTurn({ answers: ['<call skill="draw.create" channel="#jardin">ένας φάρος</call>', '<skip/>'], neighbours: [jardin] });
+  assert.deepEqual(there.sends.filter((send) => send.attachments?.length).map((send) => send.to), ['c2']);
+});
+
+test('draw.create: a reply to a message of another channel (a quoted line of a search) follows it there', async () => {
+  const theirs = { id: 'q2', authorId: 'u7', self: false, content: 'ξένο' };
+  const recall = fakeRecall([{ channelId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 86_400_000, lines: 'ignored', entries: [{ id: 'q2', text: '[09:00] Éloïse: ένα κουνέλι', authorId: 'u7', self: false, message: theirs }] }]);
+  const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1' }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
+  const probe = await drawTurn({ answers: ['<call skill="memory.search">κουνέλι</call>', '<skip/>'], allowed: ['memory.search', 'draw.create'], features: { recall: true }, config: { ...DRAW_CONFIG, ...WEB_CONFIG }, runner: { recall } });
+  const handle = Number(/^#(\d+) \[09:00\] /m.exec(requestText(probe.llm, 1))?.[1]);
+  assert.ok(handle > 3, requestText(probe.llm, 1));
+  const run = await drawTurn({
+    answers: ['<call skill="memory.search">κουνέλι</call>', `<call skill="draw.create" reply="#${handle}">ένα κουνέλι</call>`, '<skip/>'],
+    allowed: ['memory.search', 'draw.create'],
+    features: { recall: true },
+    config: { ...DRAW_CONFIG, ...WEB_CONFIG },
+    runner: { recall },
+    neighbours: [jardin],
+    seeds: [{ conversationId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' }],
+    loop: { maxSteps: 4 },
+  });
+  const picture = run.sends.find((send) => send.attachments?.length === 1);
+  assert.ok(picture, JSON.stringify(calledLogs(run)));
+  assert.deepEqual([picture.to, picture.replyTo.conversationId, picture.replyTo.messageId], ['c2', 'c2', 'q2']);
+});
+
+test('draw.create on a turn nobody asked (her own initiative): the picture is charged to no member, and it is posted all the same', async () => {
+  const wake = { kind: 'intention_due', items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }], intentions: [{ id: 'i1', purpose: 'ζωγράφισε κάτι', dueAt: NOW - 60_000 }], now: NOW, timezone: 'UTC', channels: [], budgets: { chain: { used: 0, cap: 3, left: 3 } } };
+  const images = fakeImages();
+  const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images, inner: wake, config: { ...DRAW_CONFIG, innerLife: { mode: 'live', chatMessages: 2 } }, prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' } });
+  assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));
+  assert.equal(images.calls[0].userId, null, 'nobody\'s rail');
+  assert.equal(run.sends.filter((send) => send.attachments?.length === 1).length, 1);
 });

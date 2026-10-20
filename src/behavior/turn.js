@@ -43,7 +43,8 @@ import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../err
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import { DailyCapError, REPLY_REQUEST, TokenLimitError, cacheTtlMs, errorCodeOf, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
-import { ImageCapError, ImageGenError } from '../llm/images.js';
+import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
+import { channelById, messageRefOf, postingConversation } from '../ops/shared.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
 import { startTypingLease } from '../interface/typing.js';
@@ -2407,13 +2408,16 @@ export function createTurnRunner({
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls). Null with the switch off.
    */
-  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history, draft = null }) {
-    if (!coreToolsOn(hot.config)) return null;
+  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history, draft = null, trigger = null, triggerKind = null, mode = null }) {
+    // `draw.create` is built whatever the switch says; the others only with features.coreTools.
+    const drawEntry = { 'draw.create': (args) => drawTool(args, { channel, guildId, trigger, triggerKind, selfName, draft, mode }) };
+    if (!coreToolsOn(hot.config)) return drawEntry;
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
     // A message the turn's history lacks but one of its memory.search results quoted.
     const quotedMessage = (messageId) => draft?.searchRefs?.byId.get(String(messageId))?.message ?? null;
     return {
+      ...drawEntry,
       'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
       'web.read': (args) =>
         runWebRead({
@@ -3657,6 +3661,86 @@ export function createTurnRunner({
       }
       log.warn('turn: draw error', { channel: channel.id, error: err });
       return { drawFailed: 'error' };
+    }
+  }
+
+  /**
+   * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, channelId?, replyTo? }`):
+   * the picture through makePicture, the scene verbatim, with the local time, then one upload through
+   * the port. It posts where `message.create` would: the channel she names, else the replied message's
+   * (a link names it; a channel and a reply that disagree are refused `unknown-message`), else this one,
+   * checked before anything is generated (src/ops/shared.js#postingConversation, `attach`). A reply
+   * quotes the message in that channel. The picture is charged to the asking member's rail when the turn
+   * was asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit
+   * notice or a drawFailed turn: an image cap is `image-cap-daily` or `image-cap-user-daily`, a
+   * generation failure `image-moderation`, `image-timeout` or `image-error`, a refused publication its
+   * gateway code, and the port's answer to the upload passes through (`unknown` when it may have gone
+   * out: never generated again). In a diary turn (`mode` 'diary') the picture is staged into
+   * `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`). Never throws.
+   * @returns {Promise<{ status: string, code?: string, ref?: object|null, at?: number, error?: object|null, data: { text: string } }>}
+   */
+  async function drawTool(args, { channel, guildId = null, trigger = null, triggerKind = null, selfName, draft = null, mode = null }) {
+    const none = { text: '' };
+    const failed = (status, code, extra = {}) => ({ status, code, ...extra, data: none });
+    if (!drawing) return failed('not_configured', CODE.NOT_CONFIGURED);
+    const self = args?.self === true;
+    const scene = String(args?.text ?? '');
+    const asked = askedFor(trigger, triggerKind);
+    const staging = mode === 'diary';
+    try {
+      let channelId = String(channel.id);
+      let replyId = null;
+      if (!staging) {
+        const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
+        const given = args?.channelId ? String(args.channelId) : null;
+        if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
+        channelId = await postingConversation({ client, discord, guildId, channelId: given ?? reply?.channelId ?? null, context: { channelId: String(channel.id) }, need: 'attach' });
+        replyId = reply?.messageId ?? null;
+      }
+      // Nothing is paid for a picture its publication may not have.
+      const before = checkEffect('message.create', sendArgs({ media: imageFileName(null), replyId }), { channel, trigger });
+      if (!before.ok) return failed(refusalStatus(before.code), before.code, { reason: before.reason });
+      let made;
+      try {
+        made = await makePicture({ channel, guildId, scene, self, selfName, userId: asked ? (trigger.authorId ?? null) : null, messageId: trigger?.id ?? null });
+      } catch (err) {
+        if (err instanceof ImageCapError) {
+          const limit = limitOf(err);
+          log.info('turn: draw refused by a limit', { channel: channel.id, key: limit?.key ?? null, used: limit?.used ?? null, cap: limit?.cap ?? null, spontaneous: !trigger, asked });
+          return failed('failed', err.reason === 'userDaily' ? CODE.IMAGE_CAP_USER_DAILY : CODE.IMAGE_CAP_DAILY);
+        }
+        if (err instanceof UnsupportedImageModelError) return failed('failed', CODE.UNSUPPORTED_MODEL);
+        if (err instanceof ImageGenError) {
+          log.warn('turn: draw error', { channel: channel.id, reason: err.reason, status: err.statusCode ?? null });
+          return failed('failed', err.reason === 'moderation' ? CODE.IMAGE_MODERATION : err.reason === 'timeout' ? CODE.IMAGE_TIMEOUT : CODE.IMAGE_ERROR);
+        }
+        throw err;
+      }
+      const { picture, referenceMissing } = made;
+      if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
+      if (staging) {
+        (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
+        return { status: 'ok', code: CODE.STAGED, data: none };
+      }
+      const name = imageFileName(picture.mediaType);
+      // Checked again right before the publication: generated or not, a refused picture is not posted.
+      const after = checkEffect('message.create', sendArgs({ media: name, replyId }), { channel, trigger });
+      if (!after.ok) return failed(refusalStatus(after.code), after.code, { reason: after.reason });
+      const target = channelId === String(channel.id) ? channel : ((await channelById(client, channelId)) ?? { id: channelId });
+      const result = await iface.send(conversationOf(target), {
+        attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
+        ...(replyId ? { replyTo: messageOf(target, replyId) } : {}),
+      });
+      if (result?.status !== 'ok') {
+        log.warn('turn: draw error', { channel: channel.id, error: portError(result) });
+        return failed(result?.status === 'unknown' ? 'unknown' : 'failed', result?.error?.code ?? result?.status ?? CODE.ERROR, { error: result?.error ?? null });
+      }
+      log.info('turn: drew', { channel: channel.id, seconds: picture.seconds, cost: picture.cost, self, bytes: picture.buffer?.length ?? 0 });
+      return { status: 'ok', ref: result.ref ?? null, ...(Number.isFinite(result.at) ? { at: result.at } : {}), data: none };
+    } catch (err) {
+      if (err?.name === 'OpError') return failed(err.status, err.code);
+      log.warn('turn: draw error', { channel: channel.id, error: err });
+      return failed('failed', CODE.ERROR);
     }
   }
 
@@ -7462,7 +7546,7 @@ export function createTurnRunner({
       let called = null;
       let loopDelivered = false;
       // The calls of the reply and of every later step, run in the turn's context (runCall's).
-      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history, draft }) };
+      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history, draft, trigger, triggerKind, mode: finalMode }) };
       if (loopPlans.length > 0) {
         // The next step's calls, planned over the transcript its request showed (`again`, continuationRequest's routing).
         const planNext = async (calls, again) => {
@@ -7487,7 +7571,7 @@ export function createTurnRunner({
         loopDelivered = looped.delivered;
         followed = mergedAnswers(looped.answers, looped.cutOff);
       } else if (callPlan) {
-        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles });
+        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: callContext.inTurn });
         // A heartbeat turn ends with its one intention change: no request follows to acknowledge it.
         if (called.followUp && !heartbeatChanged(draft, [called])) {
           followed = await followUp({

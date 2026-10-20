@@ -10,6 +10,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
+import '../src/ops/index.js';
+import { skillRegistry } from '../src/skills/registry.js';
 import { familyOf } from '../src/llm/images.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 import { labels as baseLabels } from './fixtures/labels.js';
@@ -314,4 +316,71 @@ test('draw agent: /nep draw is recorded as the owner\'s picture; a cap makes the
   });
   assert.match(String(outcome?.message ?? outcome?.summary ?? JSON.stringify(outcome)), /draw failed \(daily\)/);
   assert.equal(images.calls.length, 1, 'nothing was generated');
+});
+
+test('draw agent: a member\'s draw.create call is made by the turn itself and recorded as a task of the drawing agent, the member as its requester; a cap comes back as a result, with no notice', async () => {
+  const hotValue = hot();
+  hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
+  hotValue.config.skills = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
+  const make = (agents) => {
+    const hotCase = structuredClone(hotValue);
+    hotCase.prompts = { ...PROMPTS };
+    if (agents) hotCase.config.agents = agents;
+    return hotCase;
+  };
+  for (const [agents, expected] of [[null, 'ok'], [{ drawing: { daily: { tasks: 0 } } }, 'image-cap-daily']]) {
+    const images = recordingImages();
+    const hotCase = make(agents);
+    const { errands, records } = errandsOf(hotCase);
+    const { raw, trigger } = memberTrigger();
+    const target = channel('c1', 'general', [raw]);
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: hotCase,
+      errands,
+      store: store(),
+      llm: llm('<call skill="draw.create">a lighthouse at dusk</call>'),
+      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+      client: client(),
+      images,
+      imageFetcher: imageFetcher(),
+      lookup: null,
+      rng: () => 0.5,
+      now: () => NOW,
+      skills: skillRegistry(),
+      runOp: createAdmin({ discord: DISCORD, hot: hotCase, store: store(), client: client(), getGuildId: () => 'g1', errands }).runSkillOp,
+    });
+    const { logs } = await withCapturedLogs(() => turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' }));
+    const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
+    assert.ok(called, JSON.stringify(logs.filter((l) => /skill/.test(l.msg))));
+    assert.equal(called.code ?? 'ok', expected);
+    if (expected === 'ok') {
+      assert.equal(images.calls[0].userId, 'u1');
+      assert.ok(target.sent.some((payload) => payload.files?.length === 1), 'the picture was posted');
+      assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester]), [['drawing', 'done', { userId: 'u1', kind: 'member' }]]);
+    } else {
+      assert.equal(images.calls.length, 0);
+      assert.equal(target.sent.length, 0, 'no limit notice');
+    }
+  }
+});
+
+test('draw agent: the draw.create operation quotes the message it replies to, in that message\'s channel (a link) and refuses a channel that disagrees', async () => {
+  const { createFakeAdapter } = await import('../src/interface/fake.js');
+  const hotValue = hot();
+  const { errands } = errandsOf(hotValue);
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+  port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });
+  const admin = createAdmin({
+    discord: DISCORD, hot: hotValue, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images: recordingImages(), imageFetcher: imageFetcher(), errands, now: () => NOW, port,
+  });
+  const ctx = { guildId: 'g1', channelId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
+  const quoted = (await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))).result;
+  assert.equal(quoted.status ?? 'ok', 'ok', JSON.stringify(quoted));
+  const sent = port.calls.find((call) => call.op === 'send');
+  assert.deepEqual([sent.args[0].conversationId, sent.args[1].replyTo.conversationId, sent.args[1].replyTo.messageId], ['c1', 'c1', 'm9']);
+  const refused = await admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'https://discord.com/channels/g1/c1/m9', channelId: 'c2' }, ctx);
+  assert.equal(refused.status, 'invalid');
+  assert.equal(refused.code, 'unknown-message');
 });

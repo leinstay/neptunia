@@ -7,7 +7,7 @@ import { imageFileName } from '../behavior/turn.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
-import { postingConversation } from './shared.js';
+import { messageRefOf, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
@@ -32,7 +32,12 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
-    const postTo = args?.channelId ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
+    // A reply is a message to quote: it follows that message's channel, as message.create does.
+    const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
+    const given = args?.channelId ? String(args.channelId) : null;
+    if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
+    const target = given ?? reply?.channelId ?? null;
+    const postTo = target || reply ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: target, context, need: 'attach' }) : null;
     if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: CODE.NOT_CONFIGURED });
 
     const model = roleModel(hot.config, 'drawing');
@@ -73,7 +78,7 @@ const handlers = perEnv((env) => {
     if (referenceMissing) parts.push('no avatar reference');
     const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
     if (!postTo) return { text: parts.join(' · '), files: [file] };
-    const sent = await port.send({ iface: port.iface, conversationId: postTo }, { attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }] });
+    const sent = await port.send({ iface: port.iface, conversationId: postTo }, { attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }], ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}) });
     if (sent?.status === 'ok') return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
     const code = String(sent?.error?.code ?? sent?.status ?? CODE.ERROR);
     const unknown = sent?.status === 'unknown';
