@@ -1,6 +1,6 @@
 // Tests for the heartbeat's facts (src/behavior/heartbeat-view.js) and their words in `<wake>`
 // (src/behavior/wake.js#heartbeatLines): the people block (affinity order, cap, last contact from the
-// record, interests, places, around), her life, what she can do, and what happened since the last
+// record, interests, places), her life, what she can do, and what happened since the last
 // heartbeat, every list capped with the rest counted. Fake stores; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,7 +26,7 @@ const said = (at, channel, participants) => ({ kind: 'said', occurredAt: iso(at)
 
 const base = (extra = {}) => ({ guildId: 'g1', now: NOW, since: SINCE, placeName: (id) => `n-${id}`, ...extra });
 
-test('people: the closest by affinity, capped, with the last contact and place from the record, top interests, places and around', async () => {
+test('people: the closest by affinity, capped, with the last contact and place from the record, top interests, places, no presence', async () => {
   const profiles = [
     profile('a', 10),
     profile('b', 50, { interests: [{ topic: 'one', weight: 1 }, { topic: 'two', weight: 5 }, { topic: 'three', weight: 3 }, { topic: 'four', weight: 2 }, { topic: 'closed', weight: 9, validTo: '2026-01-01' }] }),
@@ -34,16 +34,14 @@ test('people: the closest by affinity, capped, with the last contact and place f
     profile('self', 99),
   ];
   const lines = [seen('b', NOW - 5 * HOUR_MS, 'c1'), seen('b', NOW - 2 * HOUR_MS, 'c2'), said(NOW - HOUR_MS, 'c3', ['c']), seen('b', NOW - 40 * DAY_MS, 'c9')];
-  const facts = await buildHeartbeatFacts(base({ profiles, selfId: 'self', settings: { people: 2 }, record: record(lines), activePlaces: (id) => (id === 'b' ? ['x', 'y', 'z', 'w'] : []), around: (id) => (id === 'b' ? true : id === 'c' ? false : null) }));
+  const facts = await buildHeartbeatFacts(base({ profiles, selfId: 'self', settings: { people: 2 }, record: record(lines), activePlaces: (id) => (id === 'b' ? ['x', 'y', 'z', 'w'] : []) }));
   assert.deepEqual(facts.people.map((p) => p.id), ['b', 'c']);
   const b = facts.people[0];
   assert.equal(b.lastAt, NOW - 2 * HOUR_MS);
   assert.equal(b.lastPlace, 'n-c2');
   assert.deepEqual(b.interests, ['two', 'three', 'four']);
   assert.deepEqual(b.places, ['x', 'y', 'z']);
-  assert.equal(b.around, true);
   assert.equal(facts.people[1].lastAt, NOW - HOUR_MS);
-  assert.equal(facts.people[1].around, false);
 });
 
 test('people: no line in the record falls back to the profile\'s lastSeen without a place; no profiles is an empty block; a failing source does not break the view', async () => {
@@ -191,7 +189,6 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
   const facts = await buildHeartbeatFacts(base({
     profiles: [profile('b', 5, { interests: [{ topic: 'tea', weight: 1 }] })],
     record: record([seen('b', NOW - HOUR_MS, 'c1')]),
-    around: () => true,
     activePlaces: () => ['general'],
     places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 2, people: 1, writable: true }] },
     skills: ['web.search'],
@@ -199,7 +196,7 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
     intentions: [{ id: 'x1', status: 'expired', purpose: 'old plan', history: [{ at: NOW - HOUR_MS }] }, { id: 'd1', status: 'dropped', purpose: 'learn a song', reason: 'no time', history: [{ at: NOW - HOUR_MS }] }],
   }));
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', places: facts.places, heartbeat: facts, here: null }, labels);
-  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'around now', 'last talked', '#general 2/1', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
+  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'last talked', '#general 2/1', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.ok(!text.includes(l.filtered), 'no filtered list without filtered lines');

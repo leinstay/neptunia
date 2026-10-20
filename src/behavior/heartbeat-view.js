@@ -7,7 +7,7 @@
 //   people     up to `heartbeat.people` members she is closest to (the profiles' affinity): when she last
 //              talked with them and where (the record: their own line, or a line of hers naming them,
 //              else the profile's `lastSeen` with no place), the top 3 interests of the profile, the
-//              places where they wrote lately and whether they are around now (the live snapshot);
+//              places where they wrote lately (no presence or do-not-disturb state: the owner, 2026-10-20);
 //   places     the places page the review gets (passed in, built by inner.js#places);
 //   life       what she did in the last day (the actions of her inner turns from the journal that
 //              really ran, her errands, her diary posts), her open intentions and attentions, and
@@ -98,7 +98,7 @@ async function readJournal(journal, guildId, from, to, kind, warn) {
  * The people block: the members she is closest to with their facts.
  * @returns {Promise<object[]>}
  */
-async function peopleOf({ profiles, selfId, settings, record, guildId, now, nameOf, placeName, activePlaces, around, warn }) {
+async function peopleOf({ profiles, selfId, settings, record, guildId, now, nameOf, placeName, activePlaces, warn }) {
   const ranked = list(profiles)
     .filter((profile) => profile && typeof profile.id === 'string' && profile.id !== String(selfId ?? ''))
     .map((profile) => ({ profile, score: Number.isFinite(profile.affinity?.score) ? profile.affinity.score : 0, seen: Date.parse(profile.lastSeen) }))
@@ -148,7 +148,6 @@ async function peopleOf({ profiles, selfId, settings, record, guildId, now, name
       lastPlace: contact ? safe(() => placeName?.(contact.place), contact.place) : null,
       interests,
       places: list(safe(() => activePlaces?.(profile.id), [])).slice(0, PERSON_PLACES_SHOWN).map(text).filter(Boolean),
-      around: safe(() => around?.(profile.id), null),
     };
   });
 }
@@ -285,7 +284,6 @@ function sinceOf({ from, now, settings, innerTurns, tasks, intentions, diary, un
  * @param {(id: string) => string|null} [input.nameOf]
  * @param {(id: string) => string} [input.placeName]
  * @param {(memberId: string) => string[]} [input.activePlaces]  Where a member wrote lately (names).
- * @param {(memberId: string) => boolean|null} [input.around]  Whether a member is around now (null: unknown).
  * @param {{ warn?: Function }} [input.log]
  * @returns {Promise<object>}
  */
@@ -309,7 +307,6 @@ export async function buildHeartbeatFacts({
   nameOf = null,
   placeName = (id) => id,
   activePlaces = null,
-  around = null,
   log = null,
 }) {
   const s = { ...VIEW_DEFAULTS, ...Object.fromEntries(Object.entries(settings ?? {}).filter(([, value]) => Number.isFinite(value) && value >= 0)) };
@@ -337,7 +334,7 @@ export async function buildHeartbeatFacts({
   } catch (error) {
     warn('address', error);
   }
-  const people = await peopleOf({ profiles, selfId, settings: s, record, guildId, now, nameOf, placeName: place, activePlaces, around, warn });
+  const people = await peopleOf({ profiles, selfId, settings: s, record, guildId, now, nameOf, placeName: place, activePlaces, warn });
   const common = { now, settings: s, innerTurns, tasks: list(tasks), diary: list(diary), intentions: list(intentions).filter(Boolean), placeName: place };
   return {
     people,

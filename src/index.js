@@ -478,14 +478,10 @@ const inner = createInnerLife({
   submit: (event) => door.submit(event),
   // What an inner turn did and found becomes lines of hers for the memory analyzer.
   onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
-  // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, who is around, what she can do.
+  // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, what she can do. No presence or
+  // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
   heartbeat: {
     tasks: (guildId) => taskStores.get(guildId).recent(100),
-    around: (guildId, memberId) => {
-      const snapshot = around.snapshot();
-      if (!snapshot || snapshot.stale || snapshot.presences !== true) return null;
-      return (snapshot.presence.get(memberId)?.status ?? 'offline') !== 'offline';
-    },
     skills: () => grantedSkillNames({ config: hot.config, selfId: client.user?.id ?? null, registry: skillRegistry() }),
     agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
     selfId: () => client.user?.id ?? null,

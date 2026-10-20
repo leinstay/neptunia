@@ -719,7 +719,7 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
  * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
  *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
- * @param {{ tasks?: (guildId: string) => object[], around?: (guildId: string, memberId: string) => boolean|null, skills?: () => string[], agents?: () => string[], selfId?: () => string|null }} [options.heartbeat]
+ * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null }} [options.heartbeat]
  *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
  * @param {() => number} [options.rng]
  * @param {() => number} [options.now]
@@ -1315,7 +1315,6 @@ export function createInnerLife({
         nameOf: (id) => (typeof nameOf === 'function' ? nameOf(String(guildId), id) : null),
         placeName: (id) => placeNameOf(guildId, id),
         activePlaces: (memberId) => activePlacesOf(guildId, memberId),
-        around: (memberId) => guarded(() => heartbeatSources.around?.(guildId, memberId), null),
         log,
       });
     } catch (err) {

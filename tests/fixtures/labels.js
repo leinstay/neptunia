@@ -596,8 +596,6 @@ export const labels = {
       contactNoPlace: 'last seen {when}',
       interests: 'cares about {interests}',
       activeIn: 'writes lately in {places}',
-      aroundYes: 'around now',
-      aroundNo: 'not around now',
       life: 'What you did in the last day:',
       action: '{when}: {skill}{where}',
       where: ' in #{place}',

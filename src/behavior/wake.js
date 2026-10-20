@@ -154,7 +154,7 @@ export function placesLines(page, l) {
 /**
  * The lines of a heartbeat's facts (src/behavior/heartbeat-view.js), every word from `labels.wake.heartbeat`
  * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `interests`, `activeIn`,
- * `aroundYes` / `aroundNo`, joined by `partsJoin`), her life (`life`: `action`, `errand`, `diary`; `open`,
+ * joined by `partsJoin`), her life (`life`: `action`, `errand`, `diary`; `open`,
  * `attending`; `closed` with its items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`),
  * and what happened since (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items). A list
  * over its cap ends with `more` ({more}). A list or line without its label is left out; an empty list
@@ -182,7 +182,6 @@ export function heartbeatLines(facts, l, when, placesBlock = []) {
       Number.isFinite(p.lastAt) ? (p.lastPlace ? make('contact', { when: when(p.lastAt), place: one(p.lastPlace) }) : make('contactNoPlace', { when: when(p.lastAt) })) : '',
       p.interests?.length > 0 ? make('interests', { interests: p.interests.map(one).join(', ') }) : '',
       p.places?.length > 0 ? make('activeIn', { places: p.places.map(one).join(', ') }) : '',
-      p.around === true ? make('aroundYes', {}) : p.around === false ? make('aroundNo', {}) : '',
     ].filter(Boolean);
     return make('person', { name: one(p.name ?? p.id), parts: parts.join(l.partsJoin ?? '; ') });
   }), 0);
