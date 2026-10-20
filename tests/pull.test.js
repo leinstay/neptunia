@@ -81,6 +81,8 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
         maxAgeDays: 30,
         sameAudience: false,
         seenTtlMinutes: 0,
+        keepMinutes: 0,
+        keepTurns: 0,
       },
     },
   });
@@ -96,6 +98,8 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
     maxAgeDays: 30,
     sameAudience: false,
     seenTtlMinutes: 0,
+    keepMinutes: 0,
+    keepTurns: 0,
   });
 
   const broken = pullSettings({
@@ -112,6 +116,8 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
         maxAgeDays: -3,
         sameAudience: 'no',
         seenTtlMinutes: -5,
+        keepMinutes: -1,
+        keepTurns: 'λίγες',
       },
     },
   });
@@ -498,4 +504,10 @@ test('pullPictures: only describable pictures, each picture once', () => {
   const { items, overflow } = pullPictures(messages, 10);
   assert.deepEqual(items.map((item) => [item.itemId, item.messageId]), [['link:same', 'm2']], 'the same link twice is one picture, at its newest message');
   assert.equal(overflow, 0);
+});
+
+test('pullTargets: kept ids come after mentions and route ids, fill only free slots, reason kept', () => {
+  assert.deepEqual(targets({ maxChannels: 2, kept: ['ch-k'], extra: ['ch-r'] }), [{ channelId: 'ch-r', reason: 'route' }, { channelId: 'ch-k', reason: 'kept' }]);
+  assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-k'], extra: ['ch-r'] }), [{ channelId: 'ch-r', reason: 'route' }]);
+  assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-here', 'ch-k'] }), [{ channelId: 'ch-k', reason: 'kept' }], 'never the current channel');
 });

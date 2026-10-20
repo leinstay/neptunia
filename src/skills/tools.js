@@ -173,14 +173,27 @@ export function webReadText(page, { labels, maxChars = READ_CHARS_FALLBACK }) {
  * dropped); the whole result is counted stretch by stretch against `maxChars`: a stretch that does
  * not fit whole is left out with every one after it, and a closing `.windowsLeft` (`{count}`,
  * `{where}`: each left-out stretch's channel and day, comma-joined) says what she did not get. The
- * first stretch always stays. A missing label adds nothing. Pure.
- * @param {{ channelName?: string|null, startTs: number, lines: string }[]} quotes
- * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number }} options
+ * first stretch always stays. A missing label adds nothing.
+ *
+ * With `refs` (`{ next(): number, take(shown): void }`, the turn's handle registry) and a stretch's
+ * `entries` (`{ id, text, authorId, self, message }` per line), each quoted line starts with a `#N`
+ * handle numbered on from `refs.next()`, `.handles` follows the source line, and the lines that
+ * stayed in the text after the cuts are handed to `refs.take` (`{ n, id, channelId, authorId, self,
+ * message }`); a line cut away is never registered. Otherwise pure.
+ * @param {{ channelId?: string, channelName?: string|null, startTs: number, lines: string, entries?: object[] }[]} quotes
+ * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number, refs?: { next(): number, take(shown: object[]): void }|null }} options
  * @returns {string}
  */
-export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars }) {
+export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars, refs = null }) {
   const l = toolLabels(labels, 'memory');
   const lines = l.source ? [l.source] : [];
+  let counter = refs ? refs.next() : 0;
+  const numbered = (quote) => {
+    if (!refs || !Array.isArray(quote.entries) || quote.entries.length === 0) return null;
+    const list = quote.entries.map((entry) => ({ ...entry, n: counter++, shown: `#${counter - 1} ${entry.text}` }));
+    return list;
+  };
+  let handled = false;
   const shown = (Array.isArray(quotes) ? quotes : []).filter((quote) => typeof quote?.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs));
   if (shown.length === 0) {
     if (l.none) lines.push(l.none);
@@ -195,8 +208,19 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
     const channelName = String(quote.channelName ?? '');
     const block = [];
     if (l.window) block.push(fill(l.window, { date: day, channel: channelName }));
-    const quoted = cutWindowLines(quote.lines, windowChars);
+    const entries = numbered(quote);
+    const quoted = cutWindowLines(entries ? entries.map((entry) => entry.shown).join('\n') : quote.lines, windowChars);
     block.push(quoted.text);
+    // The entries still in the text: whole entries from the top, up to the lines that stayed.
+    const stayed = [];
+    if (entries) {
+      let left = quoted.text.split('\n').length;
+      for (const entry of entries) {
+        if (left <= 0) break;
+        stayed.push({ n: entry.n, id: entry.id, channelId: quote.channelId ?? null, authorId: entry.authorId, self: entry.self, message: entry.message });
+        left -= entry.shown.split('\n').length;
+      }
+    }
     if (quoted.dropped > 0 && l.windowCut) block.push(fill(l.windowCut, { dropped: String(quoted.dropped) }));
     const where = [channelName, day].filter(Boolean).join(' ');
     const size = block.join('\n').length + 1;
@@ -204,7 +228,7 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
       left.push(where);
       continue;
     }
-    kept.push({ block, where, size });
+    kept.push({ block, where, size, stayed });
     used += size;
   }
   // The closing line takes room too: windows give way to it until the whole fits.
@@ -214,7 +238,14 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
     used -= dropped.size;
     left.unshift(dropped.where);
   }
-  for (const { block } of kept) lines.push(...block);
+  for (const { block, stayed } of kept) {
+    lines.push(...block);
+    if (refs && stayed.length > 0) {
+      refs.take(stayed);
+      handled = true;
+    }
+  }
+  if (handled && l.handles) lines.splice(l.source ? 1 : 0, 0, l.handles);
   if (closing()) lines.push(closing());
   return lines.join('\n');
 }
@@ -348,7 +379,7 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  * left to search; else `ok` with memorySearchText as its `data.text`. Never throws.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
-export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now() }) {
+export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null }) {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
@@ -372,7 +403,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
-    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars });
+    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
     if (outcome?.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
     if (outcome?.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };

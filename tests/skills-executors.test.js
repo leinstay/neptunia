@@ -1014,3 +1014,13 @@ test('diary.post: asked in an inner turn, the write-back says so and carries the
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(notes, [{ skill: 'diary.post', guildId: 'g1', channelId: HERE, ownInitiative: true, chainId: 'chain:k', code: 'daily-cap', id: 'inv-9' }]);
 });
+
+test('needsFollowUp: in an addressed turn a quiet success is seen too, a failure and the full stop as before', () => {
+  for (const skill of QUIET_ON_OK) {
+    assert.equal(needsFollowUp(skill, { status: 'ok' }), false, skill);
+    assert.equal(needsFollowUp(skill, { status: 'ok' }, { addressed: true }), true, skill);
+  }
+  assert.equal(needsFollowUp('message.create', { status: 'ok', code: 'skills-off' }, { addressed: true }), false);
+  assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: '' } }, { addressed: true }), false, 'a read with nothing to show');
+  assert.equal(needsFollowUp('message.edit', { status: 'failed' }, { addressed: true }), true);
+});

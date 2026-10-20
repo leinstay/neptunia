@@ -1028,16 +1028,17 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
  * (`stage`: `resolve`, `gateway` or `command`; `ok`, `code`, `reason`). `followUp` is whether a
  * live turn would ask her again with that result: a refusal as
  * src/skills/executors.js#needsFollowUp says, an `ok` unless the operation is one whose success
- * is its own answer (QUIET_ON_OK: a live operation of any other kind answers with text). Never
+ * is its own answer (QUIET_ON_OK: a live operation of any other kind answers with text), unless
+ * the turn is `addressed` (someone's message started it: a quiet success is seen in one step too). Never
  * throws; pure but for the gateway's reads of `images` and `tasks`.
  * @param {{ call: { skill: string, args: object, body: string }, view: object, config: object, selfId: string,
  *   requester: { id: string, roleIds: string[] }|null, conversationId: string, now: number, images?: object,
- *   tasks?: { budget(agent: string): object|null }, getOp?: Function, resultText?: string }} input
+ *   tasks?: { budget(agent: string): object|null }, getOp?: Function, resultText?: string, addressed?: boolean }} input
  * @returns {{ verdict: { stage: string, ok: boolean, code?: string, reason?: string },
  *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } },
  *   followUp: boolean }}
  */
-export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '' }) {
+export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '', addressed = false }) {
   const skill = String(call?.skill ?? '');
   const refused = (stage, code, reason) => {
     // The machine reason rides along, as a live call keeps it for its mark (outcomeDetail).
@@ -1081,7 +1082,7 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
     verdict: { stage: 'gateway', ok: true },
     executed: { skill: resolved.skill, args: { ...resolved.args } },
     result: { skill, status: 'ok', data: { text } },
-    followUp: !QUIET_ON_OK.includes(skill),
+    followUp: !QUIET_ON_OK.includes(skill) || addressed,
   };
 }
 

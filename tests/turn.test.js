@@ -4014,6 +4014,57 @@ test('runTurn: a channel mention in the trigger itself pulls that channel', asyn
   assert.ok(channelViewOf(llm)?.includes('σήμερα έβαψα τον τοίχο μπλε'));
 });
 
+test('runTurn: a pulled channel stays for the same author\'s next turns within the limits; another author, a spent limit or the router\'s pick drops or replaces it', async () => {
+  const kept = pullScene({ mention: false });
+  const named = { ...kept.trigger, mentionedChannelIds: [DIARY] };
+  const next = (id, extra = {}) => ({ ...kept.trigger, id, ...extra });
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: named, triggerKind: 'mention' }));
+  assert.equal(kept.other.fetches.length, 1, 'pulled by the mention');
+  // The follow-up names no channel: the same author keeps the pull; its lines are numbered on after the chat.
+  const before = kept.llm.calls.length;
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m10'), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2, 'fetched again for the follow-up');
+  const view = channelViewOf({ calls: [kept.llm.calls[before]] });
+  assert.ok(view?.includes('σήμερα έβαψα τον τοίχο μπλε') && view.includes('#3 '), view);
+  // Another author, no channel named: dropped.
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m11', { authorId: 'u9' }), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2);
+  // And gone for the original author too.
+  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m12'), triggerKind: 'followUp' }));
+  assert.equal(kept.other.fetches.length, 2);
+
+  // keepTurns: the pull is kept for that many turns after the one that pulled it.
+  const limited = pullScene({ mention: false, context: { pull: { keepTurns: 2 } } });
+  await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
+  for (const id of ['m10', 'm11', 'm12']) await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, id }, triggerKind: 'followUp' }));
+  assert.equal(limited.other.fetches.length, 3, 'the pulling turn and two kept ones');
+
+  // keepMinutes 0 and keepTurns 0 keep nothing.
+  for (const pull of [{ keepMinutes: 0 }, { keepTurns: 0 }]) {
+    const off = pullScene({ mention: false, context: { pull } });
+    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
+    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+    assert.equal(off.other.fetches.length, 1, JSON.stringify(pull));
+  }
+});
+
+test('runTurn: the router\'s pick in a later turn replaces the kept channel', async () => {
+  const answers = [[DIARY], [NOTES]];
+  const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
+  const notes = addChannel(scene.channel, {
+    id: NOTES,
+    name: 'notes',
+    messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })],
+  });
+  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const before = scene.llm.calls.length;
+  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: { ...scene.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+  assert.equal(notes.fetches.length, 1);
+  assert.equal(scene.other.fetches.length, 1, 'the kept channel is not fetched again');
+  const view = channelViewOf({ calls: [scene.llm.calls[before]] });
+  assert.ok(view.includes('σημειώσεις για αύριο') && !view.includes('σήμερα έβαψα'), view);
+});
+
 test('runTurn: a spontaneous turn pulls a channel mentioned in its history', async () => {
   const describer = pullDescriber();
   const { turns, channel, llm } = pullScene({ features: { mediaDescriptions: true }, describer });
@@ -8869,13 +8920,13 @@ function requestText(llm, i) {
   return textOf(llm.calls[i][1].content);
 }
 
-test('skill call: message.create to another channel where the bot may send runs after the reply, journaled proposed, started, succeeded, with its invocation id; no follow-up', async () => {
+test('skill call: message.create to another channel where the bot may send runs after the reply, journaled proposed, started, succeeded, with its invocation id; one step in an addressed turn', async () => {
   const { journal, lines } = journalOverMemory();
-  const run = await callTurn({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα :wave:</call>'], allowed: ['message.create'], journal });
+  const run = await callTurn({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα :wave:</call>', '<skip/>'], allowed: ['message.create'], journal });
   assert.deepEqual([run.result.outcome, run.result.delivered], ['spoke', true]);
   assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c1', 'εντάξει'], ['c9', 'καλημέρα :wave:']]);
   assert.deepEqual(run.sends[1].mentions, { users: [], repliedUser: false }, 'nobody is notified');
-  assert.equal(run.llm.calls.length, 1, 'the message is its own answer');
+  assert.equal(run.llm.calls.length, 2, 'the turn answers someone: the message is seen in one step, where she stays silent');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
   const actions = actionsNamed(lines, 'skill');
   assert.match(actions[0].input.invocationId, /^[0-9a-f-]{36}$/, 'the invocation id is kept with its state');
@@ -8903,10 +8954,23 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   const quiet = await callTurn({ answers: [`<call skill="message.create" channel="#νέα">${alice}</call>`], allowed: ['message.create'], store: storeWithPingsOff(['u1']) });
   assert.deepEqual(quiet.sends.map((send) => [send.text, send.mentions]), [['<@u1>', { users: [], repliedUser: false }]]);
   // The edit path: the same rendering, the same mentions.
-  const edited = await callTurn({ answers: [`<call skill="message.edit" message="#1">${written}</call>`], allowed: ['message.edit'], emoji: fakeEmojiIndex() });
+  const edited = await callTurn({ answers: [`<call skill="message.edit" message="#1">${written}</call>`, '<skip/>'], allowed: ['message.edit'], emoji: fakeEmojiIndex() });
   const edits = edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1]]);
   assert.deepEqual(edits, [['m0', { text: rendered, mentions: { users: ['u1'], repliedUser: false } }]]);
-  assert.equal(edited.llm.calls.length, 1);
+  assert.equal(edited.llm.calls.length, 2, 'the edit is seen in one step');
+});
+
+test('skill call: a quiet success in an addressed turn gets one step with its result and her <skip/> ends it silently; a turn nobody waits for gets none', async () => {
+  const addressed = await callTurn({ answers: ['<call skill="message.edit" message="#1">διορθωμένη</call>', '<skip/>'], allowed: ['message.edit'] });
+  assert.equal(addressed.result.outcome, 'spoke');
+  assert.equal(addressed.llm.calls.length, 2);
+  assert.ok(requestText(addressed.llm, 1).includes('<result skill="message.edit" status="ok">'), requestText(addressed.llm, 1));
+  assert.deepEqual(addressed.sends, [], 'silence is hers to choose');
+  assert.equal(addressed.result.delivered, true, 'the edit went out all the same');
+  const task = { id: 'tabc', agent: 'web', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
+  const spontaneous = await callTurn({ answers: ['<call skill="message.create" channel="#🍡νέα">να το</call>', '<msg>δεν θα ειπωθεί</msg>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });
+  assert.equal(spontaneous.llm.calls.length, 1, 'nobody waits: no step');
+  assert.deepEqual(spontaneous.sends.map((send) => send.text), ['να το']);
 });
 
 test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this conversation', async () => {
@@ -8955,10 +9019,10 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
 });
 
 test('skill call: edit and delete reach only her own message', async () => {
-  const edited = await callTurn({ answers: ['<call skill="message.edit" message="#1">πρώτη, διορθωμένη</call>'], allowed: ['message.edit'] });
+  const edited = await callTurn({ answers: ['<call skill="message.edit" message="#1">πρώτη, διορθωμένη</call>', '<skip/>'], allowed: ['message.edit'] });
   assert.deepEqual(edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1].text]), [['m0', 'πρώτη, διορθωμένη']]);
-  assert.equal(edited.llm.calls.length, 1);
-  const deleted = await callTurn({ answers: ['<call skill="message.delete" message="#1"/>'], allowed: ['message.delete'] });
+  assert.equal(edited.llm.calls.length, 2);
+  const deleted = await callTurn({ answers: ['<call skill="message.delete" message="#1"/>', '<skip/>'], allowed: ['message.delete'] });
   assert.deepEqual(deleted.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
   for (const answer of ['<call skill="message.edit" message="#2">όχι</call>', '<call skill="message.delete" message="#2"/>']) {
     const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'], features: { followUpContinuation: false } });
@@ -8986,7 +9050,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
 test('skill call: a comment in the body of a skill that takes no text is left out -- the deletion runs with its attributes, logged without the text', async () => {
   const run = await callTurn({ answers: ['<call skill="message.delete" message="#1">σβήνω το δοκιμαστικό</call>', '<skip/>'], allowed: ['message.delete'] });
   assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
-  assert.equal(run.llm.calls.length, 1, 'a deletion that went through is its own answer');
+  assert.equal(run.llm.calls.length, 2, 'a deletion that went through is seen in one step');
   const ignored = run.logs.filter((entry) => entry.msg === 'skills: body ignored');
   assert.deepEqual(ignored.map((entry) => entry.skill), ['message.delete']);
   assert.ok(!JSON.stringify(ignored).includes('δοκιμαστικό'), 'never the text');
@@ -9105,9 +9169,9 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.equal(run.port.calls.filter((call) => call.op === 'send').length, 2, 'the picture once, then the follow-up answer here');
   assert.ok(requestText(run.llm, 1).includes('<result skill="draw.create" status="unknown">'), requestText(run.llm, 1));
 
-  const delivered = await callTurn({ answers: ['<call skill="draw.create" channel="#νέα">a lighthouse</call>'], allowed: ['draw.create'], images: withFamily(fakeImages()) });
+  const delivered = await callTurn({ answers: ['<call skill="draw.create" channel="#νέα">a lighthouse</call>', '<skip/>'], allowed: ['draw.create'], images: withFamily(fakeImages()) });
   assert.deepEqual(delivered.sends.map((send) => [send.to, send.attachments.length]), [['c9', 1]]);
-  assert.equal(delivered.llm.calls.length, 1, 'a picture that went out is its own answer');
+  assert.equal(delivered.llm.calls.length, 2, 'a picture that went out is seen in one step');
   const capped = await callTurn({ answers: ['<call skill="draw.create" channel="#νέα">x</call>', '<skip/>'], allowed: ['draw.create'], images: withFamily(fakeImages({ quota: { spent: true, userSpent: false } })) });
   assert.deepEqual(capped.sends, []);
   assert.ok(capped.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'daily-cap'));

@@ -32,6 +32,8 @@ export const PULL_DEFAULTS = Object.freeze({
   maxAgeDays: 0,
   sameAudience: true,
   seenTtlMinutes: 120,
+  keepMinutes: 10,
+  keepTurns: 3,
 });
 
 /** An integer from a finite `value` of at least `min` (floored), else `fallback`. */
@@ -69,6 +71,8 @@ export function pullSettings(config) {
     maxAgeDays: numberAtLeast(p.maxAgeDays, d.maxAgeDays, 0),
     sameAudience: p.sameAudience !== false,
     seenTtlMinutes: numberAtLeast(p.seenTtlMinutes, d.seenTtlMinutes, 0),
+    keepMinutes: numberAtLeast(p.keepMinutes, d.keepMinutes, 0),
+    keepTurns: intAtLeast(p.keepTurns, d.keepTurns, 0),
   };
 }
 
@@ -110,7 +114,7 @@ export function explicitChannelIds(messages) {
 /**
  * @typedef {object} PullTarget
  * @property {string} channelId
- * @property {'routed'|'noticed'|'mention'|'route'} reason  The source's own reason, `mention` for an
+ * @property {'routed'|'noticed'|'mention'|'route'|'kept'} reason  The source's own reason, `mention` for an
  *   explicit `<#id>`, `route` for a route hook id.
  */
 
@@ -129,7 +133,9 @@ export function explicitChannelIds(messages) {
  *    up its place in the span; the trigger is scanned once, as the newest,
  *    and not counted among them -- newest mention first;
  * 3. `extra` ids (the route hook's: src/behavior/route-channel.js, wired in
- *    src/index.js), reason `route`.
+ *    src/index.js), reason `route`;
+ * 4. `kept` ids (the channels an earlier turn of the same exchange pulled and the
+ *    exchange still keeps: turn.js#keptPullIds), reason `kept`.
  * Mentions and route ids fill the slots the source leaves, up to
  * `maxChannels`, skipping the current channel, duplicates and ids for which
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
@@ -149,6 +155,7 @@ export function explicitChannelIds(messages) {
  * @param {object[]} [params.history]          Normalized messages of the turn's channel, oldest first.
  * @param {object|null} [params.trigger]       The normalized trigger message, or null.
  * @param {string[]} [params.extra]            Route hook ids.
+ * @param {string[]} [params.kept]             Channel ids the exchange keeps from an earlier turn.
  * @param {string|null} [params.currentChannelId]
  * @param {number} [params.scanMessages]
  * @param {number} [params.maxChannels]
@@ -161,6 +168,7 @@ export function pullTargets({
   history = [],
   trigger = null,
   extra = [],
+  kept = [],
   currentChannelId = null,
   scanMessages,
   maxChannels,
@@ -192,6 +200,7 @@ export function pullTargets({
   const scanned = (scan > 0 ? past.slice(-scan) : []).filter((m) => !m.bot && !m.self);
   for (const id of explicitChannelIds([...scanned, trigger])) add(id, 'mention');
   for (const id of Array.isArray(extra) ? extra : []) add(id, 'route');
+  for (const id of Array.isArray(kept) ? kept : []) add(id, 'kept');
   return out;
 }
 

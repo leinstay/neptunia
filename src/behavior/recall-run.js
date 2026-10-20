@@ -1078,7 +1078,13 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       const [shown] = renderRecallWindows([window], { ...render, indexed: false });
       const lines = cutStretch(shown?.lines ?? [], settings.stretchChars);
       if (lines.length === 0) return null;
-      return { channelId: window.channelId, channelName: window.channelName, startTs: lines[0].ts, lines: lines.map((line) => line.text).join('\n') };
+      // `entries`: each line's message (its id, author, whether it is hers, the message itself), for the handles of a memory.search result.
+      const byId = new Map(window.messages.map((message) => [message.id, message]));
+      const entries = lines.map((line) => {
+        const message = byId.get(line.id) ?? null;
+        return { id: line.id, text: line.text, authorId: message?.authorId ?? null, self: message?.self === true, message };
+      });
+      return { channelId: window.channelId, channelName: window.channelName, startTs: lines[0].ts, lines: lines.map((line) => line.text).join('\n'), entries };
     };
     // The persona's own memory.search (`quotes`): the stretches as they were, no summary, no
     // request; a channel she named keeps only its own (stored memory is notes, not chat: left out).

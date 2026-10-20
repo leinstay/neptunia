@@ -316,6 +316,8 @@ Settings for pulling another channel into a turn's request (`features.channelPul
 | `maxAgeDays` | `0` | Refuse a pull when the channel's newest message is older than this many days. `0` = no limit |
 | `sameAudience` | `true` | Check that every role allowed to view the destination channel can also view the source. A named member's view is proved through his roles from the guild's member cache; a member not in the cache is proved only through the everyone permission and the channel's role denies, as before. Also governs which neighbour channels appear in `<other_channels>` and which server-search windows the recall run keeps. When false, content from a restricted channel can reach a wider audience |
 | `seenTtlMinutes` | `120` | Minutes before a previous view of the same channel in the same destination expires. A view older than this is ignored when comparing which messages are new. `0` = every view is treated as the first |
+| `keepMinutes` | `10` | Minutes a pulled channel stays in the next turns of the same exchange after the turn that pulled it (a mention or the router). A later turn keeps it only when its trigger comes from the same author, unless the router picks another channel (that one replaces it) or the author changes. Such a turn logs `pull: kept` (`pullReason` `kept`). Remembered in process memory only. `0` = a pull never carries over |
+| `keepTurns` | `3` | Most turns that keep a pulled channel after the one that pulled it. `0` = a pull never carries over |
 
 ## `elsewhere`
 
