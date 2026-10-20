@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CORE_TOOL_SKILLS, MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, coreToolRows, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import { CORE_TOOL_SKILLS, MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, coreToolRows, describeRows, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
 import '../src/ops/index.js';
 import { loadSkills, skillNames, skillRegistry } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
@@ -256,7 +256,7 @@ test('coreToolRows: her granted tools among web.search, web.read, media.look, me
   assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
   assert.equal(rows[0].args[0].body, true, 'the question is the body');
   assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list', 'skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read']);
 });
 
 test('coreToolRows: media.look, granted, stands after web.read with its arguments while the tool loop is on; with it off the skill does not exist for her', () => {
@@ -296,4 +296,36 @@ test('coreToolRows: the intent rows follow task.run when intentions are on and g
   assert.deepEqual(on.map((row) => row.name), ['task.run', 'intent.set', 'intent.update', 'intent.cancel'], 'intent.list is not a tool row');
   const off = coreToolRows({ config: { features: { skills: true, intentions: false }, bot: { access } }, selfId: self, registry });
   assert.deepEqual(off.map((row) => row.name), ['task.run']);
+});
+
+test('coreToolRows: the read tools are listed when granted, a name with no registered skill (conversation.read, media.find) is skipped', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const names = ['skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read', 'conversation.read', 'media.find'];
+  const config = { features: { skills: true }, bot: { access: Object.fromEntries(names.map((name) => [name, grant])) } };
+  const rows = coreToolRows({ config, selfId: self, registry });
+  assert.deepEqual(rows.map((row) => row.name), ['skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read'].filter((name) => registry.has(name)));
+  assert.ok(rows.some((row) => row.name === 'skills.describe'));
+  const status = rows.find((row) => row.name === 'status.show');
+  assert.deepEqual(status.args.find((arg) => arg.name === 'part').values, ['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
+  assert.deepEqual(coreToolRows({ config: { features: { skills: true }, bot: { access: {} } }, selfId: self, registry }), [], 'nothing granted, no rows');
+});
+
+test('describeRows: an exact name gives the skill in full, a family one line each without arguments, a stranger the closest names', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const config = { features: { skills: true }, bot: { access: { 'memory.search': { everyone: false, roles: [], users: [self] } } } };
+  const texts = { 'memory.search': { title: 'T', whenToUse: 'W', whenNotToUse: 'N' }, 'memory.journal.read': { title: 'J', whenToUse: 'jw', whenNotToUse: '' } };
+  const exact = describeRows({ config, selfId: self, registry, texts, name: ' Memory.Search ' });
+  assert.deepEqual(exact.rows.map((row) => [row.name, row.title, row.reason, row.allowed]), [['memory.search', 'T', 'allowed', true]]);
+  assert.deepEqual(exact.rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
+  const off = describeRows({ config, selfId: self, registry, texts, name: 'memory.journal.read' });
+  assert.equal(off.rows[0].reason, 'not-allowed', 'not switched on for her');
+  const family = describeRows({ config, selfId: self, registry, texts, name: 'memory' });
+  assert.ok(family.rows.length > 3 && family.rows.every((row) => row.name.startsWith('memory.') && row.args.length === 0));
+  const stranger = describeRows({ config, selfId: self, registry, texts, name: 'memory.serch' });
+  assert.deepEqual([stranger.rows, stranger.closest[0]], [[], 'memory.search']);
+  assert.deepEqual(describeRows({ config, selfId: self, registry, texts, name: '' }), { rows: [], closest: [] });
+  assert.deepEqual(describeRows({ config, selfId: self, registry, texts, name: 'zzzzzzzzzzzzzzzz' }).closest, []);
 });

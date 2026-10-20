@@ -82,6 +82,7 @@ export const OP_EFFECTS = Object.freeze({
   'intent.cancel': 'write',
   'intent.list': 'read',
   'places.list': 'read',
+  'skills.describe': 'read',
   'inner.stop': 'administrative',
   'inner.start': 'administrative',
   'inner.status': 'read',

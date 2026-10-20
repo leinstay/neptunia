@@ -127,3 +127,26 @@ test('status inner: the next heartbeat has its own line; off says so; a status w
   assert.ok(!lines({ nextAt: null, lastAt: null }).some((line) => line.startsWith('heartbeat')));
   assert.ok(!innerLines(STATUS, labels).some((line) => line.startsWith('heartbeat')));
 });
+
+test('status.show part: her call defaults to the overview, a part holds its fields, models are named and never probed, a member sees only what a member may', async () => {
+  const { env } = envOf();
+  const persona = async (args, userId = '42') => (await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: userId === '42' ? [] : ['staff'], actor: 'persona' })).data.embeds[0].fields;
+  assert.deepEqual((await persona({})).map((f) => f.name), ['state', 'limits'], 'no part: the short overview');
+  assert.deepEqual((await persona({ part: 'limits' })).map((f) => f.name), ['limits', 'costs.base']);
+  assert.deepEqual((await persona({ part: 'models' })).map((f) => f.name), ['models.base', 'models.agents']);
+  assert.deepEqual((await persona({ part: 'errands' })).map((f) => f.name), ['tasks', 'costs.agents']);
+  assert.deepEqual((await persona({ part: 'inner' })).map((f) => f.name), ['inner']);
+  assert.deepEqual((await persona({ part: 'memory' })).map((f) => f.name), ['memory']);
+  assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');
+  const owner = (await runOp('status.show', {}, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+  assert.ok(owner.length > 8, 'the owner command without a part keeps the whole card');
+  assert.deepEqual((await persona({ part: 'inner' }, '7')).map((f) => [f.name, f.value]), [['inner', '-']], 'a member gets nothing of the owner parts');
+  assert.deepEqual((await persona({}, '7')).map((f) => f.name), ['state', 'limits']);
+});
+
+test('status.show part=features: each boolean switch of the live config, sorted, on or off', async () => {
+  const { env } = envOf();
+  env.hot.config.features = { innerLife: true, zeta: false, alpha: true, mode: 'x' };
+  const fields = (await runOp('status.show', { part: 'features' }, { env, guildId: 'g1', userId: '7', roleIds: ['staff'], actor: 'persona' })).data.embeds[0].fields;
+  assert.deepEqual(fields.map((f) => [f.name, f.value.split('\n')]), [['features', ['alpha on', 'innerLife on', 'zeta off']]]);
+});

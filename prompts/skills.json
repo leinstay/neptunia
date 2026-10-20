@@ -1,7 +1,7 @@
 {
   "status.show": {
     "title": "Runtime state",
-    "whenToUse": "Read your limits, models, coverage and what is on and off.",
+    "whenToUse": "TODO(writer): Read how the instance is doing. part= picks what you get: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits and what was spent today), models (which model each role runs), memory (how much of each kind of memory is stored), inner (your inner life: mode, turns today, next wake, open intentions), errands (the errands running and what the agents spent), features (which feature switches are on and off), all (everything above).",
     "whenNotToUse": "Returns operational data about the running instance."
   },
   "config.set": {
@@ -368,5 +368,10 @@
     "title": "See the server's places",
     "whenToUse": "See which places the server has, how many lines and people since you last looked there, whether you can write there and whether you listen to it. filter= keeps places whose name contains it, sort= orders by recent (default), name or lines, page= turns the pages. To listen to a place, set an attention with intent.set attend=<place>.",
     "whenNotToUse": "The places are names and counts. To read what people said, use the chat or memory.search."
+  },
+  "skills.describe": {
+    "title": "TODO(writer): Describe a skill",
+    "whenToUse": "TODO(writer): Read the full description of a skill (name= a skill name such as memory.search) or the one-line contracts of a family (name= memory). Use it before a call you are unsure how to write.",
+    "whenNotToUse": "TODO(writer): Does not run anything."
   }
 }

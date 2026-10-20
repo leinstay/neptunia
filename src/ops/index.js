@@ -33,6 +33,7 @@ import './message.js';
 import './task.js';
 import './intent.js';
 import './places.js';
+import './skills.js';
 import './inner.js';
 import './search.js';
 import { CODE } from '../skills/codes.js';
@@ -135,6 +136,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'task.places': 'places.list',
+  'task.skills': 'skills.describe',
   'memory.search': 'memory.search',
 });
 

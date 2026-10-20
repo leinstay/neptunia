@@ -55,6 +55,7 @@ export const BODY_ARGS = Object.freeze({
   'intent.set': 'text',
   'intent.update': 'text',
   'places.list': 'filter',
+  'skills.describe': 'name',
 });
 
 /** Every leaf of `table` as `{ key, leaf }`: `<group>.<name>` or a bare `<name>`, in order. */

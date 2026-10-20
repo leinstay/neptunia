@@ -498,6 +498,7 @@ export const labels = {
       web: { source: 'from web.search, query {query}; raw results, pages not opened', goal: 'to establish: {goal}', none: 'nothing found', more: '{count} results not shown' },
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', handles: 'quoted lines carry message numbers', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found' },
+      describe: { closest: 'no such skill; closest: {names}' },
       look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', off: '{feature} is off' },
     },
     diagnostics: {

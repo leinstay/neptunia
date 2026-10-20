@@ -40,6 +40,7 @@ const AGREED = new Set([
   'web.search', 'web.read', 'media.look', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
   'places.list',
+  'skills.describe',
   'inner.stop', 'inner.start', 'inner.status',
 ]);
 

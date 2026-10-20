@@ -808,6 +808,9 @@
         "degraded": "The meaning index was not reachable; only word matches were used.",
         "partial": "{failed} of {total} searches were cut short; some results may be missing."
       },
+      "describe": {
+        "closest": "TODO(writer): No such skill. The closest names: {names}."
+      },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",

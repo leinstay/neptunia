@@ -17,7 +17,8 @@ import { describeSkill, skillNames } from './registry.js';
 import { CODE } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
-export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search']);
+// `conversation.read` and `media.find` are built on their own branches; a name with no registered skill is skipped everywhere it is used.
+export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find']);
 
 /**
  * The posting skills her output tags stand for on an inner turn (docs/inner-life.md, src/behavior/inner-output.js).
@@ -32,9 +33,26 @@ export const INNER_POSTING_SKILLS = Object.freeze(['message.create', 'message.re
  * skills for its result (what is unread shows in `<tasks>`), then the intention skills that set, change and drop
  * one (no classifier names a skill for her then, so this is the only place she learns how), then `places.list`
  * (the places she can read, docs/inner-life.md "Her attention"). `intent.list` stays out: the `<intentions>` block
- * shows them. Each row still needs her grant and its feature switch (grantedSkillNames).
+ * shows them. Then the reads she may need to look at herself: `skills.describe` (any skill in full), `status.show`,
+ * `task.list`, `memory.journal.read`, `memory.profile.read`, and `conversation.read`, `media.find` once they exist.
+ * Each row still needs her grant and its feature switch (grantedSkillNames).
  */
-export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, ...INNER_POSTING_SKILLS, 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list']);
+export const CORE_TOOL_SKILLS = Object.freeze([
+  ...IN_TURN_TOOLS,
+  ...INNER_POSTING_SKILLS,
+  'task.run',
+  'task.read',
+  'task.resolve',
+  'intent.set',
+  'intent.update',
+  'intent.cancel',
+  'places.list',
+  'skills.describe',
+  'status.show',
+  'task.list',
+  'memory.journal.read',
+  'memory.profile.read',
+]);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
@@ -255,4 +273,52 @@ export function coreToolRows({ config, selfId = null, registry = null, texts = u
     const skill = registry.get(name);
     return { ...describeSkill(skill, texts), args: skillArgs(skill) };
   });
+}
+
+/** The edit distance of two short strings (insert, delete, replace), for the closest names of an unknown skill. */
+function editDistance(a, b) {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j += 1) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+/** The most names an unknown skill answers with. */
+export const MAX_CLOSEST = 5;
+
+/**
+ * The skills `skills.describe` (src/ops/skills.js) answers for `name`: an exact skill name gives that skill in full
+ * (title, when to use, when not to, arguments, as a core row), a family (`memory`, `diary`: the part of a name before
+ * its first dot) gives each of its skills with no arguments, one line each; a name that is neither gives no row and the
+ * closest skill names. Every row is `allowed: true` and its `reason` says whether she has the skill now (`allowed`, or
+ * `not-allowed` for one not switched on for her: her grants only, as grantedSkillNames). Skills whose feature switch is off do not
+ * exist for her. Matching ignores letter case and surrounding space. Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object, name?: unknown }} input
+ * @returns {{ rows: object[], closest: string[] }}
+ */
+export function describeRows({ config, selfId = null, registry = null, texts = undefined, name = '' }) {
+  const wanted = String(name ?? '').trim().toLowerCase();
+  if (!wanted || !(registry instanceof Map)) return { rows: [], closest: [] };
+  const granted = new Set(grantedSkillNames({ config, selfId, registry }));
+  const skills = [...registry.values()].filter((skill) => skillFeatureOn(skill.name, config));
+  const row = (skill, withArgs) => ({
+    ...describeSkill(skill, texts),
+    args: withArgs ? skillArgs(skill) : [],
+    allowed: true,
+    reason: granted.has(skill.name) ? 'allowed' : 'not-allowed',
+  });
+  const exact = skills.find((skill) => skill.name.toLowerCase() === wanted);
+  if (exact) return { rows: [row(exact, true)], closest: [] };
+  const family = skills.filter((skill) => skill.name.split('.')[0].toLowerCase() === wanted);
+  if (family.length > 0) return { rows: byFamily(family).flat().map((skill) => row(skill, false)), closest: [] };
+  const closest = skills
+    .map((skill) => ({ name: skill.name, score: skill.name.toLowerCase().includes(wanted) || wanted.includes(skill.name.toLowerCase()) ? 0 : editDistance(wanted, skill.name.toLowerCase()) }))
+    .filter((item) => item.score <= Math.max(3, Math.floor(wanted.length / 2)))
+    .sort((a, b) => a.score - b.score || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .slice(0, MAX_CLOSEST)
+    .map((item) => item.name);
+  return { rows: [], closest };
 }

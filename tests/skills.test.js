@@ -274,7 +274,7 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.deepEqual(skillRegistry().get('route.set').argsSchema.properties.fallbacks, { type: 'boolean' });
   assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
   assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
-  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field']);
+  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field', 'part']);
 });
 
 test('skills schema: types, bounds, enums, arrays and anyOf', () => {

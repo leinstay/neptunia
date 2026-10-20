@@ -101,6 +101,13 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  */
 export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed']);
 
+/**
+ * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
+ * card's fields (src/ops/status.js#PART_FIELDS): `overview` (the default of her call), `limits`,
+ * `models`, `memory`, `inner`, `errands`, `features` and `all` (the whole card).
+ */
+export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
+
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
@@ -178,7 +185,9 @@ export const COMMAND_TABLE = Object.freeze([
     options: [
       { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, choices: choicesOf(STATUS_FIELDS) },
     ],
-    args: (options) => ({ field: options.getString('field') ?? null }),
+    // Her own call may ask for a part instead (an argument only she has, never shown to Discord).
+    personaOptions: [{ type: STRING, name: 'part', description: 'A part of the card.', required: false, choices: choicesOf(STATUS_PARTS) }],
+    args: (options) => ({ field: options.getString('field') ?? null, ...(options.getString('part') ? { part: options.getString('part') } : {}) }),
   },
   {
     name: 'set',
@@ -222,7 +231,7 @@ export const COMMAND_TABLE = Object.freeze([
     options: [
       { type: STRING, name: 'kind', description: 'emoji, gifs, or pictures (recache only).', required: true, choices: choicesOf(['emoji', 'gifs', 'pictures']) },
       { type: STRING, name: 'action', description: 'status, rescan (recount) or recache.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
-      { type: INTEGER, name: 'days', description: 'pictures recache: descriptions used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
+      { type: INTEGER, name: 'days', description: 'Recache: pictures used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
     ],
     args: (options) => {
       const days = options.getInteger('days');
@@ -476,6 +485,13 @@ export const COMMAND_TABLE = Object.freeze([
         },
       },
       {
+        // One skill or a family in full (src/ops/skills.js): her read skill `skills.describe`.
+        name: 'skills',
+        description: 'Skill info.',
+        options: [{ type: STRING, name: 'name', description: 'Name.', required: true, max_length: 60 }],
+        args: (options) => ({ name: options.getString('name', true) }),
+      },
+      {
         // The places the interfaces publish (src/ops/places.js, docs/inner-life.md "Her attention"):
         // her read skill `places.list`, with a filter, a sort and a page.
         name: 'places',
@@ -524,7 +540,7 @@ export const COMMAND_TABLE = Object.freeze([
         options: [
           { type: STRING, name: 'message', description: 'The message id or link (in this channel).', required: true, max_length: 200 },
           { type: STRING, name: 'question', description: 'What to look for.', required: true, max_length: 500 },
-          { type: INTEGER, name: 'item', description: 'Which picture or video of the message (default 1).', required: false, min_value: 1, max_value: 20 },
+          { type: INTEGER, name: 'item', description: 'Which picture or video (default 1).', required: false, min_value: 1, max_value: 20 },
         ],
         args: (options) => {
           const item = options.getInteger('item');
