@@ -386,6 +386,7 @@ export const labels = {
     continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
     callsDropped: 'dropped {count} calls ({why})',
     diagnostics: 'what became of your last answer:',
+    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', last: 'last step', delivery: '{n} of {total} sent ({code})' },
     continueInner: 'continue this inner turn after your {skill} call; results above; another call may run\n{open}',
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
     continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, only a post or an intention change still runs\n{open}',
@@ -464,6 +465,7 @@ export const labels = {
     },
     result: {
       alreadyPosted: 'already posted: {text}',
+      coerced: '{arg} read as {value}',
       described: 'the skill in full:',
       bodyIgnored: 'this skill takes no free text, your body was left out; its arguments:',
       ok: 'skill ok, data:',
@@ -492,6 +494,10 @@ export const labels = {
         'heartbeat-only': 'a heartbeat accepts one intention change or a skip',
         'heartbeat-cap': 'too many open intentions from heartbeats',
         'heartbeat-recurring-cap': 'a recurring one from a heartbeat is open',
+        'loop-cap': 'call not run: {what}',
+        'malformed-call': 'call unreadable',
+        'truncated-call': 'call cut off',
+        'diary-draw-only': 'a diary post takes only draw.create',
         other: 'other failure',
       },
     },
@@ -504,6 +510,7 @@ export const labels = {
       look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', off: '{feature} is off' },
     },
     diagnostics: {
+      retiredTag: 'retired tag cut out: {tag}',
       badCall: 'call not run: {reason} {skill}',
       callInText: 'call inside a message not run {skill}',
       messageCut: 'message cut by {chars}',
@@ -511,6 +518,7 @@ export const labels = {
       thinkUnclosed: 'think never closed',
       reasons: { quotes: 'value not in double quotes', attribute: 'attribute repeated or unreadable', name: 'skill name missing or invalid', unclosed: 'call never closed' },
     },
+    toolsText: { lead: 'your tools, one JSON line each:', protocol: 'write a call as <tool_call>{json}</tool_call> after your thinking' },
     refusals: {
       agentRequired: '{arg} missing, pick one of: {agents}',
       unknownArg: 'no argument {arg}; takes: {args}',

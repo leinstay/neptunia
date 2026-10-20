@@ -468,6 +468,12 @@
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
     "callsDropped": "{count} of your calls were dropped this step ({why}).",
     "diagnostics": "What happened to your last answer:",
+    "step": {
+      "held": "[placeholder] Your previous answer was not sent.",
+      "delta": "[placeholder] Meanwhile in the chat:",
+      "last": "[placeholder] This is the last step.",
+      "delivery": "[placeholder] {n} of {total} messages went out ({code})."
+    },
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
@@ -658,6 +664,7 @@
       "alreadyPosted": "You already posted this turn: {text}",
       "described": "This is the first time you call this skill in this turn. Here is how it works:",
       "bodyIgnored": "This skill takes named arguments only. The free text you wrote in the body was not used. Its arguments:",
+      "coerced": "[placeholder] {arg} was read as {value}.",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
       "denied": "Your skill was blocked: {reason}.",
@@ -781,6 +788,10 @@
         "image-error": "the picture could not be made",
         "image-empty": "no picture came back",
         "unsupported-model": "that picture model is not supported",
+        "loop-cap": "[placeholder] the call did not run: {what}",
+        "malformed-call": "[placeholder] the call could not be read",
+        "truncated-call": "[placeholder] the call was cut off before it was complete",
+        "diary-draw-only": "[placeholder] a diary post takes only draw.create calls",
         "other": "something went wrong"
       },
       "params": {
@@ -789,7 +800,11 @@
           "page": "the page",
           "search": "the search",
           "errand": "the errand",
-          "picture": "the picture"
+          "picture": "the picture",
+          "extra-call": "[placeholder] too many calls in one answer",
+          "steps": "[placeholder] no steps left",
+          "time": "[placeholder] no time left",
+          "tokens": "[placeholder] no room left"
         },
         "feature": {
           "web": "the web lookup"
@@ -841,7 +856,12 @@
         "none": "No GIFs matched."
       }
     },
+    "toolsText": {
+      "lead": "[placeholder] Your tools, one JSON line each:",
+      "protocol": "[placeholder] Write each call as <tool_call>{\"name\": ..., \"arguments\": {...}}</tool_call> after your thinking."
+    },
     "diagnostics": {
+      "retiredTag": "[placeholder] A retired tag was cut out: {tag}",
       "badCall": "A {skill} call was dropped: {reason}",
       "callInText": "A {skill} call inside your message was cut out and did not run",
       "messageCut": "Your message was too long and lost its last {chars} characters",

@@ -858,6 +858,7 @@ catalogue, the labels and the table disagree.
 |---|---|---|---|
 | `ok` | ok | - | none (success) |
 | `shadow` | ok | - | none (internal) |
+| `staged` | ok | - | none (internal) |
 | `skills-off` | denied | - | `skills.result.reasons.skills-off` |
 | `feature-off` | denied | - | `skills.result.reasons.feature-off` |
 | `safe-mode` | denied | - | `skills.result.reasons.safe-mode` |
@@ -884,6 +885,7 @@ catalogue, the labels and the table disagree.
 | `heartbeat-cap` | denied | - | `skills.result.reasons.heartbeat-cap` |
 | `heartbeat-recurring-cap` | denied | - | `skills.result.reasons.heartbeat-recurring-cap` |
 | `paused` | denied | - | `skills.result.reasons.paused` |
+| `diary-draw-only` | denied | - | `skills.result.reasons.diary-draw-only` |
 | `invalid-args` | invalid | - | `skills.result.reasons.invalid-args` |
 | `unknown-skill` | invalid | - | `skills.result.reasons.unknown-skill` |
 | `unknown-command` | invalid | - | `skills.result.reasons.unknown-command` |
@@ -940,6 +942,9 @@ catalogue, the labels and the table disagree.
 | `invalid-action` | invalid | - | `skills.result.reasons.invalid-action` |
 | `invalid-emoji` | invalid | - | `skills.result.reasons.invalid-emoji` |
 | `scheme` | invalid | - | `skills.result.reasons.scheme` |
+| `loop-cap` | invalid | {what} | `skills.result.reasons.loop-cap` |
+| `malformed-call` | invalid | - | `skills.result.reasons.malformed-call` |
+| `truncated-call` | invalid | - | `skills.result.reasons.truncated-call` |
 | `not-configured` | not_configured | {feature} | `skills.result.reasons.not-configured` |
 | `unsupported` | not_configured | - | `skills.result.reasons.unsupported` |
 | `no-guild` | not_configured | - | `skills.result.reasons.no-guild` |

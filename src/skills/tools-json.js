@@ -15,20 +15,26 @@ export function canonicalJson(value) {
   return value;
 }
 
+/** `text` with every `{{key}}` of `fill` replaced (an own key with a non-null value); other placeholders stay. */
+function filled(text, fill) {
+  if (!fill || typeof fill !== 'object') return text;
+  return String(text).replace(/\{\{(\w+)\}\}/g, (all, key) => (Object.hasOwn(fill, key) && fill[key] != null ? String(fill[key]) : all));
+}
+
 /** The skill's parameter schema with each argument's `description` from the skills layer, when it has one. */
-function parametersOf(skill, texts) {
+function parametersOf(skill, texts, fill) {
   const schema = JSON.parse(JSON.stringify(skill.argsSchema));
   const described = skillArgTexts(skill, texts);
   for (const [name, text] of Object.entries(described)) {
-    if (schema.properties && Object.hasOwn(schema.properties, name)) schema.properties[name].description = text;
+    if (schema.properties && Object.hasOwn(schema.properties, name)) schema.properties[name].description = filled(text, fill);
   }
   return schema;
 }
 
 /** Title, when to use and when not to, one per line, the empty ones left out. */
-function descriptionOf(skill, texts) {
+function descriptionOf(skill, texts, fill) {
   const { title, whenToUse, whenNotToUse } = describeSkill(skill, texts);
-  return [title, whenToUse, whenNotToUse].filter(Boolean).join('\n');
+  return filled([title, whenToUse, whenNotToUse].filter(Boolean).join('\n'), fill);
 }
 
 /**
@@ -36,10 +42,11 @@ function descriptionOf(skill, texts) {
  * parameters } }]` sorted by API name, keys in a fixed order. A name with no skill in `registry` or
  * no API name is left out. Same input, same bytes.
  * @param {string[]} names  Dotted skill names granted to the persona.
- * @param {{ registry?: Map<string, object>, texts?: object }} [options]  `texts`: `hot.prompts.skills`.
+ * @param {{ registry?: Map<string, object>, texts?: object, fill?: object }} [options]  `texts`: `hot.prompts.skills`;
+ *   `fill`: values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
  * @returns {object[]}
  */
-export function buildTools(names, { registry = skillRegistry(), texts } = {}) {
+export function buildTools(names, { registry = skillRegistry(), texts, fill } = {}) {
   const tools = [];
   for (const name of new Set(names ?? [])) {
     const skill = registry.get(name);
@@ -47,7 +54,7 @@ export function buildTools(names, { registry = skillRegistry(), texts } = {}) {
     if (!skill || !api) continue;
     tools.push(canonicalJson({
       type: 'function',
-      function: { name: api, description: descriptionOf(skill, texts), parameters: parametersOf(skill, texts) },
+      function: { name: api, description: descriptionOf(skill, texts, fill), parameters: parametersOf(skill, texts, fill) },
     }));
   }
   return tools.sort((a, b) => (a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0));

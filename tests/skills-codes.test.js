@@ -77,7 +77,7 @@ test('catalogue: every entry has a known status, a group and only the values the
     assert.ok(['skill', 'wake', 'internal', 'ok'].includes(entry.group), code);
     assert.ok(entry.params.every((param) => ['status', 'what', 'feature'].includes(param)), code);
   }
-  assert.deepEqual(Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].params.length > 0).sort(), ['cap', 'http', 'not-configured', 'provider', 'timeout']);
+  assert.deepEqual(Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].params.length > 0).sort(), ['cap', 'http', 'loop-cap', 'not-configured', 'provider', 'timeout']);
 });
 
 test('requester-denied is split: nobody asked and several asked are their own codes', () => {
