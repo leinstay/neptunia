@@ -934,6 +934,9 @@ catalogue, the labels and the table disagree.
 | `not-writable` | failed | - | `wake.feedback.codes.not-writable` |
 | `unavailable` | failed | - | `wake.feedback.codes.unavailable` |
 | `no-review-channel` | failed | - | `wake.feedback.codes.no-review-channel` |
+| `pending-full` | failed | - | none (internal) |
+| `pending-expired` | failed | - | none (internal) |
+| `pending-outranked` | failed | - | none (internal) |
 | `wait` | ok | - | none (internal) |
 | `rewait` | ok | - | none (internal) |
 | `recurred` | ok | - | none (internal) |

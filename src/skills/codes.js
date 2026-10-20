@@ -153,6 +153,11 @@ export const CATALOGUE = Object.freeze({
   unavailable: wake(),
   'no-review-channel': wake(),
 
+  // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.js).
+  'pending-full': internal(),
+  'pending-expired': internal(),
+  'pending-outranked': internal(),
+
   // History and transport details.
   wait: internal('ok'),
   rewait: internal('ok'),

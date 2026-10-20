@@ -173,13 +173,13 @@ function tmpData() {
 }
 
 /** One createMissed with fakes; `history` is what every channel fetch returns. */
-function scene({ config = baseConfig(), history = [], llm = fakeLlm(''), turns = fakeTurns(), journal = fakeJournal(), paused = false, canSend = () => true, dataDir = tmpData(), prompts = { missed: 'Check for {{name}}.', labels } } = {}) {
+function scene({ config = baseConfig(), history = [], llm = fakeLlm(''), turns = fakeTurns(), journal = fakeJournal(), paused = false, canSend = () => true, dataDir = tmpData(), prompts = { missed: 'Check for {{name}}.', labels }, channels = [] } = {}) {
   const clock = handClock();
   const timers = handTimers(clock);
   const log = fakeLog();
   const store = { state: { data: { paused } } };
   const channel = { id: 'c1', guild: { id: 'g1' } };
-  const client = { user: { id: SELF, username: 'Bot' }, channels: { cache: new Map([['c1', channel]]) } };
+  const client = { user: { id: SELF, username: 'Bot' }, channels: { cache: new Map([['c1', channel], ...channels.map((extra) => [extra.id, extra])]) } };
   const hot = { config, prompts };
   const fetched = { history };
   const missed = createMissed({
@@ -198,7 +198,7 @@ function scene({ config = baseConfig(), history = [], llm = fakeLlm(''), turns =
     canSend,
     log,
   });
-  return { missed, clock, timers, log, store, journal, llm, turns, hot, fetched, dataDir, channel };
+  return { missed, clock, timers, log, store, journal, llm, turns, hot, fetched, dataDir, channel, client };
 }
 
 const flush = async () => {
@@ -408,7 +408,7 @@ test('createMissed: every fact source makes the right candidate, journaled with 
   assert.ok(!JSON.stringify(journal.answers).includes('πού'), 'no message text in the journal');
 });
 
-test('createMissed: a skip, a refusal, an overheard line, a routed call, a private chat and a recovery turn never make a candidate', () => {
+test('createMissed: a skip, a refusal, an overheard line, a routed call and a recovery turn never make a candidate', () => {
   const { missed } = scene();
   const trigger = { id: 'm1', authorId: 'u1', channelId: 'c1', ts: T0, content: '' };
   missed.onTurnEnd({ channelId: 'c1', trigger, triggerKind: 'mention', outcome: 'skip' });
@@ -416,7 +416,6 @@ test('createMissed: a skip, a refusal, an overheard line, a routed call, a priva
   missed.onTurnEnd({ channelId: 'c1', trigger, triggerKind: 'mention', outcome: 'busy' });
   missed.onTurnEnd({ channelId: 'c1', trigger, triggerKind: 'overheard', outcome: 'error' });
   missed.onTurnEnd({ channelId: 'c1', trigger, triggerKind: 'mention', outcome: 'error', routed: true });
-  missed.onTurnEnd({ channelId: 'd1', trigger, triggerKind: 'private', outcome: 'error', privateChat: true });
   missed.onTurnEnd({ channelId: 'c1', trigger, triggerKind: 'missed', outcome: 'not-now', reason: 'answered-meanwhile' });
   missed.onTurnEnd({ channelId: 'c1', trigger: null, mode: 'auto', outcome: 'not-now' });
   assert.deepEqual(missed.candidates(), []);
@@ -632,6 +631,35 @@ test('createMissed: no recovery where the bot cannot write, and a busy attention
   assert.equal(busy.timers.size(), 1);
 });
 
+test('createMissed: the reasons of a call that left the pending queue are candidates', () => {
+  const { missed } = scene();
+  for (const reason of ['pending-full', 'pending-expired', 'pending-outranked']) missed.noteFact(fact(reason, msg({ id: `m-${reason}` })));
+  assert.deepEqual(missed.candidates().map((c) => c.reason), ['pending-full', 'pending-expired', 'pending-outranked']);
+});
+
+test('createMissed: a private chat\'s fact goes to that person\'s private journal and its recovery turn runs in the chat only after the gate', async () => {
+  const dm = { id: 'd1', recipientId: 'u1' };
+  const history = [msg({ id: 'm1', ts: T0, channelId: 'd1' })];
+  const config = baseConfig({ features: { missedRecovery: true } });
+  const refused = scene({ history, llm: fakeLlm('1: owed'), channels: [dm], config });
+  refused.missed.noteFact(fact('pending-full', history[0]));
+  await refused.timers.fireAll();
+  await flush();
+  assert.equal(refused.journal.answers.find((record) => record.event === 'fact').privateUserId, 'u1');
+  assert.equal(refused.turns.calls.length, 0, 'no gate, no recovery');
+  assert.deepEqual(refused.missed.candidates().map((c) => [c.channelId, c.state]), [['d1', 'dismissed']]);
+
+  const seen = [];
+  const allowed = scene({ history, llm: fakeLlm('1: owed'), channels: [dm], config });
+  allowed.missed.setPrivateRecovery({ allow: async (channel, trigger) => seen.push(['allow', channel.id, trigger.id]) > 0, after: async (channel, trigger, result) => seen.push(['after', channel.id, result.outcome]) });
+  allowed.missed.noteFact(fact('pending-expired', history[0]));
+  await allowed.timers.fireAll();
+  assert.equal(allowed.turns.calls.length, 1);
+  assert.equal(allowed.turns.calls[0].channel.id, 'd1');
+  assert.equal(allowed.turns.calls[0].guildId, 'g1', 'a private chat is served on behalf of the pinned guild');
+  assert.deepEqual(seen, [['allow', 'd1', 'm1'], ['after', 'd1', 'spoke']]);
+});
+
 // ---- restart ------------------------------------------------------------------------------
 
 test('reconcileFromRecords: facts of the last hour come back; later verdicts and turns close them', () => {
@@ -703,10 +731,10 @@ test('createMissed: a turn that ended in an error keeps its reason as the fact\'
   assert.deepEqual(facts.map((record) => [record.messageId, record.reason, record.failure ?? null, record.turnId ?? null]), [['m1', 'turn-error', 'cut-off', 't-1'], ['m2', 'turn-error', null, null]]);
 });
 
-test('createMissed: a failed turn opened by a finished errand (task) is a candidate like a failed mention; a private chat\'s stays out', () => {
+test('createMissed: a failed turn opened by a finished errand (task) is a candidate like a failed mention, a private chat\'s too', () => {
   const { missed } = scene();
   const trigger = (id) => ({ id, authorId: 'u1', channelId: 'c1', ts: T0, content: 'ναι' });
   missed.onTurnEnd({ channelId: 'c1', trigger: trigger('m1'), triggerKind: 'task', outcome: 'error', reason: 'cut-off' });
-  missed.onTurnEnd({ channelId: 'd1', trigger: trigger('m2'), triggerKind: 'private', outcome: 'error', privateChat: true });
-  assert.deepEqual(missed.candidates().map((c) => [c.messageId, c.reason]), [['m1', 'turn-error']]);
+  missed.onTurnEnd({ channelId: 'd1', trigger: { ...trigger('m2'), channelId: 'd1' }, triggerKind: 'private', outcome: 'error', privateChat: true });
+  assert.deepEqual(missed.candidates().map((c) => [c.messageId, c.reason, c.channelId]), [['m1', 'turn-error', 'c1'], ['m2', 'turn-error', 'd1']]);
 });
