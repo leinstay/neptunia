@@ -811,6 +811,14 @@
       "describe": {
         "closest": "TODO(writer): No such skill. The closest names: {names}."
       },
+      "conversation": {
+        "source": "[writer] conversation.read source line, channel {channel}",
+        "handles": "[writer] the number before each line is a message number usable in calls",
+        "none": "[writer] no messages in that span",
+        "cut": "[writer] {dropped} lines not shown for room",
+        "earlier": "[writer] read on earlier: before=#{n}",
+        "later": "[writer] read on later: after=#{n}"
+      },
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",

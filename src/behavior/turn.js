@@ -30,7 +30,7 @@ import {
   validatePlan,
   withoutPictureKinds,
 } from './diary.js';
-import { channelPullOn, pullSettings, pullTargets } from './pull.js';
+import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
 import { isTaggedCall } from './mention.js';
 import { resolveHandles } from './handles.js';
@@ -80,6 +80,7 @@ import { coreToolRows, discoveryOn, skillArgs, grantedSkillNames, proposalVerdic
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { describeSkill, skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
+import { fetchSpan, runConversationRead, recordMessages } from '../skills/conversation-read.js';
 import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
@@ -260,7 +261,7 @@ const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']
  * is bounded there; every other result at `skills.resultMaxChars`.
  */
 function resultCharsFor(result, config) {
-  if (result?.skill === 'memory.search') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
+  if (result?.skill === 'memory.search' || result?.skill === 'conversation.read') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
   return config?.skills?.resultMaxChars ?? 4500;
 }
 
@@ -1166,7 +1167,7 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     messageAt: (n) => {
       // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
       const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
-      if (found) return { id: String(found.id), conversationId: String(found.channelId ?? channel.id), authorId: found.authorId ?? null, self: found.self === true };
+      if (found) return { id: String(found.id), conversationId: String(found.channelId ?? channel.id), authorId: found.authorId ?? null, self: found.self === true, ...(found.deleted === true ? { deleted: true } : {}) };
       const id = idByIndex?.get(n);
       if (!id) return null;
       const line = (lines ?? []).find((entry) => entry.id === id);
@@ -2416,7 +2417,73 @@ export function createTurnRunner({
           now: clock(),
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
+      'conversation.read': (args) => readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }),
     };
+  }
+
+  /**
+   * One conversation.read of hers (src/skills/conversation-read.js): the channel she names (default
+   * this one) read in order from the record first, the interface's history when the record lacks
+   * the span, rendered like the chat with each line's `#N` handle in the turn's registry
+   * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
+   * toward this turn's channel, a private chat on its partner's behalf); this channel always does.
+   * `not_configured` without a guild or in a private chat without its partner. Never throws.
+   */
+  async function readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }) {
+    if (!guild || (!channel.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    const config = hot.config;
+    const labels = hot.prompts?.labels ?? {};
+    const channelOf = (id) => (String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null));
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), p]));
+    const nameOf = (id) => (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ?? guild.members?.cache?.get?.(id)?.displayName ?? null;
+    const settings = recallSettings(config);
+    const timezone = config.bot?.timezone ?? 'UTC';
+    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
+    return runConversationRead({
+      args,
+      labels,
+      config,
+      channelId: String(channel.id),
+      channelNameOf: (id) => channelOf(id)?.name ?? null,
+      allowed: (id) => {
+        if (String(id) === String(channel.id) && channel.guild) return true;
+        try {
+          return checkPull({ guild, channelId: String(id), destination: channel, partner, config, now: clock() }).skip === null;
+        } catch {
+          return false;
+        }
+      },
+      readRecord: ({ channelId, from }) =>
+        config.features?.record === true ? recordMessages(record, guildId, { channelId, from, nameOf, selfName }) : Promise.resolve([]),
+      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      render: (slice) => {
+        let descriptions;
+        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+          const { items, rest, emoji } = pullPictures(slice, 0);
+          const wanted = [...items, ...rest, ...emoji];
+          try {
+            if (wanted.length > 0) descriptions = describer.cachedDescriptions(guildId, wanted) ?? undefined;
+          } catch {
+            descriptions = undefined;
+          }
+        }
+        return {
+          timezone,
+          gapMinutes: config.context?.gapMarkerMinutes,
+          maxChars: config.context?.maxMessageChars ?? 2000,
+          selfName,
+          labels,
+          descriptions,
+          seeReactions: config.features?.seeReactions !== false,
+          reactionsPerMessage: config.context?.reactionsPerMessage,
+        };
+      },
+      refs: draft ? searchHandles(draft) : null,
+      now: clock(),
+      timezone,
+      maxChars: settings?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+    });
   }
 
   // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the

@@ -41,6 +41,7 @@ const AGREED = new Set([
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
   'places.list',
   'skills.describe',
+  'conversation.read',
   'inner.stop', 'inner.start', 'inner.status',
 ]);
 

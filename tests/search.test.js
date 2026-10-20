@@ -2,7 +2,7 @@
 // and the window around a message, over a fake REST client and channel.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../src/interface/discord.js';
+import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from '../src/interface/discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 /** A guild whose REST client records each GET and answers with `answer(route, query)`. */
@@ -190,4 +190,27 @@ test('fetchAfter: a failing fetch resolves null', async () => {
   const { result, logs } = await withCapturedLogs(() => fetchAfter(channel, 'm4', 24, { selfId: 'self' }));
   assert.equal(result, null);
   assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: after failed', 'c1', 403]]);
+});
+
+test('fetchBefore: asks for the messages before an id and returns them normalized, oldest first; a failing fetch resolves null', async () => {
+  const queries = [];
+  const channel = {
+    id: 'c1',
+    messages: {
+      fetch: async (query) => {
+        queries.push(query);
+        return new Map([
+          ['m3', djsMessage('m3', 3000)],
+          ['m2', djsMessage('m2', 2000)],
+        ]);
+      },
+    },
+  };
+  const messages = await fetchBefore(channel, 'm4', 24, { selfId: 'self' });
+  assert.deepEqual(queries, [{ before: 'm4', limit: 24 }]);
+  assert.deepEqual(messages.map((m) => m.id), ['m2', 'm3']);
+  const broken = { id: 'c1', messages: { fetch: async () => { throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' }); } } };
+  const { result, logs } = await withCapturedLogs(() => fetchBefore(broken, 'm4', 24, { selfId: 'self' }));
+  assert.equal(result, null);
+  assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: before failed', 'c1', 403]]);
 });

@@ -175,7 +175,8 @@ export function readFlag(options, name) {
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
  * the Discord JSON of the node (`buildCommandTree` drops `args`); `personaOptions` are options
- * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord. Option names are lowercase;
+ * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord; a leaf
+ * with `personaOnly` is her skill alone and is left out of the Discord tree. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
 export const COMMAND_TABLE = Object.freeze([
@@ -505,6 +506,33 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => {
           const page = options.getInteger('page');
           return { filter: options.getString('filter') ?? undefined, sort: options.getString('sort') ?? undefined, ...(page == null ? {} : { page }) };
+        },
+      },
+      {
+        // A channel read in order (src/ops/search.js, src/skills/conversation-read.js): her read skill
+        // `conversation.read`, with no slash command (`personaOnly`: the tree has no room left under
+        // Discord's size limit). `around`, `before` and `after` take a message id or link, `before` and
+        // `after` a count beside `around`; `since` a delay (2h), a clock time or an ISO date.
+        name: 'conversation',
+        personaOnly: true,
+        description: 'Read a channel in order.',
+        options: [
+          channelOption('Channel; leave out for this one.'),
+          { type: STRING, name: 'around', description: 'Message id or link.', required: false, max_length: 200 },
+          { type: STRING, name: 'before', description: 'Message id or link, or a count.', required: false, max_length: 200 },
+          { type: STRING, name: 'after', description: 'Message id or link, or a count.', required: false, max_length: 200 },
+          { type: STRING, name: 'since', description: 'A delay, a time or a date.', required: false, max_length: 40 },
+          { type: INTEGER, name: 'last', description: 'Lines (default 20).', required: false, min_value: 1, max_value: 60 },
+        ],
+        args: (options) => {
+          const last = options.getInteger('last');
+          const out = {};
+          for (const name of ['around', 'before', 'after', 'since']) {
+            const value = options.getString(name);
+            if (value !== null && value !== undefined) out[name] = value;
+          }
+          const channelId = options.getChannel('channel')?.id;
+          return { ...out, ...(channelId ? { channelId } : {}), ...(last == null ? {} : { last }) };
         },
       },
       {

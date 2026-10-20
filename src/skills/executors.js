@@ -22,7 +22,19 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
-const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
+const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around']);
+
+/**
+ * The options of conversation.read that are a message when written as `#N` or a link and a count
+ * otherwise (`before=#40`, `before=5`).
+ */
+const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] });
+
+/** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
+function namesMessage(skill, option, text) {
+  if (MESSAGE_OPTIONS.includes(option)) return true;
+  return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')));
+}
 
 /** The options a body that is only a message reference (`#22`, an id, a link) fills, in order of preference. */
 const BODY_MESSAGE_OPTIONS = Object.freeze(['message', 'messageId']);
@@ -502,11 +514,12 @@ export function resolveCall(call, view) {
           args[option] = text;
           break;
         }
-        const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
+        const isMessage = namesMessage(name, option, text);
+        const n = isMessage ? transcriptNumber(text) : null;
         // A message link (in angle brackets too) names the message and its channel.
-        const link = MESSAGE_OPTIONS.includes(option) && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
+        const link = isMessage && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
         // A message the record holds as deleted and the history does not: refused as deleted.
-        const deletedHere = (id) => MESSAGE_OPTIONS.includes(option) && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
+        const deletedHere = (id) => isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
           if (deletedHere(link[2])) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           linked[option] = link[1];

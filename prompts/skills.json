@@ -334,6 +334,11 @@
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match); option lines in the body (people: ..., when: ...) are read as those options. Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
   },
+  "conversation.read": {
+    "title": "[writer] Read a channel in order",
+    "whenToUse": "[writer] conversation.read: channel= (name, #handle or id; default this one); one of around=#N or a message link (before= and after= count the lines each side, default 10), since= (2h, 12:00 or a date-time), last= (default 20, max 60). Lines come back in this same turn with message numbers; the closing line says how to read on (before=#N / after=#N).",
+    "whenNotToUse": "[writer] Not for what the chat already shows you; to find something, use memory.search."
+  },
   "intent.set": {
     "title": "Set an intention",
     "whenToUse": "Create a new durable intention for an action you have adopted for a later time. The purpose goes in the body. due= takes a delay (30m, 6h, 2d), a date, a clock time (21:00) or a weekday and time (mon 20:00). every= makes it repeat: day, week, or a count of hours or days (12h, 3d); state=done on intent.update closes one occurrence, intent.cancel ends it for good, and expires= moves its end date. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off. attend=<place> listens to a place: you are woken on new lines there since your last look. people= makes only those people's lines count for the wake. settle= sets how long the place must be quiet before a wake (seconds). perday= is your daily bound on attend wakes from that place. due= and every= do not apply to an attention. state=dropped with reason= records a desire you considered and let go (it never wakes you).",

@@ -160,3 +160,17 @@ export function fetchAround(channel, messageId, limit, options = {}) {
 export function fetchAfter(channel, messageId, limit, options = {}) {
   return fetchPage(channel, { after: messageId }, limit, options, 'search: after failed');
 }
+
+/**
+ * Up to `limit` (1..100) messages of `channel` right before `messageId` (Discord's `before`: the
+ * newest ones preceding it), normalized with normalizeMessage, oldest first. A failure logs
+ * `search: before failed` (`channel`, `status`, `name`) and resolves null.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {string} messageId
+ * @param {number} limit
+ * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
+ * @returns {Promise<object[]|null>}
+ */
+export function fetchBefore(channel, messageId, limit, options = {}) {
+  return fetchPage(channel, { before: messageId }, limit, options, 'search: before failed');
+}

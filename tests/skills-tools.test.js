@@ -29,8 +29,8 @@ function fakeLookup({ found = { query: 'q', results: [{ title: 'Ο τελικό�
   };
 }
 
-test('in-turn tools: the four skills that come back in the same turn', () => {
-  assert.deepEqual([...IN_TURN_TOOLS], ['web.search', 'web.read', 'media.look', 'memory.search']);
+test('in-turn tools: the skills that come back in the same turn', () => {
+  assert.deepEqual([...IN_TURN_TOOLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read']);
 });
 
 test('webSearchText: her query and the evidence type first, what she wanted to establish, then each result raw: title, link, site and date, snippet', () => {

@@ -138,6 +138,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'task.places': 'places.list',
   'task.skills': 'skills.describe',
+  'task.conversation': 'conversation.read',
   'memory.search': 'memory.search',
 });
 

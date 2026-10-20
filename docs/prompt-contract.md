@@ -357,6 +357,21 @@ with no summary request; its data is `skills.tools.memory.source`, then each str
 written inside it is never parsed or run. Outside the loop (the switch off) a granted call of any of them runs through its
 command like any read, with one follow-up.
 
+`conversation.read` (a fifth in-turn read, granted by name) reads one channel in order: `channel` (a name, a
+`#handle` of the channel directory or an id; default this conversation) and one of `around` (a `#N` or a message link;
+`before` and `after` then count the lines each side, 10 by default, 30 at most), `since` (a delay such as `2h`, a
+clock time such as `12:00`, or an ISO date or date-time in `bot.timezone`) or `last` (default 20, at most 60 lines;
+the newest). `before` or `after` given as a `#N` or a link, without `around`, reads the `last` lines before or after
+that message (the way to read on). The span comes from the record first (the newest revision of each message, a deleted
+one as a placeholder), the interface's history when the record lacks it. Its data is `skills.tools.conversation.source`
+(`{channel}`), `.handles`, the lines as the chat transcript renders them (author, time, text, media, the edited and
+deleted marks) each starting with a `#N` handle numbered past the request's own (the handles of a `memory.search`
+result are numbered the same way and resolve in `message.*`, `media.look` and `memory.journal.read` in the same turn's
+later steps), `.cut` (`{dropped}`) when `recall.quoteMaxChars` kept fewer lines, then `.earlier` and `.later`
+(`{n}`: the handle of the first or last line shown) as the ways to read on; `.none` for an empty span. A channel the
+audience rule or her rights hide is `denied` with `channel-not-visible`; an anchor that is not in the channel is
+`invalid` with `unknown-message`.
+
 ### The automatic memory prefetch (`features.coreTools`)
 
 With `features.coreTools` exactly true and `features.memoryPrefetch` not false (a missing key counts as on), a turn

@@ -46,7 +46,7 @@ import {
   withTextPreviews,
 } from './collect.js';
 import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.js';
-import { fetchAfter, fetchAround, searchMembers, searchMessages } from './search.js';
+import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from './search.js';
 import { reactorIdsOf } from './reactors.js';
 
 /**
@@ -95,6 +95,7 @@ export function createDiscordInterface({ client, ...adapterOptions } = {}) {
     searchMembers,
     fetchAround,
     fetchAfter,
+    fetchBefore,
     // Who reacted (reactors.js).
     reactorIdsOf,
     // A message as the protocol event the message pipeline takes, and back (collect.js).
