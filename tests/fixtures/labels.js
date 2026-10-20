@@ -379,7 +379,6 @@ export const labels = {
     queued: 'the same person has more calls waiting, each gets its own turn later:\n{others}',
     queuedOthers: 'other people have calls waiting here too, each gets its own turn later: {others}',
     failedEarlier: 'unanswered: {author} {n} {ago} ago ({code})',
-    diaryFailedEarlier: 'diary post {ago} ago failed ({code})',
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
     continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',

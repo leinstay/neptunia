@@ -898,17 +898,17 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 
 | Key | Default | Meaning |
 |---|---|---|
-| `channelId` | `""` | The diary channel. Written by `/nep diary set`, read at every tick. Empty means no diary |
+| `channelId` | `""` | The diary channel. Set with `/nep set diary.channelId` or in `config.local.json`, read at every tick. Empty means no diary |
 | `world` | `false` | Include `prompts/world.md` as a `<world>` block in the diary's plan and compose requests. Must be exactly `true`; a missing key counts as off. `/nep set diary.world true` turns it on. The file describes the persona's virtual world, used only by the diary, never in an ordinary turn |
 | `windows` | see below | Posting windows in `bot.timezone`. Each window has `from` and `to` (hours 0–24, wrapping past midnight) and `posts: [min, max]` (how many posts the window draws). The default four windows are described in [Diary: windows](diary.md#windows) |
 | `quietDayChance` | `0.3` | Chance that the whole day gets no posts. Rolled once when the day plan is created |
 | `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
 | `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | Minimum minutes between two planned slots. A slot closer than this to the previous one is dropped |
-| `maxPerDay` | `12` | Maximum posts per day. When the planner draws more slots than this, extras are dropped at random. The daily count also gates `/nep diary post` |
+| `maxPerDay` | `12` | Maximum posts per day. When the planner draws more slots than this, extras are dropped at random. |
 | `maxPicturesPerDay` | `8` | Maximum diary pictures per day. Shared with `image.maxPerDay`: whichever cap runs out first wins. When spent, the plan's `picture` is forced false and the senses say no drawing. The cap is checked before a post starts; a set post counts every picture it generated, so one set can take the day's count past the cap |
 | `slotGraceMinutes` | `30` | Minutes after a planned slot during which it still fires. A slot missed by more than this while the bot was down is dropped, not fired late |
-| `forceWaitMs` | `120000` | Milliseconds `/nep diary post` waits for a running turn to finish before posting. When the wait runs out the command answers `busy`. Scheduled posts are not affected |
+| `forceWaitMs` | `120000` | Milliseconds a forced post (`tools/replay.mjs --diary`) waits for a running turn to finish before posting. When the wait runs out the answer is `busy`. Scheduled posts are not affected |
 | `maxMessages` | `3` | Maximum `<msg>` messages per diary post. Excess messages are trimmed |
 | `historyPosts` | `150` | Past posts kept in `diary.json` and shown to the planner and the composer in the `<diary>` block. The oldest are dropped when the cap is exceeded |
 | `gistChars` | `200` | Characters kept per post gist and per picture scene in the diary history |

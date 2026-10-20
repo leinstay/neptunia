@@ -28,7 +28,6 @@ const AGREED = new Set([
   'route.list', 'route.set', 'route.remove',
   'rule.add', 'rule.list', 'rule.remove',
   'access.grant', 'access.revoke', 'access.list',
-  'diary.set', 'diary.show', 'diary.off', 'diary.post',
   'alias.add', 'alias.remove',
   'learning.add', 'learning.remove',
   'lore.add', 'lore.list', 'lore.show', 'lore.remove',

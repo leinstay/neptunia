@@ -488,8 +488,6 @@ const inner = createInnerLife({
   },
   log,
 });
-// A diary post she asked for in an inner turn that was refused after the turn ended: told to her as feedback.
-turns.setOnDeferredFailure((note) => inner.noteLateFailure(note));
 // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
 turns.setFactsSource(inner.facts);
 const tagHistory = createTagHistory();
@@ -575,8 +573,6 @@ const admin = createAdmin({
   // /nep task inner: the inner life's kill switch and status.
   inner,
   spontaneous,
-  // /nep diary: the day plan, a forced post.
-  diary,
   calibrator,
   getGuildId,
   isWarmingUp,

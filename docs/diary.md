@@ -5,14 +5,10 @@ The persona posts in one channel on its own, at random times, without anyone ask
 ## Setup
 
 1. Create a channel on your server. The bot needs View Channel, Send Messages, Read Message History and Attach Files there.
-2. Run `/nep diary set <channel>`. The command checks permissions, writes `diary.channelId` to `config.local.json` and fills the diary history from the persona's past posts in that channel (when the history is empty).
-3. The diary starts posting on the next tick (every 30 seconds). The first post may take a few minutes, depending on when the next planned slot falls.
+2. Set `diary.channelId` to the channel's id (`/nep set diary.channelId <id>`, or in `config.local.json`). It is read at every tick; an empty value means no diary, and clearing it stops the diary while the history file stays, so setting it again keeps the persona's memory of what it posted.
+3. The first tick with a channel fills an empty diary history from the persona's past posts in that channel. The diary starts posting on the next tick (every 30 seconds). The first post may take a few minutes, depending on when the next planned slot falls.
 
-`/nep diary show` prints today's plan: the channel, the slots in `bot.timezone`, how many posts and pictures were used today, and how many past posts are in the history.
-
-`/nep diary off` clears the channel. The history file stays, so re-enabling keeps the persona's memory of what it posted.
-
-`/nep diary post [kind] [topic]` forces one post now, outside the plan. When a turn is running, the command waits up to `diary.forceWaitMs` (120000 ms, two minutes) for it to finish; if the wait runs out it answers `busy`. It still obeys the daily caps. An optional kind key (e.g. `selfPicture`, `thought`) overrides the planner's choice; an unknown kind is refused with the full list. An optional free-text topic steers the post toward that subject.
+There is no command that shows the plan or forces a post; the plan and the posts are in the journal (`diary: plan`) and the diary's own file.
 
 ## Windows
 
@@ -29,7 +25,7 @@ The four default windows, with all times in `bot.timezone`:
 
 With `diary.quietDayChance` (0.3) the whole day gets no slots at all. A plan is created once per local day (the date in `bot.timezone`) and stored in `data/state.json`. A new local day replans; a restart keeps the existing plan.
 
-Days are not independent: the diary gets hungry. Each window keeps a hunger count that `/nep diary show` prints as `hunger: 0/1/2 (quiet streak 1)`, one number per window in config order, and the journal logs with every `diary: plan`. A quiet day makes every window one point hungrier, and each quiet day in a row multiplies the next day's quiet chance by `diary.quietCarry` (0.25): with the defaults a second quiet day in a row has a 7.5% chance instead of 30%. A window whose planned post went out resets to 0; a window that posted nothing (no slot, a slot missed while the bot was down, or a refused one) gains a point. When a hungry window draws zero posts, it rolls again once per hunger point, and each extra roll redraws the count with chance 1 minus `diary.hungerBoost` (0.5). Within one day, every window that came up empty also adds a point to the windows after it, so a silent afternoon makes the evening more likely to post. A window set to `[0, 0]` never posts and never gets hungry. A manual `/nep diary post` does not count: only planned posts feed a window.
+Days are not independent: the diary gets hungry. Each window keeps a hunger count that the journal logs with every `diary: plan`, one number per window in config order. A quiet day makes every window one point hungrier, and each quiet day in a row multiplies the next day's quiet chance by `diary.quietCarry` (0.25): with the defaults a second quiet day in a row has a 7.5% chance instead of 30%. A window whose planned post went out resets to 0; a window that posted nothing (no slot, a slot missed while the bot was down, or a refused one) gains a point. When a hungry window draws zero posts, it rolls again once per hunger point, and each extra roll redraws the count with chance 1 minus `diary.hungerBoost` (0.5). Within one day, every window that came up empty also adds a point to the windows after it, so a silent afternoon makes the evening more likely to post. A window set to `[0, 0]` never posts and never gets hungry.
 
 A slot missed by more than `diary.slotGraceMinutes` (30) while the bot was down is dropped, not fired late in a burst. A slot blocked by a busy attention is retried on the next tick within the grace.
 
@@ -65,7 +61,7 @@ Every model request in a diary post counts against `llm.maxRequestsPerDay`. With
 | `photoset` | 1 | A set: the persona's own outing, one message plus four to six pictures of it |
 | `randomSet` | 1 | A set: a gallery dump of anything the persona likes, not only itself, one message plus four to six pictures |
 
-`diary.searchKinds` (default `["news", "facts"]`) are the kinds that may trigger a search. `diary.pictureKinds` (default `["selfPicture", "picture", "meme", "photoset", "randomSet"]`) always get a picture when the day's picture caps allow it, whatever the planner answered. Other kinds draw only when the planner asks for one. When a post cannot carry a picture (the day's picture caps are spent, drawing is off, no image model, or the bot lacks Attach Files in the diary channel), the planner sees only the text kinds. Forcing a picture kind with `/nep diary post` is refused before any request: the reply names the cap and its counts when a cap closed it, or says `pictures` for the other cases.
+`diary.searchKinds` (default `["news", "facts"]`) are the kinds that may trigger a search. `diary.pictureKinds` (default `["selfPicture", "picture", "meme", "photoset", "randomSet"]`) always get a picture when the day's picture caps allow it, whatever the planner answered. Other kinds draw only when the planner asks for one. When a post cannot carry a picture (the day's picture caps are spent, drawing is off, no image model, or the bot lacks Attach Files in the diary channel), the planner sees only the text kinds.
 
 The kinds in `diary.setKinds` (default `["photoset", "randomSet"]`) post a set: one message plus four to six pictures (`diary.set.pictures`), each from its own `<draw>` tag, with more seed combinations to draw from (`diary.set.seedSets`, 6, in the compose request). Every picture is generated before anything is sent; with fewer than two pictures (`diary.set.minPosted`) nothing is posted at all.
 

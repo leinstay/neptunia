@@ -51,8 +51,8 @@ const ARCHIVE_CHOICES = 25;
  *   createDM for `/nep private purge`).
  * `discord` — the Discord interface's capabilities object (interfaces/discord/index.js#
  *   createDiscordInterface; src/index.js passes the one it builds): the permission checks of
- *   `/nep diary set` and of an operation posting in another channel (src/ops/shared.js#
- *   postingConversation), the diary backfill's history fetch, `normalizeMessage` for a turn asked
+ *   an operation posting in another channel (src/ops/shared.js#
+ *   postingConversation), `normalizeMessage` for a turn asked
  *   on a message (src/ops/message.js) and `PAGE` for `/nep private purge`. The operations read it
  *   as `env.discord`.
  * `spontaneous` — the spontaneous scheduler: `force(channel, mode)` and `status()`.
@@ -93,9 +93,6 @@ const ARCHIVE_CHOICES = 25;
  *   `/nep gifs recache`, never awaited to the end), `startMedia` (the same for `/nep media
  *   kind:pictures action:recache`), `isRunning` (a note in `/nep gifs status`) and `waitIdle`
  *   (`/nep pause` waits for a run in flight). Absent -> either recache reports it is not available.
- * `diary` — from createDiary() (src/behavior/diary.js), optional: `force({ kind })` (`/nep diary post`)
- *   and `status()` (`/nep diary show`, the plan in the `set` reply). Absent -> `show` prints the
- *   channel and the history size only, and `post` reports the diary is not running.
  * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate` (`/nep memory
  *   archive`), `find` and `append` (`/nep memory restore`, with the store's `restoreArchived`).
  *   Absent -> both report the archive is not available.

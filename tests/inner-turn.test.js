@@ -413,18 +413,17 @@ test('wakeLanes: the purposes of the intentions as one wake lane; none for a rev
   assert.deepEqual(wakeLanes([]), { lanes: [], skip: 'no-trigger' });
 });
 
-test('inner turn, shadow: a diary.post with a channel she gave it is refused, and she hears why within the turn (no lasting mark)', async () => {
-  // The call shape of a recorded shadow review: an attribute diary.post does not take, her entry as the body.
+test('inner turn, shadow: a lore.add with an argument it does not take is refused, and she hears why within the turn (no lasting mark)', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await innerTurn({
-    answers: ['<call skill="diary.post" channel="#general">δεν μπορώ να κοιμηθώ</call>', '<call skill="diary.post" topic="δεν μπορώ να κοιμηθώ"/>', '<skip/>'],
-    allowed: ['diary.post'],
+    answers: ['<call skill="lore.add" channel="#general" title="δεν" keys="μπορώ" text="να κοιμηθώ"/>', '<call skill="lore.add" title="δεν" keys="μπορώ" text="να κοιμηθώ"/>', '<skip/>'],
+    allowed: ['lore.add'],
     journal,
   });
-  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['diary.post:refused:invalid-args', 'diary.post:proposed:shadow']);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['lore.add:refused:invalid-args', 'lore.add:proposed:shadow']);
   assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
   const step = userText(run.llm.calls[1][1].content);
-  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'kind, topic' });
+  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
   assert.ok(step.includes(reason), step);
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
 });

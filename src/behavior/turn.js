@@ -1553,13 +1553,12 @@ function callTextOf(result, maxChars = 200) {
  * text }` each, named under `labels.task.missed`. `failedEarlier`: the
  * addressed turns of this channel that failed with nothing posted
  * (`{ author, messageId, link, at, code }`), one `labels.task.failedEarlier`
- * line each. `diaryFailedEarlier`: the diary posts she asked for in an earlier addressed turn of
- * this channel that did not go out (`{ at, code }`), one `labels.task.diaryFailedEarlier` line each.
+ * line each.
  * `input` is null when there is nothing to say.
  * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
  *   added: string[], missed: { author: string, text: string }[], failedEarlier: object[] }|null, deferred: Set<string> }}
  */
-export function taskInput({ part, queued, added, missed = null, failedEarlier = null, diaryFailedEarlier = null, labels, channelId }) {
+export function taskInput({ part, queued, added, missed = null, failedEarlier = null, labels, channelId }) {
   let waiting = [];
   if (typeof queued === 'function') {
     try {
@@ -1579,8 +1578,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
     ? missed.filter((item) => item && typeof item.text === 'string' && item.text).map((item) => ({ author: typeof item.author === 'string' ? item.author : '', text: item.text }))
     : [];
   const failedItems = Array.isArray(failedEarlier) && labels?.task?.failedEarlier ? failedEarlier.filter((entry) => entry?.messageId) : [];
-  const diaryItems = Array.isArray(diaryFailedEarlier) && labels?.task?.diaryFailedEarlier ? diaryFailedEarlier.filter((entry) => entry && Number.isFinite(entry.at)) : [];
-  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0 && diaryItems.length === 0) return { input: null, deferred };
+  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0) return { input: null, deferred };
   return {
     input: {
       part: part ?? null,
@@ -1589,7 +1587,6 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
       added: addedTexts,
       missed: missedItems,
       failedEarlier: failedItems,
-      diaryFailedEarlier: diaryItems,
     },
     deferred,
   };
@@ -2855,8 +2852,7 @@ export function createTurnRunner({
   // The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
   // (src/behavior/inner.js, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
   // `error` or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
-  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`), a diary post she asked for that did not go out
-  // (`diaryFailed`: `{ code }`, `labels.task.diaryFailedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
+  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
   // `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
   let factsSource = null; // set via setFactsSource()
   const localFacts = createLocalFacts({ now: () => clock() });
@@ -2881,24 +2877,6 @@ export function createTurnRunner({
     const live = factsOfKind(guildId, scope, kind, at);
     const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
     if (over.length > 0) store.markTold(guildId, over);
-  }
-  let onDeferredFailure = null; // set via setOnDeferredFailure(): a deferred call of an inner turn that failed
-  /**
-   * What became of a call of hers that was queued for after her turn (`diary.post`) when it did
-   * not go out: in an inner turn the inner life hears it as a feedback fact; in an addressed turn
-   * the channel's next request names it (`diaryFailed`). Never throws.
-   */
-  function noteDeferred({ skill, guildId = null, channelId, ownInitiative = false, chainId = null, code = null, id = null, at = clock() }) {
-    try {
-      if (skill !== 'diary.post' || !channelId) return;
-      if (ownInitiative) {
-        Promise.resolve(onDeferredFailure?.({ guildId, channelId: String(channelId), chainId, skill, code, id })).catch((err) => log.warn('turn: deferred failure not handed on', { error: err }));
-        return;
-      }
-      keepFact(guildId, { channelId: String(channelId), privateChat: privateChannels.has(String(channelId)) }, 'diaryFailed', { code: typeof code === 'string' && code ? code : CODE.ERROR }, at);
-    } catch (err) {
-      log.warn('turn: deferred outcome not kept', { error: err });
-    }
   }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
@@ -6870,15 +6848,12 @@ export function createTurnRunner({
         at: fact.at,
         code: fact.code,
       }));
-      // The diary posts she asked for in an earlier addressed turn here that did not go out, told the same way.
-      const diaryFacts = prompts?.labels?.task?.diaryFailedEarlier ? pendingFacts.filter((fact) => fact.kind === 'diaryFailed' && fact.channelId === factScope.channelId && now - fact.at < FAILED_TURN_KEEP_MS) : [];
-      const diaryFailedEarlier = diaryFacts.map((fact) => ({ at: fact.at, code: fact.code }));
       // What else was kept for her (a drop, a hold, a call or a message that failed): a `<wake>`-shaped block before the task.
-      const otherFacts = pendingFacts.filter((fact) => fact.kind !== 'failedTurn' && fact.kind !== 'diaryFailed').slice(0, FACTS_SHOWN_MAX);
+      const otherFacts = pendingFacts.filter((fact) => fact.kind !== 'failedTurn').slice(0, FACTS_SHOWN_MAX);
       const factsText = otherFacts.length > 0 ? feedbackInTurnText(otherFacts.map(factPayload), prompts?.labels, { timezone: config.bot?.timezone ?? 'UTC', locale: prompts?.labels?.locale }) : '';
-      const shownIds = [...failedFacts, ...diaryFacts, ...(factsText ? otherFacts : [])].map((fact) => fact.id);
+      const shownIds = [...failedFacts, ...(factsText ? otherFacts : [])].map((fact) => fact.id);
       if (shownIds.length > 0) draft.factsShown = shownIds;
-      const tasks = taskInput({ part, queued, added, missed, failedEarlier, diaryFailedEarlier, labels: prompts?.labels, channelId: channel.id });
+      const tasks = taskInput({ part, queued, added, missed, failedEarlier, labels: prompts?.labels, channelId: channel.id });
       // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
       // named, and on a part of a split message every line after the message -- a call that came
       // while the chain ran waits for its own turn after the chain.
@@ -7540,11 +7515,6 @@ export function createTurnRunner({
     /** Called (never awaited by runTurn) every time a turn finishes anywhere, once the channel is freed. */
     setOnIdle: (fn) => {
       onIdle = fn;
-    },
-    noteDeferred,
-    /** Called with a deferred call of an inner turn that did not go out (src/behavior/inner.js#noteLateFailure). */
-    setOnDeferredFailure: (fn) => {
-      onDeferredFailure = fn;
     },
     /**
      * The facts kept for her next request in a conversation (src/behavior/inner.js's `facts`: `enabled`, `add`,

@@ -47,8 +47,6 @@ export const DEFERRED_OPS = Object.freeze(new Set([
   'memory.private.forget',
   'memory.private.purge',
   'media.rescan',
-  'diary.set',
-  'diary.post',
   'draw.create',
 ]));
 
@@ -380,32 +378,6 @@ export const COMMAND_TABLE = Object.freeze([
           channelOption('Channel (default: this one).'),
         ],
         args: (options) => ({ action: options.getString('action', true), messageId: options.getString('message', true), emoji: options.getString('emoji', true), channelId: options.getChannel('channel')?.id }),
-      },
-    ],
-  },
-  {
-    name: 'diary',
-    description: 'The diary.',
-    subcommands: [
-      {
-        name: 'set',
-        description: 'Set the diary channel.',
-        options: [channelOption('Channel.', true)],
-        args: (options) => ({ channelId: options.getChannel('channel', true).id }),
-      },
-      { name: 'show', description: 'Diary state today.', args: none },
-      { name: 'off', description: 'Stop the diary.', args: none },
-      {
-        name: 'post',
-        description: 'Post one entry now.',
-        options: [
-          { type: STRING, name: 'kind', description: 'Kind.', required: false },
-          { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 1000 },
-        ],
-        args: (options) => {
-          const topic = options.getString('topic');
-          return { kind: options.getString('kind') ?? undefined, ...(topic != null ? { topic } : {}) };
-        },
       },
     ],
   },

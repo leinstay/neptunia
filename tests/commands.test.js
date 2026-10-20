@@ -152,12 +152,12 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   }
 });
 
-test('buildCommandTree: the exact top-level list (19 entries, no warmup, no skill group, no talk)', () => {
+test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skill group, no talk)', () => {
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
     'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'media',
-    'model', 'route', 'rule', 'access', 'message', 'diary', 'task', 'alias', 'learning', 'lore', 'memory',
+    'model', 'route', 'rule', 'access', 'message', 'task', 'alias', 'learning', 'lore', 'memory',
   ]);
   assert.deepEqual(COMMAND_TABLE.map((node) => node.name), top, 'the tree is the table');
   const groups = Object.fromEntries(command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)]));
@@ -167,7 +167,6 @@ test('buildCommandTree: the exact top-level list (19 entries, no warmup, no skil
     rule: ['add', 'list', 'remove'],
     access: ['grant', 'revoke', 'list'],
     message: ['create', 'edit', 'delete', 'react'],
-    diary: ['set', 'show', 'off', 'post'],
     task: ['run', 'status', 'cancel', 'list', 'intent', 'places', 'inner', 'search', 'read', 'look'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
@@ -834,7 +833,6 @@ test('commands: an interaction retry with the same id does not run the op twice'
   for (const [group, subcommand, optionValues] of [
     ['memory', 'refresh', { kind: 'server' }],
     ['memory', 'snapshot', {}],
-    ['diary', 'post', {}],
   ]) {
     const admin = fakeAdmin({ runImpl: () => 'started' });
     const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1', now: () => clock });
@@ -865,7 +863,6 @@ test('commands: every reply is ephemeral', async () => {
   for (const call of [
     { group: 'message', subcommand: 'create', optionValues: {} },
     { group: 'message', subcommand: 'create', optionValues: { channel: { id: 'chan1' } } },
-    { group: 'diary', subcommand: 'post', optionValues: {} },
     { subcommand: 'draw', optionValues: { text: 'a lighthouse' } },
     { group: 'memory', subcommand: 'wipe', optionValues: { confirm: 'x' } },
   ]) {

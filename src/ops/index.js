@@ -24,7 +24,6 @@ import './model.js';
 import './route.js';
 import './rule.js';
 import './access.js';
-import './diary.js';
 import './alias.js';
 import './learning.js';
 import './lore.js';
@@ -96,10 +95,6 @@ export const COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'diary.set': 'diary.set',
-  'diary.show': 'diary.show',
-  'diary.off': 'diary.off',
-  'diary.post': 'diary.post',
   'alias.add': 'alias.add',
   'alias.remove': 'alias.remove',
   'learning.add': 'learning.add',
@@ -173,10 +168,6 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'diary.set': 'diary.set',
-  'diary.show': 'diary.show',
-  'diary.off': 'diary.off',
-  'diary.post': 'diary.post',
   'alias.add': 'alias.add',
   'alias.remove': 'alias.remove',
   'learned.add': 'learning.add',

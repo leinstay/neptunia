@@ -34,7 +34,6 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/ops/index.js';
 import { loadSkills, skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
-import { createDiary } from '../src/behavior/diary.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
@@ -9082,41 +9081,6 @@ test('skill call: a read brings the operation\'s answer back in one follow-up; a
   const reason = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason: labels.skills.result.reasons['requester-denied'] });
   assert.ok(requestText(told.llm, 1).includes(`[called lore.list: ${reason}]`), requestText(told.llm, 1));
   assert.ok(!requestText(told.llm, 1).includes('<result'), requestText(told.llm, 1));
-});
-
-test('skill call: Alice asks her to post photos to the diary and the diary is not connected -- the diary\'s own words come back to her', async () => {
-  const diary = (hot) => createDiary({ discord: DISCORD, hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
-  const run = await callTurn({
-    answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
-    allowed: ['diary.post'],
-    diary,
-    configExtra: { diary: { channelId: '', kinds: { photos: 1 } } },
-    features: { followUpContinuation: false },
-  });
-  const text = requestText(run.llm, 1);
-  assert.ok(text.includes('<result skill="diary.post" status="not_configured">'), text);
-  assert.ok(text.includes('the diary has no channel set'), text);
-  assert.ok(!text.includes(labels.skills.result.ok), 'never told it went out');
-  assert.deepEqual(run.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
-  // A member who is not the owner: the diary is hers, the same answer.
-  const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } }, features: { followUpContinuation: false } });
-  assert.ok(requestText(member.llm, 1).includes('<result skill="diary.post" status="not_configured">'), requestText(member.llm, 1));
-  // The turn continued: her call's mark carries the diary's own words -- what exactly is not set
-  // up -- ahead of the generic phrase of its code, and she says so.
-  const generic = { ...labels, skills: { ...labels.skills, result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, 'not-configured': 'GENERIC_NOT_SET_UP' } } } };
-  const continued = await callTurn({
-    answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
-    allowed: ['diary.post'],
-    diary,
-    configExtra: { diary: { channelId: '', kinds: { photos: 1 } }, skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, markTextMaxChars: 200 } },
-    labelSet: generic,
-  });
-  assert.ok(!requestText(continued.llm, 1).includes('GENERIC_NOT_SET_UP'), 'the generic phrase gives way');
-  const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'the diary has no channel set' });
-  const continuedText = requestText(continued.llm, 1);
-  assert.ok(continuedText.includes(`Bot (you): [called diary.post: ${said}]`), continuedText);
-  assert.ok(!continuedText.includes('<result'), continuedText);
-  assert.deepEqual(continued.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
 });
 
 test('skill call: a turn answering several people runs no write', async () => {

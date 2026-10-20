@@ -971,7 +971,7 @@ function lostTurn(turnId = 't-1') {
 
 test('feedbackFacts: a call that did not go ok, an intention closed with nothing delivered, the loop cut; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
-  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'task.run', 'diary.post']);
+  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'task.run']);
   const facts = feedbackFacts(lostTurn(), { named: ['i1'], intentions: [intention('i1', { purpose: 'send a cat meme' })] });
   assert.deepEqual(facts, [
     { kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' },
@@ -1211,15 +1211,20 @@ test('inner: a chain held on its per-chain cap with no turn coming is told by a 
 });
 
 test('inner: a feedback wake whose facts an earlier turn already carried is handled without a turn', async () => {
-  const run = setup({ hot: hotWith({ innerLife: { mode: 'live' } }) });
-  assert.equal(await run.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', skill: 'diary.post', code: 'daily-cap', id: 'inv-9' }), true);
-  const state = run.inner.state(GUILD);
-  run.inner.facts.markTold(GUILD, state.facts.map((fact) => fact.id));
-  clock.t = NOW + MINUTE_MS;
+  const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
+  const turns = failingTurns(99, 'cut-off');
+  const run = attentionSetup({ lines, turns });
   await run.inner.tick();
-  assert.equal(run.turns.calls.length, 0);
-  assert.deepEqual(run.inner.state(GUILD).queue, []);
-  assert.equal(run.inner.state(GUILD).handled['inner.wake:feedback:late:inv-9'].outcome, 'told');
+  const state = run.inner.state(GUILD);
+  const feedback = state.queue.find((wake) => wake.kind === 'feedback');
+  assert.ok(feedback, 'the failed wake left a feedback wake');
+  run.inner.facts.markTold(GUILD, state.facts.map((fact) => fact.id));
+  const before = turns.calls.length;
+  clock.t = NOW + 10 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(turns.calls.length, before, 'no turn was run for it');
+  assert.equal(run.inner.state(GUILD).queue.some((wake) => wake.id === feedback.id), false);
+  assert.equal(run.inner.state(GUILD).handled[feedback.id].outcome, 'told');
 });
 
 test('inner: a fact of a private chat is shown only in that chat, a fact of the server never in a private chat; pending facts are kept seven days, told ones a day', async () => {
@@ -1384,24 +1389,6 @@ test('inner retry: a review or an attention wake that met a cut-off error is han
   const state = run.inner.state(GUILD);
   assert.deepEqual(state.queue.map((wake) => wake.kind), ['feedback'], 'only the feedback wake is left');
   assert.deepEqual(state.facts.filter((fact) => fact.kind === 'wakeDropped').map((fact) => `${fact.wake}:${fact.code}:${fact.why}`), ['attend:error:cut-off']);
-});
-
-test('inner: a deferred call of hers that failed after the turn ended is one callFailed feedback wake in its chain and channel, run at the next tick', async () => {
-  const run = setup({ hot: hotWith({ innerLife: { mode: 'live' } }) });
-  assert.equal(await run.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', chainId: 'intention:i1', skill: 'diary.post', code: 'daily-cap', id: 'inv-4' }), true);
-  const queued = run.inner.state(GUILD).queue;
-  assert.equal(queued.length, 1);
-  assert.deepEqual([queued[0].kind, queued[0].chainId, queued[0].channelId, queued[0].dueAt], ['feedback', 'intention:i1', 'c2', NOW]);
-  assert.deepEqual(queued[0].facts, [{ kind: 'callFailed', skill: 'diary.post', status: 'refused', code: 'daily-cap' }]);
-  assert.equal(await run.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', chainId: 'intention:i1', skill: 'diary.post', code: 'daily-cap', id: 'inv-4' }), true);
-  assert.equal(run.inner.state(GUILD).queue.length, 1, 'the same invocation is told once');
-  clock.t = NOW + MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1);
-  assert.equal(run.turns.calls[0].inner.wake.kind, 'feedback');
-  assert.deepEqual(run.turns.calls[0].inner.wake.items[0].facts[0], { kind: 'callFailed', skill: 'diary.post', status: 'refused', code: 'daily-cap' });
-  const off = setup({ hot: hotWith({ features: { innerLife: false } }) });
-  assert.equal(await off.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', skill: 'diary.post', code: 'x' }), false);
 });
 
 // --- The heartbeat ------------------------------------------------------------------------------

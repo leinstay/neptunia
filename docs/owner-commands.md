@@ -1,6 +1,6 @@
 # Commands
 
-One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
 
 ## Access
 
@@ -8,7 +8,7 @@ One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (
 
 Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
 
-Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+Owner-only operations (`access.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
 
 **Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
@@ -44,10 +44,6 @@ The table is generated from the command table (`src/ops/catalog.js#COMMAND_TABLE
 | `/nep message edit <message> <text> [channel]` | `message.edit` | ephemeral | Replace the text of one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
 | `/nep message delete <message> [channel]` | `message.delete` | ephemeral | Delete one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
 | `/nep message react <action:add\|remove> <message> <emoji> [channel]` | `message.react.add`, `message.react.remove` | ephemeral | Put or take back the persona's reaction on a message |
-| `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
-| `/nep diary show` | `diary.show` | ephemeral | Diary state today |
-| `/nep diary off` | `diary.off` | ephemeral | Stop the diary |
-| `/nep diary post [kind] [topic]` | `diary.post` | ephemeral, deferred | Post one entry now |
 | `/nep alias add <user> <name>` | `alias.add` | ephemeral | Add or strengthen a member's alias |
 | `/nep alias remove <user> <name>` | `alias.remove` | ephemeral | Remove a member's alias |
 | `/nep learning add <text>` | `learning.add` | ephemeral | Add or strengthen a learned item |
@@ -83,7 +79,7 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 **In-turn tools:** `web.search`, `web.read`, `media.look`, `memory.search` and `conversation.read` are reads (`conversation.read`, a channel read in order, has no slash command: it is hers alone); with `features.coreTools` on, the persona's call of any of them runs inside her turn and its result comes back in the same turn (see [the tool loop](prompt-contract.md#the-tool-loop-featurescoretools)). None is open to her until granted by name (`/nep access grant web.search user:@bot`, `/nep access grant web.read user:@bot`, `/nep access grant media.look user:@bot`, `/nep access grant memory.search user:@bot`, `/nep access grant conversation.read user:@bot`); `media.look` exists for her only while `features.coreTools` is on. A `*` or `memory` grant stored before they existed does not cover them.
 
-**Self-owned operations:** `message.create`, `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`, `draw.create`, `diary.post` and `diary.show` need only her own grant, not the requester's right (messages and drawings are hers). The bundled-author rule and the no-requester restriction still apply: no write when a turn answers several people, only a read when nobody asked.
+**Self-owned operations:** `message.create`, `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`, `draw.create` and the intention operations need only her own grant, not the requester's right (messages and drawings are hers). The bundled-author rule and the no-requester restriction still apply: no write when a turn answers several people, only a read when nobody asked.
 
 ## Memory commands
 

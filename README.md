@@ -150,7 +150,7 @@ First run on a new server: enable `features.dryRun`, watch the mirror or `journa
 
 One Discord slash command, `/nep` (the name comes from `bot.commandName`), registered as a guild command for the served server. Every reply is ephemeral: only the caller sees it, in whatever channel it was typed. Skill commands (`/nep skill allow`, `deny`, `list`) toggle the persona's own skills; owner-only, journaled.
 
-The 19 top-level entries:
+The 18 top-level entries:
 
 - `status` shows a card with the bot's state, connection, models, limits and memory counters
 - `set` / `unset` override or remove a config value in `config.local.json`
@@ -164,7 +164,6 @@ The 19 top-level entries:
 - `rule` appends, lists or removes live corrections in `prompts.local/rules.md`
 - `access` grants or revokes operations for roles and users
 - `skill` allows, denies or lists the persona's own skills
-- `diary` sets, shows or stops the diary and posts an entry
 - `alias` adds or removes a member's nickname
 - `learning` adds or removes a taught lesson
 - `lore` adds, lists, shows or removes lorebook entries
@@ -352,7 +351,6 @@ src/
     model.js               /nep model (show, set)
     route.js               /nep route (list, set, remove)
     rule.js                /nep rule (add, list, remove)
-    diary.js               /nep diary (set, show, off, post)
     alias.js               /nep alias (add, remove)
     learning.js            /nep learning (add, remove)
     lore.js                /nep lore (add, list, show, remove)

@@ -1449,8 +1449,7 @@ function numberedItems(texts, first) {
  * without a usable part, `labels.task.queued`), then
  * `labels.task.queuedOthers`, then `labels.task.added`, then one `labels.task.failedEarlier` line
  * per `failedEarlier` entry (`{ author, messageId, link, at, code }`: `{author}`, `{n}` the
- * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`), then one
- * `labels.task.diaryFailedEarlier` line per `diaryFailedEarlier` entry (`{ at, code }`: `{ago}`, `{code}`).
+ * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`).
  * '' when nothing applies.
  * @param {{ part?: { index: number, total?: number, parts: string[] }|null, queued?: string[],
  *   queuedOthers?: { author: string, text: string }[], added?: string[],
@@ -1498,11 +1497,6 @@ function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
       });
     });
     texts.push(lines.join('\n'));
-  }
-  // Diary posts she asked for that did not go out, after the failed turns.
-  const diaryFailed = Array.isArray(tasks.diaryFailedEarlier) ? tasks.diaryFailedEarlier.filter((entry) => entry && Number.isFinite(entry.at)) : [];
-  if (diaryFailed.length > 0 && labels.task?.diaryFailedEarlier && labels.units) {
-    texts.push(diaryFailed.map((entry) => fill(labels.task.diaryFailedEarlier, { ago: formatDuration(Math.max(0, now - entry.at), labels.units), code: entry.code ?? '' })).join('\n'));
   }
   return texts.join('\n\n');
 }

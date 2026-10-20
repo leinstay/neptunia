@@ -109,26 +109,6 @@
     "whenToUse": "Read every stored access grant and who holds each.",
     "whenNotToUse": "Does not change any grant."
   },
-  "diary.set": {
-    "title": "Set diary channel",
-    "whenToUse": "Pick the channel where you post diary entries.",
-    "whenNotToUse": "Administrative; changes which channel, not the content."
-  },
-  "diary.show": {
-    "title": "Diary state",
-    "whenToUse": "Read the diary's status for today: channel, post count, windows.",
-    "whenNotToUse": "Does not post or change anything."
-  },
-  "diary.off": {
-    "title": "Stop the diary",
-    "whenToUse": "Turn the diary off; past posts stay, new ones stop.",
-    "whenNotToUse": "Administrative; the diary can be turned back on with diary.set."
-  },
-  "diary.post": {
-    "title": "Post a diary entry",
-    "whenToUse": "Trigger one diary post now. The diary writes the entry itself. Kind and topic steer the subject.",
-    "whenNotToUse": "Body text in the call is not used. Refuses when the diary has no channel or the daily cap is hit."
-  },
   "alias.add": {
     "title": "Add an alias",
     "whenToUse": "Record or strengthen a nickname people in chat use for a member.",
