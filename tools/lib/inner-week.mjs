@@ -468,6 +468,8 @@ export function fixtureConfig(fixture, { mode = fixture.mode } = {}) {
       mode,
       review: { enabled: true, historyDays: 14, ...(life.review ?? {}) },
       caps: { perChain: 3, ...(life.caps ?? {}) },
+      // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
+      heartbeat: { enabled: false, ...(life.heartbeat ?? {}) },
     },
   };
 }
