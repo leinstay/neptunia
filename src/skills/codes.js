@@ -48,6 +48,9 @@ export const CATALOGUE = Object.freeze({
   'channel-not-visible': skill('denied'),
   'cap-open': skill('denied'),
   'cap-tasks': skill('denied'),
+  'heartbeat-only': skill('denied'),
+  'heartbeat-cap': skill('denied'),
+  'heartbeat-recurring-cap': skill('denied'),
   paused: skill('denied'),
 
   // A call that was not right.

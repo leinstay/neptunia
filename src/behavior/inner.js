@@ -83,7 +83,7 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
+import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, openFromHeartbeat, HEARTBEAT_ORIGIN } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../skills/codes.js';
@@ -99,7 +99,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
-  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500 }),
+  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500, intentionsOnly: true, maxOpen: 3, maxRecurring: 1 }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -301,6 +301,9 @@ export function innerSettings(config) {
       placesShown: Math.floor(count(heartbeat.placesShown, d.heartbeat.placesShown)),
       placeLines: Math.floor(count(heartbeat.placeLines, d.heartbeat.placeLines)),
       maxTokens: Math.floor(count(heartbeat.maxTokens, d.heartbeat.maxTokens)),
+      intentionsOnly: heartbeat.intentionsOnly !== false,
+      maxOpen: Math.floor(count(heartbeat.maxOpen, d.heartbeat.maxOpen)),
+      maxRecurring: Math.floor(count(heartbeat.maxRecurring, d.heartbeat.maxRecurring)),
     },
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
@@ -1274,6 +1277,45 @@ export function createInnerLife({
     return { channel: null, why };
   }
 
+  /**
+   * The outcome of an `intention_due` turn for an intention a heartbeat made, logged (id and codes, never text):
+   * `failed` (the turn erred or was refused), `done` (she closed it), `acted` (another call went through) or
+   * `no-op`. Never throws.
+   */
+  function logDueOutcome(guildId, group, { outcome, actions, named }) {
+    try {
+      if (!intentions || typeof intentions.store !== 'function') return;
+      for (const wake of group.filter((w) => w.kind === 'intention_due')) {
+        const id = list(wake.intentionIds)[0];
+        const record = id ? intentions.store(guildId)?.get?.(id) : null;
+        if (record?.origin !== HEARTBEAT_ORIGIN) continue;
+        const closing = actions.some((a) => a.status === 'executed' && a.result === 'ok' && a.intentionId === id && (a.skill === 'intent.cancel' || a.state === 'done' || a.state === 'dropped'));
+        const acted = actions.some((a) => a.status === 'executed' && a.result === 'ok' && !String(a.skill).startsWith('intent.'));
+        const result = outcome === 'error' || outcome === 'refused' ? 'failed' : closing ? 'done' : acted || named.includes(id) ? 'acted' : 'no-op';
+        log.info('inner: heartbeat intention due', { guildId, intentionId: id, recurring: Boolean(record.every), turn: outcome, result, actions: actions.length });
+      }
+    } catch (err) {
+      log.warn('inner: due outcome not logged', { guildId, code: err?.code ?? null });
+    }
+  }
+
+  /**
+   * The heartbeat turn's outcome, logged (ids and codes, never text): what it did (`change`: the intention call that
+   * went through, `skip`: none did), the intention's id, how many of the open intentions are from heartbeats
+   * (the cap's occupancy) and the refusals it met. Never throws.
+   */
+  function logHeartbeatOutcome(guildId, { outcome, actions }) {
+    try {
+      const calls = actions.filter((action) => typeof action?.skill === 'string' && action.skill.startsWith('intent.'));
+      const changed = calls.find((action) => action.status === 'executed' && action.result === 'ok') ?? null;
+      const refused = actions.filter((action) => action?.status === 'refused' || (action?.status === 'executed' && action.result !== 'ok')).map((action) => `${action.skill}:${action.code ?? action.result}`);
+      const open = intentions && typeof intentions.list === 'function' ? openFromHeartbeat(intentions.list(guildId, { all: true })).length : null;
+      log.info('inner: heartbeat outcome', { guildId, turn: outcome, result: changed ? 'change' : 'skip', ...(changed ? { skill: changed.skill, intentionId: changed.createdId ?? changed.intentionId ?? null } : {}), openFromHeartbeat: open, refused });
+    } catch (err) {
+      log.warn('inner: heartbeat outcome not logged', { guildId, code: err?.code ?? null });
+    }
+  }
+
   /** The channels a review or a heartbeat turn may run in: where she spoke lately (the review's remembered ones, else the record's). */
   async function recentChannels(guildId) {
     const known = stateOf(guildId).review?.channels ?? [];
@@ -1608,6 +1650,8 @@ export function createInnerLife({
       }
     }
     const actions = result.inner?.actions ?? [];
+    if (anchor.kind === 'heartbeat') logHeartbeatOutcome(guildId, { outcome, actions });
+    else logDueOutcome(guildId, group, { outcome, actions, named: result.inner?.intentIds ?? [] });
     log.info('inner: turn', { guildId, outcome, reason: result.reason ?? null, wakes: group.length, shadow, actions: actions.length, usd: measured.usd, voice: measured.voice });
     note(guildId, {
       event: 'turn',

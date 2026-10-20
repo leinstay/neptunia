@@ -89,6 +89,8 @@ the completion condition) carry their id or one of their known names as a whole 
 forget's vault first. `/nep memory wipe` deletes `intentions.json` with the rest of the server's memory (the vault
 holds the copy).
 
+An intention a heartbeat turn creates also carries `origin: heartbeat`, stamped by the engine and kept through updates; it counts toward the heartbeat's own caps and changes nothing else ([Inner life](inner-life.md#what-a-heartbeat-may-do)).
+
 Dropped: `intent.update id=... state=dropped reason=...` lets go of an open intention (pending, waiting or proposed),
 and `intent.set state=dropped reason=...` records one that was considered and let go at once (a new record born
 dropped). The reason is required (`reason-required` without one) and cut to 300 characters. A dropped record never wakes

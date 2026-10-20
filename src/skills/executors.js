@@ -770,7 +770,7 @@ export async function executeCall(resolved, deps) {
       ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
       // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
       // may accept (src/intentions/model.js#acceptRefusal).
-      ...(initiative ? { ownInitiative: true, ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}) } : {}),
+      ...(initiative ? { ownInitiative: true, ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}), ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}) } : {}),
       // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
       ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
@@ -781,7 +781,7 @@ export async function executeCall(resolved, deps) {
     const status = callStatus(result);
     const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
     const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}) };
+    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}), ...(status === 'ok' && typeof result?.data?.intention?.id === 'string' ? { intentionId: result.data.intention.id } : {}) };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
     const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));

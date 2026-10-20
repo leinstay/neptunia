@@ -526,7 +526,7 @@
   "wake": {
     "header": "Why you are awake (nobody wrote to you):",
     "kinds": {
-      "intention_due": "Intention {id} is due: {purpose}",
+      "intention_due": "Intention {id} is due: {purpose}. This is your earlier decision, not a new request: check that it still holds before you act.",
       "review": "Your daily review: look over your intentions and what you have been doing.",
       "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
@@ -575,6 +575,7 @@
       "chain": "turns for this thread: {left} remaining of {cap}"
     },
     "heartbeat": {
+      "intentionsOnly": "In this wake only intention changes (intent.set, intent.update, intent.cancel) are accepted, one per wake, and <skip/>.",
       "people": "People you are closest to:",
       "person": "{name}: {parts}",
       "partsJoin": "; ",
@@ -595,8 +596,9 @@
       "diary": "{when}: a diary post: {gist}",
       "post": "{when}: you wrote in #{place}: {text}{media}",
       "open": "Your open intentions:",
-      "openItem": "{id} · {purpose}{due}",
+      "openItem": "{id} · {purpose}{due}{origin}",
       "due": " · due {when}",
+      "openOrigin": " · set at a heartbeat",
       "attending": "Places you listen to:",
       "attendingItem": "{id} · #{place}: {purpose}",
       "closed": "Your closed intentions:",
@@ -691,6 +693,9 @@
         "timeout": "{what} timed out",
         "cap-open": "too many of your errands are open already",
         "cap-tasks": "today's errands for that agent are used up",
+        "heartbeat-only": "a heartbeat wake accepts one intention change or a skip, nothing else",
+        "heartbeat-cap": "too many intentions from heartbeats are open already; update or cancel one of them",
+        "heartbeat-recurring-cap": "a recurring intention from a heartbeat is open already; update or cancel it",
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",

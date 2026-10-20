@@ -41,6 +41,9 @@ import {
   dueList as dueOf,
   duplicates,
   expireAt,
+  heartbeatLimits,
+  openFromHeartbeat,
+  HEARTBEAT_ORIGIN,
   intentionSettings,
   markExpiredShown as markShown,
   intentionsOn,
@@ -161,6 +164,16 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
     if (input.state === 'dropped') return setDropped(store, input, by);
+    // What a heartbeat turn creates is stamped by the engine and held to its own caps, checked here
+    // in the same synchronous step as the add (nothing can slip between the count and the write).
+    const origin = input.origin === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null;
+    if (origin) {
+      const refused = heartbeatCapRefusal(store, { recurring: Boolean(input.every) });
+      if (refused) {
+        log.info('intentions: heartbeat cap', { guildId: store.guildId, code: refused.code, open: refused.open.length });
+        return refused;
+      }
+    }
     const created = createIntention({
       purpose: input.purpose,
       provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
@@ -171,6 +184,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       completionCondition: input.completionCondition ?? null,
       chainId: input.chainId ?? null,
       attend: input.attend ?? null,
+      origin,
       now: now(),
       settings: { ...limits, attention: attentionSettings(hot.config) },
       id: freshId(store),
@@ -182,8 +196,21 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const waited = applyWait(created.intention, plan, by);
     if (!waited.ok) return waited;
     const added = store.add(waited.intention);
-    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by });
+    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by, ...(origin ? { origin, openFromHeartbeat: openFromHeartbeat(store.list()).length } : {}) });
     return added;
+  }
+
+  /**
+   * The refusal of one more intention from a heartbeat when the caps are reached (`innerLife.heartbeat.maxOpen`,
+   * `maxRecurring`, read now): `{ ok: false, code: 'heartbeat-cap'|'heartbeat-recurring-cap', open }`, `open` the
+   * open records from heartbeats (so she can update or cancel one), or null.
+   */
+  function heartbeatCapRefusal(store, { recurring }) {
+    const limits = heartbeatLimits(hot.config);
+    const open = openFromHeartbeat(store.list());
+    if (open.length >= limits.maxOpen) return { ok: false, code: CODE.HEARTBEAT_CAP, open };
+    if (recurring && open.filter((record) => record.every).length >= limits.maxRecurring) return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open };
+    return null;
   }
 
   /**
@@ -251,6 +278,11 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       }
     }
     if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: CODE.CAP_OPEN };
+    // A heartbeat's one-off made recurring counts against the recurring cap like a new recurring one.
+    if (current.origin === HEARTBEAT_ORIGIN && patch.every && !current.every) {
+      const others = openFromHeartbeat(store.list()).filter((record) => record.id !== current.id);
+      if (others.filter((record) => record.every).length >= heartbeatLimits(hot.config).maxRecurring) return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open: others };
+    }
     const plan = !dropping && (patch.taskId || Number.isFinite(patch.deadline)) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
     if (plan && !plan.ok) return plan;
     const at = now();

@@ -312,7 +312,7 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName
   const open = intentions
     .filter((record) => (record?.status === 'pending' || record?.status === 'waiting') && !record.attend)
     .sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity))
-    .map((record) => ({ id: String(record.id), purpose: text(record.purpose), status: record.status, dueAt: num(record.dueAt) }));
+    .map((record) => ({ id: String(record.id), purpose: text(record.purpose), status: record.status, dueAt: num(record.dueAt), ...(record.origin === 'heartbeat' ? { origin: 'heartbeat' } : {}) }));
   const attending = intentions
     .filter((record) => record?.status === 'pending' && record.attend)
     .map((record) => ({ id: String(record.id), purpose: text(record.purpose), place: placeName(String(record.attend.place ?? '')) }));
@@ -514,6 +514,7 @@ export async function buildHeartbeatFacts({
     activity,
     refs: book.refs,
     maxTokens: s.maxTokens,
+    intentionsOnly: settings?.intentionsOnly === true,
     life: lifeOf(common),
     skills: skillFamilies(skills),
     agents: list(agents).filter((name) => typeof name === 'string' && name),
