@@ -176,6 +176,11 @@ test('filtered: the missed helper\'s dismissals (not owed ones, not before the w
   assert.ok(facts.since.filtered.items.every((x) => x.by === 'missed' && x.place === 'n-c1'));
   const joined = await buildHeartbeatFacts(base({ journal: fakeJournal(rows), addressVerdicts: () => [{ at: NOW - MINUTE_MS, channelId: 'c2' }, { at: NOW - 9 * HOUR_MS, channelId: 'c2' }] }));
   assert.equal(joined.since.filtered.total, 7);
+  const journalled = await buildHeartbeatFacts(base({ journal: fakeJournal([...rows, { kind: 'answer', event: 'address', verdict: 'not-addressed', messageId: 'm1', authorId: 'u1', channelId: 'c2', at: iso(NOW - MINUTE_MS), occurredAt: iso(NOW - MINUTE_MS), scope: { channel: 'c2' } }]), settings: { filteredShown: 4 } }));
+  assert.equal(journalled.since.filtered.total, 7);
+  assert.equal(journalled.since.filtered.more, 3);
+  assert.deepEqual(journalled.since.filtered.items[0], { at: NOW - MINUTE_MS, place: 'n-c2', by: 'address' });
+  assert.equal(journalled.since.filtered.items.length, 4);
   assert.deepEqual(joined.since.filtered.items[0], { at: NOW - MINUTE_MS, place: 'n-c2', by: 'address' });
 });
 

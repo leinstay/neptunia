@@ -282,7 +282,7 @@ function sinceOf({ from, now, settings, innerTurns, tasks, intentions, diary, un
  * @param {string[]} [input.skills]  The skill names granted to her.
  * @param {string[]} [input.agents]  The errand agents she can hand work to.
  * @param {object|null} [input.innerState]  The inner state (turns that ended in error, the facts told).
- * @param {object[]|(() => object[])|null} [input.addressVerdicts]  `{ at, channelId }` of the address helper's "not to her"; no store keeps them today.
+ * @param {object[]|(() => object[])|null} [input.addressVerdicts]  `{ at, channelId }` of the address helper's "not to her"; the journal's `address` records are added by the view.
  * @param {(id: string) => string|null} [input.nameOf]
  * @param {(id: string) => string} [input.placeName]
  * @param {(memberId: string) => string[]} [input.activePlaces]  Where a member wrote lately (names).
@@ -328,8 +328,11 @@ export async function buildHeartbeatFacts({
   const [innerTurns, unknownSends, answers] = await Promise.all([
     readJournal(journal, guildId, windowStart, now, 'inner', warn).then((records) => records.filter((entry) => entry.event === 'turn')),
     readJournal(journal, guildId, from, now, 'action', warn).then((records) => records.filter((entry) => entry.phase === 'unknown')),
-    readJournal(journal, guildId, from, now, 'answer', warn).then((records) => records.filter((entry) => entry.event === 'verdict')),
+    readJournal(journal, guildId, from, now, 'answer', warn),
   ]);
+  const journalAddress = answers
+    .filter((entry) => entry.event === 'address')
+    .map((entry) => ({ at: Date.parse(entry.at ?? entry.occurredAt), channelId: entry.channelId ?? entry.scope?.channel ?? '' }));
   let address = [];
   try {
     address = list(typeof addressVerdicts === 'function' ? addressVerdicts() : addressVerdicts);
@@ -344,6 +347,6 @@ export async function buildHeartbeatFacts({
     life: lifeOf(common),
     skills: skillFamilies(skills),
     agents: list(agents).filter((name) => typeof name === 'string' && name),
-    since: sinceOf({ ...common, from, unknownSends, innerState, missedVerdicts: answers, addressVerdicts: address }),
+    since: sinceOf({ ...common, from, unknownSends, innerState, missedVerdicts: answers.filter((entry) => entry.event === 'verdict'), addressVerdicts: [...address, ...journalAddress] }),
   };
 }

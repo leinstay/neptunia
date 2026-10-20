@@ -895,6 +895,7 @@ export function createMessageHandler({
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
     const verdict = answer === 'no' ? 'no' : 'yes';
     log.info('follow-up: verdict', { channel: channelId, author: normalized.authorId, verdict, answer, ms: now() - startedAt });
+    if (answer === 'no') missed?.noteNotAddressed?.(normalized);
     if (answer === 'no') bumpFollowUpNoStreak(channelId, state, mentionCfg);
     return answer;
   }

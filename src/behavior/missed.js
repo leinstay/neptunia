@@ -669,6 +669,21 @@ export function createMissed({
   }
 
   /**
+   * The address helper's "no" on a normalized message: one `answer` record (`event` `address`,
+   * `verdict` `not-addressed`; ids and time, never the text) for the heartbeat view's list of
+   * what was filtered without her. Not a candidate. Never throws.
+   */
+  function noteNotAddressed(message) {
+    try {
+      if (!message?.id || !message.channelId) return;
+      const at = Number.isFinite(message.ts) ? message.ts : now();
+      record({ event: 'address', verdict: 'not-addressed', messageId: message.id, authorId: message.authorId ?? null, channelId: message.channelId, at: iso(at), participants: message.authorId ? [message.authorId] : [] });
+    } catch (error) {
+      log.warn('missed: address verdict failed', { code: error?.code ?? null });
+    }
+  }
+
+  /**
    * One fact: `{ reason, message, replacedBy?, failure?, turnId? }`, `message` a normalized
    * message (its id, channel, author, time and -- for isQuestion only -- its text). Journaled,
    * added to the registry, its channel's sweep armed. Never throws.
@@ -1031,6 +1046,7 @@ export function createMissed({
   return {
     start,
     noteFact,
+    noteNotAddressed,
     /**
      * The pipeline's private-chat gate for a recovery turn in a DM: `allow(channel, trigger)` resolves
      * true when the person may be answered now, `after(channel, trigger, result)` counts the turn
