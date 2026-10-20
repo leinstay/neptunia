@@ -19,7 +19,7 @@ import {
   fetchHistory,
   fetchMessage,
 } from '../src/interface/discord.js';
-import { validateEvent } from '../src/protocol.js';
+import { validateEvent } from '../src/protocol/index.js';
 import { formatTranscript } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';

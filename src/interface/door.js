@@ -1,6 +1,6 @@
 // The event door: the one entry through which anything that happens reaches the mind -- a
 // message or a reaction an interface reports, an errand that ended, a ledger answer, a clock
-// tick. Every event is validated at the boundary (packages/protocol/validate.js), deduplicated
+// tick. Every event is validated at the boundary (src/protocol/validate.js), deduplicated
 // by its id and handed to the handler of its kind. Delivery is at-least-once, so the door is
 // idempotent: an id that was handled is `duplicate` the second time and its handler does not run
 // again; an id whose handler threw is not remembered (`failed`), so the sender's redelivery gets
@@ -14,7 +14,7 @@
 // envelope goes through `submit` and is answered by an `ack`, every other type is `invalid`.
 
 import { log as defaultLog } from '../log.js';
-import { ackOf, validateEnvelope, validateEvent } from '../protocol.js';
+import { ackOf, validateEnvelope, validateEvent } from '../protocol/index.js';
 
 /** The ids kept by default. */
 export const DEFAULT_CAPACITY = 10_000;

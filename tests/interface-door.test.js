@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEventDoor, eventIdOf } from '../src/interface/door.js';
-import { envelope } from '../src/protocol.js';
+import { envelope } from '../src/protocol/index.js';
 
 const quiet = () => {
   const lines = [];

@@ -1,16 +1,16 @@
 # Interfaces: the protocol between the core and an adapter
 
-The engine has two sides: the core (the persona, its memory, its decisions about when and how to speak) and the interfaces (the chat platforms it lives on). An interface adapter translates what happens on its platform into inbound events for the core, and carries out the actions the core sends back. Each action gets a result. The contract between the two sides lives in `packages/protocol/` (`@neptunia/protocol`): plain objects, no build step, no dependencies, and no platform type on either side.
+The engine has two sides: the core (the persona, its memory, its decisions about when and how to speak) and the interfaces (the chat platforms it lives on). An interface adapter translates what happens on its platform into inbound events for the core, and carries out the actions the core sends back. Each action gets a result. The contract between the two sides lives in `src/protocol/`: plain objects, no build step, no dependencies, and no platform type on either side.
 
 | File | What it holds |
 |---|---|
-| `packages/protocol/events.js` | the inbound event kinds and their shapes |
-| `packages/protocol/origin.js` | the origin record of a message event (`originOf`): where it came from and whether it expects an answer |
-| `packages/protocol/envelope.js` | the wire envelope (`{ v, id, type, replyTo, body }`) for when the interface is a separate process |
-| `packages/protocol/actions.js` | the action names, the result shape, and the port helpers (`ok`, `notOk`, `mentionsOf`, the refusals, `declaredHooks`) |
-| `packages/protocol/validate.js` | `validateEvent(event)` and `validateAction(action)` |
+| `src/protocol/events.js` | the inbound event kinds and their shapes |
+| `src/protocol/origin.js` | the origin record of a message event (`originOf`): where it came from and whether it expects an answer |
+| `src/protocol/envelope.js` | the wire envelope (`{ v, id, type, replyTo, body }`) for when the interface is a separate process |
+| `src/protocol/actions.js` | the action names, the result shape, and the port helpers (`ok`, `notOk`, `mentionsOf`, the refusals, `declaredHooks`) |
+| `src/protocol/validate.js` | `validateEvent(event)` and `validateAction(action)` |
 
-The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. `src/interface/door.js` is the event door: the one entry through which every inbound event reaches the core. `src/interface/typing.js` holds the typing lease. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
+The engine imports the protocol from `src/protocol/index.js`; `src/interface/port.js` re-exports the outbound half. `src/interface/door.js` is the event door: the one entry through which every inbound event reaches the core. `src/interface/typing.js` holds the typing lease. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
 
 The core reaches Discord only through what the composition root gives it. Besides the port, `createDiscordInterface({ client })` returns a frozen capabilities object: the functions the core still asks Discord with, by name (whether the persona may read, send, attach or react in a channel, a channel's history, another channel to show, a search of the server's messages and members, a message as a protocol event and back). `src/index.js` builds it once and passes it as `discord` to every module that needs it: to a factory through its options, to an operation through its environment (`env.discord`), to a pure helper as a parameter. No other file under `src/` imports the Discord interface, so a test or a tool hands in the same functions or fakes of them.
 

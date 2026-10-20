@@ -25,7 +25,7 @@ import {
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
-import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol.js';
+import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js';
 import { DISCORD_IFACE } from './port.js';
 
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
@@ -426,7 +426,7 @@ export function normalizeMessage(message, selfId, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Inbound protocol events (packages/protocol/events.js). Building them is the Discord adapter's
+// Inbound protocol events (src/protocol/events.js). Building them is the Discord adapter's
 // job; it lives here, beside the normaliser it reads. Every event carries `raw`: the discord.js
 // object(s) it came from, private to the Discord side -- the message pipeline
 // (src/behavior/pipeline.js) still needs them for history fetches and sends, no other behavior
@@ -496,7 +496,7 @@ function cachedReplyToSelf(message, replyToId, selfId) {
  * @param {string} selfId
  * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, edit?: boolean,
  *   deleted?: boolean, previous?: object|null, now?: () => number }} [options]
- * @returns {import('../../src/protocol.js').MessageReceived & { raw: object, rawPrevious?: object|null }}
+ * @returns {import('../../src/protocol/index.js').MessageReceived & { raw: object, rawPrevious?: object|null }}
  */
 export function toEvent(message, selfId, options = {}) {
   const now = options.now ?? Date.now;
@@ -555,7 +555,7 @@ export function toEvent(message, selfId, options = {}) {
  * `message.received` event: what the memory, the turn and the prompt builders still read until
  * they read the event itself (stage 4). normalizedOf(toEvent(m, selfId, options)) equals
  * normalizeMessage(m, selfId, options).
- * @param {import('../../src/protocol.js').MessageReceived} event
+ * @param {import('../../src/protocol/index.js').MessageReceived} event
  * @returns {object}
  */
 export function normalizedOf(event) {
@@ -598,7 +598,7 @@ export function normalizedOf(event) {
  * @param {object} user  A discord.js User (possibly partial).
  * @param {boolean} added
  * @param {{ now?: () => number }} [options]
- * @returns {import('../../src/protocol.js').ReactionChanged & { raw: { reaction: object, user: object } }}
+ * @returns {import('../../src/protocol/index.js').ReactionChanged & { raw: { reaction: object, user: object } }}
  */
 export function reactionEvent(reaction, user, added, { now = Date.now } = {}) {
   const message = reaction?.message ?? null;
@@ -634,7 +634,7 @@ function authorIdOf(message) {
  * of the same message is never dropped as a duplicate. Never throws.
  * @param {object} message  A discord.js Message (possibly partial).
  * @param {{ now?: () => number }} [options]
- * @returns {import('../../src/protocol.js').ReactionChanged}
+ * @returns {import('../../src/protocol/index.js').ReactionChanged}
  */
 export function reactionClearAllEvent(message, { now = Date.now } = {}) {
   const at = now();
@@ -660,7 +660,7 @@ export function reactionClearAllEvent(message, { now = Date.now } = {}) {
  * emoji that cannot be read leaves `name` null, which validateEvent refuses.
  * @param {object} reaction  A discord.js MessageReaction (possibly partial).
  * @param {{ now?: () => number }} [options]
- * @returns {import('../../src/protocol.js').ReactionChanged}
+ * @returns {import('../../src/protocol/index.js').ReactionChanged}
  */
 export function reactionClearEmojiEvent(reaction, { now = Date.now } = {}) {
   const message = reaction?.message ?? null;

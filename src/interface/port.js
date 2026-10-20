@@ -6,19 +6,19 @@
 // throws -- whose `status` says honestly what happened: `ok`, `failed` (known not to have taken
 // effect), `unknown` (may have taken effect: never retried blindly), `unsupported` (this interface
 // cannot do it), `forbidden` (it may not, e.g. someone else's message). The typedefs, the
-// capability names and the pure helpers live in the protocol package (packages/protocol/actions.js,
-// through src/protocol.js); this module re-exports them so every importer of the port is unchanged.
+// capability names and the pure helpers live in the protocol (src/protocol/actions.js,
+// through src/protocol/index.js); this module re-exports them so every importer of the port is unchanged.
 
-/** @typedef {import('../protocol.js').ConversationRef} ConversationRef */
-/** @typedef {import('../protocol.js').MessageRef} MessageRef */
-/** @typedef {import('../protocol.js').Attachment} Attachment */
-/** @typedef {import('../protocol.js').Mentions} Mentions */
-/** @typedef {import('../protocol.js').Content} Content */
-/** @typedef {import('../protocol.js').PortError} PortError */
-/** @typedef {import('../protocol.js').PortResult} PortResult */
-/** @typedef {import('../protocol.js').Capabilities} Capabilities */
-/** @typedef {import('../protocol.js').Port} Port */
-/** @typedef {import('../protocol.js').Action} Action */
+/** @typedef {import('../protocol/index.js').ConversationRef} ConversationRef */
+/** @typedef {import('../protocol/index.js').MessageRef} MessageRef */
+/** @typedef {import('../protocol/index.js').Attachment} Attachment */
+/** @typedef {import('../protocol/index.js').Mentions} Mentions */
+/** @typedef {import('../protocol/index.js').Content} Content */
+/** @typedef {import('../protocol/index.js').PortError} PortError */
+/** @typedef {import('../protocol/index.js').PortResult} PortResult */
+/** @typedef {import('../protocol/index.js').Capabilities} Capabilities */
+/** @typedef {import('../protocol/index.js').Port} Port */
+/** @typedef {import('../protocol/index.js').Action} Action */
 
 export {
   STATUSES,
@@ -32,4 +32,4 @@ export {
   refRefusal,
   contentRefusal,
   declaredHooks,
-} from '../protocol.js';
+} from '../protocol/index.js';

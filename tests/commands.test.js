@@ -23,7 +23,7 @@ import {
   STATUS_FIELDS,
   readFlag,
 } from '../src/ops/catalog.js';
-import { validateEvent } from '../src/protocol.js';
+import { validateEvent } from '../src/protocol/index.js';
 import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
 import { getOp } from '../src/ops/registry.js';
@@ -1349,7 +1349,7 @@ test('interaction handler: a command still running after deferAfterMs is deferre
 });
 
 // ---------------------------------------------------------------------------
-// The command.requested event (packages/protocol/)
+// The command.requested event (src/protocol/)
 // ---------------------------------------------------------------------------
 
 test('commandEvent: an interaction becomes a valid command.requested event', () => {

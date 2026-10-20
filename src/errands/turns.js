@@ -29,7 +29,7 @@ export const DEFAULT_COOLDOWN_SECONDS = 60;
 export const RESULT_ATTEMPTS = 20;
 
 /**
- * The `task.completed` event of a finished task (packages/protocol/events.js): the whole task
+ * The `task.completed` event of a finished task (src/protocol/events.js): the whole task
  * rides along as `raw.task`, which validation never reads. Its id is left to the door (task and
  * status), so a second delivery of the same end is the same event.
  * @param {{ id: string, state: string }} task

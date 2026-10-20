@@ -34,7 +34,7 @@ import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { formatTranscript } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
-import { validateEvent } from '../src/protocol.js';
+import { validateEvent } from '../src/protocol/index.js';
 
 function flagsWith(names) {
   const set = new Set(names);
