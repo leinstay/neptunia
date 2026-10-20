@@ -22,6 +22,8 @@ const LABELS = {
   usdLine: 'usd {spent}',
   nextLine: 'next {at} ({kind})',
   nextNone: 'next: none',
+  heartbeatLine: 'heartbeat {at}',
+  heartbeatOff: 'heartbeat off',
   nextKinds: { queue: 'queued', intention: 'intention', review: 'review' },
   lastLine: 'last {outcome} at {at}',
   lastNone: 'last: none',
@@ -115,4 +117,13 @@ test('innerLines: the last failed turn shows its code and moment after the last-
   const lines = innerLines({ ...STATUS, lastError: { at: AT, code: 'provider-limit' } }, { status: { inner: LABELS } });
   assert.equal(lines[5], 'error provider-limit at 2026-10-19 12:30 UTC');
   assert.equal(innerLines({ ...STATUS, lastError: null }, { status: { inner: LABELS } }).some((line) => line.startsWith('error ')), false);
+});
+
+test('status inner: the next heartbeat has its own line; off says so; a status without the field adds nothing', () => {
+  const labels = { status: { inner: LABELS } };
+  const lines = (heartbeat) => innerLines({ ...STATUS, heartbeat }, labels);
+  assert.ok(lines({ nextAt: AT + 7200000, lastAt: null }).includes('heartbeat 2026-10-19 14:30 UTC'));
+  assert.ok(lines(null).includes('heartbeat off'));
+  assert.ok(!lines({ nextAt: null, lastAt: null }).some((line) => line.startsWith('heartbeat')));
+  assert.ok(!innerLines(STATUS, labels).some((line) => line.startsWith('heartbeat')));
 });

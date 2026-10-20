@@ -46,7 +46,7 @@ There are eight event kinds:
 | `voice.changed` | the adapter | `guildId`, `userId`, `conversationId` (the voice conversation the member is in now, null when none), `previousId` (the one they were in, null when none), optional flags `muted`, `deafened`, `streaming`. No adapter sends this kind yet: voice updates still go straight to their stores |
 | `scheduler.tick` | the core | `at` only: the core's own clock. An adapter never sends this kind; `iface`, `id` and `conversation` are not required |
 | `task.completed` | the core | `taskId`, `status`, `result` (as `src/errands` defines them); `iface`, `id` and `conversation` are not required |
-| `inner.wake` | the core | `id` (always given: the wake's own), `guildId`, `wake` (the inner-life scheduler's record, `kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`; [Inner life](inner-life.md)); `iface` and `conversation` are not required |
+| `inner.wake` | the core | `id` (always given: the wake's own), `guildId`, `wake` (the inner-life scheduler's record, `kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`, `heartbeat`; [Inner life](inner-life.md)); `iface` and `conversation` are not required |
 
 `message`:
 

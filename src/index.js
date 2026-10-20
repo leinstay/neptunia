@@ -83,6 +83,8 @@ import { createEventDoor } from './interface/door.js';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
 import { skillRegistry } from './skills/registry.js';
+import { grantedSkillNames } from './skills/discovery.js';
+import { PROFILES as AGENT_PROFILES, TOOL_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { isValidCommandName } from './ops/catalog.js';
@@ -476,6 +478,18 @@ const inner = createInnerLife({
   submit: (event) => door.submit(event),
   // What an inner turn did and found becomes lines of hers for the memory analyzer.
   onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
+  // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, who is around, what she can do.
+  heartbeat: {
+    tasks: (guildId) => taskStores.get(guildId).recent(100),
+    around: (guildId, memberId) => {
+      const snapshot = around.snapshot();
+      if (!snapshot || snapshot.stale || snapshot.presences !== true) return null;
+      return (snapshot.presence.get(memberId)?.status ?? 'offline') !== 'offline';
+    },
+    skills: () => grantedSkillNames({ config: hot.config, selfId: client.user?.id ?? null, registry: skillRegistry() }),
+    agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
+    selfId: () => client.user?.id ?? null,
+  },
   log,
 });
 // A diary post she asked for in an inner turn that was refused after the turn ended: told to her as feedback.

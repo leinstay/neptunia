@@ -15,7 +15,9 @@ import {
   createCostMeter,
   createInnerLife,
   currentChannelOf,
+  drawHeartbeatAt,
   drawReviewAt,
+  heartbeatWake,
   emptyState,
   feedbackFacts,
   hourWeights,
@@ -94,7 +96,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
       bot: { timezone },
       features: { innerLife: true, intentions: true, journal: true, ...features },
       mention: { oneAtATime: true },
-      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, caps: { perChain: 3 }, ...innerLife },
+      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, heartbeat: { enabled: false }, caps: { perChain: 3 }, ...innerLife },
     },
   };
 }
@@ -1400,4 +1402,117 @@ test('inner: a deferred call of hers that failed after the turn ended is one cal
   assert.deepEqual(run.turns.calls[0].inner.wake.items[0].facts[0], { kind: 'callFailed', skill: 'diary.post', status: 'refused', code: 'daily-cap' });
   const off = setup({ hot: hotWith({ features: { innerLife: false } }) });
   assert.equal(await off.inner.noteLateFailure({ guildId: GUILD, channelId: 'c2', skill: 'diary.post', code: 'x' }), false);
+});
+
+// --- The heartbeat ------------------------------------------------------------------------------
+
+const BEAT = { heartbeat: { enabled: true, everyMinutes: 180, jitterMinutes: 60 } };
+const sayings = () => ({ async *iterate() { yield { kind: 'said', occurredAt: new Date(NOW - HOUR_MS).toISOString(), scope: { channel: 'c3' } }; } });
+
+test('drawHeartbeatAt: the interval with an even jitter either way, never less than a minute', () => {
+  const draw = (r, extra = {}) => drawHeartbeatAt({ from: NOW, everyMinutes: 180, jitterMinutes: 60, rng: () => r, ...extra });
+  assert.equal(draw(0), NOW + 120 * MINUTE_MS);
+  assert.equal(draw(0.5), NOW + 180 * MINUTE_MS);
+  assert.ok(draw(0.999999) <= NOW + 240 * MINUTE_MS && draw(0.999999) > NOW + 239 * MINUTE_MS);
+  assert.equal(draw(0, { everyMinutes: 10, jitterMinutes: 60 }), NOW + MINUTE_MS);
+});
+
+test('innerSettings: the heartbeat defaults and a bad value taking the default', () => {
+  const d = innerSettings({}).heartbeat;
+  assert.deepEqual([d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.droppedDays, d.droppedShown], [true, 180, 60, 8, 10, 7, 5]);
+  const set = innerSettings({ innerLife: { heartbeat: { enabled: false, everyMinutes: 'x', people: 3 } } }).heartbeat;
+  assert.deepEqual([set.enabled, set.everyMinutes, set.people], [false, 180, 3]);
+});
+
+test('heartbeat: the first tick draws the moment with the jitter and keeps it in the state; it survives a restart', async () => {
+  const dataDir = tempDir('nep-inner-');
+  const run = setup({ dataDir, record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 0);
+  assert.deepEqual(run.inner.state(GUILD).heartbeat, { nextAt: NOW + 180 * MINUTE_MS, lastAt: null });
+  assert.deepEqual(run.inner.status(GUILD).heartbeat, { nextAt: NOW + 180 * MINUTE_MS, lastAt: null });
+  const again = setup({ dataDir, record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0 });
+  assert.equal(again.inner.state(GUILD).heartbeat.nextAt, NOW + 180 * MINUTE_MS);
+  await again.inner.tick();
+  assert.equal(again.inner.state(GUILD).heartbeat.nextAt, NOW + 180 * MINUTE_MS, 'a drawn moment is not drawn again');
+  await settle();
+  assert.equal(run.journal.filter((r) => r.event === 'heartbeat-drawn').length, 1);
+});
+
+test('heartbeat: off draws nothing and wakes nobody; the status says so', async () => {
+  const run = setup({ hot: hotWith({ innerLife: { heartbeat: { enabled: false } } }) });
+  await run.inner.tick();
+  assert.equal(run.inner.state(GUILD).heartbeat, null);
+  assert.equal(run.inner.status(GUILD).heartbeat, null);
+});
+
+test('heartbeat: at its moment one turn runs in the channel she spoke in, with no current channel, its own chain and the facts; the next moment is drawn from the run', async () => {
+  const run = setup({ record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  const due = NOW + 180 * MINUTE_MS;
+  clock.t = due + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  const call = run.turns.calls[0];
+  assert.equal(call.inner.wake.kind, 'heartbeat');
+  assert.equal(call.channel.id, 'c3');
+  assert.equal(call.inner.currentChannel, null);
+  assert.equal(call.inner.wake.here, null);
+  assert.equal(call.inner.wake.chainId, `heartbeat:${due}`);
+  assert.deepEqual(Object.keys(call.inner.wake.heartbeat).sort(), ['agents', 'life', 'people', 'places', 'since', 'skills']);
+  await run.inner.tick();
+  assert.deepEqual(run.inner.state(GUILD).heartbeat, { nextAt: clock.t + 180 * MINUTE_MS, lastAt: due + MINUTE_MS });
+  assert.equal(run.turns.calls.length, 1, 'once per moment');
+  // The next one is a wake of its own id and chain.
+  clock.t = run.inner.state(GUILD).heartbeat.nextAt + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 2);
+  assert.notEqual(run.turns.calls[1].inner.wake.chainId, call.inner.wake.chainId);
+});
+
+test('heartbeat: never coalesced with another wake and never held behind one: it goes alone first, the intention at the next tick', async () => {
+  const run = setup({ records: [intention('i1', { channelId: 'c1', dueAt: NOW + 181 * MINUTE_MS })], record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  clock.t = NOW + 182 * MINUTE_MS;
+  await run.inner.tick();
+  assert.deepEqual(run.turns.calls.map((call) => call.inner.wake.items.map((item) => item.kind)), [['heartbeat']]);
+  await run.inner.tick();
+  assert.deepEqual(run.turns.calls.map((call) => call.inner.wake.items.map((item) => item.kind)), [['heartbeat'], ['intention_due']]);
+  assert.deepEqual(coalesceGroup([wakeOfDue({ intention: intention('i2'), reason: 'due', at: 1 }), heartbeatWake(2), reviewWake('2026-10-19', 3)]).map((wake) => wake.kind), ['heartbeat']);
+});
+
+test('heartbeat: a running turn holds it to the next tick, due time kept; its chain cap is its own, so a chain of another kind at its cap does not touch it', async () => {
+  const turns = fakeTurns();
+  const run = setup({ turns, record: sayings(), hot: hotWith({ innerLife: { ...BEAT, caps: { perChain: 1 } } }), rng: () => 0.5 });
+  await run.inner.tick();
+  clock.t = NOW + 181 * MINUTE_MS;
+  turns.busy = true;
+  const held = await run.inner.tick();
+  assert.equal(turns.calls.length, 0);
+  assert.equal(held.drained.deferred, 'busy');
+  assert.equal(run.inner.state(GUILD).queue[0].kind, 'heartbeat');
+  turns.busy = false;
+  await run.inner.tick();
+  assert.equal(turns.calls.length, 1);
+  assert.deepEqual(run.inner.state(GUILD).queue, []);
+  await run.inner.tick();
+  clock.t = run.inner.state(GUILD).heartbeat.nextAt + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(turns.calls.length, 2, 'a perChain of 1 holds no second heartbeat: each has its own chain');
+});
+
+test('heartbeat: the review keeps working unchanged beside it', async () => {
+  const lines = [];
+  for (let d = 1; d <= 5; d += 1) lines.push({ kind: 'said', occurredAt: new Date(Date.parse('2026-10-19T15:20:00Z') - d * DAY_MS).toISOString(), scope: { channel: 'c3' } });
+  const record = { async *iterate() { for (const line of lines) yield line; } };
+  const run = setup({ record, hot: hotWith({ innerLife: { ...BEAT, review: { enabled: true, historyDays: 14 } } }), rng: () => 0.5 });
+  clock.t = Date.parse('2026-10-19T08:00:00Z');
+  await run.inner.tick();
+  const review = run.inner.status(GUILD).review;
+  clock.t = review.at + MINUTE_MS;
+  await run.inner.tick();
+  await run.inner.tick();
+  const kinds = run.turns.calls.map((call) => call.inner.wake.kind);
+  assert.ok(kinds.includes('review'));
+  assert.equal(run.turns.calls.find((call) => call.inner.wake.kind === 'review').channel.id, 'c3');
 });

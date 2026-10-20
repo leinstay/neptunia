@@ -10,6 +10,8 @@ Every `innerLife.tickSeconds` (60) the scheduler (`src/behavior/inner.js`) looks
 - **Her attention** ([below](#her-attention)). An open intention of kind `attend` names a place; new lines there since her last look, once the place has been quiet `innerLife.attention.settleSeconds`, are an `attend` wake named by the newest line (`inner.wake:attend:<intentionId>:<newestLineId>`, each wake its own chain). One queued wake per attention: a newer burst replaces the queued wake's id and newest line (journalled `replaced`); nothing is lost, the turn's history is the place's lines.
 - **Her daily review.** Once a day, at a random moment inside the hours she usually speaks in: her own lines of the last `innerLife.review.historyDays` (14) days in the record, counted by hour of her timezone (`bot.timezone`), and one hour drawn with that weight, then a minute in it (every hour alike when the record holds none of her lines). Drawn at the first tick of each local day, never in an hour already past, and kept in the state, so a restart keeps it. A day that ends before its review ran is journalled as missed. The review's `<wake>` also tells her, once, which of her intentions expired untouched since she was last told (never a candidate): the newest `innerLife.review.expiredMax` (5), the rest counted and told next time. Each listed one is marked as shown on its record (`expiredShownAt`) only after that review turn ran, so a held or failed review lists them again.
 
+- **Her heartbeat** ([below](#the-heartbeat)). On its own timer, `innerLife.heartbeat.everyMinutes` (180) moved by up to `jitterMinutes` (60) either way, around the clock: a `heartbeat` wake (`inner.wake:heartbeat:<at>`, its own chain `heartbeat:<at>`) with no intention and no place. The moment is kept in the state (`heartbeat: { nextAt, lastAt }`) and drawn again after each run.
+
 Each item becomes an `inner.wake` event through the core's event door (`src/interface/door.js`), with an id that names it (the intention and its due time, the errand, the review's day), so listing the same item again changes nothing. There are no quiet hours by design: she knows the time and the people's rhythms herself.
 
 ## When she wakes
@@ -40,6 +42,16 @@ She may call her tools (`web.search`, `web.read`, `memory.search`, `intent.*`, `
 **Live mode** (`"live"`): her calls go through the gateway and take effect. The kill switch is checked before each action.
 
 A call that does not work (refused by the resolution or the gateway, in either mode) comes back to her in the next step of the loop with the reason on its mark, as on any turn; an argument the skill does not take names the ones it does (`labels.skills.refusals.unknownArg`), so she can correct the call within the turn. In shadow mode that mark lives only for the rest of the turn: nothing of a shadow turn is marked on her transcript for later turns.
+
+## The heartbeat
+
+A wake with no outside reason: she is awake and sees facts, built by one function without a model (`src/behavior/heartbeat-view.js`) from the stores as they are. It never coalesces with another wake and never waits behind one (it goes first, alone; a running turn holds it to the next tick). Its chain is its own, so no chain cap of another kind touches it. It has no current channel: the turn runs in a channel she spoke in lately and posts need `message.create` with a channel.
+
+- **People.** Up to `innerLife.heartbeat.people` members by affinity, each with when and where she last talked with them (the record; else the profile's last seen), their top 3 interests, where they wrote lately and whether they are around now.
+- **Places.** The places page of the review.
+- **Her life.** What she did in the last day (executed calls of her inner turns, her errands, her diary posts), her open intentions and attentions, and the intentions she let go within `heartbeat.droppedDays` with the reason (`heartbeat.droppedShown` listed, the rest counted); a dropped intention shows nowhere else.
+- **What she can do.** Her granted skills by family and the errand agents; the chain budget stands in the usual budget lines.
+- **Since the last heartbeat** (the last day for the first one): the counts of what was done; what was not done or counted on (intentions expired or missed, errands failed or past their deadline, sends whose outcome is unknown, turns that ended in an error, the facts already told to her as one count); and what was filtered without her (the missed helper's dismissals with place and time, at most `heartbeat.filteredShown`, the rest counted). The address helper's "not to her" verdicts are only logged today, so that list stays empty until something stores them.
 
 ## Feedback on her own turn
 

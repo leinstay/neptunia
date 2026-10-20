@@ -518,6 +518,7 @@
     "queueMax": 20,
     "chatMessages": 30,
     "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
+    "heartbeat": { "enabled": true, "everyMinutes": 180, "jitterMinutes": 60, "people": 8, "filteredShown": 10, "droppedDays": 7, "droppedShown": 5, "historyDays": 14 },
     "caps": { "perChain": 3 },
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },

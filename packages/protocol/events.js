@@ -144,7 +144,7 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.js) found something due: an
  * intention, a deadline of an errand she waits for, or her daily review. `id` is always given
  * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
- * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`).
+ * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`, `heartbeat`).
  * @typedef {{ kind: 'inner.wake', at: number, id: string, guildId?: string|null, wake: { kind: string } }} InnerWake
  */
 

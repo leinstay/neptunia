@@ -9,6 +9,12 @@
 // `innerLife.queueMax` records the overflow. The inner turn itself is the turn runner's
 // (src/behavior/turn.js, mode `inner`): no human message, a `<wake>` block, her tools.
 //
+// The heartbeat (docs/inner-life.md "The heartbeat"): a wake kind of its own on its own timer,
+// `innerLife.heartbeat.everyMinutes` moved by a jitter either way, kept in the state
+// (`heartbeat: { nextAt, lastAt }`, drawn again once its wake is handled). It has no place and its own chain
+// (`heartbeat:<at>`), is never coalesced with another wake and goes before them in the queue; its `<wake>` facts
+// are built by src/behavior/heartbeat-view.js.
+//
 // Bounds are code, not prose (`innerLife.caps`, a ceiling the owner accepted): inner turns per
 // local day and per rolling hour, per causal chain (an intention's `chainId`, else the intention
 // itself; a review is its day's chain), public posts per local day. No bound is in dollars: what
@@ -81,9 +87,10 @@ import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } 
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../skills/codes.js';
+import { buildHeartbeatFacts } from './heartbeat-view.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
-export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback']);
+export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback', 'heartbeat']);
 
 /** The defaults of the `innerLife` section (config.json carries the same). */
 export const INNER_DEFAULTS = Object.freeze({
@@ -92,6 +99,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
+  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, droppedDays: 7, droppedShown: 5, historyDays: 14 }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -269,6 +277,7 @@ const positive = (value, fallback) => (typeof value === 'number' && Number.isFin
 export function innerSettings(config) {
   const raw = config?.innerLife ?? {};
   const caps = raw.caps ?? {};
+  const heartbeat = raw.heartbeat ?? {};
   const review = raw.review ?? {};
   const attention = raw.attention ?? {};
   const loop = raw.loop ?? {};
@@ -280,6 +289,16 @@ export function innerSettings(config) {
     queueMax: Math.max(1, Math.floor(count(raw.queueMax, d.queueMax))),
     chatMessages: Math.max(1, Math.floor(count(raw.chatMessages, d.chatMessages))),
     review: { enabled: review.enabled !== false, historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)), expiredMax: Math.floor(count(review.expiredMax, d.review.expiredMax)) },
+    heartbeat: {
+      enabled: heartbeat.enabled !== false,
+      everyMinutes: Math.max(1, count(heartbeat.everyMinutes, d.heartbeat.everyMinutes)),
+      jitterMinutes: count(heartbeat.jitterMinutes, d.heartbeat.jitterMinutes),
+      people: Math.floor(count(heartbeat.people, d.heartbeat.people)),
+      filteredShown: Math.floor(count(heartbeat.filteredShown, d.heartbeat.filteredShown)),
+      droppedDays: positive(heartbeat.droppedDays, d.heartbeat.droppedDays),
+      droppedShown: Math.floor(count(heartbeat.droppedShown, d.heartbeat.droppedShown)),
+      historyDays: Math.max(1, count(heartbeat.historyDays, d.heartbeat.historyDays)),
+    },
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
     },
@@ -308,7 +327,7 @@ export function innerSettings(config) {
 
 /** A fresh state. */
 export function emptyState() {
-  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, turns: [], spend: [], turnIds: [], facts: [] };
+  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, heartbeat: null, turns: [], spend: [], turnIds: [], facts: [] };
 }
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -326,6 +345,7 @@ export function normalizeState(raw) {
     queue: list(raw.queue).filter((wake) => wake && typeof wake.id === 'string' && WAKE_KINDS.includes(wake.kind)),
     handled: object(raw.handled),
     review: raw.review && typeof raw.review.day === 'string' ? raw.review : null,
+    heartbeat: raw.heartbeat && typeof raw.heartbeat === 'object' && (Number.isFinite(raw.heartbeat.nextAt) || Number.isFinite(raw.heartbeat.lastAt)) ? { nextAt: Number.isFinite(raw.heartbeat.nextAt) ? raw.heartbeat.nextAt : null, lastAt: Number.isFinite(raw.heartbeat.lastAt) ? raw.heartbeat.lastAt : null } : null,
     turns: list(raw.turns).filter((turn) => Number.isFinite(turn?.at)),
     spend: list(raw.spend).filter((item) => Number.isFinite(item?.at) && Number.isFinite(item?.usd)),
     turnIds: list(raw.turnIds).filter((id) => typeof id === 'string'),
@@ -371,7 +391,7 @@ function targetOf(intention) {
  * @returns {{ channelId: string|null, why: string|null }}
  */
 export function currentChannelOf(group, records = []) {
-  const cause = list(group).find((wake) => wake && wake.kind !== 'review') ?? null;
+  const cause = list(group).find((wake) => wake && !channelless(wake)) ?? null;
   if (!cause) return { channelId: null, why: null };
   const pick = (id, why) => (id !== null && id !== undefined && String(id) !== '' ? { channelId: String(id), why } : { channelId: null, why: null });
   switch (cause.kind) {
@@ -487,6 +507,25 @@ export function placesPage(entries, { filter = null, sort = 'recent', page = 1, 
   return { total: sorted.length, page: number, pageSize: size, more: Math.max(0, sorted.length - start - items.length), items };
 }
 
+/** The wakes that belong to no place: the day's review and the heartbeat (their turn runs in a channel she was lately active in, posts name their channel). */
+const channelless = (wake) => wake?.kind === 'review' || wake?.kind === 'heartbeat';
+
+/** The heartbeat wake due at `at` (its own chain, no place). */
+export function heartbeatWake(at) {
+  return { id: `inner.wake:heartbeat:${at}`, kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], chainId: `heartbeat:${at}`, dueAt: at, channelId: null, privateChat: false };
+}
+
+/**
+ * The moment of the next heartbeat after `from`: `everyMinutes` plus a jitter drawn evenly in
+ * +-`jitterMinutes`, never less than a minute after `from`. `rng` in [0, 1).
+ * @param {{ from: number, everyMinutes: number, jitterMinutes?: number, rng: () => number }} input
+ * @returns {number}
+ */
+export function drawHeartbeatAt({ from, everyMinutes, jitterMinutes = 0, rng }) {
+  const jitter = (rng() * 2 - 1) * jitterMinutes;
+  return Math.round(from + Math.max(1, everyMinutes + jitter) * MINUTE_MS);
+}
+
 /** The day's review wake. */
 export function reviewWake(day, at) {
   return { id: `inner.wake:review:${day}`, kind: 'review', reason: 'review', intentionIds: [], chainId: `review:${day}`, dueAt: at, channelId: null, privateChat: false };
@@ -559,6 +598,9 @@ export function coalesceGroup(queue, isHeld = () => false) {
     const first = feedback[0];
     return feedback.filter((wake) => wake.channelId === first.channelId && Boolean(wake.privateChat) === Boolean(first.privateChat) && retryKey(wake) === retryKey(first));
   }
+  // The heartbeat is never coalesced and never waits behind another wake (a running turn holds the whole drain, so it comes at the next tick): it goes alone, after the feedback wakes.
+  const beat = sorted.find((wake) => wake.kind === 'heartbeat');
+  if (beat) return [beat];
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
   const key = retryKey(anchor ?? sorted[0]);
@@ -678,6 +720,8 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
  * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
  *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
+ * @param {{ tasks?: (guildId: string) => object[], around?: (guildId: string, memberId: string) => boolean|null, skills?: () => string[], agents?: () => string[], selfId?: () => string|null }} [options.heartbeat]
+ *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
  * @param {() => number} [options.rng]
  * @param {() => number} [options.now]
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
@@ -701,6 +745,7 @@ export function createInnerLife({
   peopleWaiting = () => false,
   meter = null,
   onEpisode = null,
+  heartbeat: heartbeatSources = {},
   rng = Math.random,
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -1079,6 +1124,36 @@ export function createInnerLife({
     return reviewWake(day, review.at);
   }
 
+  /**
+   * The heartbeat's timer (state.heartbeat = { nextAt, lastAt }, persisted): drawn at start when missing; once its
+   * wake is handled (a turn ran for it, or it was dropped) the next moment is drawn from then, with the jitter. The
+   * wake when its moment came and it is not handled yet. Null with the heartbeat off.
+   */
+  function heartbeatDue(guildId, settings, at) {
+    if (!settings.heartbeat.enabled) return null;
+    const state = stateOf(guildId);
+    const draw = (from) => drawHeartbeatAt({ from, everyMinutes: settings.heartbeat.everyMinutes, jitterMinutes: settings.heartbeat.jitterMinutes, rng });
+    if (!state.heartbeat || !Number.isFinite(state.heartbeat.nextAt)) {
+      state.heartbeat = { nextAt: draw(at), lastAt: state.heartbeat?.lastAt ?? null };
+      save(guildId);
+      log.info('inner: heartbeat drawn', { guildId, at: state.heartbeat.nextAt });
+      note(guildId, { event: 'heartbeat-drawn', at: state.heartbeat.nextAt });
+      return null;
+    }
+    const wake = heartbeatWake(state.heartbeat.nextAt);
+    if (state.heartbeat.nextAt > at) return null;
+    const handled = state.handled[wake.id];
+    if (handled) {
+      const ran = Number.isFinite(handled.at) ? handled.at : at;
+      state.heartbeat = { nextAt: draw(Math.max(at, ran)), lastAt: ran };
+      save(guildId);
+      log.info('inner: heartbeat drawn', { guildId, at: state.heartbeat.nextAt });
+      note(guildId, { event: 'heartbeat-drawn', at: state.heartbeat.nextAt });
+      return null;
+    }
+    return wake;
+  }
+
   /** Whether her actions may leave an inner turn now: the switch on, not stopped, not paused. */
   function mayAct(guildId) {
     return innerOn(hot.config) && !stateOf(guildId).stopped && !paused();
@@ -1120,6 +1195,8 @@ export function createInnerLife({
       }
       const review = await reviewDue(guildId, settings, at);
       if (review) listed.push(review);
+      const beat = heartbeatDue(guildId, settings, at);
+      if (beat) listed.push(beat);
       if (intentions && intentionsOn(config)) {
         await refreshPlaces(guildId, at, settings);
         listed.push(...attendWakes(guildId, at));
@@ -1155,8 +1232,8 @@ export function createInnerLife({
    * she can only read: she listens there and posts, if at all, through a call elsewhere.
    */
   async function conversationFor(guildId, group) {
-    const anchor = group.find((wake) => wake.kind !== 'review') ?? null;
-    const candidates = anchor ? [anchor.channelId] : (stateOf(guildId).review?.channels ?? []);
+    const anchor = group.find((wake) => !channelless(wake)) ?? null;
+    const candidates = anchor ? [anchor.channelId] : await recentChannels(guildId);
     const readOnlyOk = anchor?.kind === 'attend';
     // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
     let why = anchor ? 'unavailable' : 'no-review-channel';
@@ -1192,6 +1269,78 @@ export function createInnerLife({
       return { channel, why: null };
     }
     return { channel: null, why };
+  }
+
+  /** The channels a review or a heartbeat turn may run in: where she spoke lately (the review's remembered ones, else the record's). */
+  async function recentChannels(guildId) {
+    const known = stateOf(guildId).review?.channels ?? [];
+    if (known.length > 0) return known;
+    const channels = [];
+    const lines = await ownLines(guildId, innerSettings(hot.config).review.historyDays);
+    for (const line of lines.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))) {
+      const id = line.scope?.channel;
+      if (typeof id === 'string' && id && !channels.includes(id)) channels.push(id);
+      if (channels.length >= REVIEW_CHANNELS_MAX) break;
+    }
+    return channels;
+  }
+
+  /** The heartbeat's facts for `<wake>` (src/behavior/heartbeat-view.js), from the stores this life was given. Never throws. */
+  async function heartbeatFacts(guildId, settings, at) {
+    const state = stateOf(guildId);
+    const guarded = (fn, fallback) => {
+      try {
+        return fn() ?? fallback;
+      } catch (err) {
+        log.warn('inner: heartbeat source failed', { guildId, code: err?.code ?? null });
+        return fallback;
+      }
+    };
+    const sinceMs = at - settings.heartbeat.droppedDays * DAY_MS;
+    try {
+      return await buildHeartbeatFacts({
+        guildId,
+        now: at,
+        since: state.heartbeat?.lastAt ?? null,
+        settings: settings.heartbeat,
+        profiles: guarded(() => store?.listUserProfiles?.(guildId), []),
+        selfId: guarded(() => heartbeatSources.selfId?.(), null),
+        record,
+        journal,
+        intentions: guarded(() => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true }) : []), []),
+        dropped: guarded(() => (intentionsOn(hot.config) && typeof intentions?.dropped === 'function' ? intentions.dropped(guildId, { sinceMs }) : null), null),
+        tasks: guarded(() => heartbeatSources.tasks?.(guildId), []),
+        diary: guarded(() => store?.getDiary?.(guildId)?.posts, []),
+        places: placesInWakeOf(guildId, settings),
+        skills: guarded(() => heartbeatSources.skills?.(), []),
+        agents: guarded(() => heartbeatSources.agents?.(), []),
+        innerState: state,
+        nameOf: (id) => (typeof nameOf === 'function' ? nameOf(String(guildId), id) : null),
+        placeName: (id) => placeNameOf(guildId, id),
+        activePlaces: (memberId) => activePlacesOf(guildId, memberId),
+        around: (memberId) => guarded(() => heartbeatSources.around?.(guildId, memberId), null),
+        log,
+      });
+    } catch (err) {
+      log.warn('inner: heartbeat view failed', { guildId, code: err?.code ?? null });
+      return null;
+    }
+  }
+
+  /** The places page of `<wake>` (null when `innerLife.attention.placesInWake` is 0). */
+  function placesInWakeOf(guildId, settings) {
+    const size = settings.attention.placesInWake;
+    return size > 0 ? places(guildId, { sort: 'recent', page: 1, pageSize: size }) : null;
+  }
+
+  /** The names of the places where `memberId` wrote within the lookback window, the busiest first. */
+  function activePlacesOf(guildId, memberId) {
+    const counts = [];
+    for (const [id, bucket] of placeIndexOf(guildId).places) {
+      const n = bucket.lines.filter((line) => line.by === String(memberId)).length;
+      if (n > 0) counts.push({ id, n });
+    }
+    return counts.sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1)).map((entry) => placeNameOf(guildId, entry.id));
   }
 
   /** The channel names of the review's recent channels, for `<wake>`. */
@@ -1288,7 +1437,7 @@ export function createInnerLife({
     }
 
     const group = coalesceGroup(eligible, (wake) => held.includes(wake));
-    const anchor = group.find((wake) => wake.kind !== 'review') ?? group[0];
+    const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
     const chainId = anchor.chainId;
     const chain = chainOf(chainId);
 
@@ -1335,6 +1484,7 @@ export function createInnerLife({
     const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => list(wake.factIds)));
     const factsOfWake = (wake) => (list(wake.factIds).length > 0 ? list(state.facts).filter((fact) => !fact.told && wake.factIds.includes(fact.id)).map(factPayload) : list(wake.facts));
     const shownFacts = pendingFactsOf(state, { channelId: String(channel.id), privateChat: !channel.guild, anywhere: true }).filter((fact) => !ownFactIds.has(fact.id)).slice(0, FACTS_SHOWN_MAX);
+    const heartbeat = group.some((wake) => wake.kind === 'heartbeat') ? await heartbeatFacts(guildId, settings, at) : null;
     const info = {
       kind: anchor.kind,
       items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.retry ? { delayed: { minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)), code: wake.lastCode ?? 'error' } } : {}), ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}) })),
@@ -1346,9 +1496,10 @@ export function createInnerLife({
       timezone,
       channels: isReview ? channelNames(guildId) : [],
       // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
-      ...(placesInWake > 0 ? { places: places(guildId, { sort: 'recent', page: 1, pageSize: placesInWake }) } : {}),
+      ...(placesInWake > 0 ? { places: placesInWakeOf(guildId, settings) } : {}),
       budgets: { chain },
       chainId,
+      ...(heartbeat ? { heartbeat } : {}),
       // The current channel: where her output tags act, and why it is that one (`<wake>`).
       here: current.channelId ? { channel: placeNameOf(guildId, current.channelId), why: current.why } : null,
     };
@@ -1643,6 +1794,7 @@ export function createInnerLife({
       stoppedAt: state.stoppedAt,
       queue: state.queue.map((wake) => ({ id: wake.id, kind: wake.kind, dueAt: wake.dueAt ?? null, capped: wake.capped ?? null })),
       review: state.review ? { day: state.review.day, at: state.review.at ?? null, done: state.review.done === true } : null,
+      heartbeat: settings.heartbeat.enabled ? { nextAt: state.heartbeat?.nextAt ?? null, lastAt: state.heartbeat?.lastAt ?? null } : null,
       turnsToday: turnsToday(state, { now: at, timezone }),
       chains: new Set(state.turns.filter((turn) => turn.at >= start).map((turn) => turn.chainId)).size,
       spentUsd: Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) / 10000,
