@@ -141,7 +141,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
 
   // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall); a GIF-only post: no text beside a `gif`.
   const bodyArg = skill.command?.body;
-  const gifOnly = Boolean(bodyArg) && (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) && typeof args?.gif === 'string' && args.gif !== '';
+  const gifOnly = Boolean(bodyArg) && (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) && ((typeof args?.gif === 'string' && args.gif !== '') || (typeof args?.media === 'string' && args.media !== ''));
   const fileOnly = gifOnly || (Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '');
   const argsError = fileOnly
     ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), { ...skill.argsSchema, required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg) })

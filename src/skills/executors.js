@@ -22,7 +22,7 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
-const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around']);
+const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'media']);
 
 /**
  * The options of conversation.read that are a message when written as `#N` or a link and a count
@@ -34,6 +34,19 @@ const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] 
 function namesMessage(skill, option, text) {
   if (MESSAGE_OPTIONS.includes(option)) return true;
   return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')));
+}
+
+/** The option of message.create that names a message of hers whose attachment is posted again. */
+const MEDIA_OPTION = 'media';
+
+/** A message link form carrying the channel with the id (`@me` stands for the guild, which the operation knows). */
+function mediaRef(channelId, messageId) {
+  return `https://discord.com/channels/@me/${channelId}/${messageId}`;
+}
+
+/** Whether the transcript line `line` is the persona's own (`self`, else its author is `selfId`). */
+function isOwnLine(line, selfId) {
+  return line.self === true || (selfId !== null && selfId !== undefined && selfId !== '' && String(line.authorId) === String(selfId));
 }
 
 /** The options a body that is only a message reference (`#22`, an id, a link) fills, in order of preference. */
@@ -598,6 +611,10 @@ export function resolveCall(call, view) {
         const deletedHere = (id) => isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
           if (deletedHere(link[2])) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+          if (option === MEDIA_OPTION) {
+            args[option] = mediaRef(link[1], link[2]);
+            break;
+          }
           linked[option] = link[1];
           args[option] = link[2];
           break;
@@ -610,10 +627,21 @@ export function resolveCall(call, view) {
         const line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
         if (!line) return refused(CODE.UNKNOWN_MESSAGE, option);
         if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+        if (option === MEDIA_OPTION) {
+          // A picture of hers to post again: its own channel is where to fetch it, never where it goes.
+          if (name === 'message.create' && !isOwnLine(line, view?.selfId)) return refused(CODE.NOT_OWN_MESSAGE, 'author');
+          args[option] = mediaRef(line.conversationId, line.id);
+          break;
+        }
         lines[option] = line;
         args[option] = String(line.id);
       }
     }
+  }
+  // One attachment per post: a picture of hers beside an errand's file or a library GIF is refused.
+  if (args[MEDIA_OPTION] !== undefined) {
+    if (given.file !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:file');
+    if (given.gif !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:gif');
   }
 
   // A line names its channel: the one the call gave must be it, else it fills the channel option.
@@ -630,9 +658,7 @@ export function resolveCall(call, view) {
       }
     }
     if (option === 'message' && (name === 'message.edit' || name === 'message.delete')) {
-      const selfId = view?.selfId ?? null;
-      const own = line.self === true || (selfId !== null && selfId !== '' && String(line.authorId) === String(selfId));
-      if (!own) return refused(CODE.NOT_OWN_MESSAGE, 'author');
+      if (!isOwnLine(line, view?.selfId)) return refused(CODE.NOT_OWN_MESSAGE, 'author');
     }
     if (option === 'reply') repliedAuthorId = line.authorId ?? null;
   }

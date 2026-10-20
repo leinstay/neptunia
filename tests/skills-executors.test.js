@@ -980,3 +980,90 @@ test('resolveCall: the channel of a #N message wins over a channel that does not
   assert.equal(resolve('message.react.add', { message: '#3', emoji: '🎉', channel: '#💖νέα' }).channelFixed, undefined, 'the right channel is no fix');
   assert.equal(resolve('conversation.read', { before: '#3', channel: '#γενικά' }).reason, 'conversation');
 });
+
+/** The channel 555 (digits, as a message link needs) whose messages.fetch answers from `messages` (id -> message), a missing one as Discord's unknown message. */
+function channelsWithMessages(messages) {
+  const channels = clientChannels();
+  const here = textChannel('555');
+  here.messages = {
+    fetch: async (id) => {
+      if (!messages[id]) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+      return messages[id];
+    },
+  };
+  channels.set('555', here);
+  return channels;
+}
+
+/** A fetch answering with `bytes` for any URL. */
+function bytesFetch(bytes, { ok = true, calls = [] } = {}) {
+  return async (url) => {
+    calls.push(url);
+    return { ok, headers: { get: () => null }, arrayBuffer: async () => Uint8Array.from(bytes).buffer };
+  };
+}
+
+/** The view where #2 and #3 are in channel 555: #2 hers, #3 a member's. */
+const PICS = { messageAt: (n) => (n === 2 ? { id: '1002', conversationId: '555', authorId: SELF, self: true } : n === 3 ? { id: '1005', conversationId: '555', authorId: MEMBER } : view().messageAt(n)) };
+
+const PIC = (over = {}) => ({ author: { id: SELF }, attachments: new Map([['a1', { id: 'a1', name: 'one.png', url: 'https://cdn.example/one.png', size: 3, contentType: 'image/png' }], ['a2', { id: 'a2', name: 'two.png', url: 'https://cdn.example/two.png', size: 3, contentType: 'image/png' }]]), ...over });
+
+test('resolveCall: message.create media= takes a #N or a link of her own message; another\'s, a deleted one, and media beside file or gif are refused', () => {
+  const ok = resolve('message.create', { media: '#2', channel: '#νέα' }, 'ξανά', PICS);
+  assert.deepEqual([ok.ok, ok.args.channel, ok.args.text, ok.args.media], [true, NEWS, 'ξανά', 'https://discord.com/channels/@me/555/1002'], 'its channel is only where to fetch from, never the target');
+  assert.equal(resolve('message.create', { media: '#2' }, '', PICS).args.channel, undefined);
+  assert.equal(resolve('message.create', { media: 'https://discord.com/channels/111/222/333' }).args.media, 'https://discord.com/channels/@me/222/333');
+  assert.deepEqual([resolve('message.create', { media: '#3' }, '', PICS).code, resolve('message.create', { media: '#3' }, '', PICS).reason], ['not-own-message', 'author']);
+  assert.equal(resolve('message.create', { media: '#9' }).code, 'unknown-message');
+  const gone = { messageAt: (n) => (n === 5 ? { id: '2001', conversationId: HERE, authorId: SELF, self: true, deleted: true } : view().messageAt(n)) };
+  assert.deepEqual([resolve('message.create', { media: '#5' }, '', gone).code, resolve('message.create', { media: '#5' }, '', gone).reason], ['unknown-message', 'message-deleted']);
+  assert.equal(resolve('message.create', { media: '#2', gif: 'g1' }, '', PICS).reason, 'args.media:gif');
+  assert.equal(resolve('message.create', { media: '#2', file: 'file:t1/a.png' }, '', { ...PICS, fileOf: () => ({ name: 'a.png' }) }).reason, 'args.media:file');
+  assert.equal(resolve('message.create', { media: '#2', item: '2' }, '', PICS).args.item, 2);
+  const gate = checkSkill({ skill: 'message.create', args: resolve('message.create', { media: '#2' }, '', PICS).args, principal: { kind: 'persona' }, requester: { id: OWNER, roleIds: [] }, audience: { conversationId: HERE }, context: { config: config(), selfId: SELF } });
+  assert.equal(gate.ok, true, `a picture-only post passes the schema: ${gate.reason}`);
+});
+
+test('message.create media=: the picture of her own message goes up as a file to the target channel; item picks one; refusals post nothing', async () => {
+  const calls = [];
+  const channels = channelsWithMessages({ 1002: PIC(), 1005: PIC({ author: { id: MEMBER } }), 1006: { author: { id: SELF }, attachments: new Map() } });
+  const { admin, port } = makeAdmin({ channels, extra: { fetchImpl: bytesFetch([7, 8, 9], { calls }) } });
+  const mine = (id) => port.messagesIn(id).filter((message) => message.authorId === SELF);
+  const run = (args, body = '') => executeCall(resolve('message.create', args, body, PICS), deps(admin, port));
+
+  const first = await run({ media: '#2', channel: '#νέα' }, 'ξανά');
+  assert.equal(first.status, 'ok');
+  assert.deepEqual(calls, ['https://cdn.example/one.png']);
+  const [posted] = mine(NEWS);
+  assert.deepEqual([posted.text, posted.attachments.length, posted.attachments[0].name, posted.attachments[0].contentType, [...posted.attachments[0].data]], ['ξανά', 1, 'one.png', 'image/png', [7, 8, 9]]);
+
+  const second = await run({ media: '#2', item: '2' });
+  assert.equal(second.status, 'ok');
+  assert.equal(calls.at(-1), 'https://cdn.example/two.png');
+  assert.equal(mine(HERE).at(-1).text, '', 'the picture alone, no text');
+
+  const before = [mine(HERE).length, mine(NEWS).length];
+  const range = await run({ media: '#2', item: '3' });
+  assert.deepEqual([range.status, range.code], ['invalid', 'no-media']);
+  const none = await run({ media: `https://discord.com/channels/111/555/1006` });
+  assert.deepEqual([none.status, none.code], ['invalid', 'no-media']);
+  const notHers = await run({ media: `https://discord.com/channels/111/555/1005` });
+  assert.deepEqual([notHers.status, notHers.code], ['invalid', 'not-own-message']);
+  const missing = await run({ media: `https://discord.com/channels/111/555/1999` });
+  assert.deepEqual([missing.status, missing.code], ['invalid', 'message-deleted']);
+  assert.deepEqual([mine(HERE).length, mine(NEWS).length], before, 'nothing posted by a refusal');
+});
+
+test('message.create media=: over the interface\'s byte cap and a failed download are failures, nothing is posted', async () => {
+  const channels = channelsWithMessages({ 1002: PIC() });
+  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, limits: { maxAttachmentBytes: 2 } });
+  const big = makeAdmin({ port: small, channels, extra: { fetchImpl: bytesFetch([1, 2, 3]) } });
+  const over = await executeCall(resolve('message.create', { media: '#2' }, '', PICS), deps(big.admin, small));
+  assert.deepEqual([over.status, over.code], ['failed', 'attachment-too-large']);
+  assert.equal(small.messagesIn(HERE).length, 0);
+  const port = createFakeAdapter({ iface: 'fake', selfId: SELF });
+  const broken = makeAdmin({ port, channels, extra: { fetchImpl: bytesFetch([1], { ok: false }) } });
+  const failed = await executeCall(resolve('message.create', { media: '#2' }, '', PICS), deps(broken.admin, port));
+  assert.deepEqual([failed.status, failed.code], ['failed', 'file-unreadable']);
+  assert.equal(port.messagesIn(HERE).length, 0);
+});

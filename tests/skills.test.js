@@ -261,7 +261,7 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call;
   // a file one of her errands brought back, optional
   const create = skillRegistry().get('message.create');
-  assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file', 'gif']);
+  assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
   assert.deepEqual(create.argsSchema.required, ['text']);
   assert.equal(create.command.body, 'text');
   // `/nep draw`: a channel to post the picture in, the owner's too
@@ -438,7 +438,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const channel = { name: 'channel', required: false };
   const body = { name: 'text', required: true, body: true };
   const message = { name: 'message', required: true };
-  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body, { name: 'file', required: false }, { name: 'gif', required: false }] });
+  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body, { name: 'file', required: false }, { name: 'gif', required: false }, { name: 'media', required: false }, { name: 'item', required: false, minimum: 1, maximum: 20 }] });
   assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed', args: [message, body, channel] });
   assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed', args: [message, channel] });
   assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] });

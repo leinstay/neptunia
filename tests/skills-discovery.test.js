@@ -200,6 +200,8 @@ test('skillArgs: a derived skill lists its command\'s options, the same each tim
     { name: 'text', required: true, body: true },
     { name: 'file', required: false },
     { name: 'gif', required: false },
+    { name: 'media', required: false },
+    { name: 'item', required: false, minimum: 1, maximum: 20 },
   ]);
   assert.deepEqual(skillArgs(registry.get('memory.journal.read')), skillArgs(registry.get('memory.journal.read')));
 });
@@ -280,7 +282,7 @@ test('coreToolRows: the posting rows follow the reads and task.read and task.res
   const rows = coreToolRows({ config, selfId: self, registry });
   assert.deepEqual(rows.map((row) => row.name), ['web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set']);
   assert.deepEqual(coreToolRows({ config, selfId: self, registry }), rows, 'no turn-kind or unread-state input changes the rows');
-  assert.deepEqual(rows[2].args.map((arg) => arg.name), ['channel', 'reply', 'text', 'file', 'gif']);
+  assert.deepEqual(rows[2].args.map((arg) => arg.name), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
   assert.deepEqual(rows[3].args.map((arg) => arg.name), ['message', 'emoji', 'channel']);
   assert.deepEqual(rows[6].args.map((arg) => arg.name), ['id', 'from'], 'the action that picks the operation is fixed, not an argument');
   assert.deepEqual(rows[7].args.map((arg) => arg.name), ['id', 'from']);

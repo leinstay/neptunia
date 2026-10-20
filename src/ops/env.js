@@ -54,6 +54,7 @@ export function createOpsEnv({
   managementKey = null,
   port = null,
   errands = null,
+  fetchImpl = null,
   intentions = null,
   inner = null,
   now = Date.now,
@@ -252,6 +253,8 @@ export function createOpsEnv({
     port,
     // The persona's errands (src/errands/service.js): `/nep task`.
     errands,
+    // The HTTP fetch a post's `media` download uses (default: the global fetch).
+    fetchImpl,
     // The persona's intentions (src/intentions/service.js): `/nep task intent`.
     intentions,
     // The persona's inner life (src/behavior/inner.js): `/nep task inner`.

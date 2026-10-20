@@ -21,6 +21,11 @@
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
 // carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
 // reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`; both refuse before anything is posted).
+// Instead of either, it may repost a picture of one of HER OWN earlier messages (`media`, a message id or
+// link, `item` picking one of several attachments): the message is fetched, its attachment downloaded and
+// uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
+// deleted one (`unknown-message`, `message-deleted`), no such attachment (`no-media`), over the interface's
+// byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
 
 import fsp from 'node:fs/promises';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
@@ -40,6 +45,7 @@ function isLast(value) {
 
 const handlers = perEnv((env) => {
   const { hot, store, client, discord, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
+  const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
   /** True when member `userId` turned pings off here. */
@@ -75,6 +81,52 @@ const handlers = perEnv((env) => {
   }
 
   /**
+   * The attachment of a post's `media` (a picture of one of her own messages, `args.item` picking
+   * one of several; 1 is the first), downloaded for upload, or null without `media`. The message is
+   * fetched again, so its attachment URL is fresh. Refusals are listed in this module's header;
+   * nothing is posted before they are told.
+   */
+  async function mediaFile(args, context, p) {
+    const raw = String(args?.media ?? '').trim();
+    if (!raw) return null;
+    if (String(args?.file ?? '').trim() || String(args?.gif ?? '').trim()) throw invalid('one attachment per post', CODE.INVALID_ARGS);
+    const ref = messageRefOf(raw);
+    const sourceId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: ref.channelId, context, need: 'read' });
+    const source = await channelById(client, sourceId);
+    let message = null;
+    try {
+      message = (await source?.messages?.fetch?.(ref.messageId)) ?? null;
+    } catch (err) {
+      if (err?.code === 10008) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
+    }
+    if (!message) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
+    if (!client?.user?.id || String(message.author?.id) !== String(client.user.id)) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
+    const attachments = [...(message.attachments?.values?.() ?? [])];
+    const given = args?.item === undefined || args?.item === null || args?.item === '' ? 1 : Number(args.item);
+    if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
+    if (!Number.isInteger(given) || given < 1 || given > attachments.length) throw invalid('item is out of range', CODE.NO_MEDIA);
+    const item = attachments[given - 1];
+    if (!item?.url) throw invalid('that attachment has no address', CODE.NO_MEDIA);
+    const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
+    const tooLarge = (size) => Number.isFinite(limit) && size > limit;
+    const large = (size) => Object.assign(new Error(`the picture is ${size} bytes, over the ${limit} this interface takes`), { code: CODE.ATTACHMENT_TOO_LARGE });
+    if (tooLarge(Number(item.size))) throw large(Number(item.size));
+    const unreadable = () => Object.assign(new Error('cannot download the picture'), { code: CODE.FILE_UNREADABLE });
+    let data = null;
+    try {
+      const response = await fetchImpl(item.url, { method: 'GET', signal: AbortSignal.timeout(30_000) });
+      if (!response?.ok) throw unreadable();
+      const declared = Number(response.headers?.get?.('content-length'));
+      if (tooLarge(declared)) throw large(declared);
+      data = Buffer.from(await response.arrayBuffer());
+    } catch (err) {
+      throw err?.code === CODE.ATTACHMENT_TOO_LARGE ? err : unreadable();
+    }
+    if (tooLarge(data.byteLength)) throw large(data.byteLength);
+    return { name: String(item.name || 'picture'), data, ...(item.contentType ? { contentType: String(item.contentType).split(';')[0] } : {}) };
+  }
+
+  /**
    * The library entry of a post's `gif` handle in `guildId`, or null without a handle: unknown
    * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
    */
@@ -103,7 +155,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
     // A file-only or GIF-only post: an errand's file or a GIF of hers with no text.
-    if (!text && !String(args?.file ?? '').trim() && !String(args?.gif ?? '').trim()) throw invalid('text is required');
+    if (!text && !String(args?.file ?? '').trim() && !String(args?.gif ?? '').trim() && !String(args?.media ?? '').trim()) throw invalid('text is required');
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
@@ -114,7 +166,7 @@ const handlers = perEnv((env) => {
     const capped = entry ? gifCapSpent() : false;
     // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
     if (capped) throw invalid('the GIF limit for today is used up', CODE.GIF_CAP);
-    const attachment = await errandFile(args, context, channelId, p);
+    const attachment = (await errandFile(args, context, channelId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId: channelId };
     const content = {
       text,

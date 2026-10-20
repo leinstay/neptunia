@@ -236,7 +236,7 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text.",
+    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text. To put a picture you already posted into another channel without drawing it again, media= names your own message (#N or link) and posts its attachment as a file; item= picks which one when the message has several. Not together with gif= or file=.",
     "whenNotToUse": "Only in conversations you may write in."
   },
   "message.edit": {
