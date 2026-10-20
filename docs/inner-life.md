@@ -37,24 +37,43 @@ She may call her tools (`web.search`, `web.read`, `memory.search`, `intent.*`, `
 
 **Shadow mode** (`innerLife.mode: "shadow"`, the default): a read (`web.search`, `web.read`, `memory.search`, `intent.list`, any read) runs; every other call is proposed and never runs: journalled with `shadow: true` and only its `proposed` line, no call mark on her transcript, nothing marked seen. A stretch of shadow shows what she would have done.
 
-**Live mode** (`"live"`): her calls run through the gateway. Right before each action the kill switch is asked again.
+**Live mode** (`"live"`): her calls go through the gateway and take effect. The kill switch is checked before each action.
 
 A call that does not work (refused by the resolution or the gateway, in either mode) comes back to her in the next step of the loop with the reason on its mark, as on any turn; an argument the skill does not take names the ones it does (`labels.skills.refusals.unknownArg`), so she can correct the call within the turn. In shadow mode that mark lives only for the rest of the turn: nothing of a shadow turn is marked on her transcript for later turns.
 
 ## Feedback on her own turn
 
-When an inner turn ends, some of what she did may not have gone through: a call did not end `ok`, the loop cut her remaining calls, or she closed an intention as done while nothing was delivered. The scheduler lists what did not go through from the turn's result (`feedbackFacts` in `src/behavior/inner.js`, pure), in this order, and keeps each as a fact in the state (`state.facts`: its kind and fields, the `channelId` and `privateChat` it belongs to, `told`):
+When a turn ends, some of what she did may not have gone through: a call whose status was not `ok`, the loop cutting her remaining calls, or an intention she closed as done while nothing was delivered. The engine keeps each of these as a durable fact in her state (`state.facts`, with the `channelId` and `privateChat` it belongs to) and tells her at the first opportunity.
 
-- `callFailed`: one per call whose status was not `ok` (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`), with its skill, code and the operation's own text cut to `skills.markTextMaxChars` (a refused `<msg>`, `<gif>` or `<draw>` shows as a refused `message.create` or `draw.create` with its code);
-- `doneWithoutDelivery`: one per intention closed by an executed `intent.update state=done` of the turn while no delivery call (`message.create`, `draw.create`, `task.run`, `diary.post`) ran in that turn (a shadow turn's proposed `done` closed nothing and is no fact);
-- `loopCut`: the loop ended on its step or time bound, or the calls past `innerLife.loop.maxCallsPerStep` had no step to be told in (`inner.loop`: `steps`, `cut`: `steps`, `time`, `no-continuation` or `extra-call`, `droppedCalls`); when a step follows, the dropped calls are told in its task (`labels.task.callsDropped`) instead;
-- `turnFailed`: the turn ended `error` (any code) or `refused`;
-- `wakeDropped`, at the moment it happens and not through this list: every wake that ends without a turn (`stopped`, `overflow`, `stale` with `why` `done`, `cancelled`, `expired` or `forgotten`, `superseded`, `no-channel` with `why` `dm-off`, `not-writable`, `unavailable` or `no-review-channel`, and `error` or `provider` with the turn's error code), a wake with no intention (a review, a feedback wake) worded by its kind;
-- `wakeHeld`, likewise: a wake held on a cap (`per-chain`, `attend-per-day`) with the local midnight it waits for, told once.
+### Fact kinds
 
-A fact is told when a model answer that carried it completed (any outcome but `error`, `busy`, `paused`), never when it is queued. The first turn that can carry it shows it: an inner turn's `<wake>` lists the facts of its conversation (a private chat's only in that chat, the server's never in a private chat) under `labels.wake.feedbackInTurn`, and an addressed turn shows those of its channel in the same shape before its task. An unshown fact is kept `innerLife.factsKeepDays` (7) days, a told one a day. The facts a turn leaves behind queue one wake of kind `feedback` (`inner.wake:feedback:<turnId>`) in the turn's chain and conversation, due at once, for the case where no turn comes (an intention's wake held with nothing else to run does the same, `inner.wake:feedback:held:...`); not when the turn's own wake comes back for a retry. Its `<wake>` is the kind line `labels.wake.kinds.feedback` followed by one `labels.wake.feedbackItem` per fact, each worded by `labels.wake.feedback.<kind>` ([Prompt contract](prompt-contract.md)), and nothing else: no instruction to redo anything. She may post through a call, set a new intention (a `done` one is terminal), hand off an errand, or end with `<skip/>`.
+The scheduler (`feedbackFacts` in `src/behavior/inner.js`, pure) collects facts from a turn's result in this order:
 
-No loops: a feedback turn gets no feedback wake of its own; its own misses are kept as facts and journalled (the `turn` record's `feedback.facts` with `wake` null). No cap holds a feedback wake, no other wake joins it, and its turn does not count against the chain. A feedback wake whose facts a turn already told is handled without a turn. The same facts go into her memory episode of that turn, in the first person ([below](#what-she-found-goes-to-her-memory)): a fact, not a lesson. An addressed turn records the same way what it lost (`sendFailed`: a `<msg>` that did not go out, the turn ends `partial`; `loopCut`; `callFailed` for a call whose result she never read) and the failed turn itself (`failedEarlier`, also for `refused`).
+- `callFailed`: one per call whose status was not `ok` (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`), with the skill, the code and the operation's own text cut to `skills.markTextMaxChars`. A refused `<msg>`, `<gif>` or `<draw>` shows as a refused `message.create` or `draw.create` with its code.
+- `doneWithoutDelivery`: one per intention closed by an executed `intent.update state=done` while no delivery call (`message.create`, `draw.create`, `task.run`, `diary.post`) ran in that turn. A shadow turn's proposed `done` closed nothing and is no fact.
+- `loopCut`: the loop ended on its step or time bound, or the calls past `innerLife.loop.maxCallsPerStep` had no step to be told in (`inner.loop`: `steps`, `cut`: `steps`, `time`, `no-continuation` or `extra-call`, `droppedCalls`). When a step follows, the dropped calls are told in its task (`labels.task.callsDropped`) instead.
+- `turnFailed`: the turn ended `error` (any code) or `refused`.
+- `wakeDropped`, recorded at the moment it happens (not through this list): every wake that ends without a turn (`stopped`, `overflow`, `stale` with sub-code `done`, `cancelled`, `expired` or `forgotten`, `superseded`, `no-channel` with sub-code `dm-off`, `not-writable`, `unavailable` or `no-review-channel`, and `error` or `provider` with the turn's error code). A wake with no intention (a review, a feedback wake) is worded by its kind alone.
+- `wakeHeld`, likewise at the moment: a wake held on a cap (`per-chain`, `attend-per-day`) with the local midnight it waits for. Told once; a change (released, dropped, expired) produces a new fact.
+
+An addressed turn records facts the same way: `sendFailed` when a `<msg>` did not go out (the turn ends `partial`), `loopCut`, `callFailed` for a call whose result she never read, and the failed turn itself (`failedEarlier`, also for `refused`).
+
+### When she is told
+
+A fact counts as told when a model answer that carried it completed (any outcome other than `error`, `busy` or `paused`), never when queued. The first turn that can carry it shows it:
+
+- An inner turn's `<wake>` lists the facts of its conversation under `labels.wake.feedbackInTurn`.
+- An addressed turn carries those of its channel in the same shape, as its whole `<wake>`, before its task.
+
+A fact from a private chat shows only in that chat. A fact from the server never shows in a private chat.
+
+Facts that a turn leaves behind queue one wake of kind `feedback` (`inner.wake:feedback:<turnId>`) in the turn's chain and conversation, due at once, for the case where no turn comes (an intention's wake held with nothing else to run does the same, `inner.wake:feedback:held:...`). The wake is not queued when the turn's own wake comes back for a retry. Its `<wake>` is `labels.wake.kinds.feedback` followed by one `labels.wake.feedbackItem` per fact, each worded by `labels.wake.feedback.<kind>` ([Prompt contract](prompt-contract.md)), with nothing else. She may post through a call, set a new intention (a `done` one is terminal), hand off an errand, or end with `<skip/>`.
+
+A feedback turn gets no feedback wake of its own; its own facts are kept in the state and journalled (the `turn` record's `feedback.facts` with `wake` null). No cap holds a feedback wake, no other wake joins it, and its turn does not count against the chain. A feedback wake whose facts a turn already told is handled without a turn.
+
+### Durable facts
+
+An untold fact is kept `innerLife.factsKeepDays` (7) days. A told one is kept a day, then removed. The same facts go into her memory episode of that turn, in the first person ([below](#what-she-found-goes-to-her-memory)): a fact, not a lesson.
 
 ## What she found goes to her memory
 
@@ -99,10 +118,10 @@ Code enforces them; she reads what is left as facts in `<wake>`. Defaults (a cei
 
 | Cap | Default | Counted |
 |---|---|---|
-| `caps.perChain` | 3 | inner turns per causal chain: an intention's `chain`, else the intention (or, for a recurring intention without a chain, the one occurrence `intention:<id>:<dueAt>`); a review is its day's chain |
+| `caps.perChain` | 3 | Inner turns of one chain per local day (`bot.timezone`): an intention's `chain`, else the intention (or, for a recurring intention without a chain, the one occurrence `intention:<id>:<dueAt>`); a review is its day's chain. Past the cap the chain's wakes wait as `per-chain` and run after the local midnight; wakes of other chains are not held |
 | an attention's `perDay` | `attention.perDayDefault` (12), hers to set | attend wakes of that attention per local day; past it the wake waits as `attend-per-day` and runs the next day, the other wakes go on |
 
-Over a cap no turn runs and the refusal is journalled once per wake; a turn that reaches the dollar cap while it runs stops calling and asking (see the inner turn above). A turn counts once whatever its tool steps; its cost counts in full.
+Over a cap no turn runs and the held wakes are journalled once each. A feedback wake is never held by any cap, never joined to another wake, and its turn does not count against the chain. A turn counts once whatever its tool steps; its cost counts in full.
 
 ## The kill switch
 
