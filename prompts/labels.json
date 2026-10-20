@@ -736,6 +736,7 @@
         "not-recurring": "that intention does not repeat",
         "no-next": "there is no next time",
         "no-purpose": "the intention has no purpose",
+        "reason-required": "dropping an intention needs a reason",
         "no-task": "there is no such errand",
         "task-ended": "that errand has ended",
         "wait-without-task": "a wait needs an errand",

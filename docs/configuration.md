@@ -1043,6 +1043,7 @@ Settings for the persona's intentions (`features.intentions`; [Intentions](inten
 | `candidateExpiresHours` | `48` | A candidate she neither accepts nor rejects expires after this many hours |
 | `waitHours` | `2` | The wait deadline when a wait on an errand names none |
 | `expiryNoticeDays` | `2` | An intention whose expiry is this many days away or less ends its `<intentions>` line with the expiry (`labels.intentions.expiresSoon`), one-off, recurring, waiting and attention alike. One with no due time and no wait carries its expiry on every turn instead (`labels.intentions.noDue`: nothing will wake her for it) |
+| `droppedDays` | `7` | How long a dropped intention (`state=dropped` with a reason) is kept before it is pruned; the heartbeat shows the drops of this window |
 
 ## `innerLife`
 

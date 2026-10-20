@@ -1,7 +1,7 @@
 // The persona's intentions on disk, one store per guild: `data/guilds/<id>/intentions.json`
 // holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole through
 // writeJsonAtomic on every change, so a restart reads back exactly what was there. The list keeps
-// every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired). A file
+// every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired, dropped; a dropped one also goes after `intentions.droppedDays`, the service's prune). A file
 // that does not parse is copied aside (`intentions.json.unreadable-<ms>`) before the store starts
 // empty, so nothing is lost to a later write; a record that breaks the model's invariants is left
 // out on load (counted in the log). The store moves nothing by itself: every change is a pure
@@ -118,6 +118,20 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { ok: true, intention: copy(result.intention), changed: true };
   }
 
+  /**
+   * Every record `stale(record)` is true for removed and the file written (the service drops
+   * the dropped intentions past `intentions.droppedDays` this way). How many; throws on a write error.
+   */
+  function prune(stale) {
+    const next = state.list.filter((record) => !stale(record));
+    const removed = state.list.length - next.length;
+    if (removed === 0) return 0;
+    persist(next);
+    state.list = next;
+    log.info('intentions: pruned', { guildId: String(guildId), count: removed });
+    return removed;
+  }
+
   /** The copies a broken file left aside (`intentions.json.unreadable-<ms>`), as paths. */
   function unreadableCopies() {
     let names = [];
@@ -178,7 +192,7 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { files };
   }
 
-  return { list, get, add, update, forgetUser, wipe, guildId: String(guildId), file };
+  return { list, get, add, update, prune, forgetUser, wipe, guildId: String(guildId), file };
 }
 
 /**

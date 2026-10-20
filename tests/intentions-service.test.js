@@ -559,3 +559,52 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   assert.deepEqual(intentions.attending('g1'), []);
   assert.equal((await runOp('intent.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
 });
+
+test('intent dropped: set born dropped and update on an open one need a reason; a dropped one never wakes, is not open or counted, is final, and is pruned after droppedDays', async () => {
+  const { env, intentions, clock, hot } = makeEnv({ intentions: { maxOpen: 1, droppedDays: 7 } });
+  await withCapturedLogs(async () => {
+    const none = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped' }, hers(env, 'T1'));
+    assert.deepEqual([none.status, none.code], ['invalid', 'reason-required']);
+    const born = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped', reason: 'too cold today' }, hers(env, 'T1'));
+    assert.equal(born.status, 'ok', born.summary);
+    assert.match(born.data.text, /dropped, reason too cold today/, born.data.text);
+    const open = await runOp('intent.set', { text: 'φέρε το άρθρο', due: '1h' }, hers(env, 'T1'));
+    assert.equal(open.status, 'ok', 'a dropped one does not count against maxOpen');
+    const id = open.data.intention.id;
+    clock.t = T0 + HOUR / 2;
+    assert.equal((await runOp('intent.update', { id, state: 'dropped' }, hers(env, 'T2'))).code, 'reason-required');
+    const dropped = await runOp('intent.update', { id, state: 'dropped', reason: 'no longer needed' }, hers(env, 'T2'));
+    assert.equal(dropped.status, 'ok', dropped.summary);
+    assert.match(dropped.data.text, /dropped, reason no longer needed/);
+    assert.equal((await runOp('intent.update', { id, state: 'pending' }, hers(env, 'T2'))).code, 'terminal');
+    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'terminal');
+    assert.deepEqual(intentions.list('g1'), []);
+    clock.t = T0 + 2 * HOUR;
+    assert.deepEqual(intentions.due('g1'), [], 'never wakes');
+    assert.equal(intentions.view('g1').length, 0);
+    assert.deepEqual(intentions.dropped('g1').map((r) => [r.id, r.reason, r.at]), [[id, 'no longer needed', T0 + HOUR / 2], [born.data.intention.id, 'too cold today', T0]]);
+    assert.deepEqual(intentions.dropped('g1', { sinceMs: T0 + 1 }).map((r) => r.id), [id]);
+    assert.deepEqual(Object.keys(intentions.dropped('g1')[0]).sort(), ['at', 'id', 'purpose', 'reason']);
+    clock.t = T0 + 8 * 24 * HOUR;
+    assert.deepEqual(intentions.dropped('g1', { sinceMs: 0 }), [], 'pruned after droppedDays');
+    assert.deepEqual(intentions.list('g1', { closed: true, all: true }), []);
+    hot.config.features = {};
+    assert.deepEqual(intentions.dropped('g1'), [], 'off with the feature');
+  });
+});
+
+test('intent dropped: a drop from a recurring or waiting one ends it; a private chat\'s drop is visible only in that chat', async () => {
+  const { env, intentions } = makeEnv();
+  await withCapturedLogs(async () => {
+    const rec = await runOp('intent.set', { text: 'πες καλημέρα', due: '1h', every: 'day' }, hers(env, 'T1'));
+    const id = rec.data.intention.id;
+    assert.equal((await runOp('intent.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status, 'ok');
+    assert.equal(intentions.store('g1').get(id).status, 'dropped');
+    const dm = (extra = {}) => hers(env, 'T3', { channelId: 'dm1', privateChat: true, ...extra });
+    const priv = await runOp('intent.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
+    assert.equal(priv.status, 'ok');
+    assert.deepEqual(intentions.dropped('g1').map((r) => r.reason), ['boring']);
+    assert.deepEqual(intentions.dropped('g1', { privateChannelId: 'dm1' }).map((r) => r.reason).sort(), ['boring', 'private matter']);
+    assert.equal(intentions.dropped('g1', { all: true }).length, 2);
+  });
+});

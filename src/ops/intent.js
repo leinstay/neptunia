@@ -1,7 +1,8 @@
 // Operations: `/nep task intent action:add|update|cancel|list` -- the persona's intentions
 // (src/intentions/, docs/intentions.md): `intent.set` (a new one of hers, `pending`; its purpose
 // the body of her call), `intent.update` (accept a candidate with `state:pending`, close one with
-// `state:done`, edit its purpose, due time, expiry, destination, chain or completion condition, or
+// `state:done`, drop it with `state:dropped` and a `reason:` (a desire she considered and let go; also
+// `intent.set state:dropped reason:...` records one born dropped), edit its purpose, due time, expiry, destination, chain or completion condition, or
 // set it waiting on an errand: `task:<errand id>` and/or `deadline:`; a `deadline` without a task
 // waits on the errand her same turn hands off), `intent.cancel` (also how she rejects a
 // candidate), `intent.list`. Her own state, so her own calls run on her grant alone
@@ -36,7 +37,7 @@ import { CODE } from '../skills/codes.js';
 const PURPOSE_LINE_CHARS = 80;
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
-const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found', 'bad-attend', 'attend-with-due', 'attend-with-every', 'not-attend']);
+const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found', 'bad-attend', 'attend-with-due', 'attend-with-every', 'not-attend', 'reason-required']);
 
 const handlers = perEnv((env) => {
   const { hot, client, resolvedGuildId, now = Date.now } = env;
@@ -136,6 +137,8 @@ const handlers = perEnv((env) => {
   /** One intention as an answer line. */
   function lineOf(record) {
     const parts = [`${record.id} ${record.status}`];
+    // A dropped one is over: its reason and its purpose only, no due or expiry to act on.
+    if (record.status === 'dropped') return `${parts[0]}, reason ${clampWithEllipsis(oneLine(record.reason ?? ''), PURPOSE_LINE_CHARS)}: ${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}`;
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
     // A pending intention nothing wakes her for: said at once, so a due left in the purpose text is caught in the turn.
     else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
@@ -199,8 +202,11 @@ const handlers = perEnv((env) => {
     const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
     const from = origin(context);
+    const state = text(args, 'state');
+    if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');
     const result = intentions().set(resolvedGuildId(context), {
       purpose,
+      ...(state ? { state, reason: text(args, 'reason') ?? null } : {}),
       attend: place ? { place, ...(attendPatch(args) ?? {}) } : null,
       dueAt: moment(args, 'due') ?? null,
       every: every(args) ?? null,
@@ -222,7 +228,7 @@ const handlers = perEnv((env) => {
     const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
     const state = text(args, 'state');
-    if (state !== undefined && state !== 'pending' && state !== 'done') throw invalid('state must be pending or done');
+    if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped') throw invalid('state must be pending, done or dropped');
     const from = origin(context);
     const due = moment(args, 'due');
     const recurrence = every(args);
@@ -239,6 +245,7 @@ const handlers = perEnv((env) => {
       ...(text(args, 'task') ? { taskId: text(args, 'task') } : {}),
       ...(moment(args, 'deadline') !== undefined ? { deadline: moment(args, 'deadline') } : {}),
       ...(state ? { state } : {}),
+      ...(state === 'dropped' ? { reason: text(args, 'reason') ?? null } : {}),
       turnId: from.turnId,
       by: from.by,
       // An inner turn's call (her own initiative) and its chain: which candidates it may accept.

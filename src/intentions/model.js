@@ -7,7 +7,11 @@
 // Statuses: `proposed` -> `pending` (accepted) | `cancelled` (rejected) | `expired`;
 // `pending` -> `waiting` | `done` | `cancelled` | `expired`; `waiting` -> `pending` (the awaited
 // errand ended, or its wait deadline passed, or the errand is gone) | `done` | `cancelled` |
-// `expired`. `done`, `cancelled` and `expired` are terminal: nothing moves out of them. The
+// `expired`; any open one (`proposed`, `pending`, `waiting`) -> `dropped`, a desire she considered
+// and let go, with a required `reason` (REASON_CHARS) and its moment `droppedAt`; a record may also
+// be born `dropped` (createIntention with `dropped: true`: no due time, no recurrence, no
+// attention). `done`, `cancelled`, `expired` and `dropped` are terminal: nothing moves out of them
+// (a dropped one is not open, never due, and kept `intentions.droppedDays`). The
 // invariants every record keeps (checkInvariants): an `expiresAt` (every intention ends), and a
 // `waiting` one has both `awaitingTaskId` and `waitDeadline` -- there is no wait without a real
 // errand and a deadline. Expiry comes from the clock (expireAt); `dueList` lists what is due for
@@ -40,9 +44,9 @@ import { externalOrigin } from './sources.js';
 import { CODE } from '../skills/codes.js';
 
 /** Every status an intention may have. */
-export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired']);
+export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired', 'dropped']);
 /** The statuses nothing moves out of. */
-export const TERMINAL = Object.freeze(['done', 'cancelled', 'expired']);
+export const TERMINAL = Object.freeze(['done', 'cancelled', 'expired', 'dropped']);
 /** The statuses of an intention still open. */
 export const OPEN = Object.freeze(['proposed', 'pending', 'waiting']);
 /** Where an intention came from. */
@@ -50,16 +54,17 @@ export const PROVENANCE_KINDS = Object.freeze(['self', 'candidate']);
 
 /** The moves each status allows. */
 const MOVES = Object.freeze({
-  proposed: ['pending', 'cancelled', 'expired'],
-  pending: ['waiting', 'done', 'cancelled', 'expired'],
-  waiting: ['pending', 'done', 'cancelled', 'expired'],
+  proposed: ['pending', 'cancelled', 'expired', 'dropped'],
+  pending: ['waiting', 'done', 'cancelled', 'expired', 'dropped'],
+  waiting: ['pending', 'done', 'cancelled', 'expired', 'dropped'],
   done: [],
   cancelled: [],
   expired: [],
+  dropped: [],
 });
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2 });
+export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2, droppedDays: 7 });
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
 export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people one attention names. */
@@ -70,6 +75,8 @@ export const EVERY_PERIODS = Object.freeze(['day', 'week']);
 export const OCCURRENCE_CODES = Object.freeze(['recurred', 'missed', 'done-occurrence']);
 /** A purpose's length (characters). */
 export const PURPOSE_CHARS = 300;
+/** A dropped intention's reason length (characters). */
+export const REASON_CHARS = 300;
 /** A quoted span's length (characters). */
 export const SPAN_CHARS = 300;
 /** A completion condition's length (characters). */
@@ -87,7 +94,7 @@ const MIN_FORGET_NAME = 3;
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
-  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays') };
+  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays'), droppedDays: pick('droppedDays') };
 }
 
 /**
@@ -397,6 +404,7 @@ export function checkInvariants(record) {
   if (!record || !STATUSES.includes(record.status)) return 'bad-status';
   if (typeof record.purpose !== 'string' || !record.purpose) return 'no-purpose';
   if (!Number.isFinite(record.expiresAt)) return 'no-expiry';
+  if (record.status === 'dropped' && (typeof record.reason !== 'string' || !record.reason)) return 'reason-required';
   if (!validAttend(record.attend)) return 'bad-attend';
   if (record.attend) {
     if (record.dueAt !== null && record.dueAt !== undefined) return 'attend-with-due';
@@ -436,10 +444,11 @@ function withHistory(record, entry) {
  *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
  *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
  */
-export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
+export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, dropped = false, reason = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
+  if (dropped) return createDropped({ text, provenance, reason, now, settings, id, by });
   const candidate = provenance.kind === 'candidate';
   const attention = attend === null || attend === undefined ? null : normalizeAttend(attend, settings.attention);
   if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: CODE.BAD_ATTEND };
@@ -488,6 +497,76 @@ export function createIntention({ purpose, provenance, dueAt = null, every = nul
     history: [{ at: now, to: status, by }],
   };
   return { ok: true, intention };
+}
+
+/**
+ * A record born `dropped` (createIntention's `dropped: true`): the purpose and the required
+ * `reason` (`reason-required` without one), her own only (a candidate is `bad-provenance`), no due
+ * time, recurrence or attention; it is kept until `droppedDays` after `now` (its `expiresAt`).
+ */
+function createDropped({ text, provenance, reason, now, settings, id, by }) {
+  if (provenance.kind !== 'self') return { ok: false, code: CODE.BAD_PROVENANCE };
+  const why = line(reason, REASON_CHARS);
+  if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
+  const span = line(provenance.span, SPAN_CHARS);
+  const participants = participantIds(provenance.participants);
+  const intention = {
+    id,
+    purpose: text,
+    provenance: {
+      kind: 'self',
+      turnId: idOrNull(provenance.turnId),
+      ...(idOrNull(provenance.messageId) ? { messageId: idOrNull(provenance.messageId) } : {}),
+      ...(idOrNull(provenance.channelId) ? { channelId: idOrNull(provenance.channelId) } : {}),
+      ...(span ? { span } : {}),
+      scope: provenance.scope === 'dm' ? 'dm' : 'group',
+      ...(participants.length > 0 ? { participants } : {}),
+    },
+    status: 'dropped',
+    createdAt: now,
+    updatedAt: now,
+    dueAt: null,
+    every: null,
+    expiresAt: now + (settings.droppedDays ?? DEFAULTS.droppedDays) * DAY_MS,
+    awaitingTaskId: null,
+    waitDeadline: null,
+    destination: null,
+    completionCondition: null,
+    chainId: null,
+    attend: null,
+    reason: why,
+    droppedAt: now,
+    history: [{ at: now, to: 'dropped', by }],
+  };
+  return { ok: true, intention };
+}
+
+/**
+ * Open `record` dropped with `reason` (cut to REASON_CHARS): the `dropped` move with the reason and
+ * `droppedAt` set. `{ ok: false, code }`: `reason-required` without a reason, else transition's
+ * (`terminal`, `bad-move`).
+ */
+export function dropIntention(record, { reason, now, by = 'persona' }) {
+  const why = line(reason, REASON_CHARS);
+  if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
+  return transition(record, 'dropped', { now, by, code: CODE.DROPPED, patch: { reason: why, droppedAt: now } });
+}
+
+/** When dropped `record` was dropped: `droppedAt`, else `updatedAt`. */
+export function droppedAtOf(record) {
+  return Number.isFinite(record?.droppedAt) ? record.droppedAt : record?.updatedAt ?? 0;
+}
+
+/**
+ * The dropped intentions of `records` since `sinceMs` (epoch ms; none given: all) as
+ * `{ id, purpose, reason, at }`, the newest drop first. A candidate (provenance `candidate`) is
+ * never listed. Pure.
+ */
+export function droppedList(records, { sinceMs = 0 } = {}) {
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => record?.status === 'dropped' && droppedAtOf(record) >= sinceMs)
+    .sort((a, b) => droppedAtOf(b) - droppedAtOf(a))
+    .map((record) => ({ id: record.id, purpose: record.purpose, reason: record.reason, at: droppedAtOf(record) }));
 }
 
 /**
@@ -792,7 +871,7 @@ export function concernsMember(record, { userId, names = [] }) {
   if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;
   const provenance = record.provenance ?? {};
   if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
-  const texts = [record.purpose, provenance.span, record.completionCondition, record.chainId, record.outcome?.error].filter((text) => typeof text === 'string' && text);
+  const texts = [record.purpose, provenance.span, record.completionCondition, record.chainId, record.reason, record.outcome?.error].filter((text) => typeof text === 'string' && text);
   if (texts.some((text) => text.includes(id))) return true;
   const folded = [...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldName))].filter(
     (name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_FORGET_NAME,

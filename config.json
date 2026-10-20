@@ -510,7 +510,8 @@
     "maxCandidates": 5,
     "candidateExpiresHours": 48,
     "waitHours": 2,
-    "expiryNoticeDays": 2
+    "expiryNoticeDays": 2,
+    "droppedDays": 7
   },
   "innerLife": {
     "mode": "shadow",

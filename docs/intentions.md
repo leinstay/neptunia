@@ -53,7 +53,7 @@ Who may accept a candidate (`intent.update` with `state:pending`):
 ## States
 
 `proposed` -> `pending` | `cancelled` | `expired`; `pending` -> `waiting` | `done` | `cancelled` | `expired`;
-`waiting` -> `pending` | `done` | `cancelled` | `expired`. `done`, `cancelled` and `expired` are final. Every intention
+`waiting` -> `pending` | `done` | `cancelled` | `expired`; any open one -> `dropped`. `done`, `cancelled`, `expired` and `dropped` are final. Every intention
 has an expiry (`intentions.expiresDays` by default; an accepted candidate from its acceptance). An intention with no due
 time and no wait never wakes her. It only expires, and its `<intentions>` line says so, with the expiry. One of hers that
 expires untouched is told to her once, in the `<wake>` of her next [daily review](inner-life.md#what-wakes-her); the
@@ -88,6 +88,13 @@ turn answered or mentioned, or, for a candidate, the other authors of its channe
 the completion condition) carry their id or one of their known names as a whole word. The file is copied into the
 forget's vault first. `/nep memory wipe` deletes `intentions.json` with the rest of the server's memory (the vault
 holds the copy).
+
+Dropped: `intent.update id=... state=dropped reason=...` lets go of an open intention (pending, waiting or proposed),
+and `intent.set state=dropped reason=...` records one that was considered and let go at once (a new record born
+dropped). The reason is required (`reason-required` without one) and cut to 300 characters. A dropped record never wakes
+her, is not open (it is not counted against `intentions.maxOpen` and is not in `<intentions>`), and is kept
+`intentions.droppedDays` before it is pruned. The service's `dropped(guildId, { sinceMs })` lists them, newest first, as
+`{ id, purpose, reason, at }`, for the heartbeat's view.
 
 ## What she sees
 

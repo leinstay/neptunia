@@ -37,6 +37,9 @@ import {
   normalizeAttend,
   candidatesFromAnswer,
   createIntention,
+  dropIntention,
+  droppedAtOf,
+  droppedList,
   dueList as dueOf,
   duplicates,
   expireAt,
@@ -159,6 +162,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const limits = settings();
     if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
+    if (input.state === 'dropped') return setDropped(store, input, by);
     const created = createIntention({
       purpose: input.purpose,
       provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
@@ -181,6 +185,28 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!waited.ok) return waited;
     const added = store.add(waited.intention);
     if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by });
+    return added;
+  }
+
+  /**
+   * A new record born `dropped` (`set` with `state: 'dropped'`): a desire she considered and let
+   * go, with its `reason` (`reason-required` without one). It is not active (no `maxOpen` check),
+   * never wakes, and is kept `intentions.droppedDays`.
+   */
+  function setDropped(store, input, by) {
+    const created = createIntention({
+      purpose: input.purpose,
+      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
+      dropped: true,
+      reason: input.reason ?? null,
+      now: now(),
+      settings: settings(),
+      id: freshId(store),
+      by,
+    });
+    if (!created.ok) return created;
+    const added = store.add(created.intention);
+    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: 'dropped', by });
     return added;
   }
 
@@ -214,6 +240,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!current || !visibleTo(current, patch)) return { ok: false, code: CODE.NOT_FOUND };
     if (!isOpen(current.status)) return { ok: false, code: CODE.TERMINAL };
     const by = patch.by ?? 'persona';
+    const dropping = patch.state === 'dropped';
+    if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim())) return { ok: false, code: CODE.REASON_REQUIRED };
     // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
     // turn that wrote its line, and from an inner turn neither an external one nor one born in an
     // inner turn of the same chain.
@@ -225,7 +253,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       }
     }
     if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: CODE.CAP_OPEN };
-    const plan = patch.taskId || Number.isFinite(patch.deadline) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
+    const plan = !dropping && (patch.taskId || Number.isFinite(patch.deadline)) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
     if (plan && !plan.ok) return plan;
     const at = now();
     const result = store.update(id, (record) => {
@@ -274,6 +302,12 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         next = waited.intention;
         changed = changed || waited.changed;
       }
+      if (dropping) {
+        const moved = dropIntention(next, { reason: patch.reason, now: at, by });
+        if (!moved.ok) return moved;
+        next = moved.intention;
+        changed = true;
+      }
       if (patch.state === 'done') {
         // A recurring one is never done: this closes the occurrence and sets the next.
         const moved = next.every ? advanceOccurrence(next, { now: at, timezone: timezone(), code: CODE.DONE_OCCURRENCE, by }) : transition(next, 'done', { now: at, by, code: CODE.DONE });
@@ -301,10 +335,15 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return result;
   }
 
-  /** Every open intention past its `expiresAt` expired and written. How many. */
+  /** Every open intention past its `expiresAt` expired and written. How many. Dropped ones past `droppedDays` are pruned too. */
   function sweepExpired(store) {
     let count = 0;
     const at = now();
+    try {
+      store.prune?.((record) => record.status === 'dropped' && droppedAtOf(record) + settings().droppedDays * DAY_MS <= at);
+    } catch (err) {
+      log.warn('intentions: prune failed', { guildId: store.guildId, error: err });
+    }
     for (const record of store.list()) {
       if (!isOpen(record.status) || !(at >= record.expiresAt)) continue;
       const result = store.update(record.id, (current) => expireAt(current, at));
@@ -324,6 +363,20 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!store) return [];
     sweepExpired(store);
     return store.list().filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
+  }
+
+  /**
+   * The intentions she dropped since `sinceMs` (default: `intentions.droppedDays` back) as
+   * `{ id, purpose, reason, at }`, the newest first, for the heartbeat's view; the same visibility as
+   * `list` (a private chat's own only where the caller is, `privateChannelId`, or all with `all`).
+   * Empty with `features.intentions` off.
+   */
+  function dropped(guildId, { sinceMs = null, privateChannelId = null, all = false } = {}) {
+    const store = storeOf(guildId);
+    if (!store || !intentionsOn(hot.config)) return [];
+    sweepExpired(store);
+    const since = Number.isFinite(sinceMs) ? sinceMs : now() - settings().droppedDays * DAY_MS;
+    return droppedList(store.list().filter((record) => visibleTo(record, { privateChannelId, all })), { sinceMs: since });
   }
 
   /**
@@ -593,5 +646,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, dropped, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
 }

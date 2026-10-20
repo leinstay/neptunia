@@ -446,7 +446,7 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'expires', description: 'Expiry, same form.', required: false, max_length: 40 },
           { type: STRING, name: 'task', description: 'Errand id to wait for.', required: false, max_length: 20 },
           { type: STRING, name: 'deadline', description: 'Wait until.', required: false, max_length: 40 },
-          { type: STRING, name: 'state', description: 'pending or done.', required: false, choices: choicesOf(['pending', 'done']) },
+          { type: STRING, name: 'state', description: 'pending, done or dropped.', required: false, max_length: 10 },
           { type: STRING, name: 'chain', description: 'Chain id.', required: false, max_length: 64 },
           { type: STRING, name: 'condition', description: 'Done when.', required: false, max_length: 300 },
           channelOption('Destination.'),
@@ -457,9 +457,12 @@ export const COMMAND_TABLE = Object.freeze([
           { type: INTEGER, name: 'settle', description: 'Quiet seconds.', required: false, min_value: 0, max_value: 86400 },
           { type: INTEGER, name: 'perday', description: 'Wakes a day.', required: false, min_value: 1, max_value: 1000 },
         ],
+        // Her own call also gives the reason of a dropped intention: an argument only she has
+        // (src/skills/derive.js), never shown to Discord, whose command tree is near its size limit.
+        personaOptions: [{ type: STRING, name: 'reason', description: 'Why it is dropped.', required: false, max_length: 300 }],
         args: (options) => {
           const out = { action: options.getString('action', true) };
-          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition', 'people']) {
+          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition', 'people', 'reason']) {
             const value = options.getString(name);
             if (value !== null && value !== undefined) out[name] = value;
           }
