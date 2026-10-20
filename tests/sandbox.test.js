@@ -1253,3 +1253,19 @@ test('answerSkillScenario: a message text given in a text= attribute is resolved
   assert.deepEqual(edit.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
   assert.equal('callMentions' in other, false, 'only a message\'s text is rendered as a post');
 });
+
+test('answerReply: given tools, they are passed to the llm and the completion\'s tool calls ride on the answer; without them nothing changes', async () => {
+  const hot = fakeHot();
+  const view = liveView({ hot, store: fakeStore({ userProfiles: {} }), guildId: 'g1' });
+  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } }];
+  const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }];
+  const llm = { calls: [], complete: async (messages, options) => { llm.calls.push(options); return { text: '<msg>ok</msg>', usage: {}, estimated: 1, toolCalls }; } };
+  const withTools = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW, tools, toolChoice: 'auto' });
+  assert.deepEqual(llm.calls[0].tools, tools);
+  assert.equal(llm.calls[0].toolChoice, 'auto');
+  assert.deepEqual(withTools.answers[0].toolCalls, toolCalls);
+  const plain = fakeLlm('<msg>ok</msg>');
+  const without = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: plain, samples: 1, at: NOW });
+  assert.equal('tools' in plain.calls[0].options, false);
+  assert.equal('toolCalls' in without.answers[0], false);
+});

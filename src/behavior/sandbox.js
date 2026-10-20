@@ -587,7 +587,7 @@ async function sample({ llm, messages, options, samples, signal, onUsage, read }
       throw err;
     }
     if (typeof onUsage === 'function') onUsage(completion.usage ?? null, completion.estimated ?? 0);
-    answers.push(read(completion.text));
+    answers.push(read(completion.text, completion));
   }
   return { answers, stopped };
 }
@@ -875,6 +875,9 @@ export async function answerReply({
   elsewhereDestination = null,
   searchAvailable = false,
   channelDirectory = null,
+  tools = null,
+  toolChoice,
+  parallelToolCalls,
 }) {
   const { request, messages, systemMessage, userContent } = sandboxMessages(
     { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, channelDirectory },
@@ -884,14 +887,23 @@ export async function answerReply({
   const { answers, stopped } = await sample({
     llm,
     messages,
-    options: sandboxOptions(signal),
+    options: toolOptions(sandboxOptions(signal), { tools, toolChoice, parallelToolCalls }),
     samples,
     signal,
     onUsage,
-    read: (text) => shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs, request.handles),
+    read: (text, completion) => {
+      const shaped = shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs, request.handles);
+      return Array.isArray(completion?.toolCalls) ? { ...shaped, toolCalls: completion.toolCalls } : shaped;
+    },
   });
 
   return { request: { system: textOf(systemMessage.content), user: textOf(userContent) }, answers, stopped };
+}
+
+/** `options` with native tool calling added when `tools` is a non-empty array (stored definitions passed through as they were). */
+function toolOptions(options, { tools, toolChoice, parallelToolCalls }) {
+  if (!Array.isArray(tools) || tools.length === 0) return options;
+  return { ...options, tools, ...(toolChoice !== undefined ? { toolChoice } : {}), ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}) };
 }
 
 /** The llm options of every sandbox completion: the reply's role and purpose, as the replay's own, off the rails' counters. */

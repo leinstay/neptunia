@@ -305,3 +305,19 @@ test('replay: --show-request reads the base dumps of a turn by default, --steps 
   assert.equal(parseArgs(['--show-request', 't-ab']).steps, false);
   assert.throws(() => parseArgs(['c1', 'm1', '--steps']), /usage/i);
 });
+
+test('replay: a stored dump that had tools gets its definitions back from the by-hash copy', () => {
+  const journalDir = tempDir('nep-replay-dump-tools-');
+  const day = path.join(journalDir, 'requests', '2026-10-20');
+  fs.mkdirSync(path.join(journalDir, 'requests', 'tools'), { recursive: true });
+  fs.mkdirSync(day, { recursive: true });
+  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } }];
+  const hash = 'a'.repeat(64);
+  fs.writeFileSync(path.join(journalDir, 'requests', 'tools', `${hash}.json`), JSON.stringify(tools));
+  fs.writeFileSync(path.join(day, 't-1-1.json'), JSON.stringify({ tools: hash, toolChoice: 'auto' }));
+  fs.writeFileSync(path.join(day, 't-2-1.json'), JSON.stringify({ tools: 'b'.repeat(64) }));
+  fs.writeFileSync(path.join(day, 't-3-1.json'), JSON.stringify({ raw: 'x' }));
+  assert.deepEqual(storedDumps(journalDir, 't-1')[0].dump.toolDefinitions, tools);
+  assert.equal('toolDefinitions' in storedDumps(journalDir, 't-2')[0].dump, false);
+  assert.equal('toolDefinitions' in storedDumps(journalDir, 't-3')[0].dump, false);
+});
