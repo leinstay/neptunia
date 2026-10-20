@@ -14,6 +14,7 @@
 import { isPlainObject } from '../config.js';
 import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn, skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
+import { CODE } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
 export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search']);
@@ -215,7 +216,7 @@ export function skillArgs(skill) {
 /**
  * The gateway's verdict on each named skill, from the catalogue rows of this requester and
  * conversation (src/skills/gateway.js#listSkills): `{ name, allowed, reason }` per name, in
- * order; a name with no row (not in the registry) is `{ allowed: false, reason: 'unknown-skill' }`.
+ * order; a name with no row (not in the registry) is `{ allowed: false, reason: CODE.UNKNOWN_SKILL }`.
  * @param {string[]} names
  * @param {{ name: string, allowed: boolean, reason: string }[]} rows
  * @returns {{ name: string, allowed: boolean, reason: string }[]}
@@ -224,7 +225,7 @@ export function proposalVerdicts(names, rows) {
   const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
   return (Array.isArray(names) ? names : []).map((name) => {
     const row = byName.get(name);
-    return row ? { name, allowed: row.allowed === true, reason: row.reason } : { name, allowed: false, reason: 'unknown-skill' };
+    return row ? { name, allowed: row.allowed === true, reason: row.reason } : { name, allowed: false, reason: CODE.UNKNOWN_SKILL };
   });
 }
 

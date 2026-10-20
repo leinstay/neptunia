@@ -10,6 +10,7 @@
 
 import { portAction, validateAction } from '../protocol.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
+import { CODE } from '../skills/codes.js';
 
 /**
  * Replays a recorded fixture of inbound events through an event door (src/interface/door.js), in
@@ -83,15 +84,15 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
   /** The common front of every operation: the record, the action's shape, the capability, a queued answer. */
   function front(op, args) {
     calls.push({ op, args });
-    if (!validateAction(portAction(op, args)).ok) return notOk('failed', 'invalid-action');
-    if (!supports(op)) return notOk('unsupported', 'unsupported');
+    if (!validateAction(portAction(op, args)).ok) return notOk('failed', CODE.INVALID_ACTION);
+    if (!supports(op)) return notOk('unsupported', CODE.UNSUPPORTED);
     return takeQueued(op);
   }
 
   /** The live (not deleted) message `ref` points at, or a failed result. */
   function found(ref) {
     const message = messages.get(keyOf(ref));
-    return message && !message.deleted ? { message } : { result: notOk('failed', 'unknown-message') };
+    return message && !message.deleted ? { message } : { result: notOk('failed', CODE.UNKNOWN_MESSAGE) };
   }
 
   /** A stored message for `content`, authored by `authorId` (`messageId`: its id, else a new one). */
@@ -148,7 +149,7 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       if (refused) return refused;
       const { message, result } = found(ref);
       if (result) return result;
-      if (message.authorId !== selfId) return notOk('forbidden', 'not-own-message');
+      if (message.authorId !== selfId) return notOk('forbidden', CODE.NOT_OWN_MESSAGE);
       if (typeof content.text === 'string') message.text = content.text;
       if (Array.isArray(content.attachments)) message.attachments = content.attachments.map((attachment) => ({ ...attachment }));
       message.mentions = mentionsOf(content);
@@ -162,7 +163,7 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       if (refused) return refused;
       const { message, result } = found(ref);
       if (result) return result;
-      if (message.authorId !== selfId) return notOk('forbidden', 'not-own-message');
+      if (message.authorId !== selfId) return notOk('forbidden', CODE.NOT_OWN_MESSAGE);
       message.deleted = true;
       return ok({ ...message.ref });
     },
@@ -172,7 +173,7 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       if (early) return early;
       const refused = refRefusal(ref, iface, { needMessage: true });
       if (refused) return refused;
-      if (typeof emoji !== 'string' || !emoji) return notOk('failed', 'invalid-emoji');
+      if (typeof emoji !== 'string' || !emoji) return notOk('failed', CODE.INVALID_EMOJI);
       const { message, result } = found(ref);
       if (result) return result;
       message.reactions.add(emoji);
@@ -184,7 +185,7 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       if (early) return early;
       const refused = refRefusal(ref, iface, { needMessage: true });
       if (refused) return refused;
-      if (typeof emoji !== 'string' || !emoji) return notOk('failed', 'invalid-emoji');
+      if (typeof emoji !== 'string' || !emoji) return notOk('failed', CODE.INVALID_EMOJI);
       const { message, result } = found(ref);
       if (result) return result;
       message.reactions.delete(emoji);

@@ -1,3 +1,4 @@
+import { CODE } from '../skills/codes.js';
 // What an inner turn's output tags become (src/behavior/turn.js, docs/inner-life.md): in an
 // inner turn `<react>`, `<msg>`, `<gif>` and `<draw>` are public actions in the turn's current
 // channel, lowered here into the same call objects her own `<call>`s are -- `message.react.add`,
@@ -10,9 +11,9 @@
 // reactions, messages, the GIF, drawings. Pure.
 
 /** The refusal of a reaction that names no message (never "the latest message"). */
-export const TARGET_REQUIRED = Object.freeze({ code: 'target-required', reason: 'react:to' });
+export const TARGET_REQUIRED = Object.freeze({ code: CODE.TARGET_REQUIRED, reason: 'react:to' });
 /** The refusal of a post when the turn has no current channel. */
-export const DESTINATION_REQUIRED = Object.freeze({ code: 'destination-required', reason: 'inner:currentChannel' });
+export const DESTINATION_REQUIRED = Object.freeze({ code: CODE.DESTINATION_REQUIRED, reason: 'inner:currentChannel' });
 
 /**
  * The call objects (`{ skill, args, body }`, plus `refuse` on one that must be refused) of the

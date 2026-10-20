@@ -465,6 +465,7 @@
     "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
     "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
     "callsDropped": "{count} of your calls were dropped this step ({why}).",
+    "diagnostics": "What became of your last answer:",
     "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>.\n{open}"
   },
   "tasks": {
@@ -536,6 +537,8 @@
       "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held ({code}) and can run {until}",
       "turnFailed": "Your {kind} turn did not go through: {code}",
       "sendFailed": "{n} of {total} messages went out; the rest failed ({code})",
+      "sendUnknown": "A message may not have gone out ({code}); it is not in the chat; {n} of {total} went out",
+      "stateLost": "Your inner state could not be read ({code}); you started empty",
       "codes": {
         "done": "the intention is already done",
         "cancelled": "the intention was cancelled",
@@ -655,7 +658,77 @@
         "http": "the server returned an error",
         "network": "the page could not be reached",
         "redirects": "the page redirected too many times",
+        "skills-off": "skills are switched off",
+        "feature-off": "that feature is switched off",
+        "not-granted": "you were not given that skill",
+        "unknown-principal": "the caller is not known",
+        "no-requester": "nobody asked for it, so only a read runs",
+        "mixed-requesters": "several people asked, so no change runs",
+        "not-self-owned": "that skill is not one of yours",
+        "inner-stopped": "your inner life is stopped",
+        "paused": "the bot is paused",
+        "unknown-command": "there is no such command",
+        "unknown-op": "there is no such operation",
+        "unknown-agent": "there is no such agent",
+        "unknown-conversation": "that conversation is not known",
+        "file-elsewhere": "that file belongs to another chat",
+        "agent-required": "an agent was not named",
+        "not-found": "nothing by that name was found",
+        "bad-goal": "the goal is empty",
+        "bad-sort": "that sort order does not exist",
+        "bad-page": "that page number is not valid",
+        "bad-time": "that time could not be read",
+        "bad-every": "that repeat could not be read",
+        "bad-attend": "those attention settings are not valid",
+        "bad-deadline": "that deadline is not valid",
+        "bad-due": "that due time is not valid",
+        "bad-expiry": "that expiry is not valid",
+        "bad-move": "the intention cannot move that way",
+        "bad-provenance": "the intention has no valid origin",
+        "attend-with-due": "an attention intention cannot have a due time",
+        "attend-with-every": "an attention intention cannot repeat",
+        "every-without-due": "a repeat needs a due time",
+        "due-after-expiry": "the due time is after the expiry",
+        "not-attend": "that intention is not an attention one",
+        "not-recurring": "that intention does not repeat",
+        "no-next": "there is no next time",
+        "no-purpose": "the intention has no purpose",
+        "no-task": "there is no such errand",
+        "task-ended": "that errand has ended",
+        "wait-without-task": "a wait needs an errand",
+        "terminal": "that intention has already ended",
+        "duplicate-id": "that id is already taken",
+        "invalid-action": "the action is not valid",
+        "invalid-emoji": "that emoji is not valid",
+        "no-guild": "no server is set up",
+        "error": "something went wrong",
+        "runner-down": "the agent is not running",
+        "warmup-running": "the warm-up is running",
+        "write-failed": "it could not be saved",
+        "no-result": "nothing came back",
+        "send-failed": "the message did not go out",
+        "refused": "the request was refused",
+        "image-cap": "the picture limit is used up",
+        "image-cap-daily": "the picture limit for today is used up",
+        "image-cap-user-daily": "this person's picture limit for today is used up",
+        "image-moderation": "the picture was filtered",
+        "image-timeout": "the picture took too long",
+        "image-error": "the picture could not be made",
+        "image-empty": "no picture came back",
+        "unsupported-model": "that picture model is not supported",
         "other": "something went wrong"
+      },
+      "params": {
+        "what": {
+          "chat": "the chat",
+          "page": "the page",
+          "search": "the search",
+          "errand": "the errand",
+          "picture": "the picture"
+        },
+        "feature": {
+          "web": "the web lookup"
+        }
       }
     },
     "tools": {
@@ -685,6 +758,19 @@
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "off": "{feature} is off."
+      }
+    },
+    "diagnostics": {
+      "badCall": "A call was not run because it was not written correctly: {reason} {skill}",
+      "callInText": "A call written inside a message was not run {skill}",
+      "messageCut": "A message was too long and {chars} characters were cut",
+      "messagesMerged": "{count} messages were joined into the last one",
+      "thinkUnclosed": "Your thinking was never closed, so nothing was posted",
+      "reasons": {
+        "quotes": "a value was not in double quotes",
+        "attribute": "an attribute was repeated or not readable",
+        "name": "the skill name was missing or not valid",
+        "unclosed": "the call was never closed"
       }
     },
     "refusals": {

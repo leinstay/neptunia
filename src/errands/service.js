@@ -50,6 +50,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState, isToolTask } from './store.js';
 import { createLedgerMirror } from './ledger.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
+import { CODE } from '../skills/codes.js';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds']);
@@ -139,7 +140,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
       answer = { ok: false, error: err?.code ?? 'client-error' };
     }
     // Not set up (meanwhile) tells nothing about the runner.
-    if (answer?.error === 'not-configured') return health.get(agent)?.up ?? null;
+    if (answer?.error === CODE.NOT_CONFIGURED) return health.get(agent)?.up ?? null;
     setHealth(agent, answer?.ok === true, answer?.error ?? null);
     return answer?.ok === true;
   }
@@ -266,10 +267,10 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    */
   function submit({ guildId = null, agent, goal, requester, origin, scope, idempotencyKey = null }) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
-    if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
-    if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: 'not-configured' };
-    if (runnerDown(agent)) return { ok: false, code: 'runner-down' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
+    if (!profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: CODE.NOT_CONFIGURED };
+    if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
     const added = store.add({ agent, goal, requester, origin, scope, idempotencyKey });
     if (!added.ok || added.duplicate) return added;
     const id = added.task.id;
@@ -298,7 +299,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!(Number.isFinite(seconds) && seconds > 0)) return run();
     let timer = null;
     const cutoff = new Promise((_resolve, reject) => {
-      timer = setTimeout(() => reject(Object.assign(new Error('the tool run timed out'), { code: 'timeout', deadline: true })), seconds * 1000);
+      timer = setTimeout(() => reject(Object.assign(new Error('the tool run timed out'), { code: CODE.TIMEOUT, deadline: true })), seconds * 1000);
     });
     return Promise.race([Promise.resolve().then(run), cutoff]).finally(() => clearTimeout(timer));
   }
@@ -316,14 +317,14 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    * @param {{ guildId?: string|null, agent: string, goal: string, requester: object, origin?: object, scope?: 'dm'|'group', run: () => Promise<{ output?: unknown, usage?: object, result?: object }> }} input
    */
   async function runInline({ guildId = null, agent, goal, requester, origin = {}, scope = 'group', run }) {
-    if (!toolProfileOf(agent) || typeof run !== 'function') return { ok: false, code: 'unknown-agent' };
+    if (!toolProfileOf(agent) || typeof run !== 'function') return { ok: false, code: CODE.UNKNOWN_AGENT };
     let store = storeOf(guildId);
     let task = null;
     if (store) {
       try {
         const added = store.add({ agent, goal, requester, origin, scope });
         if (added.ok) task = store.start(added.task.id) ?? added.task;
-        else if (added.code === 'cap-tasks') return { ok: false, ...capOf(store, agent, added.code) };
+        else if (added.code === CODE.CAP_TASKS) return { ok: false, ...capOf(store, agent, added.code) };
         else log.warn('errands: tool run unrecorded', { agent, code: added.code });
       } catch (err) {
         log.warn('errands: tool run unrecorded', { agent, error: err });
@@ -343,8 +344,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     try {
       ran = await withDeadline(run, limitsOf(agent).seconds);
     } catch (err) {
-      const code = typeof err?.code === 'string' && /^[a-z][a-z0-9-]*$/.test(err.code) ? err.code : 'error';
-      if (err?.deadline !== true && code === 'error') log.warn('errands: tool run failed', { agent, error: err });
+      const code = typeof err?.code === 'string' && /^[a-z][a-z0-9-]*$/.test(err.code) ? err.code : CODE.ERROR;
+      if (err?.deadline !== true && code === CODE.ERROR) log.warn('errands: tool run failed', { agent, error: err });
       return { ok: false, code, task: close({ status: 'failed', error: code }), error: err };
     }
     return { ok: true, task: close({ status: 'done', result: ran?.result, usage: ran?.usage }), output: ran?.output };
@@ -356,12 +357,12 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    */
   function cancel({ guildId = null, id, by = 'unknown' }) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
     const task = store.get(id);
-    if (!task) return { ok: false, code: 'not-found' };
+    if (!task) return { ok: false, code: CODE.NOT_FOUND };
     // A tool agent's picture is made in its caller's turn: there is nothing to cancel.
-    if (isToolTask(task)) return { ok: false, code: 'not-found' };
-    if (!isOpenState(task.state)) return { ok: false, code: 'not-open', task };
+    if (isToolTask(task)) return { ok: false, code: CODE.NOT_FOUND };
+    if (!isOpenState(task.state)) return { ok: false, code: CODE.NOT_OPEN, task };
     const wasRunning = task.state === 'running';
     const closed = store.cancel(id);
     if (wasRunning) client.cancel?.({ agent: task.agent, id: task.id });

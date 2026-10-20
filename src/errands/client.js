@@ -6,7 +6,7 @@
 // connection opens, `{ agent, up: false, code }` when one fails (`code` the socket's error code)
 // or an open one closes (`disconnected`) -- the errand service's health flag of each runner.
 // A connection that closes is reopened with a growing backoff while its profile stays enabled;
-// the tasks it carried resolve `failed` with `error: 'disconnected'` at once (the runner sends a
+// the tasks it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
 // task's end on the connection that brought it, so nothing more can arrive for them). A profile
 // that is not set up (`agents.<profile>.enabled` not true, or no socket) answers `failed`,
 // `not-configured`, without connecting. Settings are read from `hot.config.agents` at the moment
@@ -28,6 +28,7 @@ import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from 
 import { profileOf } from '../agent-runner/profiles.js';
 import { roleModel } from '../llm/roles.js';
 import { composePreamble } from './preambles.js';
+import { CODE } from '../skills/codes.js';
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
 export const RECONNECT_MIN_MS = 1000;
@@ -93,7 +94,7 @@ export function createErrandClient({
   /** One outcome of `agent`'s connect loop to the `onLink` listeners. */
   function emitLink(agent, up, code = null) {
     if (closed) return;
-    const event = up ? { agent, up: true } : { agent, up: false, code: code ?? 'disconnected' };
+    const event = up ? { agent, up: true } : { agent, up: false, code: code ?? CODE.DISCONNECTED };
     for (const fn of linkListeners) {
       try {
         fn(event);
@@ -109,11 +110,11 @@ export function createErrandClient({
       if (entry.agent !== agent) continue;
       pending.delete(id);
       clearTimer(entry.timer);
-      entry.resolve(failed('disconnected'));
+      entry.resolve(failed(CODE.DISCONNECTED));
     }
     for (const waiter of pings.get(agent) ?? []) {
       clearTimer(waiter.timer);
-      waiter.resolve({ ok: false, error: 'disconnected' });
+      waiter.resolve({ ok: false, error: CODE.DISCONNECTED });
     }
     pings.delete(agent);
   }
@@ -181,7 +182,7 @@ export function createErrandClient({
    */
   function open(agent) {
     const socketPath = socketOf(agent);
-    if (!socketPath) return Promise.reject(Object.assign(new Error('not configured'), { code: 'not-configured' }));
+    if (!socketPath) return Promise.reject(Object.assign(new Error('not configured'), { code: CODE.NOT_CONFIGURED }));
     let link = links.get(agent);
     if (link?.open && link.path === socketPath) return Promise.resolve(link);
     if (link?.opening && link.path === socketPath) return link.opening;
@@ -240,7 +241,7 @@ export function createErrandClient({
         current.open = false;
         if (current.opening) {
           current.opening = null;
-          reject(Object.assign(new Error('disconnected'), { code: 'disconnected' }));
+          reject(Object.assign(new Error('disconnected'), { code: CODE.DISCONNECTED }));
         }
         if (links.get(agent) !== current) return;
         if (wasOpen) {
@@ -293,12 +294,12 @@ export function createErrandClient({
   }
 
   async function run({ agent, id, goal, context = {}, limits = {}, secrets = null } = {}) {
-    if (closed || !socketOf(agent)) return failed('not-configured');
-    if (pending.has(id)) return failed('duplicate-id');
+    if (closed || !socketOf(agent)) return failed(CODE.NOT_CONFIGURED);
+    if (pending.has(id)) return failed(CODE.DUPLICATE_ID);
     try {
       await open(agent);
     } catch (err) {
-      return failed(err?.code === 'not-configured' ? 'not-configured' : 'disconnected');
+      return failed(err?.code === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED);
     }
     return new Promise((resolve) => {
       const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
@@ -323,7 +324,7 @@ export function createErrandClient({
       if (!send(agent, request)) {
         pending.delete(id);
         clearTimer(timer);
-        resolve(failed('disconnected'));
+        resolve(failed(CODE.DISCONNECTED));
         return;
       }
       log.info('errands: sent', { agent, id, model, preambleFiles: preamble.files, preambleChars: preamble.chars });
@@ -336,18 +337,18 @@ export function createErrandClient({
   }
 
   async function ping(agent) {
-    if (closed || !socketOf(agent)) return { ok: false, error: 'not-configured' };
+    if (closed || !socketOf(agent)) return { ok: false, error: CODE.NOT_CONFIGURED };
     try {
       await open(agent);
     } catch (err) {
-      return { ok: false, error: err?.code === 'not-configured' ? 'not-configured' : 'disconnected' };
+      return { ok: false, error: err?.code === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED };
     }
     return new Promise((resolve) => {
       const waiter = { resolve, timer: null };
       waiter.timer = setTimer(() => {
         const list = pings.get(agent) ?? [];
         pings.set(agent, list.filter((entry) => entry !== waiter));
-        resolve({ ok: false, error: 'timeout' });
+        resolve({ ok: false, error: CODE.TIMEOUT });
       }, PING_TIMEOUT_MS);
       waiter.timer?.unref?.();
       pings.set(agent, [...(pings.get(agent) ?? []), waiter]);
@@ -355,7 +356,7 @@ export function createErrandClient({
       if (!send(agent, { op: 'ping', ids })) {
         clearTimer(waiter.timer);
         pings.set(agent, (pings.get(agent) ?? []).filter((entry) => entry !== waiter));
-        resolve({ ok: false, error: 'disconnected' });
+        resolve({ ok: false, error: CODE.DISCONNECTED });
       }
     });
   }

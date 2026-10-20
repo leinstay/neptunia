@@ -18,6 +18,7 @@ import { NONE, reloadNote } from './shared.js';
 import { skillNames, skillRegistry } from '../skills/registry.js';
 import { NOT_GRANTABLE_TO_PERSONA } from '../skills/access.js';
 import { defineOp, perEnv, invalid, denied, listOps } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /**
  * Every key `/nep access grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
@@ -118,7 +119,7 @@ const handlers = perEnv((env) => {
   function refuseSelfChange(name, what, context) {
     if (context?.actor !== 'persona') return;
     const reachesHer = targetsPersona(what) || what?.everyone === true || (what?.roleId != null && personaRoleIds(context).includes(String(what.roleId)));
-    if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, 'self-grant');
+    if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
   }
 
   /** `bot.access` as of the last write (`localOrLive`): config.local.json already holds the whole
@@ -152,8 +153,8 @@ const handlers = perEnv((env) => {
   /** A grant to the persona (expandPersonaGrant): every skill by name, a group or `*` its reads. */
   function grantToPersona(key, target) {
     const expanded = expandPersonaGrant(key);
-    if (!expanded) throw invalid(`unknown skill: ${key}`, 'unknown-skill');
-    if (expanded.refused.length > 0) throw invalid(`${key} cannot be granted to the persona yet (irreversible or administrative)`, 'not-grantable');
+    if (!expanded) throw invalid(`unknown skill: ${key}`, CODE.UNKNOWN_SKILL);
+    if (expanded.refused.length > 0) throw invalid(`${key} cannot be granted to the persona yet (irreversible or administrative)`, CODE.NOT_GRANTABLE);
     if (expanded.names.length === 0) throw invalid(`${key} covers no read skill open to a group grant; grant it by its name`);
     let next = effectiveAccess();
     for (const name of expanded.names) next = accessGrant(next, name, target.what, { from: expanded.from });

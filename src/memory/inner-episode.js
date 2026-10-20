@@ -99,7 +99,7 @@ const FACTS_JOIN = '; ';
  * @param {object} labels
  */
 export function feedbackText(episode, labels) {
-  return (Array.isArray(episode?.feedback) ? episode.feedback : []).map((fact) => feedbackFactText(fact, labels?.wake)).filter(Boolean).join(FACTS_JOIN);
+  return (Array.isArray(episode?.feedback) ? episode.feedback : []).map((fact) => feedbackFactText(fact, labels?.wake, { labels })).filter(Boolean).join(FACTS_JOIN);
 }
 
 /** What her call asked, for a finding's line: the query, the url or the question. */

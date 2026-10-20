@@ -80,6 +80,7 @@ import { localHour } from '../format.js';
 import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
+import { CODE } from '../skills/codes.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback']);
@@ -131,7 +132,7 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'd
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand, a diary entry. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run', 'diary.post']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed']);
+export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'diagnostic']);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
 const CALL_STATUSES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
 /** The most facts one turn is shown; the rest stay for the next one. */
@@ -147,7 +148,8 @@ export const FACTS_SHOWN_MAX = 12;
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
  * to the result's `inner.intentIds`; `intentionId`,
  * `purpose` from `intentions` when known); `loopCut` when the loop ended by its step or time
- * bound with calls dropped (`cut`, `droppedCalls`, `steps`). [] when nothing is wrong. Pure.
+ * bound with calls dropped (`cut`, `droppedCalls`, `steps`); one `diagnostic` per parser diagnostic of her output that
+ * no later step showed her (`inner.diagnostics`; `diagnostic` its kind). [] when nothing is wrong. Pure.
  * @param {object|null} turnResult
  * @param {{ named?: string[], posting?: readonly string[], intentions?: object[] }} [options]
  * @returns {object[]}
@@ -167,7 +169,7 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     const refused = action.status === 'refused';
     const result = typeof action.result === 'string' ? action.result : 'ok';
     if (!refused && result === 'ok') continue;
-    const status = refused ? 'refused' : result === 'timeout' || action.code === 'timeout' ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
+    const status = refused ? 'refused' : result === 'timeout' || action.code === CODE.TIMEOUT ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
     facts.push({ kind: 'callFailed', skill: action.skill, status, code: typeof action.code === 'string' && action.code ? action.code : null, ...(typeof action.text === 'string' && action.text ? { text: action.text } : {}) });
   }
   const delivered = actions.some((action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill));
@@ -184,6 +186,13 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
   const loop = inner.loop;
   if (loop && typeof loop.cut === 'string' && loop.cut && Number.isFinite(loop.droppedCalls) && loop.droppedCalls > 0) {
     facts.push({ kind: 'loopCut', cut: loop.cut, droppedCalls: loop.droppedCalls, steps: Number.isFinite(loop.steps) ? loop.steps : 0 });
+  }
+  // What the parser did with her output that no later step told her (src/llm/parse.js diagnostics).
+  for (const diagnostic of list(inner.diagnostics)) {
+    if (diagnostic && typeof diagnostic.kind === 'string') {
+      const { kind, ...rest } = diagnostic;
+      facts.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
+    }
   }
   return facts;
 }
@@ -581,7 +590,7 @@ export function turnsToday(state, { now, timezone }) {
  * failure is younger than `retry.maxHours`, else `drop`. `n` is the attempt number that failed.
  * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
  */
-export function planRetry(group, at, settings, code = 'error') {
+export function planRetry(group, at, settings, code = CODE.ERROR) {
   const n = group.reduce((most, wake) => Math.max(most, Number.isInteger(wake.retry) ? wake.retry : 0), 0) + 1;
   const firstFailedAt = group.reduce((first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at), at);
   const { delaysMinutes, maxHours } = settings.retry;
@@ -714,14 +723,44 @@ export function createInnerLife({
     const key = String(guildId);
     if (!states.has(key)) {
       let raw = null;
+      let lost = null;
       try {
         raw = JSON.parse(fs.readFileSync(fileOf(key), 'utf8'));
       } catch (err) {
-        if (err?.code !== 'ENOENT') log.warn('inner: state unreadable, starting empty', { guildId: key, code: err?.code ?? 'parse' });
+        if (err?.code !== 'ENOENT') lost = err?.code ?? 'parse';
       }
-      states.set(key, normalizeState(raw));
+      const state = normalizeState(raw);
+      states.set(key, state);
+      if (lost !== null) loseState(key, state, lost);
     }
     return states.get(key);
+  }
+
+  /**
+   * The state file could not be read: it is moved aside (`inner.json.bad-<ts>`, never overwritten),
+   * the loss is logged and journalled, and a `stateLost` fact tells her at her next turn that she
+   * started empty. Never a silent empty start. Never throws.
+   */
+  function loseState(key, state, code) {
+    const at = now();
+    const backup = `${fileOf(key)}.bad-${at}`;
+    let kept = true;
+    try {
+      fs.renameSync(fileOf(key), backup);
+    } catch (err) {
+      kept = false;
+      log.warn('inner: unreadable state could not be moved aside', { guildId: key, code: err?.code ?? null });
+    }
+    log.warn('inner: state unreadable, starting empty', { guildId: key, code, kept });
+    note(key, { event: 'stateLost', code, kept });
+    addFact(state, { at, kind: 'stateLost', code, channelId: null, privateChat: false });
+    // Written only when the old file is safe aside; if it could not be moved it stays where it is.
+    if (!kept) return;
+    try {
+      writeJsonAtomic(fileOf(key), state);
+    } catch (err) {
+      log.warn('inner: state write failed', { guildId: key, code: err?.code ?? null });
+    }
   }
 
   function save(guildId) {
@@ -1130,12 +1169,12 @@ export function createInnerLife({
       };
       const channel = await Promise.resolve(client?.channels?.fetch?.(String(channelId))).catch(() => null);
       if (!channel) {
-        fail('unavailable');
+        fail(CODE.UNAVAILABLE);
         continue;
       }
       // A private chat only while private chats are on (features.privateMessages, read now).
       if (!channel.guild && hot.config?.features?.privateMessages !== true) {
-        fail('dm-off');
+        fail(CODE.DM_OFF);
         continue;
       }
       if (channel.guild && !readOnlyOk && typeof discord?.canSend === 'function') {
@@ -1146,7 +1185,7 @@ export function createInnerLife({
           writable = false;
         }
         if (!writable) {
-          fail('not-writable');
+          fail(CODE.NOT_WRITABLE);
           continue;
         }
       }
@@ -1347,7 +1386,7 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : 'error') : null;
+    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
     after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode, failed: true } : {}) });
     // Each attention woken for counts the wake on its day (its own per-day bound).
     if (typeof intentions?.countAttendWake === 'function') {
@@ -1511,7 +1550,7 @@ export function createInnerLife({
 
   /** The kill switch: stopped (persisted), the queue dropped (journalled). */
   function stop(guildId = getGuildId(), { by = null } = {}) {
-    if (!guildId) return { ok: false, code: 'no-guild' };
+    if (!guildId) return { ok: false, code: CODE.NO_GUILD };
     const state = stateOf(guildId);
     const at = now();
     const queued = state.queue.filter((wake) => !running.has(wake.id));
@@ -1529,7 +1568,7 @@ export function createInnerLife({
 
   /** The kill switch released (persisted). */
   function start(guildId = getGuildId(), { by = null } = {}) {
-    if (!guildId) return { ok: false, code: 'no-guild' };
+    if (!guildId) return { ok: false, code: CODE.NO_GUILD };
     const state = stateOf(guildId);
     const already = !state.stopped;
     state.stopped = false;
@@ -1608,7 +1647,7 @@ export function createInnerLife({
       attention,
       next: nextWakeOf(state, open, at),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
-      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : 'error' } : null,
+      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR } : null,
     };
   }
 

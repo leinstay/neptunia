@@ -16,7 +16,9 @@
 // instead of waiting as a call of its own: the decision is the merge
 // classifier's (src/behavior/pipeline.js), parsed here (parseMergeAnswer).
 // In-memory only, never persisted -- a restart forgetting every pending call
-// is fine.
+// is fine. A call that leaves the queue without its turn (evicted when full, expired,
+// outranked) is not lost with it: the pipeline notes it as a missed fact with that
+// code (src/behavior/missed.js), which the missed-answer recovery owes like a dropped turn.
 //
 // The orchestration (when to enqueue, when and how to drain the queue once a
 // turn finishes, the actual ignore decision, the merge request) lives in

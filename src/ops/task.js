@@ -23,6 +23,7 @@ import { MINUTE_MS } from '../time.js';
 import { fileHandle, isOpenState, isToolTask } from '../errands/store.js';
 import { DEFAULT_RESULT_MAX_CHARS } from '../errands/blocks.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** How many tasks `task.list` shows. */
 export const TASK_LIST_COUNT = 10;
@@ -31,12 +32,12 @@ const GOAL_LINE_CHARS = 80;
 
 /** The refusal codes of the task store and service, as an operation's status. */
 const REFUSALS = Object.freeze({
-  'cap-open': 'failed',
-  'cap-tasks': 'failed',
-  'not-configured': 'failed',
-  'no-guild': 'failed',
-  'unknown-agent': 'invalid',
-  'bad-goal': 'invalid',
+  [CODE.CAP_OPEN]: 'failed',
+  [CODE.CAP_TASKS]: 'failed',
+  [CODE.NOT_CONFIGURED]: 'failed',
+  [CODE.NO_GUILD]: 'failed',
+  [CODE.UNKNOWN_AGENT]: 'invalid',
+  [CODE.BAD_GOAL]: 'invalid',
 });
 
 const handlers = perEnv((env) => {
@@ -44,7 +45,7 @@ const handlers = perEnv((env) => {
 
   /** The errand service, or an Error naming what is missing. */
   function errands() {
-    if (!env.errands || typeof env.errands.submit !== 'function') throw Object.assign(new Error('the errand agents are not running'), { code: 'not-configured' });
+    if (!env.errands || typeof env.errands.submit !== 'function') throw Object.assign(new Error('the errand agents are not running'), { code: CODE.NOT_CONFIGURED });
     return env.errands;
   }
 
@@ -96,7 +97,7 @@ const handlers = perEnv((env) => {
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
     // Only an owner may have this machine read, through the persona or not.
-    if (agent === 'server' && requester.kind !== 'owner') throw denied('only an owner may ask for the server agent', 'owner-only');
+    if (agent === 'server' && requester.kind !== 'owner') throw denied('only an owner may ask for the server agent', CODE.OWNER_ONLY);
     const scope = inPrivate(context) ? 'dm' : 'group';
     // Her own call carries its turn and its idempotency key (src/skills/executors.js); a command neither.
     const persona = context?.actor === 'persona';
@@ -112,17 +113,17 @@ const handlers = perEnv((env) => {
     // An intention of the same turn waiting for the errand it hands off is linked to it now
     // (src/intentions/service.js#linkTurnTask); a refused errand above links nothing.
     if (origin.turnId) env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
-    return { status: 'ok', code: 'ok', summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };
+    return { status: 'ok', code: CODE.OK, summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };
   }
 
   /** `/nep task status [id]`: one task, or every open one. */
   function cmdStatus(args, context) {
     const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: 'no-guild' });
+    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const id = String(args?.id ?? '').trim();
     if (id) {
       const task = store.get(id);
-      if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+      if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
       const lines = [taskLine(task)];
       if (task.state === 'done' && task.result) {
         lines.push(`result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`);
@@ -140,11 +141,11 @@ const handlers = perEnv((env) => {
   /** A finished task of the caller's view, or an `invalid` error: not found, a tool agent's, not viewable, still open. */
   function finishedTask(args, context) {
     const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: 'no-guild' });
+    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const id = String(args?.id ?? '').trim();
     if (!id) throw invalid('an id is required');
     const task = store.get(id);
-    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     if (isOpenState(task.state)) throw invalid(`task ${id} is still ${task.state}`);
     return { store, task };
   }
@@ -193,21 +194,21 @@ const handlers = perEnv((env) => {
     const service = errands();
     const store = service.store(resolvedGuildId(context));
     const task = store?.get(id) ?? null;
-    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
-    if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', 'not-requester');
+    if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
     // Who cancelled it, for the ledger's close reason.
     const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
     const cancelled = service.cancel({ guildId: resolvedGuildId(context), id, by });
-    if (!cancelled.ok) return { status: 'failed', code: cancelled.code, summary: `task ${id}: ${cancelled.code === 'not-open' ? `already ${task.state}` : cancelled.code}`, data: null };
+    if (!cancelled.ok) return { status: 'failed', code: cancelled.code, summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${task.state}` : cancelled.code}`, data: null };
     return `task ${id}: cancelled`;
   }
 
   /** `/nep task list`: the latest TASK_LIST_COUNT tasks, newest first. */
   function cmdList(args, context) {
     const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: 'no-guild' });
+    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const tasks = store.recent(TASK_LIST_COUNT * 3).filter((task) => mayView(task, context)).slice(0, TASK_LIST_COUNT);
     return tasks.length > 0 ? tasks.map(taskLine).join('\n') : 'no tasks yet';
   }

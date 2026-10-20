@@ -38,6 +38,7 @@ import { getOp, listOps } from './ops/registry.js';
 import { grantKeys, migrateStoredGrants } from './ops/access.js';
 import { skillNames } from './skills/registry.js';
 import { SELF_OWNED_OPS } from './ops/effects.js';
+import { CODE } from './skills/codes.js';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
 
@@ -202,7 +203,7 @@ export function createAdmin(deps) {
   async function run(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
     if (!target) throw new Error(`unknown command: ${commandKey}`);
-    if (target.invalid) throw Object.assign(new Error(target.invalid), { code: 'invalid-args', status: 'invalid' });
+    if (target.invalid) throw Object.assign(new Error(target.invalid), { code: CODE.INVALID_ARGS, status: 'invalid' });
     return render(await runOpPrechecked(target.op, target.args, { ...context, env }));
   }
 
@@ -215,8 +216,8 @@ export function createAdmin(deps) {
    */
   async function runCommand(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
+    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
     return runOp(target.op, target.args, { ...context, env });
   }
 
@@ -229,9 +230,9 @@ export function createAdmin(deps) {
    */
   async function runOwnCommand(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
-    if (!SELF_OWNED_OPS.includes(target.op)) return { status: 'denied', code: 'not-self-owned', summary: `${target.op} is not the persona's own`, data: null };
+    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
+    if (!SELF_OWNED_OPS.includes(target.op)) return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${target.op} is not the persona's own`, data: null };
     return runOpPrechecked(target.op, target.args, { ...context, env });
   }
 
@@ -243,8 +244,8 @@ export function createAdmin(deps) {
    */
   async function runInitiativeCommand(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
+    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
     return runOpPrechecked(target.op, target.args, { ...context, env });
   }
 

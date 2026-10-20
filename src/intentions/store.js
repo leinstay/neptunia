@@ -16,6 +16,7 @@ import path from 'node:path';
 import { log as defaultLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { checkInvariants, concernsMember, isOpen } from './model.js';
+import { CODE } from '../skills/codes.js';
 
 /** The closed intentions the file keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
@@ -83,13 +84,13 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
   function add(record) {
     const broken = checkInvariants(record);
     if (broken) return { ok: false, code: broken };
-    if (state.list.some((kept) => kept.id === record.id)) return { ok: false, code: 'duplicate-id' };
+    if (state.list.some((kept) => kept.id === record.id)) return { ok: false, code: CODE.DUPLICATE_ID };
     const next = pruned([...state.list, copy(record)]);
     try {
       persist(next);
     } catch (err) {
       log.warn('intentions: write failed', { guildId: String(guildId), code: err?.code ?? null });
-      return { ok: false, code: 'write-failed' };
+      return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
     return { ok: true, intention: copy(record) };
@@ -102,16 +103,16 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
    */
   function update(id, move) {
     const index = state.list.findIndex((record) => record.id === String(id ?? ''));
-    if (index < 0) return { ok: false, code: 'not-found' };
+    if (index < 0) return { ok: false, code: CODE.NOT_FOUND };
     const result = move(copy(state.list[index]));
-    if (!result?.ok) return result ?? { ok: false, code: 'bad-move' };
+    if (!result?.ok) return result ?? { ok: false, code: CODE.BAD_MOVE };
     if (result.changed !== true) return { ok: true, intention: copy(state.list[index]), changed: false };
     const next = pruned(state.list.map((record, i) => (i === index ? copy(result.intention) : record)));
     try {
       persist(next);
     } catch (err) {
       log.warn('intentions: write failed', { guildId: String(guildId), id: String(id), code: err?.code ?? null });
-      return { ok: false, code: 'write-failed' };
+      return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
     return { ok: true, intention: copy(result.intention), changed: true };

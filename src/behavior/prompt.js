@@ -104,6 +104,8 @@ import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
+import { CODE, reasonText } from '../skills/codes.js';
+import { diagnosticLines } from './wake.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
@@ -1963,10 +1965,12 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
   const reasons = isPlainObject(words.reasons) ? words.reasons : {};
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   // A deleted message is its own reason of `unknown-message` (the machine reason names it).
-  const reason = (result.reason === 'message-deleted' ? reasons[result.reason] : undefined) ?? reasons[code] ?? reasons.other ?? code;
+  // The same words and values as the call mark (src/skills/codes.js#reasonText); a code without them falls to `other`, then the code itself.
+  const worded = (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ?? reasonText(labels, code, result.values, fill);
+  const reason = worded ?? reasons.other ?? code;
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
   // A reason with its own values (`result.values`: the status a search engine answered with) is filled with them.
-  const lead = typeof word === 'string' ? fill(word, { reason: result.values && typeof reason === 'string' ? fill(reason, result.values) : reason }) : '';
+  const lead = typeof word === 'string' ? fill(word, { reason }) : '';
   let data = '';
   if (result.data) {
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
@@ -3460,8 +3464,10 @@ export function buildRequest(input) {
   if (typeof continueTemplate === 'string' && !channelToken) continueTemplate = withoutSentenceOf(continueTemplate, '{channel}');
   // The calls dropped by the per-step bound since the last step, said once in the step that follows (`labels.task.callsDropped`: `{count}`, `{why}`).
   const droppedLine = input.continuation?.dropped && typeof labels.task?.callsDropped === 'string' && labels.task.callsDropped.trim() ? fill(labels.task.callsDropped, { count: String(input.continuation.dropped.count ?? 0), why: String(input.continuation.dropped.why ?? '') }) : '';
+  // What the parser did with her last answer that she may not know (a call it could not read, a call cut out of a message, a message cut or joined): said once, in the step that follows.
+  const diagnosticsBlock = diagnosticLines(input.continuation?.diagnostics, labels).join('\n');
   const continueTask =
-    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine].filter(Boolean).join('\n') : '';
+    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine, diagnosticsBlock].filter(Boolean).join('\n') : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {

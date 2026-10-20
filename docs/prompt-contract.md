@@ -679,6 +679,7 @@ task.missed                              {missed}: on a recovery turn (trigger k
 task.failedEarlier                       {author} {n} {ago} {code}: an addressed turn in this channel that ended `error` with nothing posted (`context.failedTurnsKept`, 24 h, process memory only). {n} is the message's `#n` in the transcript when it is in view, else its Discord link. One line per failure, appended after the task text; cleared once shown. Without this key the failures are not named
 task.diaryFailedEarlier                  {ago} {code}: a diary post she asked for in an addressed turn of this channel that did not go out (the queued post ran after the turn). One line per post, after the failed turns; cleared once shown
 task.callsDropped                        {count} {why}: added to the task of a loop step when calls were dropped by `maxCallsPerStep` since the last step (`why`: extra-call)
+task.diagnostics                         OPTIONAL: the line that opens what the parser did with her last answer, added to the task of a loop step before one `- ` line per diagnostic (`skills.diagnostics.<kind>`); told once
 task.continue                            {skill}: the whole task of the follow-up that continues a turn after a skill call (`features.followUpContinuation`): the same turn goes on; her messages were delivered; the trigger is not answered again; no more calls; later messages are context; speak only if the outcome changes what people need to know, else `<skip/>`. Without it the earlier follow-up framing is used
 task.continueTools                       {skill}: the whole task of a step of the tool loop (`features.coreTools`) that may still call: the same turn goes on; what the calls gave back is in the `<result>` blocks; answer from it or call again. Without it `task.continue` is used
 task.continueToolsLast                   {skill}: the whole task of the last step of the tool loop (its steps or its time spent): as `task.continueTools`, but no call will run. Without it `task.continue` is used
@@ -733,6 +734,9 @@ wake.feedback.wakeDroppedKind            {kind} {code} {why}: the same for a wak
 wake.feedback.wakeHeld                   {kind} {code} {id} {purpose} {until}: a wake held on a cap (`per-chain`, `attend-per-day`), and when it can run (the local midnight, date and clock in `bot.timezone`)
 wake.feedback.turnFailed                 {code} {kind}: the turn ended error or refused (`code`: its error code), for the wake of that kind
 wake.feedback.sendFailed                 {code} {n} {total}: a message of an addressed turn did not go out; n of total went out
+wake.feedback.sendUnknown                OPTIONAL {code} {n} {total}: the same for a send whose answer never came and whose message her next turn did not find among her own lines (it may have gone out); without it `sendFailed` is used
+wake.feedback.stateLost                  {code}: the inner state file could not be read (the file is kept aside) and she started empty
+wake.feedback.diagnostic                 not a label: a kept parser diagnostic is worded by `skills.diagnostics.<kind>` (`diagnostic` on the fact names the kind)
 wake.feedback.codes.<sub-code>           the words for the sub-codes above, in `{why}`
 wake.here                                {channel} {why}: the current channel (`#name`) and why it was chosen (one of `destination`, `asked`, `attend`, `errand`, `feedback`). Without it the line is left out
 wake.hereNone                            shown when no current channel exists this wake (a review or a wake with no place); posting needs `message.create` with a channel. Without it the line is left out
@@ -777,8 +781,12 @@ peopleNow.activityTrack                  {activity} {track} {artist}: a Spotify 
 peopleNow.attitude                       {score} {band} {reason}: the attitude field's value
 peopleNow.move                           {delta} {date} {reason}: one attitude move from the history
 skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-ambiguous | channel-no-permission | unknown-message | message-deleted | not-own-message | no-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | not-configured | not-grantable | cooldown | self-grant | timeout | candidate-external | candidate-same-turn | candidate-same-chain | target-required | destination-required | no-query | no-link | scheme | private | type | size | http | network | redirects | no-media | turn-cap | unknown-gif | gif-cap | channel-not-visible | gif-failed | empty-query | provider | cap | other    human phrases for the reason codes (`no-media`, `turn-cap`: a `media.look` on a message with nothing to look at / past `media.look.maxPerTurn`; `candidate-external` through `candidate-same-chain`: intention accept refusals, src/intentions/model.js#acceptRefusal; `target-required`: a `<react>` without its target line; `destination-required`: a `<msg>`, `<gif>` or `<draw>` in a turn with no current channel; `no-query`: a `memory.search` that left nothing to search; `no-link` through `redirects`: `web.read` page-fetch outcomes; `channel-not-visible`: a `memory.search` naming a channel she may not search; `gif-failed`: a `message.create` whose text went out but whose GIF did not (status `partial`); `empty-query`, `provider` (`{status}`: the last engine status), `cap`: `web.search` failures); a code not in the map falls back to `other`, then to the code itself
+skills.result.reasons.<code>             one entry per code of src/skills/codes.js with group `skill` (the table under "Reason codes"); `tools/labels-catalogue.mjs --check` fails when a code lacks its entry or an entry its code. Values a reason may name: `{status}` (`http`, `provider`), `{what}` (`timeout`, `cap`), `{feature}` (`not-configured`)
+skills.result.params.what | feature      the words a value of `{what}` (chat, page, search, errand, picture) or `{feature}` (web) is told as; a value without an entry is told as it is
 skills.refusals.agentRequired            {arg} {agents}: why a `task.run` call without `agent` did not run, naming the agents it may pick (comma-separated); on the call's mark ahead of every other phrase
 skills.refusals.unknownArg               {arg} {args}: why a call with an argument its skill does not take did not run, naming the arguments the skill takes (comma-separated); on the call's mark ahead of `transcript.callReasons.unknown-arg`. Without it, or for a skill without arguments, that reason is used
+skills.diagnostics.badCall | callInText | messageCut | messagesMerged | thinkUnclosed   one line per parser diagnostic (src/llm/parse.js): {reason} {skill} (`badCall`), {skill} (`callInText`: a `<call>` written inside her `<msg>` is cut out of the post; in code it stays), {chars} (`messageCut`), {count} (`messagesMerged`), none (`thinkUnclosed`: the think never closed, nothing was posted); told in the next step's task when a step follows, else kept as a `diagnostic` fact and shown under `wake.feedbackInTurn`
+skills.diagnostics.reasons.quotes | attribute | name | unclosed   the words for `{reason}` of `badCall`
 skills.tools.lead                        the first line of `<skills_tools>` (`features.coreTools`): her own tools, which come back in the same turn and which later; without it the rows stand alone
 skills.tools.web.source                  {query}: the first line of a `web.search` result (`features.coreTools`): where it came from (her query) and what kind of evidence it is (raw search results: title, link, site, date, snippet per result; the pages not opened)
 skills.tools.web.goal                    {goal}: what she said the search should establish, echoed under the source; left out when she named nothing
@@ -799,6 +807,153 @@ skills.tools.memory.degraded             the first line of a `memory.search` res
 skills.tools.memory.partial              {failed} {total}: the closing line when some of the searches failed or were cut by the time share
 skills.tools.memory.none                 nothing matched
 ```
+
+### Reason codes
+
+Every code the engine emits for a call, a send, a turn or a wake is listed in `src/skills/codes.js`, with the status it
+reports under and the values its wording may name. Emitters import their code from there; a test refuses a string
+literal in a code position. The call mark in the transcript, the `<result>` block and the kept facts read the same
+`skills.result.reasons.<code>` with the same values, so a mark rebuilt from the journal after a restart reads the
+same. The table is generated: `node tools/labels-catalogue.mjs --write` rewrites it, `--check` (CI) fails when the
+catalogue, the labels and the table disagree.
+
+<!-- codes:begin (generated by tools/labels-catalogue.mjs --write; do not edit by hand) -->
+| Code | Status | Values | Wording |
+|---|---|---|---|
+| `ok` | ok | - | none (success) |
+| `shadow` | ok | - | none (internal) |
+| `skills-off` | denied | - | `skills.result.reasons.skills-off` |
+| `feature-off` | denied | - | `skills.result.reasons.feature-off` |
+| `safe-mode` | denied | - | `skills.result.reasons.safe-mode` |
+| `not-allowed` | denied | - | `skills.result.reasons.not-allowed` |
+| `not-grantable` | denied | - | `skills.result.reasons.not-grantable` |
+| `not-granted` | denied | - | `skills.result.reasons.not-granted` |
+| `owner-only` | denied | - | `skills.result.reasons.owner-only` |
+| `unknown-principal` | denied | - | `skills.result.reasons.unknown-principal` |
+| `no-requester` | denied | - | `skills.result.reasons.no-requester` |
+| `mixed-requesters` | denied | - | `skills.result.reasons.mixed-requesters` |
+| `requester-denied` | denied | - | `skills.result.reasons.requester-denied` |
+| `self-grant` | denied | - | `skills.result.reasons.self-grant` |
+| `not-self-owned` | denied | - | `skills.result.reasons.not-self-owned` |
+| `not-requester` | denied | - | `skills.result.reasons.not-requester` |
+| `inner-stopped` | denied | - | `skills.result.reasons.inner-stopped` |
+| `cooldown` | denied | - | `skills.result.reasons.cooldown` |
+| `no-budget` | denied | - | `skills.result.reasons.no-budget` |
+| `daily-cap` | denied | - | `skills.result.reasons.daily-cap` |
+| `channel-no-permission` | denied | - | `skills.result.reasons.channel-no-permission` |
+| `channel-not-visible` | denied | - | `skills.result.reasons.channel-not-visible` |
+| `cap-open` | denied | - | `skills.result.reasons.cap-open` |
+| `cap-tasks` | denied | - | `skills.result.reasons.cap-tasks` |
+| `paused` | denied | - | `skills.result.reasons.paused` |
+| `invalid-args` | invalid | - | `skills.result.reasons.invalid-args` |
+| `unknown-skill` | invalid | - | `skills.result.reasons.unknown-skill` |
+| `unknown-command` | invalid | - | `skills.result.reasons.unknown-command` |
+| `unknown-op` | invalid | - | `skills.result.reasons.unknown-op` |
+| `unknown-member` | invalid | - | `skills.result.reasons.unknown-member` |
+| `unknown-message` | invalid | - | `skills.result.reasons.unknown-message` |
+| `message-deleted` | invalid | - | `skills.result.reasons.message-deleted` |
+| `unknown-file` | invalid | - | `skills.result.reasons.unknown-file` |
+| `unknown-gif` | invalid | - | `skills.result.reasons.unknown-gif` |
+| `unknown-agent` | invalid | - | `skills.result.reasons.unknown-agent` |
+| `unknown-conversation` | invalid | - | `skills.result.reasons.unknown-conversation` |
+| `file-expired` | invalid | - | `skills.result.reasons.file-expired` |
+| `file-elsewhere` | invalid | - | `skills.result.reasons.file-elsewhere` |
+| `target-ambiguous` | invalid | - | `skills.result.reasons.target-ambiguous` |
+| `agent-required` | invalid | - | `skills.result.reasons.agent-required` |
+| `not-own-message` | invalid | - | `skills.result.reasons.not-own-message` |
+| `no-own-message` | invalid | - | `skills.result.reasons.no-own-message` |
+| `target-required` | invalid | - | `skills.result.reasons.target-required` |
+| `destination-required` | invalid | - | `skills.result.reasons.destination-required` |
+| `not-found` | invalid | - | `skills.result.reasons.not-found` |
+| `not-open` | invalid | - | `skills.result.reasons.not-open` |
+| `bad-goal` | invalid | - | `skills.result.reasons.bad-goal` |
+| `bad-sort` | invalid | - | `skills.result.reasons.bad-sort` |
+| `bad-page` | invalid | - | `skills.result.reasons.bad-page` |
+| `bad-time` | invalid | - | `skills.result.reasons.bad-time` |
+| `bad-every` | invalid | - | `skills.result.reasons.bad-every` |
+| `bad-attend` | invalid | - | `skills.result.reasons.bad-attend` |
+| `bad-deadline` | invalid | - | `skills.result.reasons.bad-deadline` |
+| `bad-due` | invalid | - | `skills.result.reasons.bad-due` |
+| `bad-expiry` | invalid | - | `skills.result.reasons.bad-expiry` |
+| `bad-move` | invalid | - | `skills.result.reasons.bad-move` |
+| `bad-provenance` | invalid | - | `skills.result.reasons.bad-provenance` |
+| `attend-with-due` | invalid | - | `skills.result.reasons.attend-with-due` |
+| `attend-with-every` | invalid | - | `skills.result.reasons.attend-with-every` |
+| `every-without-due` | invalid | - | `skills.result.reasons.every-without-due` |
+| `due-after-expiry` | invalid | - | `skills.result.reasons.due-after-expiry` |
+| `not-attend` | invalid | - | `skills.result.reasons.not-attend` |
+| `not-recurring` | invalid | - | `skills.result.reasons.not-recurring` |
+| `no-next` | invalid | - | `skills.result.reasons.no-next` |
+| `no-purpose` | invalid | - | `skills.result.reasons.no-purpose` |
+| `no-task` | invalid | - | `skills.result.reasons.no-task` |
+| `task-ended` | invalid | - | `skills.result.reasons.task-ended` |
+| `wait-without-task` | invalid | - | `skills.result.reasons.wait-without-task` |
+| `terminal` | invalid | - | `skills.result.reasons.terminal` |
+| `duplicate-id` | invalid | - | `skills.result.reasons.duplicate-id` |
+| `candidate-external` | denied | - | `skills.result.reasons.candidate-external` |
+| `candidate-same-turn` | denied | - | `skills.result.reasons.candidate-same-turn` |
+| `candidate-same-chain` | denied | - | `skills.result.reasons.candidate-same-chain` |
+| `empty-query` | invalid | - | `skills.result.reasons.empty-query` |
+| `no-query` | invalid | - | `skills.result.reasons.no-query` |
+| `no-link` | invalid | - | `skills.result.reasons.no-link` |
+| `no-media` | invalid | - | `skills.result.reasons.no-media` |
+| `invalid-action` | invalid | - | `skills.result.reasons.invalid-action` |
+| `invalid-emoji` | invalid | - | `skills.result.reasons.invalid-emoji` |
+| `scheme` | invalid | - | `skills.result.reasons.scheme` |
+| `not-configured` | not_configured | {feature} | `skills.result.reasons.not-configured` |
+| `unsupported` | not_configured | - | `skills.result.reasons.unsupported` |
+| `no-guild` | not_configured | - | `skills.result.reasons.no-guild` |
+| `error` | failed | - | `skills.result.reasons.error` |
+| `timeout` | unknown | {what} | `skills.result.reasons.timeout` |
+| `cap` | failed | {what} | `skills.result.reasons.cap` |
+| `provider` | failed | {status} | `skills.result.reasons.provider` |
+| `http` | failed | {status} | `skills.result.reasons.http` |
+| `network` | failed | - | `skills.result.reasons.network` |
+| `private` | failed | - | `skills.result.reasons.private` |
+| `type` | failed | - | `skills.result.reasons.type` |
+| `size` | failed | - | `skills.result.reasons.size` |
+| `redirects` | failed | - | `skills.result.reasons.redirects` |
+| `turn-cap` | failed | - | `skills.result.reasons.turn-cap` |
+| `runner-down` | failed | - | `skills.result.reasons.runner-down` |
+| `warmup-running` | failed | - | `skills.result.reasons.warmup-running` |
+| `write-failed` | failed | - | `skills.result.reasons.write-failed` |
+| `file-unreadable` | failed | - | `skills.result.reasons.file-unreadable` |
+| `attachment-too-large` | failed | - | `skills.result.reasons.attachment-too-large` |
+| `gif-failed` | partial | - | `skills.result.reasons.gif-failed` |
+| `gif-cap` | failed | - | `skills.result.reasons.gif-cap` |
+| `no-result` | failed | - | `skills.result.reasons.no-result` |
+| `send-failed` | failed | - | `skills.result.reasons.send-failed` |
+| `refused` | failed | - | `skills.result.reasons.refused` |
+| `image-cap` | failed | - | `skills.result.reasons.image-cap` |
+| `image-cap-daily` | failed | - | `skills.result.reasons.image-cap-daily` |
+| `image-cap-user-daily` | failed | - | `skills.result.reasons.image-cap-user-daily` |
+| `image-moderation` | failed | - | `skills.result.reasons.image-moderation` |
+| `image-timeout` | failed | - | `skills.result.reasons.image-timeout` |
+| `image-error` | failed | - | `skills.result.reasons.image-error` |
+| `image-empty` | failed | - | `skills.result.reasons.image-empty` |
+| `unsupported-model` | failed | - | `skills.result.reasons.unsupported-model` |
+| `done` | ok | - | `wake.feedback.codes.done` |
+| `cancelled` | failed | - | `wake.feedback.codes.cancelled` |
+| `expired` | failed | - | `wake.feedback.codes.expired` |
+| `forgotten` | failed | - | `wake.feedback.codes.forgotten` |
+| `dm-off` | failed | - | `wake.feedback.codes.dm-off` |
+| `not-writable` | failed | - | `wake.feedback.codes.not-writable` |
+| `unavailable` | failed | - | `wake.feedback.codes.unavailable` |
+| `no-review-channel` | failed | - | `wake.feedback.codes.no-review-channel` |
+| `pending-full` | failed | - | none (internal) |
+| `pending-expired` | failed | - | none (internal) |
+| `pending-outranked` | failed | - | none (internal) |
+| `wait` | ok | - | none (internal) |
+| `rewait` | ok | - | none (internal) |
+| `recurred` | ok | - | none (internal) |
+| `done-occurrence` | ok | - | none (internal) |
+| `task-missing` | failed | - | none (internal) |
+| `wait-deadline` | failed | - | none (internal) |
+| `disconnected` | failed | - | none (internal) |
+| `closed` | failed | - | none (internal) |
+| `bad-line` | failed | - | none (internal) |
+| `moved` | ok | - | none (internal) |
+<!-- codes:end -->
 
 ## Output
 

@@ -1457,6 +1457,33 @@ test('events: mention.maxPending caps distinct pending channels, dropping the ol
   assert.deepEqual(answeredChannels.sort(), ['c2', 'c3'], 'c1 (the oldest) was evicted once maxPending=2 was exceeded');
 });
 
+test('events: a call evicted from a full pending queue is a pending-full missed fact with its message', async () => {
+  const missed = recordingMissed();
+  const config = baseConfig({ mention: { maxPending: 2 } });
+  const turns = fakeTurns({ isBusy: () => false, isAnyBusy: () => true, runTurn: async () => ({ outcome: 'spoke' }) });
+  const handler = makeHandler({ config, turns, sleep: async () => {}, rng: scripted([0.5, 0.99, 0.5, 0.99]), missed });
+  const guild = fakeGuild();
+  for (const id of ['c1', 'c2', 'c3']) {
+    const channel = fakeChannelWithMessage(id, guild, `m-${id}`);
+    await handler(directPingMessage({ id: `m-${id}`, guild, channel, channelId: id, cleanContent: id }));
+  }
+  assert.deepEqual(missed.facts.map((fact) => [fact.reason, fact.message.id, fact.message.channelId]), [['pending-full', 'm-c1', 'c1']]);
+});
+
+test('events: a call that waited past mention.pendingMinutes is a pending-expired missed fact', async () => {
+  const missed = recordingMissed();
+  const config = baseConfig();
+  const turns = fakeTurns({ isBusy: () => false, isAnyBusy: () => true, runTurn: async () => ({ outcome: 'spoke' }) });
+  const clock = mutableNow(0);
+  const handler = makeHandler({ config, turns, sleep: async () => {}, now: clock, rng: scripted([]), missed });
+  const guild = fakeGuild();
+  const channel = fakeChannelWithMessage('c1', guild, 'm1');
+  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  clock.set(config.mention.pendingMinutes * 60_000 + 1);
+  await handler.drainPending();
+  assert.deepEqual(missed.facts.map((fact) => [fact.reason, fact.message.id]), [['pending-expired', 'm1']]);
+});
+
 // /nep pause: clearPending() drops every queued ping without answering any of them.
 test('events: clearPending empties the pending queue -- drainPending afterwards answers nothing', async () => {
   let called = false;

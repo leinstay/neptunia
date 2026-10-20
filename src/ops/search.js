@@ -11,14 +11,15 @@
 
 import { firstLinkIn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** A tool result as the operation's: ok with its text; anything else `failed` with its code (`what` names the tool in the summary). */
 function asOpResult(result, what = 'search') {
   const text = String(result?.data?.text ?? '');
-  if (result?.status === 'ok') return { status: 'ok', code: 'ok', summary: text, data: { text } };
+  if (result?.status === 'ok') return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
   if (result?.status === 'partial') return { status: 'partial', code: String(result.code ?? 'partial'), summary: text, data: { text } };
-  if (result?.status === 'invalid') throw invalid(`not run: ${result.code ?? 'invalid-args'}`, result.code ?? 'invalid-args');
-  return { status: 'failed', code: String(result?.code ?? 'error'), summary: `${what} not run: ${result?.code ?? 'error'}`, data: null };
+  if (result?.status === 'invalid') throw invalid(`not run: ${result.code ?? CODE.INVALID_ARGS}`, result.code ?? CODE.INVALID_ARGS);
+  return { status: 'failed', code: String(result?.code ?? CODE.ERROR), summary: `${what} not run: ${result?.code ?? CODE.ERROR}`, data: null };
 }
 
 const handlers = perEnv((env) => {

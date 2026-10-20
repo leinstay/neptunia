@@ -318,8 +318,10 @@ test('parseOutput: a <call> inside <msg>, <draw>, <think>, code or a quote is ne
     assert.equal(result.call, null, raw);
     assert.equal(result.extraCalls, 0, raw);
   }
-  // The persona's message keeps its text as written.
-  assert.equal(parseOutput(inside[0]).messages[0].text, 'κοίτα <call skill="message.delete" message="#3"/>');
+  // A call written inside her message is not posted either: the message goes without it, and the parser says so.
+  const written = parseOutput(inside[0]);
+  assert.equal(written.messages[0].text, 'κοίτα');
+  assert.deepEqual(written.diagnostics, [{ kind: 'callInText', skill: 'message.delete', where: 'msg' }]);
 });
 
 test('parseOutput: two calls keep the first one and count the others', () => {
@@ -329,7 +331,7 @@ test('parseOutput: two calls keep the first one and count the others', () => {
   // `calls`: every well-formed one in order, the first first (the tool loop of features.coreTools).
   assert.deepEqual(result.calls.map((call) => call.skill), ['memory.read', 'status.show', 'skills.list']);
   assert.deepEqual(parseOutput('<call skill="a.b"/><call skill=bad/><call skill="c.d"/>').calls.map((call) => call.skill), ['a.b', 'c.d'], 'a malformed later one is left out');
-  assert.deepEqual(parseOutput('<call skill=bad/><call skill="c.d"/>').calls, [], 'a malformed first one: none, as `call`');
+  assert.deepEqual(parseOutput('<call skill=bad/><call skill="c.d"/>').calls.map((call) => call.skill), ['c.d'], 'a malformed first one does not empty the others');
   assert.deepEqual(parseOutput('<msg>ναι</msg>').calls, []);
 });
 
@@ -340,20 +342,21 @@ test('parseOutput: a message inside a call body is the call\'s text, never poste
   assert.equal(result.skip, false);
 });
 
-test('parseOutput: a malformed first call is no call (callError), and the reply stands', () => {
+test('parseOutput: a malformed call is no call (callError) and a diagnostic with its reason, and the reply stands', () => {
   const malformed = [
-    '<call skill=status.show/>',
-    '<call skill="status.show" skill="skills.list"/>',
-    '<call member="Zoë"/>',
-    '<call skill="Status Show"/>',
-    '<call skill="message.send">never closed',
-    '<call skill="status.show" x=\'1\'/>',
+    ['<call skill=status.show/>', { kind: 'badCall', reason: 'quotes' }],
+    ['<call skill="status.show" skill="skills.list"/>', { kind: 'badCall', reason: 'attribute' }],
+    ['<call member="Zoë"/>', { kind: 'badCall', reason: 'name' }],
+    ['<call skill="Status Show"/>', { kind: 'badCall', reason: 'name' }],
+    ['<call skill="message.send">never closed', { kind: 'badCall', reason: 'unclosed', skill: 'message.send' }],
+    ['<call skill="status.show" x=\'1\'/>', { kind: 'badCall', reason: 'quotes' }],
   ];
-  for (const raw of malformed) {
+  for (const [raw, diagnostic] of malformed) {
     const result = parseOutput(`<msg>ναι</msg>${raw}`);
     assert.equal(result.call, null, raw);
     assert.equal(result.callError, 'malformed', raw);
     assert.deepEqual(result.messages.map((m) => m.text), ['ναι'], raw);
+    assert.deepEqual(result.diagnostics, [diagnostic], raw);
   }
   // Nothing else in the output: silence, never a fallback message made of the tag.
   assert.equal(parseOutput('<call skill=status.show/>').skip, true);
@@ -375,4 +378,52 @@ test('parseOutput: untagged marks the plain-text fallback message only', () => {
 test('parseOutput: a <call> body wrapped in CDATA is unwrapped', () => {
   const out = parseOutput('<call skill="memory.search"><![CDATA[\nτι είπε η Ana;\nterms: λαγός\n]]></call>');
   assert.equal(out.call.body, 'τι είπε η Ana;\nterms: λαγός');
+});
+
+// ---- diagnostics: everything the parser did not use is accounted for ---------------------
+
+test('parseOutput: a malformed first <call> never empties the well-formed ones after it, and each bad one is its own diagnostic', () => {
+  const result = parseOutput('<call skill=bad/><call skill="a.b" x="1">t</call><call skill="c.d" y=\'2\'/><call skill="e.f"/>');
+  assert.deepEqual(result.calls.map((call) => call.skill), ['a.b', 'e.f']);
+  assert.equal(result.call.skill, 'a.b');
+  assert.equal(result.extraCalls, 1);
+  assert.equal(result.callError, 'malformed');
+  assert.deepEqual(result.diagnostics, [{ kind: 'badCall', reason: 'quotes' }, { kind: 'badCall', reason: 'quotes' }]);
+  assert.deepEqual(parseOutput('<call skill="a.b"/>').diagnostics, []);
+});
+
+test('parseOutput: CDATA is unwrapped wherever it sits in a call body, and a </call> inside it does not end the call', () => {
+  const mixed = parseOutput('<call skill="memory.search">before <![CDATA[a </call> <msg>b</msg>]]> after</call><msg>ναι</msg>');
+  assert.deepEqual(mixed.call, { skill: 'memory.search', args: {}, body: 'before a </call> <msg>b</msg> after' });
+  assert.deepEqual(mixed.messages.map((m) => m.text), ['ναι']);
+  assert.equal(mixed.callError, null);
+  const two = parseOutput('<call skill="a.b"><![CDATA[x]]> and <![CDATA[y]]></call>');
+  assert.equal(two.call.body, 'x and y');
+  // An unclosed CDATA stays as written.
+  assert.equal(parseOutput('<call skill="a.b"><![CDATA[x</call>').call.body, '<![CDATA[x');
+  // A call inside a CDATA section at the top level is text, not a call.
+  assert.equal(parseOutput('<msg>ναι</msg><![CDATA[<call skill="a.b"/>]]>').call, null);
+});
+
+test('parseOutput: a <call> written inside a <msg> is cut out of the message and told; in a code span it stays as typed and is told', () => {
+  const inMsg = parseOutput('<msg>πρώτο <call skill="message.delete" message="#3"/> δεύτερο</msg><msg><call skill="status.show"></call></msg>');
+  assert.deepEqual(inMsg.messages.map((m) => m.text), ['πρώτο δεύτερο'], 'a message that held only the call is no message');
+  assert.deepEqual(inMsg.diagnostics, [{ kind: 'callInText', skill: 'message.delete', where: 'msg' }, { kind: 'callInText', skill: 'status.show', where: 'msg' }]);
+  assert.equal(inMsg.call, null);
+  const lone = parseOutput('<msg>a <call skill="x.y"> b</msg>');
+  assert.deepEqual([lone.messages[0].text, lone.diagnostics.length], ['a b', 1]);
+  const code = parseOutput('<msg>γράψε `<call skill="status.show"/>` έτσι</msg>');
+  assert.equal(code.messages[0].text, 'γράψε `<call skill="status.show"/>` έτσι');
+  assert.deepEqual(code.diagnostics, [{ kind: 'callInText', skill: 'status.show', where: 'code' }], 'a code span is her quoting: left as typed, still told it did not run');
+  const fenced = parseOutput('<msg>κώδικας</msg>\n```\n<call skill="status.show"/>\n```');
+  assert.deepEqual(fenced.diagnostics, [{ kind: 'callInText', skill: 'status.show', where: 'code' }]);
+});
+
+test('parseOutput: a cut message, joined messages and an unclosed <think> are diagnostics', () => {
+  const cut = parseOutput(`<msg>${'α'.repeat(1950)}</msg>`);
+  assert.deepEqual(cut.diagnostics, [{ kind: 'messageCut', chars: 50 }]);
+  const merged = parseOutput('<msg>1</msg><msg>2</msg><msg>3</msg><msg>4</msg><msg>5</msg>');
+  assert.deepEqual(merged.diagnostics, [{ kind: 'messagesMerged', count: 2 }]);
+  assert.deepEqual(parseOutput('<think>σχέδιο').diagnostics, [{ kind: 'thinkUnclosed' }]);
+  assert.deepEqual(parseOutput('<think>σχέδιο</think><msg>ναι</msg>').diagnostics, []);
 });

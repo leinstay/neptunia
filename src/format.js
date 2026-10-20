@@ -12,6 +12,7 @@
 // Time gaps and date changes are spelled out because the model must tell a
 // live conversation from a dead chat that somebody has just poked.
 
+import { reasonText } from './skills/codes.js';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './media/classify.js';
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
@@ -603,8 +604,11 @@ function callReason(mark, labels) {
   // Before any generic phrase: the operation's own message, as it said it (one line, already cut),
   // which names what exactly went wrong.
   if (typeof detail.text === 'string' && detail.text) return detail.text;
-  const generic = [lookup(coded, detail.code), lookup(coded, 'other')].find(usable);
-  return generic ? fill(generic, { arg, channel, ...fields }) : '';
+  // The code's own words with its values (src/skills/codes.js#reasonText, the lookup the `<result>` block shares), else `other`.
+  const worded = reasonText(labels, detail.code, { ...(arg ? { arg } : {}), ...(channel ? { channel } : {}), ...fields }, fill);
+  if (worded) return worded;
+  const other = lookup(coded, 'other');
+  return usable(other) ? fill(other, { arg, channel, ...fields }) : '';
 }
 
 /**

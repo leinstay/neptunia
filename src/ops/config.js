@@ -7,6 +7,7 @@ import { isOwnerId } from './grants.js';
 import { governsPersona } from './rights.js';
 import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, touchesOwnerOnlyConfig, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, editLocalConfig, writeLocalPath } = env;
@@ -17,7 +18,7 @@ const handlers = perEnv((env) => {
    * controls (src/ops/rights.js#governsPersona) is refused whoever asked. */
   function assertMayChangeConfig(parts, context) {
     if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
-      throw denied(`the persona never changes ${parts.join('.')}`, 'self-grant');
+      throw denied(`the persona never changes ${parts.join('.')}`, CODE.SELF_GRANT);
     }
     if (touchesOwnerOnlyConfig(parts) && !isOwnerId(hot.config, context?.userId)) {
       throw denied(`only an owner may change ${parts.join('.')}`);

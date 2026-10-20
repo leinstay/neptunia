@@ -17,7 +17,10 @@
 //                              features.coreTools runs several, src/behavior/turn.js).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message (`untagged`), an unterminated <think> (output cut by max_tokens) means
-// silence (`thinkOpen`, its text so far kept in `think` for the journal).
+// silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
+// what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
+// (`badCall` with its `reason`, `callInText`, `messageCut`, `messagesMerged`, `thinkUnclosed`),
+// so the caller can tell the persona what happened to her output (src/behavior/turn.js).
 
 import { clampAtBoundary } from '../memory/clamp.js';
 
@@ -57,7 +60,11 @@ function maskNested(text) {
   return masked;
 }
 
-/** The attributes of a <call> (`raw`: what follows its name), or null unless every one is `name="value"`, each once. */
+/**
+ * The attributes of a <call> (`raw`: what follows its name): `{ attrs }` when every one is
+ * `name="value"`, each once; else `{ reason }`: `quotes` (a value in single quotes or none), or
+ * `attribute` (anything else wrong: a repeated name, a stray word).
+ */
 function callAttributes(raw) {
   const rest = raw.replace(/\s+$/, '');
   const attrs = {};
@@ -66,27 +73,35 @@ function callAttributes(raw) {
   while (at < rest.length) {
     CALL_ATTR_RE.lastIndex = at;
     const match = CALL_ATTR_RE.exec(rest);
-    if (!match) return null;
-    if (Object.hasOwn(attrs, match[1])) return null;
+    if (!match) return { reason: /^\s+[A-Za-z][A-Za-z0-9_]*\s*=\s*(?:'|[^"\s])/.test(rest.slice(at)) ? 'quotes' : 'attribute' };
+    if (Object.hasOwn(attrs, match[1])) return { reason: 'attribute' };
     attrs[match[1]] = match[2];
     at = CALL_ATTR_RE.lastIndex;
   }
-  return attrs;
+  return { attrs };
 }
 
-/** A body wrapped whole in a CDATA section: the text inside it. */
+// A CDATA section: its text is the model's own, whatever tags or `</call>` it holds.
+const CDATA_RE = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
+
+/** A call body with every CDATA section unwrapped to the text inside it, wherever it sits. */
 function unwrapCdata(body) {
-  const match = /^<!\[CDATA\[([\s\S]*?)\]\]>$/.exec(body);
-  return match ? match[1].trim() : body;
+  return body.replace(CDATA_RE, (all, inner) => inner).trim();
+}
+
+/** `text` with every CDATA section blanked out, position for position (what no tag in it can mask). */
+function blankCdata(text) {
+  return text.replace(CDATA_RE, (all) => ' '.repeat(all.length));
 }
 
 /**
- * The top-level <call> tags of `text`: `{ calls: [{ start, end, call }] }` in order, `call` null
- * for a malformed one (bad attributes, no or a bad `skill`, never closed). Every tag's span is
- * where it sits in `text`, its body included.
+ * The top-level <call> tags of `text`: `{ calls: [{ start, end, call, error }] }` in order, `call`
+ * null for a malformed one with `error` its reason (`quotes`, `attribute`, `name`, `unclosed`;
+ * `skill` the name when it reads as one). Every tag's span is where it sits in `text`, its body
+ * included; a `</call>` inside a CDATA section does not end the call.
  */
 function findCalls(text) {
-  const masked = maskNested(text);
+  const masked = maskNested(blankCdata(text));
   const found = [];
   CALL_OPEN_RE.lastIndex = 0;
   for (let match = CALL_OPEN_RE.exec(masked); match; match = CALL_OPEN_RE.exec(masked)) {
@@ -105,16 +120,48 @@ function findCalls(text) {
         CALL_OPEN_RE.lastIndex = end;
       }
     }
-    const attrs = closed ? callAttributes(match[1]) : null;
-    const skill = attrs?.skill;
+    const parsed = callAttributes(match[1]);
+    const skill = parsed.attrs?.skill;
+    const named = typeof skill === 'string' && SKILL_NAME_RE.test(skill);
     let call = null;
-    if (attrs && typeof skill === 'string' && SKILL_NAME_RE.test(skill)) {
-      const { skill: _name, ...args } = attrs;
+    let error = null;
+    if (!closed) error = 'unclosed';
+    else if (!parsed.attrs) error = parsed.reason;
+    else if (!named) error = 'name';
+    else {
+      const { skill: _name, ...args } = parsed.attrs;
       call = { skill, args, body: unwrapCdata(body.trim()) };
     }
-    found.push({ start, end, call });
+    found.push({ start, end, call, ...(error ? { error } : {}), ...(error && named ? { skill } : {}) });
   }
   return found;
+}
+
+// A <call> written out in text: whole (self-closing, or closed), the skill name in group 1 when it has one.
+const CALL_IN_TEXT_RE = /<call\b(?=[^>]*?\bskill="([^"]*)")[^>]*?(?:\/>|>[\s\S]*?<\/call\s*>)|<call\b[^>]*?(?:\/>|>[\s\S]*?<\/call\s*>)/gi;
+
+/**
+ * The body of a `<msg>` without the `<call>` tags written in it outside code (they never run, so
+ * they are not posted either): each one is a `callInText` diagnostic (`diagnostics`); a lone
+ * `<call ...>` opening is cut out too. A call in a code span or block stays as typed.
+ */
+function withoutCallsInText(body, diagnostics) {
+  if (!/<call\b/i.test(body)) return body;
+  const parts = body.split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      let out = part.replace(CALL_IN_TEXT_RE, (all, skill) => {
+        diagnostics.push({ kind: 'callInText', ...(skill && SKILL_NAME_RE.test(skill) ? { skill } : {}), where: 'msg' });
+        return '';
+      });
+      out = out.replace(/<call\b[^>]*>/gi, () => {
+        diagnostics.push({ kind: 'callInText', where: 'msg' });
+        return '';
+      });
+      return out === part ? part : out.replace(/[ \t]{2,}/g, ' ');
+    })
+    .join('');
 }
 
 function parseIndex(value) {
@@ -142,17 +189,22 @@ function parseIndex(value) {
  *             gif: {id: string, replyTo: number|null}|null,
  *             call: {skill: string, args: Record<string, string>, body: string}|null,
  *             calls: {skill: string, args: Record<string, string>, body: string}[],
- *             extraCalls: number, callError: 'malformed'|null, thinkOpen: boolean, untagged: boolean }}
- *   `calls`: every well-formed top-level `<call>` in order, `call` first ([] when the first one is
- *   malformed: no later one stands in). `call`: the first top-level `<call>` (its attributes but `skill` as string `args`, its body
- *   trimmed, '' when self-closing or empty); `extraCalls`: how many top-level `<call>` tags
- *   followed it, ignored; `callError`: `malformed` when the first one is not well formed (then
- *   `call` is null and no later one stands in). `thinkOpen`: a `<think>` was never closed --
+ *             extraCalls: number, callError: 'malformed'|null, thinkOpen: boolean, untagged: boolean,
+ *             diagnostics: object[] }}
+ *   `calls`: every well-formed top-level `<call>` in order; a malformed one never takes the others
+ *   with it. `call`: the first well-formed one (its attributes but `skill` as string `args`, its body
+ *   trimmed with CDATA sections unwrapped, '' when self-closing or empty; a `</call>` inside CDATA does
+ *   not end it); `extraCalls`: how many well-formed ones followed it, ignored; `callError`:
+ *   `malformed` when any top-level `<call>` is not well formed. `diagnostics`: what the parser did
+ *   not use, in order -- `{ kind: 'badCall', reason: 'quotes'|'attribute'|'name'|'unclosed', skill? }`,
+ *   `{ kind: 'callInText', skill?, where: 'msg'|'code' }` (a `<call>` written inside a `<msg>` is cut out of it;
+ *   in code it stays), `{ kind: 'messageCut', chars }`, `{ kind: 'messagesMerged', count }`,
+ *   `{ kind: 'thinkUnclosed' }`. `thinkOpen`: a `<think>` was never closed --
  *   silence, with what it held so far appended to `think`. `untagged`: the one message is the
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], untargetedReactions: [], think: '', draw: null, draws: [], gif: null, call: null, calls: [], extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
+  const result = { skip: false, messages: [], reactions: [], untargetedReactions: [], think: '', draw: null, draws: [], gif: null, call: null, calls: [], extraCalls: 0, callError: null, thinkOpen: false, untagged: false, diagnostics: [] };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -165,22 +217,29 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     result.think = [result.think, sofar].filter(Boolean).join('\n');
     result.thinkOpen = true;
     result.skip = true;
+    result.diagnostics.push({ kind: 'thinkUnclosed' });
     return result;
   }
 
   // The top-level <call> tags come out first: their bodies are their own, never a message here.
   const calls = findCalls(text);
   if (calls.length > 0) {
-    result.call = calls[0].call;
-    result.callError = calls[0].call ? null : 'malformed';
-    result.extraCalls = calls.length - 1;
-    result.calls = result.call ? calls.map((found) => found.call).filter(Boolean) : [];
+    // A malformed call is a diagnostic and never empties the others: the well-formed ones stand, in order.
+    result.calls = calls.map((found) => found.call).filter(Boolean);
+    result.call = result.calls[0] ?? null;
+    result.callError = calls.some((found) => !found.call) ? 'malformed' : null;
+    result.extraCalls = Math.max(0, result.calls.length - 1);
+    for (const found of calls) if (!found.call) result.diagnostics.push({ kind: 'badCall', reason: found.error, ...(found.skill ? { skill: found.skill } : {}) });
     for (const { start, end } of [...calls].reverse()) text = `${text.slice(0, start)}${text.slice(end)}`;
+  }
+  // A <call> inside a code span or block (anywhere) is only shown, never run: told, left as typed.
+  for (const code of [...text.matchAll(/```[\s\S]*?(?:```|$)|`[^`\n]*`/g)]) {
+    for (const inner of code[0].matchAll(CALL_IN_TEXT_RE)) result.diagnostics.push({ kind: 'callInText', ...(inner[1] ? { skill: inner[1] } : {}), where: 'code' });
   }
 
   const bodies = [];
   for (const match of text.matchAll(/<msg(\s[^>]*)?>([\s\S]*?)<\/msg>/gi)) {
-    const body = match[2].trim();
+    const body = withoutCallsInText(match[2], result.diagnostics).trim();
     if (!body) continue;
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
     bodies.push({ text: body, replyTo: reply ? parseIndex(reply[1]) : null });
@@ -192,10 +251,13 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     const last = bodies[MAX_MESSAGES - 1];
     last.text = [last.text, ...extra.map((item) => item.text)].join('\n');
     limits?.add({ kind: 'message-merge', where: 'parse', lost: extra.length });
+    result.diagnostics.push({ kind: 'messagesMerged', count: extra.length });
   }
   for (const { text: body, replyTo } of bodies) {
     if (body.length > MAX_MESSAGE_CHARS) {
-      limits?.add({ kind: 'message-cut', where: 'parse', lost: Array.from(body.slice(MAX_MESSAGE_CHARS)).length });
+      const lost = Array.from(body.slice(MAX_MESSAGE_CHARS)).length;
+      limits?.add({ kind: 'message-cut', where: 'parse', lost });
+      result.diagnostics.push({ kind: 'messageCut', chars: lost });
     }
     result.messages.push({ text: body.slice(0, MAX_MESSAGE_CHARS), replyTo });
   }

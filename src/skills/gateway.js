@@ -18,6 +18,7 @@ import { schemaError } from './schema.js';
 import { skillArgs } from './discovery.js';
 import { MINUTE_MS } from '../time.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
+import { CODE } from './codes.js';
 
 /** A refusal. */
 function refused(code, reason) {
@@ -37,7 +38,7 @@ function targetConversation(args, audience) {
  * Null when `skill` may run, else the refusal.
  */
 function noRequesterRefusal(skill) {
-  return skill.kind === 'read' ? null : refused('requester-denied', 'no-requester');
+  return skill.kind === 'read' ? null : refused(CODE.NO_REQUESTER, CODE.NO_REQUESTER);
 }
 
 /**
@@ -54,7 +55,7 @@ function noRequesterRefusal(skill) {
  */
 function requesterRefusal(skill, requester, context) {
   // A turn answering several people at once: no write runs on their mixed authority.
-  if (context?.mixedRequesters === true && skill.kind !== 'read') return refused('requester-denied', 'mixed-requesters');
+  if (context?.mixedRequesters === true && skill.kind !== 'read') return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
   const owners = skill.derived === true || skill.ownerOnly === true;
   if (!owners && (!skill.sharedState || !requester)) return null;
   // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
@@ -65,9 +66,9 @@ function requesterRefusal(skill, requester, context) {
   if (SELF_OWNED_OPS.includes(skill.op)) return null;
   const getOp = context?.getOp ?? registryGetOp;
   const op = skill.op ? getOp(skill.op) : null;
-  if (!op) return refused('requester-denied', 'no-operation');
+  if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
   const code = rightsRefusal(op, { userId: requester?.id ?? null, roleIds: requester?.roleIds ?? [], config: context?.config });
-  return code ? refused('requester-denied', code) : null;
+  return code ? refused(CODE.REQUESTER_DENIED, code) : null;
 }
 
 /**
@@ -92,16 +93,16 @@ const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
 function cooldownRefusal(skill, context) {
   if (skill.effects !== 'destructive' || !Number.isFinite(context?.lastRunAt) || !Number.isFinite(context?.now)) return null;
   const minutes = context.config?.skills?.destructiveCooldownMinutes ?? DESTRUCTIVE_COOLDOWN_MINUTES;
-  return context.now - context.lastRunAt < minutes * MINUTE_MS ? refused('cooldown', 'skills.destructiveCooldownMinutes') : null;
+  return context.now - context.lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes') : null;
 }
 
 /** Null when a paid skill still has budget today, else the refusal. Fails closed. */
 function budgetRefusal(skill, requester, context, args) {
   if (skill.costClass !== 'paid') return null;
   const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester, args) : null;
-  if (!budget || typeof budget !== 'object') return refused('no-budget', 'unavailable');
-  if (budget.spent === true) return refused(typeof budget.code === 'string' && budget.code ? budget.code : 'daily-cap', typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
-  if (budget.userSpent === true) return refused('daily-cap', 'image.maxPerUserPerDay');
+  if (!budget || typeof budget !== 'object') return refused(CODE.NO_BUDGET, 'unavailable');
+  if (budget.spent === true) return refused(typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP, typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
+  if (budget.userSpent === true) return refused(CODE.DAILY_CAP, 'image.maxPerUserPerDay');
   return null;
 }
 
@@ -123,11 +124,11 @@ function budgetRefusal(skill, requester, context, args) {
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
 export function checkSkill({ skill: name, args, principal, requester = null, audience, context = {} }) {
-  if (principal?.kind !== 'persona') return refused('unknown-principal', String(principal?.kind ?? ''));
-  if (!skillsOn(context.config)) return refused('skills-off', 'features.skills');
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, String(principal?.kind ?? ''));
+  if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.skills');
   const registry = context.registry ?? skillRegistry();
   const skill = registry.get(name);
-  if (!skill) return refused('unknown-skill', String(name ?? ''));
+  if (!skill) return refused(CODE.UNKNOWN_SKILL, String(name ?? ''));
 
   const access = skillAccess({
     skill,
@@ -136,7 +137,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
     conversationId: targetConversation(args, null),
     currentConversationId: audience?.conversationId ?? null,
   });
-  if (!access.allowed) return refused(access.reason, access.reason === 'safe-mode' ? 'skills.safeMode' : skill.name);
+  if (!access.allowed) return refused(access.reason, access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name);
 
   // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall); a GIF-only post: no text beside a `gif`.
   const bodyArg = skill.command?.body;
@@ -145,7 +146,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
   const argsError = fileOnly
     ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), { ...skill.argsSchema, required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg) })
     : schemaError(args, skill.argsSchema);
-  if (argsError) return refused('invalid-args', argsError);
+  if (argsError) return refused(CODE.INVALID_ARGS, argsError);
 
   return requesterRefusal(skill, requester, context) ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
 }
@@ -160,9 +161,9 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
 export function checkReplyEffect({ skill, principal, config }) {
-  if (principal?.kind !== 'persona') return refused('unknown-principal', String(principal?.kind ?? ''));
-  if (!skillsOn(config)) return refused('skills-off', 'features.skills');
-  if (!CARRIED_OVER.includes(skill)) return refused('unknown-skill', String(skill ?? ''));
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, String(principal?.kind ?? ''));
+  if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.skills');
+  if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, String(skill ?? ''));
   return { ok: true };
 }
 
@@ -190,7 +191,7 @@ export function listSkills({ config, selfId = null, texts, requester = null, aud
     let { allowed, reason } = skillAccess({ skill, config, selfId, conversationId: current, currentConversationId: current });
     if (allowed && requesterRefusal(skill, requester, { config, getOp })) {
       allowed = false;
-      reason = 'requester-denied';
+      reason = CODE.REQUESTER_DENIED;
     }
     rows.push({ name: skill.name, title, whenToUse, allowed, reason, args: skillArgs(skill) });
   }

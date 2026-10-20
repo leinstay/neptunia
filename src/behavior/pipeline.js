@@ -39,6 +39,7 @@ import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { topByRank } from '../memory/ranking.js';
+import { CODE } from '../skills/codes.js';
 import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from './pending.js';
 import { between } from './random.js';
 import { block, fillPromptTemplate } from './prompt.js';
@@ -1276,6 +1277,19 @@ export function createMessageHandler({
     return { gate: privateGate({ ...input, isMember }), isOwner, replies, today };
   }
 
+  // A recovery turn of the missed-answer registry in a DM passes the same gate, and counts toward the same cap.
+  missed?.setPrivateRecovery?.({
+    allow: async (_channel, trigger) => {
+      const guildId = getGuildId();
+      if (!guildId || hot.config.features?.privateMessages !== true) return false;
+      return (await checkPrivateGate(hot.config, guildId, trigger.authorId)).gate.ok === true;
+    },
+    after: async (channel, trigger, result) => {
+      const guildId = getGuildId();
+      if (guildId) await afterPrivateTurn(channel, guildId, trigger, result);
+    },
+  });
+
   /**
    * A DM the gate refused: dropped silently (the reason is logged), except
    * the daily-cap notice, posted at most once a day per person.
@@ -1355,6 +1369,22 @@ export function createMessageHandler({
    */
   function logEvicted(evicted, maxPending) {
     logPending(evicted, 'dropped', { reason: 'full', pending: pendingList.length, maxPending });
+    noteUnanswered(evicted, CODE.PENDING_FULL);
+  }
+
+  /** The kinds of call somebody waits on an answer for; an overheard line and a routed call are nobody's debt. */
+  const OWED_PING_KINDS = new Set(['mention', 'reply', 'name', 'private', 'followUp']);
+
+  /**
+   * A call that left the pending queue without its turn (evicted `full`, `expired`, `outranked`) is
+   * a missed fact with that code (src/behavior/missed.js), so the missed-answer recovery owes it like
+   * a turn that was dropped. A private message's stays in its chat. Never throws.
+   * @param {{ kind: string, channelId: string, trigger: object, destination?: object }} ping
+   * @param {string} code
+   */
+  function noteUnanswered(ping, code) {
+    if (!missed || !OWED_PING_KINDS.has(ping?.kind) || ping.destination || !ping.trigger?.id) return;
+    missed.noteFact({ reason: code, message: { ...ping.trigger, channelId: ping.trigger.channelId ?? ping.channelId } });
   }
 
   /**
@@ -1405,6 +1435,7 @@ export function createMessageHandler({
     const slot = followUpSlot(pendingList, channelId, kind);
     if (!slot.admit) {
       log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason: 'outranked' });
+      noteUnanswered({ kind, channelId, trigger }, CODE.PENDING_OUTRANKED);
       return;
     }
     if (slot.replaced) dropReplaced(slot.replaced, trigger.id);
@@ -1795,6 +1826,7 @@ export function createMessageHandler({
         const routed = routedFields(ping);
         if (isExpired(ping, now(), mentionCfg.pendingMinutes ?? 10)) {
           logPending(ping, 'expired');
+          noteUnanswered(ping, CODE.PENDING_EXPIRED);
           continue;
         }
 

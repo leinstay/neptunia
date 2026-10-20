@@ -459,6 +459,28 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
   assert.deepEqual(Object.values(onDisk.handled).map((entry) => entry.outcome), ['stale']);
 });
 
+test('inner: a state file that cannot be read is moved aside, journalled and told as a stateLost fact, never a silent empty start', async () => {
+  const dataDir = tempDir('nep-inner-lost-');
+  const dir = path.join(dataDir, 'guilds', GUILD);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'inner.json'), '{"queue": [');
+  const run = setup({ dataDir });
+  const state = run.inner.state(GUILD);
+  assert.deepEqual(state.queue, [], 'she starts empty');
+  const aside = fs.readdirSync(dir).filter((name) => name.startsWith('inner.json.bad-'));
+  assert.equal(aside.length, 1, 'the old file is kept');
+  assert.equal(fs.readFileSync(path.join(dir, aside[0]), 'utf8'), '{"queue": [');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'inner.json'), 'utf8')).facts.map((fact) => [fact.kind, fact.code, fact.told]), [['stateLost', 'parse', false]]);
+  await settle();
+  assert.deepEqual(run.journal.filter((fields) => fields.event === 'stateLost').map((fields) => [fields.code, fields.kept]), [['parse', true]]);
+  // Told once at her next turn, in a server channel or in a wake, and not in a private chat.
+  assert.deepEqual(run.inner.facts.pending(GUILD, { channelId: 'c1', privateChat: false }).map((fact) => fact.kind), ['stateLost']);
+  assert.deepEqual(run.inner.facts.pending(GUILD, { channelId: 'd1', privateChat: true }), []);
+  // A missing file is a first start, not a loss.
+  const fresh = setup({ dataDir: tempDir('nep-inner-fresh-') });
+  assert.deepEqual(fresh.inner.state(GUILD).facts ?? [], []);
+});
+
 test('inner: what a turn did and found is handed to her memory, shadow or not; a turn without an episode hands nothing', async () => {
   const episode = { turnId: 't-1', shadow: true, channelId: 'c1', findings: [{ skill: 'web.search', args: {}, text: 'x' }] };
   const handed = [];

@@ -168,9 +168,10 @@ async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read']
   const llm = sequenceLlm(answers, classifier);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand, runOwnCommand: admin.runOwnCommand, ...runner });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }));
+  const again = () => turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, hot, admin };
+  return { result, logs, llm, sends, hot, admin, again };
 }
 
 /** The user text of the turn's request `i`. */
@@ -215,6 +216,33 @@ test('tool loop: a call in the continuation runs and the turn continues again, t
   const loop = run.logs.find((entry) => entry.msg === 'skills: loop');
   assert.deepEqual([loop.steps, loop.calls], [2, 2]);
   assert.ok(!run.logs.some((entry) => entry.msg === 'skills: extra-call'));
+});
+
+test('parser diagnostics: a step that follows tells them in its task; the well-formed call after a malformed one still runs', async () => {
+  const run = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill=bad/><call skill="lore.list"/>', '<msg>τέλος</msg>'] });
+  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['lore.list:ok'], 'the call after the malformed one ran');
+  const second = requestText(run.llm, 1);
+  const reason = labels.skills.diagnostics.reasons.quotes;
+  const line = fill(labels.skills.diagnostics.badCall, { reason, skill: '' }).replace(/\s+/g, ' ').trim();
+  assert.ok(second.includes(`${labels.task.diagnostics}\n- ${line}`), second);
+  // Told once: a later step does not repeat it.
+  const long = await coreTurn({ answers: ['<call skill=bad/><call skill="lore.list"/>', '<call skill="memory.server.read"/>', '<msg>τέλος</msg>'] });
+  assert.ok(requestText(long.llm, 1).includes(labels.task.diagnostics));
+  assert.ok(!requestText(long.llm, 2).includes(labels.task.diagnostics), requestText(long.llm, 2));
+});
+
+test('parser diagnostics: a call written inside a message is cut out of the post and told; with no step to carry it, it is kept and told at her next turn here', async () => {
+  const run = await coreTurn({ answers: ['<msg>ναι <call skill="lore.list"/> εντάξει</msg>', '<skip/>'] });
+  assert.deepEqual(run.sends.map((send) => send.text), ['ναι εντάξει'], 'the post goes without the call');
+  assert.equal(run.llm.calls.length, 1, 'nothing ran, so no step followed');
+  await run.again();
+  const next = requestText(run.llm, 1);
+  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(next)?.[1] ?? '';
+  assert.equal(block.split('\n')[0], labels.wake.feedbackInTurn);
+  assert.ok(block.includes(fill(labels.skills.diagnostics.callInText, { skill: 'lore.list' }).trim()), block);
+  // Told once.
+  await run.again();
+  assert.ok(!requestText(run.llm, 2).includes('<wake>'));
 });
 
 test('tool loop: several calls of one answer run together, both results come back in one step; past maxCallsPerStep the rest is dropped', async () => {

@@ -28,6 +28,7 @@ import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, client, discord, isWarmingUp, warmup, archive, journal, dataDir, slash, warmupBusyText, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, journalSystem, waitForAnalyzer, requireProfile } = env;
@@ -144,7 +145,7 @@ const handlers = perEnv((env) => {
     const channelId = args?.channelId;
     if (channelId) {
       const channel = store.getChannel(guildId, channelId);
-      if (!channel) throw invalid(`no channel entry for ${channelId}`, 'not-found');
+      if (!channel) throw invalid(`no channel entry for ${channelId}`, CODE.NOT_FOUND);
 
       const activity = channelActivity(channel, now, activityCfg);
       const isMain = mainChannelIdSet().has(String(channelId));
@@ -274,7 +275,7 @@ const handlers = perEnv((env) => {
     if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
     await waitForAnalyzer();
     const versions = (await archive.find(guildId, itemId)).filter((entry) => entry.event !== 'restored');
-    if (versions.length === 0) throw invalid(`no archived item ${itemId}`, 'not-found');
+    if (versions.length === 0) throw invalid(`no archived item ${itemId}`, CODE.NOT_FOUND);
     const latest = versions.at(-1);
     const result = store.restoreArchived(guildId, latest);
     if (!result.restored) {
@@ -347,10 +348,10 @@ const handlers = perEnv((env) => {
     const guildId = requireGuildId(context);
     if (args?.messageId !== undefined && args?.messageId !== null && args?.messageId !== '') {
       const { messageId } = messageRefOf(args.messageId);
-      if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', 'unknown-message');
+      if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
       const at = discord.snowflakeTime(messageId);
       const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
-      if (!found) throw invalid(`no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`, 'not-found');
+      if (!found) throw invalid(`no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`, CODE.NOT_FOUND);
       return turnView(found);
     }
     const day = args?.day ?? utcDay(Date.now());
@@ -576,7 +577,7 @@ const handlers = perEnv((env) => {
   async function cmdMemoryWipe(args, context) {
     assertNotPaused();
     const guildId = requireGuildId(context);
-    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: 'warmup-running' });
+    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: CODE.WARMUP_RUNNING });
 
     const guildName = client?.guilds?.cache?.get(guildId)?.name || guildId;
     const confirm = String(args?.confirm ?? '').trim();
@@ -589,7 +590,7 @@ const handlers = perEnv((env) => {
     }
 
     await waitForAnalyzer();
-    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: 'warmup-running' });
+    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: CODE.WARMUP_RUNNING });
     const vaultDir = hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR;
     const wipe = async () => {
       // The vault first, then the journal (its files are closed before the store deletes the

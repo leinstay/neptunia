@@ -22,7 +22,7 @@ import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
-import { feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
+import { diagnosticLines, diagnosticText, feedbackFactText, feedbackInTurnText, placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
 import { feedbackFacts } from '../src/behavior/inner.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
@@ -692,6 +692,11 @@ test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behin
   assert.equal(feedbackInTurnText(facts, { ...labels, wake: { ...labels.wake, feedbackItem: undefined } }), '');
 });
 
+test('feedbackFactText: a stateLost fact names the code; without its label, nothing', () => {
+  assert.equal(feedbackFactText({ kind: 'stateLost', code: 'parse' }, labels.wake), fill(labels.wake.feedback.stateLost, { code: 'parse' }));
+  assert.equal(feedbackFactText({ kind: 'stateLost', code: 'parse' }, { feedback: {} }), '');
+});
+
 test('feedbackFacts: every status that is not ok is a callFailed with its code and the operation\'s own text; a proposed call is none', () => {
   const statuses = ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown'];
   const actions = statuses.map((result) => ({ skill: 'web.search', status: 'executed', result, code: `c-${result}`, text: `said ${result}` }));
@@ -741,4 +746,25 @@ test('wakeBlockText: a retried wake is followed by its delayed line with the min
   assert.equal(lines[lines.indexOf('delayed 7 timeout') - 1], labels.wake.kinds.review);
   const bare = { wake: { ...labels.wake, delayed: undefined } };
   assert.equal(wakeBlockText(wake, { ...labels, ...bare }).includes('delayed'), false);
+});
+
+test('diagnosticText and diagnosticLines: one line per parser diagnostic from skills.diagnostics, the reason in its words; nothing without the labels', () => {
+  const bad = { kind: 'badCall', reason: 'quotes', skill: 'lore.list' };
+  assert.equal(diagnosticText(bad, labels), fill(labels.skills.diagnostics.badCall, { reason: labels.skills.diagnostics.reasons.quotes, skill: 'lore.list' }));
+  assert.equal(diagnosticText({ kind: 'messageCut', chars: 50 }, labels), fill(labels.skills.diagnostics.messageCut, { chars: '50' }));
+  assert.equal(diagnosticText({ kind: 'messagesMerged', count: 2 }, labels), fill(labels.skills.diagnostics.messagesMerged, { count: '2' }));
+  assert.equal(diagnosticText({ kind: 'diagnostic', diagnostic: 'thinkUnclosed' }, labels), labels.skills.diagnostics.thinkUnclosed, 'a kept fact names its kind');
+  assert.equal(diagnosticText({ kind: 'strange' }, labels), '');
+  assert.deepEqual(diagnosticLines([bad, { kind: 'strange' }], labels), [labels.task.diagnostics, `- ${diagnosticText(bad, labels)}`]);
+  assert.deepEqual(diagnosticLines([], labels), []);
+  assert.deepEqual(diagnosticLines([bad], { ...labels, task: { ...labels.task, diagnostics: '' } }), []);
+  // As a kept fact it is worded in the facts block of the next turn, and only when the labels are at hand.
+  const fact = { kind: 'diagnostic', diagnostic: 'messageCut', chars: 7 };
+  assert.equal(feedbackInTurnText([fact], labels).split('\n')[1], fill(labels.wake.feedbackItem, { fact: diagnosticText(fact, labels) }));
+  assert.equal(feedbackFactText(fact, labels.wake), '');
+});
+
+test('feedbackFacts: a parser diagnostic that no step showed her is a diagnostic fact with its kind and fields', () => {
+  const facts = feedbackFacts({ outcome: 'skip', inner: { actions: [], intentIds: [], loop: {}, diagnostics: [{ kind: 'badCall', reason: 'unclosed' }, { kind: 'messageCut', chars: 3 }] } });
+  assert.deepEqual(facts, [{ kind: 'diagnostic', diagnostic: 'badCall', reason: 'unclosed' }, { kind: 'diagnostic', diagnostic: 'messageCut', chars: 3 }]);
 });

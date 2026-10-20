@@ -10,6 +10,7 @@
 // always `failed`: nothing was sent.
 
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from '../../src/interface/port.js';
+import { CODE, httpCode } from '../../src/skills/codes.js';
 
 /** The namespace of every Discord reference. */
 export const DISCORD_IFACE = 'discord';
@@ -33,11 +34,11 @@ const NETWORK_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EPIPE
  */
 export function discordFailure(err, { sent }) {
   const status = Number.isInteger(err?.status) ? err.status : Number.isInteger(err?.statusCode) ? err.statusCode : null;
-  if (status === 429 || err?.name === 'RateLimitError') return notOk('failed', 'http-429', { retryable: true, cause: err });
-  if (status === 403) return notOk('forbidden', 'http-403', { cause: err });
-  if (status !== null && status >= 400 && status < 500) return notOk('failed', `http-${status}`, { cause: err });
+  if (status === 429 || err?.name === 'RateLimitError') return notOk('failed', httpCode(429), { retryable: true, cause: err });
+  if (status === 403) return notOk('forbidden', httpCode(403), { cause: err });
+  if (status !== null && status >= 400 && status < 500) return notOk('failed', httpCode(status), { cause: err });
   const timedOut = TIMEOUT_NAMES.has(err?.name) || NETWORK_CODES.has(err?.code);
-  const code = status !== null ? `http-${status}` : timedOut ? 'timeout' : 'error';
+  const code = status !== null ? httpCode(status) : timedOut ? CODE.TIMEOUT : CODE.ERROR;
   // Once the request may have left, its effect is unknown and never retried blindly.
   if (sent) return notOk('unknown', code, { cause: err });
   return notOk('failed', code, { retryable: status !== null || timedOut, cause: err });
@@ -62,7 +63,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
   const caps = { ...DISCORD_LIMITS, ...limits };
   const supports = (operation) => offered.has(CAPABILITIES[operation]);
-  const unsupported = () => notOk('unsupported', 'unsupported');
+  const unsupported = () => notOk('unsupported', CODE.UNSUPPORTED);
   const selfId = () => client?.user?.id ?? null;
 
   /** The channel `conversationId`, or null; a lookup that throws is rethrown as a lookup failure. */
@@ -79,7 +80,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
   async function resolveChannel(ref) {
     try {
       const channel = await channelOf(ref.conversationId);
-      if (!channel) return { result: notOk('failed', 'unknown-conversation') };
+      if (!channel) return { result: notOk('failed', CODE.UNKNOWN_CONVERSATION) };
       return { channel };
     } catch (err) {
       return { result: discordFailure(err, { sent: false }) };
@@ -93,7 +94,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
     if (typeof channel.messages?.fetch !== 'function') return { result: unsupported() };
     try {
       const message = await channel.messages.fetch(ref.messageId);
-      if (!message) return { result: notOk('failed', 'unknown-message') };
+      if (!message) return { result: notOk('failed', CODE.UNKNOWN_MESSAGE) };
       return { channel, message };
     } catch (err) {
       return { result: discordFailure(err, { sent: false }) };
@@ -130,7 +131,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
   /** A forbidden result unless `message` is the bot's own. */
   function authorRefusal(message) {
     const self = selfId();
-    return self && message?.author?.id === self ? null : notOk('forbidden', 'not-own-message');
+    return self && message?.author?.id === self ? null : notOk('forbidden', CODE.NOT_OWN_MESSAGE);
   }
 
   return {
@@ -188,7 +189,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
       if (!supports('react')) return unsupported();
       const refused = refRefusal(message, DISCORD_IFACE, { needMessage: true });
       if (refused) return refused;
-      if (typeof emoji !== 'string' || !emoji) return notOk('failed', 'invalid-emoji');
+      if (typeof emoji !== 'string' || !emoji) return notOk('failed', CODE.INVALID_EMOJI);
       const found = await resolveMessage(message);
       if (found.result) return found.result;
       try {
@@ -203,7 +204,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
       if (!supports('unreact')) return unsupported();
       const refused = refRefusal(message, DISCORD_IFACE, { needMessage: true });
       if (refused) return refused;
-      if (typeof emoji !== 'string' || !emoji) return notOk('failed', 'invalid-emoji');
+      if (typeof emoji !== 'string' || !emoji) return notOk('failed', CODE.INVALID_EMOJI);
       const found = await resolveMessage(message);
       if (found.result) return found.result;
       const key = reactionKey(emoji);

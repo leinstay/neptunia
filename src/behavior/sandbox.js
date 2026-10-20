@@ -71,6 +71,7 @@ import { QUIET_ON_OK, needsFollowUp, outcomeDetail, refusalStatus, resolveCall }
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.js';
+import { CODE } from '../skills/codes.js';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: () => 1 });
@@ -1072,8 +1073,8 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
     mapped = null;
   }
   if (!mapped?.args || mapped.op !== resolved.skill) {
-    const result = { skill, status: 'invalid', code: 'invalid-args', reason: 'command' };
-    return { verdict: { stage: 'command', ok: false, code: 'invalid-args', reason: 'command' }, executed: null, result, followUp: needsFollowUp(skill, result) };
+    const result = { skill, status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
+    return { verdict: { stage: 'command', ok: false, code: CODE.INVALID_ARGS, reason: 'command' }, executed: null, result, followUp: needsFollowUp(skill, result) };
   }
   const text = typeof resultText === 'string' ? resultText : '';
   return {

@@ -5,10 +5,10 @@
 // entries are gone. Fake client, fake llm, injected clock; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.js';
 import { createLocalFacts } from '../src/behavior/inner.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
-import { formatClock, formatDate } from '../src/format.js';
+import { fill, formatClock, formatDate } from '../src/format.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { labels } from './fixtures/labels.js';
@@ -218,4 +218,42 @@ test('facts kept for the channel (a drop, a hold) reach an addressed request the
   await run(first);
   assert.equal(userText(calls[1][1].content).includes('<wake>'), false);
   assert.equal(source.pending(null, { channelId: '77', privateChat: false }).length, 0);
+});
+
+test('sendHash and settleUnknownSends: the hash covers the start of the text with whitespace folded; only a later line of hers with that hash settles the fact', () => {
+  assert.equal(sendHash('a  b\n c'), sendHash(' a b c '));
+  assert.notEqual(sendHash('a b c'), sendHash('a b d'));
+  assert.equal(sendHash(`${'x'.repeat(80)}tail`), sendHash(`${'x'.repeat(80)}other`), 'a trailing link or a cut changes nothing');
+  const fact = { id: 'f1', kind: 'sendFailed', unknown: true, hash: sendHash('ένα'), at: NOW };
+  const known = { id: 'f2', kind: 'sendFailed', code: 'http-403', at: NOW };
+  const line = (over) => ({ self: true, content: 'ένα', ts: NOW + 1000, ...over });
+  assert.deepEqual(settleUnknownSends([fact, known], [line()]), { kept: [known], dropped: [fact] });
+  assert.deepEqual(settleUnknownSends([fact], [line({ self: false })]).kept, [fact], 'not hers');
+  assert.deepEqual(settleUnknownSends([fact], [line({ content: 'δύο' })]).kept, [fact], 'another text');
+  assert.deepEqual(settleUnknownSends([fact], [line({ ts: NOW - 5 * MINUTE })]).kept, [fact], 'older than the send');
+  assert.deepEqual(settleUnknownSends([known], []), { kept: [known], dropped: [] }, 'a send that failed for sure is never looked for');
+});
+
+test('a send whose answer never came: her next addressed turn looks for it among her own lines; found, nothing is told; not found, it is told as unclear', async () => {
+  const sentText = 'ένα μήνυμα που ίσως έφτασε';
+  const unknownSend = { kind: 'sendFailed', code: 'error', n: 0, total: 1, unknown: true, hash: sendHash(sentText), channelId: '77', privateChat: false, at: NOW - 2 * MINUTE };
+  const first = rawMessage({ id: '101' });
+
+  const found = setup({ history: [rawMessage({ id: '100', authorId: 'self-id', authorName: 'Bot', ts: NOW - MINUTE, content: sentText }), first] });
+  found.fail.on = false;
+  const foundSource = createLocalFacts({ now: () => clock.t });
+  found.turns.setFactsSource(foundSource);
+  foundSource.add('55', unknownSend);
+  await found.run(first);
+  assert.equal(userText(found.calls[0][1].content).includes('<wake>'), false, 'it went out: nothing to tell');
+  assert.equal(foundSource.pending(null, { channelId: '77', privateChat: false }).length, 0, 'and the fact is gone');
+
+  const missing = setup({ history: [first] });
+  missing.fail.on = false;
+  const missingSource = createLocalFacts({ now: () => clock.t });
+  missing.turns.setFactsSource(missingSource);
+  missingSource.add('55', unknownSend);
+  await missing.run(first);
+  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(userText(missing.calls[0][1].content))?.[1] ?? '';
+  assert.deepEqual(block.split('\n').slice(1), [`* ${fill(labels.wake.feedback.sendUnknown, { code: 'error', n: '0', total: '1' })}`]);
 });

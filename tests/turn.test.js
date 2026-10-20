@@ -8963,12 +8963,12 @@ test('skill call: edit and delete reach only her own message', async () => {
   for (const answer of ['<call skill="message.edit" message="#2">όχι</call>', '<call skill="message.delete" message="#2"/>']) {
     const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'], features: { followUpContinuation: false } });
     assert.deepEqual(run.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
-    assert.ok(requestText(run.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-own-message'] })), answer);
+    assert.ok(requestText(run.llm, 1).includes(fill(labels.skills.result.invalid, { reason: labels.skills.result.reasons['not-own-message'] })), answer);
     // The turn continued: her call's mark says whose message it was not.
     const continued = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'] });
     assert.deepEqual(continued.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
     const reason = fill(labels.transcript.callReasons['not-own-message'], { arg: 'message' });
-    assert.ok(requestText(continued.llm, 1).includes(`: ${fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason })}]`), requestText(continued.llm, 1));
+    assert.ok(requestText(continued.llm, 1).includes(`: ${fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason })}]`), requestText(continued.llm, 1));
   }
 });
 

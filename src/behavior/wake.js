@@ -23,6 +23,40 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 export const WAKE_PURPOSE_CHARS = 200;
 
 /**
+ * One diagnostic of the parser (src/llm/parse.js: what it dropped, cut or joined in her output) as a
+ * line: `labels.skills.diagnostics.<kind>` filled -- `{reason}` (`badCall`, worded by
+ * `labels.skills.diagnostics.reasons.<reason>` when there is one), `{skill}`, `{chars}` (`messageCut`),
+ * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`badCall`, ...), or `diagnostic` of a
+ * kept fact, whose own is `fact.diagnostic`. '' without the kind's label.
+ * @param {object} diagnostic
+ * @param {object} labels  The whole labels object.
+ * @returns {string}
+ */
+export function diagnosticText(diagnostic, labels) {
+  const words = labels?.skills?.diagnostics;
+  const kind = diagnostic?.kind === 'diagnostic' ? diagnostic.diagnostic : diagnostic?.kind;
+  const template = words && typeof words === 'object' && typeof kind === 'string' && Object.hasOwn(words, kind) ? words[kind] : null;
+  if (typeof template !== 'string' || !template) return '';
+  const reason = typeof diagnostic.reason === 'string' && diagnostic.reason ? (typeof words.reasons?.[diagnostic.reason] === 'string' ? words.reasons[diagnostic.reason] : diagnostic.reason) : '';
+  const count = (value) => String(Number.isFinite(value) ? value : 0);
+  return fill(template, { reason, skill: String(diagnostic.skill ?? ''), chars: count(diagnostic.chars), count: count(diagnostic.count) }).replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The lines of a step's diagnostics for its task: `labels.task.diagnostics` as the lead, then one
+ * diagnosticText line each (those without a label left out). [] without the lead or a line.
+ * @param {object[]} diagnostics
+ * @param {object} labels  The whole labels object.
+ * @returns {string[]}
+ */
+export function diagnosticLines(diagnostics, labels) {
+  const lead = labels?.task?.diagnostics;
+  if (typeof lead !== 'string' || !lead.trim()) return [];
+  const lines = (Array.isArray(diagnostics) ? diagnostics : []).map((diagnostic) => diagnosticText(diagnostic, labels)).filter(Boolean);
+  return lines.length > 0 ? [lead, ...lines.map((line) => `- ${line}`)] : [];
+}
+
+/**
  * One feedback fact (src/behavior/inner.js#feedbackFacts and the facts kept in the state) as a line:
  * `l.feedback.<kind>` filled -- `callFailed`: `{skill}`, `{status}` (`failed`, `partial`, `invalid`,
  * `denied`, `not_configured`, `refused`, `unknown`, `timeout`), `{code}`, `{text}` (the operation's own);
@@ -31,14 +65,16 @@ export const WAKE_PURPOSE_CHARS = 200;
  * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
- * `sendFailed`: `{code}`, `{n}`, `{total}`. '' without the fact's label.
+ * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty). '' without the fact's label.
  * @param {object} fact
  * @param {object} l  `labels.wake`.
  * @param {{ when?: (ts: number) => string }} [options]
  * @returns {string}
  */
-export function feedbackFactText(fact, l, { when = () => '' } = {}) {
-  const key = (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') && !fact.intentionId && typeof l?.feedback?.[`${fact.kind}Kind`] === 'string' ? `${fact.kind}Kind` : fact?.kind;
+export function feedbackFactText(fact, l, { when = () => '', labels = null } = {}) {
+  if (fact?.kind === 'diagnostic') return labels ? diagnosticText(fact, labels) : '';
+  const unclear = fact?.kind === 'sendFailed' && fact.unknown === true && typeof l?.feedback?.sendUnknown === 'string' && l.feedback.sendUnknown !== '';
+  const key = unclear ? 'sendUnknown' : (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') && !fact.intentionId && typeof l?.feedback?.[`${fact.kind}Kind`] === 'string' ? `${fact.kind}Kind` : fact?.kind;
   const template = l?.feedback?.[key];
   if (typeof template !== 'string' || !template) return '';
   const n = (value) => String(Number.isFinite(value) ? value : 0);
@@ -59,6 +95,8 @@ export function feedbackFactText(fact, l, { when = () => '' } = {}) {
       return fill(template, { code: String(fact.code ?? ''), kind: String(fact.wake ?? '') });
     case 'sendFailed':
       return fill(template, { code: String(fact.code ?? ''), n: n(fact.n), total: n(fact.total) });
+    case 'stateLost':
+      return fill(template, { code: String(fact.code ?? '') });
     default:
       return '';
   }
@@ -76,7 +114,7 @@ export function feedbackInTurnText(facts, labels, { timezone = 'UTC', locale = '
   const l = labels?.wake;
   if (typeof l?.feedbackInTurn !== 'string' || !l.feedbackInTurn || typeof l.feedbackItem !== 'string' || !l.feedbackItem) return '';
   const when = (ts) => (Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '');
-  const lines = (Array.isArray(facts) ? facts : []).map((fact) => feedbackFactText(fact, l, { when })).filter(Boolean).map((text) => fill(l.feedbackItem, { fact: text }));
+  const lines = (Array.isArray(facts) ? facts : []).map((fact) => feedbackFactText(fact, l, { when, labels })).filter(Boolean).map((text) => fill(l.feedbackItem, { fact: text }));
   return lines.length > 0 ? [l.feedbackInTurn, ...lines].join('\n') : '';
 }
 
@@ -179,7 +217,7 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     if (item.delayed && typeof l.delayed === 'string' && l.delayed) lines.push(fill(l.delayed, { minutes: String(item.delayed.minutes ?? 0), code: String(item.delayed.code ?? '') }));
     if (item.kind === 'feedback' && typeof l.feedbackItem === 'string' && l.feedbackItem) {
       for (const fact of Array.isArray(item.facts) ? item.facts : []) {
-        const text = feedbackFactText(fact, l, { when });
+        const text = feedbackFactText(fact, l, { when, labels });
         if (text) lines.push(fill(l.feedbackItem, { fact: text }));
       }
     }

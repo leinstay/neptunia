@@ -6,6 +6,7 @@
 // left of each cap. Owner-only. Answers are operator lines (ids, codes, times, numbers).
 
 import { defineOp, perEnv } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** The time of `ts` for an answer line (UTC, minutes), or `-`. */
 function stamp(ts) {
@@ -17,7 +18,7 @@ const handlers = perEnv((env) => {
 
   /** The inner life, or an Error naming what is missing. */
   function inner() {
-    if (!env.inner || typeof env.inner.stop !== 'function') throw Object.assign(new Error('the inner life is not running'), { code: 'not-configured' });
+    if (!env.inner || typeof env.inner.stop !== 'function') throw Object.assign(new Error('the inner life is not running'), { code: CODE.NOT_CONFIGURED });
     return env.inner;
   }
 
@@ -25,14 +26,14 @@ const handlers = perEnv((env) => {
     const result = inner().stop(resolvedGuildId(context), { by: context?.userId ?? null });
     if (!result.ok) return { status: 'failed', code: result.code, summary: `inner life not stopped: ${result.code}`, data: null };
     const text = result.already ? `inner life already stopped; ${result.dropped} queued wakes dropped` : `inner life stopped; ${result.dropped} queued wakes dropped`;
-    return { status: 'ok', code: 'ok', summary: text, data: { text, dropped: result.dropped } };
+    return { status: 'ok', code: CODE.OK, summary: text, data: { text, dropped: result.dropped } };
   }
 
   function cmdStart(args, context) {
     const result = inner().start(resolvedGuildId(context), { by: context?.userId ?? null });
     if (!result.ok) return { status: 'failed', code: result.code, summary: `inner life not started: ${result.code}`, data: null };
     const text = result.already ? 'inner life was not stopped' : 'inner life started';
-    return { status: 'ok', code: 'ok', summary: text, data: { text } };
+    return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
   }
 
   function cmdStatus(args, context) {

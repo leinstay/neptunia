@@ -24,6 +24,7 @@ import { formatNow } from '../format.js';
 import { avatarReference } from '../media/fetch-image.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
+import { CODE } from '../skills/codes.js';
 
 /** The agent's name (its folder under `agents/`). */
 export const DRAWING_AGENT = 'drawing';
@@ -33,7 +34,7 @@ export const DRAW_CODES = Object.freeze({
   capDaily: 'image-cap-daily',
   capUserDaily: 'image-cap-user-daily',
   unsupported: 'unsupported-model',
-  failed: 'error',
+  failed: CODE.ERROR,
 });
 
 /** The code of an `ImageGenError` of `reason` (`moderation`, `timeout`, `error`, `empty`). */
@@ -189,11 +190,11 @@ export function drawErrorOf(outcome) {
   if (cause instanceof ImageCapError || cause instanceof ImageGenError || cause instanceof UnsupportedImageModelError) return cause;
   // Anything else the tool threw is passed on as it was.
   if (outcome?.error instanceof DrawToolError && cause instanceof Error) return cause;
-  if (outcome?.code === 'cap-tasks') {
+  if (outcome?.code === CODE.CAP_TASKS) {
     return errorOfCode(DRAW_CODES.capDaily, { key: outcome.key, used: outcome.used, cap: outcome.cap, message: `daily drawing cap reached (${outcome.key})` });
   }
   // The service's own cut-off of a run (`agents.drawing.limits.seconds`) is a generation that timed out.
-  const code = outcome?.code === 'timeout' ? genCode('timeout') : (outcome?.code ?? DRAW_CODES.failed);
+  const code = outcome?.code === CODE.TIMEOUT ? genCode('timeout') : (outcome?.code ?? DRAW_CODES.failed);
   return errorOfCode(code, outcome?.error instanceof DrawToolError ? outcome.error.details : {});
 }
 

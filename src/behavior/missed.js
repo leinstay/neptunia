@@ -3,10 +3,14 @@
 // address classifier failed on it (`gate-failed`) or failed and let it through anyway
 // (`gate-failopen`), a deferred follow-up was replaced by a newer one (`replaced-deferred`), a
 // turn answering it ended in an error (`turn-error`) or was dropped at its bar (`turn-dropped`)
-// or found nothing to do (`not-now`) -- become candidates in a small registry, persisted in
+// or found nothing to do (`not-now`), a call that left the pending queue unanswered because the queue
+// was full, the call waited too long or a stronger line took its place (`pending-full`,
+// `pending-expired`, `pending-outranked`, src/behavior/pipeline.js) -- become candidates in a small registry, persisted in
 // `data/guilds/<id>/missed.json` (written whole through a `.tmp` file and a rename) and written to
 // the journal as `answer` records. A `<skip/>` and a refusal are the persona's decisions and
-// never candidates; neither is an overheard line, a routed call or a private chat.
+// never candidates; neither is an overheard line or a routed call. A private chat's are: its
+// records go to that person's private journal and its recovery turn runs in that chat, after the
+// private-chat gate (`setPrivateRecovery`).
 //
 // A candidate resolves itself when a later turn of the persona in its channel was started by it
 // or replied to it, or spoke for a message of the same author posted after it. What is left is
@@ -36,10 +40,11 @@ import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
 import { log as defaultLog } from '../log.js';
+import { CODE } from '../skills/codes.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** Why a message became a candidate. */
-export const MISSED_REASONS = Object.freeze(['gate-failed', 'gate-failopen', 'replaced-deferred', 'turn-error', 'turn-dropped', 'not-now']);
+export const MISSED_REASONS = Object.freeze(['gate-failed', 'gate-failopen', 'replaced-deferred', 'turn-error', 'turn-dropped', 'not-now', CODE.PENDING_FULL, CODE.PENDING_EXPIRED, CODE.PENDING_OUTRANKED]);
 
 /** The helper's verdicts, then the one code gives a check that did not complete. */
 export const MISSED_VERDICTS = Object.freeze(['owed', 'resolved', 'intentional-skip', 'stale', 'uncertain']);
@@ -520,6 +525,7 @@ export function createMissed({
   log = defaultLog,
 }) {
   let candidates = [];
+  let privateRecovery = null;
   let lastRecoveryAt = {};
   let loadedGuildId = null;
   let dirty = false;
@@ -535,12 +541,21 @@ export function createMissed({
   const fileOf = (guildId) => path.join(dataDir, 'guilds', String(guildId), 'missed.json');
   const iso = (ms) => new Date(ms).toISOString();
 
-  /** One `answer` record (features.journal on); never throws. */
+  /** The person a private chat belongs to, null for a server channel (or one not known). */
+  function partnerOf(channelId) {
+    const channel = client?.channels?.cache?.get?.(String(channelId));
+    if (!channel || channel.guild) return null;
+    const id = channel.recipientId ?? channel.recipient?.id ?? null;
+    return typeof id === 'string' && id ? id : null;
+  }
+
+  /** One `answer` record (features.journal on), a private chat's in that person's private journal; never throws. */
   function record(fields) {
     const guildId = getGuildId?.();
     if (!guildId || !journalOn()) return;
+    const partner = fields?.channelId ? partnerOf(fields.channelId) : null;
     Promise.resolve()
-      .then(() => journal.answer(guildId, fields))
+      .then(() => journal.answer(guildId, partner ? { ...fields, privateUserId: partner } : fields))
       .catch((error) => log.warn('missed: journal failed', { code: error?.code ?? null }));
   }
 
@@ -699,12 +714,13 @@ export function createMissed({
   /**
    * A turn ended (src/behavior/turn.js#setOnTurnEnd): what it answered is resolved; a failed
    * turn of a call (`error`, `not-now`) is a fact about its trigger -- a `turn-error` one carries
-   * the turn's reason (e.g. `cut-off`) as its `failure`. Private chats, routed calls,
-   * overheard lines and the recovery turns themselves make no candidate. Never throws.
+   * the turn's reason (e.g. `cut-off`) as its `failure`. A private chat's failed turn is one like
+   * any other, kept in that chat; routed calls, overheard lines and the recovery turns themselves
+   * make no candidate. Never throws.
    */
   function onTurnEnd(end) {
     try {
-      if (!enabled() || !end || end.privateChat || !end.channelId) return;
+      if (!enabled() || !end || !end.channelId) return;
       const trigger = end.trigger ?? null;
       const at = now();
       const result = resolveByTurn(candidates, {
@@ -934,6 +950,14 @@ export function createMissed({
     if (shown.length === 0) return;
     const trigger = byId.get(shown[0].messageId);
     const ids = shown.map((candidate) => candidate.messageId);
+    // A private chat is recovered only where the private-chat gate lets the person through (their daily cap counts the turn).
+    const isPrivate = !channel.guild;
+    if (isPrivate && !(typeof privateRecovery?.allow === 'function' && (await privateRecovery.allow(channel, trigger).catch(() => false)))) {
+      log.info('missed: recovery refused', { channelId, reason: 'private-gate', candidates: ids.length });
+      finishRecovery(channelId, shown, { outcome: 'private-gate' }, trigger.id);
+      await save();
+      return;
+    }
     const startedAt = now();
     for (const candidate of shown) candidates = patchOpen(candidates, candidate.messageId, { state: 'in_progress', attempts: candidate.attempts + 1, updatedAt: startedAt }).list;
     lastRecoveryAt = { ...lastRecoveryAt, [channelId]: startedAt };
@@ -951,7 +975,7 @@ export function createMissed({
     log.info('missed: recovery', { channelId, candidates: ids.length, trigger: trigger.id });
     let result;
     try {
-      result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'missed', missed: missedItems, stillDue });
+      result = await turns.runTurn({ channel, ...(isPrivate ? { guildId: getGuildId?.() } : {}), mode: 'reply', trigger, triggerKind: 'missed', missed: missedItems, stillDue });
     } catch (error) {
       log.error('missed: recovery failed', { channelId, error });
       result = { outcome: 'error' };
@@ -967,6 +991,7 @@ export function createMissed({
       return;
     }
     finishRecovery(channelId, shown, result ?? { outcome }, trigger.id);
+    if (isPrivate) await Promise.resolve(privateRecovery.after?.(channel, trigger, result ?? { outcome })).catch((error) => log.warn('missed: private recovery count failed', { error }));
     await save();
   }
 
@@ -1006,6 +1031,14 @@ export function createMissed({
   return {
     start,
     noteFact,
+    /**
+     * The pipeline's private-chat gate for a recovery turn in a DM: `allow(channel, trigger)` resolves
+     * true when the person may be answered now, `after(channel, trigger, result)` counts the turn
+     * toward their daily cap. Without it a private candidate is never recovered (dismissed `private-gate`).
+     */
+    setPrivateRecovery: (hooks) => {
+      privateRecovery = hooks && typeof hooks === 'object' ? hooks : null;
+    },
     onTurnEnd,
     noteActivity,
     sweep,

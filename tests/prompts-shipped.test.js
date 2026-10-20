@@ -40,6 +40,8 @@ import { createLookup } from '../src/web/lookup.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
+import { CATALOGUE } from '../src/skills/codes.js';
+import { catalogueProblems } from '../tools/lib/labels-catalogue.mjs';
 import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -542,6 +544,10 @@ test('labels: the tracked labels.json passes the startup check and carries every
   const shipped = new Set(keyPaths(LABELS));
   const missing = keyPaths(contractLabels).filter((key) => !shipped.has(key) && !Object.hasOwn(PENDING_LABELS, key));
   assert.deepEqual(missing, [], 'label keys of the contract missing from prompts/labels.json');
+});
+
+test('labels: every code of the catalogue has its words in the tracked labels.json and no words lack their code', () => {
+  assert.deepEqual(catalogueProblems({ catalogue: CATALOGUE, labels: LABELS }), []);
 });
 
 // ---- the chat turn ----------------------------------------------------------------
