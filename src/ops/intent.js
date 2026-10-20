@@ -30,6 +30,7 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
 import { isOwnerId } from './grants.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** The purpose's length in an answer line (characters). */
 const PURPOSE_LINE_CHARS = 80;
@@ -42,13 +43,13 @@ const handlers = perEnv((env) => {
 
   /** The intention service, or an Error naming what is missing. */
   function intentions() {
-    if (!env.intentions || typeof env.intentions.set !== 'function') throw Object.assign(new Error('intentions are not running'), { code: 'not-configured' });
+    if (!env.intentions || typeof env.intentions.set !== 'function') throw Object.assign(new Error('intentions are not running'), { code: CODE.NOT_CONFIGURED });
     return env.intentions;
   }
 
   /** The refusal with the switch off, or null. */
   function off() {
-    return intentionsOn(hot.config) ? null : { status: 'failed', code: 'feature-off', summary: 'intentions are off (features.intentions)', data: null };
+    return intentionsOn(hot.config) ? null : { status: 'failed', code: CODE.FEATURE_OFF, summary: 'intentions are off (features.intentions)', data: null };
   }
 
   /** Whether the conversation the command runs in is a private chat. */
@@ -63,7 +64,7 @@ const handlers = perEnv((env) => {
     const text = args?.[key];
     if (text === undefined || text === null || text === '') return undefined;
     const at = parseWhen(text, now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
-    if (at === null) throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, 'bad-time');
+    if (at === null) throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, CODE.BAD_TIME);
     return at;
   }
 
@@ -72,7 +73,7 @@ const handlers = perEnv((env) => {
     const text = args?.every;
     if (text === undefined || text === null || text === '') return undefined;
     const parsed = parseEvery(text);
-    if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', 'bad-every');
+    if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', CODE.BAD_EVERY);
     return parsed.every;
   }
 
@@ -94,7 +95,7 @@ const handlers = perEnv((env) => {
     const value = args?.[key];
     if (value === undefined || value === null || value === '') return undefined;
     const n = typeof value === 'number' ? value : /^\d{1,9}$/.test(String(value).trim()) ? Number(String(value).trim()) : NaN;
-    if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, 'bad-attend');
+    if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, CODE.BAD_ATTEND);
     return n;
   }
 
@@ -156,7 +157,7 @@ const handlers = perEnv((env) => {
   function answer(result, verb) {
     if (result.ok) {
       const line = lineOf(result.intention);
-      return { status: 'ok', code: 'ok', summary: `intention ${verb}: ${line}`, data: { text: `intention ${verb}: ${line}`, intention: { id: result.intention.id, status: result.intention.status } } };
+      return { status: 'ok', code: CODE.OK, summary: `intention ${verb}: ${line}`, data: { text: `intention ${verb}: ${line}`, intention: { id: result.intention.id, status: result.intention.status } } };
     }
     const status = INVALID.has(result.code) ? 'invalid' : 'failed';
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}`, data: null };

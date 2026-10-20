@@ -88,6 +88,7 @@ import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.
 import { intentionSettings, isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
 import { feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.js';
+import { CODE } from '../skills/codes.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -1004,6 +1005,12 @@ export function routeFor(source, config, discord) {
   return { destination, reason: null };
 }
 
+/** The values a coded outcome's reason takes (`{status}`, `{what}`), as the journal keeps them so a mark reseeded after a restart words the same. */
+function valuesOf(result) {
+  const values = result?.values;
+  return values && typeof values === 'object' && !Array.isArray(values) && Object.keys(values).length > 0 ? { values: { ...values } } : {};
+}
+
 /** The mode a journal's `turn.start` names: a follow-up or an overheard line by its kind, else the turn's mode. */
 function journalMode(mode, triggerKind) {
   return triggerKind === 'followUp' || triggerKind === 'overheard' ? triggerKind : (mode ?? null);
@@ -1027,7 +1034,7 @@ const NO_OP = Object.freeze({
  */
 function closeResult(op, result) {
   if (result?.status === 'unknown') return op.unknown();
-  return op.failed(result?.error?.code ?? result?.status ?? 'error');
+  return op.failed(result?.error?.code ?? result?.status ?? CODE.ERROR);
 }
 
 /** What the logs show of a port result's error: the platform's own error when the adapter kept it. */
@@ -1346,7 +1353,7 @@ async function journalled(op, work, toResult) {
   try {
     value = await work();
   } catch (err) {
-    op.failed('error');
+    op.failed(CODE.ERROR);
     throw err;
   }
   const closing = toResult(value) ?? {};
@@ -1945,7 +1952,7 @@ export function createTurnRunner({
     if (!resolved.ok) {
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       // An errand's file bound for a channel nobody named (src/skills/executors.js#resolveCall).
-      if (resolved.code === 'file-elsewhere') log.info('skills: file elsewhere refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
+      if (resolved.code === CODE.FILE_ELSEWHERE) log.info('skills: file elsewhere refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       // Several errand file handles written in the body (src/skills/executors.js#resolveCall).
       if (resolved.reason === 'file:several') log.info('skills: file handle in body', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
@@ -1955,7 +1962,7 @@ export function createTurnRunner({
     // The body as the skill's main argument (an errand's goal, her text), the call leaving it out: named, never its text.
     if (resolved.bodyArg) log.info('skills: body as argument', { skill: resolved.skill, arg: resolved.bodyArg, channel: channel.id });
     // An errand's file handle written in the body: moved to the file argument (never the text).
-    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: 'moved', textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
+    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope, draft });
@@ -1980,7 +1987,7 @@ export function createTurnRunner({
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
     if (effects === 'read') return null;
     if (inner.shadow) return { proposed: true };
-    if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: 'inner-stopped', reason: 'innerLife' } };
+    if (typeof inner.mayAct === 'function' && !inner.mayAct()) return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
     const isPublic = POSTING_SKILLS.includes(skill) && (Boolean(channel.guild) || typeof args?.channel === 'string');
     return { public: isPublic };
   }
@@ -2018,7 +2025,7 @@ export function createTurnRunner({
     // Whether the call was dispatched (its operation ran, whatever it answered).
     let ran = false;
     if (plan.refusal) result = refusedWith(plan.refusal);
-    else if (innerGate?.proposed) result = { status: 'ok', code: 'shadow' };
+    else if (innerGate?.proposed) result = { status: 'ok', code: CODE.SHADOW };
     else if (innerGate?.refusal) result = refusedWith(innerGate.refusal);
     else {
       const verdict = checkCall(plan.resolved, { channel, envelope, draft });
@@ -2065,12 +2072,12 @@ export function createTurnRunner({
     }
     if (op.opId) {
       if (result.status === 'ok') await op.succeeded(journalResultOf(result));
-      else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null });
-      else await op.failed(result.code ?? 'error', { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}) });
+      else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null, ...valuesOf(result) });
+      else await op.failed(result.code ?? CODE.ERROR, { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}), ...valuesOf(result) });
     }
     const args = plan.resolved?.args ?? {};
     // A text that went out with its GIF failing (`partial`) was said all the same.
-    const posted = (result.status === 'ok' || (result.status === 'partial' && result.code === 'gif-failed')) && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
+    const posted = (result.status === 'ok' || (result.status === 'partial' && result.code === CODE.GIF_FAILED)) && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
@@ -2334,7 +2341,7 @@ export function createTurnRunner({
         return found;
       } catch (err) {
         log.warn('recall: prefetch failed', { channel: channel.id, stage: 'turn', name: err?.name ?? null });
-        op?.failed('error');
+        op?.failed(CODE.ERROR);
         return { status: 'unavailable', basis, excerpts: [] };
       }
     })();
@@ -2702,7 +2709,7 @@ export function createTurnRunner({
         Promise.resolve(onDeferredFailure?.({ guildId, channelId: String(channelId), chainId, skill, code, id })).catch((err) => log.warn('turn: deferred failure not handed on', { error: err }));
         return;
       }
-      keepFact(guildId, { channelId: String(channelId), privateChat: privateChannels.has(String(channelId)) }, 'diaryFailed', { code: typeof code === 'string' && code ? code : 'error' }, at);
+      keepFact(guildId, { channelId: String(channelId), privateChat: privateChannels.has(String(channelId)) }, 'diaryFailed', { code: typeof code === 'string' && code ? code : CODE.ERROR }, at);
     } catch (err) {
       log.warn('turn: deferred outcome not kept', { error: err });
     }
@@ -3332,7 +3339,7 @@ export function createTurnRunner({
       });
       return { posted: true, pulledId, replyId, message, op };
     } catch (err) {
-      if (op.opId) await op.failed(err instanceof ImageCapError ? 'image-cap' : err instanceof ImageGenError ? (err.reason ?? 'error') : 'error');
+      if (op.opId) await op.failed(err instanceof ImageCapError ? CODE.IMAGE_CAP : err instanceof ImageGenError ? (err.reason ?? CODE.ERROR) : CODE.ERROR);
       if (err instanceof ImageCapError) {
         const limit = limitOf(err);
         log.info('turn: draw refused by a limit', {
@@ -3494,7 +3501,7 @@ export function createTurnRunner({
       log.info('turn: gif sent', { channel: channel.id, gif: entry.id, kind: entry.kind, fresh: Boolean(fresh), ...(link ? { link: true } : {}) });
       return { message, op };
     } catch (err) {
-      if (op.opId) await op.failed('error');
+      if (op.opId) await op.failed(CODE.ERROR);
       log.warn('turn: gif failed', { channel: channel.id, gif: entry.id, error: err });
       return null;
     }
@@ -3830,20 +3837,20 @@ export function createTurnRunner({
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
-        failSend('refused');
+        failSend(CODE.REFUSED);
         break;
       }
       // The first message was typed alongside the GIF picker, above; any other is checked before its typing.
       if (typingOn && !typedAbove(index)) {
         if (!checkEffect('message.create', args, effect).ok) {
-          failSend('refused');
+          failSend(CODE.REFUSED);
           break;
         }
         await typeFor(spoken);
       }
       // Checked (again) right before the send: the owner's switch may have moved while she typed.
       if (!checkEffect('message.create', args, effect).ok) {
-        failSend('refused');
+        failSend(CODE.REFUSED);
         break;
       }
 
@@ -3862,7 +3869,7 @@ export function createTurnRunner({
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);
         log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: portError(result) });
-        failSend(typeof result.code === 'string' && result.code ? result.code : 'send-failed');
+        failSend(typeof result.code === 'string' && result.code ? result.code : CODE.SEND_FAILED);
         break;
       }
       const posted = postedOf(result);
@@ -4515,7 +4522,7 @@ export function createTurnRunner({
           ? settleLookupPart(
               () =>
                 journalled(webOp, () => lookup.search(guildId, web), (result) =>
-                  result ? { result: { results: Array.isArray(result.sources) ? result.sources.length : 0 }, offered: Boolean(result.text) } : { failed: 'no-result' },
+                  result ? { result: { results: Array.isArray(result.sources) ? result.sources.length : 0 }, offered: Boolean(result.text) } : { failed: CODE.NO_RESULT },
                 ),
               channelId,
               'web',
@@ -4922,10 +4929,10 @@ export function createTurnRunner({
       try {
         const result = await lookup.search(guildId, plan.search);
         found = typeof result?.text === 'string' && result.text.trim() ? result.text.trim() : null;
-        if (op.opId) await (result ? op.succeeded({ results: Array.isArray(result.sources) ? result.sources.length : 0, delivered: found !== null }) : op.failed('no-result'));
+        if (op.opId) await (result ? op.succeeded({ results: Array.isArray(result.sources) ? result.sources.length : 0, delivered: found !== null }) : op.failed(CODE.NO_RESULT));
         if (found === null) log.info('diary: search failed', { channel: channel.id, reason: result ? 'nothing' : 'refused' });
       } catch (err) {
-        if (op.opId) await op.failed('error');
+        if (op.opId) await op.failed(CODE.ERROR);
         log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
       }
     }

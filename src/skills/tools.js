@@ -26,6 +26,7 @@ import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/r
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { IN_TURN_TOOLS } from './discovery.js';
+import { CODE, FEATURE, WHAT, isCode } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (defined with discovery). */
 export { IN_TURN_TOOLS };
@@ -250,19 +251,19 @@ function cutWindowLines(value, limit) {
 export async function runWebSearch({ lookup, config, labels, guildId, args }) {
   try {
     const query = text(args?.query);
-    if (!query) return { status: 'invalid', code: 'invalid-args', reason: 'args.query:required' };
-    if (!lookup || typeof lookup.searchResults !== 'function' || config?.features?.webLookup !== true || config?.web?.search?.enabled === false) return { status: 'not_configured', code: 'not-configured' };
-    if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) return { status: 'not_configured', code: 'not-configured' };
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: 'daily-cap' };
+    if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+    if (!lookup || typeof lookup.searchResults !== 'function' || config?.features?.webLookup !== true || config?.web?.search?.enabled === false) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: CODE.DAILY_CAP };
     const found = await lookup.searchResults(guildId, query);
-    if (!found) return { status: 'failed', code: 'error' };
+    if (!found) return { status: 'failed', code: CODE.ERROR };
     // The lookup's own coded failure (src/web/lookup.js#searchResults): said as it was.
     if (found.failed) {
       const { code, status } = found.failed;
-      if (code === 'not-configured') return { status: 'not_configured', code };
-      if (code === 'empty-query') return { status: 'invalid', code };
-      if (code === 'provider') return { status: 'failed', code, values: { status: status === undefined ? '' : String(status) } };
-      return { status: 'failed', code: code === 'cap' ? 'cap' : 'error' };
+      if (code === CODE.NOT_CONFIGURED) return { status: 'not_configured', code, values: { feature: FEATURE.web } };
+      if (code === CODE.EMPTY_QUERY) return { status: 'invalid', code };
+      if (code === CODE.PROVIDER) return { status: 'failed', code, values: { status: status === undefined ? '' : String(status) } };
+      return code === CODE.CAP ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } } : { status: 'failed', code: CODE.ERROR };
     }
     const searchCfg = config?.web?.search ?? {};
     const shown = webSearchText({ ...found, query: found.query ?? query }, {
@@ -273,7 +274,7 @@ export async function runWebSearch({ lookup, config, labels, guildId, args }) {
     });
     return { status: 'ok', data: { text: shown } };
   } catch {
-    return { status: 'failed', code: 'error' };
+    return { status: 'failed', code: CODE.ERROR };
   }
 }
 
@@ -312,25 +313,27 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
   try {
     let url = text(args?.url);
     const messageId = text(args?.message);
-    if (!url && !messageId) return { status: 'invalid', code: 'invalid-args', reason: 'args.url:required' };
-    if (!lookup || typeof lookup.readPage !== 'function' || config?.features?.webLookup !== true) return { status: 'not_configured', code: 'not-configured' };
+    if (!url && !messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:required' };
+    if (!lookup || typeof lookup.readPage !== 'function' || config?.features?.webLookup !== true) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (!url) {
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
-      if (!url) return { status: 'invalid', code: 'no-link' };
+      if (!url) return { status: 'invalid', code: CODE.NO_LINK };
     }
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: 'daily-cap' };
+    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: CODE.DAILY_CAP };
     const page = await lookup.readPage(guildId, url);
     const maxChars = positiveOr(config?.web?.links?.readChars, READ_CHARS_FALLBACK);
     if (page?.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
-    const code = String(page?.reason ?? 'error');
-    if (code === 'empty') {
+    const reason = String(page?.reason ?? CODE.ERROR);
+    if (reason === 'empty') {
       const l = toolLabels(labels, 'read');
       return { status: 'ok', data: { text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? ''].filter(Boolean).join('\n') } };
     }
-    if (code === 'not-configured') return { status: 'not_configured', code };
-    return { status: READ_INVALID.has(code) ? 'invalid' : 'failed', code };
+    if (reason === CODE.NOT_CONFIGURED) return { status: 'not_configured', code: reason, values: { feature: FEATURE.web } };
+    // A page code the catalogue knows is told as it is (an HTTP status rides along); any other is `error`.
+    const code = isCode(reason) ? reason : CODE.ERROR;
+    return { status: READ_INVALID.has(code) ? 'invalid' : 'failed', code, ...(code === CODE.HTTP && page?.status !== undefined ? { values: { status: String(page.status) } } : {}), ...(code === CODE.TIMEOUT ? { values: { what: WHAT.page } } : {}) };
   } catch {
-    return { status: 'failed', code: 'error' };
+    return { status: 'failed', code: CODE.ERROR };
   }
 }
 
@@ -347,8 +350,8 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  */
 export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now() }) {
   try {
-    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: 'not-configured' };
-    if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: 'unsupported' };
+    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(config);
     const timezone = config?.bot?.timezone ?? 'UTC';
     const plan = memorySearchPlan({
@@ -364,17 +367,17 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
       timezone,
       now,
     });
-    if (!plan) return { status: 'invalid', code: 'no-query' };
+    if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
     const candidate = { id: null, content: text(args?.question) };
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
     const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
-    if (outcome?.kind === 'daily-cap') return { status: 'denied', code: 'daily-cap' };
-    if (outcome?.kind === 'not-visible') return { status: 'denied', code: 'channel-not-visible' };
-    if (outcome?.kind === 'error') return { status: 'failed', code: 'error' };
-    if (outcome?.kind === 'timeout') return quotes.length > 0 ? { status: 'partial', code: 'timeout', data: { text: shown() } } : { status: 'failed', code: 'timeout' };
+    if (outcome?.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
+    if (outcome?.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
+    if (outcome?.kind === 'error') return { status: 'failed', code: CODE.ERROR };
+    if (outcome?.kind === 'timeout') return quotes.length > 0 ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } } : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
     const l = toolLabels(labels, 'memory');
     const lines = [];
     if (outcome?.degraded === true && l.degraded) lines.push(l.degraded);
@@ -382,7 +385,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (outcome?.failed > 0 && l.partial) lines.push(fill(l.partial, { failed: String(outcome.failed), total: String(outcome.total) }));
     return { status: 'ok', data: { text: lines.join('\n') } };
   } catch {
-    return { status: 'failed', code: 'error' };
+    return { status: 'failed', code: CODE.ERROR };
   }
 }
 
@@ -490,34 +493,34 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
   try {
     const messageId = text(args?.message);
     const question = text(args?.question);
-    if (!messageId) return { status: 'invalid', code: 'invalid-args', reason: 'args.message:required' };
-    if (!question) return { status: 'invalid', code: 'invalid-args', reason: 'args.question:required' };
-    if (!describer) return { status: 'not_configured', code: 'not-configured' };
+    if (!messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.message:required' };
+    if (!question) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.question:required' };
+    if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
-    if (!message) return { status: 'invalid', code: 'unknown-message' };
+    if (!message) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE };
     // A placeholder line of a deleted message: gone, whatever it held.
-    if (message.deleted === true) return { status: 'invalid', code: 'unknown-message', reason: 'message-deleted' };
+    if (message.deleted === true) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
     const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
-    if (media.length === 0) return { status: 'invalid', code: 'no-media' };
+    if (media.length === 0) return { status: 'invalid', code: CODE.NO_MEDIA };
     const given = args?.item;
     const n = given === undefined || given === null || given === '' ? 1 : Number(given);
-    if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: 'invalid-args', reason: 'args.item:range' };
+    if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
     const { kind, item } = media[n - 1];
     const look = LOOKS[kind];
     if (!look.on(config?.features ?? {}, config) || typeof describer[look.method] !== 'function') {
       // The switch that is off, by name (`labels.skills.tools.look.off`, as the call mark's op text).
       const feature = switchOf(kind, config?.features ?? {}, config);
       const off = toolLabels(labels, 'look').off;
-      return { status: 'not_configured', code: 'not-configured', ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}) };
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}) };
     }
     const slots = typeof describer.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    if (slots && (!(slots.rewatch > 0) || (kind === 'video' && !(slots.video > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))) return { status: 'failed', code: 'daily-cap' };
-    if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: 'turn-cap' };
+    if (slots && (!(slots.rewatch > 0) || (kind === 'video' && !(slots.video > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))) return { status: 'failed', code: CODE.DAILY_CAP };
+    if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
     const answer = await describer[look.method](guildId, item, question);
     const said = typeof answer?.text === 'string' ? answer.text.trim() : '';
-    if (!said) return { status: 'failed', code: 'error' };
+    if (!said) return { status: 'failed', code: CODE.ERROR };
     return { status: 'ok', data: { text: mediaLookText({ kind, name: item.name, question: text(answer.question) || question, text: said }, { labels }) } };
   } catch {
-    return { status: 'failed', code: 'error' };
+    return { status: 'failed', code: CODE.ERROR };
   }
 }

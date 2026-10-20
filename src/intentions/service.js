@@ -54,6 +54,7 @@ import {
   PURPOSE_CHARS,
 } from './model.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
+import { CODE } from '../skills/codes.js';
 
 /** Statuses counted against `intentions.maxOpen` (her active ones; candidates have their own cap). */
 const ACTIVE = Object.freeze(['pending', 'waiting']);
@@ -122,14 +123,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const until = Number.isFinite(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
     if (taskId) {
       const task = taskOf(guildId, taskId);
-      if (!task) return { ok: false, code: 'no-task' };
-      if (!isOpenState(task.state)) return { ok: false, code: 'task-ended' };
+      if (!task) return { ok: false, code: CODE.NO_TASK };
+      if (!isOpenState(task.state)) return { ok: false, code: CODE.TASK_ENDED };
       return { ok: true, taskId: task.id, deadline: until };
     }
     if (!Number.isFinite(deadline)) return { ok: true, none: true };
     const same = taskOfTurn(guildId, turnId);
     if (same && isOpenState(same.state)) return { ok: true, taskId: same.id, deadline: until };
-    if (!turnId) return { ok: false, code: 'wait-without-task' };
+    if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_TASK };
     return { ok: true, requested: { turnId: String(turnId), deadline: until } };
   }
 
@@ -154,9 +155,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    */
   function set(guildId, input) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
     const limits = settings();
-    if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: 'cap-open' };
+    if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
     const created = createIntention({
       purpose: input.purpose,
@@ -208,10 +209,10 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    */
   function update(guildId, id, patch = {}) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
-    if (!current || !visibleTo(current, patch)) return { ok: false, code: 'not-found' };
-    if (!isOpen(current.status)) return { ok: false, code: 'terminal' };
+    if (!current || !visibleTo(current, patch)) return { ok: false, code: CODE.NOT_FOUND };
+    if (!isOpen(current.status)) return { ok: false, code: CODE.TERMINAL };
     const by = patch.by ?? 'persona';
     // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
     // turn that wrote its line, and from an inner turn neither an external one nor one born in an
@@ -223,7 +224,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         return { ok: false, code: refused };
       }
     }
-    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: 'cap-open' };
+    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const plan = patch.taskId || Number.isFinite(patch.deadline) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
     if (plan && !plan.ok) return plan;
     const at = now();
@@ -235,27 +236,27 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
       if (patch.every !== undefined) fields.every = patch.every;
       if (patch.expiresAt !== undefined && patch.expiresAt !== null) {
-        if (!(patch.expiresAt > at)) return { ok: false, code: 'bad-expiry' };
+        if (!(patch.expiresAt > at)) return { ok: false, code: CODE.BAD_EXPIRY };
         fields.expiresAt = patch.expiresAt;
       }
       if (patch.destination !== undefined) fields.destination = patch.destination ? String(patch.destination) : null;
       if (typeof patch.completionCondition === 'string') fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
       if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
       if (patch.attend !== undefined && patch.attend !== null) {
-        if (!isAttend(record)) return { ok: false, code: 'not-attend' };
+        if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };
         const attend = normalizeAttend({ ...record.attend, ...patch.attend, place: record.attend.place, today: record.attend.today ?? null }, attentionSettings(hot.config));
-        if (!attend) return { ok: false, code: 'bad-attend' };
+        if (!attend) return { ok: false, code: CODE.BAD_ATTEND };
         fields.attend = attend;
       }
-      if (isAttend(record) && fields.dueAt !== undefined && fields.dueAt !== null) return { ok: false, code: 'attend-with-due' };
-      if (isAttend(record) && fields.every) return { ok: false, code: 'attend-with-every' };
+      if (isAttend(record) && fields.dueAt !== undefined && fields.dueAt !== null) return { ok: false, code: CODE.ATTEND_WITH_DUE };
+      if (isAttend(record) && fields.every) return { ok: false, code: CODE.ATTEND_WITH_EVERY };
       if (Object.keys(fields).length > 0) {
         next = { ...next, ...fields, updatedAt: at };
-        if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: 'every-without-due' };
+        if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
         // A recurrence keeps the wall clock of its (new) first occurrence.
         if (next.every && (fields.every !== undefined || fields.dueAt !== undefined)) next.every = pinEvery({ period: next.every.period, at: fields.every !== undefined ? (fields.every.at ?? null) : null }, next.dueAt, timezone());
         // (A recurring one's next occurrence may already lie past its expiry: the expiry wins; only a new due or expiry is checked.)
-        if ((fields.dueAt !== undefined || fields.expiresAt !== undefined) && Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: 'due-after-expiry' };
+        if ((fields.dueAt !== undefined || fields.expiresAt !== undefined) && Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
         changed = true;
       }
       if (patch.state === 'pending' && next.status !== 'pending') {
@@ -275,7 +276,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       }
       if (patch.state === 'done') {
         // A recurring one is never done: this closes the occurrence and sets the next.
-        const moved = next.every ? advanceOccurrence(next, { now: at, timezone: timezone(), code: 'done-occurrence', by }) : transition(next, 'done', { now: at, by, code: 'done' });
+        const moved = next.every ? advanceOccurrence(next, { now: at, timezone: timezone(), code: CODE.DONE_OCCURRENCE, by }) : transition(next, 'done', { now: at, by, code: CODE.DONE });
         if (!moved.ok) return moved;
         next = moved.intention;
         changed = true;
@@ -292,9 +293,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    */
   function cancel(guildId, id, { by = 'persona', privateChannelId = null, all = false } = {}) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
-    if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: 'not-found' };
+    if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
     const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' }));
     if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: String(id), by });
     return result;
@@ -432,7 +433,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       return result;
     } catch (err) {
       log.warn('intentions: advance failed', { id: String(id ?? ''), error: err });
-      return { ok: false, code: 'write-failed' };
+      return { ok: false, code: CODE.WRITE_FAILED };
     }
   }
 
@@ -441,8 +442,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!record?.every || record.status !== 'pending') return;
     const at = now();
     if (!(Number.isFinite(record.dueAt) && record.dueAt <= at)) return;
-    const result = store.update(record.id, (current) => advanceOccurrence(current, { now: at, timezone: timezone(), code: 'recurred', by: 'engine', keepWaitEnd: true }));
-    if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: 'recurred', dueAt: result.intention.dueAt });
+    const result = store.update(record.id, (current) => advanceOccurrence(current, { now: at, timezone: timezone(), code: CODE.RECURRED, by: 'engine', keepWaitEnd: true }));
+    if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: CODE.RECURRED, dueAt: result.intention.dueAt });
   }
 
   /**
@@ -452,7 +453,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    */
   function markExpiredShown(guildId, id) {
     const store = storeOf(guildId);
-    if (!store) return { ok: false, code: 'no-guild' };
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
     const result = store.update(id, (current) => markShown(current, now()));
     if (result.ok && result.changed) log.info('intentions: expired shown', { guildId: store.guildId, id: String(id) });
     return result;
@@ -476,13 +477,13 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   function countAttendWake(guildId, id) {
     try {
       const store = storeOf(guildId);
-      if (!store) return { ok: false, code: 'no-guild' };
+      if (!store) return { ok: false, code: CODE.NO_GUILD };
       const result = store.update(id, (record) => bumpAttend(record, zonedDay(now(), timezone())));
       if (result.ok && result.changed) log.info('intentions: attend wake counted', { guildId: store.guildId, id: String(id), wakes: result.intention.attend.today.wakes });
       return result;
     } catch (err) {
       log.warn('intentions: attend count failed', { id: String(id ?? ''), error: err });
-      return { ok: false, code: 'write-failed' };
+      return { ok: false, code: CODE.WRITE_FAILED };
     }
   }
 

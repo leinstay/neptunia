@@ -345,9 +345,9 @@ test('skills gateway: her own expressive operations need only her grant, whoever
   // still closed until granted to her
   assert.equal(check({ skill: 'message.edit', args: { message: 'm1', text: 'σωστό' }, requester: member }).code, 'not-allowed');
   // nobody asked: only a read; several people asked: no write
-  assert.deepEqual(check({ skill: 'diary.post', args: {}, granted: ['diary.post'], requester: null }), { ok: false, code: 'requester-denied', reason: 'no-requester' });
+  assert.deepEqual(check({ skill: 'diary.post', args: {}, granted: ['diary.post'], requester: null }), { ok: false, code: 'no-requester', reason: 'no-requester' });
   assert.deepEqual(check({ skill: 'diary.show', granted: ['diary.show'], requester: null }), { ok: true });
-  assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, mixedRequesters: true }), { ok: false, code: 'requester-denied', reason: 'mixed-requesters' });
+  assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, mixedRequesters: true }), { ok: false, code: 'mixed-requesters', reason: 'mixed-requesters' });
   // anything else still needs the requester's own right
   assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κ' }, granted: ['lore.add'], requester: member }), { ok: false, code: 'requester-denied', reason: 'not-granted' });
 });
@@ -389,14 +389,14 @@ test('skills gateway: a member\'s own grants decide, as for their own slash comm
 
 test('skills gateway: with no requester only a read runs, and only one open to everyone', () => {
   const everyone = (name) => config({ access: { [name]: { everyone: true, roles: [], users: [] } } });
-  assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, granted: ['lore.add'], requester: null, cfg: everyone('lore.add') }), { ok: false, code: 'requester-denied', reason: 'no-requester' });
+  assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, granted: ['lore.add'], requester: null, cfg: everyone('lore.add') }), { ok: false, code: 'no-requester', reason: 'no-requester' });
   assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], requester: null }), { ok: false, code: 'requester-denied', reason: 'not-granted' });
   assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], requester: null, cfg: everyone('lore.list') }), { ok: true });
   assert.deepEqual(check({ skill: 'memory.private.read', args: { user: MEMBER }, granted: ['memory.private.read'], requester: null }), { ok: false, code: 'requester-denied', reason: 'owner-only' });
 });
 
 test('skills gateway: a turn answering several people runs no write; a read still runs', () => {
-  assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, granted: ['lore.add'], mixedRequesters: true }), { ok: false, code: 'requester-denied', reason: 'mixed-requesters' });
+  assert.deepEqual(check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, granted: ['lore.add'], mixedRequesters: true }), { ok: false, code: 'mixed-requesters', reason: 'mixed-requesters' });
   assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], mixedRequesters: true }), { ok: true });
 });
 

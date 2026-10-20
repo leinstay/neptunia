@@ -15,6 +15,7 @@ import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
 import { denied, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -735,7 +736,7 @@ export async function postingConversation({ client, discord, guildId, channelId,
   const isDm = typeof channel?.isDMBased === 'function' && channel.isDMBased();
   const text = typeof channel?.isTextBased === 'function' && channel.isTextBased() && !isDm;
   if (!served || !text || !allowedThere(channel, discord)) {
-    throw denied(`the bot may not ${need} in channel ${id}`, 'channel-no-permission');
+    throw denied(`the bot may not ${need} in channel ${id}`, CODE.CHANNEL_NO_PERMISSION);
   }
   return id;
 }
@@ -751,7 +752,7 @@ export function messageRefOf(value) {
   const link = MESSAGE_LINK_RE.exec(text);
   if (link) return { channelId: link[1], messageId: link[2] };
   if (/^[\w-]{1,64}$/.test(text)) return { channelId: null, messageId: text };
-  throw invalid('a message id or link is required', 'unknown-message');
+  throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
 }
 
 /**
@@ -765,7 +766,7 @@ export function messageRefOf(value) {
  */
 export function portAnswer(name, result, text) {
   if (result?.status === 'ok') return { text, ref: result.ref ?? null, at: result.at };
-  const code = String(result?.error?.code ?? result?.status ?? 'error');
+  const code = String(result?.error?.code ?? result?.status ?? CODE.ERROR);
   const unknown = result?.status === 'unknown';
   return { status: 'failed', code, summary: `${name}: ${unknown ? 'unclear whether it went through' : 'failed'} (${code})`, data: { unknown, portStatus: result?.status ?? null } };
 }

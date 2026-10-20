@@ -133,7 +133,7 @@ test('skills: with features.intentions off the intent skills are refused, never 
   assert.deepEqual(grantedSkillNames({ config: config(), selfId: SELF, registry }), ['lore.list']);
   assert.deepEqual(grantedSkillNames({ config: config({ intentions: true }), selfId: SELF, registry }), ['intent.list', 'intent.set', 'lore.list']);
   // Nobody asked: her own intention is a write, refused like every write of an unasked turn.
-  assert.equal(checkSkill({ skill: 'intent.set', args: { text: 'κάτι' }, principal: { kind: 'persona' }, requester: null, audience, context: { config: config({ intentions: true }), selfId: SELF, registry } }).code, 'requester-denied');
+  assert.equal(checkSkill({ skill: 'intent.set', args: { text: 'κάτι' }, principal: { kind: 'persona' }, requester: null, audience, context: { config: config({ intentions: true }), selfId: SELF, registry } }).code, 'no-requester');
   // The index a classifier reads has every registered skill; the turn filters it by the switch (src/behavior/turn.js).
   assert.ok(skillsIndex(registry, {}).includes('intent.set'));
 });

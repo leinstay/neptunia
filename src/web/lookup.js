@@ -65,6 +65,7 @@ import { log } from '../log.js';
 import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
 import { hashedKey, touchKey, trimCache } from './cache.js';
 import { truncateText } from './readable.js';
+import { CODE } from '../skills/codes.js';
 
 const READ_MISS_TTL_MS = 6 * 60 * MINUTE_MS;
 // An answer this short is the read-link prompt's "no real content" signal.
@@ -679,12 +680,12 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   async function searchResults(guildId, query) {
     const config = hot.config;
     const failedWith = (code, status) => ({ failed: { code, ...(status !== undefined ? { status } : {}) } });
-    if (!webOn(config)) return failedWith('not-configured');
+    if (!webOn(config)) return failedWith(CODE.NOT_CONFIGURED);
     const searchCfg = config.web?.search ?? {};
-    if (searchCfg.enabled === false) return failedWith('not-configured');
+    if (searchCfg.enabled === false) return failedWith(CODE.NOT_CONFIGURED);
     const asked = cleanQuery(query);
-    if (!asked) return failedWith('empty-query');
-    if (!hasSearch()) return failedWith('not-configured');
+    if (!asked) return failedWith(CODE.EMPTY_QUERY);
+    if (!hasSearch()) return failedWith(CODE.NOT_CONFIGURED);
 
     const report = (outcome, reason = null, extra = {}) => log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
     const cache = store.getMediaCache(guildId);
@@ -706,18 +707,18 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     // Only the `openrouter` engine sends a model request: the cap matters when it comes first.
     if (engines[0] === 'openrouter' && capSpent()) {
       report('limit', 'daily-cap');
-      return failedWith('cap');
+      return failedWith(CODE.CAP);
     }
     if (!reserveDaily()) {
       report('limit', 'daily');
-      return failedWith('cap');
+      return failedWith(CODE.CAP);
     }
     let last;
     for (let i = 0; i < engines.length; i += 1) {
       const meta = { engine: engines[i], fallback: i > 0 };
       if (engines[i] === 'openrouter' && i > 0 && capSpent()) {
         report('limit', 'daily-cap', meta);
-        return failedWith('cap');
+        return failedWith(CODE.CAP);
       }
       const outcome = await rawAttempt(engines[i], asked, config);
       if (outcome.results) {
@@ -729,9 +730,9 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       const { reason, status } = outcome.failure;
       report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
       last = status;
-      if (!fallsBack(outcome.failure)) return failedWith('provider', status);
+      if (!fallsBack(outcome.failure)) return failedWith(CODE.PROVIDER, status);
     }
-    return failedWith('provider', last);
+    return failedWith(CODE.PROVIDER, last);
   }
 
   /**

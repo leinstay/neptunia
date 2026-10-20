@@ -4,6 +4,7 @@
 
 import { NONE, loreLine } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, freshenIfPaused, requireGuildId } = env;
@@ -57,7 +58,7 @@ const handlers = perEnv((env) => {
 
     const id = String(args?.id ?? '').trim();
     const entry = store.getLore(guildId).find((e) => e.id === id);
-    if (!entry) throw invalid(`no lore entry ${id}`, 'not-found');
+    if (!entry) throw invalid(`no lore entry ${id}`, CODE.NOT_FOUND);
     return JSON.stringify(entry, null, 2);
   }
 
@@ -67,7 +68,7 @@ const handlers = perEnv((env) => {
 
     const id = String(args?.id ?? '').trim();
     const entry = store.getLore(guildId).find((e) => e.id === id);
-    if (!entry) throw invalid(`no lore entry ${id}`, 'not-found');
+    if (!entry) throw invalid(`no lore entry ${id}`, CODE.NOT_FOUND);
     store.removeLore(guildId, id);
     return `Removed lore entry ${id}: ${entry.title}`;
   }

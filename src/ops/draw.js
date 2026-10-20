@@ -9,6 +9,7 @@ import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, client, discord, images, imageFetcher, errands, port, assertNotPaused, resolvedGuildId } = env;
@@ -27,16 +28,16 @@ const handlers = perEnv((env) => {
    * through (`data.unknown` when it may have: never generated again).
    */
   async function cmdDraw(args, context) {
-    if (!images) return { status: 'failed', code: 'not-configured', summary: 'image generation is not available' };
+    if (!images) return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: 'image generation is not available' };
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
     const postTo = args?.channelId ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
-    if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
+    if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: CODE.NOT_CONFIGURED });
 
     const model = roleModel(hot.config, 'drawing');
     if (!images.familyOf(model)) {
-      return { status: 'failed', code: 'not-configured', summary: `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated` };
+      return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated` };
     }
 
     const self = args?.self === true;
@@ -74,7 +75,7 @@ const handlers = perEnv((env) => {
     if (!postTo) return { text: parts.join(' · '), files: [file] };
     const sent = await port.send({ iface: port.iface, conversationId: postTo }, { attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }] });
     if (sent?.status === 'ok') return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
-    const code = String(sent?.error?.code ?? sent?.status ?? 'error');
+    const code = String(sent?.error?.code ?? sent?.status ?? CODE.ERROR);
     const unknown = sent?.status === 'unknown';
     return { status: 'failed', code, summary: `draw: ${unknown ? 'unclear whether the picture was posted' : 'the picture was not posted'} (${code})`, data: { unknown, portStatus: sent?.status ?? null } };
   }

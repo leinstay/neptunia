@@ -14,6 +14,7 @@
 // Pure over the live config the caller reads at the moment of use.
 
 import { isPlainObject } from '../config.js';
+import { CODE } from './codes.js';
 
 /** The skills behind the persona's current reply tags, allowed in the current conversation without a grant. */
 export const CARRIED_OVER = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
@@ -107,13 +108,13 @@ export function grantedToPersona(config, selfId, name) {
  * @returns {{ allowed: boolean, reason: string }}
  */
 export function skillAccess({ skill, config, selfId = null, conversationId = null, currentConversationId = null }) {
-  if (!skillsOn(config)) return { allowed: false, reason: 'skills-off' };
-  if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: 'feature-off' };
+  if (!skillsOn(config)) return { allowed: false, reason: CODE.SKILLS_OFF };
+  if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: CODE.FEATURE_OFF };
   const target = conversationId ?? currentConversationId;
   const here = target === null || target === undefined ? currentConversationId == null : String(target) === String(currentConversationId);
   if (CARRIED_OVER.includes(skill.name) && here) return { allowed: true, reason: 'carried-over' };
-  if (safeModeOn(config)) return { allowed: false, reason: 'safe-mode' };
-  if (NOT_GRANTABLE_TO_PERSONA.includes(skill.name)) return { allowed: false, reason: 'not-grantable' };
+  if (safeModeOn(config)) return { allowed: false, reason: CODE.SAFE_MODE };
+  if (NOT_GRANTABLE_TO_PERSONA.includes(skill.name)) return { allowed: false, reason: CODE.NOT_GRANTABLE };
   if (grantedToPersona(config, selfId, skill.name)) return { allowed: true, reason: 'allowed' };
-  return { allowed: false, reason: 'not-allowed' };
+  return { allowed: false, reason: CODE.NOT_ALLOWED };
 }

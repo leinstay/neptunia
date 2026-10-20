@@ -19,7 +19,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "check:codes": "node tools/labels-catalogue.mjs --check"
   },
   "workspaces": [
     "packages/*",

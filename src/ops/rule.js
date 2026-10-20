@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { NONE, listRules, appendRule, removeRule, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot } = env;
@@ -52,7 +53,7 @@ const handlers = perEnv((env) => {
     const n = args?.number;
     if (!Number.isInteger(n)) throw invalid('a rule number is required');
     const result = removeRule(readRules(), n);
-    if (!result) throw invalid(`no rule #${n}`, 'not-found');
+    if (!result) throw invalid(`no rule #${n}`, CODE.NOT_FOUND);
     const ok = writeLocalRules(result.text);
     return `Removed rule #${n}: ${result.removed} ${reloadNote(ok)}`;
   }

@@ -37,6 +37,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { foldText as foldName } from '../memory/recent.js';
 import { externalOrigin } from './sources.js';
+import { CODE } from '../skills/codes.js';
 
 /** Every status an intention may have. */
 export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired']);
@@ -236,7 +237,7 @@ export function parseEvery(text) {
   if (EVERY_PERIODS.includes(value)) return { ok: true, every: { period: value, at: null } };
   const interval = INTERVAL_RE.exec(value);
   if (interval && Number(interval[1]) >= 1) return { ok: true, every: { period: `${Number(interval[1])}${interval[2].toLowerCase()}`, at: null } };
-  return { ok: false, code: 'bad-every' };
+  return { ok: false, code: CODE.BAD_EVERY };
 }
 
 /** Whether `every` is a well-formed recurrence (null counts as a one-off, which is fine). */
@@ -364,7 +365,7 @@ export function attendCounter(record, day) {
  * at zero): `{ ok: true, intention, changed: true }`, or `{ ok: false, code: 'not-attend' }`.
  */
 export function bumpAttend(record, day) {
-  if (!isAttend(record)) return { ok: false, code: 'not-attend' };
+  if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };
   const current = attendCounter(record, day);
   return { ok: true, intention: { ...record, attend: { ...record.attend, today: { day, wakes: current.wakes + 1 } } }, changed: true };
 }
@@ -437,21 +438,21 @@ function withHistory(record, entry) {
  */
 export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
   const text = line(purpose, PURPOSE_CHARS);
-  if (!text) return { ok: false, code: 'no-purpose' };
-  if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: 'bad-provenance' };
+  if (!text) return { ok: false, code: CODE.NO_PURPOSE };
+  if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
   const candidate = provenance.kind === 'candidate';
   const attention = attend === null || attend === undefined ? null : normalizeAttend(attend, settings.attention);
-  if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: 'bad-attend' };
-  if (attention && dueAt !== null && dueAt !== undefined) return { ok: false, code: 'attend-with-due' };
-  if (attention && every) return { ok: false, code: 'attend-with-every' };
-  if (dueAt !== null && !Number.isFinite(dueAt)) return { ok: false, code: 'bad-due' };
-  if (!validEvery(every)) return { ok: false, code: 'bad-every' };
-  if (every && dueAt === null) return { ok: false, code: 'every-without-due' };
+  if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: CODE.BAD_ATTEND };
+  if (attention && dueAt !== null && dueAt !== undefined) return { ok: false, code: CODE.ATTEND_WITH_DUE };
+  if (attention && every) return { ok: false, code: CODE.ATTEND_WITH_EVERY };
+  if (dueAt !== null && !Number.isFinite(dueAt)) return { ok: false, code: CODE.BAD_DUE };
+  if (!validEvery(every)) return { ok: false, code: CODE.BAD_EVERY };
+  if (every && dueAt === null) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
   const ownDays = every ? (settings.recurringExpiresDays ?? DEFAULTS.recurringExpiresDays) : settings.expiresDays;
   const defaultExpiry = candidate ? now + settings.candidateExpiresHours * HOUR_MS : now + ownDays * DAY_MS;
   const expires = expiresAt === null || expiresAt === undefined ? defaultExpiry : expiresAt;
-  if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: 'bad-expiry' };
-  if (dueAt !== null && dueAt > expires) return { ok: false, code: 'due-after-expiry' };
+  if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: CODE.BAD_EXPIRY };
+  if (dueAt !== null && dueAt > expires) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
   const span = line(provenance.span, SPAN_CHARS);
   const participants = participantIds(provenance.participants);
   const status = candidate ? 'proposed' : 'pending';
@@ -520,8 +521,8 @@ export function acceptRefusal(record, { by = 'persona', initiative = false, chai
  * @param {{ now: number, by?: string, code?: string|null, patch?: object }} options
  */
 export function transition(record, to, { now, by = 'persona', code = null, patch = {} }) {
-  if (isTerminal(record?.status)) return { ok: false, code: 'terminal' };
-  if (!MOVES[record?.status]?.includes(to)) return { ok: false, code: 'bad-move' };
+  if (isTerminal(record?.status)) return { ok: false, code: CODE.TERMINAL };
+  if (!MOVES[record?.status]?.includes(to)) return { ok: false, code: CODE.BAD_MOVE };
   const leavingWait = record.status === 'waiting' && to !== 'waiting';
   let next = { ...record, ...patch, status: to, updatedAt: now };
   // Out of a wait the errand stays named in `outcome`/`lastTaskId`, never as an open wait.
@@ -539,14 +540,14 @@ export function transition(record, to, { now, by = 'persona', code = null, patch
  */
 export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
   const id = idOrNull(taskId);
-  if (!id) return { ok: false, code: 'wait-without-task' };
-  if (!Number.isFinite(deadline) || deadline <= now) return { ok: false, code: 'bad-deadline' };
+  if (!id) return { ok: false, code: CODE.WAIT_WITHOUT_TASK };
+  if (!Number.isFinite(deadline) || deadline <= now) return { ok: false, code: CODE.BAD_DEADLINE };
   const patch = { awaitingTaskId: id, waitDeadline: deadline, waitRequested: null };
   if (record?.status === 'waiting') {
     const next = { ...record, ...patch, updatedAt: now };
-    return { ok: true, intention: withHistory(next, { at: now, from: 'waiting', to: 'waiting', by, code: 'rewait' }), changed: true };
+    return { ok: true, intention: withHistory(next, { at: now, from: 'waiting', to: 'waiting', by, code: CODE.REWAIT }), changed: true };
   }
-  return transition(record, 'waiting', { now, by, code: 'wait', patch });
+  return transition(record, 'waiting', { now, by, code: CODE.WAIT, patch });
 }
 
 /** The terminal task states (src/errands/store.js#TASK_STATES less the open ones). */
@@ -574,7 +575,7 @@ export function arrive(record, task, { now }) {
 /** `record` expired when it is open and `now` is at or past its `expiresAt`; unchanged otherwise. */
 export function expireAt(record, now) {
   if (!isOpen(record?.status) || !(now >= record.expiresAt)) return { ok: true, intention: record, changed: false };
-  return transition(record, 'expired', { now, by: 'engine', code: 'expired' });
+  return transition(record, 'expired', { now, by: 'engine', code: CODE.EXPIRED });
 }
 
 /** When `record` expired: its last history entry's `at` (the expiry's), else `updatedAt`. */
@@ -623,11 +624,11 @@ export function markExpiredShown(record, now) {
  * @param {{ now: number, timezone?: string, code: string, by?: string, keepWaitEnd?: boolean }} options
  */
 export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'persona', keepWaitEnd = false }) {
-  if (!record?.every) return { ok: false, code: 'not-recurring' };
-  if (isTerminal(record.status)) return { ok: false, code: 'terminal' };
-  if (record.status !== 'pending' && record.status !== 'waiting') return { ok: false, code: 'bad-move' };
+  if (!record?.every) return { ok: false, code: CODE.NOT_RECURRING };
+  if (isTerminal(record.status)) return { ok: false, code: CODE.TERMINAL };
+  if (record.status !== 'pending' && record.status !== 'waiting') return { ok: false, code: CODE.BAD_MOVE };
   const dueAt = nextOccurrence(record, now, timezone);
-  if (!Number.isFinite(dueAt)) return { ok: false, code: 'no-next' };
+  if (!Number.isFinite(dueAt)) return { ok: false, code: CODE.NO_NEXT };
   const leavingWait = record.status === 'waiting';
   let next = {
     ...record,
@@ -654,9 +655,9 @@ export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'p
 export function reconcileWait(record, { taskOf, now }) {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
   const task = typeof taskOf === 'function' ? taskOf(record.awaitingTaskId) : null;
-  if (!task) return transition(record, 'pending', { now, by: 'engine', code: 'task-missing', patch: { note: 'task-missing' } });
+  if (!task) return transition(record, 'pending', { now, by: 'engine', code: CODE.TASK_MISSING, patch: { note: 'task-missing' } });
   if (TASK_ENDS.includes(task.state)) return arrive(record, task, { now });
-  if (now >= record.waitDeadline) return transition(record, 'pending', { now, by: 'engine', code: 'wait-deadline', patch: { note: 'wait-deadline' } });
+  if (now >= record.waitDeadline) return transition(record, 'pending', { now, by: 'engine', code: CODE.WAIT_DEADLINE, patch: { note: 'wait-deadline' } });
   return { ok: true, intention: record, changed: false };
 }
 

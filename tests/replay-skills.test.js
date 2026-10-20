@@ -169,7 +169,7 @@ test('simulateCall: not granted, not grantable, or a requester without the right
 
   // Nobody asked: only a read.
   const unasked = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], author: null });
-  assert.deepEqual([unasked.verdict.code, unasked.verdict.reason], ['requester-denied', 'no-requester']);
+  assert.deepEqual([unasked.verdict.code, unasked.verdict.reason], ['no-requester', 'no-requester']);
 });
 
 test('simulateCall: her own operations skip the requester\'s right but not her grant; a quiet success needs no follow-up', () => {

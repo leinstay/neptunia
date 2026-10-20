@@ -34,6 +34,7 @@ import { log as defaultLog } from '../log.js';
 import { clampChars } from '../memory/clamp.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 import { fileHandle } from './store.js';
+import { CODE } from '../skills/codes.js';
 
 /** The ledger lane of the persona's errands. */
 export const LEDGER_LANE = 'errand';
@@ -211,7 +212,7 @@ function requestOnce({ where, op, args, connect, timeoutMs }) {
       if (socket && !socket.destroyed) socket.destroy();
       resolve(outcome);
     };
-    timer = setTimeout(() => settle({ ok: false, code: 'timeout' }), timeoutMs);
+    timer = setTimeout(() => settle({ ok: false, code: CODE.TIMEOUT }), timeoutMs);
     timer.unref?.();
     try {
       socket = connect(where);
@@ -238,7 +239,7 @@ function requestOnce({ where, op, args, connect, timeoutMs }) {
         try {
           reply = JSON.parse(line);
         } catch {
-          settle({ ok: false, code: 'bad-line' });
+          settle({ ok: false, code: CODE.BAD_LINE });
           return;
         }
         if (reply?.id !== 1) continue;
@@ -246,8 +247,8 @@ function requestOnce({ where, op, args, connect, timeoutMs }) {
         return;
       }
     });
-    socket.on('error', (err) => settle({ ok: false, code: err?.code ?? 'error' }));
-    socket.on('close', () => settle({ ok: false, code: 'closed' }));
+    socket.on('error', (err) => settle({ ok: false, code: err?.code ?? CODE.ERROR }));
+    socket.on('close', () => settle({ ok: false, code: CODE.CLOSED }));
   });
 }
 
@@ -261,7 +262,7 @@ function idOf(result, nested) {
 function codeOf(error) {
   if (typeof error === 'string' && error) return error;
   if (typeof error?.code === 'string' && error.code) return error.code;
-  return 'refused';
+  return CODE.REFUSED;
 }
 
 /**
@@ -425,7 +426,7 @@ export function createLedgerMirror({
       }
     });
     socket.on('error', (err) => {
-      if (link === current) unavailable(err?.code ?? 'error');
+      if (link === current) unavailable(err?.code ?? CODE.ERROR);
     });
     socket.on('close', () => {
       if (link !== current) return;

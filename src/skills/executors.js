@@ -19,6 +19,7 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { channelCore, matchChannel, MESSAGE_LINK_RE, occursAsWholeWord } from '../memory/mentions.js';
 import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
+import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
@@ -91,11 +92,8 @@ const WRITTEN = Object.freeze(['message.create', 'message.edit']);
 /** Every status a call result may have. */
 export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed']);
 
-/** The operation codes that mean what it needs is not set up (a missing channel, client, interface or guild). */
-const NOT_CONFIGURED_CODES = Object.freeze(['not-configured', 'unsupported', 'no-guild']);
-
-/** The refusal codes of a call that was not right, as opposed to a rule that said no. */
-const INVALID_CODES = Object.freeze(['invalid-args', 'agent-required', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'file-expired', 'target-ambiguous', 'unknown-op', 'not-found']);
+/** What a timed-out in-turn tool was doing (`{what}` of the `timeout` reason); the operations of the chat answer `chat`. */
+const TIMEOUT_WHAT = Object.freeze({ 'web.search': WHAT.search, 'memory.search': WHAT.search, 'web.read': WHAT.page, 'media.look': WHAT.picture });
 
 /** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
@@ -170,18 +168,18 @@ function memberOf(reference, members, handles = null) {
   const given = String(reference ?? '').trim();
   const list = Array.isArray(members) ? members : [];
   const mention = /^<@!?(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
-  if (mention) return list.some((member) => String(member?.id) === mention[1]) ? { id: mention[1] } : refused('unknown-member', 'id');
+  if (mention) return list.some((member) => String(member?.id) === mention[1]) ? { id: mention[1] } : refused(CODE.UNKNOWN_MEMBER, 'id');
   const byHandle = handles instanceof Map && given.startsWith('@') ? handles.get(given.slice(1)) : undefined;
   if (byHandle) return { id: String(byHandle) };
   const name = folded(given.replace(/^@/, ''));
-  if (!name) return refused('unknown-member', 'empty');
+  if (!name) return refused(CODE.UNKNOWN_MEMBER, 'empty');
   const ids = new Set();
   for (const member of list) {
     const names = [...(Array.isArray(member?.names) ? member.names : []), ...(Array.isArray(member?.aliases) ? member.aliases.map((alias) => alias?.name) : [])];
     if (names.some((candidate) => typeof candidate === 'string' && folded(candidate) === name)) ids.add(String(member.id));
   }
   if (ids.size === 1) return { id: [...ids][0] };
-  return refused('unknown-member', ids.size > 1 ? 'ambiguous' : 'name');
+  return refused(CODE.UNKNOWN_MEMBER, ids.size > 1 ? 'ambiguous' : 'name');
 }
 
 /** Whether `text` names the channel `channelId`: its mention `<#id>`, one of its handles, or its name (by its core: any case, accents, emoji) as a whole word. */
@@ -360,11 +358,11 @@ export function bodyTokens(body, names) {
 export function resolveCall(call, view) {
   const name = String(call?.skill ?? '');
   const skill = view?.skills?.get?.(name);
-  if (!skill?.command) return refused('unknown-skill', name);
+  if (!skill?.command) return refused(CODE.UNKNOWN_SKILL, name);
   const { command } = skill;
   const byName = new Map(command.options.map((option) => [option.name, option]));
   const given = { ...(call?.args ?? {}) };
-  for (const key of Object.keys(given)) if (!byName.has(key)) return refused('invalid-args', `args.${key}:unknown`);
+  for (const key of Object.keys(given)) if (!byName.has(key)) return refused(CODE.INVALID_ARGS, `args.${key}:unknown`);
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
   // A body where the command takes none: its options spelled out (an attribute wins), else her
   // comment on the call, left out -- never a refusal.
@@ -393,7 +391,7 @@ export function resolveCall(call, view) {
     // (`channel=c2003`, `text=...` on lines of their own before the first ordinary line): those are the
     // options, never her words; a `text=` line is the first line of the text, the rest follows it.
     const led = leadingOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
-    if (led.twice) return refused('invalid-args', `args.${led.twice}:twice`);
+    if (led.twice) return refused(CODE.INVALID_ARGS, `args.${led.twice}:twice`);
     for (const [key, value] of Object.entries(led.options)) {
       given[key] = value;
       bodyArgs += 1;
@@ -403,7 +401,7 @@ export function resolveCall(call, view) {
   if (body && command.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
     // An option already on the tag keeps its line in the body (the attribute wins, the text stays as written).
     const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
-    if (lined.twice) return refused('invalid-args', `args.${lined.twice}:twice`);
+    if (lined.twice) return refused(CODE.INVALID_ARGS, `args.${lined.twice}:twice`);
     for (const [key, value] of Object.entries(lined.options)) {
       if (Object.hasOwn(given, key)) continue;
       given[key] = value;
@@ -418,14 +416,14 @@ export function resolveCall(call, view) {
     // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
     const attribute = Object.hasOwn(given, command.body) ? String(given[command.body] ?? '').trim() : null;
     const joined = JOINED_BODY_ARGS.includes(command.body);
-    if (attribute !== null && attribute !== text && !joined) return refused('invalid-args', `args.${command.body}:twice`);
+    if (attribute !== null && attribute !== text && !joined) return refused(CODE.INVALID_ARGS, `args.${command.body}:twice`);
     given[command.body] = joined && attribute && attribute !== text ? `${attribute}\n${text}` : text;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
     if (byName.has('file') && !Object.hasOwn(given, 'file')) {
       const lines = text.split('\n');
       const handles = lines.filter((line) => FILE_HANDLE_RE.test(line.trim()));
-      if (handles.length > 1) return refused('unknown-file', 'file:several');
+      if (handles.length > 1) return refused(CODE.UNKNOWN_FILE, 'file:several');
       if (handles.length === 1) {
         given.file = handles[0].trim();
         given[command.body] = lines.filter((line) => !FILE_HANDLE_RE.test(line.trim())).join('\n').trim();
@@ -437,7 +435,7 @@ export function resolveCall(call, view) {
   // the refusal she reads says which, never a bare missing argument.
   if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
     const agents = skill.argsSchema?.properties?.agent?.enum;
-    return refused('agent-required', Array.isArray(agents) ? agents.join(',') : '');
+    return refused(CODE.AGENT_REQUIRED, Array.isArray(agents) ? agents.join(',') : '');
   }
 
   const args = {};
@@ -464,14 +462,14 @@ export function resolveCall(call, view) {
       }
       case 'channel': {
         const id = conversationIdOf(text, view?.conversations, view?.channelHandles);
-        if (id === 'ambiguous') return refused('target-ambiguous', 'conversation');
-        if (!id) return refused('invalid-args', `args.${option}:unknown-channel`);
+        if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'conversation');
+        if (!id) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
         args[option] = id;
         break;
       }
       case 'role': {
         const id = roleIdOf(text, view?.roles);
-        if (!id) return refused('invalid-args', `args.${option}:unknown-role`);
+        if (!id) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-role`);
         args[option] = id;
         break;
       }
@@ -490,8 +488,8 @@ export function resolveCall(call, view) {
         // A file handle must name a file of one of her errands this conversation may see.
         if (FILE_OPTIONS.includes(option)) {
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
-          if (file?.expired) return refused('file-expired', option);
-          if (!file) return refused('unknown-file', option);
+          if (file?.expired) return refused(CODE.FILE_EXPIRED, option);
+          if (!file) return refused(CODE.UNKNOWN_FILE, option);
           if (file.task) errandFiles.push(file.task);
           args[option] = text;
           break;
@@ -502,19 +500,19 @@ export function resolveCall(call, view) {
         // A message the record holds as deleted and the history does not: refused as deleted.
         const deletedHere = (id) => MESSAGE_OPTIONS.includes(option) && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
-          if (deletedHere(link[2])) return refused('unknown-message', 'message-deleted');
+          if (deletedHere(link[2])) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           linked[option] = link[1];
           args[option] = link[2];
           break;
         }
         if (n === null) {
-          if (deletedHere(text)) return refused('unknown-message', 'message-deleted');
+          if (deletedHere(text)) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           args[option] = raw;
           break;
         }
         const line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
-        if (!line) return refused('unknown-message', option);
-        if (line.deleted === true) return refused('unknown-message', 'message-deleted');
+        if (!line) return refused(CODE.UNKNOWN_MESSAGE, option);
+        if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
         lines[option] = line;
         args[option] = String(line.id);
       }
@@ -527,12 +525,12 @@ export function resolveCall(call, view) {
     const at = String(line.conversationId);
     if (byName.has('channel')) {
       if (args.channel === undefined) args.channel = at;
-      else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
+      else if (String(args.channel) !== at) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
     }
     if (option === 'message' && (name === 'message.edit' || name === 'message.delete')) {
       const selfId = view?.selfId ?? null;
       const own = line.self === true || (selfId !== null && selfId !== '' && String(line.authorId) === String(selfId));
-      if (!own) return refused('not-own-message', 'author');
+      if (!own) return refused(CODE.NOT_OWN_MESSAGE, 'author');
     }
     if (option === 'reply') repliedAuthorId = line.authorId ?? null;
   }
@@ -540,11 +538,11 @@ export function resolveCall(call, view) {
   for (const at of Object.values(linked)) {
     if (!byName.has('channel')) continue;
     if (args.channel === undefined) args.channel = at;
-    else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
+    else if (String(args.channel) !== at) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
   }
   // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
   if (args.channel !== undefined) {
-    for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
+    for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
   return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyText ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}) };
 }
@@ -584,7 +582,7 @@ function cardText(result) {
 function fromPort(result) {
   if (result?.status === 'ok') return { status: 'ok', ref: result.ref ?? null, at: result.at };
   const status = result?.status === 'unknown' ? 'unknown' : 'failed';
-  return { status, code: result?.error?.code ?? result?.status ?? 'error', error: result?.error ?? null };
+  return { status, code: result?.error?.code ?? result?.status ?? CODE.ERROR, error: result?.error ?? null };
 }
 
 /**
@@ -622,10 +620,10 @@ export async function executeCall(resolved, deps) {
     if (typeof tool === 'function') {
       // The operation's own arguments, mapped by its command as for the owner's command.
       const mapped = resolved.command ? resolved.command.toCall(args) : { op: resolved.skill, args };
-      if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
+      if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
       const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
-      if (answered?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
-      return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: 'error' };
+      if (answered?.timedOut === true) return { status: 'unknown', code: CODE.TIMEOUT, values: { what: TIMEOUT_WHAT[resolved.skill] ?? WHAT.chat }, data: { text: '' } };
+      return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: CODE.ERROR };
     }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
     let mentionUserIds = [];
@@ -638,14 +636,14 @@ export async function executeCall(resolved, deps) {
       }
     }
     const call = resolved.command.toCall(args);
-    if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
+    if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
     // Her own expressive operations run on her grant alone; any other on the requester's right too,
     // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
     const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : initiative ? deps.runInitiativeCommand : deps.runCommand;
-    if (typeof run !== 'function') return { status: 'not_configured', code: 'unsupported' };
+    if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const result = await withTimeout(run(call.key, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,
@@ -665,18 +663,18 @@ export async function executeCall(resolved, deps) {
       ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
     }), deps.timeoutMs ?? CALL_TIMEOUT_MS);
     // Dispatched and not back in time: it may have taken effect. Never retried.
-    if (result?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
+    if (result?.timedOut === true) return { status: 'unknown', code: CODE.TIMEOUT, values: { what: WHAT.chat }, data: { text: '' } };
     const status = callStatus(result);
     const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
     const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? 'error') }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}) };
+    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}) };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
     const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));
     const sent = fromPort(await deps.port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
     return { ...sent, data: { text } };
   } catch (err) {
-    return { status: 'failed', code: 'error', error: err };
+    return { status: 'failed', code: CODE.ERROR, error: err };
   }
 }
 
@@ -690,7 +688,7 @@ export async function executeCall(resolved, deps) {
  * @returns {boolean}
  */
 export function needsFollowUp(skill, result) {
-  if (result?.code === 'skills-off') return false;
+  if (result?.code === CODE.SKILLS_OFF) return false;
   if (result?.status === 'ok') return !QUIET_ON_OK.includes(skill) && Boolean(result.data?.text);
   return true;
 }
@@ -737,7 +735,7 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
   const fields = outcome.values && typeof outcome.values === 'object' && !Array.isArray(outcome.values) ? { ...outcome.values } : null;
   const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}), ...(fields ? { fields } : {}) });
-  if (code === 'invalid-args') {
+  if (code === CODE.INVALID_ARGS) {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) {
       const kind = ARG_RULE_KINDS[path[2]] ?? 'wrong-arg';
@@ -746,14 +744,14 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
     }
     return of(code);
   }
-  if (code === 'unknown-message') {
+  if (code === CODE.UNKNOWN_MESSAGE) {
     if (reason === 'conversation') return of('message-elsewhere');
-    if (reason === 'message-deleted') return of('message-deleted');
+    if (reason === CODE.MESSAGE_DELETED) return of(CODE.MESSAGE_DELETED);
     return MESSAGE_OPTIONS.includes(reason) ? of(code, reason) : of(code);
   }
-  if (code === 'not-own-message') return of(code, 'message');
-  if (code === 'unknown-member' && reason === 'ambiguous') return of('member-ambiguous');
-  if (code === 'agent-required') {
+  if (code === CODE.NOT_OWN_MESSAGE) return of(code, 'message');
+  if (code === CODE.UNKNOWN_MEMBER && reason === 'ambiguous') return of('member-ambiguous');
+  if (code === CODE.AGENT_REQUIRED) {
     const agents = reason.split(',').map((agent) => agent.trim()).filter(Boolean);
     return { ...of(code, 'agent'), ...(agents.length > 0 ? { values: agents } : {}) };
   }

@@ -80,6 +80,7 @@ import { localHour } from '../format.js';
 import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
+import { CODE } from '../skills/codes.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback']);
@@ -167,7 +168,7 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     const refused = action.status === 'refused';
     const result = typeof action.result === 'string' ? action.result : 'ok';
     if (!refused && result === 'ok') continue;
-    const status = refused ? 'refused' : result === 'timeout' || action.code === 'timeout' ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
+    const status = refused ? 'refused' : result === 'timeout' || action.code === CODE.TIMEOUT ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
     facts.push({ kind: 'callFailed', skill: action.skill, status, code: typeof action.code === 'string' && action.code ? action.code : null, ...(typeof action.text === 'string' && action.text ? { text: action.text } : {}) });
   }
   const delivered = actions.some((action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill));
@@ -581,7 +582,7 @@ export function turnsToday(state, { now, timezone }) {
  * failure is younger than `retry.maxHours`, else `drop`. `n` is the attempt number that failed.
  * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
  */
-export function planRetry(group, at, settings, code = 'error') {
+export function planRetry(group, at, settings, code = CODE.ERROR) {
   const n = group.reduce((most, wake) => Math.max(most, Number.isInteger(wake.retry) ? wake.retry : 0), 0) + 1;
   const firstFailedAt = group.reduce((first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at), at);
   const { delaysMinutes, maxHours } = settings.retry;
@@ -1130,12 +1131,12 @@ export function createInnerLife({
       };
       const channel = await Promise.resolve(client?.channels?.fetch?.(String(channelId))).catch(() => null);
       if (!channel) {
-        fail('unavailable');
+        fail(CODE.UNAVAILABLE);
         continue;
       }
       // A private chat only while private chats are on (features.privateMessages, read now).
       if (!channel.guild && hot.config?.features?.privateMessages !== true) {
-        fail('dm-off');
+        fail(CODE.DM_OFF);
         continue;
       }
       if (channel.guild && !readOnlyOk && typeof discord?.canSend === 'function') {
@@ -1146,7 +1147,7 @@ export function createInnerLife({
           writable = false;
         }
         if (!writable) {
-          fail('not-writable');
+          fail(CODE.NOT_WRITABLE);
           continue;
         }
       }
@@ -1347,7 +1348,7 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : 'error') : null;
+    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
     after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode, failed: true } : {}) });
     // Each attention woken for counts the wake on its day (its own per-day bound).
     if (typeof intentions?.countAttendWake === 'function') {
@@ -1511,7 +1512,7 @@ export function createInnerLife({
 
   /** The kill switch: stopped (persisted), the queue dropped (journalled). */
   function stop(guildId = getGuildId(), { by = null } = {}) {
-    if (!guildId) return { ok: false, code: 'no-guild' };
+    if (!guildId) return { ok: false, code: CODE.NO_GUILD };
     const state = stateOf(guildId);
     const at = now();
     const queued = state.queue.filter((wake) => !running.has(wake.id));
@@ -1529,7 +1530,7 @@ export function createInnerLife({
 
   /** The kill switch released (persisted). */
   function start(guildId = getGuildId(), { by = null } = {}) {
-    if (!guildId) return { ok: false, code: 'no-guild' };
+    if (!guildId) return { ok: false, code: CODE.NO_GUILD };
     const state = stateOf(guildId);
     const already = !state.stopped;
     state.stopped = false;
@@ -1608,7 +1609,7 @@ export function createInnerLife({
       attention,
       next: nextWakeOf(state, open, at),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
-      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : 'error' } : null,
+      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR } : null,
     };
   }
 

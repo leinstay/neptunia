@@ -104,6 +104,7 @@ import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
+import { CODE, reasonText } from '../skills/codes.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
@@ -1963,10 +1964,12 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
   const reasons = isPlainObject(words.reasons) ? words.reasons : {};
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   // A deleted message is its own reason of `unknown-message` (the machine reason names it).
-  const reason = (result.reason === 'message-deleted' ? reasons[result.reason] : undefined) ?? reasons[code] ?? reasons.other ?? code;
+  // The same words and values as the call mark (src/skills/codes.js#reasonText); a code without them falls to `other`, then the code itself.
+  const worded = (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ?? reasonText(labels, code, result.values, fill);
+  const reason = worded ?? reasons.other ?? code;
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
   // A reason with its own values (`result.values`: the status a search engine answered with) is filled with them.
-  const lead = typeof word === 'string' ? fill(word, { reason: result.values && typeof reason === 'string' ? fill(reason, result.values) : reason }) : '';
+  const lead = typeof word === 'string' ? fill(word, { reason }) : '';
   let data = '';
   if (result.data) {
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');

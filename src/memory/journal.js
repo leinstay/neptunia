@@ -389,7 +389,7 @@ export function callMarksOf(records) {
   const shadowOps = new Set(list.filter((record) => record.kind === 'action' && record.shadow === true && text(record.opId)).map((record) => record.opId));
   for (const record of list) {
     if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId) || shadowOps.has(record.opId)) continue;
-    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, code: null, reason: null, postedId: null, at: null };
+    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, code: null, reason: null, postedId: null, at: null, values: null };
     op.turnId = text(record.turnId) ?? op.turnId;
     op.channelId = text(record.scope?.channel) ?? op.channelId;
     op.skill = text(record.input?.skill) ?? op.skill;
@@ -401,6 +401,7 @@ export function callMarksOf(records) {
     if (record.phase === 'failed' || record.phase === 'unknown') {
       op.code = text(record.result?.code);
       op.reason = text(record.result?.reason);
+      op.values = record.result?.values && typeof record.result.values === 'object' && !Array.isArray(record.result.values) ? record.result.values : null;
     }
     op.postedId = succeededIdOf(record) ?? op.postedId;
     const at = Date.parse(record.occurredAt);
@@ -419,6 +420,7 @@ export function callMarksOf(records) {
       status: op.status ?? 'unknown',
       ...(op.code ? { code: op.code } : {}),
       ...(op.reason ? { reason: op.reason } : {}),
+      ...(op.values ? { values: op.values } : {}),
       target,
       postedId: op.postedId,
       posted: [...(postedByTurn.get(op.turnId) ?? [])],

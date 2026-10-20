@@ -321,9 +321,9 @@ test('runWebSearch: the lookup\'s coded failures reach her as what they are; an 
   const via = async (failed) => runWebSearch({ lookup: fakeLookup({ found: { failed } }), config: WEB_ON, labels, guildId: 'g1', args: { query: 'q' } });
   assert.deepEqual(await via({ code: 'provider', status: 503 }), { status: 'failed', code: 'provider', values: { status: '503' } });
   assert.deepEqual(await via({ code: 'provider' }), { status: 'failed', code: 'provider', values: { status: '' } });
-  assert.deepEqual(await via({ code: 'cap' }), { status: 'failed', code: 'cap' });
+  assert.deepEqual(await via({ code: 'cap' }), { status: 'failed', code: 'cap', values: { what: 'search' } });
   assert.deepEqual(await via({ code: 'empty-query' }), { status: 'invalid', code: 'empty-query' });
-  assert.deepEqual(await via({ code: 'not-configured' }), { status: 'not_configured', code: 'not-configured' });
+  assert.deepEqual(await via({ code: 'not-configured' }), { status: 'not_configured', code: 'not-configured', values: { feature: 'web' } });
   const none = await runWebSearch({ lookup: fakeLookup({ found: { results: [] } }), config: WEB_ON, labels, guildId: 'g1', args: { query: 'q' } });
   assert.equal(none.status, 'ok');
   assert.ok(none.data.text.endsWith(labels.skills.tools.web.none), none.data.text);

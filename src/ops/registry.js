@@ -1,3 +1,4 @@
+import { CODE } from '../skills/codes.js';
 // The registry of operations: every owner command (and later the persona's own adapter) runs
 // one named operation with declared rights. It lives apart from src/ops/index.js so the area
 // modules can register themselves while index.js imports them, with no import cycle.
@@ -27,12 +28,12 @@ export class OpError extends Error {
 }
 
 /** An `invalid` OpError: bad or missing arguments (`code` defaults to `invalid-args`). */
-export function invalid(message, code = 'invalid-args') {
+export function invalid(message, code = CODE.INVALID_ARGS) {
   return new OpError('invalid', code, message);
 }
 
 /** A `denied` OpError: the caller may not do this (`code` defaults to `owner-only`). */
-export function denied(message, code = 'owner-only') {
+export function denied(message, code = CODE.OWNER_ONLY) {
   return new OpError('denied', code, message);
 }
 

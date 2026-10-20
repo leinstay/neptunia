@@ -49,6 +49,7 @@ import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
+import { CODE } from '../skills/codes.js';
 
 /** Every state a task may be in. */
 export const TASK_STATES = Object.freeze(['queued', 'running', 'done', 'failed', 'cancelled']);
@@ -425,9 +426,9 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    *   idempotencyKey?: string|null }} input
    */
   function add({ agent, goal, requester, origin, scope, idempotencyKey = null } = {}) {
-    if (!agentProfileOf(agent)) return { ok: false, code: 'unknown-agent' };
+    if (!agentProfileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     const text = String(goal ?? '').trim();
-    if (!text) return { ok: false, code: 'bad-goal' };
+    if (!text) return { ok: false, code: CODE.BAD_GOAL };
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
     const same = key ? state.tasks.find((task) => task.idempotencyKey === key) : null;
     if (same) {
@@ -608,8 +609,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    * when a cap would refuse a new task now (`key` the setting).
    */
   function budget(agent) {
-    const code = agentProfileOf(agent) ? capHit(agent) : 'unknown-agent';
-    const key = { 'cap-open': 'agents.maxOpen', 'cap-tasks': `agents.${agent}.daily.tasks` }[code] ?? null;
+    const code = agentProfileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
+    const key = { [CODE.CAP_OPEN]: 'agents.maxOpen', [CODE.CAP_TASKS]: `agents.${agent}.daily.tasks` }[code] ?? null;
     return { spent: code !== null, key, code };
   }
 

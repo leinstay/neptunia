@@ -8,6 +8,7 @@ import { matchRoute } from '../llm/openrouter.js';
 import { OPENCODE_ROLES } from '../llm/roles.js';
 import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, byokText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 /** The `byok` option of `/nep route set`: `'true'` or `'false'` (the Discord choices), or the
  * boolean a persona's call carries; absent (undefined or null) is false; anything else is refused. */
@@ -114,7 +115,7 @@ const handlers = perEnv((env) => {
     if (!Object.hasOwn(localMap, key)) {
       const live = hot.config?.llm?.providerByModel;
       const fromBase = isPlainObject(live) && Object.hasOwn(live, key) ? ' in config.local.json (it is set in config.json)' : '';
-      throw invalid(`no route ${key}${fromBase}`, 'not-found');
+      throw invalid(`no route ${key}${fromBase}`, CODE.NOT_FOUND);
     }
     const ok = writeRoutes((map) => {
       delete map[key];

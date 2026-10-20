@@ -5,6 +5,7 @@
 import { normalizeTopic } from '../memory/index.js';
 import { confirmTarget, learnedLine } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, tokenResolver } = env;
@@ -62,7 +63,7 @@ const handlers = perEnv((env) => {
     const id = args?.id;
     if (!Number.isInteger(id)) throw invalid('an item id is required');
     const existing = (store.getGuild(guildId).learned ?? []).find((item) => item.id === id);
-    if (!existing) throw invalid(`no learned item #${id}`, 'not-found');
+    if (!existing) throw invalid(`no learned item #${id}`, CODE.NOT_FOUND);
 
     store.applyLearnedOps(guildId, { remove: [id] }, { ...(hot.config?.memory ?? {}), seenAt: Date.now() });
     return `Removed learned item #${id}: ${tokenResolver(guildId).resolve(existing.text)}`;

@@ -7,6 +7,7 @@ import { log } from '../log.js';
 import { formatClock } from '../format.js';
 import { unsetPath, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, client, discord, diary, turns, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, editLocalConfig, writeLocalPath, journalSystem } = env;
@@ -42,7 +43,7 @@ const handlers = perEnv((env) => {
     const channelId = String(args?.channelId ?? '').trim();
     if (!channelId) throw invalid('a channel is required');
     const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel) throw invalid(`no channel ${channelId}`, 'not-found');
+    if (!channel) throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
     if (!discord.canRead(channel)) throw new Error(`cannot view or read the history of ${channelId}; nothing was changed`);
     if (!discord.canSend(channel)) throw new Error(`cannot send messages in ${channelId}; nothing was changed`);
     if (!discord.canAttach(channel)) throw new Error(`cannot attach files in ${channelId}; nothing was changed`);
@@ -111,7 +112,7 @@ const handlers = perEnv((env) => {
    */
   async function cmdDiaryPost(args, context = {}) {
     assertNotPaused();
-    if (typeof diary?.force !== 'function') throw Object.assign(new Error('diary not running'), { code: 'not-configured' });
+    if (typeof diary?.force !== 'function') throw Object.assign(new Error('diary not running'), { code: CODE.NOT_CONFIGURED });
     const kind = String(args?.kind ?? '').trim() || undefined;
     const kinds = diaryKindKeys();
     if (kind !== undefined && !kinds.includes(kind)) {
@@ -131,7 +132,7 @@ const handlers = perEnv((env) => {
   function queueAfterTurn(kind, request, context) {
     const label = `diary post${kind ? ` ${kind}` : ''}`;
     const off = hot.config.features?.diary === false ? 'the diary is switched off' : !hot.config.diary?.channelId ? 'the diary has no channel set' : null;
-    if (off) return { status: 'failed', code: 'not-configured', summary: off, data: null };
+    if (off) return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: off, data: null };
     const invocationId = String(context?.invocationId ?? '');
     const answer = `${label}: queued, posting after this turn`;
     if (invocationId && queued.has(invocationId)) return answer;

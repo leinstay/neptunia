@@ -100,6 +100,7 @@ import {
 } from './recall.js';
 import { fitExcerpts, focusHits, indexedPlan, indexRows, lanePlan, lexicalKeep, quotedPhrases, rankPrefetch } from './prefetch.js';
 import { indexQuery, indexWords, nameAlternates, querySupport, recordIndexOf, searchRecordIndex } from '../memory/record-index.js';
+import { CODE } from '../skills/codes.js';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -1310,7 +1311,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         controller.abort();
         log.warn('recall: failed', { channel: channelId, reason: 'timeout', status: null, name: null });
         const fallen = progress.fallback ? progress.fallback('timeout') : null;
-        if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed('timeout'));
+        if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed(CODE.TIMEOUT));
         return finish(fallen ?? empty({ outcome: { kind: 'timeout' } }));
       }
       const out = outcome ?? empty();
@@ -1319,7 +1320,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     } catch (err) {
       controller?.abort();
       log.warn('recall: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });
-      if (op) await op.failed('error');
+      if (op) await op.failed(CODE.ERROR);
       return finish(empty({ outcome: { kind: 'error' } }));
     } finally {
       if (timer !== null) timers.clear(timer);

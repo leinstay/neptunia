@@ -13,6 +13,7 @@ import { adaptLegacyModelKeys } from '../config.js';
 import { log } from '../log.js';
 import { invalid } from './registry.js';
 import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.js';
+import { CODE } from '../skills/codes.js';
 
 /**
  * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
@@ -112,7 +113,7 @@ export function createOpsEnv({
    */
   function assertNotPaused() {
     if (store.state.data.paused) {
-      throw Object.assign(new Error(pausedText()), { code: 'paused' });
+      throw Object.assign(new Error(pausedText()), { code: CODE.PAUSED });
     }
   }
 
@@ -135,7 +136,7 @@ export function createOpsEnv({
   /** The served guild, or an Error before it resolves. */
   function requireGuildId(context) {
     const guildId = resolvedGuildId(context);
-    if (!guildId) throw Object.assign(new Error(NO_GUILD), { code: 'no-guild' });
+    if (!guildId) throw Object.assign(new Error(NO_GUILD), { code: CODE.NO_GUILD });
     return guildId;
   }
 
@@ -199,7 +200,7 @@ export function createOpsEnv({
    * creates a profile for a member the persona has not met. */
   function requireProfile(guildId, userId) {
     const profile = store.getUser(guildId, userId);
-    if (!profile) throw invalid(`no profile for ${userId}`, 'not-found');
+    if (!profile) throw invalid(`no profile for ${userId}`, CODE.NOT_FOUND);
     return profile;
   }
 

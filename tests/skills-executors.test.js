@@ -589,10 +589,10 @@ test('resolveCall: an errand\'s file goes to the channel the errand was asked in
   // To the origin channel (the result turn's own): passes.
   const origin = resolve('message.create', { file: handle, channel: '#γενικά' }, 'βρήκα', here);
   assert.deepEqual([origin.ok, origin.args], [true, { file: handle, channel: HERE, text: 'βρήκα' }]);
-  // To another channel nobody named: refused, a rule said no.
+  // To another channel nobody named: refused, a wrong call.
   const elsewhere = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', here);
   assert.deepEqual([elsewhere.ok, elsewhere.code], [false, 'file-elsewhere']);
-  assert.equal(refusalStatus('file-elsewhere'), 'denied');
+  assert.equal(refusalStatus('file-elsewhere'), 'invalid');
   assert.equal(outcomeDetail({ status: 'denied', code: 'file-elsewhere', reason: elsewhere.reason }).kind, 'file-elsewhere');
   // A reply to a line of another channel takes the file there too: the same rule.
   assert.equal(resolve('message.create', { file: handle, reply: '#3' }, 'βρήκα', here).code, 'file-elsewhere');
@@ -860,7 +860,7 @@ test('executeCall: an operation that does not answer in time is unknown, never r
   const keepAlive = setTimeout(() => {}, 1000);
   const result = await executeCall(resolve('lore.list'), { envelope: { requester: { id: OWNER } }, runCommand, opContext: {}, timeoutMs: 20 });
   clearTimeout(keepAlive);
-  assert.deepEqual(result, { status: 'unknown', code: 'timeout', data: { text: '' } });
+  assert.deepEqual(result, { status: 'unknown', code: 'timeout', values: { what: 'chat' }, data: { text: '' } });
   // the envelope, never the model, says who asked; the actor and the invocation id ride along
   const seen = [];
   await executeCall(resolve('lore.list'), { envelope: { requester: { id: MEMBER, roleIds: ['r1'] }, invocationId: 'inv-9' }, runCommand: async (...args) => { seen.push(args); return { status: 'ok', summary: 'none' }; }, opContext: { guildId: 'g1', channelId: HERE } });

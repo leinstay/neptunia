@@ -35,6 +35,7 @@ import './intent.js';
 import './places.js';
 import './inner.js';
 import './search.js';
+import { CODE } from '../skills/codes.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
 
@@ -247,7 +248,7 @@ function refusal(status, code, summary) {
 function checkRights(op, ctx) {
   const code = rightsRefusal(op, { userId: ctx?.userId, roleIds: ctx?.roleIds, config: ctx?.env?.hot?.config });
   if (code === null) return null;
-  if (code === 'not-granted') return refusal('denied', code, 'Not allowed');
+  if (code === CODE.NOT_GRANTED) return refusal('denied', code, 'Not allowed');
   return refusal('denied', code, `${op.name} is owner-only`);
 }
 
@@ -256,9 +257,9 @@ function checkRights(op, ctx) {
  * Exported for the tests' fake admin, which answers in the same shape. */
 export function asResult(value) {
   if (value && typeof value === 'object' && STATUSES.includes(value.status)) return value;
-  if (value && typeof value === 'object') return { status: 'ok', code: 'ok', summary: String(value.text ?? ''), data: value };
+  if (value && typeof value === 'object') return { status: 'ok', code: CODE.OK, summary: String(value.text ?? ''), data: value };
   const text = String(value ?? '');
-  return { status: 'ok', code: 'ok', summary: text, data: { text } };
+  return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
 }
 
 /**
@@ -272,12 +273,12 @@ export function asResult(value) {
  */
 export async function runOpPrechecked(name, args = {}, ctx = {}) {
   const op = getOp(name);
-  if (!op) return refusal('invalid', 'unknown-op', `unknown operation: ${name}`);
+  if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
   try {
     return asResult(await op.run(args ?? {}, ctx));
   } catch (err) {
     if (err instanceof OpError) return refusal(err.status, err.code, err.message);
-    const code = typeof err?.code === 'string' && err.code ? err.code : 'error';
+    const code = typeof err?.code === 'string' && err.code ? err.code : CODE.ERROR;
     log.warn('ops: failed', { name, code });
     return refusal('failed', code, String(err?.message ?? err));
   }
@@ -292,7 +293,7 @@ export async function runOpPrechecked(name, args = {}, ctx = {}) {
  */
 export async function runOp(name, args = {}, ctx = {}) {
   const op = getOp(name);
-  if (!op) return refusal('invalid', 'unknown-op', `unknown operation: ${name}`);
+  if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
   const refused = checkRights(op, ctx);
   if (refused) {
     log.info('ops: denied', { name, code: refused.code });

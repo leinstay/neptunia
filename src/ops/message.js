@@ -28,6 +28,7 @@ import { defineOp, perEnv, invalid } from './registry.js';
 import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
 import { utcDay } from '../time.js';
+import { CODE } from '../skills/codes.js';
 
 /** How far back `last` looks for her own message: Discord's most messages per history request. */
 const LAST_LOOKBACK = 100;
@@ -62,14 +63,14 @@ const handlers = perEnv((env) => {
     const handle = String(args?.file ?? '').trim();
     if (!handle) return null;
     const file = typeof errands?.fileOf === 'function' ? errands.fileOf({ guildId: resolvedGuildId(context), handle, privateChannelId: channelId }) : null;
-    if (file?.expired) throw invalid(`files of ${handle} have expired`, 'file-expired');
-    if (!file) throw invalid(`no file ${handle}`, 'unknown-file');
+    if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
+    if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
     const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
     const stat = await fsp.stat(file.path).catch(() => null);
-    if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: 'file-unreadable' });
-    if (Number.isFinite(limit) && stat.size > limit) throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), { code: 'attachment-too-large' });
+    if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
+    if (Number.isFinite(limit) && stat.size > limit) throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), { code: CODE.ATTACHMENT_TOO_LARGE });
     const data = await fsp.readFile(file.path).catch(() => null);
-    if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: 'file-unreadable' });
+    if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
     return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
   }
 
@@ -81,7 +82,7 @@ const handlers = perEnv((env) => {
     const handle = String(args?.gif ?? '').trim();
     if (!handle) return null;
     const entry = hot.config.features?.gifs === false || typeof store?.findGif !== 'function' ? null : store.findGif(guildId, handle);
-    if (!entry) throw invalid(`no GIF ${handle} in the library`, 'unknown-gif');
+    if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
     return entry;
   }
 
@@ -105,14 +106,14 @@ const handlers = perEnv((env) => {
     if (!text && !String(args?.file ?? '').trim() && !String(args?.gif ?? '').trim()) throw invalid('text is required');
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
+    if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(args, guildId);
     const capped = entry ? gifCapSpent() : false;
     // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
-    if (capped) throw invalid('the GIF limit for today is used up', 'gif-cap');
+    if (capped) throw invalid('the GIF limit for today is used up', CODE.GIF_CAP);
     const attachment = await errandFile(args, context, channelId, p);
     const to = { iface: p.iface, conversationId: channelId };
     const content = {
@@ -127,7 +128,7 @@ const handlers = perEnv((env) => {
       if (result?.status !== 'ok' || !entry) return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
     }
     const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
-    if (sent?.status !== 'ok') return text || attachment ? { status: 'partial', code: 'gif-failed', summary: 'message.create: the text went out, the GIF did not', data: { gifUnknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');
+    if (sent?.status !== 'ok') return text || attachment ? { status: 'partial', code: CODE.GIF_FAILED, summary: 'message.create: the text went out, the GIF did not', data: { gifUnknown: sent?.status === 'unknown', portStatus: sent?.status ?? null, ref: result?.ref ?? null } } : portAnswer('message.create', sent, '');
     const ref = result?.ref ?? sent.ref;
     return { text: `sent in ${channelId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`, ref: ref ?? null, at: (result ?? sent).at };
   }
@@ -154,7 +155,7 @@ const handlers = perEnv((env) => {
     const channelId = args?.channelId || context?.channelId;
     if (!channelId) throw invalid('a channel is required');
     const channel = await client.channels.fetch(channelId);
-    if (!channel) throw invalid(`no channel ${channelId}`, 'not-found');
+    if (!channel) throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
     // The person who ran the command is the requester of what she does in that turn.
     const requester = context?.userId ? { id: String(context.userId), roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(String) : [] } : null;
     if (!args?.replyTo) {
@@ -162,9 +163,9 @@ const handlers = perEnv((env) => {
       return `message create on ${channel.id}: ${JSON.stringify(result) ?? 'ok'}`;
     }
     const reply = messageRefOf(args.replyTo);
-    if (reply.channelId && reply.channelId !== String(channel.id)) throw invalid('the message is not in that channel', 'unknown-message');
+    if (reply.channelId && reply.channelId !== String(channel.id)) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const message = await channel.messages?.fetch?.(reply.messageId).catch(() => null);
-    if (!message) throw invalid(`no message ${reply.messageId} in ${channel.id}`, 'unknown-message');
+    if (!message) throw invalid(`no message ${reply.messageId} in ${channel.id}`, CODE.UNKNOWN_MESSAGE);
     const media = hot.config.media ?? {};
     const trigger = discord.normalizeMessage(message, client.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
     const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention', forced: true, ...(requester ? { requester } : {}) });
@@ -179,7 +180,7 @@ const handlers = perEnv((env) => {
 
   /** The port, or an Error naming what is missing. */
   function requirePort() {
-    if (!port || typeof port.edit !== 'function') throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
+    if (!port || typeof port.edit !== 'function') throw Object.assign(new Error('the persona\'s interface is not available'), { code: CODE.NOT_CONFIGURED });
     return port;
   }
 
@@ -191,7 +192,7 @@ const handlers = perEnv((env) => {
     if (last && isLast(args?.messageId)) return lastTarget(args, context, need);
     const message = messageRefOf(args?.messageId);
     const given = args?.channelId ? String(args.channelId) : null;
-    if (given && message.channelId && given !== message.channelId) throw invalid('the message is not in that channel', 'unknown-message');
+    if (given && message.channelId && given !== message.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: given ?? message.channelId, context, need });
     return { channelId, messageId: message.messageId, ref: { iface: port.iface, conversationId: channelId, messageId: message.messageId } };
   }
@@ -211,7 +212,7 @@ const handlers = perEnv((env) => {
       if (!selfId || String(message?.author?.id ?? '') !== selfId) continue;
       if (!newest || (message.createdTimestamp ?? 0) > (newest.createdTimestamp ?? 0)) newest = message;
     }
-    if (!newest) throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, 'no-own-message');
+    if (!newest) throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, CODE.NO_OWN_MESSAGE);
     const messageId = String(newest.id);
     return { channelId, messageId, ref: { iface: port.iface, conversationId: channelId, messageId } };
   }
