@@ -488,6 +488,7 @@ export const COMMAND_TABLE = Object.freeze([
       {
         // One skill or a family in full (src/ops/skills.js): her read skill `skills.describe`.
         name: 'skills',
+        personaOnly: true,
         description: 'Skill info.',
         options: [{ type: STRING, name: 'name', description: 'Name.', required: true, max_length: 60 }],
         args: (options) => ({ name: options.getString('name', true) }),
@@ -578,6 +579,7 @@ export const COMMAND_TABLE = Object.freeze([
       {
         // The persona's own search of her GIF library by the stored descriptions (src/ops/search.js).
         name: 'find',
+        personaOnly: true,
         description: 'Search the GIF library.',
         options: [{ type: STRING, name: 'query', description: 'What it shows.', required: true, max_length: 200 }],
         // How many come back: an argument only her own call has (never shown to Discord, the tree's size).
