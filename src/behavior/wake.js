@@ -6,7 +6,7 @@
 // her intentions that expired untouched since she was last told (`wake.expired`: the newest
 // first, capped, the rest counted) -- then the present moment and her timezone, the channels she was recently active in (a review), the places page
 // (`wake.places`, src/behavior/inner.js#places: where life is beyond this conversation, with the
-// total and how many more) and what is left of her budgets with when each resets: facts she reads,
+// total and how many more; a heartbeat's facts, `wake.heartbeat`, carry that page themselves) and what is left of her budgets with when each resets: facts she reads,
 // never a rule. A `feedback` wake (src/behavior/inner.js#feedbackFacts: what did not go through in
 // her previous turn) is its kind line followed by one `wake.feedbackItem` per fact, each fact
 // worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The facts kept
@@ -152,6 +152,82 @@ export function placesLines(page, l) {
 }
 
 /**
+ * The lines of a heartbeat's facts (src/behavior/heartbeat-view.js), every word from `labels.wake.heartbeat`
+ * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `interests`, `activeIn`,
+ * joined by `partsJoin`), her life (`life`: `action`, `errand`, `diary`; `open`,
+ * `attending`; `closed` with its items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`),
+ * and what happened since (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items). A list
+ * over its cap ends with `more` ({more}). A list or line without its label is left out; an empty list
+ * (or one with no label) says nothing, and so does a `done` line of zeros. [] for no facts.
+ * @param {object|null} facts
+ * @param {object} l  `labels.wake.heartbeat`.
+ * @param {(ts: number) => string} when
+ * @param {string[]} [placesBlock]  The places page's lines (placesLines), shown right after the people.
+ * @returns {string[]}
+ */
+export function heartbeatLines(facts, l, when, placesBlock = []) {
+  if (!facts || typeof facts !== 'object' || !l || typeof l !== 'object') return [];
+  const one = (value) => oneLine(String(value ?? ''));
+  const make = (key, values) => part(l, key, values);
+  const out = [];
+  const block = (lead, rows, moreCount) => {
+    const lines = rows.filter(Boolean);
+    if (lines.length === 0 || typeof l[lead] !== 'string' || !l[lead]) return;
+    out.push(l[lead], ...lines);
+    if (moreCount > 0) out.push(make('more', { more: String(moreCount) }));
+  };
+  const people = Array.isArray(facts.people) ? facts.people : [];
+  block('people', people.map((p) => {
+    const parts = [
+      Number.isFinite(p.lastAt) ? (p.lastPlace ? make('contact', { when: when(p.lastAt), place: one(p.lastPlace) }) : make('contactNoPlace', { when: when(p.lastAt) })) : '',
+      p.interests?.length > 0 ? make('interests', { interests: p.interests.map(one).join(', ') }) : '',
+      p.places?.length > 0 ? make('activeIn', { places: p.places.map(one).join(', ') }) : '',
+    ].filter(Boolean);
+    return make('person', { name: one(p.name ?? p.id), parts: parts.join(l.partsJoin ?? '; ') });
+  }), 0);
+  out.push(...placesBlock);
+  const life = facts.life ?? {};
+  const rows = (cap, fn) => (Array.isArray(cap?.items) ? cap.items.map(fn) : []);
+  block('life', [
+    ...rows(life.actions, (a) => make('action', { when: when(a.at), skill: one(a.skill), where: a.place ? make('where', { place: one(a.place) }) : '' })),
+    ...rows(life.errands, (e) => make('errand', { when: when(e.at), agent: one(e.agent), state: one(e.state) })),
+    ...rows(life.diary, (d) => make('diary', { when: when(d.at) })),
+  ], (life.actions?.more ?? 0) + (life.errands?.more ?? 0) + (life.diary?.more ?? 0));
+  block('open', rows(life.open, (i) => make('openItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '' })), life.open?.more ?? 0);
+  block('attending', rows(life.attending, (i) => make('attendingItem', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), place: one(i.place) })), life.attending?.more ?? 0);
+  block('closed', rows(life.closed, (i) => make('closedItem', { id: one(i.id), state: one(i.state), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), why: one(i.why), when: when(i.at) })), life.closed?.more ?? 0);
+  const skills = Array.isArray(facts.skills) ? facts.skills : [];
+  const agents = Array.isArray(facts.agents) ? facts.agents : [];
+  block('skills', [...skills.map((s) => make('skill', { family: one(s.family), names: s.names.map(one).join(', ') })), agents.length > 0 ? make('agentsLine', { agents: agents.map(one).join(', ') }) : ''], 0);
+  const since = facts.since;
+  if (since) {
+    const done = since.done ?? {};
+    const doneLine = (done.posts ?? 0) + (done.errands ?? 0) + (done.intentions ?? 0) > 0 && make('done', { posts: String(done.posts ?? 0), errands: String(done.errands ?? 0), intentions: String(done.intentions ?? 0) });
+    const nd = since.notDone ?? {};
+    const notDone = [
+      ...rows(nd.expired, (i) => make('expired', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), when: when(i.at) })),
+      ...rows(nd.missed, (i) => make('missed', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), when: when(i.at) })),
+      ...rows(nd.failedErrands, (e) => make('failedErrand', { id: one(e.id), agent: one(e.agent), code: one(e.code ?? ''), when: when(e.at) })),
+      ...rows(nd.lateErrands, (i) => make('lateErrand', { id: one(i.id), purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS), when: when(i.at) })),
+      ...rows(nd.unknownSends, (x) => make('unknownSend', { skill: one(x.skill ?? ''), place: one(x.place ?? ''), when: when(x.at) })),
+      ...rows(nd.failedTurns, (x) => make('failedTurn', { code: one(x.code ?? ''), when: when(x.at) })),
+    ];
+    const notDoneMore = ['expired', 'missed', 'failedErrands', 'lateErrands', 'unknownSends', 'failedTurns'].reduce((sum, key) => sum + (nd[key]?.more ?? 0), 0);
+    const told = nd.told > 0 ? make('told', { count: String(nd.told) }) : '';
+    const filtered = since.filtered ?? {};
+    const filteredRows = (Array.isArray(filtered.items) ? filtered.items : []).map((x) => (x.by === 'address' ? make('filteredAddress', { when: when(x.at), place: one(x.place ?? '') }) : make('filteredMissed', { when: when(x.at), place: one(x.place ?? ''), verdict: one(x.verdict ?? '') })));
+    if (typeof l.since === 'string' && l.since && (doneLine || notDone.some(Boolean) || told || filteredRows.some(Boolean))) {
+      out.push(make('since', { from: when(since.from) }));
+      if (doneLine) out.push(doneLine);
+      block('notDone', notDone, notDoneMore);
+      if (told) out.push(told);
+      block('filtered', filteredRows, filtered.more ?? 0);
+    }
+  }
+  return out;
+}
+
+/**
  * The `<places>` body of an addressed turn (`context.places`): the places page alone, '' without
  * its lead label or a page.
  * @param {object|null} page
@@ -244,7 +320,9 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     const line = part(l, 'channels', { channels: channels.map((name) => `#${name}`).join(', ') });
     if (line) lines.push(line);
   }
-  lines.push(...placesLines(wake.places ?? null, l));
+  const placesBlock = placesLines(wake.heartbeat?.places ?? wake.places ?? null, l);
+  if (wake.heartbeat) lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock));
+  else lines.push(...placesBlock);
   const budgets = wake.budgets ?? {};
   const budgetLines = WAKE_BUDGETS.map((key) => {
     const entry = budgets[key];

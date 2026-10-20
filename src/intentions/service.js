@@ -37,6 +37,7 @@ import {
   normalizeAttend,
   candidatesFromAnswer,
   createIntention,
+  dropIntention,
   dueList as dueOf,
   duplicates,
   expireAt,
@@ -159,6 +160,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const limits = settings();
     if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
+    if (input.state === 'dropped') return setDropped(store, input, by);
     const created = createIntention({
       purpose: input.purpose,
       provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
@@ -181,6 +183,28 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!waited.ok) return waited;
     const added = store.add(waited.intention);
     if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by });
+    return added;
+  }
+
+  /**
+   * A new record born `dropped` (`set` with `state: 'dropped'`): a desire she considered and let
+   * go, with its `reason` (`reason-required` without one). It is not active (no `maxOpen` check),
+   * never wakes, and is kept like any closed one.
+   */
+  function setDropped(store, input, by) {
+    const created = createIntention({
+      purpose: input.purpose,
+      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
+      dropped: true,
+      reason: input.reason ?? null,
+      now: now(),
+      settings: settings(),
+      id: freshId(store),
+      by,
+    });
+    if (!created.ok) return created;
+    const added = store.add(created.intention);
+    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: 'dropped', by });
     return added;
   }
 
@@ -214,6 +238,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!current || !visibleTo(current, patch)) return { ok: false, code: CODE.NOT_FOUND };
     if (!isOpen(current.status)) return { ok: false, code: CODE.TERMINAL };
     const by = patch.by ?? 'persona';
+    const dropping = patch.state === 'dropped';
+    if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim())) return { ok: false, code: CODE.REASON_REQUIRED };
     // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
     // turn that wrote its line, and from an inner turn neither an external one nor one born in an
     // inner turn of the same chain.
@@ -225,7 +251,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       }
     }
     if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: CODE.CAP_OPEN };
-    const plan = patch.taskId || Number.isFinite(patch.deadline) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
+    const plan = !dropping && (patch.taskId || Number.isFinite(patch.deadline)) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
     if (plan && !plan.ok) return plan;
     const at = now();
     const result = store.update(id, (record) => {
@@ -273,6 +299,12 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         if (!waited.ok) return waited;
         next = waited.intention;
         changed = changed || waited.changed;
+      }
+      if (dropping) {
+        const moved = dropIntention(next, { reason: patch.reason, now: at, by });
+        if (!moved.ok) return moved;
+        next = moved.intention;
+        changed = true;
       }
       if (patch.state === 'done') {
         // A recurring one is never done: this closes the occurrence and sets the next.

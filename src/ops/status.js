@@ -104,6 +104,7 @@ export function innerLines(s, labels, { tokens = null } = {}) {
     s.turnsToday != null ? labelLine(L.turnsLine, { used: s.turnsToday, chains: s.chains ?? 0 }) : null,
     s.turnsToday != null ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
     s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
+    s.heartbeat === undefined ? null : s.heartbeat ? (Number.isFinite(s.heartbeat.nextAt) ? labelLine(L.heartbeatLine, { at: innerStamp(s.heartbeat.nextAt) }) : null) : labelLine(L.heartbeatOff, {}),
     s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
     s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,
     intentions ? labelLine(L.intentionsLine, intentions) : null,

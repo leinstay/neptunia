@@ -559,3 +559,76 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   assert.deepEqual(intentions.attending('g1'), []);
   assert.equal((await runOp('intent.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
 });
+
+test('intent dropped: set born dropped and update on an open one need a reason; a dropped one never wakes, is not open or counted, is final, and stays among the closed ones', async () => {
+  const { env, intentions, clock, hot } = makeEnv({ intentions: { maxOpen: 1 } });
+  await withCapturedLogs(async () => {
+    const none = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped' }, hers(env, 'T1'));
+    assert.deepEqual([none.status, none.code], ['invalid', 'reason-required']);
+    const born = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped', reason: 'too cold today' }, hers(env, 'T1'));
+    assert.equal(born.status, 'ok', born.summary);
+    assert.match(born.data.text, /dropped, reason too cold today/, born.data.text);
+    const open = await runOp('intent.set', { text: 'φέρε το άρθρο', due: '1h' }, hers(env, 'T1'));
+    assert.equal(open.status, 'ok', 'a dropped one does not count against maxOpen');
+    const id = open.data.intention.id;
+    clock.t = T0 + HOUR / 2;
+    assert.equal((await runOp('intent.update', { id, state: 'dropped' }, hers(env, 'T2'))).code, 'reason-required');
+    const dropped = await runOp('intent.update', { id, state: 'dropped', reason: 'no longer needed' }, hers(env, 'T2'));
+    assert.equal(dropped.status, 'ok', dropped.summary);
+    assert.match(dropped.data.text, /dropped, reason no longer needed/);
+    assert.equal((await runOp('intent.update', { id, state: 'pending' }, hers(env, 'T2'))).code, 'terminal');
+    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'terminal');
+    assert.deepEqual(intentions.list('g1'), []);
+    clock.t = T0 + 2 * HOUR;
+    assert.deepEqual(intentions.due('g1'), [], 'never wakes');
+    assert.equal(intentions.view('g1').length, 0);
+    const closed = intentions.list('g1', { closed: true, all: true }).map((r) => [r.id, r.status, r.reason]);
+    assert.deepEqual(closed.sort(), [[id, 'dropped', 'no longer needed'], [born.data.intention.id, 'dropped', 'too cold today']].sort());
+    clock.t = T0 + 30 * 24 * HOUR;
+    assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2, 'nothing prunes a dropped one');
+    assert.equal(intentions.dropped, undefined);
+  });
+});
+
+test('intent dropped: a drop from a recurring or waiting one ends it; a private chat\'s drop is visible only in that chat', async () => {
+  const { env, intentions } = makeEnv();
+  await withCapturedLogs(async () => {
+    const rec = await runOp('intent.set', { text: 'πες καλημέρα', due: '1h', every: 'day' }, hers(env, 'T1'));
+    const id = rec.data.intention.id;
+    assert.equal((await runOp('intent.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status, 'ok');
+    assert.equal(intentions.store('g1').get(id).status, 'dropped');
+    const dm = (extra = {}) => hers(env, 'T3', { channelId: 'dm1', privateChat: true, ...extra });
+    const priv = await runOp('intent.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
+    assert.equal(priv.status, 'ok');
+    assert.deepEqual(intentions.list('g1', { closed: true }).map((r) => r.reason), ['boring']);
+    assert.deepEqual(intentions.list('g1', { closed: true, privateChannelId: 'dm1' }).map((r) => r.reason).sort(), ['boring', 'private matter']);
+    assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2);
+  });
+});
+
+test('store: a closed record beyond KEEP_CLOSED moves to the archive file, never lost; the forget scrubs the archive too', async () => {
+  const { KEEP_CLOSED } = await import('../src/intentions/store.js');
+  const { createIntention } = await import('../src/intentions/model.js');
+  const MEMBER = '987654321';
+  const dataDir = tempDir('intent-archive');
+  const stores = createIntentionStores({ dataDir, now: () => T0 });
+  const store = stores.get('g1');
+  const make = (i, participants) => {
+    const made = createIntention({ purpose: `want ${i}`, provenance: { kind: 'self', turnId: 't', ...(participants ? { participants } : {}) }, now: T0 + i, id: `i${i}`, dropped: true, reason: `why ${i}` });
+    assert.equal(made.ok, true, made.code);
+    return made.intention;
+  };
+  for (let i = 0; i < KEEP_CLOSED + 3; i += 1) assert.equal(store.add(make(i, i === 0 ? [MEMBER] : undefined)).ok, true);
+  assert.equal(store.list().length, KEEP_CLOSED, 'the file keeps the latest ones');
+  assert.deepEqual(store.archived().map((r) => r.id), ['i0', 'i1', 'i2'], 'the older three moved, not deleted');
+  const lines = fs.readFileSync(store.archiveFile, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 3);
+  assert.equal(path.basename(store.archiveFile), 'intentions-archive.jsonl');
+  const vault = tempDir('intent-archive-vault');
+  const gone = stores.forgetUser('g1', MEMBER, { vault });
+  assert.deepEqual(gone, { removed: 1, copies: 0 });
+  assert.deepEqual(store.archived().map((r) => r.id), ['i1', 'i2'], 'the member left the archive');
+  assert.ok(fs.existsSync(path.join(vault, 'guilds', 'g1', 'intentions-archive.jsonl')), 'copied to the vault first');
+  assert.equal(stores.wipe('g1').files >= 2, true);
+  assert.equal(fs.existsSync(store.archiveFile), false);
+});

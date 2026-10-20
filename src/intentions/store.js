@@ -1,15 +1,17 @@
 // The persona's intentions on disk, one store per guild: `data/guilds/<id>/intentions.json`
 // holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole through
 // writeJsonAtomic on every change, so a restart reads back exactly what was there. The list keeps
-// every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired). A file
+// every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired, dropped). An older
+// closed record is never deleted: it moves to `intentions-archive.jsonl` next to the file (append-only, one record per
+// line), which only tools (`archived`) and the forget path read. A file
 // that does not parse is copied aside (`intentions.json.unreadable-<ms>`) before the store starts
 // empty, so nothing is lost to a later write; a record that breaks the model's invariants is left
 // out on load (counted in the log). The store moves nothing by itself: every change is a pure
 // transition of the model applied through `update`. A forget of a member (`forgetUser`, the
 // `intentions` step of src/memory/store.js#forgetUser) takes out every intention that concerns
 // them (src/intentions/model.js#concernsMember), whatever its status, after copying the file
-// into the forget's vault; a wipe of the guild (`wipe`, src/memory/store.js#wipeGuild) empties the
-// list and deletes the file and its unreadable copies. Logs carry ids and counts, never text.
+// into the forget's vault, and scrubs the archive the same way; a wipe of the guild (`wipe`,
+// src/memory/store.js#wipeGuild) empties the list and deletes the file, the archive and the unreadable copies. Logs carry ids and counts, never text.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +29,7 @@ export const KEEP_CLOSED = 50;
 export function createIntentionStore({ dataDir, guildId, now = Date.now, log = defaultLog }) {
   const dir = path.join(dataDir, 'guilds', String(guildId));
   const file = path.join(dir, 'intentions.json');
+  const archiveFile = path.join(dir, 'intentions-archive.jsonl');
   const state = { list: load() };
 
   /** intentions.json read once; a missing file is empty, a broken one copied aside first. */
@@ -50,17 +53,45 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return valid;
   }
 
-  /** The list kept: every open record, then the latest KEEP_CLOSED closed ones. */
-  function pruned(list) {
+  /** The list kept (every open record, then the latest KEEP_CLOSED closed ones) and the closed records beyond them. */
+  function split(list) {
     const closed = list.filter((record) => !isOpen(record.status));
-    if (closed.length <= KEEP_CLOSED) return list;
+    if (closed.length <= KEEP_CLOSED) return { kept: list, moved: [] };
     const keep = new Set([...closed].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, KEEP_CLOSED));
-    return list.filter((record) => isOpen(record.status) || keep.has(record));
+    return { kept: list.filter((record) => isOpen(record.status) || keep.has(record)), moved: list.filter((record) => !isOpen(record.status) && !keep.has(record)) };
   }
 
-  /** intentions.json written whole. Throws on a write error (the caller's change is then not made). */
-  function persist(list) {
+  /**
+   * intentions.json written whole, the records `moved` out of it appended to the archive first (so a
+   * crash between the two repeats a record in the archive, never loses one). Throws on a write error
+   * (the caller's change is then not made).
+   */
+  function persist(list, moved = []) {
+    if (moved.length > 0) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(archiveFile, moved.map((record) => `${JSON.stringify(record)}\n`).join(''));
+    }
     writeJsonAtomic(file, { intentions: list });
+  }
+
+  /** The archived records, oldest first (a line that does not parse is skipped). Tools only. */
+  function archived() {
+    let raw;
+    try {
+      raw = fs.readFileSync(archiveFile, 'utf8');
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        out.push(JSON.parse(line));
+      } catch {
+        // a torn line is left alone
+      }
+    }
+    return out;
   }
 
   function copy(record) {
@@ -85,9 +116,9 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     const broken = checkInvariants(record);
     if (broken) return { ok: false, code: broken };
     if (state.list.some((kept) => kept.id === record.id)) return { ok: false, code: CODE.DUPLICATE_ID };
-    const next = pruned([...state.list, copy(record)]);
+    const { kept: next, moved } = split([...state.list, copy(record)]);
     try {
-      persist(next);
+      persist(next, moved);
     } catch (err) {
       log.warn('intentions: write failed', { guildId: String(guildId), code: err?.code ?? null });
       return { ok: false, code: CODE.WRITE_FAILED };
@@ -107,9 +138,9 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     const result = move(copy(state.list[index]));
     if (!result?.ok) return result ?? { ok: false, code: CODE.BAD_MOVE };
     if (result.changed !== true) return { ok: true, intention: copy(state.list[index]), changed: false };
-    const next = pruned(state.list.map((record, i) => (i === index ? copy(result.intention) : record)));
+    const { kept: next, moved } = split(state.list.map((record, i) => (i === index ? copy(result.intention) : record)));
     try {
-      persist(next);
+      persist(next, moved);
     } catch (err) {
       log.warn('intentions: write failed', { guildId: String(guildId), id: String(id), code: err?.code ?? null });
       return { ok: false, code: CODE.WRITE_FAILED };
@@ -149,11 +180,20 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
         return false;
       }
     });
-    if (vault && (victims.length > 0 || copies.length > 0)) {
+    const archive = archived();
+    const archiveVictims = archive.filter((record) => concernsMember(record, { userId: id, names }));
+    if (vault && (victims.length > 0 || copies.length > 0 || archiveVictims.length > 0)) {
       const base = path.join(vault, path.relative(dataDir, dir));
       fs.mkdirSync(base, { recursive: true });
       if (fs.existsSync(file)) fs.copyFileSync(file, path.join(base, 'intentions.json'));
+      if (archiveVictims.length > 0) fs.copyFileSync(archiveFile, path.join(base, path.basename(archiveFile)));
       for (const copyPath of copies) fs.copyFileSync(copyPath, path.join(base, path.basename(copyPath)));
+    }
+    if (archiveVictims.length > 0) {
+      const gone = new Set(archiveVictims);
+      const rest = archive.filter((record) => !gone.has(record));
+      fs.writeFileSync(`${archiveFile}.tmp`, rest.map((record) => `${JSON.stringify(record)}\n`).join(''));
+      fs.renameSync(`${archiveFile}.tmp`, archiveFile);
     }
     if (victims.length > 0) {
       const gone = new Set(victims.map((record) => record.id));
@@ -162,14 +202,15 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
       state.list = next;
     }
     for (const copyPath of copies) fs.rmSync(copyPath, { force: true });
-    if (victims.length + copies.length > 0) log.info('intentions: member forgotten', { guildId: String(guildId), userId: id, removed: victims.length, copies: copies.length });
-    return { removed: victims.length, copies: copies.length };
+    const removed = victims.length + archiveVictims.length;
+    if (removed + copies.length > 0) log.info('intentions: member forgotten', { guildId: String(guildId), userId: id, removed, copies: copies.length });
+    return { removed, copies: copies.length };
   }
 
   /** The guild's intentions gone: the list emptied, the file and its unreadable copies deleted. How many files. */
   function wipe() {
     let files = 0;
-    for (const target of [file, ...unreadableCopies()]) {
+    for (const target of [file, archiveFile, ...unreadableCopies()]) {
       if (!fs.existsSync(target)) continue;
       fs.rmSync(target, { force: true });
       files += 1;
@@ -178,7 +219,7 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { files };
   }
 
-  return { list, get, add, update, forgetUser, wipe, guildId: String(guildId), file };
+  return { list, get, add, update, archived, forgetUser, wipe, guildId: String(guildId), file, archiveFile };
 }
 
 /**

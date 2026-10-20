@@ -372,6 +372,20 @@ test('buildCheckRequest: the transcript from a few lines before the earliest can
 
 // ---- the registry: facts --------------------------------------------------------------
 
+test('createMissed: the address helper\'s "no" is journaled as an address record with ids and no text, and is no candidate', async () => {
+  const { missed, journal } = scene();
+  missed.noteNotAddressed(msg({ id: 'm9', content: 'secret words' }));
+  await flush();
+  assert.deepEqual(missed.candidates(), []);
+  const [entry] = journal.answers;
+  assert.equal(entry.event, 'address');
+  assert.equal(entry.verdict, 'not-addressed');
+  assert.equal(entry.messageId, 'm9');
+  assert.equal(entry.channelId, 'c1');
+  assert.equal(entry.at, new Date(T0).toISOString());
+  assert.ok(!JSON.stringify(journal.answers).includes('secret'));
+});
+
 test('createMissed: every fact source makes the right candidate, journaled with ids and no text', async () => {
   const { missed, journal } = scene();
   missed.noteFact(fact('gate-failed', msg({ id: 'm1', content: 'πού;' }), { failure: 'classifier-failed' }));

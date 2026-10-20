@@ -23,6 +23,7 @@ import {
   checkInvariants,
   concernsMember,
   createIntention,
+  dropIntention,
   dueList,
   duplicates,
   expireAt,
@@ -451,3 +452,36 @@ test('attend: a forget of one of the attended people takes the attention out; at
   assert.deepEqual(attentionSettings({ innerLife: { attention: { settleSeconds: -5, perDayDefault: 0 } } }), { settleSeconds: 90, perDayDefault: 12 });
   assert.deepEqual(attentionSettings({}), ATTEND_DEFAULTS);
 });
+
+test('dropped: any open record can be dropped with a reason; it is final, never due, never expires, and needs a reason', () => {
+  const own = mine({ dueAt: T0 + HOUR });
+  assert.equal(dropIntention(own, { reason: '  ', now: T0 + 1 }).code, 'reason-required');
+  const dropped = dropIntention(own, { reason: 'changed my mind about it', now: T0 + 1 });
+  assert.equal(dropped.ok, true, dropped.code);
+  assert.deepEqual([dropped.intention.status, dropped.intention.reason, dropped.intention.droppedAt], ['dropped', 'changed my mind about it', T0 + 1]);
+  assert.equal(dropped.intention.history.at(-1).to, 'dropped');
+  assert.equal(checkInvariants(dropped.intention), null);
+  assert.equal(checkInvariants({ ...dropped.intention, reason: '' }), 'reason-required');
+  for (const to of ['pending', 'waiting', 'cancelled', 'expired', 'done', 'dropped']) assert.equal(transition(dropped.intention, to, { now: T0 + 2 }).code, 'terminal');
+  assert.equal(dropIntention(dropped.intention, { reason: 'again', now: T0 + 2 }).code, 'terminal');
+  assert.deepEqual(dueList([dropped.intention], T0 + 2 * HOUR), []);
+  assert.equal(expireAt(dropped.intention, dropped.intention.expiresAt + 1).changed, false);
+  const waiting = waitOn(mine({ id: 'i2' }), { taskId: 't1', deadline: T0 + HOUR, now: T0 }).intention;
+  const fromWait = dropIntention(waiting, { reason: 'not needed', now: T0 + 5 }).intention;
+  assert.deepEqual([fromWait.status, fromWait.awaitingTaskId, fromWait.waitDeadline], ['dropped', null, null]);
+  const candidate = createIntention({ purpose: 'y', provenance: { kind: 'candidate' }, now: T0, id: 'i3' }).intention;
+  assert.equal(dropIntention(candidate, { reason: 'no', now: T0 + 1 }).intention.status, 'dropped');
+  assert.equal(dropIntention(mine({ id: 'i4' }), { reason: 'x'.repeat(400), now: T0 }).intention.reason.length, 300);
+});
+
+test('createIntention dropped: born dropped with its reason, no due or recurrence; her own only', () => {
+  const base = { purpose: 'πήγαινε στην παραλία', provenance: { kind: 'self', turnId: 't1' }, now: T0, id: 'i1', dropped: true };
+  assert.equal(createIntention(base).code, 'reason-required');
+  assert.equal(createIntention({ ...base, reason: 'too cold', provenance: { kind: 'candidate' } }).code, 'bad-provenance');
+  const made = createIntention({ ...base, reason: 'too cold', dueAt: T0 + HOUR, every: { period: 'day', at: null } });
+  assert.equal(made.ok, true, made.code);
+  assert.deepEqual([made.intention.status, made.intention.reason, made.intention.dueAt, made.intention.every, made.intention.droppedAt], ['dropped', 'too cold', null, null, T0]);
+  assert.equal(checkInvariants(made.intention), null);
+  assert.equal(made.intention.expiresAt, T0);
+});
+
