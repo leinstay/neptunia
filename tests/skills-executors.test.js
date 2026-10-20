@@ -297,8 +297,8 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
   assert.deepEqual([resolve('message.edit', { message: '#1' }, 'όχι').code], ['not-own-message']);
   assert.deepEqual([resolve('message.delete', { message: '#3' }).code], ['not-own-message']);
   assert.deepEqual([resolve('message.delete', { message: '#7' }).code, resolve('message.delete', { message: '#7' }).reason], ['unknown-message', 'message']);
-  // the channel she names must be the line's
-  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).code], ['unknown-message']);
+  // the channel she names does not hold it: the line's own channel wins
+  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).args.channel], [NEWS]);
   // a reaction on anyone's line; a reply records whom it answers
   assert.deepEqual(resolve('message.react.add', { message: '#3', emoji: '🎉' }).args, { message: '1003', emoji: '🎉', channel: NEWS });
   const reply = resolve('message.create', { reply: '#3' }, 'απάντηση');
@@ -697,8 +697,11 @@ test('resolveCall: a message link names the message and its channel; a raw id pa
   assert.deepEqual(resolve('message.react.add', { message: 'https://ptb.discord.com/channels/111/555/1009', emoji: '🎉' }).args, { message: '1009', emoji: '🎉', channel: '555' });
   const reply = resolve('message.create', { reply: link }, 'απάντηση');
   assert.deepEqual([reply.ok, reply.args], [true, { reply: '1009', text: 'απάντηση', channel: '555' }]);
-  // the channel she names must be the link's
-  assert.deepEqual([resolve('message.delete', { message: link, channel: '#γενικά' }).code, resolve('message.delete', { message: link, channel: '#γενικά' }).reason], ['unknown-message', 'conversation']);
+  // the channel she names does not hold it: the link's own channel wins
+  const fixed = resolve('message.delete', { message: link, channel: '#γενικά' });
+  assert.deepEqual([fixed.ok, fixed.args, fixed.channelFixed], [true, { message: '1009', channel: '555' }, true]);
+  // elsewhere than the five message calls the channel she names must still be the link's
+  assert.equal(resolve('conversation.read', { before: link, channel: '#γενικά' }).reason, 'conversation');
   // a raw id: as written, its channel the one she names
   assert.deepEqual(resolve('message.delete', { message: '123456789012345678', channel: '#νέα' }).args, { message: '123456789012345678', channel: NEWS });
 });
@@ -840,7 +843,7 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
   assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });
-  assert.deepEqual(of(resolve('message.delete', { message: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
+  assert.deepEqual(of(resolve('conversation.read', { before: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
   assert.deepEqual(of(resolve('message.delete', { message: '#1' })), { kind: 'not-own-message', code: 'not-own-message', arg: 'message' });
   assert.deepEqual(detail('unknown-member', 'ambiguous'), { kind: 'member-ambiguous', code: 'unknown-member', arg: null });
   // Any other code is its own kind; nothing without a code, nothing for an ok outcome.
@@ -941,4 +944,39 @@ test('resolveCall: a body that is only a message reference fills the message arg
   assert.equal(explicit.bodyIgnored, true, 'the body left over is still a comment');
   assert.equal(resolve('memory.journal.read', {}, '#999').code, 'unknown-message');
   assert.equal(resolve('memory.journal.read', {}, 'some words').bodyIgnored, true);
+});
+
+test('resolveCall: a body of quoted pairs, an <args/> element or <param> elements gives the declared arguments; a tag attribute wins', () => {
+  const expected = { message: '1003', emoji: '❤️', channel: NEWS };
+  assert.deepEqual(resolve('message.react.add', {}, 'message="#3" emoji="❤️" channel="#💖νέα"').args, expected);
+  assert.deepEqual(resolve('message.react.add', {}, "message='#3' emoji='❤️' channel='#💖νέα'").args, expected, 'single quotes too');
+  assert.deepEqual(resolve('message.react.add', {}, '<args message="#3" emoji="❤️" channel="#💖νέα"/>').args, expected);
+  assert.deepEqual(resolve('message.react.add', {}, '<param name="message">#3</param><param name="emoji">❤️</param>').args, { message: '1003', emoji: '❤️', channel: NEWS });
+  const wins = resolve('message.react.add', { emoji: '👍' }, 'message="#3" emoji="❤️"');
+  assert.deepEqual([wins.args.emoji, wins.bodyArgs], ['👍', 1]);
+  // an unknown name or other text: no pairs taken, the body is her comment as before
+  const unknown = resolve('message.react.add', { message: '#3', emoji: '👍' }, 'why="because" emoji="❤️"');
+  assert.deepEqual([unknown.ok, unknown.args.emoji, unknown.bodyIgnored], [true, '👍', true]);
+});
+
+test('resolveCall: quoted pairs on the head line of a post are options; her words after them stay the text, and a text with quotes stays as written', () => {
+  const led = resolve('message.create', {}, 'channel="#💖νέα"\nκαλημέρα');
+  assert.deepEqual([led.ok, led.args.channel, led.args.text], [true, NEWS, 'καλημέρα']);
+  const text = 'είπε emoji="x" και τέλος';
+  assert.deepEqual(resolve('message.create', { channel: '#💖νέα' }, text).args, { channel: NEWS, text });
+  const whole = resolve('message.create', {}, "channel='#💖νέα' text='γεια'");
+  assert.deepEqual([whole.args.channel, whole.args.text], [NEWS, 'γεια']);
+});
+
+test('resolveCall: the channel of a #N message wins over a channel that does not hold it, for the five message calls only (conversation.read still refuses)', () => {
+  for (const [skill, args] of [['message.react.add', { message: '#3', emoji: '🎉' }], ['message.react.remove', { message: '#3', emoji: '🎉' }], ['message.delete', { message: '#4' }]]) {
+    const r = resolve(skill, { ...args, channel: '#γενικά' });
+    assert.deepEqual([r.ok, r.args.channel, r.channelFixed], [true, NEWS, true], skill);
+  }
+  const edit = resolve('message.edit', { message: '#4', channel: '#γενικά' }, 'νέο');
+  assert.deepEqual([edit.ok, edit.args.channel], [true, NEWS]);
+  const reply = resolve('message.create', { reply: '#3', channel: '#γενικά' }, 'ναι');
+  assert.deepEqual([reply.ok, reply.args.channel, reply.repliedAuthorId], [true, NEWS, MEMBER]);
+  assert.equal(resolve('message.react.add', { message: '#3', emoji: '🎉', channel: '#💖νέα' }).channelFixed, undefined, 'the right channel is no fix');
+  assert.equal(resolve('conversation.read', { before: '#3', channel: '#γενικά' }).reason, 'conversation');
 });

@@ -2052,6 +2052,8 @@ export function createTurnRunner({
     if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
+    // The message's own channel taken over the one she named: logged, never the ids.
+    if (resolved.channelFixed) log.info('skills: message channel taken from the message', { skill: resolved.skill, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope, draft });
     return { call, op, envelope, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
   }
