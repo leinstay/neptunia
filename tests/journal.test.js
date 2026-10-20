@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf } from '../src/memory/journal.js';
+import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf, toolsHashOf } from '../src/memory/journal.js';
 import { tempDir } from './fixtures/tmp.js';
 
 const DATA = path.join('fake-root', 'data');
@@ -954,4 +954,32 @@ test('journal: turnOperations gives the operations of one turn with how each end
   assert.deepEqual(ops.map((op) => [op.name, op.phase, op.skill, op.text]), [['post', 'succeeded', null, 'Ελένη'], ['skill', 'open', 'message.create', null], ['skill', 'proposed', 'draw.create', null]]);
   assert.deepEqual(await journal.turnOperations('g1', { turnId: 't-9', days: ['2026-10-13'] }), []);
   assert.deepEqual(await journal.turnOperations('g1', { turnId: null, days: ['2026-10-13'] }), []);
+});
+
+test('journal: dumpRequest of a request with tools stores the array once by hash, the choice and the answer\'s tool calls', async () => {
+  const { journal, fs } = dumpJournal();
+  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object', properties: {} } } }];
+  const request = { system: 's', parts: [{ type: 'text', text: 'x' }] };
+  const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }];
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request, raw: 'r', usage: null, tools, toolChoice: 'auto', toolCalls });
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 2, request, raw: 'r', usage: null, tools, toolChoice: 'auto' });
+  const hash = toolsHashOf(tools);
+  const copy = path.join(REQUESTS, 'tools', `${hash}.json`);
+  assert.deepEqual(JSON.parse(fs.files.get(copy)), tools);
+  assert.equal([...fs.files.keys()].filter((f) => f.includes(`${path.sep}tools${path.sep}`)).length, 1);
+  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1.json')));
+  assert.equal(dump.tools, hash);
+  assert.equal(dump.toolChoice, 'auto');
+  assert.deepEqual(dump.toolCalls, toolCalls);
+  const step = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1-s2.json')));
+  assert.equal(step.tools, hash);
+  assert.equal('toolCalls' in step, false);
+});
+
+test('journal: dumpRequest without tools has no tool fields and writes no tools copy', async () => {
+  const { journal, fs } = dumpJournal();
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request: { system: 's', parts: [] }, raw: 'r', usage: null });
+  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1.json')));
+  assert.deepEqual(Object.keys(dump), ['v', 'turnId', 'attemptId', 'recordedAt', 'system', 'parts', 'raw', 'usage']);
+  assert.equal(fs.files.size, 1);
 });

@@ -62,7 +62,7 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
@@ -96,6 +96,11 @@ const MARKER_OWNER = 'journal';
 const REQUEST_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The characters of `think` a `/nep journal` line shows. */
 export const LINE_THINK_CHARS = 80;
+
+/** The hash a dump names a stored `tools` array by: sha256 of its JSON, hex. */
+export function toolsHashOf(tools) {
+  return createHash('sha256').update(JSON.stringify(tools)).digest('hex');
+}
 
 /**
  * One record as a short owner-facing line: `HH:MM:SS kind <short>` (the UTC clock of
@@ -995,17 +1000,22 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
   }
 
+  // The tool-definition copies written by this process (`requests/tools/<sha>.json`); cleared by a wipe.
+  const toolsWritten = new Set();
+
   /**
    * Write one request and its raw answer as `requests/<day>/<turnId>-<attemptId>.json` (the day
    * of now, UTC; with a `step`, a later request of the turn's tool loop or its follow-up,
    * `<turnId>-<attemptId>-s<step>.json` with `step` in the body) when `journal.keepRequests` is above 0. `request` is the client's message list
-   * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. Rejects
-   * on a disk error; the caller logs it.
+   * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. With `tools`
+   * (the array the request carried) the dump holds `tools` (its sha256, `toolsHashOf`) and `toolChoice`,
+   * the array itself stored once as `requests/tools/<sha>.json`; `toolCalls` (the answer's) sit beside
+   * `raw`. Rejects on a disk error; the caller logs it.
    * @param {string} guildId
-   * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null }} dump
+   * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null, tools?: object[]|null, toolChoice?: string|object|null, toolCalls?: object[]|null }} dump
    * @returns {Promise<void>}
    */
-  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null } = {}) {
+  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null, tools = null, toolChoice = null, toolCalls = null } = {}) {
     if (keepRequests() === 0) return;
     const messages = Array.isArray(request?.messages) ? request.messages : [];
     const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
@@ -1015,8 +1025,27 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
     const stepped = Number.isInteger(step) && step > 0;
     const file = path.join(dir, stepped ? `${turnId}-${attemptId}-s${step}.json` : `${turnId}-${attemptId}.json`);
-    const body = JSON.stringify({ v: JOURNAL_VERSION, turnId, attemptId, ...(stepped ? { step } : {}), recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage });
+    // A request that carried tools: the array is stored once per hash beside the day directories
+    // (`requests/tools/<sha>.json`), the dump names it by that hash; the answer's tool calls sit beside `raw`.
+    const withTools = Array.isArray(tools) && tools.length > 0;
+    const toolsHash = withTools ? toolsHashOf(tools) : null;
+    const body = JSON.stringify({
+      v: JOURNAL_VERSION, turnId, attemptId, ...(stepped ? { step } : {}), recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage,
+      ...(withTools ? { tools: toolsHash, toolChoice: toolChoice ?? 'auto' } : {}),
+      ...(Array.isArray(toolCalls) && toolCalls.length > 0 ? { toolCalls } : {}),
+    });
     await unlocked();
+    if (withTools) {
+      const toolsDir = path.join(journalDir(guildId, privateUserId), 'requests', 'tools');
+      const toolsFile = path.join(toolsDir, `${toolsHash}.json`);
+      // Written once per process and hash (the content is its name: a rewrite after a restart is harmless).
+      if (!toolsWritten.has(toolsFile)) {
+        await fs.mkdir(toolsDir, { recursive: true });
+        await fs.writeFile(`${toolsFile}.tmp`, JSON.stringify(tools));
+        await fs.rename(`${toolsFile}.tmp`, toolsFile);
+        toolsWritten.add(toolsFile);
+      }
+    }
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(`${file}.tmp`, body);
     await fs.rename(`${file}.tmp`, file);
@@ -1251,6 +1280,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       for (const name of (await namesIn(dir)).filter((entry) => TORN_FILE_RE.test(entry))) await fs.rm(path.join(dir, name), { force: true });
       // The request dumps quote the chat: they go with it.
       await fs.rm(path.join(dir, 'requests'), { recursive: true, force: true });
+      toolsWritten.clear();
     }
     return { files };
   }

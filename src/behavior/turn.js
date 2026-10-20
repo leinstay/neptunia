@@ -3132,8 +3132,9 @@ export function createTurnRunner({
    * list as sent and the raw answer; `step` (1, 2, ...) for a request after a call (the
    * follow-up, the tool loop's steps), none for the reply's own. Fire-and-forget, only for a
    * started turn with the journal on; a failure is logged with a count of one, never the contents.
+   * `sent` (`{ tools, toolChoice }`) is what the request carried besides messages, when it had tools.
    */
-  function dumpTurnRequest(guildId, draft, messages, completion, step = null) {
+  function dumpTurnRequest(guildId, draft, messages, completion, step = null, sent = null) {
     if (!draft?.started || !journalOn() || typeof journal.dumpRequest !== 'function') return;
     Promise.resolve()
       .then(() =>
@@ -3145,6 +3146,9 @@ export function createTurnRunner({
           raw: completion.text,
           usage: journalUsage(completion),
           privateUserId: draft.privateUserId ?? null,
+          // A request that carried tools: the definitions and the choice sent, the answer's calls.
+          ...(Array.isArray(sent?.tools) && sent.tools.length > 0 ? { tools: sent.tools, toolChoice: sent.toolChoice ?? 'auto' } : {}),
+          ...(Array.isArray(completion.toolCalls) && completion.toolCalls.length > 0 ? { toolCalls: completion.toolCalls } : {}),
         }),
       )
       .catch((error) => log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1, ...(step !== null ? { step } : {}) }));
