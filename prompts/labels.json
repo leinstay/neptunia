@@ -553,7 +553,7 @@
       }
     },
     "here": "You are in #{channel} ({why})",
-    "hereNone": "No current channel this wake",
+    "hereNone": "You are not in any channel. The conversation shown above is the last place you were, kept for context only; nobody there is waiting for you, and a quiet channel says nothing about this wake.",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
     "expiredMore": "... and {more} more",
