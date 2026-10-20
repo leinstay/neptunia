@@ -1533,3 +1533,38 @@ test('heartbeat: the review keeps working unchanged beside it', async () => {
   assert.ok(kinds.includes('review'));
   assert.equal(run.turns.calls.find((call) => call.inner.wake.kind === 'review').channel.id, 'c3');
 });
+
+test('inner: the turn in flight is on disk while the turn runs and gone once it ended; a turn held (busy) leaves no mark', async () => {
+  const dataDir = tempDir('nep-inner-flight-');
+  const file = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  let during = null;
+  const turns = fakeTurns({
+    answer: (params) => {
+      during = { mark: JSON.parse(fs.readFileSync(file, 'utf8')).inflight, journalTurn: params.journalTurn };
+      return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-1' } };
+    },
+  });
+  const run = setup({ records: [intention('i1')], turns, dataDir });
+  await run.inner.tick();
+  assert.deepEqual([during.mark.wakeIds.length, during.mark.kind, during.mark.channelId, during.mark.turnId === during.journalTurn.turnId, during.journalTurn.attemptId], [1, 'intention_due', 'c1', true, 1]);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).inflight, null);
+
+  const held = setup({ records: [intention('i2')], turns: fakeTurns({ answer: () => ({ outcome: 'busy' }) }), dataDir: tempDir('nep-inner-flight-') });
+  await held.inner.tick();
+  assert.equal(held.inner.state(GUILD).inflight, null);
+  assert.equal(held.inner.state(GUILD).queue.length, 1, 'the wake waits');
+});
+
+test('inner: a mark left behind with the journal off (or one that cannot say) runs the wake again and tells nothing', async () => {
+  const dataDir = tempDir('nep-inner-flight-');
+  const records = [intention('i1')];
+  const wake = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt });
+  const dir = path.join(dataDir, 'guilds', GUILD);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'inner.json'), JSON.stringify({ v: 1, queue: [{ ...wake }], inflight: { turnId: 't-gone', wakeIds: [wake.id], kind: 'intention_due', startedAt: NOW - MINUTE_MS, channelId: 'c1', privateChat: false, privateUserId: null } }));
+  const run = setup({ records, dataDir, hot: hotWith({ features: { journal: false } }) });
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1, 'the wake ran again');
+  assert.equal(run.inner.state(GUILD).inflight, null);
+  assert.deepEqual(run.inner.state(GUILD).facts.filter((fact) => fact.kind === 'interrupted'), []);
+});

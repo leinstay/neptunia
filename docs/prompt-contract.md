@@ -756,6 +756,8 @@ wake.feedback.turnFailed                 {code} {kind}: the turn ended error or 
 wake.feedback.sendFailed                 {code} {n} {total}: a message of an addressed turn did not go out; n of total went out
 wake.feedback.sendUnknown                OPTIONAL {code} {n} {total}: the same for a send whose answer never came and whose message her next turn did not find among her own lines (it may have gone out); without it `sendFailed` is used
 wake.feedback.stateLost                  {code}: the inner state file could not be read (the file is kept aside) and she started empty
+wake.feedback.memoryFailed              {code} {n}: a memory batch could not be applied (`code`: `apply-error`); `n` lines wait for a new try. One fact per failing batch, told again only after that batch was applied or dropped; a member's private batch is told only in that private chat
+wake.feedback.interrupted                {kind} {done}: an inner turn that a restart cut off, after it did what `done` lists (the posts reconciled as sent and the calls that ran, joined by `, `); the wake is handled and not run again
 wake.feedback.diagnostic                 not a label: a kept parser diagnostic is worded by `skills.diagnostics.<kind>` (`diagnostic` on the fact names the kind)
 wake.feedback.codes.<sub-code>           the words for the sub-codes above, in `{why}`
 wake.here                                {channel} {why}: the current channel (`#name`) and why it was chosen (one of `destination`, `asked`, `attend`, `errand`, `feedback`). Without it the line is left out

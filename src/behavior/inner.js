@@ -77,11 +77,12 @@
 // counts, never text.
 
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
-import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
 import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, openFromHeartbeat, HEARTBEAT_ORIGIN } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
@@ -140,7 +141,7 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create']);
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'diagnostic']);
+export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'memoryFailed', 'interrupted', 'diagnostic']);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
 const CALL_STATUSES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
 /** The most facts one turn is shown; the rest stay for the next one. */
@@ -333,11 +334,19 @@ export function innerSettings(config) {
 
 /** A fresh state. */
 export function emptyState() {
-  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, heartbeat: null, turns: [], spend: [], turnIds: [], facts: [] };
+  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, heartbeat: null, turns: [], spend: [], turnIds: [], facts: [], inflight: null };
 }
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const object = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+/** The in-flight mark of a turn read from disk (`state.inflight`), or null when it is not whole. */
+function inflightOf(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.turnId !== 'string' || !raw.turnId || !Number.isFinite(raw.startedAt)) return null;
+  const wakeIds = list(raw.wakeIds).filter((id) => typeof id === 'string');
+  if (wakeIds.length === 0) return null;
+  return { turnId: raw.turnId, wakeIds, kind: typeof raw.kind === 'string' ? raw.kind : '', startedAt: raw.startedAt, channelId: raw.channelId == null ? null : String(raw.channelId), privateChat: raw.privateChat === true, privateUserId: raw.privateUserId == null ? null : String(raw.privateUserId) };
+}
 
 /** A state read from disk made whole (a missing part empty). */
 export function normalizeState(raw) {
@@ -356,6 +365,7 @@ export function normalizeState(raw) {
     spend: list(raw.spend).filter((item) => Number.isFinite(item?.at) && Number.isFinite(item?.usd)),
     turnIds: list(raw.turnIds).filter((id) => typeof id === 'string'),
     facts: list(raw.facts).filter((fact) => fact && typeof fact.id === 'string' && typeof fact.kind === 'string'),
+    inflight: inflightOf(raw.inflight),
   };
 }
 
@@ -723,6 +733,9 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {() => string|null} [options.getGuildId]
  * @param {() => boolean} [options.isWarmingUp]
  * @param {() => boolean} [options.peopleWaiting]  Calls queued for the attention (people first).
+ * @param {() => Promise<unknown>} [options.ready]  Resolves once the journal's start-up reconciliation is done (src/index.js);
+ *   a turn that a restart cut off is resolved from the journal only after it.
+ * @param {() => string} [options.uuid]  Ids for the turns this life starts (the in-flight mark names the turn before it runs).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
  * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
  *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
@@ -749,6 +762,8 @@ export function createInnerLife({
   getGuildId = () => null,
   isWarmingUp = () => false,
   peopleWaiting = () => false,
+  ready = () => Promise.resolve(),
+  uuid = randomUUID,
   meter = null,
   onEpisode = null,
   heartbeat: heartbeatSources = {},
@@ -1395,8 +1410,56 @@ export function createInnerLife({
    * One inner turn for the queue's first coalesced group, when the attention is free and no cap
    * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
    */
+  /** What an operation of a cut-off turn is called in the `interrupted` fact. */
+  const opLabel = (op) => (op.name === 'skill' ? `skill ${op.skill ?? ''}` : op.name === 'post' && op.text ? `post "${op.text}"` : String(op.name ?? 'operation')).trim();
+
+  /**
+   * An in-flight mark left behind by a process that died in a turn (`state.inflight`): resolved from the journal
+   * once its start-up reconciliation is done. If any operation of that turn went out (a persona's post reconciled as
+   * sent or a call that executed; one that may have run and cannot be told counts too), its wakes are handled, not run
+   * again, and an `interrupted` fact tells her what was done; if nothing went out (or the journal cannot say), the mark
+   * is cleared and the wakes run again as before. Never throws.
+   */
+  async function resolveInflight(guildId) {
+    const state = stateOf(guildId);
+    const mark = state.inflight;
+    if (!mark) return;
+    try {
+      await ready();
+    } catch (err) {
+      log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', { guildId, code: err?.code ?? null });
+    }
+    let ops = [];
+    if (hot.config?.features?.journal === true && typeof journal?.turnOperations === 'function') {
+      try {
+        const at = now();
+        ops = await journal.turnOperations(guildId, { turnId: mark.turnId, days: [...new Set([utcDay(mark.startedAt), utcDay(at)])], privateUserId: mark.privateUserId });
+      } catch (err) {
+        log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: err?.code ?? null });
+      }
+    }
+    const done = [];
+    for (const op of ops) {
+      if (op.by !== 'persona' || op.dryRun || op.shadow) continue;
+      if (op.phase === 'succeeded') done.push(opLabel(op));
+      else if (op.phase === 'open' || (op.phase === 'unknown' && op.name !== 'post')) done.push(`${opLabel(op)} (unclear)`);
+    }
+    const ids = new Set(mark.wakeIds);
+    const wakes = state.queue.filter((wake) => ids.has(wake.id));
+    const at = now();
+    state.inflight = null;
+    if (done.length > 0 && wakes.length > 0) {
+      markHandled(state, wakes, 'interrupted', at, { guildId, named: wakes.flatMap((wake) => list(wake.intentionIds)) });
+      addFact(state, { at, kind: 'interrupted', wake: mark.kind, done: done.join('; '), channelId: mark.channelId, privateChat: mark.privateChat });
+    }
+    save(guildId);
+    log.warn('inner: a turn was cut off by a restart', { guildId, turnId: mark.turnId, wakes: wakes.length, done: done.length, rerun: !(done.length > 0 && wakes.length > 0) });
+    note(guildId, { event: 'interrupted', turnId: mark.turnId, wakes: wakes.map(wakeFields), done: done.length, handled: done.length > 0 && wakes.length > 0 });
+  }
+
   async function drain(guildId) {
     const state = stateOf(guildId);
+    if (state.inflight) await resolveInflight(guildId);
     if (state.queue.length === 0) return null;
     if (state.stopped || paused()) return { deferred: 'stopped' };
     const oneAtATime = hot.config?.mention?.oneAtATime !== false;
@@ -1546,6 +1609,10 @@ export function createInnerLife({
       here: current.channelId ? { channel: placeNameOf(guildId, current.channelId), why: current.why } : null,
     };
     for (const wake of group) running.add(wake.id);
+    // The turn is on record before it runs: a process that dies in it leaves this mark (resolveInflight).
+    const turnKey = `t-${uuid()}`;
+    state.inflight = { turnId: turnKey, wakeIds: group.map((wake) => wake.id), kind: anchor.kind, startedAt: at, channelId: String(channel.id), privateChat: !channel.guild, privateUserId: channel.guild ? null : (channel.recipientId == null ? null : String(channel.recipientId)) };
+    save(guildId);
     let measured;
     try {
       measured = await costs.run(() =>
@@ -1554,6 +1621,7 @@ export function createInnerLife({
           guildId,
           mode: 'inner',
           triggerKind: 'inner',
+          journalTurn: { turnId: turnKey, attemptId: 1 },
           inner: {
             wake: info,
             currentChannel: current.channelId,
@@ -1572,12 +1640,14 @@ export function createInnerLife({
     const result = measured.result ?? { outcome: 'error' };
     const outcome = result.outcome ?? 'error';
     const after = stateOf(guildId);
+    after.inflight = null;
     if (HELD.has(outcome)) {
       // Stopped while it waited: its wakes go with the rest of the queue.
       if (after.stopped) {
         markHandled(after, group, 'stopped', now(), { guildId });
-        save(guildId);
       }
+      // The turn never ran: its mark goes.
+      save(guildId);
       log.info('inner: turn held', { guildId, outcome, wakes: group.length });
       return { deferred: outcome };
     }

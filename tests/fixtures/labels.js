@@ -578,6 +578,8 @@ export const labels = {
       sendFailed: 'send failed {code} {n}/{total}',
       sendUnknown: 'send unclear {code} {n}/{total}',
       stateLost: 'inner state lost {code}',
+      memoryFailed: 'memory not kept {code} {n} waiting',
+      interrupted: 'turn {kind} cut off after {done}',
       codes: { done: 'is done', cancelled: 'was cancelled', expired: 'expired', forgotten: 'is gone', 'dm-off': 'dm off', 'not-writable': 'not writable', unavailable: 'unavailable', 'no-review-channel': 'no review channel' },
     },
     here: 'here: #{channel} ({why})',

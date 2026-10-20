@@ -66,7 +66,7 @@ export function diagnosticLines(diagnostics, labels) {
  * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
- * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty). '' without the fact's label.
+ * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}`, `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
  * @param {object} fact
  * @param {object} l  `labels.wake`.
  * @param {{ when?: (ts: number) => string }} [options]
@@ -98,6 +98,10 @@ export function feedbackFactText(fact, l, { when = () => '', labels = null } = {
       return fill(template, { code: String(fact.code ?? ''), n: n(fact.n), total: n(fact.total) });
     case 'stateLost':
       return fill(template, { code: String(fact.code ?? '') });
+    case 'memoryFailed':
+      return fill(template, { code: String(fact.code ?? ''), n: n(fact.waiting) });
+    case 'interrupted':
+      return text(fill(template, { kind: String(fact.wake ?? ''), done: oneLine(String(fact.done ?? '')) }));
     default:
       return '';
   }

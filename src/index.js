@@ -458,9 +458,16 @@ function placesOf(guildId) {
 // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
 // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
 // attention is free and no cap refuses. Its own timer; a no-op with the switch off.
+// Resolved once the journal's start-up reconciliation is done (or failed): an inner turn that the last run left in flight is
+// resolved from the journal only after it (src/behavior/inner.js, `ready`).
+let journalReconciled = () => {};
+const journalReconciledPromise = new Promise((resolve) => {
+  journalReconciled = resolve;
+});
 const inner = createInnerLife({
   hot,
   dataDir,
+  ready: () => journalReconciledPromise,
   turns,
   intentions,
   record,
@@ -490,6 +497,8 @@ const inner = createInnerLife({
 });
 // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
 turns.setFactsSource(inner.facts);
+// A memory batch that cannot be applied is told to her through the same ledger (a `memoryFailed` fact).
+memory.setFactsSource(inner.facts);
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -873,7 +882,7 @@ client.once(Events.ClientReady, async () => {
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
-  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
+  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId).finally(journalReconciled));
 
   // The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
   // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per

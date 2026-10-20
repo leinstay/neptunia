@@ -3056,6 +3056,11 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   // The guilds whose archive queue the last look found over archive.pendingMax: `memory: archive
   // stalled` is logged (and sent to the development channel) once each time a guild enters it.
   const archiveStalled = new Set();
+  // The fact ledger (src/behavior/inner.js's `facts`, set by `setFactsSource`) a failed batch is told through, and the
+  // batches (a guild's buffer or a member's private buffer, by their key) that already have a `memoryFailed` fact:
+  // one per failing batch, not one per back-off retry; the entry goes when that batch is applied or gone.
+  let factsSource = null;
+  const failedTold = new Set();
 
   /** Whether memory records are written now: a journal injected and features.journal exactly true (read now). */
   function journalOn() {
@@ -3762,6 +3767,25 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   }
 
   /**
+   * The batch for `key` that could not be applied, told to her once as a `memoryFailed` fact (the code and how many
+   * lines wait); a private batch's only in that private chat. Nothing while the ledger is off or absent (then it is
+   * a log line only). Never throws.
+   * @param {string} key
+   * @param {{ reason: string }} outcome
+   * @param {{ guildId: string, waiting: number, channelId?: string|null, privateChat?: boolean }} where
+   */
+  function tellFailure(key, outcome, { guildId, waiting, channelId = null, privateChat = false }) {
+    if (failedTold.has(key)) return;
+    try {
+      if (factsSource?.enabled?.() !== true) return;
+      factsSource.add(guildId, { kind: 'memoryFailed', code: outcome.reason, waiting, channelId, privateChat, at: now() });
+      failedTold.add(key);
+    } catch (err) {
+      log.warn('memory: the failure could not be told', { guildId, code: err?.code ?? null });
+    }
+  }
+
+  /**
    * A failed batch for `key`: halve the next batch or back off, and log it. A size failure
    * ('truncated', 'bad-json', 'token-limit') of a batch already at the floor (`sent` at most
    * MIN_LIVE_BATCH messages) is backed off as well: halving cannot shrink it any more, so the
@@ -3772,7 +3796,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * @param {object} fields   Extra log fields (counts and the guild id only).
    * @param {number} sent     How many buffered messages the failed batch took.
    */
-  function recordFailure(key, outcome, what, fields, sent) {
+  function recordFailure(key, outcome, what, fields, sent, tell = null) {
+    if (outcome.reason === 'apply-error' && tell) tellFailure(key, outcome, tell);
     const sizeFailure = outcome.reason === 'truncated' || outcome.reason === 'bad-json' || outcome.reason === 'token-limit';
     if (sizeFailure && sent <= MIN_LIVE_BATCH) {
       // Still halved, so the batch after the back-off stays at the floor instead of the normal size.
@@ -3868,6 +3893,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getBuffer(guildId);
       const messages = buffer.slice(0, batchTake(guildId, buffer.length));
+      if (messages.length === 0) failedTold.delete(guildId); // nothing waits any more: a failure later is a new one
       // The batch reaches the record before anything consumes it; a refused append keeps it.
       if (!(await recordBatch(guildId, messages, buffer))) return;
       const batchId = `b-${uuid()}`;
@@ -3876,6 +3902,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       const outcome = await analyze(guildId, messages);
       if (outcome.ok) {
         sizeFactors.delete(guildId); // back to normal size after a success
+        failedTold.delete(guildId);
         const consumed = messages.slice(0, outcome.consumed);
         // Counted only once the lines are consumed: a failed batch, or a deferred line, stays in
         // the buffer and is counted when a batch shows it.
@@ -3956,7 +3983,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         if (outcome.stage === 'two') await runVoice(guildId);
         return;
       }
-      recordFailure(guildId, outcome, 'memory: update', { guildId, ...stageField(outcome) }, messages.length);
+      recordFailure(guildId, outcome, 'memory: update', { guildId, ...stageField(outcome) }, messages.length, { guildId, waiting: buffer.length });
     } finally {
       settle(guildId);
     }
@@ -3982,7 +4009,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getPrivateBuffer(guildId, userId);
       const messages = buffer.slice(0, batchTake(key, buffer.length));
-      if (messages.length === 0) return;
+      if (messages.length === 0) {
+        failedTold.delete(key);
+        return;
+      }
       if (!(await recordBatch(guildId, messages, buffer, userId))) return;
       const batchId = `b-${uuid()}`;
 
@@ -3990,6 +4020,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       const outcome = await analyzePrivate(guildId, userId, messages);
       if (outcome.ok) {
         sizeFactors.delete(key);
+        failedTold.delete(key);
         const consumed = messages.slice(0, outcome.consumed);
         store.shiftPrivateBuffer(guildId, userId, consumed);
         store.flush();
@@ -4010,7 +4041,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         });
         return;
       }
-      recordFailure(key, outcome, 'memory: private update', { guildId, ...stageField(outcome) }, messages.length);
+      recordFailure(key, outcome, 'memory: private update', { guildId, ...stageField(outcome) }, messages.length, { guildId, waiting: buffer.length, channelId: messages[0]?.channelId ?? null, privateChat: true });
     } finally {
       settle(key);
     }
@@ -4476,5 +4507,14 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     return running.size === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve));
   }
 
-  return { observe, observeInner, tick, run, runPrivate, runVoice, analyze, analyzePrivate, waitIdle };
+  /**
+   * The fact ledger a batch that cannot be applied is told through (src/behavior/inner.js's `facts`: `enabled`,
+   * `add`), the way the turn runner's `setFactsSource` takes it; without one (or while its `enabled()` is false) the
+   * failure stays a log line.
+   */
+  function setFactsSource(source) {
+    factsSource = source ?? null;
+  }
+
+  return { observe, observeInner, tick, run, runPrivate, runVoice, analyze, analyzePrivate, waitIdle, setFactsSource };
 }
