@@ -642,11 +642,13 @@
     "proposedOff": "Might fit here but not switched on for you: {names}.",
     "proposedDenied": "Might also fit, but the person asking has no right to them: {names}.",
     "granted": {
-      "lead": "Your skills, by family (details come when a skill fits the message, or on request):",
+      "lead": "TODO(writer): Your skills, by family (calling one shows its arguments):",
       "line": "{family}: {names}"
     },
     "result": {
       "alreadyPosted": "You already posted this turn: {text}",
+      "described": "TODO(writer): the skill you just called, in full:",
+      "bodyIgnored": "TODO(writer): this skill takes no free text, what you wrote in the body was left out; its arguments:",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
       "denied": "Your skill was blocked: {reason}.",

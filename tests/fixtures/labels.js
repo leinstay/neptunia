@@ -465,6 +465,8 @@ export const labels = {
     },
     result: {
       alreadyPosted: 'already posted: {text}',
+      described: 'the skill in full:',
+      bodyIgnored: 'this skill takes no free text, your body was left out; its arguments:',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',

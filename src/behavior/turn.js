@@ -76,9 +76,9 @@ import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
+import { coreToolRows, discoveryOn, skillArgs, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
-import { skillRegistry } from '../skills/registry.js';
+import { describeSkill, skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
@@ -2201,9 +2201,29 @@ export function createTurnRunner({
     });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
     const followUp = needsFollowUp(skill, result, { addressed: draft?.addressed === true });
+    const teach = teachOf(skill, plan.resolved, draft, inner);
     // A quiet call that went out and is seen only because someone waits for the turn: delivered all the same.
     const stepOnly = followUp && result.status === 'ok' && !needsFollowUp(skill, result);
-    return { skill, ...result, followUp, ...(stepOnly ? { stepOnly: true } : {}) };
+    return { skill, ...result, followUp, ...(stepOnly ? { stepOnly: true } : {}), ...(teach ? { teach } : {}), ...(plan.resolved?.bodyIgnored ? { bodyIgnored: true } : {}) };
+  }
+
+  /**
+   * What a call teaches her of its skill (features.coreTools): the skill's row (title, when to use, arguments), `first`
+   * when this is the turn's first call of a skill that `<skills_tools>` did not list (once per skill per turn,
+   * `draft.describedSkills`), else only for a call whose body was left out (the arguments she can use). Null otherwise.
+   * @returns {{ row: object, first: boolean }|null}
+   */
+  function teachOf(skill, resolved, draft, inner) {
+    if (!coreToolsOn(hot.config)) return null;
+    const registry = skills ?? defaultSkills();
+    const definition = registry.get(skill);
+    if (!definition || !grantedSkillNames({ config: hot.config, selfId: client?.user?.id ?? null, registry }).includes(skill)) return null;
+    const listed = coreToolRows({ config: hot.config, selfId: client?.user?.id ?? null, registry, texts: hot.prompts?.skills, inner: Boolean(inner), unreadTasks: true }).some((row) => row.name === skill);
+    const described = (draft ? (draft.describedSkills ??= new Set()) : new Set());
+    const first = !listed && !described.has(skill);
+    if (!first && resolved?.bodyIgnored !== true) return null;
+    if (first) described.add(skill);
+    return { row: { ...describeSkill(definition, hot.prompts?.skills), args: skillArgs(definition) }, first };
   }
 
   /**
@@ -2261,7 +2281,7 @@ export function createTurnRunner({
     const labels = input.prompts?.labels ?? {};
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
-      .filter((outcome) => outcome.status === 'ok' && outcome.data)
+      .filter((outcome) => (outcome.status === 'ok' && outcome.data) || outcome.teach || outcome.bodyIgnored)
       .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultCharsFor(outcome, hot.config) }))
       .filter(Boolean)
       .join('\n\n');

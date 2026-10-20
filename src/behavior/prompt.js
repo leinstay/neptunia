@@ -1976,10 +1976,19 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
     if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
   }
+  // The skill's full description when this call is the first of a skill outside `<skills_tools>` (result.teach: its row), and
+  // a note when the body was left out; both come before the call's own answer.
+  const teachRow = result.teach && typeof result.teach === 'object' ? [{ ...result.teach.row, allowed: true, reason: 'allowed' }] : [];
+  const taught = teachRow.length > 0 ? skillsInventoryText(teachRow, labels) : '';
+  const notes = [
+    result.bodyIgnored === true && typeof words.bodyIgnored === 'string' ? words.bodyIgnored : '',
+    result.teach?.first === true && typeof words.described === 'string' ? words.described : '',
+  ].filter(Boolean);
+  const description = taught ? [...notes, taught].join('\n') : '';
   const said = typeof words.alreadyPosted === 'string' && words.alreadyPosted
     ? (Array.isArray(posted) ? posted : []).filter((text) => typeof text === 'string' && text).map((text) => fill(words.alreadyPosted, { text }))
     : [];
-  const body = [...said, [lead, data].filter(Boolean).join('\n') || code].join('\n');
+  const body = [...said, description, [lead, data].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
   return `<result skill="${result.skill}" status="${status}">\n${body}\n</result>`;
 }
 

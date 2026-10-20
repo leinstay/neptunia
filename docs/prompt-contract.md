@@ -759,6 +759,8 @@ channelDirectory.lead                    OPTIONAL: the first line of `<channel_d
 channelDirectory.line                    {handle} {name}: one channel of `<channel_directory>`; {handle} is the exact channel token, `#` included; {name} the channel's name as a JSON string. Without this label no `<channel_directory>` block
 channelDirectory.lineCategory            {handle} {name} {category}: the same for a channel inside a category ({category} its name, like {name}). Missing or blank: `channelDirectory.line`
 skills.result.alreadyPosted              OPTIONAL {text}: one line per action the first pass already posted (messages, reactions, pictures), with `features.followUpContinuation` off only. Without it the posted items are not listed
+skills.result.described                 OPTIONAL: led before the full description of a skill (title, when to use, arguments) shown with the first call of the turn to a granted skill that `<skills_tools>` did not list (features.coreTools)
+skills.result.bodyIgnored               OPTIONAL: led before the skill's arguments when the call's body was left out because the skill takes no free text (shown for any status)
 skills.result.ok                         the status line for a reading call that returned data. Body follows on the next line
 skills.result.refused                    {reason}: the engine refused the call before it ran (the old word; `denied` is the current status)
 skills.result.denied                     {reason}: a rights check refused the call

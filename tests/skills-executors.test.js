@@ -1024,3 +1024,15 @@ test('needsFollowUp: in an addressed turn a quiet success is seen too, a failure
   assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: '' } }, { addressed: true }), false, 'a read with nothing to show');
   assert.equal(needsFollowUp('message.edit', { status: 'failed' }, { addressed: true }), true);
 });
+
+test('resolveCall: a body that is only a message reference fills the message argument of a command that takes one', () => {
+  const byNumber = resolve('memory.journal.read', {}, '#2');
+  assert.deepEqual([byNumber.ok, byNumber.args, byNumber.bodyArgs, 'bodyIgnored' in byNumber], [true, { message: '1002' }, 1, false]);
+  const byId = resolve('memory.journal.read', {}, '1500000000000000001');
+  assert.deepEqual([byId.ok, byId.args.message, byId.bodyArgs], [true, '1500000000000000001', 1]);
+  const explicit = resolve('memory.journal.read', { message: '#1' }, '#2');
+  assert.equal(explicit.args.message, '1001', 'the attribute wins');
+  assert.equal(explicit.bodyIgnored, true, 'the body left over is still a comment');
+  assert.equal(resolve('memory.journal.read', {}, '#999').code, 'unknown-message');
+  assert.equal(resolve('memory.journal.read', {}, 'some words').bodyIgnored, true);
+});

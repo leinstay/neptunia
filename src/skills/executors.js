@@ -24,6 +24,9 @@ import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 
+/** The options a body that is only a message reference (`#22`, an id, a link) fills, in order of preference. */
+const BODY_MESSAGE_OPTIONS = Object.freeze(['message', 'messageId']);
+
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS = Object.freeze(['file']);
 
@@ -366,7 +369,12 @@ export function resolveCall(call, view) {
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
   // A body where the command takes none: its options spelled out (an attribute wins), else her
   // comment on the call, left out -- never a refusal.
-  const fromBody = body && !command.body ? bodyArguments(body, byName.keys()) : null;
+  let fromBody = body && !command.body ? bodyArguments(body, byName.keys()) : null;
+  // A body that is only a message (`#22`, an id, a link) for a command that takes one: that argument (like idOf for intent ids).
+  if (body && !command.body && !fromBody) {
+    const target = BODY_MESSAGE_OPTIONS.find((option) => byName.has(option) && !Object.hasOwn(given, option));
+    if (target && (transcriptNumber(body) !== null || /^\d{15,25}$/.test(body) || MESSAGE_LINK_RE.test(body.replace(/^<(.*)>$/, '$1')))) fromBody = { [target]: body };
+  }
   const bodyIgnored = Boolean(body) && !command.body && !fromBody;
   let bodyArgs = 0;
   for (const [key, value] of Object.entries(fromBody ?? {})) {
