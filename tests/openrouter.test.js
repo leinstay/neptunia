@@ -3024,3 +3024,111 @@ test('errorCodeOf: a rail refusal or any other exception is plain error', () => 
   assert.equal(errorCodeOf(new RangeError('boom')), 'error');
   assert.equal(errorCodeOf(null), 'error');
 });
+
+// ---- native tool calling (transport) -----------------------------------------
+
+const TOOLS = [{ type: 'function', function: { name: 'draw_create', description: 'Draw.', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }];
+
+function toolsLlm(response, config = baseConfig()) {
+  const sent = [];
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => config,
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async (url, init) => { sent.push(JSON.parse(init.body)); return response; },
+  });
+  return { llm, sent };
+}
+
+function toolResponse(toolCalls, { content = null, finish = 'tool_calls' } = {}) {
+  return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: finish, message: { content, tool_calls: toolCalls } }], usage: { prompt_tokens: 42 } }) };
+}
+
+test('complete: without tools the body has no tool fields and the result no toolCalls', async () => {
+  const { llm, sent } = toolsLlm(okResponse('hi'));
+  const out = await llm.complete([{ role: 'user', content: 'hello' }]);
+  assert.deepEqual(Object.keys(sent[0]).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
+  assert.equal('toolCalls' in out, false);
+  const empty = toolsLlm(okResponse('hi'));
+  await empty.llm.complete([{ role: 'user', content: 'hello' }], { tools: [], toolChoice: 'required' });
+  assert.deepEqual(Object.keys(empty.sent[0]).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
+});
+
+test('complete: tools are sent with tool_choice auto by default and parallel_tool_calls only when given', async () => {
+  const a = toolsLlm(okResponse('hi'));
+  await a.llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS });
+  assert.deepEqual(a.sent[0].tools, TOOLS);
+  assert.equal(a.sent[0].tool_choice, 'auto');
+  assert.equal('parallel_tool_calls' in a.sent[0], false);
+  const b = toolsLlm(okResponse('hi'));
+  await b.llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS, toolChoice: 'none', parallelToolCalls: false });
+  assert.equal(b.sent[0].tool_choice, 'none');
+  assert.equal(b.sent[0].parallel_tool_calls, false);
+});
+
+test('complete: tool_calls of the answer come back parsed beside the text, with finishReason', async () => {
+  const { llm } = toolsLlm(toolResponse([
+    { id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"a cat"}' } },
+    { id: 'c2', type: 'function', function: { name: 'draw_create', arguments: '{"text":' } },
+    { id: 'c3', type: 'function', function: { name: 'web_search', arguments: '' } },
+    { id: 'c4', type: 'function', function: { name: 'web_search', arguments: '[1]' } },
+  ], { content: '<think>x</think>' }));
+  const out = await llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS });
+  assert.equal(out.text, '<think>x</think>');
+  assert.equal(out.finishReason, 'tool_calls');
+  assert.deepEqual(out.toolCalls.map((c) => [c.id, c.name, c.arguments, c.parsed]), [
+    ['c1', 'draw_create', '{"text":"a cat"}', { text: 'a cat' }],
+    ['c2', 'draw_create', '{"text":', null],
+    ['c3', 'web_search', '', {}],
+    ['c4', 'web_search', '[1]', null],
+  ]);
+  assert.equal(out.toolCalls[0].parseError, null);
+  assert.equal(typeof out.toolCalls[1].parseError, 'string');
+  assert.equal(typeof out.toolCalls[3].parseError, 'string');
+});
+
+test('complete: a request with tools and no tool_calls in the answer returns an empty toolCalls', async () => {
+  const { llm } = toolsLlm(okResponse('only text'));
+  assert.deepEqual((await llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS })).toolCalls, []);
+});
+
+test('complete: an assistant message with tool_calls and tool messages are sent as given, cache marker intact', async () => {
+  const messages = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'draw a cat' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"cat"}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: '{"ok":true}' },
+  ];
+  const marked = withCacheMarker(messages, '5m');
+  assert.equal(marked[0].content[0].cache_control.type, 'ephemeral');
+  assert.equal(marked[2], messages[2]);
+  assert.equal(marked[3], messages[3]);
+  assert.equal(withCacheMarker(messages, null), messages);
+  const { llm, sent } = toolsLlm(okResponse('done'));
+  await llm.complete(messages, { tools: TOOLS });
+  assert.deepEqual(sent[0].messages, messages);
+});
+
+test('complete: the tools count toward the token estimate and the request cap', async () => {
+  const big = [{ type: 'function', function: { name: 'x', description: 'd'.repeat(5000), parameters: { type: 'object', properties: {} } } }];
+  let called = false;
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig({ maxRequestTokens: 1000 }),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async () => { called = true; return okResponse('x'); },
+  });
+  await llm.complete([{ role: 'user', content: 'hi' }]);
+  assert.equal(called, true);
+  called = false;
+  await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { tools: big }), (err) => err instanceof TokenLimitError);
+  assert.equal(called, false);
+});
+
+test('complete: the estimate includes the tool_calls of earlier assistant messages', async () => {
+  const calls = [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: 'a'.repeat(5000) } }];
+  const llm = createLlm({ apiKey: 'k', getConfig: () => baseConfig({ maxRequestTokens: 1000 }), calibrator: fakeCalibrator(), state: fakeState(), fetchImpl: async () => okResponse('x') });
+  await assert.rejects(llm.complete([{ role: 'assistant', content: null, tool_calls: calls }]), (err) => err instanceof TokenLimitError);
+});

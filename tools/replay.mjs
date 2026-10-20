@@ -81,7 +81,9 @@
 // Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
-// timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (no cost; the result carries
+// timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (and, optionally, `<dir>/ans-<n>.tool-calls.json`:
+// a JSON array of `{ id?, name, arguments }` -- `arguments` an object or a string -- for the answer's native tool calls; a
+// request that had tools also lists them, with its tool choice, in `req-<n>.json`) (no cost; the result carries
 // `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other
 // models still go to OpenRouter. The directory must hold no files of an earlier run. Such a run
 // needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
@@ -1635,7 +1637,17 @@ export function storedDumps(journalDir, turnId, { steps = false } = {}) {
     found.sort((a, b) => a.attempt - b.attempt || a.step - b.step);
     for (const { name } of found) {
       try {
-        out.push({ file: path.join(root, day, name), dump: JSON.parse(fs.readFileSync(path.join(root, day, name), 'utf8')) });
+        const dump = JSON.parse(fs.readFileSync(path.join(root, day, name), 'utf8'));
+        // A request that had tools names them by hash; the stored copy is read back as `toolDefinitions`
+        // (absent when the copy is gone), so a replay re-sends the schemas the turn really saw.
+        if (typeof dump.tools === 'string' && /^[0-9a-f]{64}$/.test(dump.tools)) {
+          try {
+            dump.toolDefinitions = JSON.parse(fs.readFileSync(path.join(root, 'tools', `${dump.tools}.json`), 'utf8'));
+          } catch {
+            // the copy is missing: the hash stays
+          }
+        }
+        out.push({ file: path.join(root, day, name), dump });
       } catch {
         // a dump cut short: skipped
       }

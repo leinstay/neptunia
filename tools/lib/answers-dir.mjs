@@ -5,6 +5,9 @@
 //   <dir>/req-001.json the same request for machines, written first: { model, purpose, system, messages:
 //                      [{ role, content }] } with the exact strings (system = the system messages joined
 //                      with a blank line, null when there is none; messages = the others in order)
+//   (a request with native tools also has `tools` and `toolChoice` in req-001.json and a `## tools` section in the .md;
+//    an assistant message with tool calls keeps `tool_calls`, a tool message its `tool_call_id`)
+//   <dir>/ans-001.tool-calls.json  optional: [{ id?, name, arguments }] (arguments an object or a string), the answer's tool calls
 //   <dir>/req-001.md   model: <id>, purpose: <purpose|none>, then every message in order under
 //                      `## system` / `## user` / `## assistant` headings, verbatim (content parts
 //                      joined with a newline; an image part is the line `[image]`)
@@ -16,6 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { toolCallsOf } from '../../src/llm/openrouter.js';
 
 export const ANSWERS_POLL_MS = 2000;
 export const ANSWERS_TIMEOUT_MIN = 20;
@@ -41,23 +45,33 @@ export function contentText(content) {
 }
 
 /** The body of `req-<n>.md`. */
-export function renderRequest({ model, purpose = null, messages }) {
+export function renderRequest({ model, purpose = null, messages, tools = null, toolChoice = null }) {
   const parts = [`model: ${model}`, `purpose: ${purpose ?? 'none'}`, ''];
   for (const message of messages ?? []) {
     parts.push(`## ${message?.role ?? 'user'}`, '', contentText(message?.content), '');
+    if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+      parts.push('### tool calls', '', ...message.tool_calls.map((call) => `${call?.id ?? ''} ${call?.function?.name ?? ''} ${call?.function?.arguments ?? ''}`.trim()), '');
+    }
   }
+  if (Array.isArray(tools) && tools.length > 0) parts.push('## tools', '', `tool_choice: ${toolChoice ?? 'auto'}`, '', JSON.stringify(tools, null, 2), '');
   return parts.join('\n');
 }
 
 /** The body of `req-<n>.json`: exact strings, so a reader never parses the Markdown. */
-export function requestJson({ model, purpose = null, messages }) {
+export function requestJson({ model, purpose = null, messages, tools = null, toolChoice = null }) {
   const list = messages ?? [];
   const system = list.filter((m) => m?.role === 'system').map((m) => contentText(m.content));
   return JSON.stringify({
     model,
     purpose: purpose ?? null,
     system: system.length > 0 ? system.join('\n\n') : null,
-    messages: list.filter((m) => m?.role !== 'system').map((m) => ({ role: m?.role ?? 'user', content: contentText(m?.content) })),
+    messages: list.filter((m) => m?.role !== 'system').map((m) => ({
+      role: m?.role ?? 'user',
+      content: contentText(m?.content),
+      ...(Array.isArray(m?.tool_calls) ? { tool_calls: m.tool_calls } : {}),
+      ...(typeof m?.tool_call_id === 'string' ? { tool_call_id: m.tool_call_id } : {}),
+    })),
+    ...(Array.isArray(tools) && tools.length > 0 ? { tools, toolChoice: toolChoice ?? 'auto' } : {}),
   }, null, 2) + '\n';
 }
 
@@ -74,7 +88,7 @@ const pad = (n) => String(n).padStart(3, '0');
  */
 export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs = ANSWERS_POLL_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, estimate = () => 0 }) {
   fs.mkdirSync(dir, { recursive: true });
-  const stale = fs.readdirSync(dir).filter((name) => /^(req-\d+\.(?:md|json)|ans-\d+\.txt|done)$/.test(name));
+  const stale = fs.readdirSync(dir).filter((name) => /^(req-\d+\.(?:md|json)|ans-\d+\.(?:txt|tool-calls\.json)|done)$/.test(name));
   if (stale.length > 0) throw new Error(`answers-dir: ${dir} holds files of an earlier run (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', ...' : ''}); use an empty directory`);
   let count = 0;
 
@@ -84,8 +98,8 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
     const id = pad(count);
     const reqFile = path.join(dir, `req-${id}.md`);
     const ansFile = path.join(dir, `ans-${id}.txt`);
-    writeAtomic(path.join(dir, `req-${id}.json`), requestJson({ model, purpose: options?.purpose ?? null, messages }));
-    writeAtomic(reqFile, renderRequest({ model, purpose: options?.purpose ?? null, messages }));
+    writeAtomic(path.join(dir, `req-${id}.json`), requestJson({ model, purpose: options?.purpose ?? null, messages, tools: options?.tools, toolChoice: options?.toolChoice }));
+    writeAtomic(reqFile, renderRequest({ model, purpose: options?.purpose ?? null, messages, tools: options?.tools, toolChoice: options?.toolChoice }));
     const deadline = now() + timeoutMin * 60_000;
     for (;;) {
       if (options?.signal?.aborted) throw options.signal.reason ?? new Error('request aborted');
@@ -95,6 +109,19 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
     }
     const text = fs.readFileSync(ansFile, 'utf8');
     const promptTokens = estimate(messages);
+    // Optional native tool calls of the answer, read only for a request that had tools.
+    const callsFile = path.join(dir, `ans-${id}.tool-calls.json`);
+    let toolCalls = null;
+    if (Array.isArray(options?.tools) && options.tools.length > 0) {
+      toolCalls = [];
+      if (fs.existsSync(callsFile)) {
+        const given = JSON.parse(fs.readFileSync(callsFile, 'utf8'));
+        toolCalls = toolCallsOf((Array.isArray(given) ? given : []).map((call, i) => ({
+          id: call?.id ?? `call_${i + 1}`,
+          function: { name: call?.name, arguments: call?.arguments },
+        })));
+      }
+    }
     return {
       text,
       usage: { prompt_tokens: promptTokens, completion_tokens: 0, cost: 0, source: ANSWERS_SOURCE },
@@ -102,6 +129,7 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
       finishReason: 'stop',
       provider: ANSWERS_SOURCE,
       promptTokens,
+      ...(toolCalls ? { toolCalls } : {}),
     };
   }
 

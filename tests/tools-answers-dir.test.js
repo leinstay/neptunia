@@ -86,3 +86,40 @@ test('withAnswersDir firstOnly: a tool-loop step of the turn goes to the real mo
   assert.equal((await llm.complete([{ role: 'user', content: '<task>\nThis is the same inner turn, continued after your x call.' }], {})).text, 'real');
   assert.equal((await llm.complete([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c' }], {})).text, 'real');
 });
+
+test('a request with tools lists them in req-<n>.json and .md; the answer may carry tool calls from ans-<n>.tool-calls.json', async () => {
+  const dir = tmp();
+  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } }];
+  const answers = createAnswersDir({
+    dir,
+    pollMs: 1,
+    sleep: async () => {
+      fs.writeFileSync(path.join(dir, 'ans-001.tool-calls.json'), JSON.stringify([{ name: 'draw_create', arguments: { text: 'a cat' } }, { id: 'x', name: 'draw_create', arguments: '{bad' }]));
+      fs.writeFileSync(path.join(dir, 'ans-001.txt'), '<think>t</think>');
+    },
+  });
+  const messages = [
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c0', type: 'function', function: { name: 'draw_create', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c0', content: 'ok' },
+  ];
+  const out = await answers.answer('anthropic/claude-x', messages, { tools });
+  const req = JSON.parse(fs.readFileSync(path.join(dir, 'req-001.json'), 'utf8'));
+  assert.deepEqual(req.tools, tools);
+  assert.equal(req.toolChoice, 'auto');
+  assert.equal(req.messages[1].tool_calls[0].id, 'c0');
+  assert.equal(req.messages[2].tool_call_id, 'c0');
+  assert.match(fs.readFileSync(path.join(dir, 'req-001.md'), 'utf8'), /## tools\n\ntool_choice: auto/);
+  assert.equal(out.text, '<think>t</think>');
+  assert.deepEqual(out.toolCalls.map((c) => [c.id, c.name, c.parsed]), [['call_1', 'draw_create', { text: 'a cat' }], ['x', 'draw_create', null]]);
+  assert.equal(typeof out.toolCalls[1].parseError, 'string');
+});
+
+test('without tools the request files and the result have no tool fields', async () => {
+  const dir = tmp();
+  const answers = createAnswersDir({ dir, pollMs: 1, sleep: async () => { fs.writeFileSync(path.join(dir, 'ans-001.txt'), 'hello'); } });
+  const out = await answers.answer('anthropic/claude-x', [{ role: 'user', content: 'hi' }]);
+  assert.equal('toolCalls' in out, false);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'req-001.json'), 'utf8'))), ['model', 'purpose', 'system', 'messages']);
+  assert.ok(!fs.readFileSync(path.join(dir, 'req-001.md'), 'utf8').includes('## tools'));
+});

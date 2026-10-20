@@ -644,7 +644,7 @@ function sources() {
 }
 
 test('call sites: every request role is one of the roles, every purpose goes out on its own role', () => {
-  const chatRoles = new Set(['system', 'user', 'assistant']);
+  const chatRoles = new Set(['system', 'user', 'assistant', 'tool']);
   let pairs = 0;
   for (const [file, text] of sources()) {
     for (const [, role] of text.matchAll(/\brole: '([\w.-]+)'/g)) {

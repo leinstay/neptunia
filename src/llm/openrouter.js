@@ -25,7 +25,7 @@
 // `withCacheMarker`): after the estimate, so the rails never see it.
 
 import { createHash } from 'node:crypto';
-import { estimateMessages } from './tokens.js';
+import { estimateMessages, estimateTools } from './tokens.js';
 import { safetyMarginOf } from './budget.js';
 import { isPlainObject } from '../config.js';
 import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.js';
@@ -607,6 +607,45 @@ function lastTextPart(content) {
 }
 
 /**
+ * The tool calls of an answer's message (`choices[0].message.tool_calls`) as
+ * `[{ id, name, arguments, parsed, parseError }]`: `arguments` the raw string the model wrote
+ * (as sent, '' when absent), `parsed` its JSON object (null when it is not a JSON object --
+ * empty arguments read as `{}`), `parseError` the parse failure's message or null. An entry
+ * that is not an object with a function is skipped. [] when there are none.
+ * @param {unknown} calls
+ * @returns {{ id: string|null, name: string, arguments: string, parsed: object|null, parseError: string|null }[]}
+ */
+export function toolCallsOf(calls) {
+  if (!Array.isArray(calls)) return [];
+  const out = [];
+  for (const call of calls) {
+    if (!isPlainObject(call) || !isPlainObject(call.function)) continue;
+    const raw = call.function.arguments;
+    const text = typeof raw === 'string' ? raw : raw === undefined || raw === null ? '' : JSON.stringify(raw);
+    let parsed = null;
+    let parseError = null;
+    if (text.trim() === '') parsed = {};
+    else {
+      try {
+        const value = JSON.parse(text);
+        if (isPlainObject(value)) parsed = value;
+        else parseError = 'arguments are not a JSON object';
+      } catch (err) {
+        parseError = err.message;
+      }
+    }
+    out.push({
+      id: typeof call.id === 'string' ? call.id : null,
+      name: typeof call.function.name === 'string' ? call.function.name : '',
+      arguments: text,
+      parsed,
+      parseError,
+    });
+  }
+  return out;
+}
+
+/**
  * `messages` as they are sent under the cache policy: a new array, the input never mutated (a
  * message or part that needs no change is passed on as the same object, and with nothing to
  * change the very same array comes back, so the body serialises exactly as without this step).
@@ -1084,6 +1123,12 @@ export function createLlm({
    * callers use it to tell a cut-off completion (`'length'`) from a genuinely
    * bad answer. `provider` is OpenRouter's name for the upstream provider that
    * served the request (`json.provider`), or `undefined` when the response omits it.
+   * `options.tools` -- native tool definitions (OpenAI format, src/skills/tools-json.js); a non-empty
+   * array is sent as `tools` with `tool_choice` = `options.toolChoice` (default 'auto') and, when
+   * boolean, `parallel_tool_calls` = `options.parallelToolCalls`; the estimate and the token cap
+   * count them. Only then the result carries `toolCalls` (`toolCallsOf`), beside `text`. `messages`
+   * may hold an assistant message with `tool_calls` (content may be null) and `role: 'tool'`
+   * messages (`tool_call_id`, `content`), sent as given. Without `tools` nothing changes.
    * `options.model` / `options.maxOutputTokens` / `options.temperature`
    * override the config defaults (`models.core`, `llm.maxOutputTokens`, `llm.temperature`).
    *
@@ -1241,7 +1286,8 @@ export function createLlm({
   async function complete(messages, options = {}) {
     const cfg = getConfig().llm;
     const tokensPerImage = getConfig().context?.vision?.tokensPerImage;
-    let raw = estimateMessages(messages, tokensPerImage);
+    const tools = Array.isArray(options.tools) && options.tools.length ? options.tools : null;
+    let raw = estimateMessages(messages, tokensPerImage) + (tools ? estimateTools(tools) : 0);
     if (typeof options.videoSeconds === 'number' && Number.isFinite(options.videoSeconds) && options.videoSeconds >= 0) {
       const override = options.videoTokensPerSecond;
       const tokensPerSecond =
@@ -1286,6 +1332,13 @@ export function createLlm({
     });
     if (provider) body.provider = providerBodyOf(provider);
     if (isPlainObject(options.reasoning)) body.reasoning = options.reasoning;
+    // Native tool calling, only when asked for: the definitions, the choice ('auto' unless given) and
+    // whether the model may call several at once (sent only when given).
+    if (tools) {
+      body.tools = tools;
+      body.tool_choice = options.toolChoice ?? 'auto';
+      if (typeof options.parallelToolCalls === 'boolean') body.parallel_tool_calls = options.parallelToolCalls;
+    }
     if (Array.isArray(options.plugins) && options.plugins.length) body.plugins = options.plugins;
     // `options.purpose` and `options.origin` are for the usage line only: never put on `body`.
 
@@ -1341,6 +1394,7 @@ export function createLlm({
       return {
         text: typeof text === 'string' ? text : '', usage, estimated, finishReason, provider: json.provider, promptTokens,
         ...(Array.isArray(annotations) && annotations.length ? { annotations } : {}),
+        ...(tools ? { toolCalls: toolCallsOf(json.choices?.[0]?.message?.tool_calls) } : {}),
       };
     };
 

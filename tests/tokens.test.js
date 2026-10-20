@@ -1,7 +1,7 @@
 // Tests for src/llm/tokens.js: token estimation and the usage calibrator.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateTokens, estimateMessages, createCalibrator } from '../src/llm/tokens.js';
+import { estimateTokens, estimateMessages, estimateTools, createCalibrator } from '../src/llm/tokens.js';
 
 test('estimateTokens: non-ASCII costs more tokens than the same length of ASCII', () => {
   const ascii = estimateTokens('a'.repeat(20));
@@ -99,4 +99,18 @@ test('createCalibrator: observe() clamps the observed sample before averaging', 
   // not even by floating-point noise (see the fix in createCalibrator.observe()).
   assert.ok(cal.ratio <= 1.6, `ratio must never exceed RATIO_MAX, got ${cal.ratio}`);
   assert.equal(cal.ratio, 1.6);
+});
+
+test('estimateTools: zero without tools, the JSON of the definitions otherwise', () => {
+  assert.equal(estimateTools(undefined), 0);
+  assert.equal(estimateTools([]), 0);
+  const tools = [{ type: 'function', function: { name: 'a', description: 'x'.repeat(70), parameters: { type: 'object' } } }];
+  assert.equal(estimateTools(tools), estimateTokens(JSON.stringify(tools)) + 6);
+});
+
+test('estimateMessages: tool_calls of an assistant message and a null content are counted, a message without them is unchanged', () => {
+  const plain = estimateMessages([{ role: 'assistant', content: 'ab' }]);
+  const calling = estimateMessages([{ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: 'a'.repeat(70) } }] }]);
+  assert.ok(calling > plain + 20);
+  assert.equal(estimateMessages([{ role: 'tool', tool_call_id: 'c1', content: 'a'.repeat(7) }]), 8);
 });
