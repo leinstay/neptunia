@@ -23,7 +23,6 @@
     "check:codes": "node tools/labels-catalogue.mjs --check"
   },
   "workspaces": [
-    "packages/*",
     "interfaces/*"
   ],
   "license": "MIT"

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createEventDoor } from '../src/interface/door.js';
 import { createFakeAdapter, replayFixture } from '../src/interface/fake.js';
-import { originOf, validateEvent } from '../src/protocol.js';
+import { originOf, validateEvent } from '../src/protocol/index.js';
 
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/events/basic-chat.json', import.meta.url), 'utf8'));
 const quiet = { info() {}, warn() {} };

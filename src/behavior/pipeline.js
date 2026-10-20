@@ -1,5 +1,5 @@
 // The message pipeline: turns the `message.received` event of a discord.js
-// `messageCreate` (packages/protocol/, built by interfaces/discord/collect.js#toEvent)
+// `messageCreate` (src/protocol/, built by interfaces/discord/collect.js#toEvent)
 // into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
 // scheduler eavesdrop, or run a turn) without ever throwing into discord.js.
 // A direct message goes through the private-chat gate instead
@@ -244,7 +244,7 @@ function bufferedMediaIds(buffered) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @returns {(event: import('../protocol.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
+ * @returns {(event: import('../protocol/index.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
  *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
  *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
  *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
@@ -2482,7 +2482,7 @@ export function createMessageHandler({
    * stale chatter); and a call (a mention, a reply to the persona, her name -- the live
    * detectTrigger) reaches the ordinary call path (answerCall, or the settle wait of a channel
    * she cannot write in) only with `trigger` true, otherwise it is only observed. Never throws.
-   * @param {import('../protocol.js').MessageReceived & { raw: object }} event
+   * @param {import('../protocol/index.js').MessageReceived & { raw: object }} event
    * @param {{ trigger?: boolean }} [options]
    * @returns {Promise<'duplicate'|'ignored'|'observed'|'triggered'>}
    */
@@ -2666,7 +2666,7 @@ export function createMessageHandler({
    * features.embedUpdates (a missing key counts as on), with features.memory off and while
    * paused. Only the served guild, a channel outside threads and the dry-run mirror,
    * and a human author's message with embeds. Config read now. Never throws.
-   * @param {import('../protocol.js').MessageReceived & { raw: object, rawPrevious: object|null }} event
+   * @param {import('../protocol/index.js').MessageReceived & { raw: object, rawPrevious: object|null }} event
    *   The edit event (collect.js#toEvent with `edit`): `raw` is the updated discord.js message,
    *   `rawPrevious` the old one; a partial one is fetched here and its event built again.
    * @returns {Promise<void>}
@@ -2772,7 +2772,7 @@ export function createMessageHandler({
    * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
    * request). Only what `recordable` lets in. Never throws: a refused append is logged as
    * `events: record failed` (counts only).
-   * @param {import('../protocol.js').MessageReceived & { raw: object }} event  The deletion
+   * @param {import('../protocol/index.js').MessageReceived & { raw: object }} event  The deletion
    *   event (collect.js#toEvent with `deleted`): `message.id`, and `raw` the deleted discord.js
    *   message, possibly partial.
    * @returns {Promise<void>}

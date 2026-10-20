@@ -19,7 +19,7 @@
 // Adding a command: see src/ops/catalog.js's header.
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
-import { COMMAND_REQUESTED, validateEvent } from '../../src/protocol.js';
+import { COMMAND_REQUESTED, validateEvent } from '../../src/protocol/index.js';
 import { DISCORD_IFACE } from './port.js';
 import { displayNameOf } from './collect.js';
 import { isOwnerId } from '../../src/ops/grants.js';
@@ -252,7 +252,7 @@ function roleIdsFor(interaction) {
 }
 
 /**
- * The `command.requested` event of a chat-input interaction (packages/protocol/events.js): the
+ * The `command.requested` event of a chat-input interaction (src/protocol/events.js): the
  * command key as its `name`, the mapped options as `args`, the requester with their role ids and
  * whether `config.bot.owners` names them (informational: the operation's own runOp still checks
  * the rights), and `replyRef`, the opaque token the handler maps back to the interaction. Ids are
@@ -263,7 +263,7 @@ function roleIdsFor(interaction) {
  * @param {object} config  The live config.
  * @param {string} replyRef
  * @param {number} at
- * @returns {import('../../src/protocol.js').CommandRequested}
+ * @returns {import('../../src/protocol/index.js').CommandRequested}
  */
 export function commandEvent(interaction, commandKey, args, config, replyRef, at) {
   const userId = interaction.user?.id;

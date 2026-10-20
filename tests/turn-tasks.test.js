@@ -12,7 +12,7 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
 import { createTaskTurns, taskCompletedEvent } from '../src/errands/turns.js';
 import { createEventDoor } from '../src/interface/door.js';
-import { validateEvent } from '../src/protocol.js';
+import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';

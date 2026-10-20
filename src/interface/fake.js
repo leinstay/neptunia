@@ -8,14 +8,14 @@
 // refused as `failed` with the code `invalid-action`, so a test that drives the persona through
 // the fake also proves she only ever asks for well-formed actions.
 
-import { portAction, validateAction } from '../protocol.js';
+import { portAction, validateAction } from '../protocol/index.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
 import { CODE } from '../skills/codes.js';
 
 /**
  * Replays a recorded fixture of inbound events through an event door (src/interface/door.js), in
  * order, the way an interface would deliver them. A fixture is `{ iface?, events: [event, ...] }`:
- * each event is a protocol event (packages/protocol/events.js); `iface` is filled from the
+ * each event is a protocol event (src/protocol/events.js); `iface` is filled from the
  * fixture's when an event has none, and a `message.received` of a new message is put into
  * `port` (the fake adapter) first, so history reads find what the persona was shown. An event
  * with `redeliver: n` is delivered n more times after the first (at-least-once delivery: the door

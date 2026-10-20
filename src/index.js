@@ -944,7 +944,7 @@ hot.on('change', ({ what }) => {
   }
 });
 
-// The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
+// The gateway's messages and reactions reach the core as protocol events (src/protocol/,
 // built by interfaces/discord/collect.js) through the event door (src/interface/door.js), the one
 // entry of the mind: it validates each event at the boundary, drops a repeated id, and hands the
 // event to the handler of its kind. An event that cannot be built or is malformed is dropped with
