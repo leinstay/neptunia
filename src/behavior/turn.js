@@ -2168,7 +2168,10 @@ export function createTurnRunner({
       posted: turnPosts,
     });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
-    return { skill, ...result, followUp: needsFollowUp(skill, result) };
+    const followUp = needsFollowUp(skill, result, { addressed: draft?.addressed === true });
+    // A quiet call that went out and is seen only because someone waits for the turn: delivered all the same.
+    const stepOnly = followUp && result.status === 'ok' && !needsFollowUp(skill, result);
+    return { skill, ...result, followUp, ...(stepOnly ? { stepOnly: true } : {}) };
   }
 
   /**
@@ -2656,7 +2659,7 @@ export function createTurnRunner({
         made += results.length;
         const terminal = pending.terminal === true;
         pending = null;
-        if (results.some((result) => result.status === 'ok' && !result.followUp)) delivered = true;
+        if (results.some((result) => result.status === 'ok' && (!result.followUp || result.stepOnly))) delivered = true;
         posted = results.some((result) => result.skill === 'message.create' && result.status === 'ok');
         names = results.map((result) => result.skill);
         const seen = results.filter((result) => result.followUp);
@@ -5933,6 +5936,8 @@ export function createTurnRunner({
       const answersDrawFailure = triggerKind === 'drawFailed';
       // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
       const asked = askedFor(trigger, triggerKind);
+      // Someone waits for this turn (not an inner, diary, spontaneous or overheard one): a quiet call of hers is seen in a step.
+      draft.addressed = asked && !draft.inner;
       // A turn a returned errand opened answers with its result: the engine's own search
       // (the classifier, the planner's lookup block) is not run on the original request, so no
       // <lookup> block stands beside the result. Her own recall call still runs.
@@ -7201,7 +7206,7 @@ export function createTurnRunner({
         diaryPrep && acted.delivered === true
           ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, parsed, acted, set: Boolean(set) }) }
           : {};
-      const callDelivered = loopDelivered || (called?.status === 'ok' && !called.followUp);
+      const callDelivered = loopDelivered || (called?.status === 'ok' && (!called.followUp || called.stepOnly));
       // An inner turn in shadow mode delivers nothing, whatever it proposed.
       const delivered = (acted.delivered === true || followed?.delivered === true || callDelivered) && draft.inner?.shadow !== true;
       const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure || draft.gifFailure ? { partial: true } : {}) };

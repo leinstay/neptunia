@@ -521,7 +521,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   const brief = 'Βρες στο pixiv το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.';
   const { journal } = journalOverMemory();
   const run = await coreTurn({
-    answers: ['<call skill="web.search">pixiv serial_experiments_lain</call>', `<msg>το στέλνω να ψάξει</msg><call skill="task.run" agent="web">${brief}</call>`, '<msg>ποτέ</msg>'],
+    answers: ['<call skill="web.search">pixiv serial_experiments_lain</call>', `<msg>το στέλνω να ψάξει</msg><call skill="task.run" agent="web">${brief}</call>`, '<skip/>'],
     allowed: ['web.search', 'task.run'],
     features: { webLookup: true },
     config: { ...WEB_CONFIG, ...AGENTS },
@@ -538,7 +538,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   assert.match(task.origin.turnId, /^t-u\d+$/, 'the journal turn of her call');
   assert.equal(task.idempotencyKey, `${task.origin.turnId}.1:1`, 'her second call of the turn');
   assert.equal(runs.length, 1);
-  assert.equal(run.llm.calls.length, 2, 'an accepted errand needs no follow-up');
+  assert.equal(run.llm.calls.length, 3, 'an accepted errand is seen in one step, where she stays silent');
   assert.deepEqual(run.sends.map((send) => send.text), ['το στέλνω να ψάξει']);
   // The same call made again (a retry): the same errand, nothing new queued or run.
   const again = await run.admin.runCommand('task.run', { agent: 'web', goal: brief }, { guildId: 'g1', channelId: 'c1', userId: 'u1', roleIds: [], actor: 'persona', turnId: task.origin.turnId, idempotencyKey: task.idempotencyKey });

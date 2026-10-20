@@ -682,14 +682,17 @@ export async function executeCall(resolved, deps) {
  * Whether the persona hears back about a call (one follow-up request with its `<result>`): an
  * operation that answered, unless it is a message or a picture that went out (QUIET_ON_OK: its
  * own answer); any call that did not succeed -- but never under the full stop (`skills-off`: she
- * is silent).
+ * is silent). In an addressed turn (`addressed`: someone's message started it) a successful
+ * quiet call is seen too, in one step where she may answer or stay silent; a turn she began
+ * herself (inner, diary, spontaneous) keeps the quiet outcome.
  * @param {string} skill
  * @param {{ status: string, code?: string, data?: { text?: string } }} result
+ * @param {{ addressed?: boolean }} [options]
  * @returns {boolean}
  */
-export function needsFollowUp(skill, result) {
+export function needsFollowUp(skill, result, { addressed = false } = {}) {
   if (result?.code === CODE.SKILLS_OFF) return false;
-  if (result?.status === 'ok') return !QUIET_ON_OK.includes(skill) && Boolean(result.data?.text);
+  if (result?.status === 'ok') return (addressed && QUIET_ON_OK.includes(skill)) || (!QUIET_ON_OK.includes(skill) && Boolean(result.data?.text));
   return true;
 }
 
