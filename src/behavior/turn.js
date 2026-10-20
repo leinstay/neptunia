@@ -3970,10 +3970,15 @@ export function createTurnRunner({
     const posted = { messageIds, texts: postedTexts, lines: ownPosted, gifs: postedGifs, drew: false, posts, reacted };
     if (sendFailed) return { delivered, answered, ...posted };
 
-    // The turn's own GIF right after the messages.
+    // The turn's own GIF right after the messages. One that did not go out is a call that failed with nobody
+    // to read it: a fact for her next request here, and the turn ends partial (the text, if any, was said).
     if (gif) {
       if (messages.length > 0 && typingOn) await sleep(between(cfg.betweenMessagesMs, rng));
-      await sendGif(gif);
+      const sentGif = await sendGif(gif);
+      if (!sentGif && draft) {
+        draft.gifFailure = true;
+        (draft.unseenFailed ??= []).push({ kind: 'callFailed', skill: 'message.create', status: messages.length > 0 ? 'partial' : 'failed', code: CODE.GIF_FAILED });
+      }
     }
 
     // A diary set's pictures come last, already generated: one message of files, more past
@@ -7199,7 +7204,7 @@ export function createTurnRunner({
       const callDelivered = loopDelivered || (called?.status === 'ok' && !called.followUp);
       // An inner turn in shadow mode delivers nothing, whatever it proposed.
       const delivered = (acted.delivered === true || followed?.delivered === true || callDelivered) && draft.inner?.shadow !== true;
-      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure ? { partial: true } : {}) };
+      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure || draft.gifFailure ? { partial: true } : {}) };
       if (!acted.drawFailed) return spoke;
       // The same predicate as runTurn's hand-off: an unasked turn notifies right here.
       handOff = asked;
