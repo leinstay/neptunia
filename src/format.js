@@ -517,6 +517,8 @@ export function withCalls(messages, marks, { nameOf = () => null, linkOf = () =>
       targetLink: targetId ? link(targetChannelId, targetId) : null,
       targetChannel: name(targetChannelId),
       postedLink: postedId ? link(targetChannelId, postedId) : null,
+      // The call's main arguments, worded by src/skills/call-args.js when it ran (in process only).
+      ...(text(call.args) ? { args: call.args } : {}),
       ts: call.at,
       // Why a call that did not work did not (src/skills/executors.js#outcomeDetail), when known.
       ...(call.detail && typeof call.detail.kind === 'string' ? { detail: call.detail } : {}),
@@ -552,7 +554,7 @@ export function withCalls(messages, marks, { nameOf = () => null, linkOf = () =>
  * with its link, else `calledTargetChannel` with its channel's name, else ''), `{status}` (the
  * status's word in `transcript.callStatus`, else the status code itself; with a mark's `detail`
  * worded by callReason and `transcript.callStatusReason` set, that label with `{status}` and
- * `{reason}`) and `{posted}` (`calledPosted` with the link of the message the call posted, else
+ * `{reason}`), `{args}` (`calledArgs` with the call's main arguments, else '') and `{posted}` (`calledPosted` with the link of the message the call posted, else
  * ''). '' with `called` blank.
  */
 function callText(mark, indexById, labels) {
@@ -564,12 +566,13 @@ function callText(mark, indexById, labels) {
   else if (mark.targetLink) target = fill(t.calledTargetLink, { link: mark.targetLink });
   else if (mark.targetChannel) target = fill(t.calledTargetChannel, { channel: mark.targetChannel });
   const posted = mark.postedLink ? fill(t.calledPosted, { link: mark.postedLink }) : '';
+  const args = mark.args && typeof t.calledArgs === 'string' && t.calledArgs ? fill(t.calledArgs, { args: mark.args }) : '';
   const words = t.callStatus;
   const word = words && typeof words === 'object' && Object.hasOwn(words, mark.status) ? words[mark.status] : null;
   const statusWord = typeof word === 'string' && word ? word : mark.status;
   const reason = callReason(mark, labels);
   const status = reason && typeof t.callStatusReason === 'string' && t.callStatusReason ? fill(t.callStatusReason, { status: statusWord, reason }) : statusWord;
-  return fill(t.called, { skill: mark.skill, target, status, posted });
+  return fill(t.called, { skill: mark.skill, target, args, status, posted });
 }
 
 /** The refusals worded by their own `labels.skills.refusals` key before any other phrase: kind -> key. */

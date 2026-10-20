@@ -76,6 +76,8 @@ import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
+import { callArgsText } from '../skills/call-args.js';
+import { createThinkStore, placeKey } from './previous-think.js';
 import { coreToolRows, discoveryOn, skillArgs, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { describeSkill, skillRegistry } from '../skills/registry.js';
@@ -2174,6 +2176,7 @@ export function createTurnRunner({
       lastPostAt.set(where, clock());
       noteTrigger(posted.id, trigger?.id);
       if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
+      if (draft) (draft.deliveredIn ??= new Set()).add(where);
       if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
       if (skill === 'message.create') {
         noteLineSources(draft, posted.id, args.text);
@@ -2198,6 +2201,8 @@ export function createTurnRunner({
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
+      // The main arguments the call ran with, for the mark's line (src/skills/call-args.js).
+      args: callArgsText(skill, args),
     });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
     const followUp = needsFollowUp(skill, result, { addressed: draft?.addressed === true });
@@ -2248,6 +2253,17 @@ export function createTurnRunner({
   }
 
   /**
+   * Keep the think of the answer just parsed: `lastThink` is the step's (null when it had none, so the
+   * next step carries nothing older), `finalThink` the turn's last one that had a think, which the turn
+   * exports to its places when it ends.
+   */
+  function noteThink(draft, parsed) {
+    if (!draft) return;
+    draft.lastThink = typeof parsed?.think === 'string' && parsed.think.trim() ? parsed.think : null;
+    if (draft.lastThink) draft.finalThink = draft.lastThink;
+  }
+
+  /**
    * The request that continues the turn after the persona's skill call (`called`, runCall's):
    * the turn's own request (`continuation.input`, buildRequest's input as the turn built it)
    * rebuilt over the channel as it stands now -- the turn's history, then a fresh fetch and her
@@ -2263,7 +2279,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null, dropped = null, diagnostics = null }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null, turnMarks = null, open = '', names = null, dropped = null, diagnostics = null, draft = null }) {
     const { input, history, shownLines = [] } = continuation;
     let fetched = [];
     try {
@@ -2277,7 +2293,9 @@ export function createTurnRunner({
     // `names`: the calls the step follows when they left no result to show (an inner turn's open follow-up).
     const skillNames = [...new Set((Array.isArray(names) && names.length > 0 ? names : outcomes.map((outcome) => outcome.skill)).filter(Boolean))].join(', ');
     const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId, extra: turnMarks });
-    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '', ...(dropped ? { dropped } : {}), ...(Array.isArray(diagnostics) && diagnostics.length > 0 ? { diagnostics } : {}) } });
+    // Her previous step's think (the turn's earlier-turn think of the first request does not carry on).
+    const previousThink = sameTurnThinkFor({ channel, draft });
+    const request = buildRequest({ ...input, history: lines, now: clock(), previousThink, continuation: { skill: skillNames, ...(label ? { label } : {}), open: typeof open === 'string' ? open : '', ...(dropped ? { dropped } : {}), ...(Array.isArray(diagnostics) && diagnostics.length > 0 ? { diagnostics } : {}) } });
     const labels = input.prompts?.labels ?? {};
     // Each read's data in its own block, in the order the calls were made: a later step only appends.
     const resultBlock = outcomes
@@ -2317,7 +2335,7 @@ export function createTurnRunner({
     let routing = null;
     let completion;
     try {
-      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null, diagnostics: untoldDiagnostics(draft) }));
+      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation, turnMarks: draft?.turnMarks ?? null, diagnostics: untoldDiagnostics(draft), draft }));
       else {
         const labels = hot.prompts?.labels ?? {};
         const block = skillResultBlock(called, labels, { maxChars: resultCharsFor(called, hot.config), posted: firstPass(acted, labels) });
@@ -2331,6 +2349,7 @@ export function createTurnRunner({
     dumpTurnRequest(guildId, draft, messages, completion, 1);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
     noteDiagnostics(draft, parsed, completion);
+    noteThink(draft, parsed);
     if (parsed.call || parsed.callError) log.info('skills: extra-call', { channel: channel.id, count: 1, followUp: true, ...(continued ? { continuation: true } : {}) });
     parsed.call = null;
     parsed.gif = resolveGif(guildId, parsed.gif, channel.id, draft?.limits ?? null);
@@ -2650,7 +2669,7 @@ export function createTurnRunner({
         // An inner turn continues under its own labels (no message started it, none of hers went out).
         const label = innerTurn ? (final ? 'continueInnerLast' : 'continueInner') : final ? 'continueToolsLast' : 'continueTools';
         const open = innerTurn && posted ? openIntentionsText(draft, continuation.input?.prompts?.labels ?? {}) : '';
-        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names, dropped, diagnostics: untoldDiagnostics(draft) }));
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label, turnMarks: draft?.turnMarks ?? null, open, names, dropped, diagnostics: untoldDiagnostics(draft), draft }));
       } else {
         const labels = hot.prompts?.labels ?? {};
         const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars: resultCharsFor(result, hot.config), ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
@@ -2667,6 +2686,7 @@ export function createTurnRunner({
     dumpTurnRequest(guildId, draft, messages, completion, step);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
     noteDiagnostics(draft, parsed, completion);
+    noteThink(draft, parsed);
     // An inner turn keeps each step's think for its memory episode.
     if (draft?.inner && parsed.think) (draft.innerThinks ??= []).push(parsed.think);
     const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
@@ -2961,6 +2981,73 @@ export function createTurnRunner({
   // lines read both (linkCalls).
   const callMarks = [];
   const postedFromLinks = new Map();
+
+  // The last think per place (src/behavior/previous-think.js), in process; a restart forgets it.
+  const thinks = createThinkStore();
+
+  /** Whether her previous think is carried at all (features.previousThink, read now; a missing key counts as on). */
+  function previousThinkOn() {
+    return hot.config.features?.previousThink !== false;
+  }
+
+  /** The key of the place a channel is (interface + server or private chat + channel). */
+  function placeOf(channel, guildId = null) {
+    return placeKey({ guildId: channel.guild ? (guildId ?? channel.guild.id ?? null) : null, channelId: channel.id });
+  }
+
+  /**
+   * The think a NEW turn's first request carries (an inner turn imports none), chosen once, logged
+   * `turn: previous think` with the source (turn id, relation, age) or why there is none. Null when
+   * nothing is carried.
+   * @returns {{ text: string, relation: 'earlier', ageMs: number }|null}
+   */
+  function earlierThinkFor({ channel, guildId, isPrivate, draft, mode }) {
+    if (!previousThinkOn() || draft.inner || mode === 'diary') return null;
+    const picked = thinks.select(placeOf(channel, guildId), { now: clock(), minutes: hot.config.context?.previousThink?.minutes ?? 0, isPrivate });
+    if (!picked.think) {
+      log.info('turn: previous think', { channel: channel.id, none: picked.why, ...(picked.turnId ? { source: picked.turnId } : {}) });
+      return null;
+    }
+    log.info('turn: previous think', { channel: channel.id, source: picked.source.turnId, relation: picked.source.relation, ageSeconds: Math.round(picked.source.ageMs / 1000) });
+    return { text: picked.think, relation: 'earlier', ageMs: picked.source.ageMs };
+  }
+
+  /**
+   * The think of the immediately preceding step of this turn, for a tool-loop step's request (none
+   * when that step had none), logged like earlierThinkFor.
+   * @returns {{ text: string, relation: 'same' }|null}
+   */
+  function sameTurnThinkFor({ channel, draft }) {
+    if (!previousThinkOn()) return null;
+    const text = typeof draft?.lastThink === 'string' && draft.lastThink.trim() ? draft.lastThink : null;
+    log.info('turn: previous think', text ? { channel: channel.id, source: draft.turnKey?.turnId ?? draft.started?.turnId ?? null, relation: 'same' } : { channel: channel.id, none: 'no-think' });
+    return text ? { text, relation: 'same' } : null;
+  }
+
+  /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
+  function recordTurnThink(args, draft, result) {
+    try {
+      const channel = args.channel;
+      const outcome = result?.outcome ?? 'error';
+      if (!channel || result?.dryRun === true || !previousThinkOn()) return;
+      const failed = outcome === 'error' || outcome === 'refused';
+      if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
+      const guildId = args.guildId ?? channel.guild?.id ?? null;
+      const delivered = [...(draft.deliveredIn ?? [])].map((id) => placeKey({ guildId: channel.guild ? guildId : null, channelId: id }));
+      thinks.record({
+        turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
+        at: clock(),
+        think: draft.finalThink ?? null,
+        failed,
+        isPrivate: !channel.guild,
+        inner: Boolean(args.inner),
+        ran: placeOf(channel, guildId),
+        delivered,
+      });
+    } catch (err) {
+      log.warn('turn: previous think not kept', { error: err });
+    }
+  }
 
   /** Remember one skill call of hers (in src/format.js#withCalls's shape). */
   function noteCall(mark) {
@@ -3899,7 +3986,10 @@ export function createTurnRunner({
       if (typeof sent?.id === 'string' && sent.id) {
         posts.push({ ...opField(op), messageId: sent.id, replyTo: replyTo ?? null });
         noteTrigger(sent.id, trigger?.id);
-        if (draft) (draft.ownPosts ??= []).push(sent.id);
+        if (draft) {
+          (draft.ownPosts ??= []).push(sent.id);
+          (draft.deliveredIn ??= new Set()).add(String(channel.id));
+        }
       }
     };
 
@@ -5890,6 +5980,7 @@ export function createTurnRunner({
       }
       // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
       if (!args.inner) recordTurnFacts(args, draft, result);
+      recordTurnThink(args, draft, result);
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
@@ -6985,6 +7076,8 @@ export function createTurnRunner({
         wakeKind: draft.inner?.wake?.kind ?? null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
         places: !draft.inner && !isPrivate && finalMode !== 'diary' ? placesInputFor({ guildId, config, labels: prompts?.labels }) : null,
+        // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
+        previousThink: earlierThinkFor({ channel, guildId, isPrivate, draft, mode: finalMode }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
@@ -7136,6 +7229,7 @@ export function createTurnRunner({
       }
       // An inner turn keeps its think for its memory episode (each step's too, loopStep).
       if (draft.inner && parsed.think) draft.innerThinks = [parsed.think];
+      noteThink(draft, parsed);
       const thinkField = journalOn() ? { thinkChars: Array.from(parsed.think ?? '').length } : { think: parsed.think };
 
       log.info('turn: model answered', {

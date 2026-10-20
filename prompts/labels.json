@@ -23,7 +23,8 @@
     "deleted": "message deleted",
     "triggeredBy": "(turn triggered by #{n})",
     "triggeredByOlder": "(turn triggered by an older message)",
-    "called": "[you called {skill}{target}: {status}{posted}]",
+    "called": "[you called {skill}{target}{args}: {status}{posted}]",
+    "calledArgs": " ({args})",
     "calledTargetMessage": " on #{n}",
     "calledTargetLink": " on {link}",
     "calledTargetChannel": " in #{channel}",
@@ -516,6 +517,11 @@
     "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",
     "candidate": "{id} · {purpose} · from your line: \"{span}\"{marker}",
     "externalMarker": " · [from outside]"
+  },
+  "previousThink": {
+    "note": "Your reasoning from your previous step, kept as context. It may be out of date or wrong: the current messages and results win. Do not quote it or retell it to anyone.",
+    "same": "(this turn, your previous step)",
+    "earlier": "(an earlier turn here, {ago} ago)"
   },
   "wake": {
     "header": "Why you are awake (nobody wrote to you):",

@@ -106,6 +106,7 @@ import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { CODE, reasonText } from '../skills/codes.js';
 import { diagnosticLines } from './wake.js';
+import { inertThink } from './previous-think.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
@@ -121,6 +122,25 @@ const TAG_OVERHEAD = 60;
  */
 export function block(tag, body) {
   return body ? `<${tag}>\n${body}\n</${tag}>` : '';
+}
+
+/**
+ * The `<previous_think>` body (docs/prompt-contract.md): `labels.previousThink.note`, then one line of
+ * engine metadata (`labels.previousThink.same`, or `earlier` with `{ago}`), then the think as inert
+ * text (src/behavior/previous-think.js#inertThink). '' without a think, without the note label or
+ * without the metadata label of its relation. Pure.
+ * @param {{ text: string, relation: 'same'|'earlier', ageMs?: number }|null|undefined} previous
+ * @param {object} labels
+ * @returns {string}
+ */
+export function previousThinkBody(previous, labels) {
+  const l = labels?.previousThink;
+  const think = inertThink(previous?.text);
+  if (!think || typeof l?.note !== 'string' || !l.note) return '';
+  const meta = previous.relation === 'same' ? l.same : l.earlier;
+  if (typeof meta !== 'string' || !meta) return '';
+  const ago = formatDuration(Math.max(0, Number(previous.ageMs) || 0), labels.units ?? {});
+  return [l.note, fill(meta, { ago }), think].join('\n');
 }
 
 /** `fromTokens(text, nameOf, 'chat')`, tolerating a non-string `text` and a
@@ -1225,7 +1245,7 @@ function nowBlock(now, timezone, labels, periods) {
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '' }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '', previousThink = '' }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
@@ -1286,6 +1306,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('wake', wake),
     // The places page of an addressed turn (`context.places`; src/behavior/wake.js#placesBlockText): per turn.
     block('places', places),
+    // Her one previous think (src/behavior/previous-think.js): per turn, right before the people it concerns.
+    block('previous_think', previousThink),
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.
     block('people_now', (kept.peopleNow ?? []).join('\n')),
@@ -3152,6 +3174,9 @@ export function withoutSentenceOf(text, placeholder) {
  * @param {string|null} [input.places]  An addressed turn's `<places>` body (src/behavior/wake.js#placesBlockText,
  *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
  *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
+ * @param {{ text: string, relation: 'same'|'earlier', ageMs?: number }|null} [input.previousThink]  Her one
+ *   previous think (src/behavior/previous-think.js, chosen by the turn under features.previousThink): in
+ *   the tail right after `<places>`, paid for with the fixed part and never cut; null leaves it out.
  * @param {{ skill: string, label?: string, open?: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
@@ -3572,6 +3597,8 @@ export function buildRequest(input) {
   const wakeText = typeof input.wake === 'string' ? input.wake : '';
   // `<places>`: an addressed turn's places page (context.places), rendered by the turn, never cut.
   const placesText = typeof input.places === 'string' ? input.places : '';
+  // `<previous_think>`: her reasoning from the request before this one (features.previousThink, chosen by the turn), never cut.
+  const previousThinkText = previousThinkBody(input.previousThink, labels);
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
   const limit = requestTokenLimit(config) - TAG_OVERHEAD;
@@ -3632,7 +3659,7 @@ export function buildRequest(input) {
     required: true,
     // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText, previousThinkText].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -4224,7 +4251,7 @@ export function buildRequest(input) {
   const seen = seenOf({ history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
 
   return {
     messages: [

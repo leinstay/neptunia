@@ -150,6 +150,7 @@ export const SANDBOX_OMITS = Object.freeze({
   wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
   places: 'no inner life runs here, so no places view: no <places> block (context.places is a live turn\'s)',
+  previousThink: 'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.js)',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
 
@@ -787,6 +788,7 @@ export function sandboxRequestInput({
     wakeKind: null,
     // No places view (SANDBOX_OMITS): no <places> block.
     places: null,
+    previousThink: null,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
   };
