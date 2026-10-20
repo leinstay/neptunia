@@ -29,7 +29,7 @@ The same voice, memory prefetch and tools as any turn of hers, with nobody's mes
 - the last `innerLife.chatMessages` (30) messages of the conversation;
 - `<retrieved>`: the prefetch, searched with the purposes of the intentions she woke for;
 - her `<intentions>` and `<tasks>`, as on every turn;
-- the task `prompts/inner.md`.
+- the task `prompts/inner.md`; on a heartbeat wake `prompts/heartbeat.md` instead (missing or blank: `inner.md`).
 
 The current channel comes from the cause of the wake: an `intention_due` wake uses the intention's `destination` when recorded, else its `provenance.channelId`; an `attend` wake uses the place; an `errand_deadline` wake uses the errand's channel; a `feedback` wake uses the channel of the turn it reports; a `review` and a wake with no channel have none. A DM-born intention's current channel is that DM (today's `privateChat` rule).
 

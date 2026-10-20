@@ -6910,6 +6910,8 @@ export function createTurnRunner({
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
         wake: draft.inner ? wakeBlockText(draft.inner.wake, prompts?.labels, { locale: prompts?.labels?.locale }) : factsText || null,
+        // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
+        wakeKind: draft.inner?.wake?.kind ?? null,
         // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
         places: !draft.inner && !isPrivate && finalMode !== 'diary' ? placesInputFor({ guildId, config, labels: prompts?.labels }) : null,
         // The turn itself; its continuation after a skill call sets it (continuationRequest).

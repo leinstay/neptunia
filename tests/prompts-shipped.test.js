@@ -142,6 +142,7 @@ const LOADS = {
   draw: ['draw', 'appearance'],
   diary: [...SYSTEM, 'diary', 'world'],
   inner: [...SYSTEM, 'inner'],
+  heartbeat: [...SYSTEM, 'heartbeat'],
   diaryPlan: ['diary-plan', 'world'],
   memory: ['memory', ...CHARACTER],
   memoryDecide: ['memory-decide', ...CHARACTER],
@@ -822,6 +823,18 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
   const text = assertFilled(request.messages, { files: LOADS.inner, blocks: ['wake', 'chat', 'task'] }, 'inner turn');
   assert.ok(text.includes(LABELS.wake.header));
   assert.ok(text.includes('ask Ana how the tomatoes are doing'));
+});
+
+test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a review keeps inner.md', async () => {
+  const beat = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'heartbeat' });
+  const beatText = assertFilled(buildRequest(beat).messages, { files: LOADS.heartbeat, blocks: ['chat', 'task'] }, 'heartbeat turn');
+  assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
+  const review = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'review' });
+  const reviewText = assertFilled(buildRequest(review).messages, { files: LOADS.inner, blocks: ['chat', 'task'] }, 'review turn');
+  assert.ok(!carries(reviewText, 'heartbeat'), 'heartbeat.md is not sent on a review');
+  const missing = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'heartbeat' });
+  missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' };
+  assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
 });
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
