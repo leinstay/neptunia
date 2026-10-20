@@ -1793,14 +1793,15 @@ export async function loadDiaryMods(load) {
 /**
  * The llm client of a diary run: every request the tool's own (`origin: 'replay'`, never
  * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
- * recorded in `calls` as `{ purpose, text, usage, error }`.
+ * recorded in `calls` as `{ purpose, text, usage, error, code }` (`code`: the short failure code of
+ * `errorCodeOf`, when given, else `error`).
  */
-export function recordingLlm(realLlm, calls, { noCache = false } = {}) {
+export function recordingLlm(realLlm, calls, { noCache = false, errorCodeOf = null } = {}) {
   return new Proxy(realLlm, {
     get(target, prop) {
       if (prop === 'complete') {
         return async (messages, options = {}) => {
-          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null };
+          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null, code: null };
           calls.push(call);
           try {
             const completion = await target.complete(messages, {
@@ -1811,6 +1812,7 @@ export function recordingLlm(realLlm, calls, { noCache = false } = {}) {
             return completion;
           } catch (err) {
             call.error = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
+            call.code = typeof errorCodeOf === 'function' ? errorCodeOf(err) : 'error';
             throw err;
           }
         };
@@ -2280,8 +2282,13 @@ export async function heartbeatReplayWake({ inner, hot, dataDir, guildId, now, d
  * their arguments, her reactions, gif and drawing, whether she skipped. Pure.
  * @param {string|null} text  The raw reply.
  * @param {Function} parseOutput  src/llm/parse.js#parseOutput.
+ * @param {string|null} [failedCode]  The failure code when the model request of this step failed (no reply).
  */
-export function innerAnswerOf(text, parseOutput) {
+export function innerAnswerOf(text, parseOutput, failedCode = null) {
+  if (failedCode) {
+    // The request itself failed: no answer exists, and an empty one would read as her choosing to skip.
+    return { failed: { code: String(failedCode) }, think: '', messages: [], calls: [], reactions: [], gif: null, draws: [], skip: false, text: '' };
+  }
   const parsed = parseOutput(String(text ?? ''));
   return {
     think: parsed.think,
@@ -2308,8 +2315,15 @@ export function innerReportMarkdown(result) {
   if (result.wake) lines.push('## wake', '', fence(result.wake), '');
   if (result.request?.messages) lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
   (result.samples ?? []).forEach((sample, index) => {
-    lines.push(`## Sample ${index + 1}`, '', `Outcome: ${sample.outcome ?? '-'}${sample.reason ? ` (${sample.reason})` : ''}`, '');
+    const failedSteps = sample.answers.filter((answer) => answer.failed).length;
+    const lastFailed = sample.answers.at(-1)?.failed ?? null;
+    lines.push(`## Sample ${index + 1}`, '', `Outcome: ${sample.outcome ?? '-'}${sample.reason ? ` (${sample.reason})` : ''}${lastFailed ? `; ended in error (${lastFailed.code})` : ''}`, '');
+    if (failedSteps > 0) lines.push(`Failed steps: ${failedSteps} of ${sample.answers.length} (the model request failed; these are not her answers)`, '');
     sample.answers.forEach((answer, step) => {
+      if (answer.failed) {
+        lines.push(`### Step ${step + 1}: error (${answer.failed.code})`, '');
+        return;
+      }
       lines.push(`### Answer ${step + 1}`, '', 'think:', '', fence(answer.think || '(none)'), '');
       if (answer.messages.length > 0) lines.push('messages:', '', ...answer.messages.map((message) => `- ${message.replace(/\n/g, '\n  ')}`), '');
       if (answer.calls.length > 0) lines.push('calls:', '', fence(JSON.stringify(answer.calls, null, 2)), '');
@@ -2376,7 +2390,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
     const calls = [];
     const requests = [];
-    const recorded = recordingLlm(realLlm, calls, { noCache: true });
+    const recorded = recordingLlm(realLlm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
     const llm = new Proxy(recorded, {
       get(target, prop) {
         if (prop === 'complete') {
@@ -2551,10 +2565,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       lastCost = usage.cost;
       const sent = port.calls.filter((call) => call.op === 'send').length;
       if (result?.outcome === 'error') code = 1;
+      const answers = calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null));
       samples.push({
         outcome: result?.outcome ?? null,
         reason: result?.reason ?? null,
-        answers: calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput)),
+        failedSteps: answers.filter((answer) => answer.failed).length,
+        ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1).failed.code } : {}),
+        answers,
         actions: result?.inner?.actions ?? [],
         posted: sent - posted,
         usage,
