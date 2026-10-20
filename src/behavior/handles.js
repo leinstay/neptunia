@@ -1,6 +1,6 @@
 // Member handles: the short token the persona writes to mention someone (`@` + handle), so the
 // model picks the person and the engine never guesses one from a name in her output. A handle is
-// derived from the Discord user id alone (a few base-36 digits of the id's SHA-256), so the same
+// computed from the Discord user id alone (a few base-36 digits of the id's SHA-256), so the same
 // member keeps the same handle across turns, restarts and requesters without anything stored;
 // only code maps it back to the id. Within one request every handle is unique: on a collision
 // the oldest id (the smallest snowflake) keeps the short form and the others take one more digit,

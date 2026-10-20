@@ -1,17 +1,17 @@
-// The persona's skills ARE the owner's /nep commands: one catalogue. Every registered operation
-// (src/ops/registry.js) is a skill of the same name -- the vocabulary `/nep access grant` uses for
-// people -- derived from the slash command that runs it (src/skills/derive.js): its arguments are
-// that command's options, its `kind` and `ownerOnly` the operation's. No skill exists without an
-// operation behind a command. Every skill is closed until the owner grants it to her
+// The persona's skills: one catalogue, defined by a table of their own (src/skills/definitions.js).
+// Every registered operation (src/ops/registry.js) is a skill of the same name -- the vocabulary
+// `/nep access grant` uses for people -- its arguments the table's `params`, its `kind` and
+// `ownerOnly` the operation's. No skill exists without an operation behind it; nothing here reads
+// the owner's slash commands. Every skill is closed until the owner grants it to her
 // (src/skills/access.js: `/nep access grant` with her as the user); an owner-only operation runs
 // only when the member who asked is an owner (src/skills/gateway.js). Their wording -- `title`,
 // `whenToUse`, `whenNotToUse` -- lives in prompts/skills.json, keyed by operation name (the hot
 // prompts layer, `hot.prompts.skills`), never here: `describeSkill` joins the two at the moment of
 // use, and a skill without texts is shown by its name alone.
 
-import { getOp as registryGetOp, listOps } from '../ops/registry.js';
+import { getOp as registryGetOp } from '../ops/registry.js';
 import { EFFECT_CLASSES } from '../ops/effects.js';
-import { deriveSkillDefinitions } from './derive.js';
+import { SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.js';
 
 /** What a skill does to the world, one value per skill: its operation's effect class (src/ops/effects.js). */
 export const EFFECTS = EFFECT_CLASSES;
@@ -31,9 +31,11 @@ export const TARGETS = Object.freeze(['self-messages', 'allowed-conversations', 
  * The skills of `definitions` as a Map name -> frozen skill: the definition plus `kind`
  * (`read`|`write`) and `ownerOnly`, inherited from the operation it runs (`getOp`); a definition
  * with no operation (tests' stand-ins) takes `kind` from its effects and `ownerOnly` false. A
- * derived skill keeps its `command` (src/skills/derive.js) and is marked `derived`. Throws -- a programming
- * error, at startup -- on a missing or repeated name, an unknown effect, cost class or target, a
- * missing argument schema, an unknown operation, or a command without its `toCall`.
+ * skill with a `dispatch` (`{ op, body, options: [{ name, kind }], toOp(given) -> { op, args|null } }`:
+ * how her call reaches the operation) keeps it and is marked `opBacked`; the table's `api`, `feature`
+ * and `result` are kept when given. Throws -- a programming error, at startup -- on a missing or
+ * repeated name, an unknown effect, cost class or target, a missing argument schema, an unknown
+ * operation, or a dispatch without its `op` and `toOp`.
  * @param {object[]} [definitions]
  * @param {{ getOp?: (name: string) => ({ name: string, rights: object } | null) }} [options]
  * @returns {Map<string, object>}
@@ -48,8 +50,8 @@ export function loadSkills(definitions = [], { getOp = registryGetOp } = {}) {
     if (!COST_CLASSES.includes(definition.costClass)) throw new Error(`skill ${name}: costClass must be free or paid`);
     if (!TARGETS.includes(definition.targets ?? null)) throw new Error(`skill ${name}: targets must be one of ${TARGETS.filter(Boolean).join(', ')} or null`);
     if (!definition.argsSchema || typeof definition.argsSchema !== 'object') throw new Error(`skill ${name}: argsSchema is required`);
-    const command = definition.command ?? null;
-    if (command !== null && (typeof command.key !== 'string' || typeof command.toCall !== 'function')) throw new Error(`skill ${name}: command needs a key and toCall`);
+    const dispatch = definition.dispatch ?? null;
+    if (dispatch !== null && (typeof dispatch.op !== 'string' || typeof dispatch.toOp !== 'function')) throw new Error(`skill ${name}: dispatch needs an op and toOp`);
 
     // An operation's skill inherits both, an owner-only operation included: who may run it is the
     // requester's right (the gateway). Without an operation the kind follows the effects.
@@ -73,54 +75,79 @@ export function loadSkills(definitions = [], { getOp = registryGetOp } = {}) {
       costClass: definition.costClass,
       targets: definition.targets ?? null,
       interfaceCapability: definition.interfaceCapability ?? null,
-      ...(command ? { derived: true, command } : {}),
+      ...(definition.api !== undefined ? { api: definition.api } : {}),
+      ...(definition.feature !== undefined ? { feature: definition.feature } : {}),
+      ...(definition.result !== undefined ? { result: definition.result } : {}),
+      ...(dispatch ? { opBacked: true, dispatch } : {}),
     }));
   }
   return skills;
 }
 
 /**
- * The whole registry: one derived skill per operation of `ops`, in order
- * (src/skills/derive.js#deriveSkillDefinitions over the command `sources` and `resolve`). Without
- * sources (no command tree registered) none. Throws like loadSkills.
- * @param {{ ops?: { name: string, rights: object }[], sources?: Map<string, object>|null, resolve?: Function|null, getOp?: Function }} [input]
+ * The registry's definitions from the skills table: one per entry of `table` (validated), in
+ * order, in loadSkills' shape -- `dispatch` runs the operation by name, `toOp(given)` mapping her
+ * arguments to the operation's (`args` null when they map to nothing).
+ * @param {object[]} [table]
+ * @returns {object[]}
+ */
+export function definitionsOf(table = SKILL_DEFINITIONS) {
+  return validateDefinitions(table).map((entry) => {
+    const effects = entry.effects;
+    return {
+      name: entry.name,
+      family: entry.name.split('.')[0],
+      op: entry.op,
+      argsSchema: entry.params,
+      effects,
+      sharedState: effects !== 'read',
+      costClass: entry.costClass,
+      targets: null,
+      interfaceCapability: null,
+      api: entry.api,
+      feature: entry.feature,
+      result: entry.result,
+      dispatch: Object.freeze({
+        op: entry.op,
+        body: entry.body,
+        options: Object.freeze(optionsOfDefinition(entry).map((option) => Object.freeze(option))),
+        toOp(given) {
+          let args = null;
+          try {
+            args = entry.toArgs(given ?? {});
+          } catch {
+            args = null;
+          }
+          return { op: entry.op, args: args ?? null };
+        },
+      }),
+    };
+  });
+}
+
+/**
+ * The whole registry: one skill per entry of the skills table (src/skills/definitions.js), in
+ * order. Throws like loadSkills. With `registered` true only the entries whose operation is
+ * registered (src/ops/registry.js) are taken, as the live registry has always held only the
+ * operations that exist: a process that never loaded src/ops/index.js has none.
+ * @param {{ table?: object[], getOp?: Function, registered?: boolean }} [input]
  * @returns {Map<string, object>}
  */
-export function buildSkills({ ops = [], sources = null, resolve = null, getOp = registryGetOp } = {}) {
-  const derived = sources && typeof resolve === 'function' ? deriveSkillDefinitions({ ops, sources, resolve }) : [];
-  return loadSkills(derived, { getOp });
+export function buildSkills({ table = SKILL_DEFINITIONS, getOp = registryGetOp, registered = false } = {}) {
+  const definitions = definitionsOf(table);
+  return loadSkills(registered ? definitions.filter((definition) => getOp(definition.op)) : definitions, { getOp });
 }
 
 let loaded = null;
-let commandTree = null;
 
 /**
- * Registers the owner's command tree the derived skills come from: `sources()` (the command
- * sources, src/skills/derive.js#commandSources, computed on first use) and `resolve(key, args)`
- * (the command -> operation map). src/ops/index.js calls it once its operations are registered;
- * the registry is rebuilt on its next use.
- * @param {{ sources: () => Map<string, object>, resolve: Function }} tree
- */
-export function useCommandTree(tree) {
-  commandTree = tree;
-  loaded = null;
-}
-
-/**
- * Every skill against the live ops registry and the registered command tree (buildSkills),
- * loaded once on first use (the operations and the tree register themselves when
- * src/ops/index.js is imported; src/index.js calls this at start so a bad definition fails
- * there). A load that throws is not kept.
+ * Every skill against the live ops registry (buildSkills, the registered operations), loaded once on first use
+ * (src/index.js calls this at start so a bad definition fails there). A load that throws is
+ * not kept.
  * @returns {Map<string, object>}
  */
 export function skillRegistry() {
-  if (!loaded) {
-    loaded = buildSkills({
-      ops: listOps(),
-      sources: commandTree ? commandTree.sources() : null,
-      resolve: commandTree?.resolve ?? null,
-    });
-  }
+  if (!loaded) loaded = buildSkills({ registered: true });
   return loaded;
 }
 
@@ -149,4 +176,19 @@ export function describeSkill(skill, texts) {
     whenToUse: textOf(texts, skill.name, 'whenToUse'),
     whenNotToUse: textOf(texts, skill.name, 'whenNotToUse'),
   };
+}
+
+/**
+ * The wording of `skill`'s arguments from the skills layer (`texts`: `hot.prompts.skills`, keyed
+ * by name, `args` keyed by argument name): `{ <argument>: text }` for the arguments of the
+ * skill that have one, a string each. {} when there are none. Nothing renders it yet.
+ * @param {object} skill
+ * @param {object} [texts]
+ * @returns {Record<string, string>}
+ */
+export function skillArgTexts(skill, texts) {
+  const args = texts && typeof texts === 'object' ? texts[skill?.name]?.args : undefined;
+  if (!args || typeof args !== 'object') return {};
+  const properties = skill?.argsSchema?.properties ?? {};
+  return Object.fromEntries(Object.entries(args).filter(([key, value]) => Object.hasOwn(properties, key) && typeof value === 'string' && value !== ''));
 }

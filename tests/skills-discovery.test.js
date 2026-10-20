@@ -167,7 +167,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
       required: ['user', 'text'],
       additionalProperties: false,
     },
-    command: { body: 'text' },
+    dispatch: { body: 'text' },
   };
   assert.deepEqual(skillArgs(skill), [
     { name: 'text', required: true, body: true },
@@ -186,7 +186,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
   assert.deepEqual(skillArgs({ argsSchema: { properties: { text: { type: 'string' } } } }), [{ name: 'text', required: false }]);
 });
 
-test('skillArgs: a derived skill lists its command\'s options, the same each time', () => {
+test('skillArgs: a skill lists its arguments, the same each time', () => {
   const registry = skillRegistry();
   assert.deepEqual(skillArgs(registry.get('memory.journal.read')), [
     { name: 'day', required: false },

@@ -18,8 +18,9 @@ import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
 import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
-import { buildSkills, loadSkills, skillRegistry, skillNames, describeSkill } from '../src/skills/registry.js';
+import { loadSkills, skillRegistry, skillNames, describeSkill } from '../src/skills/registry.js';
 import { commandSources, deriveSkillDefinitions, optionsSchema } from '../src/skills/derive.js';
+import { adaptDerived } from './oracles/derived-skills.js';
 import { CARRIED_OVER, FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
@@ -81,7 +82,7 @@ test('skills registry: one skill per operation, of the same name, kind and owner
   assert.deepEqual(skillNames(), listOps().map((op) => op.name));
   for (const op of listOps()) {
     const skill = registry.get(op.name);
-    assert.equal(skill.derived, true, op.name);
+    assert.equal(skill.opBacked, true, op.name);
     assert.equal(skill.op, op.name, op.name);
     assert.equal(skill.kind, op.rights.kind, op.name);
     assert.equal(skill.ownerOnly, op.rights.ownerOnly === true, op.name);
@@ -113,7 +114,7 @@ test('skills registry: a definition is checked at load; an owner-only operation 
   assert.throws(() => loadSkills([def({ costClass: 'cheap' })]), /costClass/);
   assert.throws(() => loadSkills([def({ targets: 'everyone' })]), /targets/);
   assert.throws(() => loadSkills([def({ argsSchema: null })]), /argsSchema/);
-  assert.throws(() => loadSkills([def({ command: { key: 'x' } })]), /toCall/);
+  assert.throws(() => loadSkills([def({ dispatch: { op: 'x' } })]), /toOp/);
   const ops = { 'fake.op': { name: 'fake.op', rights: { kind: 'write', ownerOnly: true } } };
   assert.deepEqual([...loadSkills([def({ op: 'fake.op' })], { getOp: (name) => ops[name] ?? null }).values()].map((skill) => [skill.kind, skill.ownerOnly]), [['write', true]]);
 });
@@ -196,9 +197,14 @@ const FAKE_OPS = [
 ];
 const fakeGetOp = (name) => FAKE_OPS.find((op) => op.name === name) ?? null;
 
+/** The definitions the fake tree derives. */
+function fakeDefinitions() {
+  return deriveSkillDefinitions({ ops: FAKE_OPS, sources: commandSources({ table: FAKE_TABLE, resolve: fakeResolve }), resolve: fakeResolve });
+}
+
 /** The registry over the fake tree and ops. */
 function fakeRegistry() {
-  return buildSkills({ ops: FAKE_OPS, sources: commandSources({ table: FAKE_TABLE, resolve: fakeResolve }), resolve: fakeResolve, getOp: fakeGetOp });
+  return loadSkills(fakeDefinitions().map(adaptDerived), { getOp: fakeGetOp });
 }
 
 test('skills derived: one per operation of a fake ops list, from the command that runs it', () => {
@@ -227,18 +233,18 @@ test('skills derived: the argument schema is the command\'s options -- names, ty
     required: ['text'],
     additionalProperties: false,
   });
-  assert.equal(registry.get('note.add').command.body, 'text', 'a `text` option takes the call\'s body');
+  assert.equal(registry.get('note.add').dispatch.body, 'text', 'a `text` option takes the call\'s body');
   // the choice that picks the operation is fixed, not asked
   assert.deepEqual(registry.get('box.open').argsSchema, { type: 'object', properties: { user: { type: 'string', minLength: 1, maxLength: 100 } }, required: ['user'], additionalProperties: false });
-  assert.deepEqual(registry.get('box.open').command.fixed, { action: 'open' });
+  assert.deepEqual(fakeDefinitions().find((definition) => definition.name === 'box.open').command.fixed, { action: 'open' });
   // an optional option whose presence picks the operation: left out for one, required for the other
   assert.deepEqual(Object.keys(registry.get('box.mood.read').argsSchema.properties), ['channel', 'why']);
   assert.deepEqual(registry.get('box.mood.set').argsSchema.required, ['channel', 'score']);
   assert.deepEqual(registry.get('box.mood.set').argsSchema.properties.score, { type: 'integer', minimum: -5, maximum: 5 });
   // a persona-only option is an argument of hers, mapped by the same mapper
   assert.deepEqual(registry.get('box.mood.read').argsSchema.properties.why, { type: 'string', minLength: 1, maxLength: 20 });
-  assert.deepEqual(registry.get('box.mood.set').command.toCall({ channel: 'c1', score: 2, why: 'α' }), { key: 'box.mood', args: { channelId: 'c1', score: 2, why: 'α' }, op: 'box.mood.set' });
-  assert.deepEqual(registry.get('box.shut').command.toCall({ user: '7' }), { key: 'box.act', args: { action: 'shut', userId: '7' }, op: 'box.shut' });
+  assert.deepEqual(registry.get('box.mood.set').dispatch.toOp({ channel: 'c1', score: 2, why: 'α' }), { args: { channelId: 'c1', score: 2, why: 'α' }, op: 'box.mood.set' });
+  assert.deepEqual(registry.get('box.shut').dispatch.toOp({ user: '7' }), { args: { action: 'shut', userId: '7' }, op: 'box.shut' });
 });
 
 test('skills derived: the real tree -- every schema is generated from the slash command options, never copied', () => {
@@ -256,22 +262,22 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.deepEqual(schema.required, leaf.options.filter((option) => option.required).map((option) => option.name));
   assert.deepEqual(schema.properties.section.enum, leaf.options.find((option) => option.name === 'section').choices.map((choice) => choice.value));
   // `/nep media action:status`: the action is the skill, the kind and the days (read by the pictures recache only) its arguments
-  assert.deepEqual(skillRegistry().get('media.status').command.fixed, { action: 'status' });
+  assert.deepEqual(sources.get('media.status').fixed, { action: 'status' });
   assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind', 'days']);
   // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call;
   // a file one of her errands brought back, optional
   const create = skillRegistry().get('message.create');
   assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
   assert.deepEqual(create.argsSchema.required, ['text']);
-  assert.equal(create.command.body, 'text');
+  assert.equal(create.dispatch.body, 'text');
   // `/nep draw`: a channel to post the picture in, the owner's too
   assert.ok(Object.hasOwn(skillRegistry().get('draw.create').argsSchema.properties, 'channel'));
   // A yes/no option, a STRING with lowercase true/false choices for Discord, is a boolean argument for her.
   assert.deepEqual(skillRegistry().get('draw.create').argsSchema.properties.self, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('lore.add').argsSchema.properties.always, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('route.set').argsSchema.properties.fallbacks, { type: 'boolean' });
-  assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
-  assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
+  assert.equal(skillRegistry().get('lore.add').dispatch.toOp({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
+  assert.equal(skillRegistry().get('lore.add').dispatch.toOp({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
   assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field', 'part']);
 });
 

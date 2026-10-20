@@ -4,8 +4,8 @@
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
 // `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `feature`,
 // `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
-// operation's arguments by hand, and a test holds the table equal to what the command tree
-// derives (src/skills/derive.js) until that tree goes. Pure: no imports, no state.
+// operation's arguments by hand, and a test holds the table equal to what the owner's command
+// tree gives until that tree goes. Pure: no imports, no state.
 
 const STRING_MAX = 6000;
 const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;

@@ -135,7 +135,7 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
 
 test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, her text -- when the call leaves it out', () => {
   // Each skill declares the argument its body fills; a skill without one takes none.
-  const bodyOf = (name) => skillRegistry().get(name).command.body;
+  const bodyOf = (name) => skillRegistry().get(name).dispatch.body;
   assert.deepEqual(['task.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), ['goal', 'text', 'text', 'text']);
   for (const name of ['task.status', 'task.cancel', 'message.delete', 'memory.journal.read', 'rule.remove']) assert.equal(bodyOf(name), null, name);
   // The live call: agent on the tag, the goal in the body -- the errand goes through the gateway.
@@ -655,7 +655,7 @@ test('executeCall: edit and delete change her own message; the port refuses anyo
   assert.equal(port.messagesIn(NEWS).find((message) => message.ref.messageId === '1004').text, 'σωστό');
   // someone else's message, should a raw id get past the transcript: the port says no
   const skill = skillRegistry().get('message.edit');
-  const foreign = await executeCall({ ok: true, skill: 'message.edit', args: { message: '1003', text: 'όχι', channel: NEWS }, command: skill.command, repliedAuthorId: null }, deps(admin, port));
+  const foreign = await executeCall({ ok: true, skill: 'message.edit', args: { message: '1003', text: 'όχι', channel: NEWS }, dispatch: skill.dispatch, repliedAuthorId: null }, deps(admin, port));
   assert.deepEqual([foreign.status, foreign.code], ['failed', 'not-own-message']);
   const deleted = await executeCall(resolve('message.delete', { message: '#4' }), deps(admin, port));
   assert.equal(deleted.status, 'ok');
@@ -735,7 +735,7 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
 
 /** A call aimed at a raw channel id, as the server resolved it: `args` keyed by the command's options. */
 function direct(skill, args) {
-  return { ok: true, skill, args, command: skillRegistry().get(skill).command, repliedAuthorId: null };
+  return { ok: true, skill, args, dispatch: skillRegistry().get(skill).dispatch, repliedAuthorId: null };
 }
 
 test('executeCall: she may post in any text channel of the served guild where the bot may send -- no list; Discord permissions are the only limit', async () => {

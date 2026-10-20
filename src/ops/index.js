@@ -4,14 +4,11 @@
 // runs the operation and always answers
 // `{ status, code, summary, data }` -- it never throws. The slash commands arrive under
 // their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
-// operation and arguments; src/admin.js renders the result as the reply. The same tree and map
-// are registered with the persona's skills (src/skills/registry.js#useCommandTree): every
-// operation is a skill whose arguments are its command's options.
+// operation and arguments; src/admin.js renders the result as the reply. The persona's skills
+// do not read the tree: they have a table of their own (src/skills/definitions.js).
 
 import { log } from '../log.js';
 import { COMMAND_TABLE } from './catalog.js';
-import { commandSources } from '../skills/derive.js';
-import { useCommandTree } from '../skills/registry.js';
 import { OpError, STATUSES, getOp, listOps } from './registry.js';
 import { rightsRefusal } from './rights.js';
 import './status.js';
@@ -296,7 +293,3 @@ export async function runOp(name, args = {}, ctx = {}) {
   }
   return runOpPrechecked(name, args, ctx);
 }
-
-// The persona's skills derive one skill per operation from the command that runs it
-// (src/skills/derive.js): the tree and this map, read once on the registry's first use.
-useCommandTree({ sources: () => commandSources({ table: COMMAND_TABLE, resolve: resolveCommand }), resolve: resolveCommand });

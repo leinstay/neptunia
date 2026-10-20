@@ -1026,7 +1026,7 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.js#budget's answer, as a
  * live turn hands in src/errands/service.js#budget; without it a `task.run` is refused
  * `no-budget`), then
- * mapped by its command (`command.toCall` must reach this very operation). The operation never
+ * mapped by its dispatch (`dispatch.toOp` must reach this very operation). The operation never
  * runs: a call that passed is recorded (`executed`: the skill and its resolved arguments) and
  * answered with a canned `ok` whose text is `resultText`. `verdict` says where it stopped
  * (`stage`: `resolve`, `gateway` or `command`; `ok`, `code`, `reason`). `followUp` is whether a
@@ -1073,7 +1073,7 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
   if (!verdict.ok) return refused('gateway', verdict.code, verdict.reason);
   let mapped = null;
   try {
-    mapped = resolved.command.toCall({ ...resolved.args });
+    mapped = resolved.dispatch.toOp({ ...resolved.args });
   } catch {
     mapped = null;
   }
