@@ -8977,15 +8977,10 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   assert.equal(here.result.outcome, 'spoke');
   // The current conversation: carried over, the replied author notified.
   assert.deepEqual(here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]), [['c1', 'ναι', 'm1', true]]);
-  // A reply target outside the conversation named: the call was not right, she hears it --
-  // in a `<result>` block with features.followUpContinuation off, on the call's mark with it on.
-  const across = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'], features: { followUpContinuation: false } });
-  assert.deepEqual(across.sends.map((send) => send.to), ['c1'], 'refused: only the follow-up answer is posted, here');
-  assert.ok(requestText(across.llm, 1).includes('<result skill="message.create" status="invalid">'), requestText(across.llm, 1));
-  const continued = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'] });
-  assert.deepEqual(continued.sends.map((send) => send.to), ['c1']);
-  const reason = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['message-elsewhere']) });
-  assert.ok(requestText(continued.llm, 1).includes(`Bot (you): [called message.create: ${reason}]`), requestText(continued.llm, 1));
+  // A reply target outside the channel she named: the line's own channel wins, the call posts there
+  // (and the follow-up answer after it), never refused.
+  const across = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'] });
+  assert.deepEqual(across.sends.map((send) => [send.to, send.text]), [['c1', 'ναι'], ['c1', 'όχι τελικά']]);
 });
 
 test('skill call: not granted, or a channel where the bot may not send -- refused, one follow-up with the reason or the operation own text, its own call ignored (features.followUpContinuation off)', async () => {
