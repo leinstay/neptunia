@@ -56,7 +56,7 @@ The scheduler (`feedbackFacts` in `src/behavior/inner.js`, pure) collects facts 
 - `wakeDropped`, recorded at the moment it happens (not through this list): every wake that ends without a turn (`stopped`, `overflow`, `stale` with sub-code `done`, `cancelled`, `expired` or `forgotten`, `superseded`, `no-channel` with sub-code `dm-off`, `not-writable`, `unavailable` or `no-review-channel`, and `error` or `provider` with the turn's error code). A wake with no intention (a review, a feedback wake) is worded by its kind alone.
 - `wakeHeld`, likewise at the moment: a wake held on a cap (`per-chain`, `attend-per-day`) with the local midnight it waits for. Told once; a change (released, dropped, expired) produces a new fact.
 
-An addressed turn records facts the same way: `sendFailed` when a `<msg>` did not go out (the turn ends `partial`), `loopCut`, `callFailed` for a call whose result she never read, and the failed turn itself (`failedEarlier`, also for `refused`).
+An addressed turn records facts the same way: `sendFailed` when a `<msg>` did not go out (the turn ends `partial`), `loopCut`, `callFailed` for a call whose result she never read (also a `<gif>` that did not go out after the text: `partial`, code `gif-failed`, and the turn ends `partial`), and the failed turn itself (`failedEarlier`, also for `refused`).
 
 ### When she is told
 
