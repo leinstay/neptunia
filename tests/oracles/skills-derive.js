@@ -1,3 +1,7 @@
+// TEST ORACLE of the old derivation: how her skills were once derived from the owner's slash commands.
+// The shipped registry no longer uses it (src/skills/definitions.js is its source); tests compare the
+// table against this until COMMAND_TABLE dies, then it goes with it. Not imported by anything in src/.
+//
 // The persona's skills derived from the owner's commands: every operation of the ops registry
 // (src/ops/registry.js) is a skill of the same name, its arguments the options of the slash
 // command that runs it, so she calls an operation with what the owner types. Nothing here is
@@ -9,7 +13,7 @@
 // Pure: the table and the resolver are injected (src/ops/index.js registers them), so this module
 // imports only the effect table and is tested over fakes.
 
-import { effectOf as opEffectOf } from '../ops/effects.js';
+import { effectOf as opEffectOf } from '../../src/ops/effects.js';
 
 // Raw Discord API option-type numbers (application-command-option-type), as the tree uses them:
 // https://discord.com/developers/docs/interactions/application-commands

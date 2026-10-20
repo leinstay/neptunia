@@ -151,6 +151,18 @@ export function skillRegistry() {
   return loaded;
 }
 
+/**
+ * The names of the table's entries that have no skill in `registry`: an entry whose operation is
+ * not registered (src/ops/registry.js) is left out of the live registry, so the start reports it
+ * (src/index.js) instead of the persona silently lacking a skill.
+ * @param {Map<string, object>} [registry]
+ * @param {object[]} [table]
+ * @returns {string[]}
+ */
+export function missingDefinitions(registry = skillRegistry(), table = SKILL_DEFINITIONS) {
+  return table.filter((entry) => !registry.has(entry.name)).map((entry) => entry.name);
+}
+
 /** The names of every registry skill, in order: the operation names a grant to the persona may name. */
 export function skillNames() {
   return [...skillRegistry().keys()];

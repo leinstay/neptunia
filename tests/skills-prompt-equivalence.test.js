@@ -1,6 +1,6 @@
 // The skills table (src/skills/definitions.js) against the command tree it replaced: the registry
 // built from the table and an oracle registry built from what the owner's commands derive
-// (src/skills/derive.js, adapted by tests/oracles/derived-skills.js) must render the very same
+// (tests/oracles/skills-derive.js, adapted by tests/oracles/derived-skills.js) must render the very same
 // bytes everywhere her prompts read them -- keys, grants, the skills index, her tool rows, the
 // catalogue, the descriptions and the inventory text, and one addressed request -- with the shipped
 // skill texts and labels, with safe mode on and with the core tools off.

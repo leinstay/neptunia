@@ -82,7 +82,7 @@ import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
-import { skillRegistry } from './skills/registry.js';
+import { skillRegistry, missingDefinitions } from './skills/registry.js';
 import { grantedSkillNames } from './skills/discovery.js';
 import { PROFILES as AGENT_PROFILES, TOOL_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
@@ -150,6 +150,12 @@ try {
   skillRegistry();
 } catch (err) {
   fail(`index: invalid skill registry: ${err.message}`);
+}
+// A definition whose operation is not registered is left out of the registry: say so, loudly, at
+// the start (never silently); the bot goes on.
+{
+  const missing = missingDefinitions();
+  if (missing.length > 0) log.error('skills: definitions without a registered operation', { missing });
 }
 
 if (!isValidCommandName(hot.config.bot.commandName)) {

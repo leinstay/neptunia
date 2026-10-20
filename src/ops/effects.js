@@ -1,7 +1,7 @@
 // What each operation does to the world, by its actual effect, in one table: `read` (changes
 // nothing), `write` (adds or changes something that can be changed back), `destructive` (deletes
 // or overwrites what cannot simply be put back), `administrative` (changes how the bot is run or
-// who may do what), `paid` (spends balance). The persona's skills read it (src/skills/derive.js):
+// who may do what), `paid` (spends balance). The persona's skills read it (src/skills/definitions.js):
 // a paid skill needs its budget, a destructive one has a cooldown per channel
 // (src/skills/gateway.js), and it will decide which calls need the owner's confirmation later.
 // Pure; every registered operation must have its row (a test holds it).

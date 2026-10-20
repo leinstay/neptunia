@@ -1,8 +1,8 @@
 // The oracle of the skills table: the skill definitions the owner's command tree derives
-// (src/skills/derive.js), adapted to the shape the registry loads (src/skills/registry.js#loadSkills:
+// (tests/oracles/skills-derive.js), adapted to the shape the registry loads (src/skills/registry.js#loadSkills:
 // `dispatch` in place of `command`). Tests only.
 
-import { deriveSkillDefinitions, commandSources } from '../../src/skills/derive.js';
+import { deriveSkillDefinitions, commandSources } from './skills-derive.js';
 
 /** One derived definition in the registry's shape: `command` becomes `dispatch` (`toOp` for `toCall`, no key). */
 export function adaptDerived(definition) {

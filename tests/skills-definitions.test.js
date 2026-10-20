@@ -1,5 +1,5 @@
 // Tests for src/skills/definitions.js: the skills' own table is equal, entry by entry, to what the
-// owner's command tree derives (src/skills/derive.js is the oracle until that tree goes): the same
+// owner's command tree derives (tests/oracles/skills-derive.js is the oracle until that tree goes): the same
 // names in the same order, byte-identical argument schemas, the same body, options, effects, cost
 // and feature, and `toArgs` giving the very arguments the derived `toCall` does. Plus the API
 // names and the validation of a bad table.
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { listOps, resolveCommand } from '../src/ops/index.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { OP_EFFECTS } from '../src/ops/effects.js';
-import { commandSources, deriveSkillDefinitions } from '../src/skills/derive.js';
+import { commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
 import { FEATURE_SKILLS } from '../src/skills/access.js';
 import {
   API_NAMES,
