@@ -236,7 +236,7 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text.",
+    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text. TEXT-PLACEHOLDER (writer): media=<#N or link> posts the picture of one of your own messages again as a file (item= picks one when it has several); not together with gif= or file=.",
     "whenNotToUse": "Only in conversations you may write in."
   },
   "message.edit": {
