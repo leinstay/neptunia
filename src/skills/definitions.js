@@ -41,24 +41,47 @@ export function flag(value) {
 /** Her argument `name`, or undefined when she did not give it. */
 const opt = (given, name) => val(given, name) ?? undefined;
 
-/** The arguments of the `intent.*` skills: one schema, the action picks the operation's behaviour. */
-export const INTENT_PARAMS = obj({
-  text: str(300),
-  id: str(20),
-  due: str(40),
-  every: str(10),
-  expires: str(40),
-  task: str(20),
-  deadline: str(40),
-  state: oneOf(['pending', 'done', 'dropped']),
-  chain: str(64),
-  condition: str(300),
-  channel: ref(),
-  attend: ref(),
-  people: str(500),
-  settle: int(0, 86400),
-  perday: int(1, 1000),
-  reason: str(300),
+/**
+ * The arguments of each `intent.*` skill: only the fields its operation reads (src/ops/intent.js).
+ * `set` takes a new intention or attention; `update` the fields of an open one (`reason` goes with
+ * `state: dropped`; nothing is required, since the id may also be the bare text, ops/intent.js#idOf);
+ * `cancel` the id alone; `list` nothing.
+ */
+export const INTENT_PARAMS = Object.freeze({
+  set: obj({
+    text: str(300),
+    due: str(40),
+    every: str(10),
+    expires: str(40),
+    task: str(20),
+    deadline: str(40),
+    chain: str(64),
+    condition: str(300),
+    channel: ref(),
+    attend: ref(),
+    people: str(500),
+    settle: int(0, 86400),
+    perday: int(1, 1000),
+  }),
+  update: obj({
+    id: str(20),
+    text: str(300),
+    state: oneOf(['pending', 'done', 'dropped']),
+    reason: str(300),
+    due: str(40),
+    every: str(10),
+    expires: str(40),
+    task: str(20),
+    deadline: str(40),
+    chain: str(64),
+    condition: str(300),
+    channel: ref(),
+    people: str(500),
+    settle: int(0, 86400),
+    perday: int(1, 1000),
+  }),
+  cancel: obj({ id: str(20) }, ['id']),
+  list: obj({}),
 });
 
 /** The operation's arguments for an `intent.*` call with `action`: what she gave, nothing else. */
@@ -158,13 +181,10 @@ export const API_NAMES = Object.freeze({
 
 const NO_REFS = Object.freeze({});
 const JOBS = Object.freeze(['task.run', 'media.recache']);
-const MEDIA_KINDS = ['emoji', 'gifs', 'pictures'];
 const ROUTE_ROLES = ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'drawing'];
-const MEDIA_PARAMS = () => obj({ kind: oneOf(MEDIA_KINDS), days: int(1, 60) }, ['kind']);
-const REFRESH_PARAMS = () => obj({ user: ref(), channel: ref() });
+const MEDIA_PARAMS = (kinds) => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), channel: ref() }, ['message', 'emoji']);
-const TASK_STATUS_PARAMS = () => obj({ id: str(), from: int(0, 10000000) });
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
 const EMPTY = () => obj({});
 
@@ -235,9 +255,9 @@ const ENTRIES = [
     effects: 'write',
     toArgs: (a) => ({ mode: opt(a, 'mode') }),
   }),
-  def('media.status', { params: MEDIA_PARAMS(), effects: 'read', toArgs: mediaArgs('status') }),
-  def('media.rescan', { params: MEDIA_PARAMS(), effects: 'write', toArgs: mediaArgs('rescan') }),
-  def('media.recache', { params: MEDIA_PARAMS(), effects: 'write', toArgs: mediaArgs('recache') }),
+  def('media.status', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'read', toArgs: mediaArgs('status') }),
+  def('media.rescan', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'write', toArgs: mediaArgs('rescan') }),
+  def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
     params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']), id: str() }, ['role', 'id']),
@@ -339,9 +359,9 @@ const ENTRIES = [
   }),
   def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('memory.refresh.user', { params: REFRESH_PARAMS(), refs: { user: 'user', channel: 'channel' }, effects: 'write', toArgs: refreshArgs('user') }),
-  def('memory.refresh.channel', { params: REFRESH_PARAMS(), refs: { user: 'user', channel: 'channel' }, effects: 'write', toArgs: refreshArgs('channel') }),
-  def('memory.refresh.server', { params: REFRESH_PARAMS(), refs: { user: 'user', channel: 'channel' }, effects: 'write', toArgs: refreshArgs('server') }),
+  def('memory.refresh.user', { params: USER_ONLY(), refs: { user: 'user' }, effects: 'write', toArgs: refreshArgs('user') }),
+  def('memory.refresh.channel', { params: obj({ channel: ref() }, ['channel']), refs: { channel: 'channel' }, effects: 'write', toArgs: refreshArgs('channel') }),
+  def('memory.refresh.server', { params: EMPTY(), effects: 'write', toArgs: refreshArgs('server') }),
   def('memory.forget', {
     params: USER_ONLY(),
     refs: { user: 'user' },
@@ -430,19 +450,19 @@ const ENTRIES = [
     effects: 'paid',
     toArgs: (a) => ({ agent: val(a, 'agent'), goal: val(a, 'goal') }),
   }),
-  def('task.status', { params: TASK_STATUS_PARAMS(), effects: 'read', toArgs: taskStatusArgs(undefined) }),
+  def('task.status', { params: obj({ id: str() }), effects: 'read', toArgs: taskStatusArgs(undefined) }),
   def('task.cancel', {
     params: obj({ id: str() }, ['id']),
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
   def('task.list', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('task.read', { params: TASK_STATUS_PARAMS(), effects: 'read', toArgs: taskStatusArgs('read') }),
-  def('task.resolve', { params: TASK_STATUS_PARAMS(), effects: 'write', toArgs: taskStatusArgs('resolve') }),
-  def('intent.set', { params: INTENT_PARAMS, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('add') }),
-  def('intent.update', { params: INTENT_PARAMS, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('update') }),
-  def('intent.cancel', { params: INTENT_PARAMS, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('cancel') }),
-  def('intent.list', { params: INTENT_PARAMS, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'read', feature: 'intentions', toArgs: intentArgs('list') }),
+  def('task.read', { params: obj({ id: str(), from: int(0, 10000000) }, ['id']), effects: 'read', toArgs: taskStatusArgs('read') }),
+  def('task.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
+  def('intent.set', { params: INTENT_PARAMS.set, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('add') }),
+  def('intent.update', { params: INTENT_PARAMS.update, refs: { channel: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('update') }),
+  def('intent.cancel', { params: INTENT_PARAMS.cancel, body: 'id', effects: 'write', feature: 'intentions', toArgs: intentArgs('cancel') }),
+  def('intent.list', { params: INTENT_PARAMS.list, effects: 'read', feature: 'intentions', toArgs: intentArgs('list') }),
   def('places.list', {
     params: obj({ filter: str(100), sort: str(10), page: int(1, 1000) }),
     body: 'filter',

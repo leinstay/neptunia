@@ -78,9 +78,12 @@ test('every definition is equal to the derived skill: schema bytes, body, option
     assert.ok(definition, oracle.name);
     const expectedSchema = EXPECTED_DIFFERENCES[oracle.name]?.schema?.(oracle.argsSchema) ?? oracle.argsSchema;
     assert.equal(JSON.stringify(definition.params), JSON.stringify(expectedSchema), `${oracle.name}: params`);
-    assert.equal(definition.body, oracle.command.body, `${oracle.name}: body`);
+    const kept = new Set(Object.keys(expectedSchema.properties));
+    const expectedBody = Object.hasOwn(EXPECTED_DIFFERENCES[oracle.name] ?? {}, 'body') ? EXPECTED_DIFFERENCES[oracle.name].body : kept.has(oracle.command.body) ? oracle.command.body : null;
+    assert.equal(definition.body, expectedBody, `${oracle.name}: body`);
     const options = optionsOfDefinition(definition).filter((option) => !(oracle.name === 'draw.create' && option.name === 'reply'));
-    assert.deepEqual(options, oracle.command.options.map((option) => ({ name: option.name, kind: option.kind })), `${oracle.name}: options`);
+    const oracleOptions = new Map(oracle.command.options.map((option) => [option.name, option.kind]));
+    assert.deepEqual(options, [...kept].filter((name) => oracleOptions.has(name)).map((name) => ({ name, kind: oracleOptions.get(name) })), `${oracle.name}: options`);
     assert.equal(definition.effects, oracle.effects, `${oracle.name}: effects`);
     assert.equal(definition.effects !== 'read', oracle.sharedState, `${oracle.name}: sharedState`);
     assert.equal(definition.costClass, oracle.costClass, `${oracle.name}: costClass`);
@@ -103,13 +106,25 @@ test('toArgs gives the arguments of the derived toCall on every generated sample
       compared += 1;
     }
   }
-  assert.ok(compared > 1000);
+  assert.ok(compared > 700);
 });
 
 test('the expected differences: draw.create takes reply, message.create requires nothing', () => {
   assert.deepEqual(Object.keys(BY_NAME.get('draw.create').params.properties), ['text', 'self', 'reply', 'channel']);
   assert.deepStrictEqual(BY_NAME.get('draw.create').toArgs({ text: 't', reply: 'm' }), { text: 't', self: false, replyTo: 'm' });
   assert.deepEqual(BY_NAME.get('message.create').params.required, []);
+});
+
+test('the intent skills carry only what their operation reads', () => {
+  const names = (skill) => Object.keys(BY_NAME.get(skill).params.properties);
+  assert.deepEqual(names('intent.cancel'), ['id']);
+  assert.deepEqual(BY_NAME.get('intent.cancel').params.required, ['id']);
+  assert.deepEqual(names('intent.list'), []);
+  assert.ok(!names('intent.set').includes('id') && !names('intent.set').includes('state') && !names('intent.set').includes('reason'));
+  assert.ok(!names('intent.update').includes('attend'));
+  assert.deepEqual(BY_NAME.get('intent.update').params.required, [], 'the id may be the bare text');
+  assert.deepStrictEqual(BY_NAME.get('intent.cancel').toArgs({ id: 'i1' }), { action: 'cancel', id: 'i1' });
+  assert.deepStrictEqual(BY_NAME.get('intent.list').toArgs({}), { action: 'list' });
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {
@@ -130,7 +145,8 @@ test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('task.read').toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
   assert.deepStrictEqual(BY_NAME.get('media.status').toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
   assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, channel: 7 }), { action: 'add', text: 't', settle: 0, channelId: '7' });
-  assert.equal(BY_NAME.get('intent.set').params, INTENT_PARAMS);
+  assert.equal(BY_NAME.get('intent.set').params, INTENT_PARAMS.set);
+  assert.equal(BY_NAME.get('intent.update').params, INTENT_PARAMS.update);
 });
 
 test('the result of a skill: job for the two background ones, data for a read, effect for the rest', () => {
