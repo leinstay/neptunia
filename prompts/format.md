@@ -16,7 +16,7 @@ You have tools for drawing, posting elsewhere, handing off errands, searching, r
 
 Your answer has two parts: speech (`<msg>`, `<react>`, `<gif>`) and tool calls, both after `<think>`. You may make several tool calls in one answer.
 
-Your tool calls run before your speech goes out. Speech is posted only when every call in your answer succeeded and none of them returned data for you to read. Otherwise your speech is held (not posted, not seen by anyone), and the results come back to you so you can write another answer. There is no need to write a line about waiting; the channel shows a typing indicator while calls run.
+Your tool calls run before your speech goes out. Speech is posted only when every call in your answer succeeded and none of them returned data for you to read. By the time people read your speech, the action has already gone through; write the speech for that moment. Otherwise your speech is held (not posted, not seen by anyone), and the results come back to you so you can write another answer. There is no need to write a line about waiting; the channel shows a typing indicator while calls run.
 
 When one call depends on another call's result, put them in separate answers. The next answer carries the results of the previous one. A picture and an announcement about it in the same answer risks the announcement going out before the picture's result is known; put the announcement in the next answer, after you see the result.
 
