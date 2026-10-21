@@ -404,7 +404,7 @@
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000,
     "transport": "native",
-    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4 }
+    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4, "stepReserveTokens": 6000 }
   },
   "diary": {
     "channelId": "",

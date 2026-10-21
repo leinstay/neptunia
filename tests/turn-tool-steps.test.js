@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { call, badCall, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
-import { appended, contentText, coreTurn, errandService, journalOverMemory, noteText, toolResults, AGENTS, WEB_CONFIG, hotWith, requestText } from './fixtures/turn-harness.js';
+import { NOW, rawMessage, appended, contentText, coreTurn, errandService, journalOverMemory, noteText, toolResults, AGENTS, WEB_CONFIG, hotWith, requestText } from './fixtures/turn-harness.js';
 
 const texts = (run) => run.sends.map((send) => send.text);
 const called = (run) => run.logs.filter((entry) => entry.msg === 'skills: called').map((entry) => `${entry.skill}:${entry.status}${entry.code ? `/${entry.code}` : ''}`);
@@ -474,3 +474,35 @@ test('[text] the transport is read once per turn: a config change during the tur
   await turn.again();
   assert.ok(Array.isArray(turn.llm.options.at(-1).tools), 'the next turn is native');
 });
+
+// A request 0 filled to the rail by history still leaves the room for one continuation step: the sections share the
+// cap less the step reserve (skills.loop.stepReserveTokens), on both transports.
+for (const transport of TRANSPORTS) {
+  test(`[${transport}] a full context still gets one continuation step with a 3000-character data result`, async () => {
+    const earlier = Array.from({ length: 60 }, (_, i) => rawMessage({ id: `e${i}`, ts: NOW - 600000 + i, authorId: 'u2', authorName: 'Zoë', content: `${'λόγια '.repeat(120)}${i}` }));
+    const big = 'δεδομένα '.repeat(340);
+    const turn = await coreTurn({
+      answers: [answerFor(transport)('<think>x</think><msg>κοιτάζω</msg>', [call('lore.list', {}, { id: 'a1' })]), '<think>y</think><msg>τέλος</msg>'],
+      earlier,
+      loop: { stepReserveTokens: 3000 },
+      config: { llm: { maxRequestTokens: 12000, maxOutputTokens: 500, safetyMargin: 0.9 } },
+      withHot: (hot) => {
+        onTransport(transport)(hot);
+        hot.config.skills.resultMaxChars = 4000;
+      },
+      wrapCommand: (runOp) => async (key, args, context) => {
+        const result = await runOp(key, args, context);
+        return { ...result, summary: big, data: { text: big } };
+      },
+    });
+    assert.equal(turn.llm.calls.length, 2, 'the step was made');
+    assert.deepEqual(texts(turn), ['τέλος']);
+    const [result] = resultsOf(turn.llm, 1, transport);
+    assert.ok(result.text.length >= 3000, `the result was not cut: ${result.text.length}`);
+    assert.ok(!turn.logs.some((entry) => entry.msg === 'skills: loop cap'), 'no token cap');
+    assert.ok(!noteText(turn.llm, 1).includes(labels.task.step.last), 'not announced as the last request');
+    // The first request really was full: without the reserve the same history fills the rail.
+    const bare = await coreTurn({ answers: ['<skip/>'], earlier, config: { llm: { maxRequestTokens: 12000, maxOutputTokens: 500, safetyMargin: 0.9 } }, withHot: onTransport(transport) });
+    assert.ok(requestText(bare.llm, 0).length > requestText(turn.llm, 0).length, 'the reserve shrinks the sections');
+  });
+}

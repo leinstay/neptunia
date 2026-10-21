@@ -3350,9 +3350,14 @@ export function buildRequest(input) {
   const previousThinkText = previousThinkBody(input.previousThink, labels);
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
-  // The room the sections share: the cap less the tag overhead and what the request's tools field costs.
+  // The room the sections share: the cap less the tag overhead, what the request's tools field costs (native) and,
+  // when tools are exposed on either transport, the step reserve (`skills.loop.stepReserveTokens`): the room the
+  // continuation request after a call needs for her answer, the results and the note.
   const toolsTokens = Number.isFinite(input.toolsTokens) && input.toolsTokens > 0 ? Math.floor(input.toolsTokens) : 0;
-  const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens);
+  const toolsExposed = toolsTokens > 0 || (typeof input.toolsBlock === 'string' && input.toolsBlock.trim() !== '');
+  const reserveRaw = config.skills?.loop?.stepReserveTokens;
+  const stepReserve = toolsExposed && Number.isFinite(reserveRaw) && reserveRaw > 0 ? Math.floor(reserveRaw) : 0;
+  const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).

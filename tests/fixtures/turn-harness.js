@@ -83,7 +83,7 @@ export function hotWith({ features = {}, skills = {}, access = {}, config = {} }
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, followUpContinuation: true, callMarkers: true, ...features },
+      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, ...features },
       models: { helpers: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
@@ -150,8 +150,8 @@ export function journalOverMemory() {
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = null, withHot = null }) {
-  const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
+export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = null, withHot = null, earlier = [] }) {
+  const history = [...earlier, rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },
     skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
@@ -178,7 +178,7 @@ export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server
     ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: spontaneous })
     : inner
     ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
-    : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind });
+    : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history.at(-1)), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, sends, hot, admin, again, port };
