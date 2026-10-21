@@ -17,11 +17,11 @@ const parsed = {
 test('innerOutputCalls: reactions, messages and the GIF, in that order, and no picture, each as the call it stands for', () => {
   const calls = innerOutputCalls(parsed, { current: 'c1', turnChannel: 'c1' });
   assert.deepEqual(calls, [
-    { skill: 'message.react.add', args: { message: '#2', emoji: '👍' }, body: '' },
-    { skill: 'message.react.add', args: { emoji: '🔥' }, body: '', refuse: { code: 'target-required', reason: 'react:to' } },
-    { skill: 'message.create', args: { reply: '#3' }, body: 'πρώτο' },
-    { skill: 'message.create', args: {}, body: 'δεύτερο' },
-    { skill: 'message.create', args: { gif: 'g7' }, body: '' },
+    { skill: 'message.react.add', args: { message: '#2', emoji: '👍' } },
+    { skill: 'message.react.add', args: { emoji: '🔥' }, refuse: { code: 'target-required', reason: 'react:to' } },
+    { skill: 'message.create', args: { reply: '#3', text: 'πρώτο' } },
+    { skill: 'message.create', args: { text: 'δεύτερο' } },
+    { skill: 'message.create', args: { gif: 'g7' } },
   ]);
 });
 

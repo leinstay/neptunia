@@ -198,7 +198,7 @@ export function paceSettings(config) {
 }
 
 /** skills.loop's values when a key is missing (config.json's). */
-const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 });
+const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
 /** `diary.loop`'s values when a key is missing (config.json's). */
 const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
@@ -267,6 +267,7 @@ export function loopSettings(config, { inner = false, diary = false } = {}) {
     maxSteps: whole(loop.maxSteps, LOOP_FALLBACK.maxSteps),
     timeBudgetMs: typeof loop.timeBudgetMs === 'number' && Number.isFinite(loop.timeBudgetMs) && loop.timeBudgetMs > 0 ? loop.timeBudgetMs : LOOP_FALLBACK.timeBudgetMs,
     maxCallsPerStep: whole(loop.maxCallsPerStep, LOOP_FALLBACK.maxCallsPerStep),
+    stepReserveTokens: whole(loop.stepReserveTokens, LOOP_FALLBACK.stepReserveTokens),
   };
 }
 

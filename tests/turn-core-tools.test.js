@@ -24,7 +24,7 @@ test('loopSettings: a missing or unusable value takes config.json\'s', () => {
   const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).skills.loop;
   assert.deepEqual(loopSettings({}), tracked);
   assert.deepEqual(loopSettings({ skills: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5 } } }), tracked);
-  assert.deepEqual(loopSettings({ skills: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 });
+  assert.deepEqual(loopSettings({ skills: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2, stepReserveTokens: tracked.stepReserveTokens });
 });
 
 // Her in-turn tools: web.search and memory.search run inside the turn and come back in it,

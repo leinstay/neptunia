@@ -514,8 +514,8 @@ test('loopSettings: an inner turn\'s bounds are innerLife.loop\'s (config.json\'
   // skills.loop never reaches an inner turn, innerLife.loop never an ordinary one.
   const both = { skills: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } }, innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } } };
   assert.deepEqual(loopSettings(both, { inner: true }), both.innerLife.loop);
-  assert.deepEqual(loopSettings(both), both.skills.loop);
-  assert.deepEqual(loopSettings(both, { inner: false }), both.skills.loop);
+  assert.deepEqual(loopSettings(both), { ...both.skills.loop, stepReserveTokens: tracked.skills.loop.stepReserveTokens });
+  assert.deepEqual(loopSettings(both, { inner: false }), { ...both.skills.loop, stepReserveTokens: tracked.skills.loop.stepReserveTokens });
 });
 
 test('inner turn, budget: a slow call past skills.loop\'s 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today', async () => {
