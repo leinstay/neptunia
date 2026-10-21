@@ -506,3 +506,87 @@ for (const transport of TRANSPORTS) {
     assert.ok(requestText(bare.llm, 0).length > requestText(turn.llm, 0).length, 'the reserve shrinks the sections');
   });
 }
+
+// The typing lease of the tool loop: the refresh timer (8 s) is a recorded one here, every other timer is real.
+function leaseTimers() {
+  const live = new Set();
+  const schedule = (fn, ms) => {
+    if (ms !== 8000) {
+      const timer = setTimeout(fn, ms);
+      return () => clearTimeout(timer);
+    }
+    const entry = { fn };
+    live.add(entry);
+    return () => live.delete(entry);
+  };
+  return { schedule, live };
+}
+
+test('typing covers the calls: an addressed turn shows it while a step\'s calls run and while the next request is pending, and releases it at the end', async () => {
+  const timers = leaseTimers();
+  let during = null;
+  let pending = null;
+  let portRef = null;
+  const run = await coreTurn({
+    answers: [
+      toolAnswer('<think>x</think><msg>πρώτα</msg>', [call('lore.list')]),
+      (messages) => {
+        pending = { typings: portRef.typings.length, live: timers.live.size };
+        return '<think>y</think><msg>τέλος</msg>';
+      },
+    ],
+    features: { typingSimulation: true },
+    runner: { schedule: timers.schedule },
+    setup: (port) => {
+      portRef = port;
+    },
+    wrapCommand: (runOp) => async (key, args, context) => {
+      await new Promise((resolve) => setImmediate(resolve));
+      during = { typings: portRef.typings.length, live: timers.live.size };
+      return runOp(key, args, context);
+    },
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.ok(during.typings >= 1 && during.live === 1, `typing already shown when the call runs: ${JSON.stringify(during)}`);
+  assert.ok(pending.typings >= 1 && pending.live === 1, `typing still held while the next request is pending: ${JSON.stringify(pending)}`);
+  assert.equal(timers.live.size, 0, 'the lease is released at the end of the turn');
+  assert.deepEqual(texts(run), ['τέλος']);
+});
+
+test('typing is released when the turn ends in a failure of the next request, and is not shown when typingSimulation is off or for an overheard line', async () => {
+  const timers = leaseTimers();
+  const failing = await coreTurn({
+    answers: [toolAnswer('<think>x</think>', [call('lore.list')]), () => { throw new Error('boom'); }],
+    features: { typingSimulation: true },
+    runner: { schedule: timers.schedule },
+  });
+  assert.ok(failing.port.typings.length >= 1);
+  assert.equal(timers.live.size, 0);
+  const off = await coreTurn({ answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<skip/>'], features: { typingSimulation: false }, runner: { schedule: timers.schedule } });
+  assert.equal(off.port.typings.length, 0);
+  const overheard = await coreTurn({ answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<skip/>'], features: { typingSimulation: true }, triggerKind: 'overheard', runner: { schedule: timers.schedule } });
+  assert.equal(overheard.port.typings.length, 0, 'nobody waits for an overheard line');
+  assert.equal(timers.live.size, 0);
+});
+
+test('typing does not show when a step has no calls and no speech is posted', async () => {
+  const run = await coreTurn({ answers: ['<think>x</think><skip/>'], features: { typingSimulation: true } });
+  assert.equal(run.port.typings.length, 0);
+});
+
+test('a line shown to her in a step note counts as seen: the turn that spoke answers it, so a ping held for it is not answered again', async () => {
+  let added = false;
+  const run = await coreTurn({
+    answers: [toolAnswer('<think>1</think>', [call('lore.list')]), '<think>2</think><msg>απάντηση</msg>'],
+    allowed: ['lore.list'],
+    onAnswer: (n, history, port) => {
+      if (n !== 0 || added) return;
+      added = true;
+      history.push({ id: 'm9', channelId: 'c1', author: { id: 'u2', bot: false, globalName: 'Zoë', username: 'Zoë' }, member: { displayName: 'Zoë' }, cleanContent: 'ωραία νέα', createdTimestamp: 1_000 + Date.parse('2026-10-17T12:00:00Z'), reference: null, attachments: new Map(), stickers: new Map() });
+      port.seed('c1', { authorId: 'u2', messageId: 'm9', text: 'ωραία νέα' });
+    },
+  });
+  assert.ok(noteText(run.llm, 1).includes('ωραία νέα'), 'the line was shown in the note');
+  assert.equal(run.turns.spokeAfterSeeing('c1', 'm9'), true);
+  assert.equal(run.turns.spokeAfterSeeing('c1', 'm1'), true, 'the initial window is still marked');
+});

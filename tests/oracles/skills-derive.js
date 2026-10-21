@@ -296,11 +296,23 @@ export function deriveSkillDefinitions({ ops, sources, resolve, effectOf = opEff
   return out;
 }
 
+/** The oracle's schema cut to the argument names in `keep` (in that order), `required` as given, a property replaced by `changes[name]`. */
+const narrowed = (keep, required, changes = {}) => (schema) => ({
+  ...schema,
+  properties: Object.fromEntries(keep.map((name) => [name, changes[name] ?? schema.properties[name]])),
+  required,
+});
+
 /**
  * Where a definition is meant to differ from the owner's command tree (the oracle): `draw.create`
  * takes `reply` (the message to answer, which also names the channel), and `message.create` has no
  * required argument (a post may be a GIF, a file or a media repost; the gateway still refuses an
- * empty one). `schema` changes the oracle's schema, `args` the arguments the oracle's call gives.
+ * empty one). Her schemas also carry only the arguments the operation reads and require what it
+ * refuses without (the slash commands share one option list across their actions): `intent.*` one
+ * schema each, `media.status` / `media.rescan` no `days` and no `pictures`, `media.recache` no
+ * `emoji`, `memory.refresh.*` only the member or the channel they use, `task.status` / `task.resolve`
+ * no `from`, `task.read` and `task.resolve` require the id. `schema` changes the oracle's schema,
+ * `args` the arguments the oracle's call gives, `body` the argument a `<call>` body fills.
  */
 export const EXPECTED_DIFFERENCES = {
   'draw.create': {
@@ -308,4 +320,17 @@ export const EXPECTED_DIFFERENCES = {
     args: (args, sample) => (sample.reply === undefined ? args : { ...args, replyTo: sample.reply }),
   },
   'message.create': { schema: (schema) => ({ ...schema, required: [] }) },
+  'media.status': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
+  'media.rescan': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
+  'media.recache': { schema: narrowed(['kind', 'days'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['gifs', 'pictures'] } }) },
+  'memory.refresh.user': { schema: narrowed(['user'], ['user']) },
+  'memory.refresh.channel': { schema: narrowed(['channel'], ['channel']) },
+  'memory.refresh.server': { schema: narrowed([], []) },
+  'task.status': { schema: narrowed(['id'], []) },
+  'task.read': { schema: narrowed(['id', 'from'], ['id']) },
+  'task.resolve': { schema: narrowed(['id'], ['id']) },
+  'intent.set': { schema: narrowed(['text', 'due', 'every', 'expires', 'task', 'deadline', 'chain', 'condition', 'channel', 'attend', 'people', 'settle', 'perday', 'state', 'reason'], [], { state: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['dropped'] } }) },
+  'intent.update': { schema: narrowed(['id', 'text', 'state', 'reason', 'due', 'every', 'expires', 'task', 'deadline', 'chain', 'condition', 'channel', 'people', 'settle', 'perday'], []) },
+  'intent.cancel': { schema: narrowed(['id'], ['id']), body: 'id' },
+  'intent.list': { schema: narrowed([], []), body: null },
 };

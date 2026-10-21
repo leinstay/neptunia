@@ -813,7 +813,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
   const tools = buildTools(names, { registry, texts: view.prompts?.skills, fill: { drawChars: config.image?.maxPromptChars ?? 1600 } });
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const block = transport === 'text' && tools.length > 0 ? toolsBlockText(tools, view.prompts?.labels) : null;
-  const tokens = transport === 'native' && tools.length > 0 ? calibrator.apply(estimateTools(tools)) : 0;
+  const tokens = transport === 'native' && tools.length > 0 ? estimateTools(tools) : 0;
   return { transport, names, tools, block, tokens, registry };
 }
 
@@ -1398,7 +1398,7 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   let stopped = false;
   const tokenLimit = requestTokenLimit(config);
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
-  const costOf = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(toolset.tools) : 0));
+  const costOf = (list) => calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(toolset.tools) : 0);
   for (;;) {
     const records = read.calls;
     const speechItems = read.answer.messages.length + read.answer.reactions.length + (read.answer.gif ? 1 : 0);

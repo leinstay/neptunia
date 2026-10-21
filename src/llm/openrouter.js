@@ -1318,7 +1318,9 @@ export function createLlm({
     const cfg = getConfig().llm;
     const tokensPerImage = getConfig().context?.vision?.tokensPerImage;
     const tools = Array.isArray(options.tools) && options.tools.length ? options.tools : null;
-    let raw = estimateMessages(messages, tokensPerImage) + (tools ? estimateTools(tools) : 0);
+    // The tools are counted apart (src/llm/tokens.js#estimateTools): added to the calibrated estimate, never fed to the calibrator.
+    const toolsTokens = tools ? estimateTools(tools) : 0;
+    let raw = estimateMessages(messages, tokensPerImage);
     if (typeof options.videoSeconds === 'number' && Number.isFinite(options.videoSeconds) && options.videoSeconds >= 0) {
       const override = options.videoTokensPerSecond;
       const tokensPerSecond =
@@ -1327,7 +1329,7 @@ export function createLlm({
           : (getConfig().media?.video?.tokensPerSecond ?? VIDEO_TOKENS_PER_SECOND_FALLBACK);
       raw += Math.ceil(options.videoSeconds * tokensPerSecond);
     }
-    const estimated = calibrator.apply(raw);
+    const estimated = calibrator.apply(raw) + toolsTokens;
     const requestTokenCap = Number.isFinite(options.maxRequestTokens) ? options.maxRequestTokens : cfg.maxRequestTokens;
     if (estimated > requestTokenCap) {
       const err = new TokenLimitError(`request estimated at ${estimated} tokens, cap is ${requestTokenCap}`);
@@ -1409,7 +1411,7 @@ export function createLlm({
       const finishReason = json.choices?.[0]?.finish_reason ?? undefined;
       // The whole prompt as the provider counted it, its cached part included (see fullPromptTokens).
       const promptTokens = fullPromptTokens(usage, getConfig(), marked);
-      if (options.skipCalibration !== true && promptTokens !== null) calibrator.observe(raw, promptTokens);
+      if (options.skipCalibration !== true && promptTokens !== null) calibrator.observe(raw, promptTokens - toolsTokens);
       if (promptTokens !== null && promptTokens > requestTokenCap) {
         log.warn('llm: provider counted more prompt tokens than the cap', { usage, estimated });
       }

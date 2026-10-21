@@ -3374,9 +3374,11 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log
  * searchHandles and pullPictures) over `record` (iterated only) and the REST channel (GET only), its
  * handles numbered on past the request's own (`idByIndex`). Nothing reaches the store or data/.
  */
-export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead = null, pageFetcher = null, linkOfMessage = null, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null, conversation = null, record = null, log = null }) {
+export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead = null, pageFetcher = null, linkOfMessage = null, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null, conversation = null, record = null, mediaTools = null, log = null }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
+  // The second looks media.look took (the per-turn count of the live turn).
+  let looks = 0;
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
   const webState = { data: { webDay: data.webDay, webCount: data.webCount }, markDirty() {} };
   const recallStore = {
@@ -3513,8 +3515,35 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
       if (skill === 'conversation.read' && conversation) {
         return { result: await readConversation(args, { at, idByIndex }), usage };
       }
+      // media.look as a live turn runs it (src/behavior/turn.js#inTurnTools): a describer over the private cache copy and
+      // the metered client (the vision helper, on the simulator key as every replay helper), its second look downloading
+      // the attachment itself; the message `#N` named is looked up in the request's history. At most lookPerTurn per tools' life.
+      if (skill === 'media.look' && mediaTools?.createDescriber && mediaTools.runMediaLook) {
+        const lookDescriber = mediaTools.createDescriber({ hot, store: webStore, llm: client });
+        const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn(hot.config) : Infinity;
+        const result = await mediaTools.runMediaLook({
+          describer: lookDescriber,
+          config: hot.config,
+          labels,
+          guildId,
+          args,
+          mediaOf: (id) => history.find((item) => String(item?.id) === String(id)) ?? null,
+          takeTurnSlot: () => {
+            if (looks >= cap) return false;
+            looks += 1;
+            return true;
+          },
+        });
+        return { result, usage };
+      }
+      // media.find: the GIF library read from the store, the descriptions from the private cache copy; nothing written.
+      if (skill === 'media.find' && mediaTools?.runMediaFind) {
+        const findStore = { getGifs: (id) => store.getGifs?.(id) ?? [], getMediaCache: () => media };
+        return { result: mediaTools.runMediaFind({ store: typeof store.getGifs === 'function' ? findStore : null, config: hot.config, labels, guildId, args }), usage };
+      }
+      // Every other tool: an explicit refusal she can read as one (never a bare error), and a warning in the log.
       log?.warn?.('replay: no tool runs this skill', { skill });
-      return { result: { status: 'failed', code: 'error' }, usage };
+      return { result: { status: 'not_configured', code: 'not-configured', reason: 'replay-no-tool' }, usage };
     },
   };
 }
@@ -4881,7 +4910,9 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const { createRecall } = await load('behavior/recall-run.js');
   const { createDescriber } = await load('memory/describe.js');
   const { createDiscordInterface } = await load('interface/discord.js');
-  const { runWebSearch, runMemorySearch, runWebRead = null, firstLinkIn = null, IN_TURN_TOOLS } = await load('skills/tools.js');
+  const { runWebSearch, runMemorySearch, runWebRead = null, firstLinkIn = null, runMediaLook = null, runMediaFind = null, lookPerTurn = null, IN_TURN_TOOLS } = await load('skills/tools.js');
+  // media.look and media.find (absent from an older engine: refused honestly).
+  const mediaTools = typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
   // web.read (absent from an older engine: its calls fail as an unknown tool's).
   const { createPageFetcher = null } = await load('web/fetch-page.js').catch(() => ({}));
   const { collectReadableLinks = null } = await load('media/classify.js').catch(() => ({}));
@@ -4956,7 +4987,7 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
     toolsFor: ({ hot: sideHot, channel, llm }) =>
       createReplayTools({
         hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead, pageFetcher, linkOfMessage,
-        discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings, conversation, record: sources.record ?? null, log,
+        discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings, conversation, record: sources.record ?? null, mediaTools, log,
       }),
   };
 }

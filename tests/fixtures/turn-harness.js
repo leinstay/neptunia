@@ -181,7 +181,7 @@ export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server
     : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history.at(-1)), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, hot, admin, again, port };
+  return { result, logs, llm, sends, hot, admin, again, port, turns };
 }
 
 /** The user text of the turn's request `i`. */

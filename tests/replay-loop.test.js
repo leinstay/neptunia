@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
-import { IN_TURN_TOOLS, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
+import { IN_TURN_TOOLS, lookPerTurn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
 import { runConversationRead, fetchSpan, recordMessages } from '../src/skills/conversation-read.js';
 import { pullPictures } from '../src/behavior/pull.js';
 import { callViewOf, searchHandles, coreToolsOn, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
@@ -737,8 +737,38 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
   assert.deepEqual(fetched, [[HERE, 30]]);
   assert.ok(read.result.data.text.includes('πρώτο') && read.result.data.text.includes('δεύτερο'), read.result.data.text);
   assert.ok(read.result.data.text.includes('#28'), 'handles start past the request\'s highest line (7) and the gap: ' + read.result.data.text);
-  assert.equal((await tools.run('web.fetch-nothing', {}, {})).result.status, 'failed');
+  const refused = await tools.run('web.fetch-nothing', {}, {});
+  assert.deepEqual(refused.result, { status: 'not_configured', code: 'not-configured', reason: 'replay-no-tool' }, 'an unimplemented tool is refused explicitly, not a bare error');
   assert.equal(warnings.length, 1, 'a skill no tool runs is logged');
+});
+
+test('createReplayTools: media.look looks again through the describer over the metered client, the message found in the request history; the per-turn cap holds; media.find answers from the store', async () => {
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}), getGifs: () => [] };
+  const vision = { complete: async () => ({ text: 'ένα κόκκινο ποδήλατο', usage: { prompt_tokens: 90, completion_tokens: 5, cost: 0.001 } }) };
+  const created = [];
+  const createDescriber = ({ llm: client, store: cache }) => {
+    created.push(cache.getMediaCache());
+    return { relookImage: async (guildId, item, question) => (await client.complete([], {}), { question, text: 'ένα κόκκινο ποδήλατο' }) };
+  };
+  const config = toolConfig({ features: { vision: true, mediaDescriptions: true, imageRelook: true } });
+  const hot = { config: { ...config, media: { ...config.media, look: { maxPerTurn: 1 } } }, prompts: { labels } };
+  const tools = createReplayTools({
+    hot, store, guild: { id: GUILD }, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', llm: vision,
+    createLookup: () => ({}), createRecall: () => ({}), runWebSearch, runMemorySearch, discord: {}, mediaCache: { kept: 1 },
+    mediaTools: { createDescriber, runMediaLook, runMediaFind, lookPerTurn },
+  });
+  const history = [{ id: 'm9', content: 'δες', attachments: [{ id: 'pa', kind: 'image', url: 'https://cdn.example.com/a.png', name: 'a.png' }], links: [], stickers: [], embeds: [] }];
+  const first = await tools.run('media.look', { message: 'm9', question: 'τι κρατά;' }, { history });
+  assert.equal(first.result.status, 'ok', JSON.stringify(first.result));
+  assert.ok(first.result.data.text.includes('ένα κόκκινο ποδήλατο'), first.result.data.text);
+  assert.deepEqual(first.usage, { requests: 1, tokens: { prompt: 90, completion: 5 }, cost: 0.001 });
+  assert.deepEqual(created[0], { kept: 1 }, 'the describer reads the private cache copy');
+  const gone = await tools.run('media.look', { message: 'm404', question: 'τι;' }, { history });
+  assert.equal(gone.result.status, 'invalid');
+  const second = await tools.run('media.look', { message: 'm9', question: 'και τώρα;' }, { history });
+  assert.deepEqual([second.result.status, second.result.code], ['failed', 'turn-cap']);
+  const find = await tools.run('media.find', { query: 'χορός' }, { history });
+  assert.equal(find.result.status, 'ok', JSON.stringify(find.result));
 });
 
 test('loopCall: a tool that throws logs one warning with its message', async () => {

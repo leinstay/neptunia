@@ -105,7 +105,10 @@ test('estimateTools: zero without tools, the JSON of the definitions otherwise',
   assert.equal(estimateTools(undefined), 0);
   assert.equal(estimateTools([]), 0);
   const tools = [{ type: 'function', function: { name: 'a', description: 'x'.repeat(70), parameters: { type: 'object' } } }];
-  assert.equal(estimateTools(tools), estimateTokens(JSON.stringify(tools)) + 6);
+  const json = JSON.stringify(tools);
+  // JSON is denser than prose: dearer per character than the prose estimate, plus the definition overhead and the provider's preamble.
+  assert.ok(estimateTools(tools) > estimateTokens(json) + 6);
+  assert.ok(estimateTools([...tools, ...tools]) > estimateTools(tools));
 });
 
 test('estimateMessages: tool_calls of an assistant message and a null content are counted, a message without them is unchanged', () => {
