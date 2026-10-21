@@ -2540,7 +2540,18 @@ export function createTurnRunner({
    * Resolves `{ acts, cutOff, delivered }`: act's answers in order, whether a step was cut off with nothing complete,
    * and whether anything reached the chat (her speech, a post, a picture, an errand accepted).
    */
-  async function runSteps({ channel, guildId, trigger, draft, transport, messages: requestMessages, first, readAnswer, actArgs, callContext, envelopeOf, routing, memoryOn, selfName }) {
+  async function runSteps(args) {
+    // The typing lease of the calls (typingWhileCalls): started with the first step that has calls, stopped when no
+    // request follows and whatever the outcome.
+    const typing = { stop: () => {}, started: false };
+    try {
+      return await runStepsIn({ ...args, typing });
+    } finally {
+      typing.stop();
+    }
+  }
+
+  async function runStepsIn({ channel, guildId, trigger, draft, transport, messages: requestMessages, first, readAnswer, actArgs, callContext, envelopeOf, routing, memoryOn, selfName, triggerKind, typing }) {
     const inner = Boolean(draft.inner);
     // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
     const diary = Boolean(draft.diary);
@@ -2635,6 +2646,10 @@ export function createTurnRunner({
       const terminalAt = isFinal && inner ? records.findIndex((record) => !record.problem && INNER_TERMINAL_SKILLS.includes(record.name)) : -1;
       if (records.length > 0) {
         if (loopStartedAt === null) loopStartedAt = clock();
+        if (!typing.started) {
+          typing.started = true;
+          typing.stop = typingWhileCalls(channel, triggerKind, draft);
+        }
         const view = viewOf(routed);
         // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
         let changePlanned = false;
@@ -2707,6 +2722,7 @@ export function createTurnRunner({
       const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
       const next = isFinal || stopped || heartbeatChanged(draft, stepResults) ? 'none' : fresh || openAlone ? left.next : 'none';
       if (next === 'none') {
+        typing.stop();
         unseen = stepResults;
         break;
       }
@@ -2766,6 +2782,8 @@ export function createTurnRunner({
       }
       step += 1;
       draft.steps = step;
+      // The delta's lines went out in that request: she saw them (noteSpokeSaw).
+      (draft.loopSeen ??= []).push(...delta.lines);
       dumpTurnRequest(guildId, draft, sent.slice(0, 2), completion, step, tools.tools ? tools : null, sent.slice(2));
       // The answer completed with the note on: what the parser said is told, and the results are read.
       for (const diagnostic of draft.diagnostics ?? []) diagnostic.told = true;
@@ -3304,6 +3322,44 @@ export function createTurnRunner({
   }
 
   /**
+   * A typing lease on `channel` (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody
+   * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
+   * log which wait it covers (the preparation, or the tool loop's calls).
+   * @returns {() => void}  Stops the lease.
+   */
+  function startChannelTyping(channel, preparing) {
+    const send = () =>
+      Promise.resolve()
+        .then(() => iface.typing(conversationOf(channel)))
+        .then((result) => {
+          if (result?.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, preparing, error: portError(result) });
+        })
+        .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing, error: err }));
+    return startTypingLease({ send, schedule, refreshMs: PREPARE_TYPING_REFRESH_MS, now: clock, onExpire: () => log.info('turn: typing lease expired', { channel: channel.id }) });
+  }
+
+  /**
+   * The typing indicator while a direct call's tool loop runs: from the first step that has calls until the turn's
+   * last speech is posted or the turn ends (runSteps stops it). Only for a turn someone waits for (DIRECT_CALLS), never
+   * an inner or a diary turn, with features.typingSimulation on, where the bot can send, in no dry run, with skills on.
+   * Not gated by pace.typingWhilePreparing (that one is the preparation's).
+   * @returns {() => void}  Stops the lease; `() => {}` when it does not show.
+   */
+  function typingWhileCalls(channel, triggerKind, draft) {
+    const off = () => {};
+    if (!DIRECT_CALLS.has(triggerKind) || draft.inner || draft.diary) return off;
+    const config = hot.config;
+    if (config.features?.typingSimulation === false || config.features?.dryRun === true || !skillsOn(config)) return off;
+    let sendable = false;
+    try {
+      sendable = typeof channel.sendTyping === 'function' && canSend(channel);
+    } catch {
+      sendable = false;
+    }
+    return sendable ? startChannelTyping(channel, false) : off;
+  }
+
+  /**
    * The typing indicator while a turn prepares and waits for its answer:
    * sent once now and again every few seconds until the returned function
    * stops it (the answer is in hand, the turn is dropped or failed). Only for a turn
@@ -3326,15 +3382,7 @@ export function createTurnRunner({
       sendable = false;
     }
     if (!sendable) return off;
-    // A lease (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody stops it.
-    const send = () =>
-      Promise.resolve()
-        .then(() => iface.typing(conversationOf(channel)))
-        .then((result) => {
-          if (result?.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: portError(result) });
-        })
-        .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: err }));
-    return startTypingLease({ send, schedule, refreshMs: PREPARE_TYPING_REFRESH_MS, now: clock, onExpire: () => log.info('turn: typing lease expired', { channel: channel.id }) });
+    return startChannelTyping(channel, true);
   }
 
   /**
@@ -7254,6 +7302,7 @@ export function createTurnRunner({
         routing: { idByIndex, history, lines, pulledIds, handles, channelHandles },
         memoryOn,
         selfName,
+        triggerKind,
       });
       // A step was cut off with nothing complete and nothing of the turn reached the chat: a lost answer.
       if (stepped.cutOff && !stepped.delivered) {
@@ -7262,7 +7311,7 @@ export function createTurnRunner({
       }
       // A set kind that ended below diary.set.minPosted staged pictures (runSteps): nothing was posted.
       if (draft.setShort !== undefined) return setShort(draft.setShort);
-      noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
+      noteSpokeSaw(channel, [...history, ...(draft.loopSeen ?? [])], serverShown, pulled, notAnswered);
       const acts = stepped.acts;
       const answeredAll = new Set(acts.flatMap((acted) => [...(acted.answered ?? [])]));
       stampShownCalls({ shown: serverShown, pulled, answered: answeredAll, exceptId: ownCallId });
