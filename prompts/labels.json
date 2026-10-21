@@ -649,8 +649,7 @@
       "list": " Arguments: {list}.",
       "required": "{arg} (required)",
       "values": "{arg} = {values}",
-      "range": "{arg} = {min}..{max}",
-      "body": "{arg} (body)"
+      "range": "{arg} = {min}..{max}"
     },
     "access": {
       "allowed": "allowed",

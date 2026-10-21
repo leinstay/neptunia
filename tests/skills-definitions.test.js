@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { listOps, resolveCommand } from '../src/ops/index.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { OP_EFFECTS } from '../src/ops/effects.js';
-import { commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
+import { EXPECTED_DIFFERENCES, commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
 import { FEATURE_SKILLS } from '../src/skills/access.js';
 import {
   API_NAMES,
@@ -27,19 +27,6 @@ const ORACLE = deriveSkillDefinitions({
   sources: commandSources({ table: COMMAND_TABLE, resolve: resolveCommand }),
   resolve: resolveCommand,
 });
-/**
- * Where a definition is meant to differ from the owner's command tree (the oracle): `draw.create`
- * takes `reply` (the message to answer, which also names the channel), and `message.create` has no
- * required argument (a post may be a GIF, a file or a media repost; the gateway still refuses an
- * empty one). `schema` changes the oracle's schema, `args` the arguments the oracle's call gives.
- */
-const EXPECTED_DIFFERENCES = {
-  'draw.create': {
-    schema: (schema) => ({ ...schema, properties: { text: schema.properties.text, self: schema.properties.self, reply: { type: 'string', minLength: 1, maxLength: 100 }, channel: schema.properties.channel } }),
-    args: (args, sample) => (sample.reply === undefined ? args : { ...args, replyTo: sample.reply }),
-  },
-  'message.create': { schema: (schema) => ({ ...schema, required: [] }) },
-};
 const BY_NAME = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition]));
 const ID = '123456789012345678';
 const show = (value) => JSON.stringify(value, (key, inner) => (typeof inner === 'bigint' ? `${inner}n` : inner));

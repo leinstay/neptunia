@@ -40,7 +40,7 @@ When the plan asks for a web search (only for `diary.searchKinds`, by default `n
 
 When the post includes a picture, the image model generates it at its own price. Diary pictures count against both `image.maxPerDay` and `diary.maxPicturesPerDay` (2).
 
-A set post (`photoset`, `randomSet`) costs one picture per `<draw>` it generates, four to six by default, all counted against both caps. The caps are checked before the post starts, so one set can take the day past `diary.maxPicturesPerDay`. A set that comes out short is not posted, yet the pictures it generated are paid for and counted.
+A set post (`photoset`, `randomSet`) costs one picture per `draw.create` call it makes, four to six by default, all counted against both caps. The caps are checked before the post starts, so one set can take the day past `diary.maxPicturesPerDay`. A set that comes out short is not posted, yet the pictures it generated are paid for and counted.
 
 Every model request in a diary post counts against `llm.maxRequestsPerDay`. With the defaults (1–3 posts a day, 2–3 requests each, up to 2 pictures), a day costs roughly 3–9 chat requests plus picture generation.
 
@@ -63,7 +63,7 @@ Every model request in a diary post counts against `llm.maxRequestsPerDay`. With
 
 `diary.searchKinds` (default `["news", "facts"]`) are the kinds that may trigger a search. `diary.pictureKinds` (default `["selfPicture", "picture", "meme", "photoset", "randomSet"]`) always get a picture when the day's picture caps allow it, whatever the planner answered. Other kinds draw only when the planner asks for one. When a post cannot carry a picture (the day's picture caps are spent, drawing is off, no image model, or the bot lacks Attach Files in the diary channel), the planner sees only the text kinds.
 
-The kinds in `diary.setKinds` (default `["photoset", "randomSet"]`) post a set: one message plus four to six pictures (`diary.set.pictures`), each from its own `<draw>` tag, with more seed combinations to draw from (`diary.set.seedSets`, 6, in the compose request). Every picture is generated before anything is sent; with fewer than two pictures (`diary.set.minPosted`) nothing is posted at all.
+The kinds in `diary.setKinds` (default `["photoset", "randomSet"]`) post a set: one message plus four to six pictures (`diary.set.pictures`), each from its own `draw.create` call (several calls in one answer), with more seed combinations to draw from (`diary.set.seedSets`, 6, in the compose request). Every picture is generated (staged) before anything is sent, and the messages go out first, then the staged pictures; a failed picture comes back to her as a result before anything is posted, and she may draw again or post with the pictures she has. With fewer than two pictures (`diary.set.minPosted`) nothing is posted at all.
 
 `prompts/diary-seeds.md` holds random seeds grouped by `# family` headers (place, setting, detail, activity, subject, twist). Code draws one line per family and composes `diary.seedSets` (2) combinations, handed to the planner in a `<seeds>` block. The combinations are near-infinite; the planner builds something absent from the diary history out of them, or ignores them when a better idea comes from the server's life.
 
@@ -75,7 +75,7 @@ To customise the seeds, copy `prompts/diary-seeds.md` to `prompts.local/diary-se
 
 The world block appears only in the diary's two requests (plan and compose) and only when `diary.world` is `true` (default `false`). Turn it on with `/nep set diary.world true`. Without it, the persona has no fixed home and does not claim one.
 
-The world file never appears in an ordinary chat turn. The scene text the persona writes in its `<draw>` tag carries what the image model needs to see.
+The world file never appears in an ordinary chat turn. The scene text the persona writes in a `draw.create` call carries what the image model needs to see.
 
 ## Config reference
 

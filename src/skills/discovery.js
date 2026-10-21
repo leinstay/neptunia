@@ -8,7 +8,7 @@
 // grants). Behind `features.skills` and `features.skillsDiscovery` (a missing key counts as on).
 // Apart from both, every turn shows her the names of the skills granted to her (grantedSkillNames,
 // rendered in the request's cached stable part, src/behavior/prompt.js), so she knows what she
-// can do without a classifier naming it; behind `features.skillsAlwaysListed` as well.
+// can do without a classifier naming it.
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
 import { isPlainObject } from '../config.js';
@@ -174,21 +174,19 @@ export const MAX_ARG_VALUES = 12;
  * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.js#skillsInventoryText),
  * read off its argument schema (the skills table's `params`, src/skills/definitions.js)
  * in the schema's order, so the list is the same on every call: `{ name, required }` each, plus
- * `body: true` for the option a `<call>` body fills (`skill.dispatch.body`), `values` (strings) for
+ * `values` (strings) for
  * an enum -- its first MAX_ARG_VALUES, `more: true` when it has more -- or a boolean (`true`,
  * `false`, the words a call's attribute is read as), and `minimum` / `maximum` for a number's
  * bounds the schema sets. [] without a schema or properties. Pure.
- * @param {{ argsSchema?: object, dispatch?: { body?: string|null } }|null|undefined} skill
- * @returns {{ name: string, required: boolean, body?: true, values?: string[], more?: true, minimum?: number, maximum?: number }[]}
+ * @param {{ argsSchema?: object }|null|undefined} skill
+ * @returns {{ name: string, required: boolean, values?: string[], more?: true, minimum?: number, maximum?: number }[]}
  */
 export function skillArgs(skill) {
   const schema = skill?.argsSchema;
   const properties = isPlainObject(schema?.properties) ? schema.properties : {};
   const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
-  const body = typeof skill?.dispatch?.body === 'string' ? skill.dispatch.body : null;
   return Object.entries(properties).map(([name, property]) => {
     const arg = { name, required: required.has(name) };
-    if (name === body) arg.body = true;
     const values = Array.isArray(property?.enum) ? property.enum : property?.type === 'boolean' ? [true, false] : null;
     if (values) {
       arg.values = values.slice(0, MAX_ARG_VALUES).map(String);

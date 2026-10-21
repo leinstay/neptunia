@@ -1830,7 +1830,7 @@ const ARG_VALUES_MORE = '…';
  * (src/skills/discovery.js#skillArgs, in their order) joined by ', ', each its name wrapped in
  * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
  * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
- * `forms.body` (`{arg}`) for the option a `<call>` body fills, then `forms.required` (`{arg}`);
+ * `forms.required` (`{arg}`);
  * a form the labels lack leaves the text as it was. '' without arguments or without `forms.list`.
  * @param {object[]|undefined} args
  * @param {object|undefined} forms  `labels.skills.args`.
@@ -1846,7 +1846,6 @@ function skillArgsText(args, forms) {
     } else if (Number.isFinite(arg.minimum) || Number.isFinite(arg.maximum)) {
       text = wrap('range', text, { min: Number.isFinite(arg.minimum) ? arg.minimum : '', max: Number.isFinite(arg.maximum) ? arg.maximum : '' });
     }
-    if (arg.body === true) text = wrap('body', text);
     if (arg.required === true) text = wrap('required', text);
     return text;
   };

@@ -603,7 +603,7 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   const args = fill(forms.list, {
     list: [
       fill(forms.required, { arg: 'message' }),
-      fill(forms.required, { arg: fill(forms.body, { arg: 'text' }) }),
+      fill(forms.required, { arg: 'text' }),
       fill(forms.range, { arg: 'n', min: 1, max: 50 }),
       fill(forms.values, { arg: 'kind', values: 'turn|all' }),
     ].join(', '),

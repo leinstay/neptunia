@@ -149,7 +149,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   assert.deepEqual(proposalVerdicts(['x.owner'], asOwner), [{ name: 'x.owner', allowed: true, reason: 'allowed' }]);
 });
 
-test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, the body option flagged', () => {
+test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, no body flag', () => {
   const many = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ'];
   const skill = {
     name: 'x.read',
@@ -170,7 +170,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
     dispatch: { body: 'text' },
   };
   assert.deepEqual(skillArgs(skill), [
-    { name: 'text', required: true, body: true },
+    { name: 'text', required: true },
     { name: 'section', required: false, values: many.slice(0, MAX_ARG_VALUES), more: true },
     { name: 'order', required: false, values: ['rank', 'recent'] },
     { name: 'detail', required: false, values: ['true', 'false'] },
@@ -180,7 +180,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
   ]);
   // Exactly the cap: every value, no "more".
   assert.deepEqual(skillArgs({ argsSchema: { properties: { role: { enum: many.slice(0, MAX_ARG_VALUES) } } } }), [{ name: 'role', required: false, values: many.slice(0, MAX_ARG_VALUES) }]);
-  // No schema, no properties, no command: nothing to list; a `text` without a command body is no body.
+  // No schema, no properties, no command: nothing to list.
   assert.deepEqual(skillArgs({ argsSchema: { type: 'object' } }), []);
   assert.deepEqual(skillArgs(null), []);
   assert.deepEqual(skillArgs({ argsSchema: { properties: { text: { type: 'string' } } } }), [{ name: 'text', required: false }]);
@@ -197,7 +197,7 @@ test('skillArgs: a skill lists its arguments, the same each time', () => {
   assert.deepEqual(skillArgs(registry.get('message.create')), [
     { name: 'channel', required: false },
     { name: 'reply', required: false },
-    { name: 'text', required: false, body: true },
+    { name: 'text', required: false },
     { name: 'file', required: false },
     { name: 'gif', required: false },
     { name: 'media', required: false },

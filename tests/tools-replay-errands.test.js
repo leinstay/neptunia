@@ -108,7 +108,7 @@ function treeOf(dir) {
 function runTask({ config, tasks, agent = 'web', author = OWNER }) {
   const channel = fakeChannel();
   return simulateCall({
-    call: { skill: 'task.run', args: { agent }, body: 'Βρες το πρόγραμμα' },
+    call: { skill: 'task.run', args: { agent, goal: 'Βρες το πρόγραμμα' }, body: '' },
     view: callViewOf({ channel, guildId: GUILD, idByIndex: new Map(), lines: [], pulledIds: new Map(), memoryOn: false, store: null, selfId: SELF, skills: skillRegistry() }),
     config,
     selfId: SELF,
@@ -279,7 +279,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
 
   // A handle of no file of hers is refused at the resolution, as live.
   const wrong = simulateCall({
-    call: { skill: 'message.create', args: {}, body: `x\nfile:${task.id}/autre.pdf` },
+    call: { skill: 'message.create', args: { text: 'x', file: `file:${task.id}/autre.pdf` }, body: '' },
     view: callViewOf({ channel, guildId: GUILD, idByIndex: new Map(), lines: [], pulledIds: new Map(), memoryOn: false, store: null, selfId: SELF, skills: skillRegistry(), fileOf: scenarioFileOf(task, parseFileHandle) }),
     config, selfId: SELF, requester, conversationId: HERE, now: at, tasks,
   });

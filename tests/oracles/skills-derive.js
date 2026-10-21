@@ -295,3 +295,17 @@ export function deriveSkillDefinitions({ ops, sources, resolve, effectOf = opEff
   }
   return out;
 }
+
+/**
+ * Where a definition is meant to differ from the owner's command tree (the oracle): `draw.create`
+ * takes `reply` (the message to answer, which also names the channel), and `message.create` has no
+ * required argument (a post may be a GIF, a file or a media repost; the gateway still refuses an
+ * empty one). `schema` changes the oracle's schema, `args` the arguments the oracle's call gives.
+ */
+export const EXPECTED_DIFFERENCES = {
+  'draw.create': {
+    schema: (schema) => ({ ...schema, properties: { text: schema.properties.text, self: schema.properties.self, reply: { type: 'string', minLength: 1, maxLength: 100 }, channel: schema.properties.channel } }),
+    args: (args, sample) => (sample.reply === undefined ? args : { ...args, replyTo: sample.reply }),
+  },
+  'message.create': { schema: (schema) => ({ ...schema, required: [] }) },
+};

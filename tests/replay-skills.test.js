@@ -145,14 +145,14 @@ function simulate(call, { grants = [], author = OWNER, access, features, channel
 }
 
 test('simulateCall: a granted skill an owner asks for passes the real gateway and is only recorded, answered ok', () => {
-  const out = simulate({ skill: 'rule.add', args: {}, body: 'όχι spoilers' }, { grants: ['rule.add'] });
+  const out = simulate({ skill: 'rule.add', args: { text: 'όχι spoilers' } }, { grants: ['rule.add'] });
   assert.deepEqual(out.verdict, { stage: 'gateway', ok: true });
   assert.deepEqual(out.executed, { skill: 'rule.add', args: { text: 'όχι spoilers' } });
   assert.deepEqual(out.result, { skill: 'rule.add', status: 'ok', data: { text: 'RESULT' } });
 });
 
 test('simulateCall: not granted, not grantable, or a requester without the right: refused as live, and she hears it', () => {
-  const notGranted = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' });
+  const notGranted = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } });
   assert.deepEqual([notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed], ['gateway', 'not-allowed', 'denied', null]);
 
   assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('memory.wipe'));
@@ -160,39 +160,39 @@ test('simulateCall: not granted, not grantable, or a requester without the right
   assert.deepEqual([wipe.verdict.code, wipe.result.status, wipe.executed], ['not-grantable', 'denied', null]);
 
   // Her grant does not lend a member a right they lack; a member granted it may have it run.
-  const member = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], author: MEMBER });
+  const member = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], author: MEMBER });
   assert.deepEqual([member.verdict.code, member.verdict.reason, member.result.status], ['requester-denied', 'not-granted', 'denied']);
-  const byRole = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, {
+  const byRole = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, {
     grants: ['rule.add'], author: MEMBER, channel: fakeChannel({ memberRoles: ['r1'] }), access: { 'rule.add': { everyone: false, roles: ['r1'], users: [] } },
   });
   assert.equal(byRole.verdict.ok, true, 'the requester\'s role ids come from the member cache, as live');
 
   // Nobody asked: only a read.
-  const unasked = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], author: null });
+  const unasked = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], author: null });
   assert.deepEqual([unasked.verdict.code, unasked.verdict.reason], ['no-requester', 'no-requester']);
 });
 
 test('simulateCall: her own operations skip the requester\'s right but not her grant', () => {
-  const elsewhere = { skill: 'message.create', args: { channel: '#νέα' }, body: 'καλημέρα' };
+  const elsewhere = { skill: 'message.create', args: { channel: '#νέα', text: 'καλημέρα' } };
   const own = simulate(elsewhere, { grants: ['message.create'], author: MEMBER });
   assert.equal(own.verdict.ok, true, 'self-owned: the member\'s missing right does not matter');
   assert.deepEqual(own.executed, { skill: 'message.create', args: { channel: NEWS, text: 'καλημέρα' } });
   assert.equal(simulate(elsewhere, { author: MEMBER }).verdict.code, 'not-allowed', 'another channel still needs her grant');
-  assert.equal(simulate({ skill: 'message.create', args: {}, body: 'γεια' }, { author: MEMBER }).verdict.ok, true, 'carried over in the current conversation');
+  assert.equal(simulate({ skill: 'message.create', args: { text: 'γεια' } }, { author: MEMBER }).verdict.ok, true, 'carried over in the current conversation');
 });
 
 test('simulateCall: a call the server cannot resolve, a spent drawing budget, the full stop', () => {
   const unknown = simulate({ skill: 'files.wipe', args: {} });
   assert.deepEqual([unknown.verdict.stage, unknown.verdict.code, unknown.result.status], ['resolve', 'unknown-skill', 'invalid']);
-  const channel = simulate({ skill: 'message.create', args: { channel: '#πουθενά' }, body: 'γεια' }, { grants: ['message.create'] });
+  const channel = simulate({ skill: 'message.create', args: { channel: '#πουθενά', text: 'γεια' } }, { grants: ['message.create'] });
   assert.deepEqual([channel.verdict.stage, channel.verdict.code], ['resolve', 'invalid-args']);
-  const drawing = { skill: 'draw.create', args: {}, body: 'un chat sur la lune' };
+  const drawing = { skill: 'draw.create', args: { text: 'un chat sur la lune' } };
   const spent = simulate(drawing, { images: { quota: () => ({ spent: true, userSpent: false }) } });
   assert.deepEqual([spent.verdict.stage, spent.verdict.code, spent.verdict.reason], ['gateway', 'daily-cap', 'image.maxPerDay']);
   const left = simulate(drawing, { images: { quota: () => ({ spent: false, userSpent: false }) } });
   assert.equal(left.verdict.ok, true, 'a paid effect is recorded and answered canned, never run');
   assert.equal(left.result.status, 'ok');
-  const off = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], features: { skills: false } });
+  const off = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], features: { skills: false } });
   assert.equal(off.verdict.code, 'skills-off');
 });
 
@@ -203,7 +203,7 @@ test('scenarioInventory: the requester\'s catalogue as live discovery lists it: 
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
   // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
   assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
-  assert.deepEqual(whole.find((row) => row.name === 'rule.add'), { name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed', args: [{ name: 'text', required: true, body: true }] });
+  assert.deepEqual(whole.find((row) => row.name === 'rule.add'), { name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed', args: [{ name: 'text', required: true }] });
   assert.equal(scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } }).find((row) => row.name === 'rule.add').reason, 'requester-denied');
   const named = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] }, discovery: ['rule.add', 'rule.remove'] });
   assert.deepEqual(named.map((row) => [row.name, row.allowed, row.proposed]), [['rule.add', true, true], ['rule.remove', false, true]]);

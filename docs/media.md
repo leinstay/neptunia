@@ -74,11 +74,11 @@ Settings for the web side live under `web`, for the server side under `recall`. 
 
 ## Drawing
 
-`features.imageGeneration` (off by default; a missing key counts as on) lets the persona draw pictures. Turn it on in `config.local.json`. When the model emits a `<draw>` tag, the engine generates one picture through OpenRouter's Images API (`image.model`, default `openai/gpt-image-2.5-flare`) and posts it as a separate message after the persona's words. Whether to draw is the model's own decision; the persona can refuse. In a channel where the bot lacks Attach Files permission, the drawing sense is not shown and a `<draw>` tag is dropped, so nothing is generated or billed.
+`features.imageGeneration` (off by default; a missing key counts as on) lets the persona draw pictures. Turn it on in `config.local.json`. When the model calls the `draw.create` tool (natively, or as a `<tool_call>` block on the text transport, per `skills.transport`), the engine generates one picture through OpenRouter's Images API (`image.model`, default `openai/gpt-image-2.5-flare`) and posts it as a separate message; the call runs before her speech goes out, and the speech goes out after it only when the picture worked. Whether to draw is the model's own decision; the persona can refuse. In a channel where the bot lacks Attach Files permission, the drawing sense is not shown and a `draw.create` call is refused before anything is generated, so nothing is billed.
 
 ### Caps
 
-At most `image.maxPerDay` (default 50) pictures per day for the instance and `image.maxPerUserPerDay` (default 50) per member. Both are checked before the request and counted only when it is sent. One picture per turn. The scene text from the `<draw>` tag is clamped to `image.maxPromptChars` (default 1600), cut at the last sentence or word boundary. When the persona is in the picture (`self="yes"`) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference.
+At most `image.maxPerDay` (default 50) pictures per day for the instance and `image.maxPerUserPerDay` (default 50) per member. Both are checked before the request and counted only when it is sent. Each `draw.create` call makes one picture and counts once; calls past `skills.loop.maxCallsPerStep` get a `loop-cap` result. The scene text of the call is clamped to `image.maxPromptChars` (default 1600), cut at the last sentence or word boundary. When the persona is in the picture (`self` true) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference.
 
 ### Cost
 
@@ -90,7 +90,7 @@ The drawing prompt may quote members (it includes the scene text the model wrote
 
 ### Failure
 
-When the drawing fails on a turn someone asked for (a mention, reply, name trigger or follow-up), a second turn fires with the failure reason in the trigger label, so the persona can tell the requester what happened. The second turn's own `<draw>` is dropped. On a spontaneous or overheard turn, a failure is only logged. An image cap (daily or per-member) does not fire the failure turn; it posts a limit notice (`labels.limits.notice`) instead on asked-for turns, naming the limit and the numbers. On a turn answering a call from a read-only channel, the limit notice is posted plain in the destination channel (no Discord reply to a message in another channel).
+A failed picture is a result of the `draw.create` call, with its code (`image-cap-daily`, `image-cap-user-daily`, `image-moderation`, `image-timeout`, `image-error`, a refused upload with the gateway's code), and she reads it in the next request of the turn. Her speech of that step is held, so a claim of a picture that does not exist is not posted. No second turn is fired and no limit notice is posted for a drawing; on a turn nobody waits for the failure is also a fact for her next turn.
 
 Settings live under `image`. See [Configuration](configuration.md#image) for every key and [Configuration: Pictures out](configuration.md#pictures-out-imagemodel) for the supported models.
 

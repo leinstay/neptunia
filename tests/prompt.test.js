@@ -4735,13 +4735,13 @@ test('skillsInventoryText: a proposed skill the asker has no right to is named o
 
 // --- the skills granted to her, always listed in the stable part ------------------------------
 
-test('skillsInventoryText: each line lists the skill\'s arguments -- required marked, enum values with the cut shown, a range, the body option -- in a stable order', () => {
+test('skillsInventoryText: each line lists the skill\'s arguments -- required marked, enum values with the cut shown, a range -- in a stable order', () => {
   const argLabels = {
     ...labels,
     skills: {
       ...labels.skills,
       line: '{name}: {title} -- {whenToUse} ({access}){args}',
-      args: { list: ' args: {list}', required: '{arg}*', values: '{arg}={values}', range: '{arg}={min}..{max}', body: '{arg}(body)' },
+      args: { list: ' args: {list}', required: '{arg}*', values: '{arg}={values}', range: '{arg}={min}..{max}' },
     },
   };
   const rows = [
@@ -4752,7 +4752,7 @@ test('skillsInventoryText: each line lists the skill\'s arguments -- required ma
     ] },
     { name: 'message.create', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over', args: [
       { name: 'channel', required: false },
-      { name: 'text', required: true, body: true },
+      { name: 'text', required: true },
     ] },
     { name: 'memory.server.read', title: 'Θυμήσου', whenToUse: 'τον server', allowed: true, reason: 'allowed', args: [] },
     { name: 'learning.remove', title: 'Ξέχνα', whenToUse: 'ένα μάθημα', allowed: true, reason: 'allowed', args: [
@@ -4766,7 +4766,7 @@ test('skillsInventoryText: each line lists the skill\'s arguments -- required ma
     'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed) args: day, kind=turn|action|…, n=1..50',
     'memory.server.read: Θυμήσου -- τον server (allowed)',
     '',
-    'message.create: Στείλε -- σε άλλη συζήτηση (allowed here) args: channel, text(body)*',
+    'message.create: Στείλε -- σε άλλη συζήτηση (allowed here) args: channel, text*',
     '',
     'learning.remove: Ξέχνα -- ένα μάθημα (allowed) args: number=1..*, detail=true|false',
   ]);

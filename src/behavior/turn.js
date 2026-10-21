@@ -1263,50 +1263,8 @@ export function journalResultOf(result) {
   return out;
 }
 
-/**
- * What the first pass of a turn posted (`acted`, act's answer), one item each, for the
- * follow-up's `<result>`: each reaction as the transcript shows hers
- * (`labels.transcript.reactions` over `reactionMine`), each GIF as `labels.transcript.gif`
- * with its handle, each message as she wrote it, the picture as `labels.transcript.image`. An
- * item whose label is missing is left out. Pure; exported for the replay's skill scenarios.
- * @param {{ reacted?: { emoji: string }[], gifs?: string[], texts?: string[], drew?: boolean }|null} acted
- * @param {object} labels
- * @returns {string[]}
- */
-export function firstPass(acted, labels) {
-  const t = labels?.transcript ?? {};
-  const items = [];
-  if (typeof t.reactions === 'string' && typeof t.reactionMine === 'string') {
-    for (const reaction of acted?.reacted ?? []) items.push(fill(t.reactions, { list: fill(t.reactionMine, { emoji: reaction.emoji, count: 1 }) }));
-  }
-  if (typeof t.gif === 'string') for (const id of acted?.gifs ?? []) items.push(fill(t.gif, { name: id }));
-  items.push(...(acted?.texts ?? []));
-  if (acted?.drew === true && typeof t.image === 'string') items.push(t.image);
-  return items;
-}
-
 /** The list fields of a normalized message (interfaces/discord/collect.js#normalizeMessage), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze(['mentionedUserIds', 'mentionedChannelIds', 'attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions']);
-
-/**
- * The answers act gave to the steps of a turn as one, the way
- * a turn reads its one follow-up's: `delivered` when any reached the chat, the lines `answered`,
- * the `posts` and `reacted` of every step in order. None: `{ cutOff: true }` when a step was cut
- * off with nothing complete, else null. Pure.
- * @param {object[]} answers
- * @param {boolean} cutOff
- * @returns {object|null}
- */
-export function mergedAnswers(answers, cutOff = false) {
-  const list = (Array.isArray(answers) ? answers : []).filter(Boolean);
-  if (list.length === 0) return cutOff ? { cutOff: true } : null;
-  return {
-    delivered: list.some((answer) => answer.delivered === true),
-    answered: new Set(list.flatMap((answer) => [...(answer.answered ?? [])])),
-    posts: list.flatMap((answer) => answer.posts ?? []),
-    reacted: list.flatMap((answer) => answer.reacted ?? []),
-  };
-}
 
 /**
  * The turn's channel as it stands when the turn continues after the persona's skill call
@@ -2122,18 +2080,8 @@ export function createTurnRunner({
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       // An errand's file bound for a channel nobody named (src/skills/executors.js#resolveCall).
       if (resolved.code === CODE.FILE_ELSEWHERE) log.info('skills: file elsewhere refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
-      // Several errand file handles written in the body (src/skills/executors.js#resolveCall).
-      if (resolved.reason === 'file:several') log.info('skills: file handle in body', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
     }
-    // Her comment in the body of a skill that takes no text: left out, the call goes on (never its text in the log).
-    if (resolved.bodyIgnored) log.info('skills: body ignored', { skill: resolved.skill, channel: channel.id });
-    // The body as the skill's main argument (an errand's goal, her text), the call leaving it out: named, never its text.
-    if (resolved.bodyArg) log.info('skills: body as argument', { skill: resolved.skill, arg: resolved.bodyArg, channel: channel.id });
-    // An errand's file handle written in the body: moved to the file argument (never the text).
-    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: CODE.MOVED, textLeft: resolved.args?.[resolved.dispatch?.body] !== '', channel: channel.id });
-    // Her arguments written in the body instead of as attributes: taken, counted (never the values).
-    if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
     // The message's own channel taken over the one she named: logged, never the ids.
     if (resolved.channelFixed) log.info('skills: message channel taken from the message', { skill: resolved.skill, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope, draft });

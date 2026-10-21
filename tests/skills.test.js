@@ -19,7 +19,7 @@ import { createAdmin } from '../src/admin.js';
 import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { loadSkills, skillRegistry, skillNames, describeSkill, skillArgTexts, missingDefinitions } from '../src/skills/registry.js';
-import { commandSources, optionsSchema } from './oracles/skills-derive.js';
+import { EXPECTED_DIFFERENCES, commandSources, optionsSchema } from './oracles/skills-derive.js';
 import { CARRIED_OVER, FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
@@ -163,7 +163,9 @@ test('skills derived: the real tree -- every schema is generated from the slash 
     const source = sources.get(op.name);
     assert.ok(source, `${op.name}: a command runs it`);
     assert.ok(Object.hasOwn(COMMAND_TO_OP, source.key), op.name);
-    assert.deepEqual(skillRegistry().get(op.name).argsSchema, optionsSchema(source), op.name);
+    // Except where a definition is meant to differ from the command tree (EXPECTED_DIFFERENCES).
+    const oracle = optionsSchema(source);
+    assert.deepEqual(skillRegistry().get(op.name).argsSchema, EXPECTED_DIFFERENCES[op.name]?.schema?.(oracle) ?? oracle, op.name);
   }
   // `/nep memory show`: the same option names, kinds, required flags and choices as the owner types
   const leaf = COMMAND_TABLE.find((node) => node.name === 'memory').subcommands.find((sub) => sub.name === 'show');
@@ -174,11 +176,11 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   // `/nep media action:status`: the action is the skill, the kind and the days (read by the pictures recache only) its arguments
   assert.deepEqual(sources.get('media.status').fixed, { action: 'status' });
   assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind', 'days']);
-  // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call;
-  // a file one of her errands brought back, optional
+  // `/nep message create`: a channel and a message to answer, and her own text, the main argument of her call;
+  // a file one of her errands brought back, optional; nothing is required (a post may be a GIF, a file or a media repost)
   const create = skillRegistry().get('message.create');
   assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
-  assert.deepEqual(create.argsSchema.required, ['text']);
+  assert.deepEqual(create.argsSchema.required, []);
   assert.equal(create.dispatch.body, 'text');
   // `/nep draw`: a channel to post the picture in, the owner's too
   assert.ok(Object.hasOwn(skillRegistry().get('draw.create').argsSchema.properties, 'channel'));
@@ -352,9 +354,9 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   assert.equal(rows.length, skillNames().filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   const byName = new Map(rows.map((row) => [row.name, row]));
   const channel = { name: 'channel', required: false };
-  const body = { name: 'text', required: true, body: true };
+  const body = { name: 'text', required: true };
   const message = { name: 'message', required: true };
-  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body, { name: 'file', required: false }, { name: 'gif', required: false }, { name: 'media', required: false }, { name: 'item', required: false, minimum: 1, maximum: 20 }] });
+  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, { name: 'text', required: false }, { name: 'file', required: false }, { name: 'gif', required: false }, { name: 'media', required: false }, { name: 'item', required: false, minimum: 1, maximum: 20 }] });
   assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed', args: [message, body, channel] });
   assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed', args: [message, channel] });
   assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] });
