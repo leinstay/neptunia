@@ -146,7 +146,7 @@ export const labels = {
     lookTool: 'call media.look yourself to look again at a picture or video; the model\'s answer in <result>',
     files: 'files show only their name, or a short preview for plain text ones',
     time: 'Times and ages test line.',
-    draw: 'you can hand a scene to a drawing sub-process; the picture is posted after your words',
+    draw: 'you can draw by calling draw.create; the picture is posted before your words',
     drawSpent: 'the daily picture quota is spent, no drawing until tomorrow',
     drawSpentUser: 'this person has used up their pictures for today',
     privateChat: 'this is a private chat with one person, it stays here',
