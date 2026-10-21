@@ -48,82 +48,13 @@ function isOwnLine(line, selfId) {
   return line.self === true || (selfId !== null && selfId !== undefined && selfId !== '' && String(line.authorId) === String(selfId));
 }
 
-/** The options a body that is only a message reference (`#22`, an id, a link) fills, in order of preference. */
-const BODY_MESSAGE_OPTIONS = Object.freeze(['message', 'messageId']);
-
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS = Object.freeze(['file']);
-
-/** A whole errand file handle, as src/errands/store.js reads one. */
-const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
-
-/** The skills whose body is posted or stored as written: no option lines are read out of it. */
-const VERBATIM_BODY_SKILLS = Object.freeze(new Set(['message.create', 'message.edit', 'draw.create', 'rule.add', 'learning.add', 'lore.add']));
-
-/**
- * The option lines at the head of a verbatim body (a post, a stored text): consecutive first lines of the
- * form `name=value` / `name: value` whose name is one of `names` (the body argument `bodyArg` included: its
- * value becomes the first line of the rest). The first ordinary line ends the head; everything from it on
- * is `rest`, as written. A body that is head lines only stays as written (no options). A file handle line
- * ends the head. A name on two head lines is `twice`. Pure.
- * @param {string} body
- * @param {Iterable<string>} names
- * @param {string} bodyArg
- * @returns {{ options: Record<string, string>, rest: string, twice: string|null }}
- */
-export function leadingOptionLines(body, names, bodyArg) {
-  const known = new Set(names ?? []);
-  const lines = String(body ?? '').replace(BODY_BREAK_RE, '\n').split('\n');
-  const options = {};
-  let twice = null;
-  let lead = null;
-  let i = 0;
-  for (; i < lines.length; i += 1) {
-    // A whole file handle (`file:<task>/<name>`) is the attachment line, never a `file:` option.
-    if (FILE_HANDLE_RE.test(lines[i].trim())) break;
-    // A head line of quoted pairs only (`message="#59" emoji="x"`): each pair an option.
-    const pairLine = pairsAsArguments(quotedPairs(lines[i]), known);
-    if (pairLine) {
-      for (const [key, pairValue] of Object.entries(pairLine)) {
-        if (key === bodyArg) {
-          if (lead !== null) twice ??= key;
-          lead = pairValue;
-        } else if (Object.hasOwn(options, key)) twice ??= key;
-        else options[key] = pairValue;
-      }
-      continue;
-    }
-    const match = BODY_LINE_RE.exec(lines[i].trim());
-    const value = match ? match[2].trim() : '';
-    if (!match || !known.has(match[1]) || !value) break;
-    if (match[1] === bodyArg) {
-      if (lead !== null) twice ??= match[1];
-      lead = value;
-      continue;
-    }
-    if (Object.hasOwn(options, match[1])) twice ??= match[1];
-    else options[match[1]] = value;
-  }
-  // No head, or nothing but a head (a body of options alone is her text as written, unless it is the
-  // whole-body token form bodyTokens already read): the body stays.
-  if (i === 0 || i === lines.length) return { options: {}, rest: String(body ?? ''), twice: null };
-  const rest = [...(lead !== null ? [lead] : []), ...lines.slice(i)].join('\n').trim();
-  return { options, rest, twice };
-}
-
-/** The body arguments that take the attribute's text and a different body joined, a line break between: a question or a goal with a note beside it. */
-const JOINED_BODY_ARGS = Object.freeze(['question', 'query', 'goal']);
 
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
 const PEOPLE_LIST_SKILLS = Object.freeze(['intent.set', 'intent.update']);
-
-/**
- * The operations whose success is its own answer: a message or a picture that went out, and an
- * errand accepted (its id is in her `<tasks>` block from her next turn on; she does not wait).
- */
-export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create', 'task.run']);
 
 /** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
 const WRITTEN = Object.freeze(['message.create', 'message.edit']);
@@ -244,176 +175,12 @@ function fileMayGo(task, channelId, view) {
   return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
 }
 
-/** A line break written as an HTML tag in a call's body. */
-const BODY_BREAK_RE = /<br\s*\/?>/gi;
-/** One `<name>value</name>` at the start of what is left of a body. */
-const BODY_TAG_RE = /^<([A-Za-z][A-Za-z0-9_]*)>([\s\S]*?)<\/\1\s*>/;
-/** One `name: value` / `name = value` line at the start of what is left of a body. */
-const BODY_LINE_RE = /^([A-Za-z][A-Za-z0-9_]*)[ \t]*[:=]([^\n]*)/;
-
 /**
- * The options a body spells out on lines of their own among its text: lines `name: value` or
- * `name=value` whose name is one of `names` and not the body argument `bodyArg`; a name on two
- * lines is reported as `twice` (the caller refuses). `rest` is
- * the other lines, joined (a `<br>` read as a line break). Without such a line `rest` is the body
- * as it came. Pure.
- * @param {string} body
- * @param {Iterable<string>} names
- * @param {string} bodyArg
- * @returns {{ options: Record<string, string>, rest: string, twice: string|null }}
- */
-export function bodyOptionLines(body, names, bodyArg) {
-  const known = new Set(names ?? []);
-  known.delete(bodyArg);
-  const options = {};
-  const kept = [];
-  let twice = null;
-  for (const line of String(body ?? '').replace(BODY_BREAK_RE, '\n').split('\n')) {
-    const match = BODY_LINE_RE.exec(line.trim());
-    const value = match ? match[2].trim() : '';
-    // The `=` form takes one bare token or a quoted value, as bodyTokens does: `state=done and a note` is prose.
-    const prose = Boolean(match) && line.trim().charAt(match[1].length + (match[0].length - match[1].length - match[2].length - 1)) === '=' && /\s/.test(value) && !/^"[^"]*"$/.test(value);
-    if (!match || !known.has(match[1]) || !value || prose) {
-      kept.push(line);
-      continue;
-    }
-    if (Object.hasOwn(options, match[1])) twice ??= match[1];
-    else options[match[1]] = value;
-  }
-  if (Object.keys(options).length === 0) return { options, rest: String(body ?? ''), twice: null };
-  return { options, rest: kept.join('\n').trim(), twice };
-}
-
-/**
- * The arguments a call's body spells out when the model wrote them there instead of as
- * attributes: `{ name: value }` when the whole body (a `<br>` read as a line break, blank lines
- * left out) is `name: value` or `name = value` lines and `<name>value</name>` tags, every name one
- * of `names` (the command's option names) and given once, every value non-empty (trimmed); else
- * null -- any other line, an unknown or repeated name, or an empty body. Pure.
- * @param {string} body
- * @param {Iterable<string>} names
- * @returns {Record<string, string>|null}
- */
-export function bodyArguments(body, names) {
-  const known = new Set(names ?? []);
-  let rest = String(body ?? '').replace(BODY_BREAK_RE, '\n').trim();
-  if (!rest) return null;
-  const out = {};
-  while (rest) {
-    const match = BODY_TAG_RE.exec(rest) ?? BODY_LINE_RE.exec(rest);
-    if (!match) return null;
-    const [all, name, raw] = match;
-    const value = raw.trim();
-    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
-    out[name] = value;
-    rest = rest.slice(all.length).trim();
-  }
-  return out;
-}
-
-/** One `name=value` token: the value bare (no whitespace, no quote) or in double quotes. */
-const BODY_TOKEN_RE = /^([A-Za-z][A-Za-z0-9_]*)=(?:"([^"]*)"|([^\s"]+))/;
-
-/**
- * The arguments a call's body spells out as `name=value` tokens when the model wrote them there
- * instead of as attributes: `{ name: value }` when the whole body is one or more such tokens
- * separated by whitespace, every name one of `names` (the command's option names) and given once,
- * every value non-empty -- bare (no whitespace or double quote in it) or in double quotes (may
- * hold spaces); else null -- a bare word, a name alone, a sentence, an unknown or repeated name,
- * or an empty body. The line-shaped forms (`name: value`, `<name>value</name>`) are
- * bodyArguments'. Pure.
- * @param {string} body
- * @param {Iterable<string>} names
- * @returns {Record<string, string>|null}
- */
-export function bodyTokens(body, names) {
-  const known = new Set(names ?? []);
-  let rest = String(body ?? '').trim();
-  if (!rest) return null;
-  const out = {};
-  while (rest) {
-    const match = BODY_TOKEN_RE.exec(rest);
-    if (!match) return null;
-    const [all, name, quoted, bare] = match;
-    const value = quoted ?? bare;
-    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
-    out[name] = value;
-    rest = rest.slice(all.length);
-    if (rest && !/^\s/.test(rest)) return null;
-    rest = rest.trim();
-  }
-  return out;
-}
-
-/** One quoted `name="value"` / `name='value'` pair (spaces around `=` allowed). */
-const QUOTED_PAIR_RE = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/;
-
-/** `[name, value]` pairs when all of `text` is quoted pairs separated by whitespace; else null. */
-function quotedPairs(text) {
-  let rest = String(text ?? '').trim();
-  if (!rest) return null;
-  const pairs = [];
-  while (rest) {
-    const match = QUOTED_PAIR_RE.exec(rest);
-    if (!match) return null;
-    pairs.push([match[1], match[2] ?? match[3]]);
-    rest = rest.slice(match[0].length);
-    if (rest && !/^\s/.test(rest)) return null;
-    rest = rest.trim();
-  }
-  return pairs;
-}
-
-/** The pairs as `{ name: value }` when every name is known, given once, and every value non-empty; else null. */
-function pairsAsArguments(pairs, known) {
-  if (!pairs || pairs.length === 0) return null;
-  const out = {};
-  for (const [name, raw] of pairs) {
-    const value = String(raw ?? '').trim();
-    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
-    out[name] = value;
-  }
-  return out;
-}
-
-const ARGS_ELEMENT_RE = /^<args\b([^>]*?)\/?>(?:\s*<\/args\s*>)?$/i;
-const PARAM_ELEMENT_RE = /^<param\s+name\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:>([\s\S]*?)<\/param\s*>|value\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>)/i;
-
-/**
- * The arguments a call's body spells out as attribute-like markup when the model wrote them
- * there instead of on the tag: the whole body being quoted `name="value"` / `name='value'`
- * pairs, one `<args name="value" .../>` element, or `<param name="x">value</param>` elements.
- * `{ name: value }` when every name is one of `names`, given once, every value non-empty; else
- * null (any other text, an unknown or repeated name). Pure.
- * @param {string} body
- * @param {Iterable<string>} names
- * @returns {Record<string, string>|null}
- */
-export function bodyAttributes(body, names) {
-  const known = new Set(names ?? []);
-  const text = String(body ?? '').replace(BODY_BREAK_RE, '\n').trim();
-  if (!text) return null;
-  const element = ARGS_ELEMENT_RE.exec(text);
-  if (element) return pairsAsArguments(quotedPairs(element[1]), known);
-  if (text.startsWith('<')) {
-    const pairs = [];
-    let rest = text;
-    while (rest) {
-      const match = PARAM_ELEMENT_RE.exec(rest);
-      if (!match) return null;
-      pairs.push([match[1] ?? match[2], match[3] ?? match[4] ?? match[5] ?? '']);
-      rest = rest.slice(match[0].length).trim();
-    }
-    return pairsAsArguments(pairs, known);
-  }
-  return pairsAsArguments(quotedPairs(text), known);
-}
-
-/**
- * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
- * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
- * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, the
- * text given twice, a channel or role nobody has), `agent-required` (an errand without its agent),
+ * One call of the persona (`{ skill, args }`: a native tool call or a `<tool_call>` block, already
+ * arguments by name) as the arguments of the command behind the skill (`view.skills`: the
+ * registry), keyed by the command's option names, or the refusal:
+ * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, a
+ * channel or role nobody has), `agent-required` (an errand without its agent),
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, a message the record holds as deleted -- reason `message-deleted` -- or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
@@ -424,29 +191,10 @@ export function bodyAttributes(body, names) {
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
- * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
- * skill's body argument (`dispatch.body`, src/skills/definitions.js: an errand's `goal`, her
- * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
- * attribute too with a different text; the same text both ways, after trimming, is one value and
- * no refusal -- and the result names it (`bodyArg`) for the caller to log. Before that, a body
- * for such a command that is only `name=value` tokens (bodyTokens: names among the command's
- * options, none of them given as an attribute) is those arguments and no text at all; the result
- * counts them (`bodyArgs`) for the caller to log; a body with one of its names on the tag already,
- * or any other body, stays the text. For a command whose body is not posted or stored verbatim (VERBATIM_BODY_SKILLS; a question,
- * a query, a goal, a url), lines of the body that stand alone as `name: value` / `name=value` of the
- * command's other options are those options (bodyOptionLines; counted in `bodyArgs`; an attribute wins, a
- * name on two lines is `args.<name>:twice`) and the rest is the body; a `text` body stays as written. When the command
- * takes a `file` the call left out, an errand's file handle on a line of its own in that body
- * becomes the `file` and leaves the text (`fileFromBody: true`; an empty text is a file-only
- * post); two or more are refused `unknown-file` (`file:several`). An errand
+ * any other value -- a raw message id -- is passed on as written. An errand
  * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
- * name, comma-separated (the schema's choices). A non-empty body for a command
- * without a body option that spells out its options (bodyArguments: `name: value` lines,
- * `<name>value</name>` tags) gives those arguments, an attribute given explicitly winning; the
- * result counts the ones taken (`bodyArgs`) for the caller to log. Any other such body (her
- * comment on the call) is left out and the call goes on with its attributes; the result says so
- * (`bodyIgnored: true`) for the caller to log. Pure.
- * @param {{ skill: string, args: Record<string, string>, body: string }} call
+ * name, comma-separated (the schema's choices). Pure.
+ * @param {{ skill: string, args: Record<string, string> }} call
  * A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
  * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
@@ -455,7 +203,7 @@ export function bodyAttributes(body, names) {
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, dispatch: object, repliedAuthorId: string|null, bodyArg?: string, fileFromBody?: true, bodyIgnored?: true, bodyArgs?: number }
+ * @returns {{ ok: true, skill: string, args: object, dispatch: object, repliedAuthorId: string|null, channelFixed?: true }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -466,79 +214,6 @@ export function resolveCall(call, view) {
   const byName = new Map(dispatch.options.map((option) => [option.name, option]));
   const given = { ...(call?.args ?? {}) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused(CODE.INVALID_ARGS, `args.${key}:unknown`);
-  const body = typeof call?.body === 'string' ? call.body.trim() : '';
-  // A body where the command takes none: its options spelled out (an attribute wins), else her
-  // comment on the call, left out -- never a refusal.
-  let fromBody = body && !dispatch.body ? (bodyAttributes(body, byName.keys()) ?? bodyArguments(body, byName.keys())) : null;
-  // A body that is only a message (`#22`, an id, a link) for a command that takes one: that argument (like idOf for intent ids).
-  if (body && !dispatch.body && !fromBody) {
-    const target = BODY_MESSAGE_OPTIONS.find((option) => byName.has(option) && !Object.hasOwn(given, option));
-    if (target && (transcriptNumber(body) !== null || /^\d{15,25}$/.test(body) || MESSAGE_LINK_RE.test(body.replace(/^<(.*)>$/, '$1')))) fromBody = { [target]: body };
-  }
-  const bodyIgnored = Boolean(body) && !dispatch.body && !fromBody;
-  let bodyArgs = 0;
-  for (const [key, value] of Object.entries(fromBody ?? {})) {
-    if (Object.hasOwn(given, key)) continue;
-    given[key] = value;
-    bodyArgs += 1;
-  }
-  // A body where the command takes text that is only `name=value` tokens of options the tag
-  // left out: the arguments she meant (`state=done`), not a note; else the body is her text.
-  const tokens = body && dispatch.body ? (bodyAttributes(body, byName.keys()) ?? bodyTokens(body, byName.keys())) : null;
-  const fromTokens = tokens && !Object.keys(tokens).some((key) => Object.hasOwn(given, key)) ? tokens : null;
-  for (const [key, value] of Object.entries(fromTokens ?? {})) {
-    given[key] = value;
-    bodyArgs += 1;
-  }
-  // A body that is not posted or stored verbatim (a question, a query, a goal, a url, an intention's
-  // purpose): its options on lines of their own (`people: ...`, `due=1m`) are those options, the other
-  // lines the body. A post or a stored text (VERBATIM_BODY_SKILLS) stays as written.
-  let text = body;
-  if (body && dispatch.body && VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
-    // A post or a stored text keeps its body as written, except for option lines she put at its head
-    // (`channel=c2003`, `text=...` on lines of their own before the first ordinary line): those are the
-    // options, never her words; a `text=` line is the first line of the text, the rest follows it.
-    const led = leadingOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), dispatch.body);
-    if (led.twice) return refused(CODE.INVALID_ARGS, `args.${led.twice}:twice`);
-    for (const [key, value] of Object.entries(led.options)) {
-      given[key] = value;
-      bodyArgs += 1;
-    }
-    text = led.rest;
-  }
-  if (body && dispatch.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
-    // An option already on the tag keeps its line in the body (the attribute wins, the text stays as written).
-    const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), dispatch.body);
-    if (lined.twice) return refused(CODE.INVALID_ARGS, `args.${lined.twice}:twice`);
-    for (const [key, value] of Object.entries(lined.options)) {
-      if (Object.hasOwn(given, key)) continue;
-      given[key] = value;
-      bodyArgs += 1;
-    }
-    text = lined.rest;
-  }
-  const bodyText = Boolean(text) && Boolean(dispatch.body) && !fromTokens;
-  let fileFromBody = false;
-  if (bodyText) {
-    // The argument on the tag too: the same text is one value (the body's); a different one is her
-    // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
-    const attribute = Object.hasOwn(given, dispatch.body) ? String(given[dispatch.body] ?? '').trim() : null;
-    const joined = JOINED_BODY_ARGS.includes(dispatch.body);
-    if (attribute !== null && attribute !== text && !joined) return refused(CODE.INVALID_ARGS, `args.${dispatch.body}:twice`);
-    given[dispatch.body] = joined && attribute && attribute !== text ? `${attribute}\n${text}` : text;
-    // An errand's file handle on a line of its own there, the call giving no file: the attachment,
-    // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
-    if (byName.has('file') && !Object.hasOwn(given, 'file')) {
-      const lines = text.split('\n');
-      const handles = lines.filter((line) => FILE_HANDLE_RE.test(line.trim()));
-      if (handles.length > 1) return refused(CODE.UNKNOWN_FILE, 'file:several');
-      if (handles.length === 1) {
-        given.file = handles[0].trim();
-        given[dispatch.body] = lines.filter((line) => !FILE_HANDLE_RE.test(line.trim())).join('\n').trim();
-        fileFromBody = true;
-      }
-    }
-  }
   // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
   // the refusal she reads says which, never a bare missing argument.
   if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
@@ -675,7 +350,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
-  return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(bodyText ? { bodyArg: dispatch.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(bodyArgs > 0 ? { bodyArgs } : {}), ...(channelFixed ? { channelFixed: true } : {}) };
+  return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(channelFixed ? { channelFixed: true } : {}) };
 }
 
 /** The calls where the message's own channel wins over a `channel` that does not hold it. */
@@ -815,24 +490,6 @@ export async function executeCall(resolved, deps) {
   } catch (err) {
     return { status: 'failed', code: CODE.ERROR, error: err };
   }
-}
-
-/**
- * Whether the persona hears back about a call (one follow-up request with its `<result>`): an
- * operation that answered, unless it is a message or a picture that went out (QUIET_ON_OK: its
- * own answer); any call that did not succeed -- but never under the full stop (`skills-off`: she
- * is silent). In an addressed turn (`addressed`: someone's message started it) a successful
- * quiet call is seen too, in one step where she may answer or stay silent; a turn she began
- * herself (inner, diary, spontaneous) keeps the quiet outcome.
- * @param {string} skill
- * @param {{ status: string, code?: string, data?: { text?: string } }} result
- * @param {{ addressed?: boolean }} [options]
- * @returns {boolean}
- */
-export function needsFollowUp(skill, result, { addressed = false } = {}) {
-  if (result?.code === CODE.SKILLS_OFF) return false;
-  if (result?.status === 'ok') return (addressed && QUIET_ON_OK.includes(skill)) || (!QUIET_ON_OK.includes(skill) && Boolean(result.data?.text));
-  return true;
 }
 
 /** The rule of a schema path (src/skills/schema.js#schemaError, resolveCall) -> the kind of its detail. */

@@ -42,8 +42,7 @@
 //      capped by `context.around.maxTokens`
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
-// (the senses that read only the config, the skills protocol, the names of the
-// skills granted to the persona, `<self_facts>`,
+// (the senses that read only the config, her tools in text on the text transport, `<self_facts>`,
 // `<about_chat>`, `<gifs>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
 // else, with `<people_now>` (what is current about each person) right before the chat,
@@ -103,9 +102,7 @@ import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
-import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
-import { CODE, reasonText } from '../skills/codes.js';
-import { diagnosticLines } from './wake.js';
+import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../skills/discovery.js';
 import { inertThink } from './previous-think.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
@@ -1220,9 +1217,8 @@ function nowBlock(now, timezone, labels, periods) {
  * The user message's text parts from already-rendered blocks, in three cache
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
- * `<senses>` lines, `<skills_protocol>` (`protocol`: static, the same for
- * every grant), `<skills_granted>` (`granted`: the names of the skills granted
- * to the persona, changing only with a grant), `<self_facts>`, `<about_chat>`,
+ * `<senses>` lines, `<tools>` (`tools`: her tools described in text, the text
+ * transport only, changing only with a grant or a skill text), `<self_facts>`, `<about_chat>`,
  * `<gifs>`, `<channel_directory>` (`channelDirectory`: the channels with their handles, changing
  * only when a channel is added, removed or renamed), `<directory>` (`directory`: the people
  * directory, changing only with a member's names or aliases); the profiles
@@ -1245,15 +1241,11 @@ function nowBlock(now, timezone, labels, periods) {
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '', previousThink = '' }) {
+function assembleUser({ nowText, timezone, labels, senses, tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '', previousThink = '' }) {
   const stable = [
     block('senses', senses.stable),
-    // How the persona's skills reach her: static text, so a grant never changes this part.
-    block('skills_protocol', protocol),
-    // The names of the skills granted to her: changes only when a grant does.
-    block('skills_granted', granted),
-    // Her own tools with what they do (features.coreTools): changes only when a grant does.
-    block('skills_tools', tools),
+    // Her tools described in text (the text transport only; the native transport sends none): changes only when a grant or a skill text does.
+    block('tools', tools),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Held per cache bucket; which of them the persona posted lately is in the tail (`<gifs_recent>`).
@@ -1829,63 +1821,6 @@ function sensesWhole(senses) {
   return [senses.stable, senses.turn].filter(Boolean).join('\n');
 }
 
-/**
- * The `<skills_protocol>` body: `labels.skills.protocol` trimmed, '' when missing. Static on
- * purpose (the skills design): no skill row and no grant, so the stable part it sits in stays
- * byte-identical while the owner allows or denies skills.
- * @param {object} labels
- * @returns {string}
- */
-function skillsProtocolText(labels) {
-  const text = labels.skills?.protocol;
-  return typeof text === 'string' ? text.trim() : '';
-}
-
-// Notation of `<skills_granted>`: how the names of one family are joined.
-const GRANTED_NAME_SEPARATOR = ', ';
-
-/**
- * The `<skills_granted>` body: `labels.skills.granted.lead` (when set), then one
- * `labels.skills.granted.line` per family -- `{family}` the part of the name before its first dot,
- * `{names}` the rest of each name joined by ', ' (a name without a dot stands whole) -- the
- * families and names in the order given (src/skills/discovery.js#grantedSkillNames: sorted by
- * name). Names only: the detailed rows stay in `<skills>`. '' without a name or without
- * `labels.skills.granted.line`. Depends on nothing but `names` and the labels, so the stable part
- * it sits in stays byte-identical between turns until a grant changes.
- * @param {string[]|null|undefined} names
- * @param {object} labels
- * @returns {string}
- */
-function skillsGrantedText(names, labels) {
-  const l = labels.skills?.granted;
-  if (!Array.isArray(names) || !isPlainObject(l) || typeof l.line !== 'string' || !l.line) return '';
-  const groups = byFamily(names.filter((name) => typeof name === 'string' && name).map((name) => ({ name })));
-  if (groups.length === 0) return '';
-  const lines = groups.map((group) => {
-    const family = group[0].name.split('.')[0];
-    const rest = group.map(({ name }) => (name.includes('.') ? name.slice(name.indexOf('.') + 1) : name));
-    return fill(l.line, { family, names: rest.join(GRANTED_NAME_SEPARATOR) });
-  });
-  const lead = typeof l.lead === 'string' ? l.lead.trim() : '';
-  return [lead, ...lines].filter(Boolean).join('\n');
-}
-
-/**
- * The `<skills_tools>` body (features.coreTools): `labels.skills.tools.lead` (when set), then the
- * rows of her own tools as `<skills>` shows rows (skillsInventoryText: title, when to use,
- * arguments). '' without a row or without `labels.skills.line`. Depends on her grants and the
- * skill texts only, so the stable part it sits in stays the same between turns.
- * @param {object[]|null|undefined} rows
- * @param {object} labels
- * @returns {string}
- */
-function skillsToolsText(rows, labels) {
-  const body = skillsInventoryText(Array.isArray(rows) ? rows.map((row) => ({ ...row, allowed: true, reason: 'allowed' })) : [], labels);
-  if (!body) return '';
-  const lead = typeof labels.skills?.tools?.lead === 'string' ? labels.skills.tools.lead.trim() : '';
-  return [lead, body].filter(Boolean).join('\n');
-}
-
 // Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
 const ARG_VALUE_SEPARATOR = '|';
 const ARG_VALUES_MORE = '…';
@@ -1895,7 +1830,7 @@ const ARG_VALUES_MORE = '…';
  * (src/skills/discovery.js#skillArgs, in their order) joined by ', ', each its name wrapped in
  * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
  * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
- * `forms.body` (`{arg}`) for the option a `<call>` body fills, then `forms.required` (`{arg}`);
+ * `forms.required` (`{arg}`);
  * a form the labels lack leaves the text as it was. '' without arguments or without `forms.list`.
  * @param {object[]|undefined} args
  * @param {object|undefined} forms  `labels.skills.args`.
@@ -1911,7 +1846,6 @@ function skillArgsText(args, forms) {
     } else if (Number.isFinite(arg.minimum) || Number.isFinite(arg.maximum)) {
       text = wrap('range', text, { min: Number.isFinite(arg.minimum) ? arg.minimum : '', max: Number.isFinite(arg.maximum) ? arg.maximum : '' });
     }
-    if (arg.body === true) text = wrap('body', text);
     if (arg.required === true) text = wrap('required', text);
     return text;
   };
@@ -1950,96 +1884,6 @@ export function skillsInventoryText(rows, labels) {
   const offLine = note(l.proposedOff, closed.filter((row) => row.reason !== 'requester-denied'));
   const deniedLine = note(l.proposedDenied, closed.filter((row) => row.reason === 'requester-denied'));
   return [open.join('\n\n'), offLine, deniedLine].filter(Boolean).join('\n');
-}
-
-/** The status words of a `<result>` block (src/skills/executors.js#RESULT_STATUSES; `refused` the old word for `denied`). */
-const RESULT_STATUSES = new Set(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed', 'refused']);
-
-/** The label a status without its own `labels.skills.result.<status>` is told with. */
-const RESULT_LABEL_FALLBACK = Object.freeze({ denied: 'refused', invalid: 'refused', not_configured: 'failed', partial: 'failed' });
-
-/**
- * The `<result skill="<name>" status="<status>">` block of the one follow-up request after a
- * skill call (src/behavior/turn.js): `labels.skills.result[<status>]` (else the nearest label,
- * RESULT_LABEL_FALLBACK) with `{reason}` filled
- * by `labels.skills.result.reasons[<code>]` (else `.reasons.other`, else the code itself), then
- * the call's data when it has any -- `data.text` (a read's answer, or what an operation answered,
- * its error or refusal included), or `data.rows` as skillsInventoryText renders the catalogue --
- * cut to `maxChars` (clampWithEllipsis). Before all that, one
- * `labels.skills.result.alreadyPosted` line (`{text}`) per item of `posted`: what the persona
- * already posted this turn (none without that label). '' for no result. Every word from the
- * labels; the skill name and status are protocol tokens.
- * @param {{ skill: string, status: string, code?: string|null, data?: { text?: string, rows?: object[] }|null }} result
- * @param {object} labels
- * @param {{ maxChars?: number, posted?: string[] }} [options]
- * @returns {string}
- */
-export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] } = {}) {
-  if (!result || typeof result.skill !== 'string') return '';
-  const status = RESULT_STATUSES.has(result.status) ? result.status : 'failed';
-  const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
-  const reasons = isPlainObject(words.reasons) ? words.reasons : {};
-  const code = typeof result.code === 'string' && result.code ? result.code : '';
-  // A deleted message is its own reason of `unknown-message` (the machine reason names it).
-  // The same words and values as the call mark (src/skills/codes.js#reasonText); a code without them falls to `other`, then the code itself.
-  const worded = (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ?? reasonText(labels, code, result.values, fill);
-  const reason = worded ?? reasons.other ?? code;
-  const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
-  // A reason with its own values (`result.values`: the status a search engine answered with) is filled with them.
-  const lead = typeof word === 'string' ? fill(word, { reason }) : '';
-  let data = '';
-  if (result.data) {
-    data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
-    if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
-  }
-  // The skill's full description when this call is the first of a skill outside `<skills_tools>` (result.teach: its row), and
-  // a note when the body was left out; both come before the call's own answer.
-  const teachRow = result.teach && typeof result.teach === 'object' ? [{ ...result.teach.row, allowed: true, reason: 'allowed' }] : [];
-  const taught = teachRow.length > 0 ? skillsInventoryText(teachRow, labels) : '';
-  const notes = [
-    result.bodyIgnored === true && typeof words.bodyIgnored === 'string' ? words.bodyIgnored : '',
-    result.teach?.first === true && typeof words.described === 'string' ? words.described : '',
-  ].filter(Boolean);
-  const description = taught ? [...notes, taught].join('\n') : '';
-  const said = typeof words.alreadyPosted === 'string' && words.alreadyPosted
-    ? (Array.isArray(posted) ? posted : []).filter((text) => typeof text === 'string' && text).map((text) => fill(words.alreadyPosted, { text }))
-    : [];
-  const body = [...said, description, [lead, data].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
-  return `<result skill="${result.skill}" status="${status}">\n${body}\n</result>`;
-}
-
-/**
- * The reply request `messages` (system, user) once more with `resultBlock` in its tail: right
- * before the `<task>` block of the user message's last text part, else at that part's end. The
- * parts before it -- the cached ones -- are untouched, so the follow-up reuses the provider's
- * prompt cache. A fresh array; `messages` is not changed.
- * @param {{ role: string, content: string|object[] }[]} messages
- * @param {string} resultBlock
- * @returns {{ role: string, content: string|object[] }[]}
- */
-export function withSkillResult(messages, resultBlock) {
-  if (!resultBlock || !Array.isArray(messages) || messages.length < 2) return messages;
-  const insert = (text) => {
-    const at = text.lastIndexOf('<task>\n');
-    return at === -1 ? `${text}\n\n${resultBlock}` : `${text.slice(0, at)}${resultBlock}\n\n${text.slice(at)}`;
-  };
-  const user = messages[1];
-  let content;
-  if (typeof user.content === 'string') content = insert(user.content);
-  else {
-    const parts = [...user.content];
-    let last = -1;
-    for (let i = parts.length - 1; i >= 0; i -= 1) {
-      if (parts[i]?.type === 'text') {
-        last = i;
-        break;
-      }
-    }
-    if (last === -1) parts.push({ type: 'text', text: resultBlock });
-    else parts[last] = { ...parts[last], text: insert(parts[last].text) };
-    content = parts;
-  }
-  return [messages[0], { ...user, content }, ...messages.slice(2)];
 }
 
 const ASKED_ABOUT_SCAN_MESSAGES = 5;
@@ -2827,25 +2671,6 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
 }
 
 /**
- * Whether the one request after a skill call continues the turn (buildRequest's `continuation`:
- * the turn's history as it stands now with the call's mark on her line, `labels.task.continue`)
- * rather than repeating the reply request with a `<result>` block that lists what she already
- * posted: `features.followUpContinuation` on (a missing key counts as on), the call marks on
- * (`features.callMarkers`, a missing key counts as on; `labels.transcript.called` set: the mark is
- * how she reads the outcome) and `labels.task.continue` set. Pure.
- * @param {object} config  The live config, read by the caller now.
- * @param {object} labels  The labels the request is built with.
- * @returns {boolean}
- */
-export function continuesTurn(config, labels) {
-  const features = config?.features ?? {};
-  if (features.followUpContinuation === false || features.callMarkers === false) return false;
-  const task = labels?.task?.continue;
-  const called = labels?.transcript?.called;
-  return typeof task === 'string' && task.trim() !== '' && typeof called === 'string' && called !== '';
-}
-
-/**
  * What of the chat window entered a turn's request, for the journal: the ids of the kept
  * transcript lines (oldest first), of the reply parents among them (prepended to the window
  * from outside it, `replyParent: true`) and of the kept messages whose text attachment was
@@ -2869,31 +2694,6 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
         .map((message) => message.id),
     },
   };
-}
-
-/**
- * `text` without every sentence that holds `placeholder`: from the start of the text, of its
- * line or after the previous sentence end (`.`, `!`, `?` and the space after it) up to and
- * including the sentence's own end and the space after it. A label's optional sentence (the
- * continuation's `{channel}`) goes whole when its value is missing. Pure.
- * @param {string} text
- * @param {string} placeholder
- * @returns {string}
- */
-export function withoutSentenceOf(text, placeholder) {
-  if (typeof text !== 'string' || !text.includes(placeholder)) return text;
-  const token = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // lead: the text start, a line break or the previous sentence's end; tail: the sentence's own
-  // end with the space or line break after it, or the text's end.
-  const re = new RegExp(`(^|\\n|[.!?][ \\t]+)[^.!?\\n]*${token}[^.!?\\n]*([.!?]+[ \\t]*\\n?|$)`, 'gu');
-  return text.replace(re, (all, lead, tail) => {
-    // A sentence on its own line goes with its line; one at the very end takes the space before it.
-    if (lead === '') return '';
-    if (lead === '\n') return '\n';
-    if (tail === '') return lead.trimEnd();
-    // After another sentence: that sentence keeps its end, and a line break after the dropped one stays.
-    return tail.endsWith('\n') ? `${lead.trimEnd()}\n` : lead;
-  });
 }
 
 /**
@@ -2996,8 +2796,6 @@ export function withoutSentenceOf(text, placeholder) {
  *   renders, right after the web search line, only when it is true (and never in a private chat).
  * @param {{ spent: boolean, userSpent: boolean }} [input.drawQuota]  The image client's
  *   quota for this turn (src/llm/images.js#quota); omitted -> no drawing line in `<senses>`.
- * @param {string} [input.drawReason]  For `triggerKind: 'drawFailed'`: the failure reason,
- *   rendered through `labels.draw.reasons` into `labels.triggers.drawFailed`'s `{reason}`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
  *   guild's custom emoji (interfaces/discord/emoji.js#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
@@ -3122,23 +2920,16 @@ export function withoutSentenceOf(text, placeholder) {
  *   (src/skills/gateway.js#listSkills), given on a turn whose question was what she can do (the
  *   classifier's `skills: inventory`): `<skills>` in the tail right before `<chat>`, one
  *   `labels.skills.line` per row (skillsInventoryText), budget section `skills` (one piece,
- *   after `found`). Whatever the input, with `features.skills` and `features.skillsDiscovery`
- *   on (a missing key counts as on) the stable part carries `<skills_protocol>`
- *   (`labels.skills.protocol`, fixed, never cut, static: the same for every grant); with either
- *   off neither block renders. Omitted or null -> no `<skills>`.
- * @param {string[]|null} [input.skillsGranted]  The names of the skills granted to the persona
- *   (src/skills/discovery.js#grantedSkillNames: her grants and the registry only, sorted), on
- *   every turn: with `features.skillsAlwaysListed` on as well (a missing key counts as on;
- *   src/skills/discovery.js#alwaysListedOn) `<skills_granted>` in the stable part right after
- *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
- *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
- *   -> no block.
- * @param {{ name: string, title: string, whenToUse: string, args?: object[] }[]|null} [input.skillsTools]
- *   Her own tools in full, granted to her (src/skills/discovery.js#coreToolRows: the in-turn tools
- *   `task.run`, and the intent skills, her grants and the registry only): with `features.coreTools` exactly true and
- *   discovery on, `<skills_tools>` in the stable part right after `<skills_granted>` --
- *   `labels.skills.tools.lead`, then one `labels.skills.line` per row (skillsInventoryText),
- *   fixed, never cut. Omitted, null or empty -> no block.
+ *   after `found`). Omitted or null -> no `<skills>`.
+ * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
+ *   (src/skills/discovery.js#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
+ *   `media.look`, `memory.search`) matter here, to `<senses>` under `features.coreTools` (the search
+ *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
+ * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text
+ *   transport only: in the stable part where the three skills blocks used to stand, fixed, never cut.
+ *   Omitted, null or '' -> no block (the native transport sends the tools as a request field).
+ * @param {number|null} [input.toolsTokens]  The calibrated tokens the request's `tools` field costs
+ *   (the native transport): taken off the room the sections share, so the request stays under the cap.
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
  *   The live glance at the server's sidebar (interfaces/discord/around.js): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
@@ -3177,15 +2968,6 @@ export function withoutSentenceOf(text, placeholder) {
  * @param {{ text: string, relation: 'same'|'earlier', ageMs?: number }|null} [input.previousThink]  Her one
  *   previous think (src/behavior/previous-think.js, chosen by the turn under features.previousThink): in
  *   the tail right after `<places>`, paid for with the fixed part and never cut; null leaves it out.
- * @param {{ skill: string, label?: string, open?: string }|null} [input.continuation]  The same turn continued after the
- *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
- *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
- *   call's mark), and its task text is `labels.task.continue` (or `labels.task[<label>]`, the tool
- *   loop's, when it is set) with `{skill}` filled -- and `{open}`, an inner turn's open-intentions
- *   line (`open`; the placeholder and its line break are dropped when it is '') --, alone -- no
- *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
- *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
- *   missing or blank) -> the task as usual.
  * @param {Map<string, object>|null} [input.stableFreeze]  The caller's long-lived holder of what
  *   the stable part shows from memory (src/behavior/turn.js keeps one per guild): with
  *   `features.promptCache` exactly true, `<self_facts>` (and `<gifs>`) render as they were at the
@@ -3345,8 +3127,7 @@ export function buildRequest(input) {
   };
 
   const nameFill = (text) => fillPromptTemplate(text, { name: selfName });
-  // format.md also names the brief limit: `{{drawChars}}` is the live image.maxPromptChars (1600 = config.json).
-  const formatFill = (text) => nameFill(fillPromptTemplate(text, { drawChars: config.image?.maxPromptChars ?? 1600 }));
+  const formatFill = nameFill;
   const system = [
     nameFill(prompts['system-prompt']),
     nameFill(prompts['character-card']),
@@ -3433,17 +3214,12 @@ export function buildRequest(input) {
   // A follow-up (triggerKind: 'followUp') falls back to labels.triggers.reply
   // when an older labels.json has no dedicated label yet -- see prompt-contract.md.
   // An overheard line (triggerKind: 'overheard') falls back to the follow-up's label, then reply's.
-  // A failed drawing (triggerKind: 'drawFailed') names its reason through labels.draw.reasons.
   const overheard = triggerKind === 'overheard';
-  const rawTriggerLabel = overheard
+  const triggerLabel = overheard
     ? (labels.triggers?.overheard ?? labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
     : triggerKind === 'followUp'
       ? (labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
       : (labels.triggers?.[triggerKind] ?? '');
-  const triggerLabel =
-    triggerKind === 'drawFailed'
-      ? fill(rawTriggerLabel, { reason: labels.draw?.reasons?.[input.drawReason] ?? input.drawReason ?? '' })
-      : rawTriggerLabel;
   // A turn about another channel (routed or noticed) names both channels in its task: the
   // source, and this one, where the words go (its live name first).
   const sourceChannel = source ? (offered.find((channel) => channel.channelId === source.channelId) ?? null) : null;
@@ -3481,31 +3257,9 @@ export function buildRequest(input) {
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
   const tasksText = renderTasks(input.tasks, labels, { chatItems, now });
-  // The same turn continued after the persona's skill call: its own task text, alone.
-  // The tool loop (features.coreTools) names its own task label (`labels.task[<label>]`); a
-  // label missing or blank falls back to `labels.task.continue`.
-  const loopLabel = typeof input.continuation?.label === 'string' ? labels.task?.[input.continuation.label] : undefined;
-  const continueLabel = typeof loopLabel === 'string' && loopLabel.trim() ? loopLabel : labels.task?.continue;
-  // An inner turn's open-intentions line (`{open}`, src/behavior/turn.js#openIntentionsText):
-  // the placeholder and the line break before it go when the line is empty. `{channel}`: the
-  // handle of the conversation the turn runs in as `<channel_directory>` shows it (`#` included);
-  // without one (handles off, a channel the directory does not list, a private chat) the
-  // sentence holding the placeholder goes whole.
-  const openLine = typeof input.continuation?.open === 'string' ? input.continuation.open : '';
-  const ownHandle = channelHandleById && currentChannelId !== null ? channelHandleById.get(String(currentChannelId)) : undefined;
-  const channelToken = ownHandle ? `#${ownHandle}` : '';
-  let continueTemplate = typeof continueLabel === 'string' && !openLine ? continueLabel.replace(/[ \t]*\n?[ \t]*\{open\}/g, '') : continueLabel;
-  if (typeof continueTemplate === 'string' && !channelToken) continueTemplate = withoutSentenceOf(continueTemplate, '{channel}');
-  // The calls dropped by the per-step bound since the last step, said once in the step that follows (`labels.task.callsDropped`: `{count}`, `{why}`).
-  const droppedLine = input.continuation?.dropped && typeof labels.task?.callsDropped === 'string' && labels.task.callsDropped.trim() ? fill(labels.task.callsDropped, { count: String(input.continuation.dropped.count ?? 0), why: String(input.continuation.dropped.why ?? '') }) : '';
-  // What the parser did with her last answer that she may not know (a call it could not read, a call cut out of a message, a message cut or joined): said once, in the step that follows.
-  const diagnosticsBlock = diagnosticLines(input.continuation?.diagnostics, labels).join('\n');
-  const continueTask =
-    input.continuation && typeof continueTemplate === 'string' && continueTemplate.trim() ? [fill(continueTemplate, { skill: input.continuation.skill ?? '', open: openLine, channel: channelToken }), droppedLine, diagnosticsBlock].filter(Boolean).join('\n') : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {
-    if (continueTask) return continueTask;
     const callItem = chatTrigger ?? (callShown ? pulledTrigger : null);
     const taskValues = {
       name: selfName,
@@ -3538,7 +3292,7 @@ export function buildRequest(input) {
     searchAvailable: input.searchAvailable === true,
     recallAvailable: input.recallAvailable === true,
     // Her own in-turn tools granted to her (features.coreTools): the search lines say she calls them.
-    toolsGranted: Array.isArray(input.skillsGranted) ? input.skillsGranted.filter((name) => IN_TURN_TOOLS.includes(name)) : [],
+    toolsGranted: Array.isArray(input.toolsGranted) ? input.toolsGranted.filter((name) => IN_TURN_TOOLS.includes(name)) : [],
     drawQuota: input.drawQuota,
     privateChat,
     customEmoji: customEmoji.length > 0,
@@ -3551,16 +3305,11 @@ export function buildRequest(input) {
     participation: participationOffered,
   };
   let senses = renderSenses(config, labels, sensesOptions);
-  // The persona's skills (features.skills and features.skillsDiscovery, read now): the protocol,
-  // static, in the stable part; the catalogue with her access only on a turn whose question was
-  // what she can do (`skillsInventory`), in the tail.
+  // The persona's skills (features.skills and features.skillsDiscovery, read now): the catalogue
+  // with her access only on a turn whose question was what she can do (`skillsInventory`), in the
+  // tail. Her tools travel as the request's `tools` (or, on the text transport, as `<tools>`).
   const skillsShown = discoveryOn(config);
-  const protocolText = skillsShown ? skillsProtocolText(labels) : '';
-  // The names of the skills granted to her, on every turn (features.skillsAlwaysListed): in the
-  // stable part, so they hang on her grants only.
-  const grantedText = alwaysListedOn(config) ? skillsGrantedText(input.skillsGranted, labels) : '';
-  // Her own tools in full (features.coreTools, no classifier to name them): in the stable part too.
-  const toolsText = skillsShown && config.features?.coreTools === true ? skillsToolsText(input.skillsTools, labels) : '';
+  const toolsText = typeof input.toolsBlock === 'string' ? input.toolsBlock.trim() : '';
   const inventoryText = skillsShown ? skillsInventoryText(input.skillsInventory, labels) : '';
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
@@ -3601,7 +3350,15 @@ export function buildRequest(input) {
   const previousThinkText = previousThinkBody(input.previousThink, labels);
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
-  const limit = requestTokenLimit(config) - TAG_OVERHEAD;
+  // The room the sections share: the cap less the tag overhead, what the request's tools field costs (native) and,
+  // when tools are exposed on either transport, the step reserve (`skills.loop.stepReserveTokens`): the room the
+  // continuation request after a call needs for her answer, the results and the note.
+  const toolsTokens = Number.isFinite(input.toolsTokens) && input.toolsTokens > 0 ? Math.floor(input.toolsTokens) : 0;
+  const toolsExposed = toolsTokens > 0 || (typeof input.toolsBlock === 'string' && input.toolsBlock.trim() !== '');
+  const reserveRaw = config.skills?.loop?.stepReserveTokens;
+  const stepReserve = toolsExposed && Number.isFinite(reserveRaw) && reserveRaw > 0 ? Math.floor(reserveRaw) : 0;
+  // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x llm.safetyMargin). The output budget is separate.
+  const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).
@@ -3657,9 +3414,9 @@ export function buildRequest(input) {
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
+    // Her tools in text (the text transport), the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText, previousThinkText].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText, previousThinkText].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -4251,7 +4008,7 @@ export function buildRequest(input) {
   const seen = seenOf({ history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
+  const user = assembleUser({ nowText, timezone, labels, senses, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
 
   return {
     messages: [

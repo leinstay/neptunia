@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CATALOGUE, CODE, FEATURE, INVALID_CODES, WHAT, codesOf, httpCode, isCode, normalCode, reasonText } from '../src/skills/codes.js';
 import { fill, formatTranscript, withCalls } from '../src/format.js';
-import { skillResultBlock } from '../src/behavior/prompt.js';
+import { toolResultText } from '../src/skills/tool-calls.js';
 import { refusalStatus } from '../src/skills/executors.js';
 import { callMarksOf } from '../src/memory/journal.js';
 import { catalogueProblems, renderCodesTable } from '../tools/lib/labels-catalogue.mjs';
@@ -124,7 +124,7 @@ test('codes: no code of the catalogue reaches reasons.other, in the mark or in t
     // `error` is the generic failure: its words may be the fallback's.
     if (code !== CODE.ERROR) assert.notEqual(text, other, code);
     assert.ok(!/\{\w+\}/.test(text), `${code}: ${text}`);
-    const block = skillResultBlock({ skill: 'message.create', status: CATALOGUE[code].status, code, values }, shipped);
+    const block = toolResultText({ skill: 'message.create', status: CATALOGUE[code].status, code, values }, shipped);
     assert.ok(block.includes(text), `${code}: ${block}`);
   }
 });
@@ -175,7 +175,7 @@ test('the call mark and the <result> block word a parameterised code alike, also
   for (const { code, status, values } of cases) {
     const said = reasonText(shipped, code, values ?? {}, fill);
     assert.ok(said, code);
-    const block = skillResultBlock({ skill: 'web.read', status, code, ...(values ? { values } : {}) }, shipped);
+    const block = toolResultText({ skill: 'web.read', status, code, ...(values ? { values } : {}) }, shipped);
     assert.ok(block.includes(said), `${code}: ${block}`);
     const live = markText(shipped, { status, detail: { kind: code, code, arg: null, ...(values ? { fields: values } : {}) } });
     assert.ok(live.includes(said), `${code}: ${live}`);

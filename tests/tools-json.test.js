@@ -54,3 +54,12 @@ test('skillNameOfToolCall: the dotted name back, null when unknown', () => {
   assert.equal(skillNameOfToolCall('nothing_here'), null);
   assert.equal(skillNameOfToolCall(undefined), null);
 });
+
+test('buildTools: the fill option replaces {{key}} in descriptions and argument texts, and leaves other placeholders', () => {
+  const marked = { 'web.search': { title: 'Up to {{n}} chars {{other}}', args: { query: 'At most {{n}}.' } } };
+  const [tool] = buildTools(['web.search'], { registry, texts: marked, fill: { n: 1600 } });
+  assert.equal(tool.function.description, 'Up to 1600 chars {{other}}');
+  assert.equal(tool.function.parameters.properties.query.description, 'At most 1600.');
+  const [plain] = buildTools(['web.search'], { registry, texts: marked });
+  assert.equal(plain.function.description, 'Up to {{n}} chars {{other}}');
+});

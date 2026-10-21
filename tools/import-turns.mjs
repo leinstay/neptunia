@@ -12,7 +12,8 @@
 //      line of prompts/system-prompt.md as the live layers have it, rendered with `--name` or the
 //      backfill's saved name, or `--reply-prefix`) and whose output holds an action tag; the rest
 //      (analyzer batches, warmup, portraits, ...) is counted by the start of its system prompt;
-//   2. parses a reply turn's output with the live parser (src/llm/parse.js#parseOutput);
+//   2. parses a reply turn's output with the live parser (src/llm/parse.js#parseOutput); an old output
+//      holding `<call>` or `<draw>` is read as text (the retired tags are cut out and counted, never acted on);
 //   3. matches its `<msg>` texts to her posted messages in the record (`said` lines, and `seen`
 //      lines by her own id when the backfill saved it), every channel and private record, posted
 //      within [created_at, created_at + generation time + --slack-min] (tools/lib/import-turns.mjs
@@ -470,7 +471,7 @@ export async function main(argv, {
       otherKinds.set(kind, (otherKinds.get(kind) ?? 0) + 1);
       continue;
     }
-    const parsed = parseOutput(entry.output, { maxDrawChars: hot.config?.image?.maxPromptChars ?? 1600 });
+    const parsed = parseOutput(entry.output);
     replies.push({ gen, entry: { ...entry, createdAt: new Date(gen.createdAt).toISOString() }, parsed });
   }
 

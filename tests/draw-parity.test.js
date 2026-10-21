@@ -1,6 +1,6 @@
 // The "before" record of every picture the persona draws: the exact `{ prompt, reference,
 // userId }` each call site hands to the image client (src/llm/images.js#createImageGen's
-// `generate`) -- a reply turn's `<draw>`, a diary post's single picture, a diary set's pictures,
+// `generate`) -- a reply turn's draw.create call, a diary post's single picture, a diary set's pictures,
 // and `/nep draw` with `self`. Asserted at the image-client boundary only, with literal
 // expectations: wherever the prompt building, the avatar fetch or the caps move, these calls must
 // stay byte for byte the same. Fake clock, fake prompts and labels, a fake avatar reference, a
@@ -13,6 +13,7 @@ import { familyOf } from '../src/llm/images.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -182,10 +183,13 @@ function store() {
 
 /** An LLM answering the diary plan with `plan` and every other request with `post`. */
 function llm(post, plan = null) {
+  let composed = 0;
   return {
     complete: async (_messages, opts) => {
       if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
-      return { text: post, usage: {}, estimated: 10 };
+      const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
+      composed += 1;
+      return completionOf(answer);
     },
   };
 }
@@ -207,14 +211,14 @@ function runner({ answer, plan = null, images }) {
   });
 }
 
-test('draw parity: a reply turn\'s <draw> asked by a member', async () => {
+test('draw parity: a reply turn\'s draw.create call asked by a member', async () => {
   const images = recordingImages();
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Eléna', content: 'draw a lighthouse', ts: NOW - 1000 });
   const trigger = {
     id: raw.id, channelId: raw.channelId, authorId: 'u1', authorName: 'Eléna', self: false, bot: false,
     content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [],
   };
-  const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse at dusk, waves below</draw>', images });
+  const turns = runner({ answer: toolAnswer('<msg>one sec</msg>', [call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' })]), images });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('c1', 'general', [raw]), mode: 'reply', trigger, triggerKind: 'mention' }));
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
@@ -229,7 +233,7 @@ test('draw parity: a reply turn\'s <draw> asked by a member', async () => {
 test('draw parity: a diary post\'s single self picture', async () => {
   const images = recordingImages();
   const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
-  const turns = runner({ answer: '<msg>early start</msg><draw self="yes">me on a pier at dawn, fog</draw>', plan, images });
+  const turns = runner({ answer: toolAnswer('<msg>early start</msg>', [call('draw.create', { text: 'me on a pier at dawn, fog', self: true })]), plan, images });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
@@ -244,7 +248,7 @@ test('draw parity: a diary post\'s single self picture', async () => {
 test('draw parity: a diary set\'s pictures, the persona in the first one only', async () => {
   const images = recordingImages();
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
-  const answer = '<msg>a walk</msg><draw self="yes">me at the harbour gate</draw><draw>boats in the harbour</draw><draw>a café terrace</draw>';
+  const answer = toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]);
   const turns = runner({ answer, plan, images });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');

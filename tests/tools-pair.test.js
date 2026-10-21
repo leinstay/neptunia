@@ -31,14 +31,16 @@ test('pair: renderSheet shows both answers unlabelled, escaped, and sheetPairIds
     {
       id: 'p1',
       context: [{ author: 'Ζωή', text: 'hello <b>there</b>' }],
-      first: { messages: ['side one'], reactions: [], gif: null, draw: null, skip: false },
-      second: { messages: [], reactions: [{ emoji: 'wave' }], gif: null, draw: null, skip: false },
+      first: { messages: ['side one'], reactions: [], gif: null, drawings: [], posts: [], skip: false },
+      second: { messages: [], reactions: [{ emoji: 'wave' }], gif: null, drawings: [{ text: 'a cat <i>on</i> a roof' }], posts: [{ text: 'posted elsewhere' }], skip: false },
     },
     { id: 'p"2', context: [], first: null, second: { messages: [], reactions: [], skip: true } },
   ]);
   assert.ok(html.includes('hello &lt;b&gt;there&lt;/b&gt;'));
   assert.ok(html.includes('side one'));
   assert.ok(html.includes('reaction: wave'));
+  assert.ok(html.includes('drawing: a cat &lt;i&gt;on&lt;/i&gt; a roof'), 'a picture she drew (her draw.create call) is shown');
+  assert.ok(html.includes('posted: posted elsewhere'), 'so is the text of a message call');
   assert.ok(html.includes('(stays silent)'));
   assert.ok(html.includes('(no answer: the request failed)'));
   // Blind: nothing on the sheet names a side.

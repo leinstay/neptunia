@@ -73,7 +73,7 @@ The persona's skills are the same operations behind `/nep` commands. Every skill
 
 A group name or `*` stores the read operations under it, one entry each, the same rule as for people. A write must be granted by its exact name.
 
-**Carried over (current conversation only):** the persona's normal reply tags (`<msg>`, `<react>`, `<draw>`) count as `message.create`, `message.react.add` and `draw.create` in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
+**Carried over (current conversation only):** the persona's normal reply (the speech tags `<msg>` and `<react>`, and the `message.create`, `message.react.add` and `draw.create` tools) counts in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
 
 **Not grantable to the persona:** `memory.wipe`, `memory.private.purge`, `memory.forget`, `memory.private.forget`, `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop`, `inner.start`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
 

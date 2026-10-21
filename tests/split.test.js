@@ -41,9 +41,8 @@ test('splitCandidate: a direct call of every kind with structured text is a cand
   }
 });
 
-test('splitCandidate: an overheard line, an unprompted turn and a drawFailed turn never are', () => {
+test('splitCandidate: an overheard line and an unprompted turn never are', () => {
   assert.equal(splitCandidate({ content: LONG }, 'overheard', config()), false);
-  assert.equal(splitCandidate({ content: LONG }, 'drawFailed', config()), false);
   assert.equal(splitCandidate(null, null, config()), false);
 });
 

@@ -321,3 +321,36 @@ test('replay: a stored dump that had tools gets its definitions back from the by
   assert.equal('toolDefinitions' in storedDumps(journalDir, 't-2')[0].dump, false);
   assert.equal('toolDefinitions' in storedDumps(journalDir, 't-3')[0].dump, false);
 });
+
+test('replay: a stored dump\'s later messages are shown as role, tool_calls and tool_call_id', () => {
+  const journalDir = tempDir('nep-replay-dump-later-');
+  const day = path.join(journalDir, 'requests', '2026-10-20');
+  fs.mkdirSync(day, { recursive: true });
+  const calls = [{ id: 'call_1', type: 'function', function: { name: 'x', arguments: '{}' } }];
+  fs.writeFileSync(path.join(day, 't-1-1-s1.json'), JSON.stringify({ later: [
+    { role: 'assistant', content: 'a', tool_calls: calls },
+    { role: 'tool', tool_call_id: 'call_1', content: 'r' },
+    { role: 'user', content: 'n' },
+  ] }));
+  fs.writeFileSync(path.join(day, 't-1-1.json'), JSON.stringify({ raw: 'x' }));
+  const [base, step] = storedDumps(journalDir, 't-1', { steps: true });
+  assert.equal('later' in base.dump, false);
+  assert.deepEqual(step.dump.later, [
+    { role: 'assistant', tool_calls: calls, content: 'a' },
+    { role: 'tool', tool_call_id: 'call_1', content: 'r' },
+    { role: 'user', content: 'n' },
+  ]);
+});
+
+test('replay: recordingLlm keeps the native tool calls and the finish reason of each answer, for the diary brief and the inner report', async () => {
+  const { recordingLlm } = await import('../tools/replay.mjs');
+  const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{"text":"a cat"}', parsed: { text: 'a cat' }, parseError: null }];
+  const real = { complete: async () => ({ text: '<think>t</think>', toolCalls, finishReason: 'stop', usage: { prompt_tokens: 3 } }), other: () => 'x' };
+  const calls = [];
+  const llm = recordingLlm(real, calls);
+  await llm.complete([], { purpose: 'reply' });
+  assert.deepEqual(calls.map((c) => [c.purpose, c.text, c.toolCalls, c.finishReason]), [['reply', '<think>t</think>', toolCalls, 'stop']]);
+  const plain = recordingLlm({ complete: async () => ({ text: 'x', usage: null }) }, calls);
+  await plain.complete([], {});
+  assert.deepEqual([calls[1].toolCalls, calls[1].finishReason], [null, null]);
+});

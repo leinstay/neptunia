@@ -63,9 +63,9 @@ test('routeSettings: a missing group falls back, a missing switch counts as on, 
   assert.equal(routeSettings({ features: { channelRoute: false } }), null);
 });
 
-test('routeAllowed: every reply kind and a turn without a trigger ask; overheard, drawFailed and private do not', () => {
+test('routeAllowed: every reply kind and a turn without a trigger ask; overheard and private do not', () => {
   for (const triggerKind of ['mention', 'reply', 'name', 'followUp', null, undefined]) assert.equal(routeAllowed({ triggerKind }), true, String(triggerKind));
-  for (const triggerKind of ['overheard', 'drawFailed', 'private']) assert.equal(routeAllowed({ triggerKind }), false, triggerKind);
+  for (const triggerKind of ['overheard', 'private']) assert.equal(routeAllowed({ triggerKind }), false, triggerKind);
   assert.equal(routeAllowed({ triggerKind: 'mention', privateChat: true }), false);
   assert.equal(routeAllowed(), true);
 });
@@ -363,8 +363,8 @@ test('createChannelRouter: none, an unknown number or junk return no id', async 
   }
 });
 
-test('createChannelRouter: overheard, drawFailed and private turns, and the switch off, make no call', async () => {
-  for (const triggerKind of ['overheard', 'drawFailed', 'private']) {
+test('createChannelRouter: overheard and private turns, and the switch off, make no call', async () => {
+  for (const triggerKind of ['overheard', 'private']) {
     const { router, llm, args } = routerScene();
     const { result, logs } = await withCapturedLogs(() => router({ ...args, triggerKind }));
     assert.deepEqual(result, []);

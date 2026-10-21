@@ -93,13 +93,12 @@ test('participationPickSettings: pickTimeoutMs is read from the group, floored; 
   for (const bad of [0, -1, 'x']) assert.equal(participationPickSettings({ participation: { pickTimeoutMs: bad } }).pickTimeoutMs, PARTICIPATION_PICK_DEFAULTS.pickTimeoutMs, String(bad));
 });
 
-test('participationPickAllowed: server reply and spontaneous turns ask; a private chat, a diary post and a drawFailed turn do not', () => {
+test('participationPickAllowed: server reply and spontaneous turns ask; a private chat and a diary post do not', () => {
   for (const triggerKind of ['mention', 'reply', 'name', 'followUp', 'overheard', null]) {
     assert.equal(participationPickAllowed({ mode: 'reply', triggerKind }), true, String(triggerKind));
   }
   assert.equal(participationPickAllowed({ mode: 'interject' }), true);
   assert.equal(participationPickAllowed({ mode: 'initiate' }), true);
-  assert.equal(participationPickAllowed({ mode: 'reply', triggerKind: 'drawFailed' }), false);
   assert.equal(participationPickAllowed({ mode: 'reply', triggerKind: 'private', privateChat: true }), false);
   assert.equal(participationPickAllowed({ mode: 'diary' }), false);
 });
@@ -331,13 +330,10 @@ test('createParticipationPicker: the audience and the current channel decide wha
   assert.equal(logs.filter((l) => l.msg.startsWith('participation:')).length, 0, 'no headline: no call and no log');
 });
 
-test('createParticipationPicker: the switch off, a refused turn kind or no store asks nothing', async () => {
+test('createParticipationPicker: the switch off or no store asks nothing', async () => {
   const off = pickerScene({ features: { participation: false } });
   assert.deepEqual(await off.picker(off.args), []);
   assert.equal(off.llm.calls.length, 0);
-  const drawFailed = pickerScene();
-  assert.deepEqual(await drawFailed.picker({ ...drawFailed.args, triggerKind: 'drawFailed' }), []);
-  assert.equal(drawFailed.llm.calls.length, 0);
   const llm = fakeLlm('1');
   const bare = createParticipationPicker({ hot: { config: config(), prompts: { 'participation-pick': 'p', labels } }, store: {}, llm, now: () => NOW });
   assert.deepEqual(await bare(pickerScene().args), []);

@@ -12,9 +12,9 @@ import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/ops/index.js';
 import { createAdmin } from '../src/admin.js';
-import { skillResultBlock } from '../src/behavior/prompt.js';
+import { toolResultText } from '../src/skills/tool-calls.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, bodyTokens, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
@@ -107,41 +107,32 @@ function view(overrides = {}) {
 
 /** `<call>` -> resolveCall over the view. */
 function resolve(skill, args = {}, body = '', overrides = {}) {
-  return resolveCall({ skill, args, body }, view(overrides));
+  // A native call carries the text as an argument by name: `body` here is the skill's body argument.
+  const bodyArg = skillRegistry().get(skill)?.dispatch?.body;
+  return resolveCall({ skill, args: body && bodyArg ? { [bodyArg]: body, ...args } : args }, view(overrides));
 }
 
-test('resolveCall: only a registry skill; its attributes are its command\'s options, the body its `text`', () => {
+test('resolveCall: only a registry skill; its arguments are its command\'s options by name', () => {
   assert.deepEqual([resolve('files.wipe').ok, resolve('files.wipe').code], [false, 'unknown-skill']);
   assert.equal(resolve('draw').code, 'unknown-skill', 'no skill exists that is not an operation');
-  const said = resolve('message.create', { channel: '#Νέα' }, 'καλημέρα');
+  const said = resolve('message.create', { channel: '#Νέα', text: 'καλημέρα' });
   assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
-  assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια').reason, 'args.who:unknown');
-  assert.deepEqual(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
-  // The same text on the tag and in the body (after trimming) is one value, not twice.
-  const same = resolve('message.create', { text: 'γεια σου' }, '  γεια σου\n');
-  assert.deepEqual([same.ok, same.args, same.bodyArg], [true, { text: 'γεια σου' }, 'text']);
-  assert.deepEqual(resolve('message.create', { text: ' γεια σου ' }, 'γεια σου').args, { text: 'γεια σου' }, 'the attribute trimmed too');
-  // A body where the command takes no text is her comment: left out, the call goes on with its attributes.
-  const commented = resolve('message.delete', { message: '#2' }, 'σβήνω το δοκιμαστικό');
-  assert.deepEqual([commented.ok, commented.bodyIgnored, commented.args], [true, true, { message: '1002', channel: HERE }]);
-  assert.equal('bodyIgnored' in resolve('message.delete', { message: '#2' }), false);
-  assert.equal('bodyIgnored' in said, false, 'a body the command takes is its text, as before');
+  assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x', text: 'γεια' }).reason, 'args.who:unknown');
+  assert.equal('bodyArg' in said, false, 'no body is read any more');
   // whole numbers and yes/no are read strictly; anything else stays text for the schema to refuse
   assert.deepEqual(resolve('rule.remove', { number: '3' }).args, { number: 3 });
   assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
-  assert.deepEqual(resolve('draw.create', { self: 'TRUE' }, 'a lighthouse').args, { self: true, text: 'a lighthouse' });
-  assert.deepEqual(resolve('draw.create', { self: 'ναι' }, 'a lighthouse').args.self, 'ναι');
+  assert.deepEqual(resolve('draw.create', { self: 'TRUE', text: 'a lighthouse' }).args, { self: true, text: 'a lighthouse' });
+  assert.deepEqual(resolve('draw.create', { self: 'ναι', text: 'a lighthouse' }).args.self, 'ναι');
 });
 
-test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, her text -- when the call leaves it out', () => {
-  // Each skill declares the argument its body fills; a skill without one takes none.
+test('resolveCall: each skill declares the argument its main text fills; an errand needs its agent', () => {
   const bodyOf = (name) => skillRegistry().get(name).dispatch.body;
   assert.deepEqual(['task.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), ['goal', 'text', 'text', 'text']);
   for (const name of ['task.status', 'task.cancel', 'message.delete', 'memory.journal.read', 'rule.remove']) assert.equal(bodyOf(name), null, name);
-  // The live call: agent on the tag, the goal in the body -- the errand goes through the gateway.
   const goal = 'read the git history of the server and say what changed this week';
-  const errand = resolve('task.run', { agent: 'server' }, goal);
-  assert.deepEqual([errand.ok, errand.args, errand.bodyArg, 'bodyIgnored' in errand], [true, { agent: 'server', goal }, 'goal', false]);
+  const errand = resolve('task.run', { agent: 'server', goal });
+  assert.deepEqual([errand.ok, errand.args], [true, { agent: 'server', goal }]);
   const cfg = config({ access: { 'task.run': { everyone: false, roles: [], users: [SELF] } } });
   const verdict = checkSkill({
     skill: errand.skill,
@@ -152,118 +143,12 @@ test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, 
     context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
   });
   assert.deepEqual(verdict, { ok: true });
-  // The same without its agent: refused naming the agents she may pick, never a bare missing argument.
-  const agentless = resolve('task.run', {}, goal);
+  // Without its agent: refused naming the agents she may pick, never a bare missing argument.
+  const agentless = resolve('task.run', { goal });
   assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'web,server']);
   assert.equal(refusalStatus(agentless.code), 'invalid');
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] });
-  assert.equal(resolve('task.run', { goal }).code, 'agent-required', 'with the goal on the tag too');
-  // The goal given both ways with different texts is the tag's, a line break, the body (a note beside it); on the tag alone, as before.
-  assert.equal(resolve('task.run', { agent: 'web', goal: 'one' }, 'two').args.goal, 'one\ntwo');
-  assert.deepEqual(resolve('task.run', { agent: 'web', goal }, goal).args, { agent: 'web', goal }, 'the same goal both ways is one value');
-  const tagged = resolve('task.run', { agent: 'web', goal });
-  assert.deepEqual([tagged.ok, tagged.args, 'bodyArg' in tagged], [true, { agent: 'web', goal }, false]);
-  // message.create keeps its body as its text, as before; now named for the log.
-  const said = resolve('message.create', {}, 'καλημέρα');
-  assert.deepEqual([said.ok, said.args, said.bodyArg], [true, { text: 'καλημέρα' }, 'text']);
-  assert.deepEqual(resolve('rule.add', {}, 'όχι emoji').args, { text: 'όχι emoji' });
-  // An empty body fills nothing.
-  assert.equal(resolve('task.run', { agent: 'web', goal }, '   ').ok, true);
-  assert.equal('bodyArg' in resolve('task.run', { agent: 'web', goal }, '   '), false);
-});
-
-test('bodyArguments: `name: value`, `name = value` lines and `<name>value</name>` tags of known options, else null', () => {
-  const names = ['day', 'kind', 'n', 'topic'];
-  assert.deepEqual(bodyArguments('day: 2026-10-14\n\n  kind = all  \nn: 50', names), { day: '2026-10-14', kind: 'all', n: '50' });
-  assert.deepEqual(bodyArguments('<topic>a walk by the sea</topic>\nkind: photos', names), { topic: 'a walk by the sea', kind: 'photos' });
-  assert.deepEqual(bodyArguments('<topic>ένας περίπατος</topic><kind>thought</kind>', names), { topic: 'ένας περίπατος', kind: 'thought' });
-  assert.deepEqual(bodyArguments('<br/>day: 2026-10-14<br>kind: all', names), { day: '2026-10-14', kind: 'all' }, 'a line break written as <br> splits lines');
-  assert.deepEqual(bodyArguments('topic: ώρα: δώδεκα', names), { topic: 'ώρα: δώδεκα' }, 'the value is everything after the first separator');
-  for (const body of ['', '   ', 'just reading the journal', 'day: 2026-10-14\nplease', 'who: Zoë', 'day: 1\nday: 2', 'day:', '<who>Zoë</who>', '<topic>x</kind>']) {
-    assert.equal(bodyArguments(body, names), null, JSON.stringify(body));
-  }
-});
-
-test('resolveCall: a body of `name: value` lines for a skill without text is read as its arguments; an attribute wins', () => {
-  const read = resolve('memory.journal.read', {}, 'day: 2026-10-14\nkind: all\nn: 50');
-  assert.deepEqual([read.ok, read.args, read.bodyArgs, 'bodyIgnored' in read], [true, { day: '2026-10-14', kind: 'all', n: 50 }, 3, false]);
-  const both = resolve('memory.journal.read', { kind: 'errors' }, 'kind: all\nn = 5');
-  assert.deepEqual([both.args, both.bodyArgs], [{ kind: 'errors', n: 5 }, 1], 'the attribute given explicitly wins');
-  // Anything else in the body: her comment, left out as before.
-  for (const body of ['day: 2026-10-14\nreading it now', 'day: 2026-10-14\nwho: Zoë']) {
-    const ignored = resolve('memory.journal.read', { kind: 'all' }, body);
-    assert.deepEqual([ignored.ok, ignored.args, ignored.bodyIgnored, 'bodyArgs' in ignored], [true, { kind: 'all' }, true, false], body);
-  }
-  const said = resolve('message.create', {}, 'channel: #νέα');
-  assert.deepEqual([said.args, 'bodyArgs' in said], [{ text: 'channel: #νέα' }, false], 'a skill that takes text keeps its body as its text');
-});
-
-test('bodyTokens: a body of `name=value` tokens of known options alone, else null', () => {
-  const names = ['id', 'state', 'due', 'text'];
-  assert.deepEqual(bodyTokens('state=done', names), { state: 'done' });
-  assert.deepEqual(bodyTokens('  id=i1   state=done\n due="2026-10-20 09:00" ', names), { id: 'i1', state: 'done', due: '2026-10-20 09:00' });
-  assert.deepEqual(bodyTokens('text="ώρα για ύπνο"', names), { text: 'ώρα για ύπνο' }, 'a quoted value may hold spaces');
-  for (const body of ['', '  ', 'done', 'state done', 'state=', 'state=""', 'state: done', 'state=done please', 'who=Zoë', 'state=done state=pending', 'state=do ne', 'the state=done now']) {
-    assert.equal(bodyTokens(body, names), null, JSON.stringify(body));
-  }
-});
-
-test('resolveCall: a body of `name=value` tokens for a skill with text becomes those arguments, not the text; any other body stays the text', () => {
-  // The live call: id on the tag, state=done in the body -- the state changes, no note is written.
-  const done = resolve('intent.update', { id: 'i1' }, 'state=done');
-  assert.deepEqual([done.ok, done.args, done.bodyArgs, 'bodyArg' in done, 'bodyIgnored' in done], [true, { id: 'i1', state: 'done' }, 1, false, false]);
-  const several = resolve('intent.update', {}, 'id=i1 state=done due="2026-10-20 09:00"');
-  assert.deepEqual([several.args, several.bodyArgs], [{ id: 'i1', state: 'done', due: '2026-10-20 09:00' }, 3]);
-  // A name already on the tag: the body is her text, as before.
-  const twice = resolve('intent.update', { id: 'i1', state: 'done' }, 'state=done');
-  assert.deepEqual([twice.args, 'bodyArgs' in twice, twice.bodyArg], [{ id: 'i1', state: 'done', text: 'state=done' }, false, 'text']);
-  // Ordinary bodies keep every earlier behaviour.
-  assert.deepEqual(resolve('intent.update', { id: 'i1' }, 'έτοιμο, το έστειλα').args, { id: 'i1', text: 'έτοιμο, το έστειλα' });
-  assert.deepEqual(resolve('intent.update', { id: 'i1' }, 'state=done and a note').args, { id: 'i1', text: 'state=done and a note' });
-  assert.deepEqual(resolve('message.create', {}, 'a=b').args, { text: 'a=b' }, 'an unknown name: the text');
-  assert.deepEqual(resolve('message.create', {}, 'channel=#Νέα').args, { channel: NEWS }, 'a channel token resolves like the attribute');
-  assert.equal(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
-  // The id alone in the body is not a token: it stays the text (src/ops/intent.js reads it as the id).
-  assert.deepEqual(resolve('intent.update', { state: 'done' }, 'i1').args, { state: 'done', text: 'i1' });
-});
-
-test('resolveCall: `name: value` lines of a question body are its options, the other lines the question', () => {
-  const body = 'τι είπε ο Ζωή για το ψάρι;\npeople: Zoë\nterms: ψάρι, λίμνη\nwhen=2026-10-12';
-  const found = resolve('memory.search', {}, body);
-  assert.equal(found.ok, true);
-  assert.deepEqual(found.args, { question: 'τι είπε ο Ζωή για το ψάρι;', people: 'Zoë', terms: 'ψάρι, λίμνη', when: '2026-10-12' });
-  assert.equal(found.bodyArgs, 3);
-  const br = resolve('memory.search', {}, 'ερώτηση<br>terms: λαγός');
-  assert.deepEqual(br.args, { question: 'ερώτηση', terms: 'λαγός' });
-  assert.equal(resolve('memory.search', {}, 'q\nterms: a\nterms: b').reason, 'args.terms:twice');
-  assert.equal(resolve('memory.search', { terms: 'tag' }, 'q\nterms: line').args.terms, 'tag', 'an attribute wins');
-  assert.equal(resolve('memory.search', {}, 'q\nquestion: other').args.question, 'q\nquestion: other', 'the body argument itself is no option');
-  assert.equal(resolve('memory.search', {}, 'what is channel: here, he asked').args.question, 'what is channel: here, he asked', 'not alone on its line');
-  assert.equal(resolve('memory.search', {}, 'q\nnote: x').args.question, 'q\nnote: x', 'an unknown name stays in the body');
-});
-
-test('resolveCall: an intention body reads its option lines; a post body stays as written', () => {
-  const set = resolve('intent.set', {}, 'send the cats to the dev room <br>due=1m');
-  assert.equal(set.ok, true);
-  assert.deepEqual([set.args.text, set.args.due], ['send the cats to the dev room', '1m']);
-  const update = resolve('intent.update', { id: 'i1' }, 'moved\nstate: done');
-  assert.deepEqual([update.args.text, update.args.state], ['moved', 'done']);
-  const post = resolve('message.create', {}, 'see you\nchannel: #c2003');
-  assert.equal(post.args.text, 'see you\nchannel: #c2003', 'a post keeps such a line');
-});
-
-test('resolveCall: option lines at the head of a post body are its options; the first ordinary line starts the text', () => {
-  const led = resolve('message.create', {}, 'channel=#Νέα\ntext=https://example.com/cats\ncats with delivery');
-  assert.equal(led.ok, true);
-  assert.deepEqual([led.args.channel, led.args.text], [NEWS, 'https://example.com/cats\ncats with delivery']);
-  const plain = resolve('message.create', {}, 'see you\nchannel: #Νέα');
-  assert.equal(plain.args.text, 'see you\nchannel: #Νέα', 'a line after the text stays text');
-  assert.equal(resolve('message.create', {}, 'channel=#Νέα\nchannel=#Νέα\nhi').reason, 'args.channel:twice');
-});
-
-test('resolveCall: a post keeps `name: value` lines in its text', () => {
-  const body = 'Καλημέρα\nchannel: #Νέα\nterms: a';
-  assert.deepEqual(resolve('message.create', {}, body).args, { text: body });
+  assert.deepEqual(resolve('rule.add', { text: 'όχι emoji' }).args, { text: 'όχι emoji' });
 });
 
 test('resolveCall: a member by the request\'s @handle; the people of an attention as a list of members, ids out comma-separated', () => {
@@ -349,12 +234,12 @@ test('executeCall: on her own initiative the operation hears it, and the inner t
 
 test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {
   const long = { status: 'ok', data: { text: 'λ'.repeat(500) } };
-  const block = skillResultBlock({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
-  const data = block.split('\n')[2];
+  const block = toolResultText({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
+  const data = block.split('\n')[1];
   assert.ok(data.length <= 40 && data.endsWith('…'), data);
   assert.ok(block.includes(labels.skills.result.ok));
   for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
-    assert.ok(!skillResultBlock({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(labels.skills.result.ok), status);
+    assert.ok(!toolResultText({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(labels.skills.result.ok), status);
   }
   assert.deepEqual([refusalStatus('invalid-args'), refusalStatus('unknown-message'), refusalStatus('not-allowed'), refusalStatus('owner-only')], ['invalid', 'invalid', 'denied', 'denied']);
 });
@@ -366,7 +251,6 @@ test('executeCall: message.create posts her own text where she may, the reply no
   const result = await executeCall(resolved, deps(admin, port));
   assert.equal(result.status, 'ok');
   assert.equal(result.ref.conversationId, NEWS);
-  assert.equal(needsFollowUp('message.create', result), false, 'a message that went out is its own answer');
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
   assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
@@ -378,19 +262,6 @@ test('executeCall: message.create posts her own text where she may, the reply no
   port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
   const lost = await executeCall(resolve('message.create', {}, 'ξανά'), deps(admin, port));
   assert.deepEqual([lost.status, lost.code], ['unknown', 'timeout']);
-});
-
-test('resolveCall: a note beside a question, a query or a goal is joined to it; a post or a stored text given twice is still refused', () => {
-  // The body argument on the tag and a different body: the attribute, a line break, the body.
-  const look = resolve('media.look', { message: '#2', question: 'τι γράφει;' }, 'τρίτη ματιά');
-  assert.deepEqual([look.ok, look.args.question, look.bodyArg], [true, 'τι γράφει;\nτρίτη ματιά', 'question']);
-  assert.equal(resolve('web.search', { query: 'γάτες' }, 'για το σαββατοκύριακο').args.query, 'γάτες\nγια το σαββατοκύριακο');
-  assert.equal(resolve('task.run', { agent: 'web', goal: 'βρες γάτες' }, 'με φωτογραφίες').args.goal, 'βρες γάτες\nμε φωτογραφίες');
-  // The same text both ways stays one value.
-  assert.equal(resolve('web.search', { query: ' γάτες ' }, 'γάτες').args.query, 'γάτες');
-  // `text` is a post: said twice it is ambiguous.
-  assert.equal(resolve('message.create', { text: 'ένα' }, 'δύο').reason, 'args.text:twice');
-  assert.equal(resolve('rule.add', { text: 'ένα' }, 'δύο').reason, 'args.text:twice');
 });
 
 test('resolveCall: a deleted message is refused as message-deleted -- a placeholder line by its number, a raw id or a link by the record\'s ids; its detail is its own kind', () => {
@@ -562,43 +433,6 @@ test('resolveCall: an errand\'s file goes to the channel the errand was asked in
   assert.equal(result.status, 'ok');
   const [posted] = port.messagesIn(HERE).filter((message) => message.authorId === SELF);
   assert.deepEqual([posted.text, posted.attachments.length], ['βρήκα', 1]);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test('resolveCall and executeCall: a file handle written in the body instead of as `file` is the attachment, out of the text', async () => {
-  const handle = 'file:t4ee514e0/poop-meme.jpg';
-  const fileOf = (given) => (given === handle ? { name: 'poop-meme.jpg', task: { id: 't4ee514e0', goal: '', origin: { channelId: HERE } } } : null);
-  // The body is exactly the handle: a file-only post, its text empty.
-  const only = resolve('message.create', { reply: '#2' }, `  ${handle}\n`, { fileOf });
-  assert.deepEqual([only.ok, only.args.file, only.args.text, only.fileFromBody], [true, handle, '', true]);
-  const cfg = config({});
-  const check = (resolved) => checkSkill({ skill: resolved.skill, args: resolved.args, principal: { kind: 'persona' }, requester: { id: OWNER, roleIds: [] }, audience: { conversationId: HERE }, context: { config: cfg, selfId: SELF } });
-  assert.deepEqual(check(only), { ok: true }, 'an empty text beside a file passes the gateway');
-  assert.equal(check(resolve('message.create', {}, 'βρήκα')).ok, true);
-  // The handle on a line of its own beside her words: the file, her words the text.
-  const beside = resolve('message.create', {}, `βρήκα αυτό\n${handle}\nτι λες;`, { fileOf });
-  assert.deepEqual([beside.ok, beside.args], [true, { text: 'βρήκα αυτό\nτι λες;', file: handle }]);
-  // With file= given, the text is left as written.
-  const tagged = resolve('message.create', { file: handle }, `δες\n${handle}`, { fileOf });
-  assert.deepEqual([tagged.ok, tagged.args, 'fileFromBody' in tagged], [true, { file: handle, text: `δες\n${handle}` }, false]);
-  // Two handles in the body: refused as an unknown file.
-  const two = resolve('message.create', {}, `${handle}\nfile:t4ee514e0/other.jpg`, { fileOf });
-  assert.deepEqual([two.ok, two.code, two.reason], [false, 'unknown-file', 'file:several']);
-  // A handle of another errand: still refused.
-  const foreign = resolve('message.create', {}, 'file:tzzz999/poop-meme.jpg', { fileOf });
-  assert.deepEqual([foreign.ok, foreign.code], [false, 'unknown-file']);
-  // A handle inside a sentence is her text.
-  assert.deepEqual(resolve('message.create', {}, `δες το ${handle}`, { fileOf }).args, { text: `δες το ${handle}` });
-  // The file-only post goes out: the file, no text.
-  const dir = tempDir('errand-file-');
-  const filePath = path.join(dir, 'poop-meme.jpg');
-  fs.writeFileSync(filePath, Buffer.from([1, 2]));
-  const errands = { fileOf: ({ handle: given }) => (given === handle ? { path: filePath, name: 'poop-meme.jpg', contentType: 'image/jpeg', bytes: 2 } : null) };
-  const { admin, port } = makeAdmin({ extra: { errands } });
-  const result = await executeCall(resolve('message.create', {}, handle, { fileOf }), deps(admin, port));
-  assert.equal(result.status, 'ok');
-  const [posted] = port.messagesIn(HERE).filter((message) => message.authorId === SELF);
-  assert.deepEqual([posted.text, posted.attachments.length], ['', 1]);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -813,17 +647,6 @@ test('executeCall: an operation that does not answer in time is unknown, never r
   assert.deepEqual(seen, [['lore.list', { query: undefined }, { guildId: 'g1', channelId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' }]]);
 });
 
-test('needsFollowUp: an operation\'s answer or any failure brings the follow-up; a message or picture that went out does not; never under the full stop', () => {
-  assert.deepEqual([...QUIET_ON_OK].sort(), ['draw.create', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove', 'task.run']);
-  assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: 'none' } }), true);
-  assert.equal(needsFollowUp('lore.add', { status: 'ok', data: { text: 'Added' } }), true);
-  assert.equal(needsFollowUp('message.create', { status: 'ok', data: { text: 'sent' } }), false);
-  assert.equal(needsFollowUp('draw.create', { status: 'ok', data: { text: 'm' } }), false);
-  assert.equal(needsFollowUp('message.edit', { status: 'denied', code: 'not-allowed' }), true);
-  assert.equal(needsFollowUp('message.create', { status: 'unknown', code: 'timeout' }), true);
-  assert.equal(needsFollowUp('message.create', { status: 'denied', code: 'skills-off' }), false);
-});
-
 test('outcomeDetail: a non-ok outcome names its argument, its message or its code; an ok one has none', () => {
   const detail = (code, reason, status = 'invalid') => outcomeDetail({ status, code, reason });
   // The gateway's schema paths: the argument and what was wrong with it.
@@ -840,7 +663,7 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   const journalCall = resolve('memory.journal.read', { channel: '#νέα' });
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: journalCall.code, reason: journalCall.reason }, { argNames: ['kind', 'day'] }), { kind: 'unknown-arg', code: 'invalid-args', arg: 'channel', values: ['kind', 'day'] });
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: 'invalid-args', reason: 'args.text:max-length' }, { argNames: ['text'] }), { kind: 'too-long', code: 'invalid-args', arg: 'text' }, 'only an unknown argument lists them');
-  assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
+  assert.deepEqual(of({ code: 'invalid-args', reason: 'args.text:twice' }), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
   assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });
   assert.deepEqual(of(resolve('conversation.read', { before: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
@@ -888,13 +711,11 @@ test('draw.create: no image generation, or a model with no supported family, is 
   const { admin, port } = makeAdmin({});
   const none = await executeCall(resolve('draw.create', {}, 'ένα καράβι'), deps(admin, port));
   assert.deepEqual(none, { status: 'not_configured', code: 'not-configured', data: { text: 'image generation is not available' } });
-  assert.equal(needsFollowUp('draw.create', none), true, 'a refusal is never quiet');
   const images = { familyOf: () => null, calls: [] };
   const wrong = makeAdmin({ extra: { images } });
   const refused = await executeCall(resolve('draw.create', {}, 'ένα καράβι'), deps(wrong.admin, wrong.port));
   assert.deepEqual([refused.status, refused.code], ['not_configured', 'not-configured']);
   assert.match(refused.data.text, /unsupported image model/);
-  assert.equal(needsFollowUp('draw.create', refused), true);
   assert.equal(images.calls.length, 0);
 });
 
@@ -915,57 +736,12 @@ test('message.create gif=: the text went out and the GIF did not -- partial, gif
   assert.ok(result.ref?.messageId, 'the text was said and keeps its reference');
   assert.equal(store.state.data.gifCount ?? 0, 0, 'a GIF that did not go is not counted');
   assert.equal(RESULT_STATUSES.includes(result.status), true);
-  assert.equal(needsFollowUp('message.create', result), true);
   // the status reaches her result block; with the reason through the fixture's generic words
-  const block = skillResultBlock({ skill: 'message.create', ...result }, labels);
-  assert.ok(block.startsWith('<result skill="message.create" status="partial">'), block);
+  const block = toolResultText({ skill: 'message.create', ...result }, labels);
+  assert.ok(block.startsWith(labels.skills.result.partial ?? labels.skills.result.failed.split('{')[0]), block);
   assert.ok(block.includes(labels.skills.result.reasons['gif-failed']), block);
   // the call mark's detail names the reason too
   assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });
-});
-
-test('needsFollowUp: in an addressed turn a quiet success is seen too, a failure and the full stop as before', () => {
-  for (const skill of QUIET_ON_OK) {
-    assert.equal(needsFollowUp(skill, { status: 'ok' }), false, skill);
-    assert.equal(needsFollowUp(skill, { status: 'ok' }, { addressed: true }), true, skill);
-  }
-  assert.equal(needsFollowUp('message.create', { status: 'ok', code: 'skills-off' }, { addressed: true }), false);
-  assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: '' } }, { addressed: true }), false, 'a read with nothing to show');
-  assert.equal(needsFollowUp('message.edit', { status: 'failed' }, { addressed: true }), true);
-});
-
-test('resolveCall: a body that is only a message reference fills the message argument of a command that takes one', () => {
-  const byNumber = resolve('memory.journal.read', {}, '#2');
-  assert.deepEqual([byNumber.ok, byNumber.args, byNumber.bodyArgs, 'bodyIgnored' in byNumber], [true, { message: '1002' }, 1, false]);
-  const byId = resolve('memory.journal.read', {}, '1500000000000000001');
-  assert.deepEqual([byId.ok, byId.args.message, byId.bodyArgs], [true, '1500000000000000001', 1]);
-  const explicit = resolve('memory.journal.read', { message: '#1' }, '#2');
-  assert.equal(explicit.args.message, '1001', 'the attribute wins');
-  assert.equal(explicit.bodyIgnored, true, 'the body left over is still a comment');
-  assert.equal(resolve('memory.journal.read', {}, '#999').code, 'unknown-message');
-  assert.equal(resolve('memory.journal.read', {}, 'some words').bodyIgnored, true);
-});
-
-test('resolveCall: a body of quoted pairs, an <args/> element or <param> elements gives the declared arguments; a tag attribute wins', () => {
-  const expected = { message: '1003', emoji: '❤️', channel: NEWS };
-  assert.deepEqual(resolve('message.react.add', {}, 'message="#3" emoji="❤️" channel="#💖νέα"').args, expected);
-  assert.deepEqual(resolve('message.react.add', {}, "message='#3' emoji='❤️' channel='#💖νέα'").args, expected, 'single quotes too');
-  assert.deepEqual(resolve('message.react.add', {}, '<args message="#3" emoji="❤️" channel="#💖νέα"/>').args, expected);
-  assert.deepEqual(resolve('message.react.add', {}, '<param name="message">#3</param><param name="emoji">❤️</param>').args, { message: '1003', emoji: '❤️', channel: NEWS });
-  const wins = resolve('message.react.add', { emoji: '👍' }, 'message="#3" emoji="❤️"');
-  assert.deepEqual([wins.args.emoji, wins.bodyArgs], ['👍', 1]);
-  // an unknown name or other text: no pairs taken, the body is her comment as before
-  const unknown = resolve('message.react.add', { message: '#3', emoji: '👍' }, 'why="because" emoji="❤️"');
-  assert.deepEqual([unknown.ok, unknown.args.emoji, unknown.bodyIgnored], [true, '👍', true]);
-});
-
-test('resolveCall: quoted pairs on the head line of a post are options; her words after them stay the text, and a text with quotes stays as written', () => {
-  const led = resolve('message.create', {}, 'channel="#💖νέα"\nκαλημέρα');
-  assert.deepEqual([led.ok, led.args.channel, led.args.text], [true, NEWS, 'καλημέρα']);
-  const text = 'είπε emoji="x" και τέλος';
-  assert.deepEqual(resolve('message.create', { channel: '#💖νέα' }, text).args, { channel: NEWS, text });
-  const whole = resolve('message.create', {}, "channel='#💖νέα' text='γεια'");
-  assert.deepEqual([whole.args.channel, whole.args.text], [NEWS, 'γεια']);
 });
 
 test('resolveCall: the channel of a #N message wins over a channel that does not hold it, for the five message calls only (conversation.read still refuses)', () => {

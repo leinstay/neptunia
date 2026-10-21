@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CORE_TOOL_SKILLS, MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, coreToolRows, describeRows, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import { MAX_ARG_VALUES, MAX_PROPOSED, byFamily, describeRows, discoveryOn, exposedSkillNames, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
 import '../src/ops/index.js';
 import { loadSkills, skillNames, skillRegistry } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
@@ -149,7 +149,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   assert.deepEqual(proposalVerdicts(['x.owner'], asOwner), [{ name: 'x.owner', allowed: true, reason: 'allowed' }]);
 });
 
-test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, the body option flagged', () => {
+test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, no body flag', () => {
   const many = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ'];
   const skill = {
     name: 'x.read',
@@ -170,7 +170,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
     dispatch: { body: 'text' },
   };
   assert.deepEqual(skillArgs(skill), [
-    { name: 'text', required: true, body: true },
+    { name: 'text', required: true },
     { name: 'section', required: false, values: many.slice(0, MAX_ARG_VALUES), more: true },
     { name: 'order', required: false, values: ['rank', 'recent'] },
     { name: 'detail', required: false, values: ['true', 'false'] },
@@ -180,7 +180,7 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
   ]);
   // Exactly the cap: every value, no "more".
   assert.deepEqual(skillArgs({ argsSchema: { properties: { role: { enum: many.slice(0, MAX_ARG_VALUES) } } } }), [{ name: 'role', required: false, values: many.slice(0, MAX_ARG_VALUES) }]);
-  // No schema, no properties, no command: nothing to list; a `text` without a command body is no body.
+  // No schema, no properties, no command: nothing to list.
   assert.deepEqual(skillArgs({ argsSchema: { type: 'object' } }), []);
   assert.deepEqual(skillArgs(null), []);
   assert.deepEqual(skillArgs({ argsSchema: { properties: { text: { type: 'string' } } } }), [{ name: 'text', required: false }]);
@@ -197,7 +197,7 @@ test('skillArgs: a skill lists its arguments, the same each time', () => {
   assert.deepEqual(skillArgs(registry.get('message.create')), [
     { name: 'channel', required: false },
     { name: 'reply', required: false },
-    { name: 'text', required: true, body: true },
+    { name: 'text', required: false },
     { name: 'file', required: false },
     { name: 'gif', required: false },
     { name: 'media', required: false },
@@ -212,14 +212,6 @@ test('listSkills: each row carries the skill\'s arguments (skillArgs)', () => {
   const byName = new Map(rows.map((row) => [row.name, row]));
   for (const name of ['memory.journal.read', 'message.edit', 'status.show']) assert.deepEqual(byName.get(name).args, skillArgs(registry.get(name)), name);
   assert.deepEqual(byName.get('memory.server.read').args, []);
-});
-
-test('alwaysListedOn: on unless features.skillsAlwaysListed, features.skillsDiscovery or features.skills is false', () => {
-  assert.equal(alwaysListedOn({}), true);
-  assert.equal(alwaysListedOn({ features: { skillsAlwaysListed: true } }), true);
-  assert.equal(alwaysListedOn({ features: { skillsAlwaysListed: false } }), false);
-  assert.equal(alwaysListedOn({ features: { skillsDiscovery: false } }), false);
-  assert.equal(alwaysListedOn({ features: { skills: false } }), false);
 });
 
 test('grantedSkillNames: only the skills granted to her user id, sorted by name whatever the grant or registry order', () => {
@@ -246,75 +238,6 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
 });
 
-test('coreToolRows: her granted tools among web.search, web.read, media.look, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
-  const registry = skillRegistry();
-  const self = 'self-id';
-  const grant = { everyone: false, roles: [], users: [self] };
-  const config = { features: { skills: true }, bot: { access: { 'task.run': grant, 'memory.search': grant, 'lore.list': grant, 'web.search': { everyone: true, roles: [], users: [] } } } };
-  const texts = { 'memory.search': { title: 'Ψάξε', whenToUse: 'όταν', whenNotToUse: '' } };
-  const rows = coreToolRows({ config, selfId: self, registry, texts });
-  assert.deepEqual(rows.map((row) => row.name), ['memory.search', 'task.run'], 'a grant to everyone is people\'s, not hers; lore.list is no tool');
-  assert.deepEqual([rows[0].title, rows[0].whenToUse], ['Ψάξε', 'όταν']);
-  assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
-  assert.equal(rows[0].args[0].body, true, 'the question is the body');
-  assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set', 'intent.update', 'intent.cancel', 'places.list', 'skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read']);
-});
-
-test('coreToolRows: media.look, granted, stands after web.read with its arguments while the tool loop is on; with it off the skill does not exist for her', () => {
-  const registry = skillRegistry();
-  const self = 'self-id';
-  const grant = { everyone: false, roles: [], users: [self] };
-  const access = { 'web.read': grant, 'media.look': grant, 'memory.search': grant };
-  const rows = coreToolRows({ config: { features: { skills: true, coreTools: true }, bot: { access } }, selfId: self, registry });
-  assert.deepEqual(rows.map((row) => row.name), ['web.read', 'media.look', 'memory.search']);
-  assert.deepEqual(rows[1].args.map((arg) => [arg.name, arg.required, arg.body === true]), [['message', true, false], ['question', true, true], ['item', false, false]]);
-  const off = coreToolRows({ config: { features: { skills: true }, bot: { access } }, selfId: self, registry });
-  assert.deepEqual(off.map((row) => row.name), ['web.read', 'memory.search']);
-});
-
-test('coreToolRows: the posting rows follow the reads and task.read and task.resolve follow task.run, whatever the turn kind, when granted', () => {
-  const registry = skillRegistry();
-  const self = 'self-id';
-  const grant = { everyone: false, roles: [], users: [self] };
-  const access = Object.fromEntries(['web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set'].map((name) => [name, grant]));
-  const config = { features: { skills: true, intentions: true }, bot: { access } };
-  const rows = coreToolRows({ config, selfId: self, registry });
-  assert.deepEqual(rows.map((row) => row.name), ['web.read', 'memory.search', 'message.create', 'message.react.add', 'draw.create', 'task.run', 'task.read', 'task.resolve', 'intent.set']);
-  assert.deepEqual(coreToolRows({ config, selfId: self, registry }), rows, 'no turn-kind or unread-state input changes the rows');
-  assert.deepEqual(rows[2].args.map((arg) => arg.name), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
-  assert.deepEqual(rows[3].args.map((arg) => arg.name), ['message', 'emoji', 'channel']);
-  assert.deepEqual(rows[6].args.map((arg) => arg.name), ['id', 'from'], 'the action that picks the operation is fixed, not an argument');
-  assert.deepEqual(rows[7].args.map((arg) => arg.name), ['id', 'from']);
-  assert.deepEqual(coreToolRows({ config: { ...config, bot: { access: { 'web.read': grant } } }, selfId: self, registry }).map((row) => row.name), ['web.read'], 'not granted: not listed');
-});
-
-test('coreToolRows: the intent rows follow task.run when intentions are on and granted, and are absent with features.intentions off', () => {
-  const registry = skillRegistry();
-  const self = 'self-id';
-  const grant = { everyone: false, roles: [], users: [self] };
-  const access = Object.fromEntries(['task.run', 'intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map((name) => [name, grant]));
-  const on = coreToolRows({ config: { features: { skills: true, intentions: true }, bot: { access } }, selfId: self, registry });
-  assert.deepEqual(on.map((row) => row.name), ['task.run', 'intent.set', 'intent.update', 'intent.cancel'], 'intent.list is not a tool row');
-  const off = coreToolRows({ config: { features: { skills: true, intentions: false }, bot: { access } }, selfId: self, registry });
-  assert.deepEqual(off.map((row) => row.name), ['task.run']);
-});
-
-test('coreToolRows: the read tools are listed when granted, in the core order', () => {
-  const registry = skillRegistry();
-  const self = 'self-id';
-  const grant = { everyone: false, roles: [], users: [self] };
-  const names = ['skills.describe', 'status.show', 'task.list', 'memory.journal.read', 'memory.profile.read', 'conversation.read', 'media.find'];
-  const config = { features: { skills: true, coreTools: true }, bot: { access: Object.fromEntries(names.map((name) => [name, grant])) } };
-  const rows = coreToolRows({ config, selfId: self, registry });
-  assert.deepEqual(rows.map((row) => row.name), [...CORE_TOOL_SKILLS].filter((name) => names.includes(name) && registry.has(name)));
-  assert.ok(rows.some((row) => row.name === 'conversation.read') && rows.some((row) => row.name === 'media.find'));
-  assert.ok(rows.some((row) => row.name === 'skills.describe'));
-  const status = rows.find((row) => row.name === 'status.show');
-  assert.deepEqual(status.args.find((arg) => arg.name === 'part').values, ['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
-  assert.deepEqual(coreToolRows({ config: { features: { skills: true }, bot: { access: {} } }, selfId: self, registry }), [], 'nothing granted, no rows');
-});
-
 test('describeRows: an exact name gives the skill in full, a family one line each without arguments, a stranger the closest names', () => {
   const registry = skillRegistry();
   const self = 'self-id';
@@ -332,3 +255,25 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   assert.deepEqual(describeRows({ config, selfId: self, registry, texts, name: '' }), { rows: [], closest: [] });
   assert.deepEqual(describeRows({ config, selfId: self, registry, texts, name: 'zzzzzzzzzzzzzzzz' }).closest, []);
 });
+
+test('exposedSkillNames: her grants and the carried-over skills, sorted, once each, whatever the turn; a grant to everyone is not hers', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const config = { features: { skills: true }, bot: { access: { 'task.run': grant, 'memory.search': grant, 'draw.create': grant, 'web.search': { everyone: true, roles: [], users: [] } } } };
+  assert.deepEqual(exposedSkillNames({ config, selfId: self, registry }), ['draw.create', 'memory.search', 'message.create', 'message.react.add', 'task.run']);
+  assert.deepEqual(exposedSkillNames({ config, selfId: null, registry }), ['draw.create', 'message.create', 'message.react.add'], 'without her id nothing is granted, the carried-over ones stay');
+});
+
+test('exposedSkillNames: safe mode keeps the carried-over ones, skills off none, a feature switch or the registry decides the rest', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const config = { features: { skills: true }, bot: { access: { 'task.run': { everyone: false, roles: [], users: [self] } } } };
+  assert.deepEqual(exposedSkillNames({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry }), ['draw.create', 'message.create', 'message.react.add']);
+  assert.deepEqual(exposedSkillNames({ config: { ...config, features: { skills: false } }, selfId: self, registry }), []);
+  assert.deepEqual(exposedSkillNames({ config, selfId: self, registry: null }), []);
+  assert.equal(exposedSkillNames({ config: { ...config, features: { skills: true, imageGeneration: false } }, selfId: self, registry }).includes('draw.create'), false, 'drawing off: no draw.create');
+  const small = loadSkills([{ name: 'message.create', op: null, argsSchema: { type: 'object' }, effects: 'write', costClass: 'free', targets: null }]);
+  assert.deepEqual(exposedSkillNames({ config, selfId: self, registry: small }), ['message.create'], 'only what the registry holds');
+});
+

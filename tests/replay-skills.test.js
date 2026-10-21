@@ -18,6 +18,7 @@ import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
 import { deepMerge } from '../src/config.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { afterScenarioTurn, answerSkillScenario, burstTurns, liveView, personaGrantsConfig, scenarioInventory, seededSelfLine, simulateCall } from '../src/behavior/sandbox.js';
 import {
   firstDecision, overlayPromptsHot, parseArgs, parseScenarios, playSteps, renderPairReport, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger,
@@ -144,56 +145,55 @@ function simulate(call, { grants = [], author = OWNER, access, features, channel
 }
 
 test('simulateCall: a granted skill an owner asks for passes the real gateway and is only recorded, answered ok', () => {
-  const out = simulate({ skill: 'rule.add', args: {}, body: 'όχι spoilers' }, { grants: ['rule.add'] });
+  const out = simulate({ skill: 'rule.add', args: { text: 'όχι spoilers' } }, { grants: ['rule.add'] });
   assert.deepEqual(out.verdict, { stage: 'gateway', ok: true });
   assert.deepEqual(out.executed, { skill: 'rule.add', args: { text: 'όχι spoilers' } });
   assert.deepEqual(out.result, { skill: 'rule.add', status: 'ok', data: { text: 'RESULT' } });
-  assert.equal(out.followUp, true, 'an operation that answers comes back to her');
 });
 
 test('simulateCall: not granted, not grantable, or a requester without the right: refused as live, and she hears it', () => {
-  const notGranted = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' });
-  assert.deepEqual([notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed, notGranted.followUp], ['gateway', 'not-allowed', 'denied', null, true]);
+  const notGranted = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } });
+  assert.deepEqual([notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed], ['gateway', 'not-allowed', 'denied', null]);
 
   assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('memory.wipe'));
   const wipe = simulate({ skill: 'memory.wipe', args: {} }, { grants: ['memory.wipe'] });
   assert.deepEqual([wipe.verdict.code, wipe.result.status, wipe.executed], ['not-grantable', 'denied', null]);
 
   // Her grant does not lend a member a right they lack; a member granted it may have it run.
-  const member = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], author: MEMBER });
+  const member = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], author: MEMBER });
   assert.deepEqual([member.verdict.code, member.verdict.reason, member.result.status], ['requester-denied', 'not-granted', 'denied']);
-  const byRole = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, {
+  const byRole = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, {
     grants: ['rule.add'], author: MEMBER, channel: fakeChannel({ memberRoles: ['r1'] }), access: { 'rule.add': { everyone: false, roles: ['r1'], users: [] } },
   });
   assert.equal(byRole.verdict.ok, true, 'the requester\'s role ids come from the member cache, as live');
 
   // Nobody asked: only a read.
-  const unasked = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], author: null });
+  const unasked = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], author: null });
   assert.deepEqual([unasked.verdict.code, unasked.verdict.reason], ['no-requester', 'no-requester']);
 });
 
-test('simulateCall: her own operations skip the requester\'s right but not her grant; a quiet success needs no follow-up', () => {
-  const elsewhere = { skill: 'message.create', args: { channel: '#νέα' }, body: 'καλημέρα' };
+test('simulateCall: her own operations skip the requester\'s right but not her grant', () => {
+  const elsewhere = { skill: 'message.create', args: { channel: '#νέα', text: 'καλημέρα' } };
   const own = simulate(elsewhere, { grants: ['message.create'], author: MEMBER });
   assert.equal(own.verdict.ok, true, 'self-owned: the member\'s missing right does not matter');
   assert.deepEqual(own.executed, { skill: 'message.create', args: { channel: NEWS, text: 'καλημέρα' } });
-  assert.equal(own.followUp, false, 'a message that went out is its own answer');
   assert.equal(simulate(elsewhere, { author: MEMBER }).verdict.code, 'not-allowed', 'another channel still needs her grant');
-  assert.equal(simulate({ skill: 'message.create', args: {}, body: 'γεια' }, { author: MEMBER }).verdict.ok, true, 'carried over in the current conversation');
+  assert.equal(simulate({ skill: 'message.create', args: { text: 'γεια' } }, { author: MEMBER }).verdict.ok, true, 'carried over in the current conversation');
 });
 
 test('simulateCall: a call the server cannot resolve, a spent drawing budget, the full stop', () => {
   const unknown = simulate({ skill: 'files.wipe', args: {} });
-  assert.deepEqual([unknown.verdict.stage, unknown.verdict.code, unknown.result.status, unknown.followUp], ['resolve', 'unknown-skill', 'invalid', true]);
-  const channel = simulate({ skill: 'message.create', args: { channel: '#πουθενά' }, body: 'γεια' }, { grants: ['message.create'] });
+  assert.deepEqual([unknown.verdict.stage, unknown.verdict.code, unknown.result.status], ['resolve', 'unknown-skill', 'invalid']);
+  const channel = simulate({ skill: 'message.create', args: { channel: '#πουθενά', text: 'γεια' } }, { grants: ['message.create'] });
   assert.deepEqual([channel.verdict.stage, channel.verdict.code], ['resolve', 'invalid-args']);
-  const drawing = { skill: 'draw.create', args: {}, body: 'un chat sur la lune' };
+  const drawing = { skill: 'draw.create', args: { text: 'un chat sur la lune' } };
   const spent = simulate(drawing, { images: { quota: () => ({ spent: true, userSpent: false }) } });
   assert.deepEqual([spent.verdict.stage, spent.verdict.code, spent.verdict.reason], ['gateway', 'daily-cap', 'image.maxPerDay']);
   const left = simulate(drawing, { images: { quota: () => ({ spent: false, userSpent: false }) } });
-  assert.deepEqual([left.verdict.ok, left.followUp], [true, false], 'a picture that went out is its own answer');
-  const off = simulate({ skill: 'rule.add', args: {}, body: 'κανόνας' }, { grants: ['rule.add'], features: { skills: false } });
-  assert.deepEqual([off.verdict.code, off.followUp], ['skills-off', false]);
+  assert.equal(left.verdict.ok, true, 'a paid effect is recorded and answered canned, never run');
+  assert.equal(left.result.status, 'ok');
+  const off = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } }, { grants: ['rule.add'], features: { skills: false } });
+  assert.equal(off.verdict.code, 'skills-off');
 });
 
 test('scenarioInventory: the requester\'s catalogue as live discovery lists it: whole, the named ones, or none', () => {
@@ -203,7 +203,7 @@ test('scenarioInventory: the requester\'s catalogue as live discovery lists it: 
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
   // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
   assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
-  assert.deepEqual(whole.find((row) => row.name === 'rule.add'), { name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed', args: [{ name: 'text', required: true, body: true }] });
+  assert.deepEqual(whole.find((row) => row.name === 'rule.add'), { name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed', args: [{ name: 'text', required: true }] });
   assert.equal(scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } }).find((row) => row.name === 'rule.add').reason, 'requester-denied');
   const named = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] }, discovery: ['rule.add', 'rule.remove'] });
   assert.deepEqual(named.map((row) => [row.name, row.allowed, row.proposed]), [['rule.add', true, true], ['rule.remove', false, true]]);
@@ -227,7 +227,7 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   const called = runRecord('s', 0, {
     answer: answer('μια στιγμή'), call: { skill: 'rule.add', args: {}, body: 'κανόνας' }, callError: null, extraCalls: 0,
     usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.01 },
-    outcome: { verdict: { stage: 'gateway', ok: false, code: 'not-allowed', reason: 'rule.add' }, executed: null, result: { skill: 'rule.add', status: 'denied', code: 'not-allowed' }, followUp: true },
+    outcome: { verdict: { stage: 'gateway', ok: false, code: 'not-allowed', reason: 'rule.add' }, executed: null, result: { skill: 'rule.add', status: 'denied', code: 'not-allowed' } },
     followUp: { answer: answer('δεν μπορώ'), extraCall: false, usage: { prompt_tokens: 120, completion_tokens: 5, cost: 0.02 } },
   });
   assert.deepEqual([called.decision, called.skill, called.args, called.result], ['call', 'rule.add', { body: 'κανόνας' }, { status: 'denied', code: 'not-allowed' }]);
@@ -259,7 +259,7 @@ function sequenceConfig(grants, features = {}, nameTriggers = []) {
     models: { core: 'x/chat' },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false },
-    features: { skills: true, followUpContinuation: true, ...features },
+    features: { skills: true, ...features },
   }, SELF, grants);
 }
 
@@ -270,7 +270,7 @@ function scriptedLlm(texts) {
     calls,
     complete: async (messages, options) => {
       calls.push({ messages, options });
-      return { text: texts[calls.length - 1] ?? '<skip/>', usage: { prompt_tokens: 100, completion_tokens: 10 } };
+      return { usage: { prompt_tokens: 100, completion_tokens: 10 }, ...completionOf(texts[calls.length - 1] ?? '<skip/>') };
     },
   };
 }
@@ -285,7 +285,7 @@ function userOf(call) {
  * One run of a multi-step scenario as the replay plays it (playSteps over answerSkillScenario,
  * simulateCall and afterScenarioTurn), against fakes: the channel γενικά with νέα beside it.
  */
-async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule.add'], history = [], nameTriggers = [] } = {}) {
+async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule.add', 'rule.list'], history = [], nameTriggers = [] } = {}) {
   const [scenario] = load([{ id: 'seq', channelId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
   const config = sequenceConfig(grants, {}, nameTriggers);
   const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
@@ -360,14 +360,14 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   const { played, steps, records, llm } = await playSequence(
     [{ author: OWNER, text: 'πρώτο' }, { author: OWNER, text: 'δεύτερο', gapMinutes: 2, result: 'RULE_RESULT' }, { author: OWNER, text: 'τρίτο' }],
     [
-      '<think>θα το στείλω</think><msg>μια στιγμή</msg><call skill="message.create" channel="#νέα">καλημέρα</call>',
-      '<msg>εντάξει</msg><call skill="rule.add">όχι spoilers</call>',
-      '<msg>έγινε</msg>',
-      '<msg>όχι</msg>',
+      toolAnswer('<think>θα το στείλω</think><msg>μια στιγμή</msg>', [call('message.create', { channel: '#νέα', text: 'καλημέρα' })]),
+      toolAnswer('<think>t</think><msg>εντάξει</msg>', [call('rule.list', {})]),
+      '<think>t</think><msg>έγινε</msg>',
+      '<think>t</think><msg>όχι</msg>',
     ],
   );
   assert.equal(played.stopped, false);
-  assert.equal(llm.calls.length, 4, 'step 1 (a post needs no follow-up), step 2 and its follow-up, step 3');
+  assert.equal(llm.calls.length, 4, 'step 1 (a post covers her speech, no follow-up), step 2 and its follow-up (a list is read first), step 3');
   assert.deepEqual(steps.map((s) => s.requests), [1, 3, 4]);
 
   // Step 2 reads her step-1 line with the call's mark; the post went to νέα, so its text is not here.
@@ -379,38 +379,41 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.equal(steps[1].callMarks.length, 1);
   assert.equal(steps[1].at, NOW + 1000 + 2 * 60_000, 'two minutes after the newest line: hers, a second after the trigger');
 
-  // The follow-up of step 2 keeps step 1's mark too.
-  const followUp = userOf(llm.calls[2]);
-  assert.ok(followUp.split('\n').find((line) => line.includes('μια στιγμή'))?.includes(marked('message.create', 'νέα')), followUp);
-  assert.ok(followUp.split('\n').find((line) => line.includes('εντάξει'))?.includes(marked('rule.add', 'γενικά')), followUp);
+  // The follow-up of step 2 appends to the same first messages (step 1's mark in them) with her answer and the call's result.
+  const followUp = llm.calls[2].messages;
+  assert.equal(userOf(llm.calls[2]), second, 'the first user message is never rebuilt');
+  assert.deepEqual(followUp.slice(2).map((message) => message.role), ['assistant', 'tool', 'user']);
+  assert.ok(followUp[3].content.includes('RULE_RESULT'));
+  assert.ok(followUp[4].content[0].text.includes(labels.task.step.held), 'her step-2 speech was held, and she is told');
 
-  // Step 3 reads both turns: every line of hers, the rule.add mark on the follow-up's line (the turn's last).
+  // Step 3 reads both turns: every line of hers that was posted, the rule.list mark on the follow-up's line (the turn's last).
   const third = userOf(llm.calls[3]);
-  for (const text of ['μια στιγμή', 'εντάξει', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
-  assert.ok(third.split('\n').find((line) => line.includes('έγινε'))?.includes(marked('rule.add', 'γενικά')), third);
-  assert.ok(!third.split('\n').find((line) => line.includes('εντάξει'))?.includes('rule.add'), 'the mark moved to the last line of the turn');
+  for (const text of ['μια στιγμή', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
+  assert.ok(!third.includes('εντάξει'), 'a held speech is not in the channel');
+  assert.ok(third.split('\n').find((line) => line.includes('έγινε'))?.includes(marked('rule.list', 'γενικά')), third);
   assert.equal(steps[2].callMarks.length, 2);
 
   const hers = played.transcript.filter((line) => line.self);
-  assert.deepEqual(hers.map((line) => line.content), ['μια στιγμή', 'εντάξει', 'έγινε', 'όχι']);
+  assert.deepEqual(hers.map((line) => line.content), ['μια στιγμή', 'έγινε', 'όχι']);
   assert.ok(hers.every((line) => line.authorId === SELF && /^\d+$/.test(line.id)));
   assert.equal(hers[0].triggerId, steps[0].trigger.id, 'linked to the message that started her turn');
   const times = played.transcript.map((line) => line.ts);
   assert.deepEqual(times, [...times].sort((a, b) => a - b), 'the channel stays in time order');
 
   // One record per step, the step number after the run, her whole think kept.
-  assert.deepEqual(records.map((r) => [r.run, r.step, r.decision, r.skill]), [[1, 1, 'call', 'message.create'], [1, 2, 'call', 'rule.add'], [1, 3, 'no-call', null]]);
+  assert.deepEqual(records.map((r) => [r.run, r.step, r.decision, r.skill]), [[1, 1, 'call', 'message.create'], [1, 2, 'call', 'rule.list'], [1, 3, 'no-call', null]]);
   assert.deepEqual(Object.keys(records[0]).slice(0, 3), ['scenario', 'run', 'step']);
   assert.equal(records[0].first.think, 'θα το στείλω');
   assert.deepEqual([records[0].verdict.ok, records[0].executed.args.channel, records[0].followUp], [true, NEWS, null]);
   assert.deepEqual(records[1].followUp.messages, ['έγινε']);
+  assert.equal(records[1].loop.held, 1);
   assert.deepEqual(played.records, records);
 });
 
 test('replay --skills steps: a burst of two named calls gets two turns in arrival order; the first names the waiting call under the queued labels', async () => {
   const { steps, records, llm, played } = await playSequence(
     [{ burst: [{ author: OWNER, text: 'Persona, πρόσθεσε κανόνα' }, { author: MEMBER, text: 'Persona, κι εμένα έναν' }] }],
-    ['<call skill="rule.add">όχι spoilers</call>', '<msg>έγινε</msg>', '<call skill="rule.add">κι άλλος</call>', '<msg>όχι από σένα</msg>'],
+    [toolAnswer('<think>t</think><msg>έγινε</msg>', [call('rule.add', { text: 'όχι spoilers' })]), toolAnswer('<think>t</think>', [call('rule.add', { text: 'κι άλλος' })]), '<think>t</think><msg>όχι από σένα</msg>'],
     { nameTriggers: ['persona'] },
   );
   assert.equal(played.stopped, false);
@@ -427,7 +430,7 @@ test('replay --skills steps: a burst of two named calls gets two turns in arriva
   assert.ok(first.includes('Élodie') && first.indexOf('πρόσθεσε κανόνα') < first.indexOf('κι εμένα έναν'), first);
   // The second turn: nothing waits any more, and her first turn is in the channel it reads.
   assert.deepEqual(steps[1].queued, []);
-  const second = userOf(llm.calls[2]);
+  const second = userOf(llm.calls[1]);
   assert.ok(!second.includes(fill(labels.task.queuedOthers, { others: '' }).slice(0, 20)), second);
   assert.ok(second.includes('έγινε') && second.indexOf('κι εμένα έναν') < second.indexOf('έγινε'), second);
   assert.ok(steps[1].at > steps[0].at && steps[0].at === lines.at(-1).ts);
@@ -590,26 +593,33 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
 test('afterScenarioTurn: a post the call left here is her line hosting the mark; her reactions and drawing land; the transcript handed in is untouched', () => {
   const here = { id: HERE, name: 'γενικά' };
   const trigger = scenarioTrigger({ text: 'Γεια σου', authorId: MEMBER, authorName: 'Zoë', channel: here, selfId: SELF, at: NOW });
-  const answer = { messages: [{ text: 'γεια', replyTo: 1 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, draw: { text: 'un chat', self: false, replyTo: null }, skip: false, think: '' };
+  const answer = { messages: [{ text: 'γεια', replyTo: 1 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, skip: false, think: '' };
+  const okOutcome = (skill, args) => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill, args }, result: { skill, status: 'ok', data: { text: '' } } });
+  const idByIndex = new Map([[1, trigger.id]]);
   const run = {
-    answer, call: { skill: 'message.create', args: {}, body: 'δεύτερο' }, followUp: null,
-    outcome: { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'message.create', args: { text: 'δεύτερο' } }, result: { skill: 'message.create', status: 'ok', data: { text: '' } }, followUp: false },
-    refs: { idByIndex: new Map([[1, trigger.id]]), handles: null, followUpIdByIndex: null },
+    answer, call: { skill: 'message.create', args: { text: 'δεύτερο' }, body: '' }, followUp: null,
+    outcome: okOutcome('message.create', { text: 'δεύτερο' }),
+    refs: { idByIndex, handles: null, followUpIdByIndex: null },
+    loop: { steps: [{ step: 0, answer, held: false, idByIndex, calls: [{ outcome: okOutcome('message.create', { text: 'δεύτερο' }) }, { outcome: okOutcome('draw.create', { text: 'un chat' }) }] }] },
   };
   const before = structuredClone(trigger);
   const out = afterScenarioTurn({ transcript: [trigger], callMarks: [], run, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
   assert.deepEqual(trigger, before);
-  const [first, mine, drawn, posted] = out.transcript;
+  const [first, mine, posted, drawn] = out.transcript;
   assert.deepEqual(first.reactions, [{ emoji: '👍', count: 1, mine: true }]);
   assert.deepEqual([mine.content, mine.replyToId, mine.ts], ['γεια', trigger.id, NOW + 1000]);
   assert.equal(drawn.attachments[0].kind, 'image');
-  assert.deepEqual([posted.content, posted.ts, posted.self], ['δεύτερο', NOW + 2000, true]);
-  assert.equal(out.callMarks.length, 1);
-  assert.deepEqual([out.callMarks[0].postedId, out.callMarks[0].posted], [posted.id, [mine.id, drawn.id, posted.id]]);
-  // No call: her lines only, the earlier marks kept, no new one.
-  const quiet = afterScenarioTurn({ transcript: [trigger], callMarks: out.callMarks, run: { ...run, call: null, outcome: null }, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
-  assert.equal(quiet.transcript.length, 3);
-  assert.equal(quiet.callMarks.length, 1);
+  assert.deepEqual([posted.content, posted.self], ['δεύτερο', true]);
+  assert.equal(out.callMarks.length, 2);
+  assert.deepEqual([out.callMarks[0].postedId, out.callMarks[0].posted], [posted.id, [mine.id, posted.id, drawn.id]]);
+  // A held step's speech is not in the chat; its calls still left their effects and marks.
+  const held = afterScenarioTurn({ transcript: [trigger], callMarks: [], run: { ...run, loop: { steps: [{ ...run.loop.steps[0], held: true }] } }, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
+  assert.deepEqual(held.transcript.filter((line) => line.self).map((line) => line.content), ['δεύτερο', '']);
+  assert.deepEqual(held.transcript[0].reactions ?? [], [], 'a held step\'s reactions are not on the chat either');
+  // A run without its loop record is read as a reply and its call; no call: her lines only, the earlier marks kept, no new one.
+  const plain = afterScenarioTurn({ transcript: [trigger], callMarks: out.callMarks, run: { answer, call: null, outcome: null, followUp: null, refs: run.refs }, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
+  assert.equal(plain.transcript.length, 2);
+  assert.equal(plain.callMarks.length, 2);
 });
 
 test('sequenceSummary: each run\'s calls per step as letters, its first decline, whether she called again after it; the report\'s sequence table', () => {

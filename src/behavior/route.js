@@ -28,7 +28,7 @@ export const ROUTE_DEFAULTS = Object.freeze({
 const WRITER_ALIASES = 2;
 
 /** Trigger kinds whose turn never asks the route classifier (see routeAllowed). */
-const REFUSED_KINDS = new Set(['overheard', 'drawFailed', 'private']);
+const REFUSED_KINDS = new Set(['overheard', 'private']);
 
 /** An integer from a finite `value` of at least `min` (floored), else `fallback`. */
 function intAtLeast(value, fallback, min) {
@@ -60,8 +60,7 @@ export function routeSettings(config) {
  * Whether a turn may ask the route classifier: an ordinary reply turn of any
  * trigger kind (`mention`, `reply`, `name`, `followUp`) and a turn without a
  * trigger (`triggerKind` null: interject, initiate, a noticed comment) may;
- * an `overheard` line (talk about the persona asks it nothing), a `drawFailed`
- * turn (it only says the picture failed) and a private chat (no channels to
+ * an `overheard` line (talk about the persona asks it nothing) and a private chat (no channels to
  * pull: `private`, or `privateChat` true) may not.
  * @param {{ triggerKind?: string|null, privateChat?: boolean }} [turn]
  * @returns {boolean}

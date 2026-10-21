@@ -287,7 +287,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
         } catch (err) {
           result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
         }
-        const answers = calls.slice(before).filter((call) => call.purpose === 'reply').map((call) => call.text);
+        const answers = calls.slice(before).filter((call) => call.purpose === 'reply').map((call) => ({ text: call.text, toolCalls: call.toolCalls ?? [], finishReason: call.finishReason ?? null, transport: mods.transportOf(hot.config) }));
         return { ...result, answers };
       },
     };

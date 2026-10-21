@@ -589,7 +589,7 @@ const REFUSAL_LABELS = Object.freeze({ 'agent-required': 'agentRequired', 'unkno
  * phrase counts when it is a non-empty string whose `{arg}`, `{channel}`, `{agents}` and `{args}` can be filled. ''
  * without a detail or anything to say.
  */
-function callReason(mark, labels) {
+export function callReason(mark, labels) {
   const detail = mark.detail;
   if (!detail) return '';
   const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';

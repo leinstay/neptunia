@@ -8,7 +8,7 @@
 // for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
 // current conversation only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
-// `<draw>` is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.skills`
+// a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.skills`
 // false refuses every skill, and `skills.safeMode` true lets only the carried-over tags pass; a
 // skill behind a feature switch of its own (FEATURE_SKILLS) is refused while that switch is off.
 // Pure over the live config the caller reads at the moment of use.

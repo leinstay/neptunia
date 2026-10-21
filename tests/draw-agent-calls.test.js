@@ -1,5 +1,5 @@
 // The drawing agent at its call sites, with the errand service in place (stage 3b): the turn's
-// <draw>, a diary set and `/nep draw` each make their pictures through `errands.runInline` as
+// draw.create call, a diary set and `/nep draw` each make their pictures through `errands.runInline` as
 // task records of the drawing agent (src/errands/tools.js), and the agent's daily caps refuse a
 // picture with the limit behaviour of an image cap (the notice for a member who asked, the end of
 // a set's generation, `draw failed` for the command). The image client stays the injected
@@ -10,10 +10,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
+import '../src/ops/index.js';
+import { skillRegistry } from '../src/skills/registry.js';
 import { familyOf } from '../src/llm/images.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTaskStores } from '../src/errands/store.js';
@@ -188,10 +191,13 @@ function store() {
 
 /** An LLM answering the diary plan with `plan` and every other request with `post`. */
 function llm(post, plan = null) {
+  let composed = 0;
   return {
     complete: async (_messages, opts) => {
       if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
-      return { text: post, usage: {}, estimated: 10 };
+      const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
+      composed += 1;
+      return completionOf(answer);
     },
   };
 }
@@ -238,46 +244,16 @@ function memberTrigger() {
   return { raw, trigger };
 }
 
-test('draw agent: a member\'s <draw> is posted and recorded as a task of the drawing agent, the member as its requester', async () => {
-  const images = recordingImages();
-  const hotValue = hot();
-  const { errands, records } = errandsOf(hotValue);
-  const { raw, trigger } = memberTrigger();
-  const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse at dusk, waves below</draw>', images, errands, hotValue });
-  const target = channel('c1', 'general', [raw]);
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' }));
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 1);
-  assert.equal(images.calls[0].userId, 'u1');
-  assert.equal(images.calls[0].prompt, `A drawing by Bot.\n\n${WHEN}\n\nScene: a lighthouse at dusk, waves below`);
-  assert.ok(target.sent.some((payload) => payload.files?.length === 1), 'the picture was posted');
-  const [task] = records();
-  assert.deepEqual([task.agent, task.state, task.goal, task.seen, task.requester], ['drawing', 'done', 'a lighthouse at dusk, waves below', true, { userId: 'u1', kind: 'member' }]);
-  assert.deepEqual(errands.view({ guildId: 'g1' }), [], 'not in <tasks>');
-});
-
-test('draw agent: a refusal by its daily caps tells the member who asked, as an image cap does, and draws nothing', async () => {
-  const images = recordingImages();
-  const hotValue = hot();
-  hotValue.config.agents = { drawing: { daily: { tasks: 0 } } };
-  const { errands, records } = errandsOf(hotValue);
-  const { raw, trigger } = memberTrigger();
-  const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse</draw>', images, errands, hotValue });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: channel('c1', 'general', [raw]), mode: 'reply', trigger, triggerKind: 'mention' }));
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 0);
-  assert.deepEqual(records(), []);
-  const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.used, refused.cap, refused.asked], ['agents.drawing.daily.tasks', 0, 0, true]);
-});
-
 test('draw agent: a diary set is recorded picture by picture; the avatar is fetched once; the caps end the set like an image cap and the rest is posted', async () => {
   const images = recordingImages();
   const hotValue = hot();
   hotValue.config.agents = { drawing: { daily: { tasks: 2 } } };
   const { errands, records } = errandsOf(hotValue);
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
-  const answer = '<msg>a walk</msg><draw self="yes">me at the harbour gate</draw><draw>boats in the harbour</draw><draw>a café terrace</draw>';
+  const answer = [
+    toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]),
+    '<msg>a walk, two pictures</msg>',
+  ];
   const target = channel('d1', 'journal');
   const { result, logs } = await withCapturedLogs(() => runner({ answer, plan, images, errands, hotValue }).runTurn({ channel: target, mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');
@@ -285,7 +261,7 @@ test('draw agent: a diary set is recorded picture by picture; the avatar is fetc
   assert.deepEqual(images.calls.map((call) => call.reference), [AVATAR, null]);
   assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester.kind]), [['drawing', 'done', 'persona'], ['drawing', 'done', 'persona']]);
   const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.set, refused.asked], ['agents.drawing.daily.tasks', true, false]);
+  assert.deepEqual([refused.key, refused.asked], ['agents.drawing.daily.tasks', false]);
   assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
 });
 
@@ -314,4 +290,71 @@ test('draw agent: /nep draw is recorded as the owner\'s picture; a cap makes the
   });
   assert.match(String(outcome?.message ?? outcome?.summary ?? JSON.stringify(outcome)), /draw failed \(daily\)/);
   assert.equal(images.calls.length, 1, 'nothing was generated');
+});
+
+test('draw agent: a member\'s draw.create call is made by the turn itself and recorded as a task of the drawing agent, the member as its requester; a cap comes back as a result, with no notice', async () => {
+  const hotValue = hot();
+  hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
+  hotValue.config.skills = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
+  const make = (agents) => {
+    const hotCase = structuredClone(hotValue);
+    hotCase.prompts = { ...PROMPTS };
+    if (agents) hotCase.config.agents = agents;
+    return hotCase;
+  };
+  for (const [agents, expected] of [[null, 'ok'], [{ drawing: { daily: { tasks: 0 } } }, 'image-cap-daily']]) {
+    const images = recordingImages();
+    const hotCase = make(agents);
+    const { errands, records } = errandsOf(hotCase);
+    const { raw, trigger } = memberTrigger();
+    const target = channel('c1', 'general', [raw]);
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: hotCase,
+      errands,
+      store: store(),
+      llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
+      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+      client: client(),
+      images,
+      imageFetcher: imageFetcher(),
+      lookup: null,
+      rng: () => 0.5,
+      now: () => NOW,
+      skills: skillRegistry(),
+      runOp: createAdmin({ discord: DISCORD, hot: hotCase, store: store(), client: client(), getGuildId: () => 'g1', errands }).runSkillOp,
+    });
+    const { logs } = await withCapturedLogs(() => turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' }));
+    const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
+    assert.ok(called, JSON.stringify(logs.filter((l) => /skill/.test(l.msg))));
+    assert.equal(called.code ?? 'ok', expected);
+    if (expected === 'ok') {
+      assert.equal(images.calls[0].userId, 'u1');
+      assert.ok(target.sent.some((payload) => payload.files?.length === 1), 'the picture was posted');
+      assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester]), [['drawing', 'done', { userId: 'u1', kind: 'member' }]]);
+    } else {
+      assert.equal(images.calls.length, 0);
+      assert.equal(target.sent.length, 0, 'no limit notice');
+    }
+  }
+});
+
+test('draw agent: the draw.create operation quotes the message it replies to, in that message\'s channel (a link) and refuses a channel that disagrees', async () => {
+  const { createFakeAdapter } = await import('../src/interface/fake.js');
+  const hotValue = hot();
+  const { errands } = errandsOf(hotValue);
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+  port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });
+  const admin = createAdmin({
+    discord: DISCORD, hot: hotValue, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images: recordingImages(), imageFetcher: imageFetcher(), errands, now: () => NOW, port,
+  });
+  const ctx = { guildId: 'g1', channelId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
+  const quoted = (await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))).result;
+  assert.equal(quoted.status ?? 'ok', 'ok', JSON.stringify(quoted));
+  const sent = port.calls.find((call) => call.op === 'send');
+  assert.deepEqual([sent.args[0].conversationId, sent.args[1].replyTo.conversationId, sent.args[1].replyTo.messageId], ['c1', 'c1', 'm9']);
+  const refused = await admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'https://discord.com/channels/g1/c1/m9', channelId: 'c2' }, ctx);
+  assert.equal(refused.status, 'invalid');
+  assert.equal(refused.code, 'unknown-message');
 });

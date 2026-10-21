@@ -17,6 +17,8 @@ import { handleOf } from '../src/behavior/handles.js';
 const { liveView, situationHistory, answerReply, sandboxRequestInput, SANDBOX_OMITS, momentView, momentCutoff, hiddenLater, replayMedia } = sandbox;
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
+import '../src/ops/index.js';
+import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const SELF_ID = '900000000000000001';
@@ -193,7 +195,7 @@ test('answerReply: sends the live system prompt and renders the member\'s profil
   assert.ok(result.request.user.includes('CHARACTER_MARKER'));
   assert.ok(result.request.user.includes('what do you think about chess?'));
   assert.deepEqual(result.answers, [
-    { messages: [{ text: 'δεν ξέρω', replyTo: 2 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, draw: null, skip: false, think: '' },
+    { messages: [{ text: 'δεν ξέρω', replyTo: 2 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, skip: false, think: '' },
   ]);
   assert.equal(result.stopped, false);
   assert.deepEqual(store.writes, [], 'nothing is written to memory');
@@ -357,7 +359,7 @@ test('answerReply: the server\'s custom emoji and GIF library render as in a liv
   }
 });
 
-test('answerReply: a GIF or a drawing alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
+test('answerReply: a GIF alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
   const answer = async (text, { features = {}, gifs = GIF_LIBRARY } = {}) => {
     const view = liveView({ hot: fakeHot(features), store: fakeStore(), guildId: 'g1' });
     const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm(text), samples: 1, at: NOW, gifs });
@@ -366,20 +368,15 @@ test('answerReply: a GIF or a drawing alone is an action, not silence; switched 
   const gif = await answer('<gif reply="#2">g1</gif>');
   assert.equal(gif.skip, false);
   assert.deepEqual(gif.gif, { id: 'g1', replyTo: 2 });
-  const draw = await answer('<draw self="yes">a cat on a chessboard</draw>');
-  assert.equal(draw.skip, false);
-  assert.deepEqual(draw.draw, { text: 'a cat on a chessboard', self: true, replyTo: null });
 
   for (const [text, options] of [
     ['<gif>g9</gif>', {}],
     ['<gif>g1</gif>', { gifs: null }],
     ['<gif>g1</gif>', { features: { gifs: false } }],
-    ['<draw>a cat</draw>', { features: { imageGeneration: false } }],
   ]) {
     const dropped = await answer(text, options);
     assert.equal(dropped.skip, true, `${text} ${JSON.stringify(options)}`);
     assert.equal(dropped.gif, null);
-    assert.equal(dropped.draw, null);
   }
 });
 
@@ -699,16 +696,53 @@ test('sandboxRequestInput: names every input buildRequest reads; what it leaves 
   }
 });
 
-test('sandboxRequestInput: a skill scenario passes its inventory and her granted skills; everything else SANDBOX_OMITS leaves out stays out', () => {
+/** A fake model that answers each request, in order, with the next of `answers` (an object as it is, a string as speech only). */
+function fakeToolLlm(answers) {
+  const calls = [];
+  return {
+    calls,
+    complete: async (messages, options) => {
+      calls.push({ messages, options });
+      return completionOf(answers[calls.length - 1] ?? '<think>x</think>');
+    },
+  };
+}
+
+/** A view whose persona holds exactly the skills `names`, over `config` additions (`skills`, `features`). */
+function grantedView(names, { skills = {}, features = {} } = {}) {
+  const hot = fakeHot(features);
+  hot.config.skills = skills;
+  hot.config = sandbox.personaGrantsConfig(hot.config, SELF_ID, names);
+  return liveView({ hot, store: fakeStore(), guildId: 'g1' });
+}
+
+const OK_DATA = (skill, text = '') => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill, args: {} }, result: { skill, status: 'ok', data: { text } } });
+const BOUNDS = { settings: { maxSteps: 3, timeBudgetMs: 60000, maxCallsPerStep: 4 } };
+
+test('sandboxToolset: her granted and carried-over skills as native definitions, or as the <tools> text on the text transport', () => {
+  const native = sandbox.sandboxToolset({ view: grantedView(['rule.add']), selfId: SELF_ID });
+  assert.equal(native.transport, 'native');
+  assert.ok(native.names.includes('rule.add') && native.names.includes('message.create'));
+  assert.equal(native.tools.length, native.names.length);
+  assert.equal(native.block, null);
+  assert.ok(native.tokens > 0);
+  const text = sandbox.sandboxToolset({ view: grantedView(['rule.add'], { skills: { transport: 'text' } }), selfId: SELF_ID });
+  assert.equal(text.transport, 'text');
+  assert.equal(typeof text.block, 'string');
+  assert.equal(text.tokens, 0);
+  assert.deepEqual(sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { skills: false } }), selfId: SELF_ID }).names, []);
+});
+
+test('sandboxRequestInput: a skill scenario passes its inventory and her tools set; everything else SANDBOX_OMITS leaves out stays out', () => {
   const { SKILL_SCENARIO_OMITS } = sandbox;
-  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => key !== 'skillsInventory' && key !== 'skillsGranted').sort());
+  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key)).sort());
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const wanted = buildRequestInputs();
   const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
-  const granted = ['rule.add'];
-  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows, skillsGranted: granted });
+  const toolset = { names: ['rule.add'], block: 'TOOLS_MARKER', tokens: 321 };
+  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows, toolset });
   assert.equal(input.skillsInventory, rows);
-  assert.equal(input.skillsGranted, granted);
+  assert.deepEqual([input.toolsGranted, input.toolsBlock, input.toolsTokens], [['rule.add'], 'TOOLS_MARKER', 321]);
   const passed = Object.keys(input).filter((key) => !Object.hasOwn(SKILL_SCENARIO_OMITS, key));
   assert.deepEqual(new Set([...passed, ...Object.keys(SKILL_SCENARIO_OMITS)]), wanted);
   for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
@@ -716,85 +750,114 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her granted
     const absent = input[key] === null || (Array.isArray(input[key]) && input[key].length === 0);
     assert.ok(absent, `${key} is left out`);
   }
-  // An empty catalogue is no block, as in any other sandbox turn.
+  // An empty catalogue is no block, as in any other sandbox turn; no tools set, no tools.
   assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: [] }).skillsInventory, null);
-  // No grant: no list, as in any other sandbox turn.
-  assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsGranted: [] }).skillsGranted, null);
+  const bare = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, toolset: { names: [], block: null, tokens: 0 } });
+  assert.deepEqual([bare.toolsGranted, bare.toolsBlock, bare.toolsTokens], [null, null, null]);
 });
 
-test('answerSkillScenario: her skills are shown; a call goes to onCall and its result comes back before <task> (features.followUpContinuation off); nothing else runs', async () => {
+test('answerSkillScenario: native -- the tools ride on every request; a data result is read in a second step that appends to the first messages; an effect covers the speech; nothing real runs', async () => {
   const { answerSkillScenario } = sandbox;
-  const view = liveView({ hot: fakeHot({ followUpContinuation: false }), store: fakeStore(), guildId: 'g1' });
-  const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
-  const llm = fakeLlm([
-    '<msg>μια στιγμή</msg><call skill="rule.add">όχι spoilers</call>',
-    '<msg>έγινε</msg><call skill="rule.add">ξανά</call>',
-    '<msg>όχι τώρα</msg>',
-    '<call skill="rule.add">πάλι</call>',
+  const view = grantedView(['rule.add', 'web.search']);
+  const llm = fakeToolLlm([
+    toolAnswer('<think>a</think><msg>μια στιγμή</msg>', [call('web.search', { query: 'chess' }, { id: 'w1' })]),
+    '<think>b</think><msg>έγινε</msg>',
+    toolAnswer('<think>c</think><msg>σημειώθηκε</msg>', [call('rule.add', { text: 'όχι spoilers' })]),
+    toolAnswer('<think>d</think><msg>πάω</msg>', [call('nope.skill', {})]),
+    '<think>e</think><msg>δεν υπάρχει</msg>',
   ]);
   const seen = [];
-  const outcomes = [
-    { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'rule.add', args: { text: 'όχι spoilers' } }, result: { skill: 'rule.add', status: 'ok', data: { text: 'RESULT_MARKER' } }, followUp: true },
-    { verdict: { stage: 'gateway', ok: false, code: 'skills-off' }, executed: null, result: { skill: 'rule.add', status: 'denied', code: 'skills-off' }, followUp: false },
-  ];
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW, skillsInventory: rows,
-    onCall: (call, context) => {
-      seen.push({ call, context });
-      return outcomes[seen.length - 1];
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW, loop: BOUNDS,
+    onCall: (given, context) => {
+      seen.push({ given, context });
+      return given.skill === 'web.search' ? OK_DATA('web.search', 'RESULT_MARKER') : OK_DATA(given.skill);
     },
   });
-  assert.ok(result.request.user.includes('rule.add: Add a rule -- when asked (allowed)'), 'the <skills> block lists her catalogue');
-  assert.equal(llm.calls.length, 4, 'run 1 and its follow-up, run 2, run 3 without a follow-up');
-  for (const { options } of llm.calls) assert.deepEqual([options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose], ['replay', false, true, 'reply']);
-
-  // Run 1: the call reached onCall with the turn's transcript numbers and history (the trigger last).
-  assert.deepEqual(seen[0].call, { skill: 'rule.add', args: {}, body: 'όχι spoilers' });
+  assert.equal(llm.calls.length, 5, 'run 1: two requests, run 2: one, run 3: two');
+  for (const { options } of llm.calls) {
+    assert.deepEqual([options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose, options.toolChoice], ['replay', false, true, 'reply', 'auto']);
+    assert.ok(options.tools.some((tool) => tool.function.name === 'web_search'), 'her tools are sent');
+  }
+  assert.ok(result.request.toolsTokens > 0 && result.request.tools >= 2);
+  // Run 1: the call reached onCall with its tool call id; the second request appends to the first messages, which are the same objects.
+  assert.deepEqual(seen[0].given, { skill: 'web.search', args: { query: 'chess' }, body: '', toolCallId: 'w1', index: 0 });
   assert.ok(seen[0].context.idByIndex instanceof Map);
   assert.equal(seen[0].context.history.at(-1).authorId, ALICE);
-  const followUser = llm.calls[1].messages[1].content;
-  assert.equal(typeof followUser, 'string', 'the follow-up carries no cache marker');
-  const at = followUser.indexOf('<result skill="rule.add" status="ok">');
-  assert.ok(at > 0 && at < followUser.lastIndexOf('<task>'), 'the result sits before <task>');
-  assert.ok(followUser.includes('already posted: μια στιγμή') && followUser.includes('RESULT_MARKER'));
-  const [first, second, third] = result.runs;
-  assert.deepEqual(first.answer.messages.map((m) => m.text), ['μια στιγμή']);
-  assert.deepEqual(first.followUp.answer.messages.map((m) => m.text), ['έγινε']);
-  assert.equal(first.followUp.extraCall, true, 'a call in the follow-up is only reported');
-  // Run 2: no call, nothing asked of onCall. Run 3: a call whose outcome needs no follow-up.
-  assert.deepEqual([second.call, second.outcome, second.followUp], [null, null, null]);
-  assert.equal(third.outcome.verdict.code, 'skills-off');
-  assert.equal(third.followUp, null);
+  const [first, second] = [llm.calls[0].messages, llm.calls[1].messages];
+  assert.equal(second[0], first[0]);
+  assert.equal(second[1], first[1], 'the first user message is never rebuilt');
+  assert.equal(second[2].role, 'assistant');
+  assert.equal(second[2].tool_calls[0].id, 'w1');
+  assert.deepEqual([second[3].role, second[3].tool_call_id], ['tool', 'w1']);
+  assert.ok(second[3].content.includes('RESULT_MARKER'));
+  assert.equal(second[4].role, 'user');
+  assert.ok(second[4].content[0].text.includes(labels.task.step.held), 'the held speech is told');
+  const [one, two, three] = result.runs;
+  assert.equal(one.loop.steps[0].held, true, 'a data result does not cover the speech of its step');
+  assert.deepEqual(one.loop.steps[0].answer.messages.map((m) => m.text), ['μια στιγμή']);
+  assert.deepEqual(one.followUp.answer.messages.map((m) => m.text), ['έγινε']);
+  assert.equal(one.followUp.extraCall, false);
+  assert.deepEqual([one.call.skill, one.outcome.result.status], ['web.search', 'ok']);
+  // Run 2: an effect covers the speech, nothing is read, no second request.
+  assert.deepEqual([two.loop.steps.length, two.loop.steps[0].held, two.followUp], [1, false, null]);
+  // Run 3: an unknown skill is refused with a result she reads; onCall never saw it.
   assert.equal(seen.length, 2);
+  assert.equal(three.loop.steps[0].calls[0].outcome.result.code, 'unknown-skill');
+  assert.equal(three.callError, 'unknown-skill');
+  assert.equal(three.loop.steps[0].held, true);
+  assert.equal(three.loop.steps.length, 2);
   assert.equal(result.stopped, false);
-  assert.equal(first.followUp.continuation, false);
+  assert.equal(one.loop.steps[0].thinkMissing, false);
 });
 
-test('answerSkillScenario: with features.followUpContinuation on the follow-up continues the turn as a live one -- her line with the call\'s mark and why, an ok call\'s data in <result>, the continue task', async () => {
+test('answerSkillScenario: the last step allowed is final -- its calls get loop-cap results and its speech is held; a missing <think> is counted', async () => {
   const { answerSkillScenario } = sandbox;
-  const view = liveView({ hot: fakeHot({ followUpContinuation: true }), store: fakeStore(), guildId: 'g1' });
-  const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
-  const llm = fakeLlm(['<msg>μια στιγμή</msg><call skill="message.delete"/>', '<msg>ποιο μήνυμα;</msg>', '<msg>κοιτάζω</msg><call skill="rule.add">όχι spoilers</call>', '<skip/>']);
-  const outcomes = [
-    { verdict: { stage: 'gateway', ok: false, code: 'invalid-args', reason: 'args.message:required' }, executed: null, result: { skill: 'message.delete', status: 'invalid', code: 'invalid-args', reason: 'args.message:required' }, followUp: true },
-    { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'rule.add', args: { text: 'όχι spoilers' } }, result: { skill: 'rule.add', status: 'ok', data: { text: 'RESULT_MARKER' } }, followUp: true },
-  ];
+  const view = grantedView(['web.search']);
+  const llm = fakeToolLlm([
+    toolAnswer('<think>a</think>', [call('web.search', { query: 'a' })]),
+    toolAnswer('no think<msg>αργά</msg>', [call('web.search', { query: 'b' })]),
+  ]);
   let n = 0;
-  const result = await answerSkillScenario({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW, skillsInventory: rows, onCall: () => outcomes[(n += 1) - 1] });
-  assert.equal(llm.calls.length, 4);
-  const failed = llm.calls[1].messages[1].content;
-  assert.equal(typeof failed, 'string', 'no cache marker');
-  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }) });
-  assert.ok(failed.includes(`Zoë (you): μια στιγμή [called message.delete in #general: ${status}]`), failed);
-  assert.ok(!failed.includes('<result') && !failed.includes(fill(labels.skills.result.alreadyPosted, { text: '' })), failed);
-  assert.ok(failed.endsWith(`<task>\n${fill(labels.task.continue, { skill: 'message.delete' })}\n</task>`), failed);
-  assert.ok(failed.indexOf('what do you think about chess?') < failed.indexOf('μια στιγμή'), 'the trigger kept, her line after it');
-  const read = llm.calls[3].messages[1].content;
-  const at = read.indexOf('<result skill="rule.add" status="ok">');
-  assert.ok(at > read.indexOf('</chat>') && at < read.lastIndexOf('<task>') && read.includes('RESULT_MARKER'), read);
-  assert.ok(read.includes(`Zoë (you): κοιτάζω [called rule.add in #general: ${labels.transcript.callStatus.ok}]`), read);
-  assert.deepEqual(result.runs.map((run) => run.followUp.continuation), [true, true]);
-  assert.deepEqual(result.runs[0].followUp.answer.messages.map((m) => m.text), ['ποιο μήνυμα;']);
+  const result = await answerSkillScenario({
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 1, at: NOW,
+    loop: { settings: { maxSteps: 1, timeBudgetMs: 60000, maxCallsPerStep: 4 } },
+    onCall: (given) => {
+      n += 1;
+      return OK_DATA(given.skill, 'R');
+    },
+  });
+  assert.equal(llm.calls.length, 2);
+  assert.ok(llm.calls[1].messages.at(-1).content[0].text.includes(labels.task.step.last), 'the last-step notice');
+  const [run] = result.runs;
+  assert.equal(n, 1, 'the final answer\'s call never runs');
+  const last = run.loop.steps[1];
+  assert.deepEqual([last.calls[0].outcome.result.code, last.capped, last.held, last.thinkMissing, last.dropped], ['loop-cap', 'steps', true, true, 1]);
+  assert.equal(run.loop.steps[0].thinkMissing, false);
+});
+
+test('answerSkillScenario: the text transport -- no tools field, the <tools> block in the request, <tool_call> blocks read, results as <tool_result> parts', async () => {
+  const { answerSkillScenario } = sandbox;
+  const view = grantedView(['web.search'], { skills: { transport: 'text' } });
+  const llm = fakeToolLlm([
+    textAnswer('<think>a</think><msg>μια στιγμή</msg>', [call('web.search', { query: 'chess' }, { id: 'w1' })]),
+    '<think>b</think><msg>έγινε</msg>',
+  ]);
+  const result = await answerSkillScenario({
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 1, at: NOW, loop: BOUNDS,
+    onCall: (given) => OK_DATA(given.skill, 'RESULT_MARKER'),
+  });
+  assert.equal('tools' in llm.calls[0].options, false);
+  assert.ok(result.request.user.includes('<tools>'));
+  const [run] = result.runs;
+  assert.deepEqual(run.loop.steps[0].answer.messages.map((m) => m.text), ['μια στιγμή'], 'the block is cut out of her speech');
+  assert.equal(run.call.skill, 'web.search');
+  const appended = llm.calls[1].messages;
+  assert.equal(appended[2].role, 'assistant');
+  assert.equal(appended[3].role, 'user');
+  assert.ok(appended[3].content[0].text.startsWith('<tool_result id="s1c1" name="web.search" status="ok">'));
+  assert.ok(appended[3].content[0].text.includes('RESULT_MARKER'));
+  assert.deepEqual(run.followUp.answer.messages.map((m) => m.text), ['έγινε']);
 });
 
 // ---- the memory as it stood at the moment: momentView, momentCutoff, hiddenLater ---------------
@@ -1220,14 +1283,17 @@ test('answerReply: features.mentionHandles off -- no directory, no handles, noth
   assert.deepEqual(result.answers[0].messages, [{ text: `@${handleOf(ZOE_ID)}`, replyTo: null }]);
 });
 
-test('answerSkillScenario: a message.create body is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {
+test('answerSkillScenario: a message.create text is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
-  const llm = fakeLlm([`<msg>${zoe}</msg><call skill="message.create" channel="#general">${zoe} @Zo</call>`, '<msg>ok</msg>']);
+  const llm = fakeToolLlm([
+    toolAnswer(`<think>a</think><msg>${zoe}</msg>`, [call('message.create', { channel: '#general', text: `${zoe} @Zo` })]),
+    toolAnswer('<think>b</think><msg>ok</msg>', []),
+  ]);
   const result = await answerSkillScenario({
     view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW,
-    onCall: () => ({ verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'message.create', status: 'ok' }, followUp: false }),
+    onCall: (given) => OK_DATA(given.skill),
   });
   const [first, second] = result.runs;
   assert.deepEqual(first.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
@@ -1235,23 +1301,21 @@ test('answerSkillScenario: a message.create body is resolved like a <msg> (callM
   assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
 
-test('answerSkillScenario: a message text given in a text= attribute is resolved like a body (callMentions)', async () => {
+test('answerSkillScenario: only a message\'s text is rendered as a post (message.edit too, rule.add not)', async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
-  const llm = fakeLlm([
-    `<call skill="message.create" channel="#general" text="${zoe} @Zo"/>`,
-    `<call skill="message.edit" message="#1" text="${zoe}"></call>`,
-    `<call skill="rule.add" text="${zoe}"/>`,
+  const llm = fakeToolLlm([
+    toolAnswer('<think>a</think>', [call('message.edit', { message: '#1', text: zoe })]),
+    toolAnswer('<think>b</think>', [call('rule.add', { text: zoe })]),
   ]);
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW,
-    onCall: () => ({ verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'message.create', status: 'ok' }, followUp: false }),
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW,
+    onCall: (given) => OK_DATA(given.skill),
   });
-  const [create, edit, other] = result.runs;
-  assert.deepEqual(create.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
+  const [edit, other] = result.runs;
   assert.deepEqual(edit.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
-  assert.equal('callMentions' in other, false, 'only a message\'s text is rendered as a post');
+  assert.equal('callMentions' in other, false);
 });
 
 test('answerReply: given tools, they are passed to the llm and the completion\'s tool calls ride on the answer; without them nothing changes', async () => {
@@ -1265,7 +1329,12 @@ test('answerReply: given tools, they are passed to the llm and the completion\'s
   assert.equal(llm.calls[0].toolChoice, 'auto');
   assert.deepEqual(withTools.answers[0].toolCalls, toolCalls);
   const plain = fakeLlm('<msg>ok</msg>');
-  const without = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: plain, samples: 1, at: NOW });
+  const without = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: plain, samples: 1, at: NOW, tools: null });
   assert.equal('tools' in plain.calls[0].options, false);
   assert.equal('toolCalls' in without.answers[0], false);
+  // By default her tools go as a live turn sends them.
+  const live = fakeLlm('<msg>ok</msg>');
+  await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: live, samples: 1, at: NOW });
+  assert.ok(live.calls[0].options.tools.some((tool) => tool.function.name === 'message_create'));
+  assert.equal(live.calls[0].options.toolChoice, 'auto');
 });

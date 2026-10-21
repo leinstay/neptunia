@@ -728,6 +728,26 @@ test('journal: dumpRequest of a tool-loop step writes <turnId>-<attempt>-s<step>
   assert.ok(!('step' in JSON.parse(fs.files.get(base))), 'the base dump has no step');
 });
 
+test('journal: dumpRequest stores the later messages with their tool calls, pictures reduced; absent when there are none', async () => {
+  const { journal, fs } = dumpJournal();
+  const request = { messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'chat' }] };
+  const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
+  const toolCalls = [{ id: 'call_1', type: 'function', function: { name: 'search_web', arguments: '{"q":"γάτα"}' } }];
+  const later = [
+    { role: 'assistant', content: '<think>x</think>', tool_calls: toolCalls },
+    { role: 'tool', tool_call_id: 'call_1', content: '{"status":"ok"}' },
+    { role: 'user', content: [{ type: 'text', text: 'note' }, { type: 'image_url', image_url: { url: dataUrl } }] },
+  ];
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 1, request, raw: 'r', later });
+  await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request, raw: 'r', later: [] });
+  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1-s1.json')));
+  assert.deepEqual(dump.later[0], later[0]);
+  assert.deepEqual(dump.later[1], later[1]);
+  assert.deepEqual(dump.later[2], { role: 'user', content: [{ type: 'text', text: 'note' }, { image: 'attachment', bytes: 30 }] });
+  assert.ok(!JSON.stringify(dump).includes('data:'));
+  assert.equal('later' in JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-2-1.json'))), false);
+});
+
 test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
   const { journal, fs } = dumpJournal({ keepRequests: 3 });
   for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13']) fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');

@@ -20,6 +20,7 @@ import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
 import { wakeBlockText } from '../src/behavior/wake.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { tempDir } from './fixtures/tmp.js';
 
 const DISCORD = createDiscordInterface().capabilities;
@@ -91,7 +92,7 @@ function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, followUpContinuation: true, callMarkers: true, coreTools: true, ...features },
+      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, coreTools: true, ...features },
       models: { helpers: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
@@ -123,7 +124,7 @@ function sequenceLlm(answers, { onCall = null } = {}) {
       calls.push(messages);
       const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
       if (onCall) onCall(calls.length);
-      return { text: answer, usage: {}, estimated: 10 };
+      return completionOf(answer);
     },
   };
 }
@@ -173,15 +174,17 @@ async function liveTurn({ answers, wake = BEAT_WAKE, beat = {}, seed = null, int
 }
 
 const THINK = '<think>STEP 4. So: write it.</think>';
-const SET = (text, extra = '') => `${THINK}<call skill="intent.set" due="0m"${extra}>${text}</call>`;
+const SET = (text, extra = {}) => toolAnswer(THINK, [call('intent.set', { due: '0m', text, ...extra })]);
+/** What she read of the calls of request `i`: the content of its tool messages, in order. */
+const readOf = (run, i) => run.llm.calls[i].filter((message) => message.role === 'tool').map((message) => (typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join(''))).join('\n');
 const actionsOf = (run) => run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
-test('heartbeat turn: a post, a read and a tag are refused heartbeat-only, she reads why, then one intent.set ends the turn with no further request', async () => {
-  const run = await liveTurn({ answers: [`${THINK}<msg>γεια</msg><call skill="lore.list"/>`, SET('check the thread in #general and answer if it is still open')] });
+test('heartbeat turn: a post and a read are refused heartbeat-only, she reads why, then one intent.set ends the turn with no further request', async () => {
+  const run = await liveTurn({ answers: [toolAnswer(THINK, [call('message.create', { text: 'γεια' }), call('lore.list')]), SET('check the thread in #general and answer if it is still open')] });
   assert.deepEqual(actionsOf(run), ['message.create:refused:heartbeat-only', 'lore.list:refused:heartbeat-only', 'intent.set:executed:ok']);
   assert.deepEqual(run.sends, [], 'nothing was posted');
   assert.equal(run.llm.calls.length, 2, 'the refusal step, and no request after the change');
-  assert.ok(userText(run.llm.calls[1][1].content).includes(labels.skills.result.reasons['heartbeat-only']), 'she reads the refusal');
+  assert.ok(readOf(run, 1).includes(labels.skills.result.reasons['heartbeat-only']), 'she reads the refusal');
   assert.equal(run.list().length, 1);
   assert.ok(run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'lore.list'), 'the refusal is logged');
 });
@@ -197,18 +200,18 @@ test('heartbeat turn: the first change that goes through ends the turn at once; 
 });
 
 test('heartbeat turn: a second intention call in the same step is refused, and a refused change does not end the turn', async () => {
-  const two = await liveTurn({ answers: [`${THINK}<call skill="intent.set" due="1h">first thing</call><call skill="intent.set" due="2h">second thing</call>`, '<skip/>'] });
+  const two = await liveTurn({ answers: [toolAnswer(`${THINK}`, [call('intent.set', { due: `1h`, text: `first thing` }), call('intent.set', { due: `2h`, text: `second thing` })]), '<skip/>'] });
   assert.deepEqual(actionsOf(two), ['intent.set:executed:ok', 'intent.set:refused:heartbeat-only']);
   assert.equal(two.list().length, 1);
   assert.equal(two.llm.calls.length, 1);
-  const bad = await liveTurn({ answers: [`${THINK}<call skill="intent.set" due="soon">a thing</call>`, SET('a thing')] });
+  const bad = await liveTurn({ answers: [toolAnswer(`${THINK}`, [call('intent.set', { due: `soon`, text: `a thing` })]), SET('a thing')] });
   assert.deepEqual(actionsOf(bad), ['intent.set:executed:bad-time', 'intent.set:executed:ok']);
   assert.equal(bad.llm.calls.length, 2, 'she saw the failure and corrected the call');
 });
 
 test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an update keeps it, a heartbeat updating another one does not relabel it', async () => {
   const run = await liveTurn({
-    answers: (service) => [`${THINK}<call skill="intent.update" id="${service.list('g1', { all: true })[0].id}">new words</call>`],
+    answers: (service) => [toolAnswer(`${THINK}`, [call('intent.update', { id: `${service.list('g1', { all: true })[0].id}`, text: `new words` })])],
     seed: (service) => service.set('g1', { purpose: 'her own earlier one', dueAt: NOW + 3_600_000 }),
   });
   assert.deepEqual(actionsOf(run), ['intent.update:executed:ok']);
@@ -241,7 +244,7 @@ test('heartbeat caps: at maxOpen intent.set is refused heartbeat-cap and the res
   assert.deepEqual(actionsOf(run), ['intent.set:executed:heartbeat-cap']);
   assert.equal(run.list().length, 3);
   const ids = run.list().map((r) => r.id);
-  const shown = userText(run.llm.calls[1][1].content);
+  const shown = readOf(run, 1);
   for (const id of ids) assert.ok(shown.includes(id), `the result names ${id}`);
   assert.ok(shown.includes('heartbeat thing 2'));
   const freed = await liveTurn({ answers: [SET('a fourth')], seed: (service) => { seed(service); const first = service.list('g1', { all: true })[0]; service.cancel('g1', first.id, { all: true }); } });
@@ -255,28 +258,28 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
     service.set('g1', { purpose: 'regular thing', dueAt: NOW + 3_600_000, every: { period: 'day', at: null }, origin: 'heartbeat' });
     service.set('g1', { purpose: 'one-off', dueAt: NOW + 7_200_000, origin: 'heartbeat' });
   };
-  const fresh = await liveTurn({ answers: [SET('another regular', ' every="day"'), '<skip/>'], seed });
+  const fresh = await liveTurn({ answers: [SET('another regular', { every: 'day' }), '<skip/>'], seed });
   assert.deepEqual(actionsOf(fresh), ['intent.set:executed:heartbeat-recurring-cap']);
   const plain = await liveTurn({ answers: [SET('plain one')], seed });
   assert.deepEqual(actionsOf(plain), ['intent.set:executed:ok']);
-  const made = await liveTurn({ answers: (service) => [`${THINK}<call skill="intent.update" id="${service.list('g1', { all: true }).find((r) => r.purpose === 'one-off').id}" every="day"/>`, '<skip/>'], seed });
+  const made = await liveTurn({ answers: (service) => [toolAnswer(`${THINK}`, [call('intent.update', { id: `${service.list('g1', { all: true }).find((r) => r.purpose === 'one-off').id}`, every: `day` })]), '<skip/>'], seed });
   assert.deepEqual(actionsOf(made), ['intent.update:executed:heartbeat-recurring-cap']);
   assert.equal(made.list().filter((r) => r.every).length, 1);
-  const other = await liveTurn({ answers: [SET('x', ' every="day"')], beat: { maxRecurring: 2 }, seed });
+  const other = await liveTurn({ answers: [SET('x', { every: 'day' })], beat: { maxRecurring: 2 }, seed });
   assert.deepEqual(actionsOf(other), ['intent.set:executed:ok']);
   assert.equal(other.list().filter((r) => r.every).length, 2);
 });
 
-test('heartbeat turn: the switch off gives the earlier behaviour back (a post goes out, no end after a change); the origin is still stamped', async () => {
-  const run = await liveTurn({ answers: [`${THINK}<call skill="message.create" channel="#general">καλημέρα</call><call skill="intent.set" due="1h">later</call>`, '<skip/>'], beat: { intentionsOnly: false } });
+test('heartbeat turn: the switch off gives the earlier behaviour back (a post goes out and the change is no end of the turn by itself); the origin is still stamped', async () => {
+  const run = await liveTurn({ answers: [toolAnswer(`${THINK}`, [call('message.create', { channel: `#general`, text: `καλημέρα` }), call('intent.set', { due: `1h`, text: `later` })]), '<skip/>'], beat: { intentionsOnly: false } });
   assert.deepEqual(actionsOf(run), ['message.create:executed:ok', 'intent.set:executed:ok']);
   assert.equal(run.sends.length, 1);
-  assert.equal(run.llm.calls.length, 2, 'the change is followed by a request');
+  assert.equal(run.llm.calls.length, 1, 'the post and the change both went through: nothing is left to read');
   assert.equal(run.list()[0].origin, 'heartbeat');
 });
 
 test('an intention_due turn is not limited to intention changes', async () => {
-  const run = await liveTurn({ wake: { ...DUE_WAKE, intentions: [{ id: 'i1', purpose: 'say hello', dueAt: NOW }] }, answers: [`${THINK}<call skill="message.create" channel="#general">γεια</call>`, '<skip/>'] });
+  const run = await liveTurn({ wake: { ...DUE_WAKE, intentions: [{ id: 'i1', purpose: 'say hello', dueAt: NOW }] }, answers: [toolAnswer(`${THINK}`, [call('message.create', { channel: `#general`, text: `γεια` })]), '<skip/>'] });
   assert.equal(run.sends.length, 1);
 });
 

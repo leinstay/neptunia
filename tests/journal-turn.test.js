@@ -13,6 +13,7 @@ import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.js
 import { snowflakeAt } from '../src/behavior/recall.js';
 import { executeCall, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
+import { journalTurnRecord } from '../src/behavior/turn.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -207,4 +208,36 @@ test('turnView: an old skip record with reason null still reads', () => {
   assert.ok(view.includes('outcome: skip, reason: -'));
   const silent = turnView({ turn: { ...turn, reason: 'silence' }, start: null, posted: [], calls: [] });
   assert.ok(silent.includes('outcome: skip, reason: silence'));
+});
+
+test('journalTurnRecord: format counts and steps are written only when the turn noted them', async () => {
+  const draft = { started: { turnId: 't-1', attemptId: 1, startedAt: 'x' }, channelId: 'c1', privateUserId: null, participants: [], think: null };
+  const plain = journalTurnRecord(draft, { outcome: 'delivered', mode: 'reply' });
+  assert.equal('format' in plain, false);
+  assert.equal('steps' in plain, false);
+
+  const noted = journalTurnRecord({ ...draft, format: { thinkMissing: 1, coerced: 2, held: 1 }, steps: 3 }, { outcome: 'delivered', mode: 'reply' });
+  assert.deepEqual(noted.format, { thinkMissing: 1, coerced: 2, malformed: 0, truncated: 0, capped: 0, held: 1 });
+  assert.equal(noted.steps, 3);
+
+  // The record survives the journal's line round trip.
+  const clock = { ms: Date.UTC(2026, 9, 13, 12) };
+  const { journal, appendStore } = journalAt(clock);
+  await journal.turn('g1', { ...noted, think: null });
+  await tick();
+  const written = JSON.parse(appendStore.lines[0].line);
+  assert.deepEqual(written.format, noted.format);
+  assert.equal(written.steps, 3);
+});
+
+test('a skill action line keeps the tool call id and the coerced argument names, nothing else of the arguments', async () => {
+  const clock = { ms: Date.UTC(2026, 9, 13, 12) };
+  const { journal, appendStore } = journalAt(clock);
+  const op = journal.op('g1', { name: 'message.create', by: 'persona', input: { skill: 'message.create' } });
+  await op.proposed({ input: { skill: 'message.create', args: ['count'], toolCallId: 'call_1', coerced: ['count'] } });
+  await tick();
+  const line = JSON.parse(appendStore.lines[0].line);
+  assert.equal(line.input.toolCallId, 'call_1');
+  assert.deepEqual(line.input.coerced, ['count']);
+  assert.equal(JSON.stringify(line).includes('"7"'), false);
 });

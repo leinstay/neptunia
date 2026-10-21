@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import '../src/ops/index.js';
+import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.js';
 import { requestJson, createAnswersDir, withAnswersDir, renderRequest, isAnthropicModel } from '../tools/lib/answers-dir.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'answers-dir-'));
@@ -122,4 +124,46 @@ test('without tools the request files and the result have no tool fields', async
   assert.equal('toolCalls' in out, false);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'req-001.json'), 'utf8'))), ['model', 'purpose', 'system', 'messages']);
   assert.ok(!fs.readFileSync(path.join(dir, 'req-001.md'), 'utf8').includes('## tools'));
+});
+
+test('an answer whose tool-calls.json holds a data call drives two steps of a replay turn: the second request appends her call and its result to the first messages', async () => {
+  const dir = tmp();
+  const reached = [];
+  const answers = createAnswersDir({
+    dir,
+    pollMs: 1,
+    sleep: async () => {
+      // The simulator answers each request that waits: the first with speech and a web search, the second with speech only.
+      const n = fs.readdirSync(dir).filter((name) => /^req-\d+\.json$/.test(name)).length;
+      reached.push(n);
+      const id = String(n).padStart(3, '0');
+      if (n === 1) {
+        fs.writeFileSync(path.join(dir, `ans-${id}.tool-calls.json`), JSON.stringify([{ id: 'w1', name: 'web_search', arguments: { query: 'chess' } }]));
+        fs.writeFileSync(path.join(dir, `ans-${id}.txt`), '<think>a</think><msg>one moment</msg>');
+      } else fs.writeFileSync(path.join(dir, `ans-${id}.txt`), '<think>b</think><msg>found it</msg>');
+    },
+  });
+  const llm = { complete: (messages, options) => answers.answer('anthropic/claude-x', messages, options) };
+  const config = personaGrantsConfig({ bot: { timezone: 'UTC' }, context: { channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 }, vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } }, models: { core: 'x/chat' }, llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 }, features: {} }, '900000000000000001', ['web.search']);
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels: (await import('./fixtures/labels.js')).labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const view = liveView({ hot, store, guildId: 'g1' });
+  const at = Date.UTC(2026, 9, 20, 12, 0, 0);
+  const trigger = { id: '800000000000000002', channelId: '500000000000000001', channelName: 'general', authorId: '111111111111111111', authorName: 'Alice', self: false, bot: false, content: 'who won?', ts: at, mentionedUserIds: ['900000000000000001'], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
+  const out = await answerSkillScenario({
+    view, situation: { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' }, selfId: '900000000000000001', selfName: 'Zoe', channel: { id: trigger.channelId, name: 'general' }, llm, runs: 1, at,
+    onCall: (call) => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill: call.skill, args: call.args }, result: { skill: call.skill, status: 'ok', data: { text: 'RESULT_MARKER' } } }),
+  });
+  assert.equal(answers.count(), 2);
+  const first = JSON.parse(fs.readFileSync(path.join(dir, 'req-001.json'), 'utf8'));
+  const second = JSON.parse(fs.readFileSync(path.join(dir, 'req-002.json'), 'utf8'));
+  assert.ok(first.tools.some((tool) => tool.function.name === 'web_search'), 'her tools go with the first request');
+  assert.deepEqual(second.messages.slice(0, first.messages.length), first.messages, 'the second request starts with the first messages, byte for byte');
+  assert.equal(second.messages[first.messages.length].tool_calls[0].id, 'w1');
+  assert.deepEqual(second.messages.slice(first.messages.length + 1).map((message) => message.role), ['tool', 'user']);
+  assert.ok(second.messages[first.messages.length + 1].content.includes('RESULT_MARKER'));
+  const [run] = out.runs;
+  assert.equal(run.loop.steps[0].held, true);
+  assert.deepEqual(run.followUp.answer.messages.map((m) => m.text), ['found it']);
+  assert.match(fs.readFileSync(path.join(dir, 'req-002.md'), 'utf8'), /RESULT_MARKER/);
 });

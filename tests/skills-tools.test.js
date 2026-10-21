@@ -338,9 +338,9 @@ test('webSearchText: results left out for room are counted in a closing line', (
   assert.ok(!webSearchText({ query: 'q', results: results.slice(0, 1) }, { labels }).includes(fill(labels.skills.tools.web.more, { count: '0' })));
 });
 
-test('skillResultBlock: a reason with its own values is filled with them', async () => {
-  const { skillResultBlock } = await import('../src/behavior/prompt.js');
-  const block = skillResultBlock({ skill: 'web.search', status: 'failed', code: 'provider', values: { status: '503' } }, labels);
+test('toolResultText: a reason with its own values is filled with them', async () => {
+  const { toolResultText } = await import('../src/skills/tool-calls.js');
+  const block = toolResultText({ skill: 'web.search', status: 'failed', code: 'provider', values: { status: '503' } }, labels);
   assert.ok(block.includes(fill(labels.skills.result.reasons.provider, { status: '503' })), block);
   assert.ok(!block.includes('{status}'), block);
 });

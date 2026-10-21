@@ -21,7 +21,6 @@
     "triggerMarkers": true,
     "callMarkers": true,
     "previousThink": true,
-    "followUpContinuation": true,
     "multiMessage": true,
     "mediaDescriptions": true,
     "videoDescriptions": false,
@@ -63,7 +62,6 @@
     "memberCommands": true,
     "skills": true,
     "skillsDiscovery": true,
-    "skillsAlwaysListed": true,
     "coreTools": false,
     "memoryPrefetch": true,
     "missedAnswers": true,
@@ -405,7 +403,8 @@
     "markTextMaxChars": 200,
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000,
-    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4 }
+    "transport": "native",
+    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4, "stepReserveTokens": 6000 }
   },
   "diary": {
     "channelId": "",
@@ -433,6 +432,7 @@
     "pictureKinds": ["selfPicture", "picture", "meme", "photoset", "randomSet"],
     "setKinds": ["photoset", "randomSet"],
     "set": { "pictures": [4, 6], "minPosted": 2, "seedSets": 6, "maxMessageBytes": 8000000 },
+    "loop": { "maxSteps": 2, "timeBudgetMs": 600000 },
     "planMaxOutputTokens": 2000,
     "planTimeoutMs": 60000
   },

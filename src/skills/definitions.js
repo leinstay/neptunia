@@ -219,13 +219,14 @@ const ENTRIES = [
   def('bot.pause', { params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('bot.resume', { params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('draw.create', {
-    params: obj({ text: str(), self: bool(), channel: ref() }, ['text']),
+    params: obj({ text: str(), self: bool(), reply: ref(), channel: ref() }, ['text']),
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'paid',
     toArgs: (a) => {
       const channelId = idOf(a, 'channel');
-      return { text: val(a, 'text'), self: flag(val(a, 'self')) ?? false, ...(channelId ? { channelId } : {}) };
+      const replyTo = opt(a, 'reply');
+      return { text: val(a, 'text'), self: flag(val(a, 'self')) ?? false, ...(channelId ? { channelId } : {}), ...(replyTo === undefined ? {} : { replyTo }) };
     },
   }),
   def('pings.get', { params: EMPTY(), effects: 'read', toArgs: () => ({ mode: undefined }) }),
@@ -394,7 +395,7 @@ const ENTRIES = [
     toArgs: forMember((userId) => ({ action: 'purge', userId })),
   }),
   def('message.create', {
-    params: obj({ channel: ref(), reply: str(), text: str(2000), file: str(300), gif: str(40), media: str(300), item: int(1, 20) }, ['text']),
+    params: obj({ channel: ref(), reply: str(), text: str(2000), file: str(300), gif: str(40), media: str(300), item: int(1, 20) }, []),
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'write',

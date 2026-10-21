@@ -1,7 +1,7 @@
 // Operations: `/nep task skills name` -- her read skill `skills.describe`: one skill in full (its
 // title, when to use it, when not to, its arguments and whether it is switched on for her), or a
 // family (`memory`, `intent`, ...) as one line per skill. The text is the very rendering a core row of
-// `<skills_tools>` gets (src/behavior/prompt.js#skillsInventoryText over src/skills/discovery.js#describeRows),
+// her tool list gets (src/behavior/prompt.js#skillsInventoryText over src/skills/discovery.js#describeRows),
 // from the registry and the skills layer read now. A name that is no skill is `unknown-skill` with the closest
 // skill names (`labels.skills.tools.describe.closest`). A read, open to every member while
 // features.memberCommands is on, as the search tools are.

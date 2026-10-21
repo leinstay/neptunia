@@ -45,7 +45,6 @@ export const PERSONA_GOVERNED_CONFIG = Object.freeze([
   'features.memberCommands',
   'features.skills',
   'features.skillsDiscovery',
-  'features.skillsAlwaysListed',
   'skills',
   'features.journal',
   'features.innerLife',

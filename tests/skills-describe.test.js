@@ -13,7 +13,7 @@ import { tempDir } from './fixtures/tmp.js';
 const LABELS = {
   skills: {
     line: '{name}: {title} -- {whenToUse} ({access}){args}',
-    args: { list: ' Arguments: {list}.', required: '{arg}*', body: '{arg}+' },
+    args: { list: ' Arguments: {list}.', required: '{arg}*' },
     access: { allowed: 'allowed', 'not-allowed': 'off' },
     tools: { describe: { closest: 'closest: {names}' } },
   },
@@ -48,7 +48,7 @@ test('skills.describe: an exact name comes back in full with its arguments and w
   const env = envOf({ 'memory.search': grant });
   const result = await call(env, 'memory.search');
   assert.equal(result.status, 'ok');
-  assert.equal(result.data.text, 'memory.search: Search -- find old talk (allowed) Arguments: question+*, people, channel, when, terms.');
+  assert.equal(result.data.text, 'memory.search: Search -- find old talk (allowed) Arguments: question*, people, channel, when, terms.');
   const off = await call(env, 'memory.journal.read');
   assert.match(off.data.text, /\(off\)/);
 });

@@ -3103,11 +3103,33 @@ test('complete: an assistant message with tool_calls and tool messages are sent 
   const marked = withCacheMarker(messages, '5m');
   assert.equal(marked[0].content[0].cache_control.type, 'ephemeral');
   assert.equal(marked[2], messages[2]);
-  assert.equal(marked[3], messages[3]);
+  // The latest tool message carries the fourth marker; its content is the same text.
+  assert.deepEqual(marked[3], { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: '{"ok":true}', cache_control: { type: 'ephemeral' } }] });
   assert.equal(withCacheMarker(messages, null), messages);
   const { llm, sent } = toolsLlm(okResponse('done'));
   await llm.complete(messages, { tools: TOOLS });
   assert.deepEqual(sent[0].messages, messages);
+});
+
+test('withCacheMarker: steps appended to the first two messages get a short-lived fourth marker on their last part', () => {
+  const base = segmentedMessages();
+  // The last message is a note (user parts): its last text part carries it, with the 5m marker even under a 1h ttl.
+  const withNote = [
+    ...base,
+    { role: 'assistant', content: 'before', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'result' },
+    { role: 'user', content: [{ type: 'text', text: 'note one' }, { type: 'text', text: 'note two' }] },
+  ];
+  const sent = withCacheMarker(withNote, '1h', '1h');
+  assert.deepEqual(markedParts(sent).map((p) => [p.text.slice(0, 8), p.cache_control]), [[SYSTEM_TEXT.slice(0, 8), MARK_1H], ['<self_fa', MARK_1H], ['<people>', MARK_1H], ['note two', MARK_5M]]);
+  assert.equal(sent[3], withNote[3], 'the tool message before the note is passed on as it is');
+  // Two messages only: no fourth marker. No ttl: none at all. Already four placed: no more.
+  assert.equal(markedParts(withCacheMarker(base, '1h', '1h')).length, 3);
+  assert.deepEqual(markedParts(withCacheMarker(withNote, null)), []);
+  const full = structuredClone(withNote);
+  full[1].content.push({ type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } });
+  assert.equal(markedParts(withCacheMarker(full, '1h', '1h')).length, 4);
+  assert.equal(withCacheMarker(full, '1h', '1h')[4].content.some((p) => 'cache_control' in p), false);
 });
 
 test('complete: the tools count toward the token estimate and the request cap', async () => {

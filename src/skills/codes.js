@@ -24,6 +24,7 @@ const internal = (status = 'failed') => entry(status, 'internal');
 export const CATALOGUE = Object.freeze({
   ok: entry('ok', 'ok'),
   shadow: entry('ok', 'internal'),
+  staged: entry('ok', 'internal'),
 
   // The gateway and the rights: a rule said no.
   'skills-off': skill('denied'),
@@ -52,6 +53,7 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
   paused: skill('denied'),
+  'diary-draw-only': skill('denied'),
 
   // A call that was not right.
   'invalid-args': skill('invalid'),
@@ -110,6 +112,9 @@ export const CATALOGUE = Object.freeze({
   'invalid-action': skill('invalid'),
   'invalid-emoji': skill('invalid'),
   scheme: skill('invalid'),
+  'loop-cap': skill('invalid'),
+  'malformed-call': skill('invalid'),
+  'truncated-call': skill('invalid'),
 
   // What it needs is not set up.
   'not-configured': skill('not_configured', ['feature']),
@@ -203,7 +208,13 @@ export const INVALID_CODES = Object.freeze(Object.keys(CATALOGUE).filter((code) 
 export const NOT_CONFIGURED_CODES = Object.freeze(Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'not_configured'));
 
 /** What a timeout, a cap or a missing feature is about: the values of `{what}`. */
-export const WHAT = Object.freeze({ chat: 'chat', page: 'page', search: 'search', errand: 'errand', picture: 'picture' });
+export const WHAT = Object.freeze({
+  chat: 'chat',
+  page: 'page',
+  search: 'search',
+  errand: 'errand',
+  picture: 'picture',
+});
 
 /** What a `not-configured` result may name: the values of `{feature}`. */
 export const FEATURE = Object.freeze({ web: 'web' });

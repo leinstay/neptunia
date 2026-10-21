@@ -7,14 +7,14 @@
 // the boundary every picture crosses, its own daily rails included) makes the picture. Nothing
 // else touches her scene: no model rewrites, summarizes or "improves" it.
 //
-// Every call site goes through `drawPicture`: the turn's `<draw>`, a diary set's pictures and
+// Every call site goes through `drawPicture`: her `draw.create` tool (a diary post's pictures included) and
 // `/nep draw`. With the errand service (`errands.runInline`, src/errands/service.js) the picture
 // is also a task record of the drawing agent (queued -> running -> done | failed, `usage.usd` from
 // the provider's own cost figure, outside `agents.maxOpen`, born seen); without it (a replay, a
 // test) the same tool runs unrecorded. A failure comes back as the error the call sites already
 // handle: `ImageCapError` (a rail, or the agent's daily caps `agents.drawing.daily`),
 // `ImageGenError` (a generation that was sent and failed) and `UnsupportedImageModelError`, so
-// limit notices, `drawFailed` and a diary set's cap break / skip behave as before. The failure
+// limit notices and a call's result codes behave as before. The failure
 // codes of the task record map to them one for one (`errorOfCode`).
 //
 // Settings and prompts are read at the moment of use. Logs carry codes and counts, never a scene.

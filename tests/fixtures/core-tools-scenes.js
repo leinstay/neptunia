@@ -1,11 +1,10 @@
-// Representative turns with features.coreTools off, for the snapshot that proves the switch off
-// leaves every request of a turn byte for byte as it was before the tool loop existed
-// (tests/turn.test.js, "core tools off"; the snapshot is tests/fixtures/core-tools-off.json).
-// The scenes take a module loader (`load(path)`: an import of `path` from the repository root)
-// so the same scenes can run over another checkout's src/ when the snapshot is made again.
-// Fakes only: no network, no data/, no prompts.local/.
+// One turn over the fakes of a core turn (a scripted model, a fake lookup and recall, a real admin), for the
+// child process of tests/skills-no-command-table.test.js. The scene takes a module loader (`load(path)`: an
+// import of `path` from the repository root) so it can run over another checkout's src/. Fakes only: no
+// network, no data/, no prompts.local/.
 
 import { labels } from './labels.js';
+import { completionOf } from './tool-answers.js';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
@@ -68,7 +67,7 @@ function sceneHot({ coreTools, access = {} } = {}) {
     memory: true, reactions: true, multiMessage: true, typingSimulation: false, customEmoji: true, gifs: true,
     imageGeneration: true, channelPull: true, elsewhere: true, recent: true, videoRewatch: true, imageRelook: true,
     videoDescriptions: true, privateLikeServer: true,
-    followUpContinuation: true, webLookup: true, recall: true,
+    webLookup: true, recall: true,
   };
   if (coreTools !== undefined) features.coreTools = coreTools;
   return {
@@ -111,9 +110,9 @@ function sceneLlm({ classifier = 'none', answers = ['<msg>ok</msg>'] } = {}) {
     complete: async (messages) => {
       requests.push(messages);
       if (messages[0].content.startsWith('Decide whether')) return { text: classifier, usage: {}, estimated: 5 };
-      const text = answers[Math.min(turn, answers.length - 1)];
+      const answer = answers[Math.min(turn, answers.length - 1)];
       turn += 1;
-      return { text, usage: {}, estimated: 10 };
+      return completionOf(answer);
     },
   };
 }
@@ -131,60 +130,9 @@ function fakeRecall() {
 }
 
 /**
- * Every request the scenes send, in order: `{ scene: [messages, ...] }`. `load(path)` imports a
- * module by its path from the repository root; `coreTools` is the switch each scene runs with
- * (undefined: the key absent).
- */
-export async function coreToolsOffScenes(load, { coreTools } = {}) {
-  const { createTurnRunner } = await load('src/behavior/turn.js');
-  await load('src/ops/index.js');
-  const { skillRegistry } = await load('src/skills/registry.js');
-  const { createAdmin } = await load('src/admin.js');
-  const { createDiscordAdapter, createDiscordInterface } = await load('src/interface/discord.js');
-  const discord = createDiscordInterface().capabilities;
-  const calibrator = { ratio: 1, apply: (n) => n, observe: () => {} };
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
-  const grants = (names) => Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }]));
-
-  async function scene({ content, classifier, answers, access = {} }) {
-    const history = [
-      rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }),
-      rawMessage({ id: 'm1', ts: NOW - 1000, content }),
-    ];
-    const hot = sceneHot({ coreTools, access });
-    const store = fakeStore();
-    const llm = sceneLlm({ classifier, answers });
-    const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1' });
-    const turns = createTurnRunner({
-      discord, createPort: createDiscordAdapter, hot, store, llm, calibrator, client, lookup: fakeLookup(), recall: fakeRecall(),
-      skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
-    });
-    await turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
-    return JSON.parse(JSON.stringify(llm.requests));
-  }
-
-  return {
-    plain: await scene({ content: 'γεια σου', classifier: 'none', answers: ['<msg>γεια</msg>'] }),
-    lookup: await scene({ content: 'ποιος κέρδισε τον τελικό;', classifier: 'web: τελικός\nserver: τελικός', answers: ['<msg>η Ana</msg>'] }),
-    readCall: await scene({
-      content: 'τι γράφει το lore;',
-      classifier: 'none',
-      answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>τίποτα</msg><call skill="lore.list"/>'],
-      access: grants(['lore.list']),
-    }),
-    twoCalls: await scene({
-      content: 'δύο πράγματα',
-      classifier: 'none',
-      answers: ['<call skill="lore.list"/><call skill="memory.server.read"/>', '<msg>έτοιμο</msg>'],
-      access: grants(['lore.list', 'memory.server.read']),
-    }),
-  };
-}
-
-/**
  * One turn over the same fakes, with the skills on: `answers` are the persona's replies in order,
  * `access` the grants (a map name -> { everyone, roles, users }), `images` an optional image
- * client for a `<draw>`. Returns the requests sent and the turn's result.
+ * client for a `draw.create` call. Returns the requests sent and the turn's result.
  */
 export async function singleScene(load, { content = 'γεια', classifier = 'none', answers, access = {}, images = null } = {}) {
   const { createTurnRunner } = await load('src/behavior/turn.js');

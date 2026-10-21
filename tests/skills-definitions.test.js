@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { listOps, resolveCommand } from '../src/ops/index.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { OP_EFFECTS } from '../src/ops/effects.js';
-import { commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
+import { EXPECTED_DIFFERENCES, commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
 import { FEATURE_SKILLS } from '../src/skills/access.js';
 import {
   API_NAMES,
@@ -76,9 +76,11 @@ test('every definition is equal to the derived skill: schema bytes, body, option
   for (const oracle of ORACLE) {
     const definition = BY_NAME.get(oracle.name);
     assert.ok(definition, oracle.name);
-    assert.equal(JSON.stringify(definition.params), JSON.stringify(oracle.argsSchema), `${oracle.name}: params`);
+    const expectedSchema = EXPECTED_DIFFERENCES[oracle.name]?.schema?.(oracle.argsSchema) ?? oracle.argsSchema;
+    assert.equal(JSON.stringify(definition.params), JSON.stringify(expectedSchema), `${oracle.name}: params`);
     assert.equal(definition.body, oracle.command.body, `${oracle.name}: body`);
-    assert.deepEqual(optionsOfDefinition(definition), oracle.command.options.map((option) => ({ name: option.name, kind: option.kind })), `${oracle.name}: options`);
+    const options = optionsOfDefinition(definition).filter((option) => !(oracle.name === 'draw.create' && option.name === 'reply'));
+    assert.deepEqual(options, oracle.command.options.map((option) => ({ name: option.name, kind: option.kind })), `${oracle.name}: options`);
     assert.equal(definition.effects, oracle.effects, `${oracle.name}: effects`);
     assert.equal(definition.effects !== 'read', oracle.sharedState, `${oracle.name}: sharedState`);
     assert.equal(definition.costClass, oracle.costClass, `${oracle.name}: costClass`);
@@ -97,11 +99,17 @@ test('toArgs gives the arguments of the derived toCall on every generated sample
       if (definition.params.required.every((name) => sample[name] !== undefined)) assert.equal(call.op, definition.op, `${oracle.name}: op for ${show(sample)}`);
       const args = definition.toArgs(sample);
       if (call.args === null) assert.equal(args, null, `${oracle.name}: null for ${show(sample)}`);
-      else assert.deepStrictEqual(args, call.args, `${oracle.name}: ${show(sample)}`);
+      else assert.deepStrictEqual(args, EXPECTED_DIFFERENCES[oracle.name]?.args?.(call.args, sample) ?? call.args, `${oracle.name}: ${show(sample)}`);
       compared += 1;
     }
   }
   assert.ok(compared > 1000);
+});
+
+test('the expected differences: draw.create takes reply, message.create requires nothing', () => {
+  assert.deepEqual(Object.keys(BY_NAME.get('draw.create').params.properties), ['text', 'self', 'reply', 'channel']);
+  assert.deepStrictEqual(BY_NAME.get('draw.create').toArgs({ text: 't', reply: 'm' }), { text: 't', self: false, replyTo: 'm' });
+  assert.deepEqual(BY_NAME.get('message.create').params.required, []);
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {

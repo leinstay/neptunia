@@ -36,6 +36,9 @@ import {
   withChannelMap,
 } from '../tools/lib/inner-week.mjs';
 import { addFixturePeople, effectsLookup, liveChannelMap, main, parseArgs, readFixture, scriptedHistory } from '../tools/inner-week.mjs';
+import '../src/ops/index.js';
+import { call as toolCall } from './fixtures/tool-answers.js';
+import { callBlock as toolCallBlock } from './fixtures/tool-answers.js';
 import { createStore } from '../src/memory/store.js';
 import { directoryEntries } from '../src/behavior/handles.js';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
@@ -381,10 +384,12 @@ test('inner-week: the stub run keeps its state in its own data directory', async
 const liveTurn = (at, answers) => ({ ...turnAt(at), voice: 'live', result: { outcome: 'spoke', inner: { actions: [], turnId: `t${at}` }, answers } });
 
 test('inner-week: stepsOf parses her raw answers into think, messages and calls, cut to size', () => {
-  const [step] = stepsOf(['<think>why</think><msg>hi</msg><call skill="intent.update" id="i1" reason="done it">body text</call>']);
+  const [step] = stepsOf([{ text: '<think>why</think><msg>hi</msg>', toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })] }]);
   assert.equal(step.think, 'why');
   assert.deepEqual(step.messages, ['hi']);
-  assert.deepEqual(step.calls, [{ skill: 'intent.update', args: { id: 'i1', reason: 'done it' }, body: 'body text' }]);
+  assert.deepEqual(step.calls, [{ skill: 'intent.update', args: { id: 'i1', reason: 'done it' } }]);
+  const [written] = stepsOf([{ text: `<think>t</think>${toolCallBlock(toolCall('intent.cancel', { id: 'i2' }))}`, transport: 'text' }]);
+  assert.deepEqual(written.calls, [{ skill: 'intent.cancel', args: { id: 'i2' } }], 'the text transport writes its calls as blocks');
   assert.deepEqual(stepsOf(null), []);
   const long = stepsOf([`<think>${'x'.repeat(2000)}</think>`])[0].think;
   assert.equal(long.length, 1503);
@@ -395,14 +400,14 @@ test('inner-week: in a live run the fixture gate is informational and live-reaso
   const at = Date.parse('2026-11-02T10:00:00Z');
   const fx = fixture();
   const dueSeen = [{ id: 'w1', intentionId: 'i1' }, { id: 'w2', intentionId: 'i2' }];
-  const reasoned = '<call skill="intent.update" id="i1" reason="done it"/>';
+  const reasoned = { text: '', toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })] };
   const woken = (turn, ids) => ({ ...turn, items: ids.map((id) => ({ kind: 'intention_due', intentionIds: [id] })) });
   const one = computeGates(bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned]), ['i1', 'i2'])] }), fx, effectsOf);
   assert.equal(gate(one, 'fixture'), undefined);
   assert.deepEqual([gate(one, 'fixture (stub expectations)').pass, gate(one, 'fixture (stub expectations)').info], [true, true]);
   assert.equal(gate(one, 'live-reasons').pass, false);
   assert.match(gate(one, 'live-reasons').detail, /i2/);
-  const thought = '<think>i2 can wait, nothing came of it</think><call skill="intent.cancel" id="i2"/>';
+  const thought = { text: '<think>i2 can wait, nothing came of it</think>', toolCalls: [toolCall('intent.cancel', { id: 'i2' })] };
   const both = computeGates(bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned, thought]), ['i1', 'i2'])] }), fx, effectsOf);
   assert.equal(gate(both, 'live-reasons').pass, true);
   assert.match(gate(both, 'live-reasons').detail, /^2 due intention/);
@@ -427,7 +432,7 @@ test('inner-week: the report of a live run shows her steps and the informational
   const fx = readFixture('ordinary-talk', { dir: FIXTURES });
   const { run } = await week(fx);
   assert.ok(run.turns.length > 0);
-  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, inner: { ...run.turns[0].result.inner, openFollowUp: true }, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
+  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, inner: { ...run.turns[0].result.inner, openFollowUp: true }, answers: [{ text: '<think>she asked twice</think>', toolCalls: [toolCall('intent.update', { id: 'x', reason: 'kept' })] }] } };
   const gates = computeGates(run, fx, effectsOf);
   const report = reportOf(run, fx, gates, effectsOf);
   assert.equal(report.turns[0].steps.length, 1);
@@ -448,7 +453,7 @@ test('inner-week: live-reasons: her reason covers, an engine drop or an expiry b
   const fx = fixture();
   const dueSeen = [{ id: 'w1', intentionId: 'i1' }, { id: 'w2', intentionId: 'i2' }, { id: 'w3', intentionId: 'i3' }, { id: 'w4', intentionId: 'i4' }];
   const items = (id) => [{ kind: 'intention_due', intentionIds: [id] }];
-  const reasoned = { ...liveTurn(at, ['<call skill="intent.update" id="i1" reason="done it"/>']), items: items('i1') };
+  const reasoned = { ...liveTurn(at, [{ text: '', toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })] }]), items: items('i1') };
   const silent = { ...liveTurn(at + HOUR_MS, ['<msg>hi</msg>']), items: items('i2') };
   const journal = [{ at: at + 2 * HOUR_MS, event: 'no-channel', wake: { id: 'w3', kind: 'intention_due', intentionIds: ['i3'] } }];
   const intentions = [{ id: 'i1', status: 'done' }, { id: 'i2', status: 'pending' }, { id: 'i3', status: 'pending' }, { id: 'i4', status: 'expired' }];

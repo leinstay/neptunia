@@ -25,9 +25,8 @@ export const WAKE_PURPOSE_CHARS = 200;
 
 /**
  * One diagnostic of the parser (src/llm/parse.js: what it dropped, cut or joined in her output) as a
- * line: `labels.skills.diagnostics.<kind>` filled -- `{reason}` (`badCall`, worded by
- * `labels.skills.diagnostics.reasons.<reason>` when there is one), `{skill}`, `{chars}` (`messageCut`),
- * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`badCall`, ...), or `diagnostic` of a
+ * line: `labels.skills.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
+ * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
  * kept fact, whose own is `fact.diagnostic`. '' without the kind's label.
  * @param {object} diagnostic
  * @param {object} labels  The whole labels object.
@@ -40,7 +39,7 @@ export function diagnosticText(diagnostic, labels) {
   if (typeof template !== 'string' || !template) return '';
   const reason = typeof diagnostic.reason === 'string' && diagnostic.reason ? (typeof words.reasons?.[diagnostic.reason] === 'string' ? words.reasons[diagnostic.reason] : diagnostic.reason) : '';
   const count = (value) => String(Number.isFinite(value) ? value : 0);
-  return fill(template, { reason, skill: String(diagnostic.skill ?? ''), chars: count(diagnostic.chars), count: count(diagnostic.count) }).replace(/\s+/g, ' ').trim();
+  return fill(template, { reason, skill: String(diagnostic.skill ?? ''), tag: String(diagnostic.tag ?? ''), chars: count(diagnostic.chars), count: count(diagnostic.count) }).replace(/\s+/g, ' ').trim();
 }
 
 /**
