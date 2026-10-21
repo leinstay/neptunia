@@ -658,7 +658,9 @@ export function toolCallsOf(calls) {
  * `ttl`, `'profiles'` `profilesTtl` (from `profilesTtlFor`; null -> none), never longer than a
  * `'5m'` `ttl` (a longer TTL must not follow a shorter one); any other value none. The
  * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
- * provider. Without a system message (or with an empty one) no marker is added to it. With
+ * provider. A request with more than two messages (a turn's appended steps) also gets a `5m` marker
+ * on the last part of its last message when fewer than four are placed (the latest tool message, or the
+ * note's text part). Without a system message (or with an empty one) no marker is added to it. With
  * anything else (null): every `cache_control` and every `cacheSegment` on any part is removed and
  * nothing else changes (a string system content stays a string).
  * @param {object[]} messages  The caller's chat-completions messages.
@@ -702,7 +704,36 @@ export function withCacheMarker(messages, ttl, profilesTtl = null) {
     const parts = content.map((part, at) => (isPlainObject(part) ? settle(part, at === breakpoint) : part));
     return parts.some((part, at) => part !== content[at]) ? { ...message, content: parts } : message;
   });
-  return sent.some((message, index) => message !== messages[index]) ? sent : messages;
+  // A turn that appended steps to its first two messages (src/behavior/tool-step.js#appendStep): the
+  // last part of the appended prefix -- the latest tool message, or the note's text part -- carries a
+  // fourth marker, so the next step reads everything before it from the cache. Always the short TTL
+  // (a longer one must not follow a shorter one, and a turn's steps follow each other within minutes).
+  const tail = marker && messages.length > 2 && kept < MAX_CACHE_MARKERS ? tailMarked(sent, cacheMarkerFor('5m')) : sent;
+  return tail.some((message, index) => message !== messages[index]) ? tail : messages;
+}
+
+/**
+ * `sent` (the messages as `withCacheMarker` settled them) with `tailMarker` on the last part of the
+ * last message: a string content (a tool message) becomes one text part carrying it, an array gets it
+ * on its last non-empty text part unless that part carries a marker already. `sent` itself is not changed.
+ */
+function tailMarked(sent, tailMarker) {
+  const at = sent.length - 1;
+  const last = sent[at];
+  if (!isPlainObject(last) || last.role === 'system') return sent;
+  let content = null;
+  if (typeof last.content === 'string') {
+    if (last.content !== '') content = [{ type: 'text', text: last.content, [CACHE_CONTROL]: { ...tailMarker } }];
+  } else if (Array.isArray(last.content)) {
+    const part = lastTextPart(last.content);
+    if (part !== -1 && !Object.hasOwn(last.content[part], CACHE_CONTROL)) {
+      content = last.content.map((item, i) => (i === part ? { ...item, [CACHE_CONTROL]: { ...tailMarker } } : item));
+    }
+  }
+  if (content === null) return sent;
+  const out = [...sent];
+  out[at] = { ...last, content };
+  return out;
 }
 
 // Whether any part of `messages` carries a `cache_control` (what was actually sent).

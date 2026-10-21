@@ -63,8 +63,9 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'diary',
   'offPeriods',
   'skillsInventory',
-  'skillsGranted',
-  'skillsTools',
+  'toolsGranted',
+  'toolsBlock',
+  'toolsTokens',
   'around',
   'errands',
   'intentions',
@@ -72,7 +73,6 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'wakeKind',
   'places',
   'previousThink',
-  'continuation',
   'stableFreeze',
 ]);
 

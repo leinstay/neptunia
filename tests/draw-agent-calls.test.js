@@ -1,5 +1,5 @@
 // The drawing agent at its call sites, with the errand service in place (stage 3b): the turn's
-// <draw>, a diary set and `/nep draw` each make their pictures through `errands.runInline` as
+// draw.create call, a diary set and `/nep draw` each make their pictures through `errands.runInline` as
 // task records of the drawing agent (src/errands/tools.js), and the agent's daily caps refuse a
 // picture with the limit behaviour of an image cap (the notice for a member who asked, the end of
 // a set's generation, `draw failed` for the command). The image client stays the injected
@@ -16,6 +16,7 @@ import { familyOf } from '../src/llm/images.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTaskStores } from '../src/errands/store.js';
@@ -193,7 +194,7 @@ function llm(post, plan = null) {
   return {
     complete: async (_messages, opts) => {
       if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
-      return { text: post, usage: {}, estimated: 10 };
+      return completionOf(post);
     },
   };
 }
@@ -239,39 +240,6 @@ function memberTrigger() {
   };
   return { raw, trigger };
 }
-
-test('draw agent: a member\'s <draw> is posted and recorded as a task of the drawing agent, the member as its requester', async () => {
-  const images = recordingImages();
-  const hotValue = hot();
-  const { errands, records } = errandsOf(hotValue);
-  const { raw, trigger } = memberTrigger();
-  const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse at dusk, waves below</draw>', images, errands, hotValue });
-  const target = channel('c1', 'general', [raw]);
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' }));
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 1);
-  assert.equal(images.calls[0].userId, 'u1');
-  assert.equal(images.calls[0].prompt, `A drawing by Bot.\n\n${WHEN}\n\nScene: a lighthouse at dusk, waves below`);
-  assert.ok(target.sent.some((payload) => payload.files?.length === 1), 'the picture was posted');
-  const [task] = records();
-  assert.deepEqual([task.agent, task.state, task.goal, task.seen, task.requester], ['drawing', 'done', 'a lighthouse at dusk, waves below', true, { userId: 'u1', kind: 'member' }]);
-  assert.deepEqual(errands.view({ guildId: 'g1' }), [], 'not in <tasks>');
-});
-
-test('draw agent: a refusal by its daily caps tells the member who asked, as an image cap does, and draws nothing', async () => {
-  const images = recordingImages();
-  const hotValue = hot();
-  hotValue.config.agents = { drawing: { daily: { tasks: 0 } } };
-  const { errands, records } = errandsOf(hotValue);
-  const { raw, trigger } = memberTrigger();
-  const turns = runner({ answer: '<msg>one sec</msg><draw reply="#1">a lighthouse</draw>', images, errands, hotValue });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: channel('c1', 'general', [raw]), mode: 'reply', trigger, triggerKind: 'mention' }));
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 0);
-  assert.deepEqual(records(), []);
-  const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.used, refused.cap, refused.asked], ['agents.drawing.daily.tasks', 0, 0, true]);
-});
 
 test('draw agent: a diary set is recorded picture by picture; the avatar is fetched once; the caps end the set like an image cap and the rest is posted', async () => {
   const images = recordingImages();
@@ -340,7 +308,7 @@ test('draw agent: a member\'s draw.create call is made by the turn itself and re
       hot: hotCase,
       errands,
       store: store(),
-      llm: llm('<call skill="draw.create">a lighthouse at dusk</call>'),
+      llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
       calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
       client: client(),
       images,

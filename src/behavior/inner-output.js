@@ -1,14 +1,14 @@
 import { CODE } from '../skills/codes.js';
-// What an inner turn's output tags become (src/behavior/turn.js, docs/inner-life.md): in an
-// inner turn `<react>`, `<msg>`, `<gif>` and `<draw>` are public actions in the turn's current
-// channel, lowered here into the same call objects her own `<call>`s are -- `message.react.add`,
-// `message.create` (a message, or a GIF with `gif=`) and `draw.create` -- so they are planned,
-// gated (the kill switch in live mode, shadow proposals), journalled
-// and counted by the one path every call of hers takes. A tag that cannot act carries a
-// `refuse` (`{ code, reason }`) the planner turns into a refusal result she reads like any
-// other: `target-required` for a reaction with no message named, `destination-required` for a
-// post when the turn has no current channel. The order is the one an addressed turn acts in:
-// reactions, messages, the GIF, drawings. Pure.
+// What an inner turn's speech tags become (src/behavior/turn.js, docs/inner-life.md): in an
+// inner turn `<react>`, `<msg>` and `<gif>` are public actions in the turn's current channel,
+// lowered here into the same call objects her own tool calls are -- `message.react.add` and
+// `message.create` (a message, or a GIF with `gif`) -- so they are planned, gated (the kill
+// switch in live mode, shadow proposals), journalled and counted by the one path every call of
+// hers takes. A picture is not lowered: it is the `draw.create` tool, called like any other. A tag
+// that cannot act carries a `refuse` (`{ code, reason }`) the planner turns into a refusal result
+// she reads like any other: `target-required` for a reaction with no message named,
+// `destination-required` for a post when the turn has no current channel. The order is the one an
+// addressed turn acts in: reactions, messages, the GIF. Pure.
 
 /** The refusal of a reaction that names no message (never "the latest message"). */
 export const TARGET_REQUIRED = Object.freeze({ code: CODE.TARGET_REQUIRED, reason: 'react:to' });
@@ -19,7 +19,7 @@ export const DESTINATION_REQUIRED = Object.freeze({ code: CODE.DESTINATION_REQUI
  * The call objects (`{ skill, args, body }`, plus `refuse` on one that must be refused) of the
  * output tags in `parsed` (src/llm/parse.js's, after the turn's own shaping), in the order they
  * are acted on.
- * @param {{ messages?: object[], reactions?: object[], untargetedReactions?: object[], gif?: object|null, draw?: object|null }} parsed
+ * @param {{ messages?: object[], reactions?: object[], untargetedReactions?: object[], gif?: object|null }} parsed
  * @param {{ current: string|null, turnChannel: string }} where  `current`: the id of the current channel,
  *   null when the turn has none; `turnChannel`: the id of the channel the turn runs in (the channel
  *   argument is left out for it: a call without one posts there).
@@ -40,8 +40,5 @@ export function innerOutputCalls(parsed, { current, turnChannel }) {
     calls.push({ skill: 'message.create', args: { ...place, ...reply(message.replyTo) }, body: String(message.text ?? ''), ...refuse });
   }
   if (parsed?.gif?.id) calls.push({ skill: 'message.create', args: { ...place, gif: String(parsed.gif.id), ...reply(parsed.gif.replyTo) }, body: '', ...refuse });
-  // One picture, as in an addressed turn (the first <draw>).
-  const drawn = parsed?.draw;
-  if (drawn) calls.push({ skill: 'draw.create', args: { ...place, ...(drawn.self === true ? { self: 'true' } : {}) }, body: String(drawn.text ?? ''), ...refuse });
   return calls;
 }

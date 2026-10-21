@@ -14,6 +14,7 @@ import { SKILL_DEFINITIONS } from '../../src/skills/definitions.js';
 import { checkSkill } from '../../src/skills/gateway.js';
 import { executeCall, resolveCall } from '../../src/skills/executors.js';
 import { singleScene } from './core-tools-scenes.js';
+import { call, toolAnswer } from './tool-answers.js';
 
 // 1. both hooks took effect
 assert.equal(COMMAND_TABLE.length, 0, 'COMMAND_TABLE is empty');
@@ -103,11 +104,11 @@ for (const [skill, args, body] of CALLS) {
   assert.ok(typeof result.status === 'string', skill);
 }
 
-// 5. one core turn: an in-turn <call> and a <draw> of the reply
+// 5. one core turn: an in-turn tool call and a picture of the reply
 let drawn = 0;
 const scene = await singleScene((path) => import(new URL(`../../${path}`, import.meta.url).href), {
   content: 'draw it and list the lore',
-  answers: ['<msg>looking</msg><call skill="lore.list"/>', '<msg>here</msg><draw>a lighthouse at dusk</draw>'],
+  answers: [toolAnswer('<msg>looking</msg>', [call('lore.list')]), toolAnswer('<msg>here</msg>', [call('draw.create', { text: 'a lighthouse at dusk' })])],
   access: { 'lore.list': { everyone: false, roles: [], users: ['self-id'] } },
   images: {
     quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
@@ -116,6 +117,6 @@ const scene = await singleScene((path) => import(new URL(`../../${path}`, import
 });
 assert.ok(scene.requests.length >= 2, 'the call was followed up');
 assert.equal(scene.result.outcome, 'spoke');
-assert.equal(drawn, 1, 'the <draw> made its picture');
+assert.equal(drawn, 1, 'the draw.create call made its picture');
 
 console.log('ok');

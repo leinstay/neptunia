@@ -596,8 +596,7 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   })), { getOp: (name) => ({ name, rights: { kind: 'write' } }) });
   const rows = listSkills({ config, selfId: self, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
   const request = buildRequest(await turnInput({ skillsInventory: rows }));
-  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills_protocol', 'skills'] }, 'reply (skills catalogue)');
-  assert.ok(request.messages[1].content[0].text.includes(`<skills_protocol>\n${LABELS.skills.protocol}\n</skills_protocol>`), 'the protocol in the stable part');
+  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills'] }, 'reply (skills catalogue)');
   // Only what she may use now: carried over and allowed; a closed skill is not listed.
   assert.ok(text.includes(`(${LABELS.skills.access.allowed})`), 'labels.skills.access.allowed');
   // message.create, carried over, has no shipped texts yet: listed by its name alone.
@@ -615,23 +614,18 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed, args })), 'the arguments through labels.skills.args');
 });
 
-test('buildRequest: the skills granted to the persona fill labels.skills.granted in the stable part, the same for another requester', async () => {
-  const names = ['lore.list', 'memory.profile.read', 'message.delete', 'message.edit', 'message.react.remove'];
-  const request = buildRequest(await turnInput({ skillsGranted: names }));
-  assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills_protocol', 'skills_granted'] }, 'reply (granted skills)');
+test('buildRequest: the text transport describes her tools in <tools> in the stable part, the same for another requester', async () => {
+  const body = [LABELS.skills.toolsText.lead, '{"name":"lore.list"}', LABELS.skills.toolsText.protocol].join('\n');
+  const request = buildRequest(await turnInput({ toolsBlock: body }));
+  assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'tools'] }, 'reply (tools in text)');
   const stable = request.messages[1].content[0];
   assert.equal(stable.cacheSegment, 'stable');
-  const granted = LABELS.skills.granted;
-  const body = [
-    granted.lead,
-    fill(granted.line, { family: 'lore', names: 'list' }),
-    fill(granted.line, { family: 'memory', names: 'profile.read' }),
-    fill(granted.line, { family: 'message', names: 'delete, edit, react.remove' }),
-  ].filter(Boolean).join('\n');
-  assert.ok(stable.text.includes(`</skills_protocol>\n\n<skills_granted>\n${body}\n</skills_granted>`), stable.text);
+  assert.ok(stable.text.includes(`<tools>\n${body}\n</tools>`), stable.text);
   // Another member asking in another channel: the cached part does not move.
-  const other = buildRequest(await turnInput({ skillsGranted: [...names], interlocutor: PROFILES[NIKOS], currentChannelId: DIARY }));
+  const other = buildRequest(await turnInput({ toolsBlock: body, interlocutor: PROFILES[NIKOS], currentChannelId: DIARY }));
   assert.equal(other.messages[1].content[0].text, stable.text);
+  // The native transport sends no block: the tools are a request field.
+  assert.ok(!buildRequest(await turnInput({})).messages[1].content[0].text.includes('<tools>'));
 });
 
 test('buildRequest: an overheard line fills overheard.md in place of the reply task', async () => {

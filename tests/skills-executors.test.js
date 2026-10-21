@@ -12,7 +12,7 @@ import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/ops/index.js';
 import { createAdmin } from '../src/admin.js';
-import { skillResultBlock } from '../src/behavior/prompt.js';
+import { toolResultText } from '../src/skills/tool-calls.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, bodyTokens, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
@@ -349,12 +349,12 @@ test('executeCall: on her own initiative the operation hears it, and the inner t
 
 test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {
   const long = { status: 'ok', data: { text: 'λ'.repeat(500) } };
-  const block = skillResultBlock({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
-  const data = block.split('\n')[2];
+  const block = toolResultText({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
+  const data = block.split('\n')[1];
   assert.ok(data.length <= 40 && data.endsWith('…'), data);
   assert.ok(block.includes(labels.skills.result.ok));
   for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
-    assert.ok(!skillResultBlock({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(labels.skills.result.ok), status);
+    assert.ok(!toolResultText({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(labels.skills.result.ok), status);
   }
   assert.deepEqual([refusalStatus('invalid-args'), refusalStatus('unknown-message'), refusalStatus('not-allowed'), refusalStatus('owner-only')], ['invalid', 'invalid', 'denied', 'denied']);
 });
@@ -917,8 +917,8 @@ test('message.create gif=: the text went out and the GIF did not -- partial, gif
   assert.equal(RESULT_STATUSES.includes(result.status), true);
   assert.equal(needsFollowUp('message.create', result), true);
   // the status reaches her result block; with the reason through the fixture's generic words
-  const block = skillResultBlock({ skill: 'message.create', ...result }, labels);
-  assert.ok(block.startsWith('<result skill="message.create" status="partial">'), block);
+  const block = toolResultText({ skill: 'message.create', ...result }, labels);
+  assert.ok(block.startsWith(labels.skills.result.partial ?? labels.skills.result.failed.split('{')[0]), block);
   assert.ok(block.includes(labels.skills.result.reasons['gif-failed']), block);
   // the call mark's detail names the reason too
   assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });

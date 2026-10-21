@@ -381,15 +381,9 @@ export const labels = {
     failedEarlier: 'unanswered: {author} {n} {ago} ago ({code})',
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
-    continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',
-    continueTools: 'continue this turn after your {skill} call; results above; another call may run',
-    continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
-    callsDropped: 'dropped {count} calls ({why})',
     diagnostics: 'what became of your last answer:',
-    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', last: 'last step', delivery: '{n} of {total} sent ({code})' },
-    continueInner: 'continue this inner turn after your {skill} call; results above; another call may run\n{open}',
+    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', last: 'last step', lastInner: 'last step, one post or intention change still runs', delivery: '{n} of {total} sent ({code})' },
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
-    continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, only a post or an intention change still runs\n{open}',
   },
   tasks: {
     header: 'your errands:',
@@ -448,7 +442,6 @@ export const labels = {
     offStopped: 'Switched off from {from} to {to} ({length}).',
   },
   skills: {
-    protocol: 'skills: listed in <skills> when relevant or asked for; rights checked by the engine',
     line: '{name}: {title} -- {whenToUse} ({access})',
     access: {
       allowed: 'allowed',
@@ -459,15 +452,8 @@ export const labels = {
     },
     proposedOff: 'proposed but off: {names}',
     proposedDenied: 'proposed but not for the asker: {names}',
-    granted: {
-      lead: 'skills granted to you, by family:',
-      line: '{family}: {names}',
-    },
     result: {
-      alreadyPosted: 'already posted: {text}',
       coerced: '{arg} read as {value}',
-      described: 'the skill in full:',
-      bodyIgnored: 'this skill takes no free text, your body was left out; its arguments:',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',
@@ -494,7 +480,7 @@ export const labels = {
         'heartbeat-only': 'a heartbeat accepts one intention change or a skip',
         'heartbeat-cap': 'too many open intentions from heartbeats',
         'heartbeat-recurring-cap': 'a recurring one from a heartbeat is open',
-        'loop-cap': 'call not run: {what}',
+        'loop-cap': 'call not run: step limit',
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
         'diary-draw-only': 'a diary post takes only draw.create',
@@ -502,7 +488,6 @@ export const labels = {
       },
     },
     tools: {
-      lead: 'your tools; web.search, web.read and memory.search come back this turn, task.run later:',
       web: { source: 'from web.search, query {query}; raw results, pages not opened', goal: 'to establish: {goal}', none: 'nothing found', more: '{count} results not shown' },
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', handles: 'quoted lines carry message numbers', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found' },
@@ -511,12 +496,9 @@ export const labels = {
     },
     diagnostics: {
       retiredTag: 'retired tag cut out: {tag}',
-      badCall: 'call not run: {reason} {skill}',
-      callInText: 'call inside a message not run {skill}',
       messageCut: 'message cut by {chars}',
       messagesMerged: '{count} messages joined',
       thinkUnclosed: 'think never closed',
-      reasons: { quotes: 'value not in double quotes', attribute: 'attribute repeated or unreadable', name: 'skill name missing or invalid', unclosed: 'call never closed' },
     },
     toolsText: { lead: 'your tools, one JSON line each:', protocol: 'write a call as <tool_call>{json}</tool_call> after your thinking' },
     refusals: {

@@ -86,18 +86,22 @@ export function appendStep({ transport, messages, rawText = '', calls, results, 
  * repeat her text), the lines that came in meanwhile under their lead, one line per message that
  * did not go out, the last-step notice, the open-intentions line of an inner turn, and the parser's
  * diagnostics under their header. Every word from `labels.task`; '' when there is nothing to say.
- * @param {{ labels: object, held?: boolean, deltaText?: string, deliveries?: { n: number, total: number, code: string }[], last?: boolean,
+ * @param {{ labels: object, held?: boolean, deltaText?: string, deliveries?: { n: number, total: number, code: string }[], last?: boolean, terminal?: boolean,
  *   open?: string, diagnostics?: string[] }} input
  * @returns {string}
  */
-export function stepNote({ labels, held = false, deltaText = '', deliveries = [], last = false, open = '', diagnostics = [] }) {
+export function stepNote({ labels, held = false, deltaText = '', deliveries = [], last = false, terminal = false, open = '', diagnostics = [] }) {
   const task = labels?.task ?? {};
   const step = task.step ?? {};
   const lines = [];
   if (held && step.held) lines.push(step.held);
   if (deltaText) lines.push([step.delta, deltaText].filter(Boolean).join('\n'));
   for (const item of Array.isArray(deliveries) ? deliveries : []) if (step.delivery) lines.push(fill(step.delivery, item));
-  if (last && step.last) lines.push(step.last);
+  // An inner turn's last step still allows one terminal call: its own notice, else the ordinary one.
+  if (last) {
+    const notice = terminal && step.lastInner ? step.lastInner : step.last;
+    if (notice) lines.push(notice);
+  }
   if (open) lines.push(open);
   const found = (Array.isArray(diagnostics) ? diagnostics : []).filter(Boolean);
   if (found.length > 0) lines.push([task.diagnostics, ...found].filter(Boolean).join('\n'));

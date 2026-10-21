@@ -2318,7 +2318,7 @@ export function innerAnswerOf(text, parseOutput, failedCode = null) {
   return {
     think: parsed.think,
     messages: parsed.messages.map((message) => message.text),
-    calls: parsed.calls.map((call) => ({ skill: call.skill, args: call.args, body: call.body })),
+    calls: (parsed.calls ?? []).map((call) => ({ skill: call.skill, args: call.args, body: call.body })),
     reactions: parsed.reactions,
     gif: parsed.gif,
     draws: parsed.draws,

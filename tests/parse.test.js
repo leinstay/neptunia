@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOutput, parseJsonObject } from '../src/llm/parse.js';
 
+/** parseOutput reading <draw> tags, as the diary post does. */
+const parseDraws = (raw, options = {}) => parseOutput(raw, { ...options, draws: true });
+
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
   assert.equal(result.skip, false);
@@ -181,29 +184,29 @@ test('parseOutput: null/undefined raw input is treated as empty and skipped', ()
 });
 
 test('parseOutput: <draw> yields the scene with defaults', () => {
-  const result = parseOutput('<draw> a cat on a windowsill </draw>');
+  const result = parseDraws('<draw> a cat on a windowsill </draw>');
   assert.deepEqual(result.draw, { text: 'a cat on a windowsill', self: false, replyTo: null });
 });
 
 test('parseOutput: <draw self="yes" reply="#12"> sets self and replyTo', () => {
-  const result = parseOutput('<draw self="yes" reply="#12">a portrait</draw>');
+  const result = parseDraws('<draw self="yes" reply="#12">a portrait</draw>');
   assert.deepEqual(result.draw, { text: 'a portrait', self: true, replyTo: 12 });
 });
 
 test('parseOutput: <draw> attributes work in any order and any case', () => {
-  const result = parseOutput('<DRAW Reply="#7" SELF="TRUE">a lake</DRAW>');
+  const result = parseDraws('<DRAW Reply="#7" SELF="TRUE">a lake</DRAW>');
   assert.deepEqual(result.draw, { text: 'a lake', self: true, replyTo: 7 });
-  assert.equal(parseOutput('<draw self="1">x</draw>').draw.self, true);
-  assert.equal(parseOutput('<draw self="no">x</draw>').draw.self, false);
+  assert.equal(parseDraws('<draw self="1">x</draw>').draw.self, true);
+  assert.equal(parseDraws('<draw self="no">x</draw>').draw.self, false);
 });
 
 test('parseOutput: a second <draw> is ignored', () => {
-  const result = parseOutput('<draw>first scene</draw><draw self="yes">second scene</draw>');
+  const result = parseDraws('<draw>first scene</draw><draw self="yes">second scene</draw>');
   assert.deepEqual(result.draw, { text: 'first scene', self: false, replyTo: null });
 });
 
 test('parseOutput: every <draw> is collected into draws, in order; draw stays the first', () => {
-  const result = parseOutput('<msg>εδώ</msg><draw self="yes">first scene</draw><draw>   </draw><draw reply="#3">second scene</draw>');
+  const result = parseDraws('<msg>εδώ</msg><draw self="yes">first scene</draw><draw>   </draw><draw reply="#3">second scene</draw>');
   assert.deepEqual(result.draws, [
     { text: 'first scene', self: true, replyTo: null },
     { text: 'second scene', self: false, replyTo: 3 },
@@ -213,25 +216,25 @@ test('parseOutput: every <draw> is collected into draws, in order; draw stays th
 
 test('parseOutput: draws holds at most 10 tags, and an answer without <draw> has none', () => {
   const many = Array.from({ length: 12 }, (_, i) => `<draw>scene ${i + 1}</draw>`).join('');
-  const result = parseOutput(many);
+  const result = parseDraws(many);
   assert.equal(result.draws.length, 10);
   assert.equal(result.draws[9].text, 'scene 10');
-  assert.deepEqual(parseOutput('<msg>ναι</msg>').draws, []);
-  assert.equal(parseOutput('<msg>ναι</msg>').draw, null);
+  assert.deepEqual(parseDraws('<msg>ναι</msg>').draws, []);
+  assert.equal(parseDraws('<msg>ναι</msg>').draw, null);
 });
 
 test('parseOutput: an empty <draw> is skipped in favour of a later non-empty one', () => {
-  const result = parseOutput('<draw>   </draw><draw>a forest</draw>');
+  const result = parseDraws('<draw>   </draw><draw>a forest</draw>');
   assert.equal(result.draw.text, 'a forest');
 });
 
 test('parseOutput: <draw> text is clamped to 1600 chars', () => {
-  const result = parseOutput(`<draw>${'a'.repeat(1700)}</draw>`);
+  const result = parseDraws(`<draw>${'a'.repeat(1700)}</draw>`);
   assert.equal(result.draw.text.length, 1600);
 });
 
 test('parseOutput: <draw> alone is not a skip and adds no fallback message', () => {
-  const result = parseOutput('<draw>a mountain at dawn</draw>');
+  const result = parseDraws('<draw>a mountain at dawn</draw>');
   assert.equal(result.skip, false);
   assert.deepEqual(result.messages, []);
   assert.deepEqual(result.reactions, []);
@@ -239,7 +242,7 @@ test('parseOutput: <draw> alone is not a skip and adds no fallback message', () 
 });
 
 test('parseOutput: <draw> alongside <msg> keeps both', () => {
-  const result = parseOutput('<msg reply="#4">εντάξει</msg><draw reply="#4">a boat</draw>');
+  const result = parseDraws('<msg reply="#4">εντάξει</msg><draw reply="#4">a boat</draw>');
   assert.equal(result.skip, false);
   assert.deepEqual(result.messages, [{ text: 'εντάξει', replyTo: 4 }]);
   assert.deepEqual(result.draw, { text: 'a boat', self: false, replyTo: 4 });
@@ -262,16 +265,16 @@ test('parseJsonObject: throws when there is no JSON object at all', () => {
 
 test('parseOutput: a <draw> body is capped at 1600 by default, cut at a word boundary', () => {
   const body = 'word '.repeat(400).trim();
-  const text = parseOutput(`<draw>${body}</draw>`).draw.text;
+  const text = parseDraws(`<draw>${body}</draw>`).draw.text;
   assert.ok(text.length <= 1600 && text.length > 1590);
   assert.ok(text.endsWith('word'));
 });
 
 test('parseOutput: maxDrawChars sets the cap and cuts at the last sentence end', () => {
-  const result = parseOutput('<draw>Aaaa bbbb. Cccc dddd eeee</draw>', { maxDrawChars: 16 });
+  const result = parseDraws('<draw>Aaaa bbbb. Cccc dddd eeee</draw>', { maxDrawChars: 16 });
   assert.equal(result.draw.text, 'Aaaa bbbb.');
-  assert.equal(parseOutput('<draw>άλφα βήτα γάμμα</draw>', { maxDrawChars: 12 }).draw.text, 'άλφα βήτα');
-  assert.equal(parseOutput('<draw>abcdefghij</draw>', { maxDrawChars: undefined }).draw.text, 'abcdefghij');
+  assert.equal(parseDraws('<draw>άλφα βήτα γάμμα</draw>', { maxDrawChars: 12 }).draw.text, 'άλφα βήτα');
+  assert.equal(parseDraws('<draw>abcdefghij</draw>', { maxDrawChars: undefined }).draw.text, 'abcdefghij');
 });
 
 test('parse: a message cut at 1900 reports message-cut with the lost length', async () => {
@@ -288,80 +291,6 @@ test('parse: a message cut at 1900 reports message-cut with the lost length', as
 
 // ---- <call>: one skill call at the top level of the output ------------------------------
 
-test('parseOutput: a top-level <call> is parsed with its string attributes and its body', () => {
-  const result = parseOutput('<msg>ναι</msg>\n<call skill="message.send" conversation="#νέα" replyTo="#4">γεια σας</call>');
-  assert.deepEqual(result.call, { skill: 'message.send', args: { conversation: '#νέα', replyTo: '#4' }, body: 'γεια σας' });
-  assert.deepEqual(result.messages, [{ text: 'ναι', replyTo: null }]);
-  assert.equal(result.extraCalls, 0);
-  assert.equal(result.callError, null);
-});
-
-test('parseOutput: a self-closing <call> alone is no skip and no fallback message', () => {
-  const result = parseOutput('<call skill="status.show"/>');
-  assert.deepEqual(result.call, { skill: 'status.show', args: {}, body: '' });
-  assert.equal(result.skip, false);
-  assert.deepEqual(result.messages, []);
-});
-
-test('parseOutput: a <call> inside <msg>, <draw>, <think>, code or a quote is never a call', () => {
-  const inside = [
-    '<msg>κοίτα <call skill="message.delete" message="#3"/></msg>',
-    '<draw>a sign reading <call skill="status.show"/></draw>',
-    '<think><call skill="status.show"/></think><msg>όχι</msg>',
-    '<msg>κώδικας</msg>\n```\n<call skill="status.show"/>\n```',
-    '<msg>κώδικας</msg> `<call skill="status.show"/>`',
-    '<msg>παράθεση</msg>\n> <call skill="status.show"/>',
-    '<msg>ανοιχτό <call skill="status.show"/>',
-  ];
-  for (const raw of inside) {
-    const result = parseOutput(raw);
-    assert.equal(result.call, null, raw);
-    assert.equal(result.extraCalls, 0, raw);
-  }
-  // A call written inside her message is not posted either: the message goes without it, and the parser says so.
-  const written = parseOutput(inside[0]);
-  assert.equal(written.messages[0].text, 'κοίτα');
-  assert.deepEqual(written.diagnostics, [{ kind: 'callInText', skill: 'message.delete', where: 'msg' }]);
-});
-
-test('parseOutput: two calls keep the first one and count the others', () => {
-  const result = parseOutput('<call skill="memory.read" member="Zoë"/><call skill="status.show"/>\n<call skill="skills.list"></call>');
-  assert.deepEqual(result.call, { skill: 'memory.read', args: { member: 'Zoë' }, body: '' });
-  assert.equal(result.extraCalls, 2);
-  // `calls`: every well-formed one in order, the first first (the tool loop of features.coreTools).
-  assert.deepEqual(result.calls.map((call) => call.skill), ['memory.read', 'status.show', 'skills.list']);
-  assert.deepEqual(parseOutput('<call skill="a.b"/><call skill=bad/><call skill="c.d"/>').calls.map((call) => call.skill), ['a.b', 'c.d'], 'a malformed later one is left out');
-  assert.deepEqual(parseOutput('<call skill=bad/><call skill="c.d"/>').calls.map((call) => call.skill), ['c.d'], 'a malformed first one does not empty the others');
-  assert.deepEqual(parseOutput('<msg>ναι</msg>').calls, []);
-});
-
-test('parseOutput: a message inside a call body is the call\'s text, never posted here', () => {
-  const result = parseOutput('<call skill="message.send" conversation="#x"><msg>γεια</msg></call>');
-  assert.deepEqual(result.messages, []);
-  assert.equal(result.call.body, '<msg>γεια</msg>');
-  assert.equal(result.skip, false);
-});
-
-test('parseOutput: a malformed call is no call (callError) and a diagnostic with its reason, and the reply stands', () => {
-  const malformed = [
-    ['<call skill=status.show/>', { kind: 'badCall', reason: 'quotes' }],
-    ['<call skill="status.show" skill="skills.list"/>', { kind: 'badCall', reason: 'attribute' }],
-    ['<call member="Zoë"/>', { kind: 'badCall', reason: 'name' }],
-    ['<call skill="Status Show"/>', { kind: 'badCall', reason: 'name' }],
-    ['<call skill="message.send">never closed', { kind: 'badCall', reason: 'unclosed', skill: 'message.send' }],
-    ['<call skill="status.show" x=\'1\'/>', { kind: 'badCall', reason: 'quotes' }],
-  ];
-  for (const [raw, diagnostic] of malformed) {
-    const result = parseOutput(`<msg>ναι</msg>${raw}`);
-    assert.equal(result.call, null, raw);
-    assert.equal(result.callError, 'malformed', raw);
-    assert.deepEqual(result.messages.map((m) => m.text), ['ναι'], raw);
-    assert.deepEqual(result.diagnostics, [diagnostic], raw);
-  }
-  // Nothing else in the output: silence, never a fallback message made of the tag.
-  assert.equal(parseOutput('<call skill=status.show/>').skip, true);
-});
-
 test('parseOutput: an unclosed <think> keeps what it held so far in think and says it stayed open', () => {
   const result = parseOutput('<think>πρώτο</think><think> σχέδιο χωρίς τέλος ');
   assert.deepEqual([result.skip, result.thinkOpen, result.think], [true, true, 'πρώτο\nσχέδιο χωρίς τέλος']);
@@ -375,50 +304,6 @@ test('parseOutput: untagged marks the plain-text fallback message only', () => {
   assert.equal(parseOutput('<skip/>').untagged, false);
 });
 
-test('parseOutput: a <call> body wrapped in CDATA is unwrapped', () => {
-  const out = parseOutput('<call skill="memory.search"><![CDATA[\nτι είπε η Ana;\nterms: λαγός\n]]></call>');
-  assert.equal(out.call.body, 'τι είπε η Ana;\nterms: λαγός');
-});
-
-// ---- diagnostics: everything the parser did not use is accounted for ---------------------
-
-test('parseOutput: a malformed first <call> never empties the well-formed ones after it, and each bad one is its own diagnostic', () => {
-  const result = parseOutput('<call skill=bad/><call skill="a.b" x="1">t</call><call skill="c.d" y=\'2\'/><call skill="e.f"/>');
-  assert.deepEqual(result.calls.map((call) => call.skill), ['a.b', 'e.f']);
-  assert.equal(result.call.skill, 'a.b');
-  assert.equal(result.extraCalls, 1);
-  assert.equal(result.callError, 'malformed');
-  assert.deepEqual(result.diagnostics, [{ kind: 'badCall', reason: 'quotes' }, { kind: 'badCall', reason: 'quotes' }]);
-  assert.deepEqual(parseOutput('<call skill="a.b"/>').diagnostics, []);
-});
-
-test('parseOutput: CDATA is unwrapped wherever it sits in a call body, and a </call> inside it does not end the call', () => {
-  const mixed = parseOutput('<call skill="memory.search">before <![CDATA[a </call> <msg>b</msg>]]> after</call><msg>ναι</msg>');
-  assert.deepEqual(mixed.call, { skill: 'memory.search', args: {}, body: 'before a </call> <msg>b</msg> after' });
-  assert.deepEqual(mixed.messages.map((m) => m.text), ['ναι']);
-  assert.equal(mixed.callError, null);
-  const two = parseOutput('<call skill="a.b"><![CDATA[x]]> and <![CDATA[y]]></call>');
-  assert.equal(two.call.body, 'x and y');
-  // An unclosed CDATA stays as written.
-  assert.equal(parseOutput('<call skill="a.b"><![CDATA[x</call>').call.body, '<![CDATA[x');
-  // A call inside a CDATA section at the top level is text, not a call.
-  assert.equal(parseOutput('<msg>ναι</msg><![CDATA[<call skill="a.b"/>]]>').call, null);
-});
-
-test('parseOutput: a <call> written inside a <msg> is cut out of the message and told; in a code span it stays as typed and is told', () => {
-  const inMsg = parseOutput('<msg>πρώτο <call skill="message.delete" message="#3"/> δεύτερο</msg><msg><call skill="status.show"></call></msg>');
-  assert.deepEqual(inMsg.messages.map((m) => m.text), ['πρώτο δεύτερο'], 'a message that held only the call is no message');
-  assert.deepEqual(inMsg.diagnostics, [{ kind: 'callInText', skill: 'message.delete', where: 'msg' }, { kind: 'callInText', skill: 'status.show', where: 'msg' }]);
-  assert.equal(inMsg.call, null);
-  const lone = parseOutput('<msg>a <call skill="x.y"> b</msg>');
-  assert.deepEqual([lone.messages[0].text, lone.diagnostics.length], ['a b', 1]);
-  const code = parseOutput('<msg>γράψε `<call skill="status.show"/>` έτσι</msg>');
-  assert.equal(code.messages[0].text, 'γράψε `<call skill="status.show"/>` έτσι');
-  assert.deepEqual(code.diagnostics, [{ kind: 'callInText', skill: 'status.show', where: 'code' }], 'a code span is her quoting: left as typed, still told it did not run');
-  const fenced = parseOutput('<msg>κώδικας</msg>\n```\n<call skill="status.show"/>\n```');
-  assert.deepEqual(fenced.diagnostics, [{ kind: 'callInText', skill: 'status.show', where: 'code' }]);
-});
-
 test('parseOutput: a cut message, joined messages and an unclosed <think> are diagnostics', () => {
   const cut = parseOutput(`<msg>${'α'.repeat(1950)}</msg>`);
   assert.deepEqual(cut.diagnostics, [{ kind: 'messageCut', chars: 50 }]);
@@ -426,4 +311,32 @@ test('parseOutput: a cut message, joined messages and an unclosed <think> are di
   assert.deepEqual(merged.diagnostics, [{ kind: 'messagesMerged', count: 2 }]);
   assert.deepEqual(parseOutput('<think>σχέδιο').diagnostics, [{ kind: 'thinkUnclosed' }]);
   assert.deepEqual(parseOutput('<think>σχέδιο</think><msg>ναι</msg>').diagnostics, []);
+});
+
+test('parseOutput: a <call> or a <draw> outside code is a retired tag: cut out, told, never read, never posted as text', () => {
+  const parsed = parseOutput('<think>x</think><msg>hello</msg><call skill="message.create">hi</call><draw self="yes">a boat</draw>');
+  assert.deepEqual(parsed.messages, [{ text: 'hello', replyTo: null }]);
+  assert.equal(parsed.draw, null);
+  assert.deepEqual(parsed.draws, []);
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'retiredTag', tag: 'call' }, { kind: 'retiredTag', tag: 'draw' }]);
+  assert.equal('call' in parsed, false);
+  const alone = parseOutput('<call skill="status.show"/>');
+  assert.equal(alone.skip, true);
+  assert.deepEqual(alone.messages, []);
+  assert.deepEqual(alone.diagnostics, [{ kind: 'retiredTag', tag: 'call' }]);
+});
+
+test('parseOutput: a retired tag inside a message is cut out of it; in code it stays as typed and is not told', () => {
+  const inside = parseOutput('<msg>look <call skill="a.b">x</call>here</msg>');
+  assert.equal(inside.messages[0].text, 'look here');
+  assert.deepEqual(inside.diagnostics, [{ kind: 'retiredTag', tag: 'call' }]);
+  const code = parseOutput('<msg>write `<call skill="a.b"/>` like that</msg>');
+  assert.equal(code.messages[0].text, 'write `<call skill="a.b"/>` like that');
+  assert.deepEqual(code.diagnostics, []);
+});
+
+test('parseOutput: a <draw> is read only when the caller asks (the diary post); a <tool_call> is no plain-text fallback', () => {
+  assert.equal(parseDraws('<draw>a boat</draw>').draw.text, 'a boat');
+  assert.equal(parseOutput('<draw>a boat</draw>').draw, null);
+  assert.equal(parseOutput('<tool_call>{"name":"x"}</tool_call>').skip, true);
 });

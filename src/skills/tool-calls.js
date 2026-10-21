@@ -104,11 +104,13 @@ export function coerceArgs(args, schema) {
  * line (`{arg}`, `{value}`) per argument that was read in another type. '' for no result.
  * @param {{ status?: string, code?: string|null, reason?: string|null, values?: object|null, data?: { text?: string, rows?: object[] }|null }|null} result
  * @param {object} labels
- * @param {{ maxChars?: number, coerced?: { arg: string, to: unknown }[], rowsText?: (rows: object[], labels: object) => string }} [options]
+ * @param {{ maxChars?: number, coerced?: { arg: string, to: unknown }[], rowsText?: (rows: object[], labels: object) => string, reasonOf?: (result: object) => string }} [options]
  *   `rowsText` renders the rows of a catalogue answer (src/behavior/prompt.js#skillsInventoryText); without it they are JSON.
+ *   `reasonOf` words a call that did not work in detail (the argument that was wrong, what the skill takes: src/format.js#callReason
+ *   over src/skills/executors.js#outcomeDetail); '' or absent: the code's own words.
  * @returns {string}
  */
-export function toolResultText(result, labels, { maxChars = 2000, coerced = [], rowsText = null } = {}) {
+export function toolResultText(result, labels, { maxChars = 2000, coerced = [], rowsText = null, reasonOf = null } = {}) {
   if (!isPlainObject(result)) return '';
   const status = RESULT_STATUSES.has(result.status) ? result.status : 'failed';
   const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
@@ -116,7 +118,8 @@ export function toolResultText(result, labels, { maxChars = 2000, coerced = [], 
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   // A deleted message is its own reason of `unknown-message` (the machine reason names it).
   const worded = (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ?? reasonText(labels, code, result.values, fill);
-  const reason = worded ?? reasons.other ?? code;
+  const detailed = typeof reasonOf === 'function' && status !== 'ok' ? reasonOf(result) : '';
+  const reason = detailed || (worded ?? reasons.other ?? code);
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
   const lead = typeof word === 'string' ? fill(word, { reason }) : '';
   let data = '';
@@ -142,4 +145,14 @@ export function toolResultText(result, labels, { maxChars = 2000, coerced = [], 
  */
 export function coversSpeech(definition, result) {
   return result?.status === 'ok' && (definition?.result === 'effect' || definition?.result === 'job');
+}
+
+/**
+ * Which transport a turn's tools travel on: `skills.transport` (`'native'` or `'text'`, read once at the
+ * turn's start and kept for the whole turn). Anything else is the default, `'native'`. Pure.
+ * @param {object|null|undefined} config  The live config.
+ * @returns {'native'|'text'}
+ */
+export function transportOf(config) {
+  return config?.skills?.transport === 'text' ? 'text' : 'native';
 }

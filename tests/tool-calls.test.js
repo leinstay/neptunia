@@ -140,3 +140,12 @@ test('coversSpeech: an ok effect or job covers speech, data and any other status
   assert.equal(coversSpeech(registry.get('task.run'), { status: 'ok' }), true);
   assert.equal(coversSpeech(registry.get('web.search'), { status: 'ok' }), false);
 });
+
+test('toolResultText: reasonOf words a call that did not work in detail; a result that went well keeps its lead', () => {
+  const labels = { skills: { result: { ok: 'worked', failed: 'failed: {reason}', refused: 'refused: {reason}', reasons: { 'invalid-args': 'not written the way the skill takes it', other: 'something went wrong' } } } };
+  const refused = { status: 'invalid', code: 'invalid-args', reason: 'args.x:unknown' };
+  assert.equal(toolResultText(refused, labels), 'refused: not written the way the skill takes it');
+  assert.equal(toolResultText(refused, labels, { reasonOf: () => 'the skill takes no x' }), 'refused: the skill takes no x');
+  assert.equal(toolResultText(refused, labels, { reasonOf: () => '' }), 'refused: not written the way the skill takes it', 'an empty detail falls back to the code');
+  assert.equal(toolResultText({ status: 'ok', data: { text: 'rows' } }, labels, { reasonOf: () => 'never used' }), 'worked\nrows');
+});

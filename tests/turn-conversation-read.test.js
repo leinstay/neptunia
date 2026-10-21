@@ -11,8 +11,10 @@ import { createDiscordInterface } from '../src/interface/discord.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
+import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -122,7 +124,7 @@ function sequenceLlm(answers) {
     complete: async (messages) => {
       if (messages[0].content.startsWith('Decide whether') || messages[0].content.startsWith('Pick a second look')) return { text: 'none', usage: {}, estimated: 5 };
       calls.push(messages);
-      return { text: answers[Math.min(calls.length - 1, answers.length - 1)], usage: {}, estimated: 10 };
+      return completionOf(answers[Math.min(calls.length - 1, answers.length - 1)]);
     },
   };
 }
@@ -179,14 +181,15 @@ async function turn({ answers, allowed = ['conversation.read'], record = fakeRec
   return { result, logs, llm, port, server, record };
 }
 
-const requestText = (llm, i) => userText(llm.calls[i][1].content);
-const resultSkills = (text) => [...text.matchAll(/<result skill="([^"]+)" status="([^"]+)">/g)].map((match) => `${match[1]}:${match[2]}`);
+/** What she read of her calls in request `i`: the content of each tool message, in order. */
+const toolReads = (llm, i) => llm.calls[i].filter((message) => message.role === 'tool').map((message) => (typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join('')));
+const requestText = (llm, i) => toolReads(llm, i).join('\n');
 const handleOf = (text, needle) => Number(new RegExp(`^#(\\d+) .*${needle}`, 'm').exec(text)?.[1]);
 
 test('conversation.read in a turn: the channel comes from the record with the edit and deletion marks, nothing is fetched from the history', async () => {
-  const run = await turn({ answers: ['<call skill="conversation.read" channel="jardin" last="6"/>', '<skip/>'] });
-  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['conversation.read:ok']);
+  const run = await turn({ answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), '<skip/>'] });
   const text = requestText(run.llm, 1);
+  assert.ok(text.startsWith(labels.skills.result.ok), text);
   assert.ok(text.includes('from conversation.read #jardin'), text);
   assert.ok(text.includes('lines carry message numbers'), text);
   assert.match(text, /^#\d+ \[\d\d:\d\d\] Éloïse: μετά την αλλαγή \(edited\)$/m);
@@ -197,21 +200,21 @@ test('conversation.read in a turn: the channel comes from the record with the ed
 });
 
 test('handles: a line she read is a message she can edit or page from in the next steps, in its own channel', async () => {
-  const probe = await turn({ answers: ['<call skill="conversation.read" channel="jardin" last="6"/>', '<skip/>'] });
+  const probe = await turn({ answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), '<skip/>'] });
   const probeText = requestText(probe.llm, 1);
   const mine = handleOf(probeText, 'παλιό κείμενο');
   const theirs = handleOf(probeText, 'ξένο κείμενο');
   const first = handleOf(probeText, 'ξένο κείμενο');
   assert.ok(mine > 3 && theirs === mine - 1, `numbered past the chat: ${mine} ${theirs}`);
   const run = await turn({
-    answers: ['<call skill="conversation.read" channel="jardin" last="6"/>', `<call skill="message.edit" message="#${mine}">νέο κείμενο</call><call skill="conversation.read" before="#${first}" last="2"/>`, '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), toolAnswer(``, [call('message.edit', { message: `#${mine}`, text: `νέο κείμενο` }), call('conversation.read', { before: `#${first}`, last: 2 })]), '<skip/>'],
     allowed: ['conversation.read', 'message.edit'],
     seeds: [{ conversationId: 'c2', authorId: 'self-id', messageId: 'q1', text: 'παλιό κείμενο' }],
   });
   const edits = run.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].conversationId, call.args[0].messageId, call.args[1].text]);
   assert.deepEqual(edits, [['c2', 'q1', 'νέο κείμενο']]);
   const third = requestText(run.llm, 2);
-  const blocks = [...third.matchAll(/<result skill="conversation.read" status="ok">([\s\S]*?)<\/result>/g)].map((match) => match[1]);
+  const blocks = toolReads(run.llm, 2).filter((content) => content.includes('from conversation.read'));
   assert.equal(blocks.length, 2, 'both reads are in the continuation');
   assert.ok(blocks[1].includes('παλιότερη γραμμή') && !blocks[1].includes('ξένο κείμενο'), blocks[1]);
   assert.ok(blocks[1].includes('from conversation.read #jardin'), 'before= resolved to the channel of the line');
@@ -219,33 +222,33 @@ test('handles: a line she read is a message she can edit or page from in the nex
 
 test('around a transcript number: #N of the chat she sees names the message and the channel, read from the record', async () => {
   const record = fakeRecord([line('m0', 5000 / HOUR, 'καλημέρα', { channel: 'c1', by: 'u2' }), line('m9', 3000 / HOUR, 'μετά', { channel: 'c1', by: 'u2' })]);
-  const run = await turn({ answers: ['<call skill="conversation.read" around="#1" before="0" after="3"/>', '<skip/>'], record });
+  const run = await turn({ answers: [toolAnswer('', [call('conversation.read', { around: '#1', before: '0', after: '3' })]), '<skip/>'], record });
   const text = requestText(run.llm, 1);
-  assert.deepEqual(resultSkills(text), ['conversation.read:ok']);
+  assert.ok(text.startsWith(labels.skills.result.ok), text);
   assert.ok(text.includes('from conversation.read #general') && text.includes('καλημέρα') && text.includes('μετά'), text);
 });
 
 test('the record lacks the span: the history of the channel is asked and its lines come back with handles', async () => {
   const jardinLive = [rawMessage({ id: 'h1', ts: NOW - 2 * HOUR, authorId: 'u7', authorName: 'Éloïse', content: 'από το ιστορικό', channelId: 'c2' })];
-  const run = await turn({ answers: ['<call skill="conversation.read" channel="jardin" last="3"/>', '<skip/>'], record: fakeRecord([]), jardinLive });
+  const run = await turn({ answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 3 })]), '<skip/>'], record: fakeRecord([]), jardinLive });
   assert.deepEqual(run.server.fetches.c2, [{ limit: 3 }]);
   const text = requestText(run.llm, 1);
   assert.match(text, /^#\d+ \[\d\d:\d\d\] Éloïse: από το ιστορικό$/m);
 });
 
 test('a channel the pull rail hides is refused channel-not-visible and nothing of it is read', async () => {
-  const run = await turn({ answers: ['<call skill="conversation.read" channel="secret" last="3"/>', '<skip/>'] });
+  const run = await turn({ answers: [toolAnswer('', [call('conversation.read', { channel: 'secret', last: 3 })]), '<skip/>'] });
   const text = requestText(run.llm, 1);
-  assert.deepEqual(resultSkills(text), [], 'a refusal is told as the call mark on her line, no data');
-  assert.ok(text.includes('[called conversation.read in #secret: denied'), text);
+  assert.ok(text.startsWith(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-not-visible'] })), 'a refusal is a result with its reason, no data');
+  assert.ok(!text.includes('from conversation.read'), text);
   assert.deepEqual(run.server.fetches.c3, []);
   assert.ok(run.record.reads.every((query) => !query.channelIds?.includes('c3')));
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'conversation.read' && entry.code === 'channel-not-visible'));
 });
 
 test('not granted: the call is refused before anything is read', async () => {
-  const run = await turn({ answers: ['<call skill="conversation.read" channel="jardin"/>', '<skip/>'], allowed: ['lore.list'] });
+  const run = await turn({ answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin' })]), '<skip/>'], allowed: ['lore.list'] });
   assert.ok(run.record.reads.every((query) => !query.channelIds?.includes('c2')), 'the record of #jardin was not read');
   assert.deepEqual(run.server.fetches.c2, []);
-  assert.ok(!resultSkills(requestText(run.llm, 1)).includes('conversation.read:ok'));
+  assert.ok(!requestText(run.llm, 1).startsWith(labels.skills.result.ok));
 });

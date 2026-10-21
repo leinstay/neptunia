@@ -1,8 +1,12 @@
 {
   "status.show": {
     "title": "Runtime state",
-    "whenToUse": "Read how the instance is doing right now. part= picks one section so you get only what you need: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits, what was spent today, per-role costs), models (which model each role runs, core and agents), memory (how much of each kind of memory is stored, record coverage, index state), inner (your inner life: mode, turns today, next wake, open intentions, attended places), errands (running errands and what each agent spent), features (which feature switches are on and off), all (every section at once).",
-    "whenNotToUse": "Returns operational data about the running instance."
+    "whenToUse": "Read how the instance is doing right now. The part argument picks one section so you get only what you need: overview (the default: running or paused, uptime, today's daily limits), limits (daily limits, what was spent today, per-role costs), models (which model each role runs, core and agents), memory (how much of each kind of memory is stored, record coverage, index state), inner (your inner life: mode, turns today, next wake, open intentions, attended places), errands (running errands and what each agent spent), features (which feature switches are on and off), all (every section at once).",
+    "whenNotToUse": "Returns operational data about the running instance.",
+    "args": {
+      "field": "One section of the raw status: state, tasks, models.base, keys.base, costs.base, models.agents, costs.agents, inner, limits, memory, speed.",
+      "part": "A named group of sections: overview (default), limits, models, memory, inner, errands, features, all."
+    }
   },
   "config.set": {
     "title": "Set a config value",
@@ -26,38 +30,61 @@
   },
   "draw.create": {
     "title": "Draw a picture",
-    "whenToUse": "Generate one picture and, with a channel, post it there as you; costs money, counted against the daily limit.",
-    "whenNotToUse": "A picture that failed to post is already paid for and will not be generated again."
+    "whenToUse": "Generate one picture from your scene brief and post it in the channel. Costs money, counted against the daily limit. Write the scene in English: subjects, actions, setting, lighting, mood. Describe clothes and accessories by their visible state (where each thing sits, what is attached to what, what each hand is doing). A figure given a motion instead of a position, or asked to do what it physically cannot, produces a broken picture. The scene text has a hard limit of about {{drawChars}} characters; everything past the last sentence that fits is lost. Start with who is in the picture and what they are doing, then the place and the light, then the camera position, so that a cut takes only the trimmings. Every scene states where the camera stands and which way it looks, in one short phrase. Whenever a figure has a gaze (a person, a group, an animal), state which way it faces and name the exact surface or point its eyes are on; when a figure faces the viewer (a selfie, a portrait), say so explicitly, so the viewer's direction is always a choice, never a default. Name any hand, foot or seat contacts the action needs. For a scene where the face and an action toward a target must both read, place the camera to the side with the target inside the frame in the direction the figure faces; when the target lies far along the depth of the scene, a camera behind the figure at three-quarters works better; avoid putting the camera on the target's side looking back, because the image model tends to turn that into a pose aimed at the viewer. Keep the camera even when the face ends up in profile or partly hidden, or a screen partly out of view; do not turn the figure toward the viewer at the cost of the action. For recognisable equipment, name the type and the one fact about its layout that the action depends on; describe the rest of the scenery in a few words and leave out details that compete with the main object. When the request names no place and no place is obvious from the activity, ask where in one short message before drawing. Clothes, expression, pose, time of day you decide yourself; never ask about those. A generic girl, person, character, someone, a couple or a crowd is not you and gets no self; describe that figure in the scene text like any other subject. Every scene is fresh; the previous picture's place is never carried over unless the request explicitly builds on it, and when it does, restate the setting.",
+    "whenNotToUse": "A picture that failed is already paid for and will not be generated again.",
+    "args": {
+      "text": "The scene in English as you would brief an artist, up to about {{drawChars}} characters. Start with who is in the picture and what they are doing, then the place and the light, then the camera position.",
+      "self": "True when the picture is of you: someone asked for you by name or nickname, or you decided to appear and said so. Do not describe your own appearance when self is true; the sub-process already knows your look. It defaults to the reference look for anything you leave out, so before writing the scene, answer in your think: where exactly am I, what time and light, what am I wearing for this place and activity, where does the camera stand, which way do I face and what exactly are my eyes on (or: facing the viewer for a selfie or a portrait), what is my expression as seen from that camera angle (list several that fit the action and your mood, pick one that is not the expression from your previous picture, describe it concretely as the mouth, eyes, brows and head tilt the camera can see, not a mood word), what pose, what am I doing. Write every answer into the scene.",
+      "reply": "The message to reply to, as a #N from the transcript or a message link.",
+      "channel": "The channel to post the picture in."
+    }
   },
   "pings.get": {
     "title": "Notification setting",
     "whenToUse": "Read whether a member's notifications from you are on or off.",
-    "whenNotToUse": "Does not change the setting."
+    "whenNotToUse": "Does not change the setting.",
+    "args": {}
   },
   "pings.set": {
     "title": "Change notification setting",
     "whenToUse": "Turn a member's notifications from you on or off.",
-    "whenNotToUse": "Changes only that member's own setting."
+    "whenNotToUse": "Changes only that member's own setting.",
+    "args": {
+      "mode": "on or off."
+    }
   },
   "media.status": {
     "title": "Emoji and GIF state",
     "whenToUse": "Read the custom emoji ranking and GIF library counts.",
-    "whenNotToUse": "Does not recount or re-describe anything."
+    "whenNotToUse": "Does not recount or re-describe anything.",
+    "args": {
+      "kind": "What to check: emoji, gifs or pictures.",
+      "days": "How many days back to count (1 to 60)."
+    }
   },
   "media.rescan": {
     "title": "Rescan emoji or GIFs",
     "whenToUse": "Recount custom emoji or GIF usage from channel history.",
-    "whenNotToUse": "Runs in the background; a running scan blocks a second one."
+    "whenNotToUse": "Runs in the background; a running scan blocks a second one.",
+    "args": {
+      "kind": "What to rescan: emoji, gifs or pictures.",
+      "days": "How many days back to scan (1 to 60)."
+    }
   },
   "media.recache": {
     "title": "Recache GIFs",
     "whenToUse": "Re-watch every GIF in the library so their descriptions are current.",
-    "whenNotToUse": "Runs in the background; needs video descriptions on."
+    "whenNotToUse": "Runs in the background; needs video descriptions on.",
+    "args": {
+      "kind": "What to recache: emoji, gifs or pictures.",
+      "days": "How many days back (1 to 60)."
+    }
   },
   "model.show": {
     "title": "Current models",
     "whenToUse": "Read which model serves each role.",
-    "whenNotToUse": "Does not change any model."
+    "whenNotToUse": "Does not change any model.",
+    "args": {}
   },
   "model.set": {
     "title": "Set a model",
@@ -67,7 +94,8 @@
   "route.list": {
     "title": "Provider routes",
     "whenToUse": "Read every provider route and each role's current model.",
-    "whenNotToUse": "Does not change any route."
+    "whenNotToUse": "Does not change any route.",
+    "args": {}
   },
   "route.set": {
     "title": "Set a route",
@@ -87,7 +115,8 @@
   "rule.list": {
     "title": "List rules",
     "whenToUse": "Read the numbered list of live corrections in the rules file.",
-    "whenNotToUse": "Does not change any rule."
+    "whenNotToUse": "Does not change any rule.",
+    "args": {}
   },
   "rule.remove": {
     "title": "Remove a rule",
@@ -107,82 +136,135 @@
   "access.list": {
     "title": "List grants",
     "whenToUse": "Read every stored access grant and who holds each.",
-    "whenNotToUse": "Does not change any grant."
+    "whenNotToUse": "Does not change any grant.",
+    "args": {}
   },
   "alias.add": {
     "title": "Add an alias",
     "whenToUse": "Record or strengthen a nickname people in chat use for a member.",
-    "whenNotToUse": "Only what people actually call the member, not display names."
+    "whenNotToUse": "Only what people actually call the member, not display names.",
+    "args": {
+      "user": "The member, by name or handle.",
+      "name": "The nickname to record."
+    }
   },
   "alias.remove": {
     "title": "Remove an alias",
     "whenToUse": "Delete a stored alias from a member's profile.",
-    "whenNotToUse": "Irreversible."
+    "whenNotToUse": "Irreversible.",
+    "args": {
+      "user": "The member, by name or handle.",
+      "name": "The nickname to remove."
+    }
   },
   "learning.add": {
     "title": "Add a lesson",
     "whenToUse": "Record or strengthen something people taught you.",
-    "whenNotToUse": "Only things addressed to you, not general facts."
+    "whenNotToUse": "Only things addressed to you, not general facts.",
+    "args": {
+      "text": "What was taught to you."
+    }
   },
   "learning.remove": {
     "title": "Remove a lesson",
     "whenToUse": "Delete a stored lesson by number.",
-    "whenNotToUse": "Irreversible."
+    "whenNotToUse": "Irreversible.",
+    "args": {
+      "number": "The lesson number to delete."
+    }
   },
   "lore.add": {
     "title": "Add a lore entry",
     "whenToUse": "Create or overwrite a lorebook entry: title, trigger keys, text.",
-    "whenNotToUse": "Becomes an owner entry; the analyzer will not change it."
+    "whenNotToUse": "Becomes an owner entry; the analyzer will not change it.",
+    "args": {
+      "title": "A short title for the entry.",
+      "keys": "Trigger words, comma-separated.",
+      "text": "The entry's content.",
+      "always": "True to show the entry on every turn, regardless of triggers."
+    }
   },
   "lore.list": {
     "title": "List lore",
     "whenToUse": "Read lorebook entries, optionally filtered by a substring of title or keys.",
-    "whenNotToUse": "Does not show the full text; lore.show does."
+    "whenNotToUse": "Does not show the full text; lore.show does.",
+    "args": {
+      "query": "Filter by a substring of the title or keys."
+    }
   },
   "lore.show": {
     "title": "Show a lore entry",
     "whenToUse": "Read one lorebook entry in full.",
-    "whenNotToUse": "Does not change the entry."
+    "whenNotToUse": "Does not change the entry.",
+    "args": {
+      "id": "The entry's id."
+    }
   },
   "lore.remove": {
     "title": "Remove a lore entry",
     "whenToUse": "Delete one lorebook entry by id.",
-    "whenNotToUse": "Irreversible."
+    "whenNotToUse": "Irreversible.",
+    "args": {
+      "id": "The entry's id."
+    }
   },
   "memory.profile.read": {
     "title": "Read a profile",
     "whenToUse": "Read a member's stored profile: character, style, interests, details, episodes or raw data.",
-    "whenNotToUse": "Returns what you remember publicly, not what the member said in DMs."
+    "whenNotToUse": "Returns what you remember publicly, not what the member said in DMs.",
+    "args": {
+      "user": "The member, by name or handle.",
+      "section": "What part to read: summary, character, style, relationship, affinity, aliases, interests, details, episodes, raw.",
+      "limit": "How many items to return (1 to 100).",
+      "order": "Sort by rank or recent."
+    }
   },
   "memory.channel.read": {
     "title": "Read channel notes",
     "whenToUse": "Read one channel's stored notes, or a table of all stored channels.",
-    "whenNotToUse": "Does not change any note."
+    "whenNotToUse": "Does not change any note.",
+    "args": {
+      "channel": "The channel, by name or handle. Omit for a table of all stored channels."
+    }
   },
   "memory.server.read": {
     "title": "Read server notes",
     "whenToUse": "Read the server's patterns, starters, in-jokes and self-facts.",
-    "whenNotToUse": "Does not change any note."
+    "whenNotToUse": "Does not change any note.",
+    "args": {}
   },
   "memory.recent.read": {
     "title": "Read recent events",
     "whenToUse": "Read the live list of recent notes from the last few days.",
-    "whenNotToUse": "Does not add or remove notes."
+    "whenNotToUse": "Does not add or remove notes.",
+    "args": {}
   },
   "memory.refresh.user": {
     "title": "Refresh a portrait",
     "whenToUse": "Rewrite a member's character and style from a fresh sample of their messages.",
-    "whenNotToUse": "Sends one request; counts against the daily cap."
+    "whenNotToUse": "Sends one request; counts against the daily cap.",
+    "args": {
+      "user": "The member, by name or handle.",
+      "channel": "Limit the sample to one channel."
+    }
   },
   "memory.refresh.channel": {
     "title": "Refresh channel notes",
     "whenToUse": "Rewrite a channel's notes from a fresh spread of recent messages.",
-    "whenNotToUse": "Sends one request; counts against the daily cap."
+    "whenNotToUse": "Sends one request; counts against the daily cap.",
+    "args": {
+      "user": "Focus the sample on one member.",
+      "channel": "The channel to refresh."
+    }
   },
   "memory.refresh.server": {
     "title": "Refresh server notes",
     "whenToUse": "Rewrite the server's patterns, starters and in-jokes from channel and member summaries.",
-    "whenNotToUse": "Sends one request; counts against the daily cap."
+    "whenNotToUse": "Sends one request; counts against the daily cap.",
+    "args": {
+      "user": "Focus the sample on one member.",
+      "channel": "Focus the sample on one channel."
+    }
   },
   "memory.forget": {
     "title": "Forget a member",
@@ -192,7 +274,10 @@
   "memory.affinity.read": {
     "title": "Read attitude",
     "whenToUse": "Read your attitude score, band and reason for a member.",
-    "whenNotToUse": "Does not change the score."
+    "whenNotToUse": "Does not change the score.",
+    "args": {
+      "user": "The member, by name or handle."
+    }
   },
   "memory.wipe": {
     "title": "Wipe all memory",
@@ -202,12 +287,23 @@
   "memory.journal.read": {
     "title": "Read journal",
     "whenToUse": "Read your journal records for a day, optionally filtered by kind, or the full record of the turn behind one of your messages.",
-    "whenNotToUse": "Does not change any record."
+    "whenNotToUse": "Does not change any record.",
+    "args": {
+      "day": "The date (YYYY-MM-DD). Omit for today.",
+      "kind": "Filter by record kind: turn, action, memory, system, answer, inner, all.",
+      "n": "How many records to return (1 to 50).",
+      "message": "Show the full turn record behind one of your messages, by #N or link."
+    }
   },
   "memory.archive.read": {
     "title": "Read archive",
     "whenToUse": "Read archived items: evicted episodes, expired interests, old notes.",
-    "whenNotToUse": "Does not restore anything; memory.restore does."
+    "whenNotToUse": "Does not restore anything; memory.restore does.",
+    "args": {
+      "user": "Filter by a member, by name or handle.",
+      "kind": "Filter by item kind.",
+      "n": "How many items to return (1 to 100)."
+    }
   },
   "memory.restore": {
     "title": "Restore from archive",
@@ -217,12 +313,16 @@
   "memory.snapshot": {
     "title": "Snapshot data",
     "whenToUse": "Copy the data directory to a timestamped directory for tools.",
-    "whenNotToUse": "Does not change any live data."
+    "whenNotToUse": "Does not change any live data.",
+    "args": {}
   },
   "memory.private.read": {
     "title": "Read private memory",
     "whenToUse": "Read what you remember from private conversations with a member.",
-    "whenNotToUse": "Private data; only the owner sees the reply."
+    "whenNotToUse": "Private data; only the owner sees the reply.",
+    "args": {
+      "user": "The member, by name or handle."
+    }
   },
   "memory.private.forget": {
     "title": "Forget private memory",
@@ -236,103 +336,237 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off. Can carry one GIF of your library (gif=<handle>) and one file from an errand (file=); a post can be the GIF or the file alone, with no text. To put a picture you already posted into another channel without drawing it again, media= names your own message (#N or link) and posts its attachment as a file; item= picks which one when the message has several. Not together with gif= or file=.",
-    "whenNotToUse": "Only in conversations you may write in."
+    "whenToUse": "Post to a channel you have access to. Your <msg> tag covers the current channel; this tool is for a different channel, a file from an errand, or a media repost. A reply notifies the author unless they turned pings off. A post can carry one GIF from your library or one file from an errand, with or without text. To repost a picture or attachment from one of your messages without drawing it again, give the source message in media and pick which attachment with item. The gif, file and media arguments do not combine.",
+    "whenNotToUse": "Only in conversations you may write in.",
+    "args": {
+      "channel": "The channel to post in.",
+      "reply": "The message to reply to, as a #N from the transcript or a message link.",
+      "text": "The message text, up to 2000 characters.",
+      "file": "A file handle from an errand's result.",
+      "gif": "A GIF handle from your library.",
+      "media": "Your own message by #N or link, to repost its attachment as a file.",
+      "item": "Which attachment to repost when the message has several (1 to 20)."
+    }
   },
   "message.edit": {
     "title": "Edit your message",
-    "whenToUse": "Replace the text of one of your own earlier messages; takes a #N or a message link. message=\"last\" picks your most recent message in that channel, even one not in the chat you see.",
-    "whenNotToUse": "Only your own messages."
+    "whenToUse": "Replace the text of one of your own earlier messages. Give a #N, a message link, or \"last\" (your most recent message in that channel, even one not in the chat you see).",
+    "whenNotToUse": "Only your own messages.",
+    "args": {
+      "message": "The message to edit: a #N, a message link, or \"last\" for your most recent in that channel.",
+      "text": "The new text, up to 2000 characters.",
+      "channel": "The channel, when the message is identified by \"last\"."
+    }
   },
   "message.delete": {
     "title": "Delete your message",
-    "whenToUse": "Remove one of your own messages; takes a #N or a message link. message=\"last\" picks your most recent message in that channel, even one not in the chat you see. Irreversible.",
-    "whenNotToUse": "Only your own messages; the text is gone once deleted."
+    "whenToUse": "Remove one of your own messages. Give a #N, a message link, or \"last\" (your most recent message in that channel, even one not in the chat you see). Irreversible.",
+    "whenNotToUse": "Only your own messages; the text is gone once deleted.",
+    "args": {
+      "message": "The message to delete: a #N, a message link, or \"last\" for your most recent in that channel.",
+      "channel": "The channel, when the message is identified by \"last\"."
+    }
   },
   "message.react.add": {
     "title": "Add a reaction",
     "whenToUse": "Place an emoji reaction on a message; takes a #N or a message link.",
-    "whenNotToUse": "Only in conversations you have access to."
+    "whenNotToUse": "Only in conversations you have access to.",
+    "args": {
+      "message": "The message to react to, by #N or a message link.",
+      "emoji": "A standard unicode emoji or a custom :name:.",
+      "channel": "The channel, when the message is identified by a link."
+    }
   },
   "message.react.remove": {
     "title": "Remove your reaction",
     "whenToUse": "Take back one of your own reactions from a message; takes a #N or a message link.",
-    "whenNotToUse": "Only your own reactions."
+    "whenNotToUse": "Only your own reactions.",
+    "args": {
+      "message": "The message to remove your reaction from, by #N or a message link.",
+      "emoji": "The emoji to remove.",
+      "channel": "The channel, when the message is identified by a link."
+    }
   },
   "task.run": {
     "title": "Hand off an errand",
-    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money. Files the agent downloads come back with the result and you can post them in the channel. You can hand off another while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first. The agent sees only the goal text, nothing of the chat or earlier errands; name the specific thing, site or criteria and what counts as a good result. Leave out where you will post it or who it is for.",
-    "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply."
+    "whenToUse": "Hand off a job to an agent. The errand is accepted and runs in the background; its result arrives in a separate turn. Costs money. web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. Files the agent downloads come back with the result, and you can post them with message.create. You can hand off several while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first. The agent sees only the goal text, nothing of the chat or earlier errands; name the specific thing, site or criteria and what counts as a good result. Leave out where you will post it or who it is for.",
+    "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply.",
+    "args": {
+      "agent": "Which agent: web or server.",
+      "goal": "What the agent should do. Name the specific thing, site or criteria. The agent sees only this text."
+    }
   },
   "task.status": {
     "title": "Check an errand",
     "whenToUse": "Read the state of one errand by its id, or of the open ones.",
-    "whenNotToUse": "Open and newly finished errands are already in your tasks block."
+    "whenNotToUse": "Open and newly finished errands are already in your tasks block.",
+    "args": {
+      "id": "The errand id. Omit for open errands.",
+      "from": "Start listing from this errand number."
+    }
   },
   "task.read": {
     "title": "Read an errand's result",
     "whenToUse": "Get the full result of a finished errand by its id, in pages: text, sources, error and file handles. Marks it read. A private chat errand's result is only in that chat.",
-    "whenNotToUse": "A result turn already shows the output. Use this when the result turn did not complete or you need to page through a long result. Not for open errands."
+    "whenNotToUse": "A result turn already shows the output. Use this when the result turn did not complete or you need to page through a long result. Not for open errands.",
+    "args": {
+      "id": "The errand id.",
+      "from": "Start the result text from this page."
+    }
   },
   "task.resolve": {
     "title": "Close a finished errand",
     "whenToUse": "Mark a finished errand as resolved by its id so it leaves your tasks block.",
-    "whenNotToUse": "Not needed after a result turn you answered. Not for open errands."
+    "whenNotToUse": "Not needed after a result turn you answered. Not for open errands.",
+    "args": {
+      "id": "The errand id.",
+      "from": "Not used for resolve."
+    }
   },
   "task.cancel": {
     "title": "Cancel an errand",
     "whenToUse": "Stop an open errand by its id.",
-    "whenNotToUse": "Only for its requester or an owner; a finished errand cannot be cancelled."
+    "whenNotToUse": "Only for its requester or an owner; a finished errand cannot be cancelled.",
+    "args": {
+      "id": "The errand id."
+    }
   },
   "task.list": {
     "title": "List errands",
     "whenToUse": "Read the latest ten errands with their states.",
-    "whenNotToUse": "Does not show their results."
+    "whenNotToUse": "Does not show their results.",
+    "args": {}
   },
   "web.search": {
     "title": "Search the web",
-    "whenToUse": "A fact you need for this answer. Write the query (query= or body; both are joined, query= first), optionally what it should establish (goal=). Raw search results come back in this same turn (title, link, snippet, site); the pages are not opened.",
-    "whenNotToUse": "Not for finding or downloading files, comparing options in depth, or deep research: use task.run with the web agent."
+    "whenToUse": "A fact you need for this answer. The results come back in this same turn: title, link, snippet and site per result. The pages are not opened.",
+    "whenNotToUse": "Not for finding or downloading files, comparing options in depth, or deep research: use task.run with the web agent.",
+    "args": {
+      "query": "The search query.",
+      "goal": "What the search should establish."
+    }
   },
   "web.read": {
     "title": "Read a web page",
-    "whenToUse": "Read the text of one page whose link you have: give the link (body or url=), or message=#N for a message that holds one. The page's own text comes back in this same turn, cut at a length; not a summary.",
-    "whenNotToUse": "Not for files, pictures or videos, nor pages behind a login; for longer research use task.run with the web agent."
+    "whenToUse": "Read the text of one page whose link you have. The page's own text comes back in this same turn, cut at a length.",
+    "whenNotToUse": "Not for files, pictures or videos, nor pages behind a login; for longer research use task.run with the web agent.",
+    "args": {
+      "url": "The page address.",
+      "message": "A message holding a link, by #N. Its first link is opened."
+    }
   },
   "media.look": {
     "title": "Look more closely",
-    "whenToUse": "Look more closely at a picture, GIF or video in a message, with a question, when the first look left out what you need: give message=#N, your question (question= or body; both are joined, question= first), and item= when the message holds several (1 is the first). The closer look comes back in this same turn.",
-    "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read."
+    "whenToUse": "Look more closely at a picture, GIF or video in a message when the first look left out what you need. The closer look comes back in this same turn.",
+    "whenNotToUse": "Not when the first look already answers it; links to pages go to web.read.",
+    "args": {
+      "message": "The message holding the picture, GIF or video, by #N.",
+      "question": "What to look for.",
+      "item": "Which attachment when the message has several (1 to 20, first is 1)."
+    }
   },
   "media.find": {
     "title": "Find a GIF",
-    "whenToUse": "Search your GIF library by what the GIFs show: query= or body describes what you are looking for, n= sets how many to return (default 5, at most 10). Matching handles come back in this same turn; use them with gif= on message.create or with <gif>.",
-    "whenNotToUse": "Only searches your own library by stored descriptions. Does not download or look up anything new."
+    "whenToUse": "Search your GIF library by what the GIFs show. Matching handles come back in this same turn; use them with the gif argument of message.create or with <gif>.",
+    "whenNotToUse": "Only searches your own library by stored descriptions. Does not download or look up anything new.",
+    "args": {
+      "query": "What the GIFs should show.",
+      "n": "How many to return (1 to 10, default 5)."
+    }
   },
   "memory.search": {
     "title": "Search this server's messages",
-    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (question= or body; both are joined, question= first), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match); option lines in the body (people: ..., when: ...) are read as those options. Quoted messages come back in this same turn.",
-    "whenNotToUse": "Not for what the chat already shows you."
+    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Quoted messages come back in this same turn, each with its time and author; a sample, not the whole history.",
+    "whenNotToUse": "Not for what the chat already shows you.",
+    "args": {
+      "question": "What to search for.",
+      "people": "Limit to messages by these people.",
+      "channel": "Limit to one channel, by name or handle.",
+      "when": "A date (YYYY-MM-DD) or a range (A..B).",
+      "terms": "Exact words to match."
+    }
   },
   "conversation.read": {
     "title": "Read a channel",
-    "whenToUse": "Read messages in order from any channel you may see: channel= (name, #handle or id; default this one). Pick a span with one of three modes: around=#N or a message link (before= and after= set how many lines each side, default 10), since= (a delay like 2h, a clock time like 12:00, or a date-time), last=N (default 20, max 60). Lines come back in this same turn, each with a message number you can use in later calls. The closing line tells you how to page on (before=#N to go earlier, after=#N to go later).",
-    "whenNotToUse": "Not for what the chat already shows you. To find something by topic, use memory.search."
+    "whenToUse": "Read messages in order from any channel you may see. Pick a span with around (centered on a message), since (a delay, a clock time, or a date-time), or last (default 20, max 60). Lines come back in this same turn, each with a message number you can use in later calls. The closing line tells you how to page on.",
+    "whenNotToUse": "Not for what the chat already shows you. To find something by topic, use memory.search.",
+    "args": {
+      "channel": "The channel to read (name, #handle or id; default: this one).",
+      "around": "Center on a message by #N or a link. before and after set how many lines each side (default 10).",
+      "before": "A #N or link. Show lines before this point.",
+      "after": "A #N or link. Show lines after this point.",
+      "since": "A delay (2h), a clock time (12:00), or a date-time.",
+      "last": "Show the last N messages (1 to 60, default 20)."
+    }
   },
   "intent.set": {
     "title": "Set an intention",
-    "whenToUse": "Create a new durable intention for an action you have adopted for a later time. The purpose goes in the body. due= takes a delay (30m, 6h, 2d), a date, a clock time (21:00) or a weekday and time (mon 20:00). every= makes it repeat: day, week, or a count of hours or days (12h, 3d); state=done on intent.update closes one occurrence, intent.cancel ends it for good, and expires= moves its end date. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off. attend=<place> listens to a place: you are woken on new lines there since your last look. people= makes only those people's lines count for the wake. settle= sets how long the place must be quiet before a wake (seconds). perday= is your daily bound on attend wakes from that place. due= and every= do not apply to an attention. state=dropped with reason= records a desire you considered and let go (it never wakes you).",
-    "whenNotToUse": "Not for an action done in this turn (do it directly), not for a possibility merely discussed, not for changing an existing intention (intent.update)."
+    "whenToUse": "Create an intention for something you have committed to doing later. When you adopt a commitment, record it here in the same turn, carrying the timing you accepted. A renewal or a changed deadline of an existing intention goes through intent.update, not a second intent.set. Agreement alone schedules nothing. Do not report anything as scheduled unless the call succeeded.",
+    "whenNotToUse": "Not for an action done in this turn (do it directly), not for a possibility merely discussed, not for changing an existing intention (intent.update).",
+    "args": {
+      "text": "The purpose of the intention.",
+      "id": "An id you choose. Must be unique among your open intentions.",
+      "due": "When it is due: a delay (30m, 6h, 2d), a date, a clock time (21:00), or a weekday and time (mon 20:00).",
+      "every": "Repeat period: day, week, or a count (12h, 3d).",
+      "expires": "When the intention expires.",
+      "task": "An errand id to wait for.",
+      "deadline": "How long to wait for the errand. Without a task argument, links the errand this same turn hands off.",
+      "state": "Set to dropped with a reason to record a desire you considered and let go.",
+      "chain": "A chain id linking related intentions.",
+      "condition": "A condition for the intention to proceed.",
+      "channel": "The channel the intention is for.",
+      "attend": "A place to listen to. New lines there wake you. Due and every do not apply to an attention.",
+      "people": "Whose lines count for an attend wake.",
+      "settle": "How many seconds the place must be quiet before a wake (0 to 86400).",
+      "perday": "Your daily bound on attend wakes from this place (1 to 1000).",
+      "reason": "Why the intention was dropped (required with state dropped)."
+    }
   },
   "intent.update": {
     "title": "Update an intention",
-    "whenToUse": "Change an intention by id=. state=pending accepts a proposed one; state=done marks it finished (on a repeating intention it closes one occurrence; intent.cancel ends it for good, and expires= moves its end date). due= takes a delay, a date, a clock time (21:00) or a weekday and time (mon 20:00). every= sets a repeat: day, week, a count of hours or days; none clears it. task= and deadline= set it waiting for an errand. On an attention: people= changes whose lines count for the wake, settle= changes the quiet seconds, perday= changes your daily bound. due= and every= do not apply to an attention. state=dropped with reason= lets go of an open one and keeps why.",
-    "whenNotToUse": "Rejecting a proposed one goes through intent.cancel."
+    "whenToUse": "Change an existing intention. A renewal or a changed deadline goes here, not a second intent.set. Set state to done to mark it finished; on a repeating intention this closes one occurrence, and intent.cancel ends it for good. Set state to dropped with a reason to let go of an open one. Do not report anything as changed unless the call succeeded.",
+    "whenNotToUse": "Rejecting a proposed one goes through intent.cancel.",
+    "args": {
+      "text": "A new purpose, when changing it.",
+      "id": "The intention to change.",
+      "due": "A new due time: a delay, a date, a clock time (21:00), or a weekday and time (mon 20:00).",
+      "every": "A new repeat period (day, week, 12h, 3d), or none to clear it.",
+      "expires": "A new expiry.",
+      "task": "An errand id to wait for.",
+      "deadline": "How long to wait for the errand.",
+      "state": "pending accepts a proposed one. done closes one occurrence. dropped with a reason lets go of it.",
+      "chain": "A new chain id.",
+      "condition": "A new condition.",
+      "channel": "A new channel.",
+      "attend": "A new place to listen to.",
+      "people": "Whose lines count for the wake.",
+      "settle": "New quiet seconds before a wake (0 to 86400).",
+      "perday": "New daily bound on attend wakes (1 to 1000).",
+      "reason": "Why the intention was dropped (required with state dropped)."
+    }
   },
   "intent.cancel": {
     "title": "Cancel an intention",
-    "whenToUse": "Drop an intention by id=: one you no longer mean to do, or a proposed one you reject.",
-    "whenNotToUse": "One you finished goes through intent.update state=done."
+    "whenToUse": "Drop an intention: one you no longer mean to do, or a proposed one you reject.",
+    "whenNotToUse": "One you finished goes through intent.update state=done.",
+    "args": {
+      "text": "Not used for cancel.",
+      "id": "The intention to cancel.",
+      "due": "Not used for cancel.",
+      "every": "Not used for cancel.",
+      "expires": "Not used for cancel.",
+      "task": "Not used for cancel.",
+      "deadline": "Not used for cancel.",
+      "state": "Not used for cancel.",
+      "chain": "Not used for cancel.",
+      "condition": "Not used for cancel.",
+      "channel": "Not used for cancel.",
+      "attend": "Not used for cancel.",
+      "people": "Not used for cancel.",
+      "settle": "Not used for cancel.",
+      "perday": "Not used for cancel.",
+      "reason": "Not used for cancel."
+    }
   },
   "inner.stop": {
     "title": "Stop the inner life",
@@ -352,16 +586,42 @@
   "intent.list": {
     "title": "List intentions",
     "whenToUse": "Read your open intentions with their states and due times.",
-    "whenNotToUse": "The intentions block already shows them on each turn."
+    "whenNotToUse": "The intentions block already shows them on each turn.",
+    "args": {
+      "text": "Not used for list.",
+      "id": "Filter by one intention's id.",
+      "due": "Not used for list.",
+      "every": "Not used for list.",
+      "expires": "Not used for list.",
+      "task": "Not used for list.",
+      "deadline": "Not used for list.",
+      "state": "Not used for list.",
+      "chain": "Not used for list.",
+      "condition": "Not used for list.",
+      "channel": "Not used for list.",
+      "attend": "Not used for list.",
+      "people": "Not used for list.",
+      "settle": "Not used for list.",
+      "perday": "Not used for list.",
+      "reason": "Not used for list."
+    }
   },
   "places.list": {
     "title": "See the server's places",
-    "whenToUse": "See which places the server has, how many lines and people since you last looked there, whether you can write there and whether you listen to it. filter= keeps places whose name contains it, sort= orders by recent (default), name or lines, page= turns the pages. To listen to a place, set an attention with intent.set attend=<place>.",
-    "whenNotToUse": "The places are names and counts. To read what people said, use the chat or memory.search."
+    "whenToUse": "See which places the server has, how many lines and people since you last looked there, whether you can write there and whether you listen to it. To listen to a place, set an attention with intent.set.",
+    "whenNotToUse": "The places are names and counts. To read what people said, use the chat or memory.search.",
+    "args": {
+      "filter": "Keep places whose name contains this text.",
+      "sort": "Order by recent (default), name, or lines.",
+      "page": "Page number."
+    }
   },
   "skills.describe": {
     "title": "Describe a skill",
-    "whenToUse": "Read the full description of one skill: name= takes a skill name (memory.search, intent.set, ...) and returns its title, when to use it, when not, and its arguments. Give a family name instead (memory, intent, ...) to get every skill in that family with a one-line summary each. Use it before a call whose arguments you are not sure about.",
-    "whenNotToUse": "A read only. Does not run the skill."
+    "whenToUse": "Read the full description of one skill by name, or give a family name to get every skill in that family with a one-line summary. Use it before a call whose arguments you are not sure about.",
+    "whenNotToUse": "A read only. Does not run the skill.",
+    "args": {
+      "name": "A skill name (memory.search, intent.set) for its full description, or a family name (memory, intent) for a summary of every skill in that family."
+    }
   }
 }

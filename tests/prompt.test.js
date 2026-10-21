@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, profileStateFields, renderProfile, skillResultBlock, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
+import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, profileStateFields, renderProfile, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { createAroundStore } from '../src/interface/discord.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
@@ -168,15 +168,6 @@ test('buildRequest: system message is system-prompt + character-card + rules + f
   const request = buildRequest(baseInput());
   assert.equal(request.messages[0].role, 'system');
   assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\nFORMAT_TEXT');
-});
-
-test('buildRequest: format.md gets the live image.maxPromptChars as {{drawChars}}', () => {
-  const prompts = fakePrompts({ format: 'Brief up to {{drawChars}} chars.' });
-  const set = buildRequest(baseInput({ prompts, config: { ...fakeConfig(), image: { maxPromptChars: 1234 } } }));
-  assert.equal(set.messages[0].content.endsWith('Brief up to 1234 chars.'), true);
-  const unset = buildRequest(baseInput({ prompts }));
-  assert.equal(unset.messages[0].content.endsWith('Brief up to 1600 chars.'), true);
-  assert.ok(!unset.messages[0].content.includes('{{drawChars}}'));
 });
 
 test('buildRequest: a reply in <chat> quotes its parent cut to context.replyQuoteChars', () => {
@@ -507,7 +498,7 @@ test('buildRequest: the user content is the stable part, the profiles and the ta
     content.map((part) => [part.type, part.cacheSegment ?? null]),
     [['text', 'stable'], ['text', 'profiles'], ['text', null]],
   );
-  assert.deepEqual(blockTags(content[0].text), ['senses', 'skills_protocol', 'self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(blockTags(content[0].text), ['senses', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blockTags(content[1].text), ['people']);
   assert.ok(!('cacheSegment' in content[2]), 'the tail carries no segment');
   assert.ok(content[0].text.endsWith('</gifs>\n\n') && content[1].text.endsWith('</people>\n\n'), 'each part but the last ends with the block separator');
@@ -547,7 +538,7 @@ test('buildRequest: an empty segment is left out, never sent as an empty text pa
   // With the senses labels the stable part is their stable lines and the skills protocol alone, and no per-turn line leaves no tail block.
   const sensesOnly = buildRequest(baseInput()).messages[1].content;
   assert.deepEqual(sensesOnly.map((part) => part.cacheSegment ?? null), ['stable', null]);
-  assert.deepEqual(blockTags(sensesOnly[0].text), ['senses', 'skills_protocol']);
+  assert.deepEqual(blockTags(sensesOnly[0].text), ['senses']);
   assert.ok(!blockTags(sensesOnly[1].text).includes('senses'));
 });
 
@@ -729,7 +720,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
   const stableBlocks = blocksOf(stable.text);
   const tailBlocks = blocksOf(tail.text);
   // Most stable first; the emoji list, whose ranking moves with use several times a day, stays out.
-  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'skills_protocol', 'self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blocksOf(profiles.text).map((b) => b.tag), ['people']);
   const tailTags = tailBlocks.map((b) => b.tag);
   assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', '<emoji> where it always stood');
@@ -1148,10 +1139,7 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
     fakeChannel('c2', { name: 'random', purpose: 'y'.repeat(200), lastMessageAt: NOW - MIN }),
   ];
   const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
-  // 340 was tight enough before the <senses> block grew a few lines
-  // (stickers/lottie, part of the always-kept "fixed" section) so the
-  // budget needs a little more headroom to still leave room for chat.
-  const config = fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: 360, safetyMargin: 1 } });
   const request = buildRequest(baseInput({ history, channels, neighbors, currentChannelId: 'c1', config }));
 
   assert.equal(request.stats.server.kept, 0);
@@ -4651,17 +4639,32 @@ const SKILL_ROWS = [
   { name: 'memory.wipe', title: 'Σβήσε', whenToUse: 'ποτέ', allowed: false, reason: 'not-grantable' },
 ];
 
-test('buildRequest: skills -- the protocol is in the stable part, byte-identical whatever the grants and the catalogue', () => {
-  const protocolBlock = `<skills_protocol>\n${labels.skills.protocol}\n</skills_protocol>`;
+test('buildRequest: skills -- the catalogue never touches the stable part, whatever the grants; her tools are no block of the native transport', () => {
   const plain = buildRequest(segmentScene()).messages[1].content;
   const shown = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
   const regranted = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS.map((row) => ({ ...row, allowed: true, reason: 'allowed' })) })).messages[1].content;
   assert.equal(plain[0].cacheSegment, 'stable');
-  assert.ok(plain[0].text.includes(protocolBlock), plain[0].text);
   assert.equal(shown[0].text, plain[0].text, 'the catalogue never touches the stable part');
   assert.equal(regranted[0].text, plain[0].text, 'a grant never touches the stable part');
   assert.ok(!plain[0].text.includes('message.create') && !shown[0].text.includes('message.create'), 'no skill row in the stable part');
   assert.equal(blockTags(contentText(plain)).includes('skills'), false, 'no catalogue without the question');
+  assert.equal(blockTags(plain[0].text).includes('tools'), false, 'no <tools> without the text transport');
+});
+
+test('buildRequest: skills -- the text transport puts her tools in <tools> in the stable part, fixed and never cut', () => {
+  const tools = ['lead', '{"name":"draw.create"}', 'protocol'].join('\n');
+  const stable = buildRequest(segmentScene({ toolsBlock: tools })).messages[1].content[0];
+  assert.equal(stable.cacheSegment, 'stable');
+  assert.deepEqual(blockTags(stable.text).slice(0, 2), ['senses', 'tools']);
+  assert.equal(blocksOf(stable.text).find((b) => b.tag === 'tools').body, tools);
+  const bare = buildRequest(segmentScene({ toolsBlock: '' })).messages[1].content[0].text;
+  assert.equal(blockTags(bare).includes('tools'), false);
+});
+
+test('buildRequest: skills -- the tools field of the request takes its tokens off the room the sections share', () => {
+  const free = buildRequest(segmentScene());
+  const taken = buildRequest(segmentScene({ toolsTokens: 5000 }));
+  assert.equal(taken.stats.limit, free.stats.limit - 5000);
 });
 
 test('buildRequest: skills -- the catalogue renders in the tail before <chat>: only what she may use now, grouped by family, a skill without texts by its name', () => {
@@ -4686,14 +4689,14 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
-test('buildRequest: skills -- features.skills or features.skillsDiscovery false: neither block; no labels: no block', () => {
+test('buildRequest: skills -- features.skills or features.skillsDiscovery false: no catalogue; no labels: no block', () => {
   for (const features of [{ skills: false }, { skillsDiscovery: false }]) {
     const text = contentText(buildRequest(segmentScene({ config: fakeConfig({ features }), skillsInventory: SKILL_ROWS })).messages[1].content);
-    assert.ok(!text.includes('<skills_protocol>') && !blockTags(text).includes('skills'), JSON.stringify(features));
+    assert.ok(!blockTags(text).includes('skills'), JSON.stringify(features));
   }
   const prompts = fakePrompts({ labels: { ...labels, skills: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
-  assert.ok(!bare.includes('<skills_protocol>') && !blockTags(bare).includes('skills'));
+  assert.ok(!blockTags(bare).includes('skills'));
 });
 
 test('buildRequest: skills -- the skills proposed for this turn show the allowed ones and one line naming the others', () => {
@@ -4735,73 +4738,6 @@ test('skillsInventoryText: a proposed skill the asker has no right to is named o
 });
 
 // --- the skills granted to her, always listed in the stable part ------------------------------
-
-/** Skill names as src/skills/discovery.js#grantedSkillNames gives them: sorted by name. */
-const GRANTED = ['lore.list', 'memory.profile.read', 'message.create', 'message.edit', 'message.react.add', 'status.show'];
-
-test('buildRequest: skills -- the granted skills render in the stable part right after the protocol, names only, one line per family', () => {
-  const content = buildRequest(segmentScene({ skillsGranted: GRANTED })).messages[1].content;
-  assert.equal(content[0].cacheSegment, 'stable');
-  const stable = content[0].text;
-  const tags = blockTags(stable);
-  assert.equal(tags[tags.indexOf('skills_protocol') + 1], 'skills_granted', stable);
-  const body = blocksOf(stable).find((b) => b.tag === 'skills_granted').body;
-  const line = (family, names) => fill(labels.skills.granted.line, { family, names });
-  assert.equal(body, [
-    labels.skills.granted.lead,
-    line('lore', 'list'),
-    line('memory', 'profile.read'),
-    line('message', 'create, edit, react.add'),
-    line('status', 'show'),
-  ].join('\n'));
-  assert.equal(blockTags(content.at(-1).text).includes('skills_granted'), false, 'never in the tail');
-  // No lead label: the family lines alone.
-  const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, granted: { line: labels.skills.granted.line } } } });
-  const bare = buildRequest(segmentScene({ prompts, skillsGranted: ['lore.list'] })).messages[1].content[0].text;
-  assert.equal(blocksOf(bare).find((b) => b.tag === 'skills_granted').body, line('lore', 'list'));
-});
-
-test('buildRequest: skills -- the stable part with the granted skills is byte-identical for another requester, channel, catalogue and minute', () => {
-  const asAlice = buildRequest(segmentScene({ skillsGranted: GRANTED })).messages[1].content;
-  const asBerenice = buildRequest(
-    segmentScene({
-      skillsGranted: [...GRANTED],
-      interlocutor: BERENICE,
-      otherProfiles: [segmentScene().interlocutor],
-      triggerFields: { authorId: 'author-2', authorName: 'Bérénice', channelId: 'chan-other' },
-      currentChannelId: 'chan-other',
-      skillsInventory: SKILL_ROWS,
-      now: NOW + 7 * MIN,
-    }),
-  ).messages[1].content;
-  assert.equal(asAlice[0].cacheSegment, 'stable');
-  assert.equal(asBerenice[0].cacheSegment, 'stable');
-  assert.ok(asAlice[0].text.includes('<skills_granted>'), asAlice[0].text);
-  assert.equal(asBerenice[0].text, asAlice[0].text);
-  assert.notEqual(asBerenice[1].text, asAlice[1].text, 'the profiles part did move');
-});
-
-test('buildRequest: skills -- another grant changes the list; none granted, the switch, discovery or skills off, or no line label: no block', () => {
-  const stableOf = (overrides) => buildRequest(segmentScene(overrides)).messages[1].content[0].text;
-  const before = stableOf({ skillsGranted: GRANTED });
-  const after = stableOf({ skillsGranted: [...GRANTED, 'message.delete'].sort() });
-  assert.notEqual(after, before);
-  assert.ok(blocksOf(after).find((b) => b.tag === 'skills_granted').body.includes(fill(labels.skills.granted.line, { family: 'message', names: 'create, delete, edit, react.add' })));
-  for (const overrides of [
-    { skillsGranted: [] },
-    { skillsGranted: null },
-    {},
-    { skillsGranted: GRANTED, config: fakeConfig({ features: { skillsAlwaysListed: false } }) },
-    { skillsGranted: GRANTED, config: fakeConfig({ features: { skillsDiscovery: false } }) },
-    { skillsGranted: GRANTED, config: fakeConfig({ features: { skills: false } }) },
-    { skillsGranted: GRANTED, prompts: fakePrompts({ labels: { ...labels, skills: { ...labels.skills, granted: undefined } } }) },
-  ]) {
-    const text = contentText(buildRequest(segmentScene(overrides)).messages[1].content);
-    assert.ok(!text.includes('<skills_granted>'), JSON.stringify(Object.keys(overrides)));
-  }
-  // The switch off leaves the protocol where it was.
-  assert.ok(stableOf({ skillsGranted: GRANTED, config: fakeConfig({ features: { skillsAlwaysListed: false } }) }).includes('<skills_protocol>'));
-});
 
 test('skillsInventoryText: each line lists the skill\'s arguments -- required marked, enum values with the cut shown, a range, the body option -- in a stable order', () => {
   const argLabels = {
@@ -4850,44 +4786,6 @@ test('skillsInventoryText: each line lists the skill\'s arguments -- required ma
   ]);
   // A row without args (an older caller) renders as before.
   assert.equal(skillsInventoryText([{ ...rows[0], args: undefined }], argLabels), 'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)');
-});
-
-test('skillResultBlock: the status and the reason in words, a read\'s data cut to its cap, rows as the catalogue', () => {
-  assert.equal(
-    skillResultBlock({ skill: 'message.edit', status: 'refused', code: 'not-allowed' }, labels),
-    `<result skill="message.edit" status="refused">\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`,
-  );
-  const unknownCode = skillResultBlock({ skill: 'message.create', status: 'unknown', code: 'http-503' }, labels);
-  assert.ok(unknownCode.includes(fill(labels.skills.result.unknown, { reason: labels.skills.result.reasons.other })), unknownCode);
-  const read = skillResultBlock({ skill: 'memory.profile.read', status: 'ok', data: { text: 'όνομα: Ζωή\n' + 'λ'.repeat(50) } }, labels, { maxChars: 20 });
-  const [, lead, data] = read.split('\n');
-  assert.equal(lead, labels.skills.result.ok);
-  assert.ok(data.length <= 20 && data.endsWith('…'), data);
-  const rows = skillResultBlock({ skill: 'lore.list', status: 'ok', data: { rows: SKILL_ROWS.slice(2, 3) } }, labels);
-  assert.ok(rows.includes(fill(labels.skills.line, { name: 'message.edit', title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', access: labels.skills.access.allowed })), rows);
-  // Without the labels the code is all the block says.
-  assert.equal(skillResultBlock({ skill: 'draw.create', status: 'failed', code: 'error' }, {}), '<result skill="draw.create" status="failed">\nerror\n</result>');
-  // An operation's own answer follows whatever the status: an error or a refusal is a result too.
-  const notConfigured = skillResultBlock({ skill: 'diary.post', status: 'not_configured', code: 'not-configured', data: { text: 'the diary has no channel set' } }, labels);
-  assert.equal(notConfigured, `<result skill="diary.post" status="not_configured">\n${fill(labels.skills.result.failed, { reason: labels.skills.result.reasons.other })}\nthe diary has no channel set\n</result>`);
-  // A structured status without its own label is told with the nearest one.
-  assert.ok(skillResultBlock({ skill: 'lore.add', status: 'denied', code: 'not-allowed' }, labels).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })));
-  assert.ok(skillResultBlock({ skill: 'lore.add', status: 'invalid', code: 'invalid-args' }, labels).includes('status="invalid"'));
-});
-
-test('withSkillResult: the block goes into the tail right before <task>; the cached parts are untouched', () => {
-  const messages = buildRequest(segmentScene()).messages;
-  const block = '<result skill="status.show" status="ok">\nok\n</result>';
-  const next = withSkillResult(messages, block);
-  assert.notEqual(next, messages);
-  const before = messages[1].content;
-  const after = next[1].content;
-  assert.equal(after.length, before.length);
-  for (let i = 0; i < before.length - 1; i += 1) assert.deepEqual(after[i], before[i], `part ${i}`);
-  assert.ok(after.at(-1).text.includes(`${block}\n\n<task>\n`), 'right before <task>');
-  assert.equal(blockTags(after.at(-1).text).at(-1), 'task', '<task> stays last');
-  assert.equal(after.at(-1).text.replace(`${block}\n\n`, ''), before.at(-1).text, 'nothing else moved');
-  assert.equal(messages[1].content, before, 'the request is not changed');
 });
 
 // --- <people_now>: what is current about each person, tail only, right before <chat> ---

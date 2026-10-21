@@ -31,6 +31,7 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedEpoch } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -184,7 +185,7 @@ function makeChat() {
       }
       if (step instanceof Error) throw step;
       chat.completed.push({ at: clock.t, audience: chat.audience });
-      return { text: step, usage: {}, estimated: 10 };
+      return completionOf(step);
     },
   };
   return chat;
@@ -559,6 +560,50 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
+test('row 2: the process dies after a tool call\'s send reached the chat and before its result was recorded -- the journal closes the call as unknown from the restart, and nothing is sent again', async () => {
+  const dataDir = tempDir('nep-fault-');
+  const chat = makeChat();
+  const makeJournal = () => createJournal({ appendStore: createAppendStore({ fsyncMs: 0, log: SILENT }), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
+  const before = boot(chat, { dataDir, hot, journal: makeJournal() });
+  chat.script = [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλημέρα' })])];
+  chat.dieAfterSend(1);
+  await dieDuring(chat, () => before.ask('c1', 'say good morning'));
+  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the message reached the chat; the process never learned it');
+
+  const after = makeJournal();
+  const open = await after.pending(GUILD, { days: [utcDay(clock.t)] });
+  assert.deepEqual(open.map((op) => op.name), ['skill'], 'the call was opened and never closed');
+  const reconciled = await after.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
+  assert.deepEqual(reconciled, { succeeded: 0, unknown: 1 }, 'a call that may have taken effect is closed unknown, never failed and never sent again');
+  assert.deepEqual(await after.pending(GUILD, { days: [utcDay(clock.t)] }), []);
+  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the reconciliation sends nothing');
+});
+
+test('row 2: the process dies after an inner turn\'s tool call posted and before the turn ended -- the reload does not run the turn again and post it twice, and she is told the turn was cut off', async () => {
+  const dataDir = tempDir('nep-fault-');
+  const chat = makeChat();
+  const records = [intentionRecord('i1')];
+  const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
+  const wake = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt });
+  const before = boot(chat, { dataDir, records, hot, journal: journalFor(chat, dataDir).journal });
+  chat.script = [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλημέρα' })])];
+  chat.dieAfterSend(1);
+  await dieDuring(chat, () => before.inner.tick());
+  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα']);
+
+  const reborn = journalFor(chat, dataDir);
+  const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
+  chat.script = [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλημέρα' })])];
+  await after.tick();
+  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'no resend');
+  assert.equal(chat.llm.calls.length, 1, 'the cut-off turn was not run again');
+  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue], ['interrupted', null, []]);
+  const [fact] = after.state().facts;
+  assert.deepEqual([fact.kind, fact.wake, fact.channelId, fact.told], ['interrupted', 'intention_due', 'c1', false]);
+  assertNoSilentFailure(after, { accepted: [wake.id] });
+});
+
 test('row 2: the process dies in an inner turn before anything went out -- the reload runs the wake again, once, and nothing is told as cut off', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
@@ -667,7 +712,7 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   const records = [intentionRecord('i1')];
   const hot = hotWith({ grants: ['lore.list', 'message.create'], innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } } });
   const inner = boot(chat, { dataDir, records, hot });
-  chat.script = ['<call skill="lore.list"/>', '<msg>καλημέρα</msg>'];
+  chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>'];
   chat.failSend(1);
   await inner.tick();
   assert.equal(chat.llm.calls.length, 2, 'nothing follows the terminal call');
@@ -684,7 +729,7 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   const dir2 = tempDir('nep-fault-');
   const chat2 = makeChat();
   const addressed = boot(chat2, { dataDir: dir2, hot: hotWith({ grants: ['lore.list'] }), failOps: ['lore.list'] });
-  chat2.script = ['<call skill="lore.list"/>', providerLimit()];
+  chat2.script = [toolAnswer('', [call('lore.list')]), providerLimit()];
   await addressed.ask('c1', 'look at the lore');
   assert.deepEqual(addressed.factKinds(), ['callFailed']);
   chat2.script = ['<skip/>'];
@@ -702,7 +747,7 @@ test('row 6: the feedback turn itself fails -- its facts stay untold, the wake i
   const records = [intentionRecord('i1')];
   const hot = hotWith({ grants: ['lore.list', 'message.create'], innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } } });
   const run = boot(chat, { dataDir, records, hot });
-  chat.script = ['<call skill="lore.list"/>', '<msg>καλημέρα</msg>', providerLimit()];
+  chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>', providerLimit()];
   chat.failSend(1);
   await run.tick(); // the turn that loses the post
   await run.tick(); // the feedback turn, which fails
@@ -812,20 +857,18 @@ test('row 9: memory.search that timed out reads as a timeout; one that really fo
     const chat = makeChat();
     const recall = { available: () => true, run: async () => ({ text: null, stretch: null, people: [], quotes: [], stats: {}, outcome }) };
     const run = boot(chat, { dataDir: tempDir('nep-fault-'), hot, recall });
-    chat.script = ['<call skill="memory.search">what did Éloïse say</call>', '<msg>ok</msg>'];
+    chat.script = [toolAnswer('', [call('memory.search', { question: 'what did Éloïse say' })]), '<msg>ok</msg>'];
     await run.ask('c1', 'search for it');
     assert.equal(chat.llm.calls.length, 2);
     assertNoSilentFailure(run);
-    return requestText(chat, 1);
+    return chat.llm.calls[1].filter((message) => message.role === 'tool').map((message) => (typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join(''))).join('\n');
   };
   const timedOut = await search({ kind: 'timeout' });
-  const mark = /\[you called memory\.search[^\]]*\]|\[called memory\.search[^\]]*\]/.exec(timedOut)?.[0] ?? '';
-  assert.match(mark, /failed/, timedOut);
-  assert.match(mark, /timed out/, 'the cause is the timeout');
+  assert.match(timedOut, /timed out/, 'the cause is the timeout');
   assert.ok(!timedOut.includes(labels.skills.tools.memory.none), 'not "nothing found"');
-  assert.ok(!timedOut.includes('<result skill="memory.search" status="ok">'));
+  assert.ok(!timedOut.startsWith(labels.skills.result.ok), 'not a result that went well');
   const empty = await search({ kind: 'searched', degraded: false, failed: 0, total: 3 });
-  assert.match(empty, /<result skill="memory.search" status="ok">/);
+  assert.ok(empty.startsWith(labels.skills.result.ok), empty);
   assert.ok(empty.includes(labels.skills.tools.memory.none), 'a real empty result reads as none');
 });
 

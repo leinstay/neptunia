@@ -16,6 +16,8 @@ import { countToday, utcDay } from '../src/time.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import '../src/ops/index.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -81,7 +83,7 @@ function fakeLlm(plan, post) {
         if (plan instanceof Error) throw plan;
         return { text: typeof plan === 'string' ? plan : JSON.stringify(plan), usage: {}, estimated: 5 };
       }
-      return { text: post, usage: {}, estimated: 10 };
+      return completionOf(post);
     },
   };
 }
@@ -525,13 +527,18 @@ test('diary turn: the drawing prompt carries the local time', async () => {
   assert.ok(images.prompts[0].includes(fill(labels.draw.when, { when: formatNow(NOW, TZ, labels.locale) })), images.prompts[0]);
 });
 
-test('diary turn: an ordinary turn\'s drawing carries the local time too', async () => {
+test('diary turn: an ordinary turn\'s draw.create carries the local time too', async () => {
   const hot = fakeHot();
-  hot.prompts.interject = 'INTERJECT';
-  const llm = fakeLlm(null, '<draw>a pier</draw>');
+  hot.prompts.reply = 'REPLY for {{author}}';
+  const llm = fakeLlm(null, toolAnswer('', [call('draw.create', { text: 'a pier' })]));
   const images = fakeImages();
-  const channel = diaryChannel({ historyMessages: [ownRaw('m1', NOW - 60_000, 'salut')] });
-  await runner({ hot, llm, images }).runTurn({ channel, mode: 'interject' });
+  const raw = ownRaw('m1', NOW - 60_000, 'draw a pier');
+  raw.author = { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' };
+  raw.member = { displayName: 'Alice' };
+  const channel = diaryChannel({ historyMessages: [raw] });
+  // Someone asked: a spontaneous turn has no requester, and the gateway refuses a picture nobody asked for.
+  const trigger = { id: 'm1', channelId: 'd1', authorId: 'u1', authorName: 'Alice', self: false, bot: false, content: 'draw a pier', ts: NOW - 60_000, replyToId: null, attachments: [], stickers: [] };
+  await runner({ hot, llm, images }).runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
   assert.ok(images.prompts[0].includes(fill(labels.draw.when, { when: formatNow(NOW, TZ, labels.locale) })));
 });
 

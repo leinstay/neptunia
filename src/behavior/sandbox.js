@@ -47,13 +47,13 @@
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
 
-import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
+import { buildRequest, userText as userTextOf } from './prompt.js';
 import { detectTrigger, isTaggedCall } from './mention.js';
 import { addPending, followUpSlot, popOldest } from './pending.js';
 import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
-import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
+import { pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../ops/grants.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
@@ -143,8 +143,9 @@ export const SANDBOX_OMITS = Object.freeze({
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
-  skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
-  skillsTools: 'no core tools: a replay runs no tool loop (features.coreTools), so no <skills_tools> block',
+  toolsGranted: 'no skill registry: no tools of hers are exposed, so <senses> names none (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
+  toolsBlock: 'no tools block: a replay sends no tools (the text transport describes them in <tools>)',
+  toolsTokens: 'no tools field in a replay request: nothing taken off the room the sections share',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
@@ -155,12 +156,12 @@ export const SANDBOX_OMITS = Object.freeze({
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
-const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'skillsGranted']);
+const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'toolsGranted']);
 
 /**
  * What a skill scenario's turn (`answerSkillScenario`) leaves out: SANDBOX_OMITS but the skills
  * inventory and her granted skills, which it hands in (`scenarioInventory`, `skillsGranted`) so
- * the persona sees her `<skills>` and `<skills_granted>` as live.
+ * the persona sees her `<skills>` and her tools' senses as live.
  * @type {Readonly<Record<string, string>>}
  */
 export const SKILL_SCENARIO_OMITS = Object.freeze(Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => !SKILL_SCENARIO_INPUTS.has(key))));
@@ -643,8 +644,7 @@ function sandboxChannels(given, view, channel) {
  * left out on purpose are `SANDBOX_OMITS`, passed as absent -- but the
  * skills inventory and her granted skills when a skill scenario hands them in
  * (`skillsInventory`, a non-empty list of catalogue rows; `skillsGranted`, a
- * non-empty list of skill names: SKILL_SCENARIO_OMITS). `continuation` is
- * null but on a skill scenario's continued turn (`{ skill }`, scenarioContinuation). `tasks` is
+ * non-empty list of skill names: SKILL_SCENARIO_OMITS). `tasks` is
  * absent but when a skill scenario's burst hands in the calls still waiting after this one
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.js#taskInput: the trigger author's own
@@ -657,13 +657,13 @@ function sandboxChannels(given, view, channel) {
  * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
  * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ rows, recallAvailable, prefetch? }`, a skill scenario run with her tool loop,
- * features.coreTools) hands in `<skills_tools>` (`rows`), whether the server search could run
+ * features.coreTools) hands in whether the server search could run
  * (`recallAvailable`) and the automatic memory prefetch of the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
  * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, the switch-off
  * side of tools/replay.mjs --pair-core-tools) hands in what a live turn's search classifier
  * and searches found before her reply (`<lookup>`) and whether the server search could run.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory`, `skillsGranted`, `continuation`, `queued`, `taskResult`, `coreTools`, `preTurn`
+ *   `skillsInventory`, `skillsGranted`, `queued`, `taskResult`, `coreTools`, `preTurn`
  *   (`answerSkillScenario`'s).
  * @returns {object}
  */
@@ -683,7 +683,6 @@ export function sandboxRequestInput({
   searchAvailable = false,
   skillsInventory = null,
   skillsGranted = null,
-  continuation = null,
   queued = null,
   channelDirectory = null,
   taskResult = null,
@@ -769,16 +768,10 @@ export function sandboxRequestInput({
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
     // Absent but in a skill scenario: the names of her granted skills it hands in.
-    skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
-    // No tool loop in a replay (SANDBOX_OMITS) but a skill scenario run with it (`coreTools`):
-    // her own tools in full, as a live turn lists them (src/skills/discovery.js#coreToolRows).
-    skillsTools: Array.isArray(coreTools?.rows) && coreTools.rows.length > 0 ? coreTools.rows : null,
-    // A skill scenario's turn continued after her call (answerSkillScenario); null otherwise. The
-    // tool loop names its own task label (`label`: continueTools / continueToolsLast).
-    continuation:
-      continuation && typeof continuation.skill === 'string'
-        ? { skill: continuation.skill, ...(typeof continuation.label === 'string' && continuation.label ? { label: continuation.label } : {}) }
-        : null,
+    toolsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
+    // No tools in a replay request (SANDBOX_OMITS); the tool steps of a replay come with the sandbox's rewrite on the step engine.
+    toolsBlock: null,
+    toolsTokens: null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
     errands: resultText ? { tasks: '', result: resultText } : null,
     // No intention store (SANDBOX_OMITS): no <intentions> block.
@@ -1126,39 +1119,6 @@ const CONTINUATION_STEP_MS = 1000;
 /** The operation's own message on a call mark when `skills.markTextMaxChars` is not set (config.json's value). */
 const MARK_TEXT_MAX_CHARS = 200;
 
-/** The id scenarioContinuation gives her `index`-th (0-based) first-pass message. */
-function continuationLineId(index) {
-  return `continuation-${index + 1}`;
-}
-
-/**
- * The follow-up of a skill scenario's run as a live turn continues it
- * (src/behavior/turn.js#continuationRequest): the moment's `history`, then her messages of the
- * first pass (`answer`) as her lines a second apart after `at` (ids `continuation-<n>`), the
- * call's mark on the last of them, else as a line of its own (withCalls: the outcome's status
- * and, when it did not work, why -- outcomeDetail --, its target from the resolved arguments, a
- * channel named from the view's channel map), the request rebuilt a second after the call with
- * the continue task (sandboxMessages with `continuation`; the moment's trigger kept), and an `ok`
- * outcome's data in a `<result>` block before `<task>` (skillResultBlock cut to `maxChars`,
- * withSkillResult). The earlier calls of a multi-step scenario (`callMarks`) keep their marks.
- * No cache marker. Reads the view only. Returns the messages and the transcript numbers of the
- * rebuilt request (`idByIndex`: what the follow-up's `reply="#n"` points at).
- */
-function scenarioContinuation({ requestArgs, history, answer, outcome, labels, maxChars, callMarks = [] }) {
-  const { view, situation, channel, selfId, selfName, at } = requestArgs;
-  const channelId = String(channel.id);
-  const own = answer.messages.map((message, i) => ({ id: continuationLineId(i), channelId, ts: at + (i + 1) * CONTINUATION_STEP_MS, authorId: String(selfId), content: message.text }));
-  const callAt = at + (own.length + 1) * CONTINUATION_STEP_MS;
-  const result = outcome.result;
-  const mark = callMarkOf({ outcome, channelId, at: callAt, postedId: null, posted: own.map((line) => line.id), config: view.config });
-  const lines = withCalls(continuationHistory({ history, own, selfName }), { calls: [...callMarks, mark] }, { nameOf: channelNamesOf(view, channel) });
-  const { trigger } = situationHistory(situation);
-  const moment = { ...situation, history: lines, ...(trigger ? { triggerId: trigger.id } : {}) };
-  const built = sandboxMessages({ ...requestArgs, situation: moment, at: callAt + CONTINUATION_STEP_MS, continuation: { skill: result.skill } }, 1);
-  const block = result.status === 'ok' && result.data ? skillResultBlock(result, labels, { maxChars }) : '';
-  return { messages: withSkillResult([built.systemMessage, { ...built.userMessage, content: built.userText }], block), idByIndex: built.request.idByIndex };
-}
-
 /**
  * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
@@ -1222,7 +1182,7 @@ function channelNamesOf(view, channel) {
  * With `loop` (`{ settings, now? }`: src/behavior/turn.js#loopSettings's bounds, the clock) the run
  * is her tool loop instead of the one follow-up (runSkillLoop: every call of each answer to
  * `onCall`, which may resolve later, step after step; `run.loop` keeps every step); `coreTools`
- * (`{ rows, recallAvailable }`) puts `<skills_tools>` and the server search's senses line into
+ * (`{ rows, recallAvailable }`) puts the server search's senses line into
  * every request of it, as features.coreTools does live (sandboxRequestInput).
  * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
  *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`,
@@ -1297,7 +1257,7 @@ export async function answerSkillScenario({
     const parsed = parseText(completion.text);
     const answer = shapeAnswer(parsed, view.config, gifs, request.handles);
     const run = {
-      answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null,
+      answer, call: null, callError: null, extraCalls: 0, usage: completion.usage ?? null, outcome: null, followUp: null,
       refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, channelHandles: request.channelHandles ?? null, followUpIdByIndex: null },
     };
     // A call's text (its body, or a message's `text=` attribute) is rendered like a <msg> of the turn.
@@ -1315,42 +1275,7 @@ export async function answerSkillScenario({
       }
       continue;
     }
-    if (!run.call || typeof onCall !== 'function') continue;
-    run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null });
-    if (run.outcome?.followUp !== true) continue;
-    // The follow-up as a live turn sends it (no cache marker): the turn continued over her lines
-    // with the call's mark (continuesTurn), else the same request with the result before `<task>`.
-    const labels = view.prompts?.labels ?? {};
-    const maxChars = view.config.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
-    const continued = continuesTurn(view.config, labels);
-    const followUpMessages = () => {
-      if (continued) {
-        const next = scenarioContinuation({ requestArgs, history, answer, outcome: run.outcome, labels, maxChars, callMarks: earlier });
-        run.refs.followUpIdByIndex = next.idByIndex;
-        return next.messages;
-      }
-      run.refs.followUpIdByIndex = request.idByIndex;
-      const acted = {
-        reacted: answer.reactions,
-        gifs: answer.gif ? [answer.gif.id] : [],
-        texts: answer.messages.map((message) => message.text),
-        drew: Boolean(answer.draw),
-      };
-      const block = skillResultBlock(run.outcome.result, labels, { maxChars, posted: firstPass(acted, labels) });
-      return withSkillResult([systemMessage, { ...userMessage, content: userText }], block);
-    };
-    try {
-      const second = await llm.complete(followUpMessages(), sandboxOptions(signal));
-      const parsedAgain = parseText(second.text);
-      // The continued request lists the same members (her own lines add no author): the first request's handles.
-      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs, request.handles), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null, continuation: continued };
-    } catch (err) {
-      if (signal?.aborted) {
-        stopped = true;
-        break;
-      }
-      run.followUp = { error: String(err?.name ?? 'Error') };
-    }
+    // Her calls are tool calls now, which a replay request does not carry yet: no call, no follow-up here.
   }
   return {
     request: {
@@ -1377,7 +1302,7 @@ function requestChars(messages) {
 /**
  * The tool loop of one skill-scenario run (answerSkillScenario with `loop`), as a live turn's
  * toolLoop runs it (src/behavior/turn.js, features.coreTools): every well-formed call of her answer
- * (`parsed.calls`, at most `loop.settings.maxCallsPerStep`, the rest dropped and counted) goes to
+ * (her tool calls, at most `loop.settings.maxCallsPerStep`, the rest dropped and counted) goes to
  * `onCall(call, { idByIndex, history, channelHandles, timeoutMs })` at once -- `timeoutMs` what is
  * left of `timeBudgetMs` (2 s at least) or `skills.callTimeoutMs`, the smaller --, each call's mark
  * put on the transcript in order (callMarkOf); while a result needs her to see it (the outcome's
@@ -1401,11 +1326,10 @@ async function runSkillLoop({ run, parsed, sentAt, firstMs, built, requestArgs, 
   const config = view.config;
   const labels = view.prompts?.labels ?? {};
   const maxChars = config.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
-  const continued = continuesTurn(config, labels);
   const channel = requestArgs.channel;
   const channelId = String(channel.id);
   const nameOf = channelNamesOf(view, channel);
-  const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
+  const calls = [];
   const first = {
     step: 0, answer: run.answer, calls: [], dropped: 0, capped: null, usage: run.usage, ms: firstMs,
     requestChars: requestChars(built.messages), idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null,
@@ -1429,93 +1353,6 @@ async function runSkillLoop({ run, parsed, sentAt, firstMs, built, requestArgs, 
   let current = first;
   let loopStart = null;
   let stopped = false;
-  while (pending.length > 0) {
-    loopStart ??= clock();
-    const left = settings.timeBudgetMs - (clock() - loopStart);
-    const timeoutMs = Math.min(config.skills?.callTimeoutMs ?? CALL_TIMEOUT_MS, Math.max(LOOP_MIN_CALL_MS, left));
-    const refs = { idByIndex: current.idByIndex, history: current.history, channelHandles: current.channelHandles, timeoutMs };
-    current.calls = await Promise.all(
-      pending.map(async (call) => {
-        const started = clock();
-        const outcome = await onCall(call, refs);
-        return { call, outcome, ms: clock() - started };
-      }),
-    );
-    pending = [];
-    for (const { outcome } of current.calls) {
-      if (!outcome?.result) continue;
-      t += CONTINUATION_STEP_MS;
-      marks.push(callMarkOf({ outcome, channelId, at: t, postedId: null, posted: own.map((line) => line.id), config }));
-    }
-    if (signal?.aborted) {
-      stopped = true;
-      break;
-    }
-    const needs = current.calls.map(({ outcome }) => outcome).filter((outcome) => outcome?.followUp === true && outcome.result);
-    if (needs.length === 0) break;
-    seen.push(...needs);
-    const stepNo = run.loop.steps.length;
-    const stepsSpent = stepNo >= settings.maxSteps;
-    const timeSpent = clock() - loopStart >= settings.timeBudgetMs;
-    const final = stepsSpent || timeSpent || !continued;
-    const reason = !continued ? 'no-continuation' : stepsSpent ? 'steps' : 'time';
-    const step = { step: stepNo, answer: null, calls: [], dropped: 0, capped: null, usage: null, ms: 0, requestChars: 0, idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null, continuation: continued };
-    let messages;
-    let handles = request.handles ?? null;
-    if (continued) {
-      const lines = withCalls(continuationHistory({ history, own, selfName: requestArgs.selfName }), { calls: [...earlier, ...marks] }, { nameOf });
-      const { trigger } = situationHistory(requestArgs.situation);
-      const moment = { ...requestArgs.situation, history: lines, ...(trigger ? { triggerId: trigger.id } : {}) };
-      t += CONTINUATION_STEP_MS;
-      const skills = [...new Set(seen.map((outcome) => outcome.result.skill))].join(', ');
-      const next = sandboxMessages({ ...requestArgs, situation: moment, at: t, continuation: { skill: skills, label: final ? 'continueToolsLast' : 'continueTools' } }, 1);
-      const blocks = seen
-        .filter((outcome) => outcome.result.status === 'ok' && outcome.result.data)
-        .map((outcome) => skillResultBlock(outcome.result, labels, { maxChars }))
-        .filter(Boolean)
-        .join('\n\n');
-      messages = withSkillResult([next.systemMessage, { ...next.userMessage, content: next.userText }], blocks);
-      step.idByIndex = next.request.idByIndex;
-      step.history = lines;
-      step.channelHandles = next.request.channelHandles ?? null;
-      handles = next.request.handles ?? handles;
-    } else {
-      const acted = { reacted: run.answer.reactions, gifs: run.answer.gif ? [run.answer.gif.id] : [], texts: run.answer.messages.map((message) => message.text), drew: Boolean(run.answer.draw) };
-      const blocks = seen.map((outcome, i) => skillResultBlock(outcome.result, labels, { maxChars, ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
-      messages = withSkillResult([systemMessage, { ...userMessage, content: userText }], blocks.filter(Boolean).join('\n\n'));
-    }
-    step.requestChars = requestChars(messages);
-    run.loop.steps.push(step);
-    const started = clock();
-    let completion;
-    try {
-      completion = await llm.complete(messages, sandboxOptions(signal));
-    } catch (err) {
-      step.ms = clock() - started;
-      if (signal?.aborted) {
-        stopped = true;
-        break;
-      }
-      step.error = String(err?.name ?? 'Error');
-      break;
-    }
-    step.ms = clock() - started;
-    const parsedStep = parseText(completion.text);
-    step.answer = shapeAnswer(parsedStep, config, gifs, handles);
-    step.usage = completion.usage ?? null;
-    addOwn(step.answer);
-    const stepCalls = Array.isArray(parsedStep.calls) ? parsedStep.calls : [];
-    if (stepCalls.length > 0) {
-      if (final) {
-        step.capped = reason;
-        step.dropped = stepCalls.length;
-      } else {
-        pending = stepCalls.slice(0, settings.maxCallsPerStep);
-        step.dropped = stepCalls.length - pending.length;
-      }
-    }
-    current = step;
-  }
   run.loop.ms = clock() - sentAt;
   run.outcome = first.calls[0]?.outcome ?? null;
   const followed = run.loop.steps[1];

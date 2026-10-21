@@ -112,7 +112,7 @@ export const CATALOGUE = Object.freeze({
   'invalid-action': skill('invalid'),
   'invalid-emoji': skill('invalid'),
   scheme: skill('invalid'),
-  'loop-cap': skill('invalid', ['what']),
+  'loop-cap': skill('invalid'),
   'malformed-call': skill('invalid'),
   'truncated-call': skill('invalid'),
 
@@ -214,11 +214,6 @@ export const WHAT = Object.freeze({
   search: 'search',
   errand: 'errand',
   picture: 'picture',
-  // Why a call of the loop was not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent.
-  extraCall: 'extra-call',
-  steps: 'steps',
-  time: 'time',
-  tokens: 'tokens',
 });
 
 /** What a `not-configured` result may name: the values of `{feature}`. */

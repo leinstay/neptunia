@@ -12,47 +12,13 @@
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
 import { isPlainObject } from '../config.js';
-import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn, skillsOn } from './access.js';
+import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn, skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 import { CODE } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
 // `conversation.read` and `media.find` are built on their own branches; a name with no registered skill is skipped everywhere it is used.
 export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find']);
-
-/**
- * The posting skills her output tags stand for on an inner turn (docs/inner-life.md, src/behavior/inner-output.js).
- * Listed on every turn kind all the same: `<skills_tools>` sits in the cached stable part, so it must not change
- * between an inner and an addressed turn.
- */
-export const INNER_POSTING_SKILLS = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
-
-/**
- * Her own tools listed in full on every turn under features.coreTools, identical for every turn kind (inner,
- * heartbeat, review, addressed, interject): the in-turn tools, the posting skills, the errand hand-off with the
- * skills for its result (what is unread shows in `<tasks>`), then the intention skills that set, change and drop
- * one (no classifier names a skill for her then, so this is the only place she learns how), then `places.list`
- * (the places she can read, docs/inner-life.md "Her attention"). `intent.list` stays out: the `<intentions>` block
- * shows them. Then the reads she may need to look at herself: `skills.describe` (any skill in full), `status.show`,
- * `task.list`, `memory.journal.read`, `memory.profile.read`, and `conversation.read`, `media.find` once they exist.
- * Each row still needs her grant and its feature switch (grantedSkillNames).
- */
-export const CORE_TOOL_SKILLS = Object.freeze([
-  ...IN_TURN_TOOLS,
-  ...INNER_POSTING_SKILLS,
-  'task.run',
-  'task.read',
-  'task.resolve',
-  'intent.set',
-  'intent.update',
-  'intent.cancel',
-  'places.list',
-  'skills.describe',
-  'status.show',
-  'task.list',
-  'memory.journal.read',
-  'memory.profile.read',
-]);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
@@ -77,17 +43,6 @@ export function discoveryOn(config) {
 }
 
 /**
- * Whether every turn lists the skills granted to the persona: discovery on (discoveryOn) and
- * `features.skillsAlwaysListed` not false (a missing key counts as on), read from the live config
- * at the moment of use.
- * @param {object|null|undefined} config
- * @returns {boolean}
- */
-export function alwaysListedOn(config) {
-  return discoveryOn(config) && config?.features?.skillsAlwaysListed !== false;
-}
-
-/**
  * The names of the registry skills granted to the persona (src/skills/access.js#grantedToPersona:
  * a `bot.access` entry naming her user id `selfId`), sorted by name (code-unit order, so the same
  * grants give the same list whatever the order they were stored or registered in). Only her
@@ -103,6 +58,26 @@ export function grantedSkillNames({ config, selfId = null, registry = null }) {
   if (!skillsOn(config) || safeModeOn(config) || !(registry instanceof Map)) return [];
   return [...registry.keys()]
     .filter((name) => typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && skillFeatureOn(name, config) && grantedToPersona(config, selfId, name))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * The names of the skills one turn carries as her tools, the same list for every turn kind: the
+ * skills granted to her (grantedSkillNames) and the carried-over ones (CARRIED_OVER: a post, a
+ * reaction, a picture), each that the registry holds and whose feature switch is on, sorted by
+ * name and de-duplicated. `draw.create` is listed only while `features.imageGeneration` is not
+ * false. With `features.skills` off the list is empty; under safe mode it is the carried-over ones
+ * alone. Only her grants, the registry and the live config decide it -- never a requester or a
+ * channel -- so the tool list of a request stays byte-identical until a grant changes. Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null }} input
+ * @returns {string[]}
+ */
+export function exposedSkillNames({ config, selfId = null, registry = null }) {
+  if (!skillsOn(config) || !(registry instanceof Map)) return [];
+  const names = safeModeOn(config) ? [...CARRIED_OVER] : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
+  const drawOn = config?.features?.imageGeneration !== false;
+  return [...new Set(names)]
+    .filter((name) => registry.has(name) && skillFeatureOn(name, config) && (name !== 'draw.create' || drawOn))
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
@@ -255,24 +230,6 @@ export function proposedRows(proposals, rows) {
   const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
   const shown = (Array.isArray(proposals) ? proposals : []).filter(({ name }) => byName.has(name)).map(({ name }) => ({ ...byName.get(name), proposed: true }));
   return shown.length > 0 ? shown : null;
-}
-
-/**
- * The rows `<skills_tools>` shows under features.coreTools (src/behavior/prompt.js): each skill of
- * CORE_TOOL_SKILLS, in that order, that the registry holds and that is granted to the persona
- * (grantedSkillNames: her grants only, never a requester or a channel), with its texts from the
- * skills layer (`texts`: `hot.prompts.skills`, read by the caller now) and its arguments
- * (skillArgs). The requester's own right is not reflected: the gateway still refuses per call.
- * The same rows on every turn kind. Pure.
- * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object }} input
- * @returns {object[]}
- */
-export function coreToolRows({ config, selfId = null, registry = null, texts = undefined }) {
-  const granted = new Set(grantedSkillNames({ config, selfId, registry }));
-  return CORE_TOOL_SKILLS.filter((name) => granted.has(name) && registry.has(name)).map((name) => {
-    const skill = registry.get(name);
-    return { ...describeSkill(skill, texts), args: skillArgs(skill) };
-  });
 }
 
 /** The edit distance of two short strings (insert, delete, replace), for the closest names of an unknown skill. */

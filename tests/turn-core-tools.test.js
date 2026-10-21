@@ -1,334 +1,24 @@
-// Tests for the persona's own tools in a turn (features.coreTools, src/behavior/turn.js): off,
-// every request of a turn is the snapshot of the engine before them; on, her calls run, the turn
-// continues with what they gave back and a call in that continuation runs too (the tool loop,
-// bounded by skills.loop), several reads of one answer run together. Over a real admin and the
-// fake interface adapter (src/interface/fake.js); no network, no data/.
+// Tests for her own tools in a turn (src/skills/tools.js over src/behavior/turn.js): web.search, web.read,
+// memory.search, media.look and draw.create run inside the turn and come back in it as the tool message of
+// her call; the step engine itself is tests/turn-tool-steps.test.js. Over a real admin and the fake interface
+// adapter (src/interface/fake.js); no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createTurnRunner, loopSettings } from '../src/behavior/turn.js';
+import { loopSettings } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
-import { createJournal } from '../src/memory/journal.js';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
-import { tempDir } from './fixtures/tmp.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { createAdmin } from '../src/admin.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { AGENTS, NOW, WEB_CONFIG, contentText, coreTurn, errandService, hotWith, journalOverMemory, requestText } from './fixtures/turn-harness.js';
+import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.js';
 
-const DISCORD = createDiscordInterface().capabilities;
-const NOW = Date.parse('2026-10-17T12:00:00Z');
-
-function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot', attachments = new Map() }) {
-  return {
-    id,
-    channelId: 'c1',
-    author: { id: authorId, bot: false, globalName: authorName, username: authorName },
-    member: { displayName: authorName },
-    cleanContent: content,
-    createdTimestamp: ts,
-    reference: null,
-    attachments,
-    stickers: new Map(),
-  };
+/** The content of the tool message of call `n` (0-based) in request `i`: what she read of that call. */
+function toolContent(llm, i, n = 0) {
+  const message = llm.calls[i].filter((item) => item.role === 'tool')[n];
+  return typeof message?.content === 'string' ? message.content : (message?.content ?? []).map((part) => part.text ?? '').join('');
 }
-
-function normalizedTrigger(raw) {
-  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
-}
-
-function fakeChannel(historyMessages, neighbours = []) {
-  return {
-    id: 'c1',
-    name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map(neighbours.map((c) => [c.id, c])) } },
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
-  };
-}
-
-function fakeStore({ profiles = [] } = {}) {
-  return {
-    getGuild: () => ({}),
-    getUser: (guildId, id) => profiles.find((profile) => profile.id === id) ?? null,
-    getPrivate: () => null,
-    listChannels: () => [],
-    listUserProfiles: () => profiles,
-    countUsers: () => profiles.length,
-    getLore: () => [],
-    getMediaCache: () => ({}),
-    state: { data: {}, markDirty() {} },
-  };
-}
-
-function hotWith({ features = {}, skills = {}, access = {}, config = {} } = {}) {
-  return {
-    config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
-      context: {
-        channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800,
-        gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
-      },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-      typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, followUpContinuation: true, callMarkers: true, ...features },
-      models: { helpers: { analyzer: 'x/text' } },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
-      skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...skills },
-      ...config,
-    },
-    prompts: {
-      'system-prompt': 'You are a regular member of this chat, not an assistant.',
-      'character-card': 'You are friendly and terse.',
-      format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
-      initiate: 'Start a topic.',
-      lookup: 'Decide whether {{name}} needs to look something up.',
-      labels,
-    },
-  };
-}
-
-function personaGrants(names) {
-  return Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }]));
-}
-
-/** An LLM answering `answers` in turn (the last one repeats); the search classifier answers `classifier` and the re-watch classifier `none`, each counted apart. */
-function sequenceLlm(answers, classifier = 'none') {
-  const calls = [];
-  const classifierCalls = [];
-  const rewatchCalls = [];
-  return {
-    calls,
-    classifierCalls,
-    rewatchCalls,
-    complete: async (messages) => {
-      if (messages[0].content.startsWith('Decide whether')) {
-        classifierCalls.push(messages);
-        return { text: classifier, usage: {}, estimated: 5 };
-      }
-      if (messages[0].content.startsWith('Pick a second look')) {
-        rewatchCalls.push(messages);
-        return { text: 'none', usage: {}, estimated: 5 };
-      }
-      calls.push(messages);
-      const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
-      return { text: answer, usage: {}, estimated: 10 };
-    },
-  };
-}
-
-function journalOverMemory() {
-  const lines = [];
-  const appendStore = { append: async (file, line) => lines.push({ file, record: JSON.parse(line) }), async *iterate() {} };
-  let n = 0;
-  const journal = createJournal({ appendStore, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
-  return { journal, lines };
-}
-
-/**
- * One mention by Alice (u1, an owner) in #general (c1) answered with `answers` in turn, with the
- * tool loop on (`coreTools`) and `loop` as skills.loop; `allowed` skills granted to the persona;
- * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
- * admin as they are.
- */
-async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null }) {
-  const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
-  const hot = hotWith({
-    features: { coreTools, journal: Boolean(journal), ...features },
-    skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
-    access: personaGrants(allowed),
-    config,
-  });
-  Object.assign(hot.prompts, prompts);
-  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seed('c1', { authorId: 'u2', messageId: 'm0', text: 'καλημέρα' });
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: content });
-  for (const seed of seeds) port.seed(seed.conversationId, seed);
-  if (setup) setup(port);
-  // #jardin (c2): a neighbour of the same guild where the bot may do anything (a message quoted from it can be edited).
-  const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1', members: { me: { displayName: 'Bot' } } }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map([['c2', jardin]]) }, ...clientExtra };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...adminExtra });
-  const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
-  const llm = sequenceLlm(answers, classifier);
-  const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, ...runner });
-  // An inner turn (`inner`: the wake): nobody asked, no trigger.
-  const again = inner
-    ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
-    : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind });
-  const { result, logs } = await withCapturedLogs(again);
-  const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, hot, admin, again, port };
-}
-
-/** The user text of the turn's request `i`. */
-function requestText(llm, i) {
-  return userText(llm.calls[i][1].content);
-}
-
-/** The `<result skill status>` blocks of a request text, in order, as `skill:status`. */
-function resultSkills(text) {
-  return [...text.matchAll(/<result skill="([^"]+)" status="([^"]+)">/g)].map((match) => `${match[1]}:${match[2]}`);
-}
-
-test('core tools off: every request of the representative turns is the snapshot of the engine before the tool loop, the switch absent or false', async () => {
-  const { coreToolsOffScenes } = await import('./fixtures/core-tools-scenes.js');
-  const snapshot = JSON.parse(fs.readFileSync(new URL('./fixtures/core-tools-off.json', import.meta.url), 'utf8'));
-  const load = (path) => import(new URL(`../${path}`, import.meta.url));
-  for (const coreTools of [undefined, false]) {
-    const { result } = await withCapturedLogs(() => coreToolsOffScenes(load, { coreTools }));
-    assert.deepEqual(result, snapshot, `coreTools: ${coreTools}`);
-  }
-});
-
-test('tool loop: a call in the continuation runs and the turn continues again, the results appended in order, the cached parts the reply\'s', async () => {
-  const run = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>και οι κανόνες</msg><call skill="memory.server.read"/>', '<msg>τέλος</msg>'] });
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.llm.calls.length, 3, 'the reply, then two steps');
-  assert.deepEqual(run.sends.map((send) => send.text), ['κοιτάζω', 'και οι κανόνες', 'τέλος']);
-  const second = requestText(run.llm, 1);
-  const third = requestText(run.llm, 2);
-  assert.deepEqual(resultSkills(second), ['lore.list:ok']);
-  assert.deepEqual(resultSkills(third), ['lore.list:ok', 'memory.server.read:ok'], 'the earlier result stays, the new one after it');
-  assert.ok(second.includes(fill(labels.task.continueTools, { skill: 'lore.list' })), second);
-  assert.ok(third.includes(fill(labels.task.continueTools, { skill: 'lore.list, memory.server.read' })), third);
-  const first = run.llm.calls[0][1].content;
-  for (const i of [1, 2]) {
-    assert.deepEqual(run.llm.calls[i][0], run.llm.calls[0][0], 'the same system prompt');
-    for (let part = 0; part < first.length - 1; part += 1) assert.deepEqual(run.llm.calls[i][1].content[part], first[part], 'the cached parts are the same');
-  }
-  // Her posts of both earlier steps are her lines of the last request's transcript.
-  const chat = third.slice(third.indexOf('<chat>'), third.indexOf('</chat>'));
-  assert.ok(chat.includes('κοιτάζω') && chat.includes('και οι κανόνες'), chat);
-  const loop = run.logs.find((entry) => entry.msg === 'skills: loop');
-  assert.deepEqual([loop.steps, loop.calls], [2, 2]);
-  assert.ok(!run.logs.some((entry) => entry.msg === 'skills: extra-call'));
-});
-
-test('parser diagnostics: a step that follows tells them in its task; the well-formed call after a malformed one still runs', async () => {
-  const run = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill=bad/><call skill="lore.list"/>', '<msg>τέλος</msg>'] });
-  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['lore.list:ok'], 'the call after the malformed one ran');
-  const second = requestText(run.llm, 1);
-  const reason = labels.skills.diagnostics.reasons.quotes;
-  const line = fill(labels.skills.diagnostics.badCall, { reason, skill: '' }).replace(/\s+/g, ' ').trim();
-  assert.ok(second.includes(`${labels.task.diagnostics}\n- ${line}`), second);
-  // Told once: a later step does not repeat it.
-  const long = await coreTurn({ answers: ['<call skill=bad/><call skill="lore.list"/>', '<call skill="memory.server.read"/>', '<msg>τέλος</msg>'] });
-  assert.ok(requestText(long.llm, 1).includes(labels.task.diagnostics));
-  assert.ok(!requestText(long.llm, 2).includes(labels.task.diagnostics), requestText(long.llm, 2));
-});
-
-test('parser diagnostics: a call written inside a message is cut out of the post and told; with no step to carry it, it is kept and told at her next turn here', async () => {
-  const run = await coreTurn({ answers: ['<msg>ναι <call skill="lore.list"/> εντάξει</msg>', '<skip/>'] });
-  assert.deepEqual(run.sends.map((send) => send.text), ['ναι εντάξει'], 'the post goes without the call');
-  assert.equal(run.llm.calls.length, 1, 'nothing ran, so no step followed');
-  await run.again();
-  const next = requestText(run.llm, 1);
-  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(next)?.[1] ?? '';
-  assert.equal(block.split('\n')[0], labels.wake.feedbackInTurn);
-  assert.ok(block.includes(fill(labels.skills.diagnostics.callInText, { skill: 'lore.list' }).trim()), block);
-  // Told once.
-  await run.again();
-  assert.ok(!requestText(run.llm, 2).includes('<wake>'));
-});
-
-test('tool loop: several calls of one answer run together, both results come back in one step; past maxCallsPerStep the rest is dropped', async () => {
-  const events = [];
-  const wrapCommand = (runOp) => async (key, args, context) => {
-    events.push(`start:${key}`);
-    await new Promise((resolve) => setImmediate(resolve));
-    events.push(`end:${key}`);
-    return runOp(key, args, context);
-  };
-  const run = await coreTurn({ answers: ['<call skill="lore.list"/><call skill="memory.server.read"/>', '<msg>έτοιμο</msg>'], wrapCommand });
-  assert.deepEqual(events, ['start:lore.list', 'start:memory.server.read', 'end:lore.list', 'end:memory.server.read'], 'the reads run alongside each other');
-  assert.equal(run.llm.calls.length, 2);
-  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['lore.list:ok', 'memory.server.read:ok']);
-  assert.deepEqual(run.sends.map((send) => send.text), ['έτοιμο']);
-  const capped = await coreTurn({ answers: ['<call skill="lore.list"/><call skill="memory.server.read"/>', '<msg>έτοιμο</msg>'], loop: { maxCallsPerStep: 1 } });
-  assert.deepEqual(resultSkills(requestText(capped.llm, 1)), ['lore.list:ok']);
-  assert.ok(capped.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.loop === true && entry.count === 1));
-});
-
-test('tool loop: every request of the turn is dumped, the reply\'s as the base dump and each later one with its step', async () => {
-  const capture = () => {
-    const { journal } = journalOverMemory();
-    const dumps = [];
-    journal.dumpRequest = async (guildId, dump) => {
-      dumps.push(dump);
-    };
-    return { journal, dumps };
-  };
-  const loop = capture();
-  const run = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>και οι κανόνες</msg><call skill="memory.server.read"/>', '<msg>τέλος</msg>'], journal: loop.journal });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(run.llm.calls.length, 3);
-  assert.deepEqual(loop.dumps.map((dump) => dump.step ?? null), [null, 1, 2]);
-  loop.dumps.forEach((dump, i) => {
-    assert.equal(dump.request.messages, run.llm.calls[i], `request ${i} as the client got it`);
-    assert.equal(dump.turnId, run.result.turnId);
-    assert.equal(dump.attemptId, 1);
-  });
-  assert.equal(loop.dumps[2].raw, '<msg>τέλος</msg>');
-
-  // Without the loop, the one follow-up after a call is step 1.
-  const single = capture();
-  const off = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>τέλος</msg>'], coreTools: false, journal: single.journal });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(off.llm.calls.length, 2);
-  assert.deepEqual(single.dumps.map((dump) => dump.step ?? null), [null, 1]);
-  assert.equal(single.dumps[1].request.messages, off.llm.calls[1]);
-});
-
-test('tool loop: skills.loop.maxSteps -- the last step says no call will run, a call in it is dropped, logged and journaled as a limit', async () => {
-  const { journal, lines } = journalOverMemory();
-  const run = await coreTurn({ answers: ['<call skill="lore.list"/>', '<msg>ακόμα ένα</msg><call skill="memory.server.read"/>', '<msg>ποτέ</msg>'], loop: { maxSteps: 1 }, journal });
-  assert.equal(run.llm.calls.length, 2, 'no request after the last step');
-  const last = requestText(run.llm, 1);
-  assert.ok(last.includes(fill(labels.task.continueToolsLast, { skill: 'lore.list' })), last);
-  assert.deepEqual(run.sends.map((send) => send.text), ['ακόμα ένα'], 'the rest of her answer is acted on');
-  assert.ok(!run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'memory.server.read'), 'the dropped call never runs');
-  const cap = run.logs.find((entry) => entry.msg === 'skills: loop cap');
-  assert.deepEqual([cap.reason, cap.dropped, cap.step], ['steps', 1, 1]);
-  const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
-  assert.ok(turn.limits.some((limit) => limit.kind === 'loop-cap' && limit.detail === 'steps' && limit.lost === 1), JSON.stringify(turn.limits));
-});
-
-test('tool loop: skills.loop.timeBudgetMs spent -- the next request is her last, its call dropped with reason time', async () => {
-  let ms = NOW;
-  const run = await coreTurn({ answers: ['<call skill="lore.list"/>', '<msg>αργά</msg><call skill="memory.server.read"/>'], loop: { timeBudgetMs: 50 }, runner: { now: () => (ms += 30) } });
-  assert.equal(run.llm.calls.length, 2);
-  assert.ok(requestText(run.llm, 1).includes(fill(labels.task.continueToolsLast, { skill: 'lore.list' })));
-  assert.equal(run.logs.find((entry) => entry.msg === 'skills: loop cap')?.reason, 'time');
-  assert.deepEqual(run.sends.map((send) => send.text), ['αργά']);
-});
-
-test('tool loop off: a call in the follow-up is dropped as before, one follow-up only', async () => {
-  const run = await coreTurn({ coreTools: false, answers: ['<call skill="lore.list"/>', '<msg>ένα</msg><call skill="memory.server.read"/>', '<msg>ποτέ</msg>'] });
-  assert.equal(run.llm.calls.length, 2);
-  assert.ok(run.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.followUp === true));
-  assert.ok(!run.logs.some((entry) => entry.msg === 'skills: loop'));
-});
 
 test('loopSettings: a missing or unusable value takes config.json\'s', () => {
   const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).skills.loop;
@@ -371,12 +61,10 @@ function fakeRecall(quotes = [{ channelId: 'c2', channelName: 'jardin', startTs:
   return { runs, available: () => true, run: async (args) => (runs.push(args), { text: null, stretch: null, people: [], quotes, stats: {} }) };
 }
 
-const WEB_CONFIG = { web: { maxPerDay: 60, links: { enabled: false }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } }, recall: { maxForms: 4 } };
-
 test('web.search in the loop: her query runs as written, the continuation carries the raw results under their source, the answer goes out', async () => {
   const lookup = fakeLookup();
   const run = await coreTurn({
-    answers: ['<msg>μισό</msg><call skill="web.search" goal="ποιος κέρδισε">τελικός 2026</call>', '<msg>η Ana</msg>'],
+    answers: [toolAnswer('<msg>μισό</msg>', [call('web.search', { goal: 'ποιος κέρδισε', query: 'τελικός 2026' })]), '<msg>η Ana</msg>'],
     allowed: ['web.search'],
     features: { webLookup: true },
     config: WEB_CONFIG,
@@ -385,11 +73,10 @@ test('web.search in the loop: her query runs as written, the continuation carrie
   assert.equal(run.result.outcome, 'spoke');
   assert.deepEqual(lookup.searches.map((search) => search.query), ['τελικός 2026']);
   assert.equal(run.llm.calls.length, 2);
-  const text = requestText(run.llm, 1);
   const l = labels.skills.tools.web;
-  const block = `<result skill="web.search" status="ok">\n${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\n1. Un\nhttps://www.example.com/1\nexample.com\nΗ Ana κέρδισε τον τελικό.\n</result>`;
-  assert.ok(text.includes(block), text);
-  assert.deepEqual(run.sends.map((send) => send.text), ['μισό', 'η Ana']);
+  const expected = `${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\n1. Un\nhttps://www.example.com/1\nexample.com\nΗ Ana κέρδισε τον τελικό.`;
+  assert.equal(toolContent(run.llm, 1), expected, 'the raw results under their source, as the tool message of her call');
+  assert.deepEqual(run.sends.map((send) => send.text), ['η Ana'], 'what she wrote before reading the results was held');
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'web.search' && entry.status === 'ok'));
   assert.ok(!JSON.stringify(run.logs).includes('τελικός'), 'never her query in the log');
 });
@@ -397,7 +84,7 @@ test('web.search in the loop: her query runs as written, the continuation carrie
 test('web.read in the loop: a link she gives, or the link of a message #N she names, is read and comes back as the page text under its source', async () => {
   const lookup = fakeLookup();
   const run = await coreTurn({
-    answers: ['<call skill="web.read">https://example.org/x</call>', '<msg>διάβασα</msg>'],
+    answers: [toolAnswer('', [call('web.read', { url: 'https://example.org/x' })]), '<msg>διάβασα</msg>'],
     allowed: ['web.read'],
     features: { webLookup: true },
     config: WEB_CONFIG,
@@ -406,14 +93,14 @@ test('web.read in the loop: a link she gives, or the link of a message #N she na
   assert.equal(run.result.outcome, 'spoke');
   assert.deepEqual(lookup.reads.map((read) => read.url), ['https://example.org/x']);
   const r = labels.skills.tools.read;
-  const block = `<result skill="web.read" status="ok">\n${labels.skills.result.ok}\n${fill(r.source, { url: 'https://example.org/x', maxChars: '4000' })}\n${fill(r.title, { title: 'Σελίδα' })}\nΤο κείμενο της σελίδας.\n</result>`;
-  assert.ok(requestText(run.llm, 1).includes(block), requestText(run.llm, 1));
+  const expected = `${labels.skills.result.ok}\n${fill(r.source, { url: 'https://example.org/x', maxChars: '4000' })}\n${fill(r.title, { title: 'Σελίδα' })}\nΤο κείμενο της σελίδας.`;
+  assert.equal(toolContent(run.llm, 1), expected);
   assert.ok(!JSON.stringify(run.logs).includes('example.org/x'), 'never the link in the log');
 
   const byMessage = fakeLookup();
   const viaMessage = await coreTurn({
     content: 'δες https://exemple.fr/άρθρο',
-    answers: ['<call skill="web.read" message="#2"/>', '<msg>ok</msg>'],
+    answers: [toolAnswer('', [call('web.read', { message: '#2' })]), '<msg>ok</msg>'],
     allowed: ['web.read'],
     features: { webLookup: true },
     config: WEB_CONFIG,
@@ -427,7 +114,7 @@ test('web.read in the loop: a link she gives, or the link of a message #N she na
 test('memory.search in the loop: the recall runner gets her arguments with quotes over the turn history, the messages come back quoted', async () => {
   const recall = fakeRecall();
   const run = await coreTurn({
-    answers: ['<call skill="memory.search" people="Éloïse" when="2026-09-01..2026-10-16">τι είπε για το κουνέλι</call>', '<msg>για τον κήπο</msg>'],
+    answers: [toolAnswer('', [call('memory.search', { people: 'Éloïse', when: '2026-09-01..2026-10-16', question: 'τι είπε για το κουνέλι' })]), '<msg>για τον κήπο</msg>'],
     allowed: ['memory.search'],
     features: { recall: true },
     config: WEB_CONFIG,
@@ -440,9 +127,9 @@ test('memory.search in the loop: the recall runner gets her arguments with quote
   assert.deepEqual(args.server.who, ['éloïse']);
   assert.deepEqual(args.server.forms, ['κουνέλι']);
   assert.deepEqual([args.server.from, args.server.to], [Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 17) - 1]);
-  const text = requestText(run.llm, 1);
+  const text = toolContent(run.llm, 1);
   const l = labels.skills.tools.memory;
-  assert.ok(text.includes(`${l.source}\n${fill(l.window, { date: '2026-10-14', channel: 'jardin' })}\n[09:00] Éloïse: ένα κουνέλι στον κήπο\n</result>`), text);
+  assert.ok(text.endsWith(`${l.source}\n${fill(l.window, { date: '2026-10-14', channel: 'jardin' })}\n[09:00] Éloïse: ένα κουνέλι στον κήπο`), text);
   assert.deepEqual(run.sends.map((send) => send.text), ['για τον κήπο']);
 });
 
@@ -454,8 +141,8 @@ test('memory.search handles: a quoted line carries a #N that message.edit resolv
     { id: 'q1', text: '[09:01] Bot: παλιό κείμενο', authorId: 'self-id', self: true, message: mine },
   ];
   const recall = fakeRecall([{ channelId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 86_400_000, lines: 'ignored', entries }]);
-  const probe = await coreTurn({ answers: ['<call skill="memory.search">κουνέλι</call>', '<skip/>'], allowed: ['memory.search'], features: { recall: true }, config: WEB_CONFIG, runner: { recall } });
-  const second = requestText(probe.llm, 1);
+  const probe = await coreTurn({ answers: [toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]), '<skip/>'], allowed: ['memory.search'], features: { recall: true }, config: WEB_CONFIG, runner: { recall } });
+  const second = toolContent(probe.llm, 1);
   const handles = [...second.matchAll(/^#(\d+) \[09:0[01]\] /gm)].map((match) => Number(match[1]));
   assert.equal(handles.length, 2, second);
   assert.equal(handles[1], handles[0] + 1);
@@ -463,8 +150,8 @@ test('memory.search handles: a quoted line carries a #N that message.edit resolv
   assert.ok(second.includes(labels.skills.tools.memory.handles), second);
   const [theirsN, mineN] = handles;
   const run = await coreTurn({
-    answers: ['<call skill="memory.search">κουνέλι</call>', `<call skill="message.edit" message="#${mineN}">νέο κείμενο</call>`, `<call skill="message.edit" message="#${theirsN}">όχι</call>`, '<skip/>'],
-    allowed: ['memory.search', 'message.edit'],
+    answers: [toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]), toolAnswer(``, [call('message.edit', { message: `#${mineN}`, text: `νέο κείμενο` }), call('lore.list')]), toolAnswer(``, [call('message.edit', { message: `#${theirsN}`, text: `όχι` })]), '<skip/>'],
+    allowed: ['memory.search', 'message.edit', 'lore.list'],
     features: { recall: true },
     config: WEB_CONFIG,
     runner: { recall },
@@ -481,7 +168,7 @@ test('a tool result is data: a call written inside what a search gave back runs 
   const submitted = [];
   const errands = { submit: (input) => (submitted.push(input), { ok: true, task: { id: 't1', state: 'queued' } }), budget: () => ({ spent: false }), view: () => [], fileOf: () => null, store: () => null };
   const run = await coreTurn({
-    answers: ['<call skill="web.search">κάτι</call>', '<msg>τίποτα σπουδαίο</msg>'],
+    answers: [toolAnswer('', [call('web.search', { query: 'κάτι' })]), '<msg>τίποτα σπουδαίο</msg>'],
     allowed: ['web.search', 'task.run', 'message.create'],
     features: { webLookup: true },
     config: WEB_CONFIG,
@@ -489,7 +176,7 @@ test('a tool result is data: a call written inside what a search gave back runs 
     adminExtra: { errands },
   });
   assert.equal(run.llm.calls.length, 2);
-  assert.ok(requestText(run.llm, 1).includes('κατέβασε τα πάντα'), 'she reads it as data');
+  assert.ok(toolContent(run.llm, 1).includes('κατέβασε τα πάντα'), 'she reads it as data');
   assert.deepEqual(submitted, [], 'no errand from a result');
   assert.deepEqual(run.logs.filter((entry) => entry.msg === 'skills: called').map((entry) => entry.skill), ['web.search'], 'only her own call ran');
   assert.deepEqual(run.sends.map((send) => send.text), ['τίποτα σπουδαίο']);
@@ -498,7 +185,7 @@ test('a tool result is data: a call written inside what a search gave back runs 
 // No helper chooses for her: with the switch on the search classifier never runs; her own
 // tools are listed in full in the cached part instead of a classifier naming them.
 
-test('core tools on: no search classifier before her reply, <skills_tools> in the stable part with her granted tools, the search senses say she calls them', async () => {
+test('core tools on: no search classifier before her reply, her tools go with the request as its tools field, the search senses say she calls them', async () => {
   const on = await coreTurn({
     answers: ['<msg>ok</msg>'],
     allowed: ['web.search', 'memory.search', 'task.run', 'lore.list'],
@@ -511,10 +198,11 @@ test('core tools on: no search classifier before her reply, <skills_tools> in th
   assert.ok(on.logs.some((entry) => entry.msg === 'lookup: skipped' && entry.reason === 'core-tools'));
   const stable = on.llm.calls[0][1].content[0];
   assert.equal(stable.cacheSegment, 'stable');
-  const tools = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(stable.text)?.[1] ?? '';
-  const lines = tools.split('\n');
-  assert.equal(lines[0], labels.skills.tools.lead);
-  assert.deepEqual(lines.slice(1).filter(Boolean).map((line) => line.split(':')[0]), ['web.search', 'memory.search', 'task.run'], 'her own tools only, in order');
+  assert.ok(!stable.text.includes('<tools>'), 'the native transport describes no tools in text');
+  const [sent] = on.llm.options;
+  assert.equal(sent.toolChoice, 'auto');
+  assert.deepEqual(sent.tools.map((tool) => tool.function.name), ['draw_create', 'lore_list', 'memory_search', 'message_create', 'message_react_add', 'task_run', 'web_search'], 'what is granted to her and the carried-over ones, sorted');
+  assert.deepEqual(on.llm.options.map((options) => options.tools), on.llm.options.map(() => sent.tools), 'the same list on every request of the turn');
   assert.ok(stable.text.includes(labels.senses.searchTool), 'the web line says she calls web.search');
   assert.ok(!stable.text.includes(labels.senses.search));
   const text = requestText(on.llm, 0);
@@ -526,31 +214,20 @@ test('core tools on: no search classifier before her reply, <skills_tools> in th
   const readerStable = reader.llm.calls[0][1].content[0].text;
   assert.ok(readerStable.includes(labels.senses.readTool), 'granted: the senses say she can open a page');
   assert.ok(readerStable.split('\n').includes(labels.senses.linksTool) && !readerStable.split('\n').includes(labels.senses.links), 'the links line mentions previews and web.read');
-  const readerTools = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(readerStable)?.[1] ?? '';
-  assert.deepEqual(readerTools.split('\n').slice(1).filter(Boolean).map((line) => line.split(':')[0]), ['web.read'], readerTools);
-  // Not granted: neither the tool rows nor their senses lines.
+  assert.ok(reader.llm.options[0].tools.some((tool) => tool.function.name === 'web_read'));
+  // Not granted: neither the tool nor its senses line.
   const bare = await coreTurn({ answers: ['<msg>ok</msg>'], allowed: [], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
   const bareText = requestText(bare.llm, 0);
-  assert.ok(!bareText.includes('<skills_tools>') && !bareText.includes(labels.senses.searchTool) && !bareText.includes(labels.senses.search), bareText);
-  // Off: the classifier runs as before, no tools block.
+  assert.ok(!bareText.includes(labels.senses.searchTool) && !bareText.includes(labels.senses.search), bareText);
+  assert.deepEqual(bare.llm.options[0].tools.map((tool) => tool.function.name), ['draw_create', 'message_create', 'message_react_add'], 'only the carried-over ones');
+  // Off: the classifier runs as before; her tools are still sent.
   const off = await coreTurn({ coreTools: false, answers: ['<msg>ok</msg>'], allowed: ['web.search'], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
   assert.equal(off.llm.classifierCalls.length, 1);
-  assert.ok(!requestText(off.llm, 0).includes('<skills_tools>'));
+  assert.ok(off.llm.options[0].tools.some((tool) => tool.function.name === 'web_search'));
 });
 
 // Dispatch: an errand only from her own accepted task.run call, recorded with the turn and the
 // brief she wrote, once per call whatever retries.
-
-/** A real errand service over a temp task store and a runner client that records each run (never ending here). */
-function errandService(hot) {
-  const runs = [];
-  const client = { configured: () => true, run: (task) => (runs.push(task), new Promise(() => {})), cancel: () => true };
-  const stores = createTaskStores({ dataDir: tempDir('nep-core-tools-'), config: () => hot.config });
-  const service = createErrandService({ client, stores, hot, getGuildId: () => 'g1', defer: (fn) => fn() });
-  return { service, runs };
-}
-
-const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, web: { enabled: true, daily: { tasks: 10 } } } };
 
 test('task.run in the loop: after a search she hands off the errand, it is queued once with her turn and her brief as written; the same call again queues nothing', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
@@ -558,7 +235,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   const brief = 'Βρες στο pixiv το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.';
   const { journal } = journalOverMemory();
   const run = await coreTurn({
-    answers: ['<call skill="web.search">pixiv serial_experiments_lain</call>', `<msg>το στέλνω να ψάξει</msg><call skill="task.run" agent="web">${brief}</call>`, '<skip/>'],
+    answers: [toolAnswer('', [call('web.search', { query: 'pixiv serial_experiments_lain' })]), toolAnswer(`<msg>το στέλνω να ψάξει</msg>`, [call('task.run', { agent: `web`, goal: `${brief}` })]), '<skip/>'],
     allowed: ['web.search', 'task.run'],
     features: { webLookup: true },
     config: { ...WEB_CONFIG, ...AGENTS },
@@ -575,7 +252,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   assert.match(task.origin.turnId, /^t-u\d+$/, 'the journal turn of her call');
   assert.equal(task.idempotencyKey, `${task.origin.turnId}.1:1`, 'her second call of the turn');
   assert.equal(runs.length, 1);
-  assert.equal(run.llm.calls.length, 3, 'an accepted errand is seen in one step, where she stays silent');
+  assert.equal(run.llm.calls.length, 2, 'an accepted errand covers her speech: the turn ends with it, no request to read it');
   assert.deepEqual(run.sends.map((send) => send.text), ['το στέλνω να ψάξει']);
   // The same call made again (a retry): the same errand, nothing new queued or run.
   const again = await run.admin.runCommand('task.run', { agent: 'web', goal: brief }, { guildId: 'g1', channelId: 'c1', userId: 'u1', roleIds: [], actor: 'persona', turnId: task.origin.turnId, idempotencyKey: task.idempotencyKey });
@@ -588,7 +265,7 @@ test('task.run not granted: refused before it runs, no errand; nothing but her a
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
-    answers: ['<call skill="task.run" agent="web">βρες κάτι</call>', '<msg>δεν μπορώ</msg>'],
+    answers: [toolAnswer('', [call('task.run', { agent: 'web', goal: 'βρες κάτι' })]), '<msg>δεν μπορώ</msg>'],
     allowed: [],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },
@@ -618,7 +295,7 @@ function prefetchRecall(found = {
 test('prefetch: one search for the trigger before her reply; <retrieved> in the uncached tail before <chat>, the same in every step of the loop', async () => {
   const recall = prefetchRecall();
   const run = await coreTurn({
-    answers: ['<call skill="memory.search">το δάσος</call>', '<msg>ναι, ο σκύλος</msg>'],
+    answers: [toolAnswer('', [call('memory.search', { question: 'το δάσος' })]), '<msg>ναι, ο σκύλος</msg>'],
     allowed: ['memory.search'],
     features: { recall: true },
     config: WEB_CONFIG,
@@ -714,7 +391,7 @@ test('media.look off: the re-watch classifier is asked as before; on: it is not,
 
   const describer = lookDescriber();
   const run = await coreTurn({
-    answers: ['<call skill="media.look" message="#1" item="2">τι κρατά η γάτα;</call>', '<msg>ένα κλειδί</msg>'],
+    answers: [toolAnswer('', [call('media.look', { message: '#1', item: 2, question: 'τι κρατά η γάτα;' })]), '<msg>ένα κλειδί</msg>'],
     allowed: ['media.look'],
     content: 'τι κρατά στη φωτογραφία;',
     firstAttachments: TWO_PICTURES,
@@ -725,8 +402,7 @@ test('media.look off: the re-watch classifier is asked as before; on: it is not,
   assert.equal(run.llm.rewatchCalls.length, 0, 'on: no classifier chooses for her');
   assert.ok(run.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'core-tools'));
   assert.deepEqual(describer.calls, [{ guildId: 'g1', itemId: 'pb', question: 'τι κρατά η γάτα;' }]);
-  const block = `<result skill="media.look" status="ok">\n${labels.skills.result.ok}\n${fill(labels.skills.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι\n</result>`;
-  assert.ok(requestText(run.llm, 1).includes(block), requestText(run.llm, 1));
+  assert.equal(toolContent(run.llm, 1), `${labels.skills.result.ok}\n${fill(labels.skills.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι`);
   assert.ok(!JSON.stringify(run.logs).includes('γάτα'), 'never her question in the log');
   // The senses: her own second look in place of the classifier's.
   const stable = userText([run.llm.calls[0][1].content[0]]);
@@ -737,8 +413,8 @@ test('media.look caps: at most media.look.maxPerTurn second looks in one turn, a
   const describer = lookDescriber();
   const run = await coreTurn({
     answers: [
-      '<call skill="media.look" message="#1">τι είναι;</call><call skill="media.look" message="#1" item="2">και αυτό;</call>',
-      '<call skill="media.look" message="#1">ξανά;</call>',
+      toolAnswer('', [call('media.look', { message: '#1', question: 'τι είναι;' }), call('media.look', { message: '#1', item: 2, question: 'και αυτό;' })]),
+      toolAnswer('', [call('media.look', { message: '#1', question: 'ξανά;' })]),
       '<msg>τέλος</msg>',
     ],
     allowed: ['media.look'],
@@ -751,11 +427,11 @@ test('media.look caps: at most media.look.maxPerTurn second looks in one turn, a
   assert.equal(describer.calls.length, 2, 'two looks, the third refused');
   const called = run.logs.filter((entry) => entry.msg === 'skills: called' && entry.skill === 'media.look').map((entry) => `${entry.status}:${entry.code ?? ''}`);
   assert.deepEqual(called, ['ok:', 'ok:', 'failed:turn-cap']);
-  assert.ok(requestText(run.llm, 2).includes(labels.skills.result.reasons['turn-cap']), 'she hears why');
+  assert.ok(toolContent(run.llm, 2, 2).includes(labels.skills.result.reasons['turn-cap']), 'she hears why');
 
   const spent = lookDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } });
   const capped = await coreTurn({
-    answers: ['<call skill="media.look" message="#1">τι είναι;</call>', '<msg>ok</msg>'],
+    answers: [toolAnswer('', [call('media.look', { message: '#1', question: 'τι είναι;' })]), '<msg>ok</msg>'],
     allowed: ['media.look'],
     features: { vision: true },
     firstAttachments: TWO_PICTURES,
@@ -770,7 +446,7 @@ test('media.look is no skill of hers with the tool loop off: refused as switched
   const describer = lookDescriber();
   const run = await coreTurn({
     coreTools: false,
-    answers: ['<call skill="media.look" message="#1">τι είναι;</call>', '<msg>ok</msg>'],
+    answers: [toolAnswer('', [call('media.look', { message: '#1', question: 'τι είναι;' })]), '<msg>ok</msg>'],
     allowed: ['media.look'],
     features: { vision: true },
     firstAttachments: TWO_PICTURES,
@@ -780,50 +456,17 @@ test('media.look is no skill of hers with the tool loop off: refused as switched
   assert.ok(!userText(run.llm.calls[0][1].content).includes('media.look'));
 });
 
-test('a skill outside <skills_tools>: its first call carries its description in the result, the second call of the turn does not; a body left out is told', async () => {
-  const run = await coreTurn({
-    answers: ['<msg>κοιτάζω</msg><call skill="lore.list">what did I think</call>', '<msg>ξανά</msg><call skill="lore.list" query="x"></call>', '<msg>τέλος</msg>'],
-    allowed: ['lore.list'],
-    
-    prompts: { skills: { 'lore.list': { title: 'Journal', whenToUse: 'read the lore' } }, labels: { ...labels, skills: { ...labels.skills, line: '{name}: {title} -- {whenToUse} {args}', args: { list: '({list})' } } } },
-  });
-  assert.equal(run.llm.calls.length, 3);
-  const described = labels.skills.result.described;
-  const ignored = labels.skills.result.bodyIgnored;
-  const second = requestText(run.llm, 1);
-  const third = requestText(run.llm, 2);
-  assert.equal(second.split(described).length - 1, 1, second);
-  assert.ok(second.includes(ignored), 'the dropped body is told');
-  assert.ok(/lore\.list/.test(second.slice(second.indexOf(described))), 'the description names the skill');
-  assert.ok(second.slice(second.indexOf(described)).includes('query'), 'the arguments are listed');
-  assert.equal(third.split(described).length - 1, 1, 'the second call does not repeat it');
-  assert.equal(third.split(ignored).length - 1, 1, 'a call with no body has nothing left out to tell');
-});
-
-test('a skill in <skills_tools> carries no description in its result', async () => {
-  const run = await coreTurn({ answers: ['<msg>μισό</msg><call skill="web.search">τελικός 2026</call>', '<msg>τέλος</msg>'], allowed: ['web.search'], features: { webLookup: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup() } });
-  assert.deepEqual(resultSkills(requestText(run.llm, 1)), ['web.search:ok']);
-  assert.ok(!requestText(run.llm, 1).includes(labels.skills.result.described));
-});
-
 // --- her one previous think (src/behavior/previous-think.js) -----------------
 
 const thinkBlock = (text) => /<previous_think>\n([\s\S]*?)\n<\/previous_think>/.exec(text)?.[1] ?? null;
 
-test('previous think, tool loop: a step carries the think of the step just before it, none when that step had none, the first request none', async () => {
-  const run = await coreTurn({ answers: ['<think>why I look at the lore</think><call skill="lore.list"/>', '<call skill="memory.server.read"/>', '<think>last</think><msg>τέλος</msg>'] });
+test('previous think, steps of one turn: no <previous_think> block in a step; her earlier think is in her own answer, appended as it was written', async () => {
+  const run = await coreTurn({ answers: [toolAnswer('<think>why I look at the lore</think>', [call('lore.list')]), toolAnswer('', [call('memory.server.read')]), '<think>last</think><msg>τέλος</msg>'] });
   assert.equal(run.llm.calls.length, 3);
-  assert.equal(thinkBlock(requestText(run.llm, 0)), null);
-  const second = thinkBlock(requestText(run.llm, 1));
-  assert.ok(second.includes('why I look at the lore') && second.includes(labels.previousThink.same), second);
-  assert.equal(thinkBlock(requestText(run.llm, 2)), null, 'the step before had no think: nothing older is carried');
-  const sources = run.logs.filter((entry) => entry.msg === 'turn: previous think');
-  assert.deepEqual(sources.map((entry) => entry.relation ?? entry.none), ['none-in-window', 'same', 'no-think']);
-});
-
-test('previous think, tool loop: features.previousThink off carries none', async () => {
-  const run = await coreTurn({ answers: ['<think>hidden</think><call skill="lore.list"/>', '<msg>τέλος</msg>'], features: { previousThink: false } });
-  assert.ok(!requestText(run.llm, 1).includes('previous_think'));
+  for (const i of [0, 1, 2]) assert.equal(thinkBlock(requestText(run.llm, i)), null, `request ${i}`);
+  assert.equal(run.llm.calls[1][2].content, '<think>why I look at the lore</think>');
+  assert.equal(run.llm.calls[2][2].content, '<think>why I look at the lore</think>', 'it stays in every later request');
+  assert.ok(!run.logs.some((entry) => entry.msg === 'turn: previous think' && entry.relation === 'same'));
 });
 
 const MIN_MS = 60_000;
@@ -878,42 +521,11 @@ test('previous think, new turn: a turn that failed carries nothing and the older
 
 // draw.create as an in-turn tool: the picture is made and posted by the turn itself, every failure comes back as a result.
 
-const DRAW_PROMPTS = { draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}', appearance: '{{name}} has silver hair.' };
-const DRAW_CONFIG = { image: { maxPromptChars: 1000, reference: 'none' }, models: { helpers: { analyzer: 'x/text' }, agents: { drawing: 'openai/image-model' } } };
-
-/** An image client whose generate() answers from `outcomes` in turn (a function throws, anything else is the picture), every call recorded. */
-function fakeImages(outcomes = [null]) {
-  const calls = [];
-  return {
-    calls,
-    familyOf: () => 'openai',
-    quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
-    generate: async (args) => {
-      calls.push(structuredClone(args));
-      const outcome = outcomes[Math.min(calls.length - 1, outcomes.length - 1)];
-      if (outcome) throw outcome;
-      return { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0, usage: {}, model: 'openai/image-model' };
-    },
-  };
-}
-
-async function drawTurn({ answers, images = fakeImages(), allowed = ['draw.create'], features = {}, runner = {}, ...rest }) {
-  return coreTurn({
-    answers,
-    allowed,
-    features: { imageGeneration: true, ...features },
-    config: DRAW_CONFIG,
-    prompts: DRAW_PROMPTS,
-    runner: { images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,QQ==', bytes: 1, contentType: 'image/png' }) }, ...runner },
-    ...rest,
-  });
-}
-
 const calledLogs = (run) => run.logs.filter((entry) => entry.msg === 'skills: called' && entry.skill === 'draw.create');
 
 test('draw.create in the loop: the turn makes the picture from her scene and posts it as a file in this channel, the member who asked charged', async () => {
   const images = fakeImages();
-  const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος το σούρουπο</call>', '<skip/>'], images });
+  const run = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος το σούρουπο' })]), '<skip/>'], images });
   assert.equal(images.calls.length, 1);
   assert.equal(images.calls[0].userId, 'u1', 'the asking member\'s rail');
   assert.match(images.calls[0].prompt, /Scene: ένας φάρος το σούρουπο$/);
@@ -936,11 +548,11 @@ test('draw.create: the daily caps and the generation failures come back as resul
     [new ImageGenError('empty'), 'image-error'],
   ];
   for (const [failure, code] of cases) {
-    const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images: fakeImages([failure]) });
+    const run = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'], images: fakeImages([failure]) });
     assert.deepEqual(calledLogs(run).map((entry) => [entry.status, entry.code]), [['failed', code]], code);
     assert.equal(run.sends.filter((send) => send.attachments?.length).length, 0, `${code}: nothing posted`);
     assert.equal(run.sends.length, 0, `${code}: no limit notice`);
-    assert.ok(requestText(run.llm, 1).includes('[called draw.create: failed'), `${code}: the mark says it failed`);
+    assert.ok(toolContent(run.llm, 1).startsWith(labels.skills.result.failed.split(':')[0]), `${code}: she reads that it failed`);
     assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked !== true), code);
   }
 });
@@ -948,7 +560,7 @@ test('draw.create: the daily caps and the generation failures come back as resul
 test('draw.create: an upload the port could not confirm is unknown, one it refused is failed; the picture is generated once either way', async () => {
   for (const status of ['unknown', 'failed']) {
     const images = fakeImages();
-    const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images, setup: (port) => port.failNext('send', { status, error: { code: 'timeout' } }) });
+    const run = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'], images, setup: (port) => port.failNext('send', { status, error: { code: 'timeout' } }) });
     assert.equal(images.calls.length, 1, status);
     assert.deepEqual(calledLogs(run).map((entry) => [entry.status, entry.code]), [[status, 'timeout']], status);
     assert.equal(run.sends.length, 1, `${status}: the one upload that was tried`);
@@ -957,10 +569,10 @@ test('draw.create: an upload the port could not confirm is unknown, one it refus
 
 test('draw.create: reply quotes that message here; a channel she names is where it goes', async () => {
   const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1' }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
-  const here = await drawTurn({ answers: ['<call skill="draw.create" reply="#2">ένας φάρος</call>', '<skip/>'] });
+  const here = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { reply: '#2', text: 'ένας φάρος' })]), '<skip/>'] });
   const quoted = here.sends.find((send) => send.attachments?.length === 1);
   assert.deepEqual([quoted.to, quoted.replyTo.conversationId, quoted.replyTo.messageId], ['c1', 'c1', 'm1']);
-  const there = await drawTurn({ answers: ['<call skill="draw.create" channel="#jardin">ένας φάρος</call>', '<skip/>'], neighbours: [jardin] });
+  const there = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { channel: '#jardin', text: 'ένας φάρος' })]), '<skip/>'], neighbours: [jardin] });
   assert.deepEqual(there.sends.filter((send) => send.attachments?.length).map((send) => send.to), ['c2']);
 });
 
@@ -968,11 +580,11 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
   const theirs = { id: 'q2', authorId: 'u7', self: false, content: 'ξένο' };
   const recall = fakeRecall([{ channelId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 86_400_000, lines: 'ignored', entries: [{ id: 'q2', text: '[09:00] Éloïse: ένα κουνέλι', authorId: 'u7', self: false, message: theirs }] }]);
   const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1' }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
-  const probe = await drawTurn({ answers: ['<call skill="memory.search">κουνέλι</call>', '<skip/>'], allowed: ['memory.search', 'draw.create'], features: { recall: true }, config: { ...DRAW_CONFIG, ...WEB_CONFIG }, runner: { recall } });
-  const handle = Number(/^#(\d+) \[09:00\] /m.exec(requestText(probe.llm, 1))?.[1]);
-  assert.ok(handle > 3, requestText(probe.llm, 1));
+  const probe = await drawTurn({ answers: [toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]), '<skip/>'], allowed: ['memory.search', 'draw.create'], features: { recall: true }, config: { ...DRAW_CONFIG, ...WEB_CONFIG }, runner: { recall } });
+  const handle = Number(/^#(\d+) \[09:00\] /m.exec(toolContent(probe.llm, 1))?.[1]);
+  assert.ok(handle > 3, toolContent(probe.llm, 1));
   const run = await drawTurn({
-    answers: ['<call skill="memory.search">κουνέλι</call>', `<call skill="draw.create" reply="#${handle}">ένα κουνέλι</call>`, '<skip/>'],
+    answers: [toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]), toolAnswer(``, [call('draw.create', { reply: `#${handle}`, text: `ένα κουνέλι` })]), '<skip/>'],
     allowed: ['memory.search', 'draw.create'],
     features: { recall: true },
     config: { ...DRAW_CONFIG, ...WEB_CONFIG },
@@ -989,7 +601,7 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
 test('draw.create on a turn nobody asked (her own initiative): the picture is charged to no member, and it is posted all the same', async () => {
   const wake = { kind: 'intention_due', items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }], intentions: [{ id: 'i1', purpose: 'ζωγράφισε κάτι', dueAt: NOW - 60_000 }], now: NOW, timezone: 'UTC', channels: [], budgets: { chain: { used: 0, cap: 3, left: 3 } } };
   const images = fakeImages();
-  const run = await drawTurn({ answers: ['<call skill="draw.create">ένας φάρος</call>', '<skip/>'], images, inner: wake, config: { ...DRAW_CONFIG, innerLife: { mode: 'live', chatMessages: 2 } }, prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' } });
+  const run = await drawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'], images, inner: wake, config: { ...DRAW_CONFIG, innerLife: { mode: 'live', chatMessages: 2 } }, prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' } });
   assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));
   assert.equal(images.calls[0].userId, null, 'nobody\'s rail');
   assert.equal(run.sends.filter((send) => send.attachments?.length === 1).length, 1);
