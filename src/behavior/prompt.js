@@ -54,7 +54,7 @@
 // captions only: nothing outside the turn's own channel is ever attached.
 
 import { createHash } from 'node:crypto';
-import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
+import { fitSections, loopRequestRoom, requestTokenLimit, sectionCost } from '../llm/budget.js';
 import { cacheTtlMs } from '../llm/openrouter.js';
 import {
   computeTempo,
@@ -3357,7 +3357,10 @@ export function buildRequest(input) {
   const toolsExposed = toolsTokens > 0 || (typeof input.toolsBlock === 'string' && input.toolsBlock.trim() !== '');
   const reserveRaw = config.skills?.loop?.stepReserveTokens;
   const stepReserve = toolsExposed && Number.isFinite(reserveRaw) && reserveRaw > 0 ? Math.floor(reserveRaw) : 0;
-  const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
+  // With tools the tool loop's rail (llm.maxRequestTokens less llm.maxOutputTokens) bounds the request plus its step too: when the
+  // output reserve is larger than the safety margin, that rail is the lower one and the step reserve must fit under it.
+  const requestLimit = toolsExposed ? Math.min(requestTokenLimit(config), loopRequestRoom(config)) : requestTokenLimit(config);
+  const limit = Math.max(0, requestLimit - TAG_OVERHEAD - toolsTokens - stepReserve);
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).

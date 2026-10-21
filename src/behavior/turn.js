@@ -74,7 +74,7 @@ import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lin
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
 import { DAY_MS, bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
-import { budgetDrops } from '../llm/budget.js';
+import { budgetDrops, loopRequestRoom } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
 import { callArgsText } from '../skills/call-args.js';
@@ -2741,7 +2741,7 @@ export function createTurnRunner({
       let reason = last ? (step >= settings.maxSteps - 1 ? LOOP_WHY.steps : LOOP_WHY.time) : null;
       let sent = build(last, resultTexts);
       // The request must fit under the cap with its tools: the results are cut to fit, and the request is the last one.
-      const limit = Math.max(0, (hot.config.llm?.maxRequestTokens ?? 50000) - (hot.config.llm?.maxOutputTokens ?? 2000));
+      const limit = loopRequestRoom(hot.config);
       const cost = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(draft.tools) : 0));
       if (cost(sent) > limit) {
         const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));

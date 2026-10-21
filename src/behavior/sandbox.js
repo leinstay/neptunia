@@ -77,6 +77,7 @@ import { coerceArgs, toolResultText, transportOf } from '../skills/tool-calls.js
 import { buildTools } from '../skills/tools-json.js';
 import { skillRegistry } from '../skills/registry.js';
 import { toolsBlockText } from '../llm/tool-text.js';
+import { loopRequestRoom } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
@@ -942,9 +943,12 @@ function sandboxOptions(signal) {
  * The request of a sandbox turn (buildRequest over sandboxRequestInput's `input`) and the
  * messages sent for it: the user part as one text (the text-only re-render when a picture was
  * attached), carrying a cache breakpoint when `samples` > 1 and the client caches the request
- * (samples 2..N repeat sample 1 exactly). `userText` is that text without the marker.
+ * (samples 2..N repeat sample 1 exactly). `userText` is that text without the marker. With
+ * `segments` (a skill scenario's turn, which runs on the step engine) the user message stays as
+ * buildRequest made it, its text parts tagged with their `cacheSegment` as a live turn sends them:
+ * the client places the stable and profiles markers, and the steps appended to it keep the prefix.
  */
-function sandboxMessages(input, samples) {
+function sandboxMessages(input, samples, { segments = false } = {}) {
   const config = input.view.config;
   // Her tools set: handed in (null: none), else as a live turn pins it.
   const toolset = input.toolset === undefined ? sandboxToolset({ view: input.view, selfId: input.selfId }) : input.toolset;
@@ -952,7 +956,7 @@ function sandboxMessages(input, samples) {
   const [systemMessage, userMessage] = request.messages;
   const userText = userTextOf(userMessage.content);
   const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
-  const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
+  const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : segments ? userMessage.content : userText;
   return { request, systemMessage, userMessage, userText, userContent, toolset, messages: [systemMessage, { ...userMessage, content: userContent }] };
 }
 
@@ -1252,7 +1256,7 @@ export async function answerSkillScenario({
     ...(coreTools ? { coreTools } : {}),
     ...(preTurn ? { preTurn } : {}),
   };
-  const built = sandboxMessages(requestArgs, runs);
+  const built = sandboxMessages(requestArgs, runs, { segments: true });
   const { request, systemMessage, userText } = built;
   const history = situationHistory(moment).history;
   const settings = loop?.settings ?? loopSettings(view.config);
@@ -1392,7 +1396,7 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   let finalReason = null;
   let loopStart = null;
   let stopped = false;
-  const tokenLimit = Math.max(0, (config.llm?.maxRequestTokens ?? 50000) - (config.llm?.maxOutputTokens ?? 2000));
+  const tokenLimit = loopRequestRoom(config);
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const costOf = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(toolset.tools) : 0));
   for (;;) {

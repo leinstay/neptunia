@@ -248,7 +248,7 @@
 // ./replay-loop-triggers-<time>/) gets `runs.jsonl` (one line per trigger: the trigger, its mode and
 // kind, the chat before it, the counts and the run record with every step -- calls with names and
 // statuses, held, thinkMissing, coerced, capped, requests, tokens in and out and from the cache,
-// latency) and `report.md`. With `--answers-dir` give each scenario its own directory and `--out`
+// latency) and `report.md`. Its requests carry the prompt-cache marker a live turn has (`--no-cache`: none). With `--answers-dir` give each scenario its own directory and `--out`
 // (one trigger as the two positionals), or one directory for a whole `--triggers` file. The old and the
 // new side are compared blind by tools/replay-compare.mjs.
 //
@@ -553,8 +553,8 @@ const USAGE =
   '       node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]])';
@@ -704,7 +704,7 @@ export function parseArgs(argv) {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
-    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairTransport: false, loopTriggers: false, transport: null, steps: false,
+    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairTransport: false, loopTriggers: false, transport: null, steps: false, noCache: false,
     inner: null, intention: null, review: false, hideChannels: [], hideMessages: [], answersDir: null, answersFirstOnly: false, answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
   };
   const positional = [];
@@ -732,6 +732,7 @@ export function parseArgs(argv) {
     else if (arg === '--core-tools') out.coreTools = true;
     else if (arg === '--pair-transport') out.pairTransport = true;
     else if (arg === '--loop-triggers') out.loopTriggers = true;
+    else if (arg === '--no-cache') out.noCache = true;
     else if (arg === '--transport') {
       const transport = argv[(i += 1)];
       if (transport !== 'native' && transport !== 'text') throw new CliError(USAGE);
@@ -797,6 +798,8 @@ export function parseArgs(argv) {
   }
   if (out.steps && out.showRequestTurn === null) throw new CliError(USAGE);
   const [channelId, triggerId, extra] = positional;
+  // --no-cache: the trigger runs send her requests with the prompt-cache marker a live turn has; this one sends none.
+  if (out.noCache && !(out.pairTransport || out.loopTriggers)) throw new CliError(USAGE);
   if (out.inner !== null) {
     // --intention for an intention's wake, --review only with the review (the heartbeat takes neither); --snapshot, --show-request,
     // --samples, --prompts, --out and --spend; no positionals.
@@ -3606,7 +3609,8 @@ export function loopRecord(loop) {
     held: steps.filter((step) => step.held).length,
     thinkMissing: steps.filter((step) => step.thinkMissing).length,
     coerced: steps.reduce((total, step) => total + step.coerced, 0),
-    capped: steps.reduce((total, step) => total + step.dropped, 0),
+    // Calls refused by a cap, plus a step that ended the loop on the token cap with none dropped.
+    capped: steps.reduce((total, step) => total + step.dropped + (step.dropped === 0 && step.capped ? 1 : 0), 0),
     malformed: steps.reduce((total, step) => total + step.calls.filter((c) => ['malformed-call', 'truncated-call'].includes(c.verdict?.code)).length, 0),
     ms: Number.isFinite(loop.ms) ? loop.ms : null,
     tokens: {
@@ -3905,6 +3909,7 @@ function loopLines(record, heading) {
     }
     if (step.calls.length > 0) lines.push('');
     if (step.dropped > 0) lines.push(`dropped: ${step.dropped}${step.capped ? ` (loop cap: ${step.capped})` : ''}`, '');
+    else if (step.capped) lines.push(`loop ended: cap ${step.capped}`, '');
   }
   return lines;
 }
@@ -4488,6 +4493,18 @@ export async function preTurnLookup({ config, prompts, llm, lookup, recall, disc
   trace.serverFound = Boolean(serverPart);
   const result = serverPart ? { ...(webResult ?? {}), server: serverPart } : (webResult ?? null);
   return done(result, parsed?.skills ?? null);
+}
+
+/**
+ * Whether the replay's requests go out without the prompt-cache marker: the splitter and the recall run, one sample
+ * outside a scenario file, or `--no-cache`. The trigger runs (`--pair-transport`, `--loop-triggers`) are marked like a
+ * live turn, their steps included, so the cache numbers and the cost they report are real.
+ * @param {{ noCache?: boolean, split?: boolean, recall?: boolean, samples?: number|null, pairTransport?: boolean, loopTriggers?: boolean }} args
+ * @param {boolean} hasScenarios  A `--skills` file is run.
+ */
+export function replayWithoutCache(args, hasScenarios) {
+  if (args.noCache || args.split || args.recall) return true;
+  return args.samples === 1 && !hasScenarios && !(args.pairTransport || args.loopTriggers);
 }
 
 /** Which of the turn-shaping blocks and lines a request's user text holds (the key of --pair-transport and --loop-triggers). */
@@ -5140,7 +5157,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const realLlm = openrouterKey ? createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: llmState }) : null;
     // Every request is marked as this tool's own. One sample or the splitter: no cache marker
     // (a skill scenario's runs share their request: the sandbox marks it when it has several).
-    const noCache = args.split || args.recall || (args.samples === 1 && !scenarios);
+    const noCache = replayWithoutCache(args, Boolean(scenarios));
     const llm = {
       complete: (messages, options) =>
         realLlm.complete(messages, { ...options, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, ...(noCache ? { cache: false } : {}) }),

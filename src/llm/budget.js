@@ -15,6 +15,8 @@ import { estimateTokens } from './tokens.js';
 // and `llm.maxRequestTokens`.
 const DEFAULT_SAFETY_MARGIN = 0.9;
 const DEFAULT_MAX_REQUEST_TOKENS = 50000;
+/** `llm.maxOutputTokens` when missing: config.json's value. */
+const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
 
 /**
  * @typedef {object} Section
@@ -65,6 +67,20 @@ export function requestTokenLimit(config, maxRequestTokens = config?.llm?.maxReq
   const margin = safetyMarginOf(config);
   const cap = Number.isFinite(maxRequestTokens) && maxRequestTokens > 0 ? maxRequestTokens : DEFAULT_MAX_REQUEST_TOKENS;
   return Math.floor(cap * margin);
+}
+
+/**
+ * The room a tool loop's requests have: `llm.maxRequestTokens` less `llm.maxOutputTokens` (the answer's
+ * reserve), with the same fallbacks as the rail (50000, 2000). The loop's continuation requests are measured
+ * against it (src/behavior/turn.js, the sandbox's runSkillLoop), and the first request leaves its step reserve
+ * under it (src/behavior/prompt.js#buildRequest). Pure.
+ * @param {object} config  The live config; `config.llm` may be missing.
+ * @returns {number}  A finite integer >= 0.
+ */
+export function loopRequestRoom(config) {
+  const cap = config?.llm?.maxRequestTokens ?? DEFAULT_MAX_REQUEST_TOKENS;
+  const out = config?.llm?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  return Math.max(0, Math.floor(cap - out));
 }
 
 /**

@@ -21,12 +21,12 @@ import { fillPromptTemplate } from '../src/behavior/prompt.js';
 import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
 import { zonedDay } from '../src/time.js';
 import { roleModel } from '../src/llm/roles.js';
-import { helperRequestOptions } from '../src/llm/openrouter.js';
+import { cacheTtlFor, helperRequestOptions, withCacheMarker } from '../src/llm/openrouter.js';
 import * as sandbox from '../src/behavior/sandbox.js';
 import { afterScenarioTurn, answerSkillScenario, hiddenLater, liveView, momentCutoff, momentView, personaGrantsConfig, simulateCall } from '../src/behavior/sandbox.js';
 import {
   createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, preTurnLookup, renderLoopTriggersReport, renderSkillsReport, requestBlocks, runRecord, scenarioSummary,
-  runTriggerLoops, scenarioTrigger, skillRequestEstimate, withCoreTools, withTransport,
+  replayWithoutCache, runTriggerLoops, scenarioTrigger, skillRequestEstimate, withCoreTools, withTransport,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
@@ -177,6 +177,73 @@ test('loopRequestEstimate: the expected requests -- her reply, one follow-up, on
   const scenarios = parseScenarios(JSON.stringify([{ id: 'a', channelId: HERE, author: OWNER, text: 'Γεια', grants: [], runs: 2 }]));
   assert.equal(skillRequestEstimate(scenarios), 4);
   assert.equal(skillRequestEstimate(scenarios, { perDecision: 16 }), 32);
+});
+
+test('--no-cache: the trigger runs are marked like a live turn unless it is given; no other mode takes the flag', () => {
+  assert.equal(parseArgs(['--loop-triggers', '--triggers', 't.txt']).noCache, false);
+  assert.equal(parseArgs(['--loop-triggers', '--triggers', 't.txt', '--no-cache']).noCache, true);
+  assert.equal(parseArgs(['--pair-transport', '--triggers', 't.txt', '--no-cache']).noCache, true);
+  assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--no-cache']), /usage/);
+  assert.throws(() => parseArgs(['--skills', 'a.json', '--no-cache']), /usage/);
+  const trigger = (extra = []) => replayWithoutCache(parseArgs(['--loop-triggers', '--triggers', 't.txt', ...extra]), false);
+  assert.equal(trigger(), false, 'one sample, no scenario file: still marked');
+  assert.equal(trigger(['--no-cache']), true);
+  assert.equal(replayWithoutCache(parseArgs(['--pair-transport', '--triggers', 't.txt']), false), false);
+  // The other single-sample runs stay unmarked, as before.
+  assert.equal(replayWithoutCache(parseArgs(['123456789012345678', '223456789012345678']), false), true);
+  assert.equal(replayWithoutCache(parseArgs(['123456789012345678', '223456789012345678', '--samples', '3']), false), false);
+  assert.equal(replayWithoutCache(parseArgs(['123456789012345678', '223456789012345678', '--split']), false), true);
+});
+
+test('the step engine: every request of a trigger run takes the live cache markers, the steps appended to the first messages included', async () => {
+  const config = toolConfig();
+  config.features.promptCache = true;
+  const { llm } = await loopRun(
+    [toolAnswer(`${THINK}<msg>μισό λεπτό</msg>`, [call('web.search', { query: 'τελικός 2026', goal: 'ποιος κέρδισε' }, { id: 'w1' })]), `${THINK}<msg>η Ana</msg>`],
+    { tool: () => okTool('Η Ana κέρδισε.'), config },
+  );
+  assert.equal(llm.calls.length, 2);
+  const ttl = cacheTtlFor(config, llm.calls[0].options.role, 'anthropic/claude-x', llm.calls[0].options.cache);
+  assert.equal(ttl, '1h', 'the options carry no cache: false');
+  const marked = (messages) => withCacheMarker(messages, ttl, null).map((message) => (Array.isArray(message.content) ? message.content.filter((part) => part.cache_control).length : 0));
+  const [first, second] = llm.calls.map((recorded) => marked(recorded.messages));
+  assert.ok(first[0] === 1 && first[1] >= 1, 'the system message and the stable part of the first request');
+  assert.deepEqual(second.slice(0, 2), first.slice(0, 2), 'the same prefix, the same breakpoints');
+  assert.ok(second.at(-1) >= 1, 'the latest appended message carries the tail marker');
+});
+
+test('the step engine: the first request leaves the step reserve under the loop rail whatever the output reserve is, so a call that needs a follow-up gets one', async () => {
+  const config = toolConfig();
+  // An output reserve larger than the safety margin makes the loop rail (cap less output) the lower one.
+  config.llm = { maxRequestTokens: 14000, maxOutputTokens: 4000, safetyMargin: 0.9, timeoutMs: 1000 };
+  config.skills.loop.stepReserveTokens = 2500;
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const view = liveView({ hot, store, guildId: 'g1' });
+  const here = { id: HERE, name: 'γενικά' };
+  const lines = [];
+  for (let i = 0; i < 300; i += 1) lines.push(scenarioTrigger({ text: `γραμμή ${i} ${'καλημέρα κόσμε '.repeat(10)}`, authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW - (400 - i) * 60_000 }));
+  const trigger = lines.at(-1);
+  const llm = scriptedLlm([toolAnswer(`${THINK}<msg>α</msg>`, [call('web.search', { query: 'q', goal: 'g' }, { id: 'w1' })]), `${THINK}<msg>β</msg>`]);
+  const answered = await answerSkillScenario({
+    view, situation: { history: lines, triggerId: trigger.id, kind: 'mention', mode: 'reply' }, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, searchAvailable: true,
+    onCall: async () => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill: 'web.search', args: {} }, result: { skill: 'web.search', status: 'ok', data: { text: 'R'.repeat(2600) } } }),
+    loop: { settings: loopSettings(config) },
+  });
+  const [run] = answered.runs;
+  const room = 14000 - 4000;
+  assert.ok(answered.request.tokens + answered.request.toolsTokens <= room - 2500 + 200, 'the first request leaves the reserve under the loop rail');
+  assert.equal(llm.calls.length, 2, 'the follow-up request was sent');
+  assert.deepEqual(run.loop.steps.map((step) => step.capped), [null, null]);
+});
+
+test('loopRecord: a loop that ended on the token cap counts as capped though no call was dropped', () => {
+  const answer = { messages: [], reactions: [], gif: null, skip: true, think: '' };
+  const ended = loopRecord({ ms: 5, steps: [{ step: 0, answer, held: true, calls: [], dropped: 0, capped: 'tokens' }] });
+  assert.equal(ended.capped, 1);
+  const dropped = loopRecord({ ms: 5, steps: [{ step: 0, answer, calls: [], dropped: 2, capped: 'steps' }] });
+  assert.equal(dropped.capped, 2, 'a step that dropped calls counts them, not the cap too');
+  assert.equal(loopRecord({ ms: 5, steps: [{ step: 0, answer, calls: [], dropped: 0, capped: null }] }).capped, 0);
 });
 
 test('the step engine: reads run together, a data result holds her speech, the next request appends to the first messages; a job covers the speech; a task.run is only recorded', async () => {

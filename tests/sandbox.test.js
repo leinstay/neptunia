@@ -249,6 +249,7 @@ test('answerReply: a stored moment is answered from its own messages, reactions 
 test('answerReply: a stored moment over the request budget loses its oldest messages, never the trigger', async () => {
   const hot = fakeHot();
   hot.config.llm.maxRequestTokens = 2500;
+  hot.config.llm.maxOutputTokens = 100;
   const moment = storedMoment();
   const filler = Array.from({ length: 30 }, (_, i) => ({ ...moment.history[0], id: `70000000000000${1000 + i}`, self: false, authorId: BRUNO, authorName: 'Bruno', content: `OLD_${i} ${'x'.repeat(700)}`, ts: NOW - 3_600_000 + i * 1000 }));
   const view = liveView({ hot, store: fakeStore(), guildId: 'g1' });
