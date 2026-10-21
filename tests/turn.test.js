@@ -371,7 +371,7 @@ const SWITCHES_ON = {
   imageRelook: true,
   videoDescriptions: true,
   privateLikeServer: true,
-  followUpContinuation: true,
+ 
 };
 
 function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {}) {

@@ -65,7 +65,7 @@ function scenarioConfig(grants, { agents = {} } = {}) {
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false },
     agents: { maxOpen: 3, web: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
-    features: { skills: true, followUpContinuation: true },
+    features: { skills: true },
   }, SELF, grants);
 }
 
