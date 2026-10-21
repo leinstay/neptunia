@@ -47,14 +47,16 @@
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
 
-import { buildRequest, userText as userTextOf } from './prompt.js';
+import { buildRequest, skillsInventoryText, userText as userTextOf } from './prompt.js';
 import { detectTrigger, isTaggedCall } from './mention.js';
 import { addPending, followUpSlot, popOldest } from './pending.js';
-import { snowflakeAt } from './recall.js';
+import { RECALL_DEFAULTS, recallSettings, snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
-import { pickOtherProfiles, taskInput } from './turn.js';
-import { withCalls } from '../format.js';
+import { answerOf, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
+import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
+import { diagnosticText } from './wake.js';
+import { callReason, withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../ops/grants.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
@@ -66,8 +68,13 @@ import { findGif } from '../memory/index.js';
 import { tokenIds } from '../memory/mentions.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, proposalVerdicts, proposedRows } from '../skills/discovery.js';
-import { QUIET_ON_OK, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
+import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../skills/discovery.js';
+import { outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
+import { coerceArgs, toolResultText, transportOf } from '../skills/tool-calls.js';
+import { buildTools } from '../skills/tools-json.js';
+import { skillRegistry } from '../skills/registry.js';
+import { toolsBlockText } from '../llm/tool-text.js';
+import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.js';
@@ -142,9 +149,9 @@ export const SANDBOX_OMITS = Object.freeze({
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
-  toolsGranted: 'no skill registry: no tools of hers are exposed, so <senses> names none (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
-  toolsBlock: 'no tools block: a replay sends no tools (the text transport describes them in <tools>)',
-  toolsTokens: 'no tools field in a replay request: nothing taken off the room the sections share',
+  toolsGranted: 'a request built without a tools set (`toolset`): <senses> names no tool (answerReply and a skill scenario hand one in: SKILL_SCENARIO_OMITS)',
+  toolsBlock: 'a request built without a tools set: no <tools> block (the text transport describes the tools there)',
+  toolsTokens: 'a request built without a tools set: nothing taken off the room the sections share',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
@@ -155,7 +162,7 @@ export const SANDBOX_OMITS = Object.freeze({
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
-const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'toolsGranted']);
+const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens']);
 
 /**
  * What a skill scenario's turn (`answerSkillScenario`) leaves out: SANDBOX_OMITS but the skills
@@ -662,7 +669,7 @@ function sandboxChannels(given, view, channel) {
  * side of tools/replay.mjs --pair-core-tools) hands in what a live turn's search classifier
  * and searches found before her reply (`<lookup>`) and whether the server search could run.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory`, `skillsGranted`, `queued`, `taskResult`, `coreTools`, `preTurn`
+ *   `skillsInventory`, `toolset`, `queued`, `taskResult`, `coreTools`, `preTurn`
  *   (`answerSkillScenario`'s).
  * @returns {object}
  */
@@ -681,7 +688,7 @@ export function sandboxRequestInput({
   elsewhereDestination = null,
   searchAvailable = false,
   skillsInventory = null,
-  skillsGranted = null,
+  toolset = null,
   queued = null,
   channelDirectory = null,
   taskResult = null,
@@ -765,11 +772,10 @@ export function sandboxRequestInput({
     around: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
-    // Absent but in a skill scenario: the names of her granted skills it hands in.
-    toolsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
-    // No tools in a replay request (SANDBOX_OMITS); the tool steps of a replay come with the sandbox's rewrite on the step engine.
-    toolsBlock: null,
-    toolsTokens: null,
+    // Absent but when the caller hands in her tools set (sandboxToolset): the names, the text transport's block, the native transport's tokens.
+    toolsGranted: Array.isArray(toolset?.names) && toolset.names.length > 0 ? toolset.names : null,
+    toolsBlock: typeof toolset?.block === 'string' && toolset.block ? toolset.block : null,
+    toolsTokens: Number.isFinite(toolset?.tokens) && toolset.tokens > 0 ? toolset.tokens : null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
     errands: resultText ? { tasks: '', result: resultText } : null,
     // No intention store (SANDBOX_OMITS): no <intentions> block.
@@ -783,6 +789,26 @@ export function sandboxRequestInput({
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
   };
+}
+
+/**
+ * Her tools for a sandbox request, as a live turn pins them at its start (src/behavior/turn.js): the names
+ * (src/skills/discovery.js#exposedSkillNames over the view's config and `selfId`), their definitions
+ * (src/skills/tools-json.js#buildTools over the skills layer of the view's prompts), the transport
+ * (`skills.transport`, read now) and what the request carries of them -- the `<tools>` text on the text
+ * transport, the calibrated tokens of the `tools` field on the native one. Nothing is sent here. Pure.
+ * @param {{ view: object, selfId?: string|null, registry?: Map<string, object> }} input
+ * @returns {{ transport: 'native'|'text', names: string[], tools: object[], block: string|null, tokens: number, registry: Map<string, object> }}
+ */
+export function sandboxToolset({ view, selfId = null, registry = skillRegistry() }) {
+  const config = view.config;
+  const transport = transportOf(config);
+  const names = exposedSkillNames({ config, selfId, registry });
+  const tools = buildTools(names, { registry, texts: view.prompts?.skills, fill: { drawChars: config.image?.maxPromptChars ?? 1600 } });
+  const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
+  const block = transport === 'text' && tools.length > 0 ? toolsBlockText(tools, view.prompts?.labels) : null;
+  const tokens = transport === 'native' && tools.length > 0 ? calibrator.apply(estimateTools(tools)) : 0;
+  return { transport, names, tools, block, tokens, registry };
 }
 
 /**
@@ -865,24 +891,30 @@ export async function answerReply({
   elsewhereDestination = null,
   searchAvailable = false,
   channelDirectory = null,
-  tools = null,
+  tools,
   toolChoice,
   parallelToolCalls,
 }) {
+  // `tools` undefined: her tools as a live turn sends them (sandboxToolset); null or [] none; an array as given.
+  const toolset = tools === undefined ? sandboxToolset({ view, selfId }) : null;
   const { request, messages, systemMessage, userContent } = sandboxMessages(
-    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, channelDirectory },
+    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, channelDirectory, toolset },
     samples,
   );
+  const sent = toolset ? (toolset.transport === 'native' ? toolset.tools : null) : tools;
+  const transport = toolset?.transport ?? 'native';
 
   const { answers, stopped } = await sample({
     llm,
     messages,
-    options: toolOptions(sandboxOptions(signal), { tools, toolChoice, parallelToolCalls }),
+    options: toolOptions(sandboxOptions(signal), { tools: sent, toolChoice: toolChoice ?? (toolset && sent?.length ? 'auto' : undefined), parallelToolCalls }),
     samples,
     signal,
     onUsage,
     read: (text, completion) => {
-      const shaped = shapeAnswer(parseOutput(text), view.config, gifs, request.handles);
+      const split = answerOf(completion, { transport, step: 1, registry: toolset?.registry ?? skillRegistry() });
+      const shaped = shapeAnswer(parseOutput(split.speechText), view.config, gifs, request.handles);
+      if (transport === 'text') return split.calls.length > 0 ? { ...shaped, toolCalls: split.calls } : shaped;
       return Array.isArray(completion?.toolCalls) ? { ...shaped, toolCalls: completion.toolCalls } : shaped;
     },
   });
@@ -909,12 +941,14 @@ function sandboxOptions(signal) {
  */
 function sandboxMessages(input, samples) {
   const config = input.view.config;
-  const request = buildRequest(sandboxRequestInput(input));
+  // Her tools set: handed in (null: none), else as a live turn pins it.
+  const toolset = input.toolset === undefined ? sandboxToolset({ view: input.view, selfId: input.selfId }) : input.toolset;
+  const request = buildRequest(sandboxRequestInput({ ...input, toolset }));
   const [systemMessage, userMessage] = request.messages;
   const userText = userTextOf(userMessage.content);
   const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
   const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
-  return { request, systemMessage, userMessage, userText, userContent, messages: [systemMessage, { ...userMessage, content: userContent }] };
+  return { request, systemMessage, userMessage, userText, userContent, toolset, messages: [systemMessage, { ...userMessage, content: userContent }] };
 }
 
 /**
@@ -956,14 +990,8 @@ export function handleMentions(text, handles) {
 /** The operations whose `text` argument is a message she posts (src/ops/message.js). */
 const MESSAGE_TEXT_SKILLS = Object.freeze(['message.create', 'message.edit']);
 
-/**
- * The text a `<call>` (src/llm/parse.js's) would post: its body, else -- for a message.create or
- * message.edit -- its `text` attribute (the command takes the body as `text`,
- * src/skills/executors.js#resolveCall); '' for none. Pure.
- */
+/** The text a tool call would post: the `text` argument of a message.create or message.edit; '' for none. Pure. */
 function callTextOf(call) {
-  const body = typeof call?.body === 'string' ? call.body : '';
-  if (body) return body;
   const text = call?.args?.text;
   return MESSAGE_TEXT_SKILLS.includes(call?.skill) && typeof text === 'string' ? text : '';
 }
@@ -1028,27 +1056,24 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
  * live turn hands in src/errands/service.js#budget; without it a `task.run` is refused
  * `no-budget`), then
  * mapped by its dispatch (`dispatch.toOp` must reach this very operation). The operation never
- * runs: a call that passed is recorded (`executed`: the skill and its resolved arguments) and
- * answered with a canned `ok` whose text is `resultText`. `verdict` says where it stopped
- * (`stage`: `resolve`, `gateway` or `command`; `ok`, `code`, `reason`). `followUp` is whether a
- * live turn would ask her again with that result: a refusal as
- * src/skills/executors.js#needsFollowUp says, an `ok` unless the operation is one whose success
- * is its own answer (QUIET_ON_OK: a live operation of any other kind answers with text), unless
- * the turn is `addressed` (someone's message started it: a quiet success is seen in one step too). Never
- * throws; pure but for the gateway's reads of `images` and `tasks`.
+ * runs, whatever it is -- a write, a paid effect (`draw.create` included): a call that passed is
+ * recorded (`executed`: the skill and its resolved arguments) and answered with a canned `ok` whose
+ * text is `resultText`. `verdict` says where it stopped (`stage`: `resolve`, `gateway` or `command`;
+ * `ok`, `code`, `reason`). Whether the step's speech goes out and whether a request follows is the
+ * step engine's call over the result and the skill's definition (runSkillLoop), not this function's.
+ * Never throws; pure but for the gateway's reads of `images` and `tasks`.
  * @param {{ call: { skill: string, args: object, body: string }, view: object, config: object, selfId: string,
  *   requester: { id: string, roleIds: string[] }|null, conversationId: string, now: number, images?: object,
- *   tasks?: { budget(agent: string): object|null }, getOp?: Function, resultText?: string, addressed?: boolean }} input
+ *   tasks?: { budget(agent: string): object|null }, getOp?: Function, resultText?: string }} input
  * @returns {{ verdict: { stage: string, ok: boolean, code?: string, reason?: string },
- *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } },
- *   followUp: boolean }}
+ *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } } }}
  */
-export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '', addressed = false }) {
+export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '' }) {
   const skill = String(call?.skill ?? '');
   const refused = (stage, code, reason) => {
     // The machine reason rides along, as a live call keeps it for its mark (outcomeDetail).
     const result = { skill, status: refusalStatus(code), code, ...(reason ? { reason } : {}) };
-    return { verdict: { stage, ok: false, code, reason: reason ?? '' }, executed: null, result, followUp: needsFollowUp(skill, result) };
+    return { verdict: { stage, ok: false, code, reason: reason ?? '' }, executed: null, result };
   };
   const resolved = resolveCall(call, view);
   if (!resolved.ok) return refused('resolve', resolved.code, resolved.reason);
@@ -1080,14 +1105,13 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
   }
   if (!mapped?.args || mapped.op !== resolved.skill) {
     const result = { skill, status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-    return { verdict: { stage: 'command', ok: false, code: CODE.INVALID_ARGS, reason: 'command' }, executed: null, result, followUp: needsFollowUp(skill, result) };
+    return { verdict: { stage: 'command', ok: false, code: CODE.INVALID_ARGS, reason: 'command' }, executed: null, result };
   }
   const text = typeof resultText === 'string' ? resultText : '';
   return {
     verdict: { stage: 'gateway', ok: true },
     executed: { skill: resolved.skill, args: { ...resolved.args } },
     result: { skill, status: 'ok', data: { text } },
-    followUp: !QUIET_ON_OK.includes(skill) || addressed,
   };
 }
 
@@ -1150,45 +1174,38 @@ function channelNamesOf(view, channel) {
 
 /**
  * A skill scenario: the moment's request with the persona's skills shown (`skillsInventory`,
- * scenarioInventory's rows; else as answerReply), answered `runs` times one after another. Each
- * answer is parsed with parseOutput and shaped as a real turn's; a well-formed `<call>` goes to
- * `onCall(call, { idByIndex, history, channelHandles })` (the caller's simulateCall; the request's channel handles) -- a malformed one is only
- * reported, as a live turn runs none -- and when its outcome says a live turn would ask her
- * again (`followUp`), the follow-up request is sent as a live turn sends it, with no cache
- * marker: under src/behavior/prompt.js#continuesTurn (the view's config: the scenario's, so
- * `features.followUpContinuation` decides) the turn continued (scenarioContinuation); otherwise
- * the same messages with the `<result>` block before `<task>` (src/behavior/prompt.js#skillResultBlock
- * over the outcome's `result`, led by what the first pass posted, src/behavior/turn.js#firstPass;
- * `skills.resultMaxChars` read now; withSkillResult). The run's `followUp.continuation` says
- * which. Its answer is shaped likewise, a `<call>` in it
- * ignored (`extraCall`). A failed follow-up is reported by its error name, never thrown; a
- * failed first pass throws (as answerReply). An aborted `signal` stops the runs (`stopped`).
- * Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily cap and the
- * calibration). Nothing is sent to Discord and nothing is stored.
- * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`,
- * withCalls's shape, afterScenarioTurn's): with features.callMarkers on (a missing key counts as
- * on) her lines carry their marks in both requests, as a live turn's history does. A turn of a
- * burst hands in the calls still waiting after it (`queued`, burstTurns's; sandboxRequestInput),
- * named in both requests as a live turn names them. A call's text -- its body, or the `text`
- * attribute of a message.create / message.edit -- carries what it would mention
- * (`callMentions`, handleMentions over the request's handles). Each run keeps
- * what afterScenarioTurn needs to carry the turn on (`refs`: the transcript numbers and mention
- * handles of the request each pass answered). A task-result scenario hands in its errand
- * (`taskResult`, sandboxRequestInput): both requests are the turn its end opens.
- * With `loop` (`{ settings, now? }`: src/behavior/turn.js#loopSettings's bounds, the clock) the run
- * is her tool loop instead of the one follow-up (runSkillLoop: every call of each answer to
- * `onCall`, which may resolve later, step after step; `run.loop` keeps every step); `coreTools`
- * (`{ rows, recallAvailable }`) puts the server search's senses line into
- * every request of it, as features.coreTools does live (sandboxRequestInput).
- * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
- *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`,
- *   `callMarks`, `queued`, `taskResult`, `coreTools` and `loop`.
- * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
- *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
- *     callMentions?: { mentions: string[], unknownHandles: number },
- *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, continuation?: boolean, error?: string }|null,
- *     refs: { idByIndex: Map<number, string>, handles: Map<string, string>|null, followUpIdByIndex: Map<number, string>|null } }[],
- *   stopped: boolean }>}
+ * scenarioInventory's rows; else as answerReply) and her tools sent with it as a live turn sends
+ * them (sandboxToolset over the scenario's config: the `tools` field on the native transport, the
+ * `<tools>` block on the text one), answered `runs` times one after another. Each run is a turn on
+ * the step engine (runSkillLoop): her answer is split into speech and tool calls (turn.js#answerOf),
+ * the speech parsed and shaped as a real turn's, and every call goes to
+ * `onCall(call, { idByIndex, history, channelHandles, timeoutMs })` (the caller's simulateCall: the
+ * real resolution and gateway, nothing real run), reads together, every other call alone in her
+ * order; the speech is kept only when every call worked and needs no reading, else held; a call that
+ * left something to read (a data result, a refusal) is followed by one more request that appends her
+ * answer, one result per call and a note to the messages of the first (nothing rebuilt), up to
+ * `loop.settings.maxSteps`, the last of them final. A failed follow-up ends the turn with its error
+ * name, never thrown; a failed first request throws (as answerReply). An aborted `signal` stops the
+ * runs (`stopped`). Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily
+ * cap and the calibration). Nothing is sent to Discord and nothing is stored.
+ * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`, withCalls's
+ * shape, afterScenarioTurn's): with features.callMarkers on her lines carry their marks in the
+ * request, as a live turn's history does. A turn of a burst hands in the calls still waiting after
+ * it (`queued`, burstTurns's; sandboxRequestInput). A message's text (`text` of a message.create or
+ * message.edit) carries what it would mention (`callMentions`, handleMentions over the request's
+ * handles). A task-result scenario hands in its errand (`taskResult`, sandboxRequestInput).
+ * `loop` (`{ settings?, now? }`: src/behavior/turn.js#loopSettings's bounds, the clock; the bounds
+ * default to the config's) sets the bounds and the clock. `coreTools` (`{ recallAvailable, prefetch? }`)
+ * puts the server search's senses line and the memory prefetch into the request, as
+ * features.coreTools does live (sandboxRequestInput).
+ * What a run keeps: `run.loop = { steps: [{ step, answer, calls: [{ call, outcome, ms }], dropped,
+ * capped, held, thinkMissing, coerced, usage, ms, requestChars, requests?, error? }], ms }` (step 0 the
+ * reply), and for the single-call fields `call` / `callError` / `outcome` (the reply's first call),
+ * `extraCalls` (the reply's calls past the cap) and `followUp` (the first follow-up step).
+ * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `onCall`,
+ *   `callMarks`, `queued`, `taskResult`, `coreTools`, `loop`, `registry` (default: the live one).
+ * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null, toolsTokens: number, tools: number },
+ *   runs: object[], stopped: boolean }>}
  */
 export async function answerSkillScenario({
   view,
@@ -1208,7 +1225,6 @@ export async function answerSkillScenario({
   elsewhereDestination = null,
   searchAvailable = false,
   skillsInventory = null,
-  skillsGranted = null,
   onCall,
   callMarks = null,
   queued = null,
@@ -1217,19 +1233,22 @@ export async function answerSkillScenario({
   coreTools = null,
   loop = null,
   preTurn = null,
+  registry = skillRegistry(),
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
   const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
+  const toolset = sandboxToolset({ view, selfId, registry });
   const requestArgs = {
-    view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued, channelDirectory, taskResult,
+    view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, toolset, queued, channelDirectory, taskResult,
     ...(coreTools ? { coreTools } : {}),
     ...(preTurn ? { preTurn } : {}),
   };
   const built = sandboxMessages(requestArgs, runs);
-  const { request, messages, systemMessage, userMessage, userText } = built;
+  const { request, systemMessage, userText } = built;
   const history = situationHistory(moment).history;
-  const parseText = (text) => parseOutput(text);
+  const settings = loop?.settings ?? loopSettings(view.config);
+  const clock = typeof loop?.now === 'function' ? loop.now : Date.now;
   const out = [];
   let stopped = false;
   for (let i = 0; i < sampleCount(runs); i += 1) {
@@ -1237,11 +1256,10 @@ export async function answerSkillScenario({
       stopped = true;
       break;
     }
-    const clock = typeof loop?.now === 'function' ? loop.now : Date.now;
     const sentAt = clock();
     let completion;
     try {
-      completion = await llm.complete(messages, sandboxOptions(signal));
+      completion = await llm.complete(built.messages, stepOptions(signal, toolset));
     } catch (err) {
       if (signal?.aborted) {
         stopped = true;
@@ -1250,28 +1268,17 @@ export async function answerSkillScenario({
       throw err;
     }
     const firstMs = clock() - sentAt;
-    const parsed = parseText(completion.text);
-    const answer = shapeAnswer(parsed, view.config, gifs, request.handles);
+    const read = readStep(completion, { toolset, step: 1, config: view.config, gifs, handles: request.handles, registry });
     const run = {
-      answer, call: null, callError: null, extraCalls: 0, usage: completion.usage ?? null, outcome: null, followUp: null,
+      answer: read.answer, call: null, callError: null, extraCalls: 0, usage: completion.usage ?? null, outcome: null, followUp: null,
       refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, channelHandles: request.channelHandles ?? null, followUpIdByIndex: null },
     };
-    // A call's text (its body, or a message's `text=` attribute) is rendered like a <msg> of the turn.
-    const callMentions = run.call ? handleMentions(callTextOf(run.call), request.handles) : {};
-    if (callMentions.mentions) run.callMentions = callMentions;
     out.push(run);
-    if (loop) {
-      // The tool loop (features.coreTools): every call of each answer, step after step (runSkillLoop).
-      const looped = await runSkillLoop({
-        run, parsed, sentAt, firstMs, built, requestArgs, history, earlier, view, gifs, llm, signal, onCall, loop, parseText, clock,
-      });
-      if (looped.stopped) {
-        stopped = true;
-        break;
-      }
-      continue;
+    const looped = await runSkillLoop({ run, read, sentAt, firstMs, built, requestArgs, history, view, gifs, llm, signal, onCall, settings, clock, toolset, registry });
+    if (looped.stopped) {
+      stopped = true;
+      break;
     }
-    // Her calls are tool calls now, which a replay request does not carry yet: no call, no follow-up here.
   }
   return {
     request: {
@@ -1279,6 +1286,8 @@ export async function answerSkillScenario({
       user: userText,
       tokens: Number.isFinite(request.stats?.used) ? request.stats.used : null,
       limit: Number.isFinite(request.stats?.limit) ? request.stats.limit : null,
+      toolsTokens: toolset.tokens,
+      tools: toolset.tools.length,
     },
     runs: out,
     stopped,
@@ -1295,70 +1304,221 @@ function requestChars(messages) {
   return messages.reduce((total, message) => total + textOf(message.content).length, 0);
 }
 
+/** The llm options of one request of a skill scenario's turn: the sandbox's own, and her tools on the native transport. */
+function stepOptions(signal, toolset) {
+  const base = sandboxOptions(signal);
+  return toolset.transport === 'native' && toolset.tools.length > 0 ? { ...base, tools: toolset.tools, toolChoice: 'auto' } : base;
+}
+
 /**
- * The tool loop of one skill-scenario run (answerSkillScenario with `loop`), as a live turn's
- * toolLoop runs it (src/behavior/turn.js, features.coreTools): every well-formed call of her answer
- * (her tool calls, at most `loop.settings.maxCallsPerStep`, the rest dropped and counted) goes to
- * `onCall(call, { idByIndex, history, channelHandles, timeoutMs })` at once -- `timeoutMs` what is
- * left of `timeBudgetMs` (2 s at least) or `skills.callTimeoutMs`, the smaller --, each call's mark
- * put on the transcript in order (callMarkOf); while a result needs her to see it (the outcome's
- * `followUp`), one more request: with continuesTurn the turn continued over her lines of every
- * step so far (ids `continuation-<n>`, a second apart) with every mark, the task
- * `labels.task.continueTools` -- `continueToolsLast` once `maxSteps` follow-ups or the time budget
- * from the first call are spent --, and every result she has had so far in its own `<result>`
- * block, in call order (skillResultBlock, withSkillResult); without it the reply request again with
- * the result blocks, always her last. A call in her last answer is dropped (`capped`: `steps`,
- * `time` or `no-continuation`). Her answers are shaped as the reply's. What it did is kept on the
- * run: `run.loop = { steps: [{ step, answer, calls: [{ call, outcome, ms }], dropped, capped,
- * usage, ms, requestChars, continuation?, error? }], ms }` (step 0 the reply; `ms` from the first
- * request to the end), and for the single-call fields `outcome` (the first call's), `extraCalls`
- * (the reply's dropped calls) and `followUp` (the first follow-up step). A failed follow-up ends
- * the loop with its error name; an aborted `signal` resolves `{ stopped: true }`. The clock is
- * `loop.now`. Nothing is sent to Discord or stored.
+ * One completion read as a step of the turn: split into speech and calls (turn.js#answerOf, the ids
+ * `s<step>c<n>`), the speech parsed and shaped as a real turn's (`answer`), the parser's `diagnostics`
+ * and whether her text began with her thinking (`thinkMissing`).
  */
-async function runSkillLoop({ run, parsed, sentAt, firstMs, built, requestArgs, history, earlier, view, gifs, llm, signal, onCall, loop, parseText, clock }) {
-  const { request, systemMessage, userMessage, userText } = built;
-  const settings = loop.settings;
+function readStep(completion, { toolset, step, config, gifs, handles, registry }) {
+  const split = answerOf(completion, { transport: toolset.transport, step, registry });
+  const parsed = parseOutput(split.speechText);
+  return { ...split, parsed, answer: shapeAnswer(parsed, config, gifs, handles), thinkMissing: thinkMissing(split.rawText), completion };
+}
+
+/** The tokens a provider usage reports, with the cache reads and writes when it gives them. */
+function usageNumbers(usage) {
+  const details = usage?.prompt_tokens_details ?? {};
+  return {
+    prompt: Number(usage?.prompt_tokens) || 0,
+    completion: Number(usage?.completion_tokens) || 0,
+    cacheRead: Number(details.cached_tokens ?? usage?.cache_read_input_tokens) || 0,
+    cacheWrite: Number(details.cache_write_tokens ?? usage?.cache_creation_input_tokens) || 0,
+  };
+}
+
+/** The most characters of a result's data her next request carries (src/behavior/turn.js#resultCharsFor). */
+function resultCharsFor(skill, config) {
+  if (skill === 'memory.search' || skill === 'conversation.read') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
+  return config?.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
+}
+
+/** The reason a call of a step is refused before it is planned: `{ code, reason }` or null (src/behavior/turn.js#preRefusalOf). */
+function preRefusal(record, { isFinal, room, maxCallsPerStep, finalReason }) {
+  if (record.problem) return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
+  const capped = (what) => ({ code: CODE.LOOP_CAP, reason: what });
+  if (isFinal) return capped(finalReason);
+  if (!room.run) return capped(room.capReason ?? 'time');
+  if (record.index >= maxCallsPerStep) return capped('extra-call');
+  return null;
+}
+
+/**
+ * The turn of one skill-scenario run on the step engine, as a live turn's runSteps runs it
+ * (src/behavior/turn.js; the pure parts are src/behavior/tool-step.js): the first answer `read` is
+ * in hand; each of its calls is refused before it runs (unreadable, unknown, cut off, past the
+ * step's cap or in the final answer: a `loop-cap` result), repaired (coerceArgs) and given to
+ * `onCall`; reads run together, every other call alone in her order (segments). The speech of the
+ * step stands only when every call worked and its definition's result is an effect or an accepted
+ * errand (stepVerdict); otherwise it is held (`held`) and never posted later. A step that left
+ * something to read is followed, with room left (roomLeft, `settings`), by one request: the first
+ * messages untouched, her whole text and her calls, one result per call in call order, a note (the
+ * held-speech notice, the last-step notice, the parser's diagnostics) -- appendStep over both
+ * transports. The last request allowed is final; its calls get `loop-cap` results, its speech is
+ * held. A request over the room (llm.maxRequestTokens less the output reserve, the tools counted) cuts
+ * the results to fit and is final. What it did is kept on the run (see answerSkillScenario). Resolves
+ * `{ stopped }`; the clock is `clock`.
+ */
+async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requestArgs, history, view, gifs, llm, signal, onCall, settings, clock, toolset, registry }) {
+  const { request } = built;
   const config = view.config;
   const labels = view.prompts?.labels ?? {};
-  const maxChars = config.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
-  const channel = requestArgs.channel;
-  const channelId = String(channel.id);
-  const nameOf = channelNamesOf(view, channel);
-  const calls = [];
-  const first = {
-    step: 0, answer: run.answer, calls: [], dropped: 0, capped: null, usage: run.usage, ms: firstMs,
-    requestChars: requestChars(built.messages), idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null,
-  };
+  const transport = toolset.transport;
+  const definitionOf = (name) => registry.get(name) ?? null;
+  const isRead = (plan) => !plan.refusal && definitionOf(plan.call.skill)?.kind === 'read';
+  const stepRecord = (n, read, extra = {}) => ({
+    step: n, answer: read.answer, calls: [], dropped: 0, capped: null, held: false, thinkMissing: read.thinkMissing, coerced: 0, usage: read.completion?.usage ?? null, ms: 0, requestChars: 0,
+    idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null, continuation: true, ...extra,
+  });
+  const first = stepRecord(0, firstRead, { usage: run.usage, ms: firstMs, requestChars: requestChars(built.messages), continuation: undefined });
   run.loop = { steps: [first], ms: 0 };
-  // Her lines of the turn so far (every step), a second apart on the scenario's clock, and the marks of her calls.
-  const own = [];
-  const marks = [];
-  let t = requestArgs.at;
-  const addOwn = (answer) => {
-    for (const message of answer?.messages ?? []) {
-      t += CONTINUATION_STEP_MS;
-      own.push({ id: continuationLineId(own.length), channelId, ts: t, authorId: String(requestArgs.selfId), content: message.text });
-    }
-  };
-  addOwn(run.answer);
-  let pending = typeof onCall === 'function' ? calls.slice(0, settings.maxCallsPerStep) : [];
-  first.dropped = calls.length - pending.length;
-  run.extraCalls = first.dropped;
-  const seen = [];
+  let messages = built.messages;
+  let read = firstRead;
   let current = first;
+  let step = 0;
+  let finalReason = null;
   let loopStart = null;
   let stopped = false;
+  const tokenLimit = Math.max(0, (config.llm?.maxRequestTokens ?? 50000) - (config.llm?.maxOutputTokens ?? 2000));
+  const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
+  const costOf = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(toolset.tools) : 0));
+  for (;;) {
+    const records = read.calls;
+    const speechItems = read.answer.messages.length + read.answer.reactions.length + (read.answer.gif ? 1 : 0);
+    if (records.length === 0) break;
+    if (typeof onCall !== 'function') break;
+    const isFinal = finalReason !== null;
+    loopStart ??= clock();
+    const room = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: clock() - loopStart, timeBudgetMs: settings.timeBudgetMs });
+    // 1. Her calls: refused before they run, repaired, made.
+    const plans = records.map((record) => {
+      const refusal = preRefusal(record, { isFinal, room, maxCallsPerStep: settings.maxCallsPerStep, finalReason });
+      const coercion = refusal ? { args: record.args, coerced: [] } : coerceArgs(record.args, definitionOf(record.name)?.argsSchema);
+      return { record, refusal, coerced: coercion.coerced, call: { skill: record.name, args: coercion.args, body: '', toolCallId: record.id, index: record.index } };
+    });
+    current.coerced = plans.reduce((total, plan) => total + plan.coerced.length, 0);
+    current.dropped = plans.filter((plan) => plan.refusal?.code === CODE.LOOP_CAP).length;
+    current.capped = plans.find((plan) => plan.refusal?.code === CODE.LOOP_CAP)?.refusal.reason ?? null;
+    const left = settings.timeBudgetMs - (clock() - loopStart);
+    const timeoutMs = Math.min(config.skills?.callTimeoutMs ?? CALL_TIMEOUT_MS, Math.max(LOOP_MIN_CALL_MS, left));
+    const refs = { idByIndex: current.idByIndex, history: current.history, channelHandles: current.channelHandles, timeoutMs };
+    const outcomes = new Array(plans.length);
+    let at = 0;
+    for (const segment of segments(plans, isRead)) {
+      const made = await Promise.all(
+        segment.calls.map(async (plan) => {
+          const { skill } = plan.call;
+          if (plan.refusal) {
+            const result = { skill, status: refusalStatus(plan.refusal.code), code: plan.refusal.code, ...(plan.refusal.reason ? { reason: plan.refusal.reason } : {}) };
+            return { call: plan.call, outcome: { verdict: { stage: 'plan', ok: false, code: plan.refusal.code, reason: plan.refusal.reason ?? '' }, executed: null, result }, ms: 0 };
+          }
+          const started = clock();
+          let outcome;
+          try {
+            outcome = await onCall(plan.call, refs);
+          } catch {
+            outcome = null;
+          }
+          if (!outcome?.result) outcome = { verdict: { stage: 'command', ok: false, code: CODE.ERROR, reason: '' }, executed: null, result: { skill, status: 'failed', code: CODE.ERROR } };
+          return { call: plan.call, outcome, ms: clock() - started };
+        }),
+      );
+      made.forEach((item, i) => {
+        outcomes[at + i] = item;
+      });
+      at += segment.calls.length;
+    }
+    current.calls = outcomes;
+    if (signal?.aborted) {
+      stopped = true;
+      break;
+    }
+    const results = outcomes.map(({ outcome }) => outcome.result);
+
+    // 2. Her speech: out after the calls when every one worked and needs no reading, else held (a final answer's with calls always).
+    const verdict = stepVerdict(results.map((result) => ({ name: result.skill, result })), { definitionOf });
+    const speak = isFinal ? false : verdict.speak;
+    current.held = !speak && speechItems > 0;
+
+    // 3. What follows: a request when something is left to read and room is left.
+    const after = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: clock() - loopStart, timeBudgetMs: settings.timeBudgetMs });
+    const stoppedAll = results.some((result) => result.code === CODE.SKILLS_OFF);
+    if (isFinal || stoppedAll || !verdict.fresh || after.next === 'none') break;
+
+    // 4. The request: the messages so far, her answer, a result for every call, the note.
+    const detailOf = (result) => callReason({ detail: outcomeDetail(result, { argNames: definitionOf(result.skill)?.dispatch?.options?.map((option) => option.name) ?? null }) }, labels);
+    const texts = results.map((result, i) =>
+      toolResultText(result, labels, { maxChars: resultCharsFor(result.skill, config), coerced: plans[i].coerced, rowsText: skillsInventoryText, reasonOf: detailOf }),
+    );
+    const diagnostics = (read.parsed.diagnostics ?? []).map((diagnostic) => diagnosticText(diagnostic, labels)).filter(Boolean).map((line) => `- ${line}`);
+    const build = (last, list) =>
+      appendStep({
+        transport,
+        messages,
+        rawText: read.rawText,
+        calls: records,
+        results: list.map((text, i) => ({ text, status: results[i]?.status })),
+        note: stepNote({ labels, held: current.held, last, diagnostics }),
+      });
+    let last = after.next === 'final';
+    let reason = last ? (step >= settings.maxSteps - 1 ? 'steps' : 'time') : null;
+    let sent = build(last, texts);
+    if (costOf(sent) > tokenLimit) {
+      const excessChars = Math.ceil(((costOf(sent) - tokenLimit) * 3.5) / Math.max(0.1, calibrator.ratio));
+      last = true;
+      reason = 'tokens';
+      sent = build(true, cutToFit(texts, excessChars));
+      if (costOf(sent) > tokenLimit) {
+        current.capped = 'tokens';
+        break;
+      }
+    }
+    const next = stepRecord(step + 1, { answer: null, thinkMissing: false });
+    next.requestChars = requestChars(sent);
+    run.loop.steps.push(next);
+    const started = clock();
+    let completion;
+    try {
+      completion = await llm.complete(sent, stepOptions(signal, toolset));
+    } catch (err) {
+      next.ms = clock() - started;
+      if (signal?.aborted) {
+        stopped = true;
+        break;
+      }
+      next.error = String(err?.name ?? 'Error');
+      break;
+    }
+    next.ms = clock() - started;
+    step += 1;
+    messages = sent;
+    if (last) finalReason = reason;
+    read = readStep(completion, { toolset, step: step + 1, config, gifs, handles: request.handles, registry });
+    next.answer = read.answer;
+    next.thinkMissing = read.thinkMissing;
+    next.usage = completion.usage ?? null;
+    current = next;
+  }
   run.loop.ms = clock() - sentAt;
-  run.outcome = first.calls[0]?.outcome ?? null;
+  // The single-call fields of the run: the reply's first call, its extras, the first follow-up step.
+  const replyCalls = first.calls;
+  const firstCall = replyCalls[0] ?? null;
+  const recordFirst = firstRead.calls[0] ?? null;
+  run.call = firstCall && !firstCall.outcome.verdict?.stage?.startsWith('plan') ? firstCall.call : null;
+  run.callError = recordFirst && !run.call ? (firstRead.calls.find((record) => record.problem)?.problem ?? null) : null;
+  run.extraCalls = first.dropped;
+  run.outcome = firstCall?.outcome ?? null;
+  const callText = run.call ? handleMentions(callTextOf(run.call), request.handles) : {};
+  if (callText.mentions) run.callMentions = callText;
   const followed = run.loop.steps[1];
   if (followed) {
     run.refs.followUpIdByIndex = followed.idByIndex;
-    run.followUp = followed.error
-      ? { error: followed.error }
-      : followed.answer
-        ? { answer: followed.answer, extraCall: followed.dropped > 0, usage: followed.usage, continuation: followed.continuation === true }
-        : null;
+    run.followUp = followed.error ? { error: followed.error } : followed.answer ? { answer: followed.answer, extraCall: followed.dropped > 0 || (followed.calls.length > 0), usage: followed.usage, continuation: true } : null;
   }
   return { stopped };
 }
@@ -1391,9 +1551,8 @@ function withOwnReaction(line, emoji) {
  * `transcript` (the step's lines, its incoming messages last) and `callMarks` (the earlier steps'
  * calls, withCalls's shape) with what the persona did in `run` (answerSkillScenario's, answered at
  * `at` in `channel`). Her messages of both passes become her lines (src/behavior/turn.js#continuationHistory:
- * `selfName` as author), timed as scenarioContinuation times them (a second apart after `at`; the
- * call a second after her last first-pass message; the follow-up's request a second after the
- * call): the text with its `@handles` rendered as a live post renders them
+ * `selfName` as author), a second apart after `at` (a step's posted speech, then its calls, step after
+ * step; speech a step held is not in the chat): the text with its `@handles` rendered as a live post renders them
  * (src/behavior/handles.js#resolveHandles over the request's handles; `mentionedUserIds` the
  * members it would mention), the reply target her `reply="#n"` names in the request that pass
  * answered, the link to the step's trigger (`triggerId`, as linkTriggers puts it on); a drawing
@@ -1434,14 +1593,12 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     const channelIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
     return { content, mentionedUserIds: resolved.userIds, ...(channelIds.length > 0 ? { mentionedChannelIds: channelIds } : {}) };
   };
-  // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`; `aliases`:
-  // the continued request's ids of her first-pass lines -> their ids here.
-  const pass = (answer, idByIndex, handles, start, aliases = new Map()) => {
+  // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`.
+  const pass = (answer, idByIndex, handles, start) => {
     if (!answer) return;
     const target = (n) => {
       const listed = n !== null && n !== undefined && idByIndex instanceof Map ? (idByIndex.get(n) ?? null) : null;
-      const id = aliases.get(listed) ?? listed;
-      return known(id) ? id : null;
+      return known(listed) ? listed : null;
     };
     const messages = Array.isArray(answer.messages) ? answer.messages : [];
     messages.forEach((message, i) => {
@@ -1467,43 +1624,30 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     if (executed?.skill === 'message.react.add' && here) react(args.message, typeof args.emoji === 'string' ? args.emoji.trim() : '');
     return callMarkOf({ outcome, channelId, at: callAt, postedId, posted: own.map((line) => line.id), config: config ?? {} });
   };
-  if (Array.isArray(run?.loop?.steps)) {
-    // The tool loop (runSkillLoop): every step's messages, then its calls' effects and marks, in order;
-    // a continued step's `reply="#n"` names her earlier lines by their `continuation-<n>` ids.
-    const aliases = new Map();
-    const marks = [];
-    let said = 0;
-    let cursor = at;
-    for (const step of run.loop.steps) {
-      if (step.answer) {
-        const before = own.length;
-        pass(step.answer, step.idByIndex ?? refs.idByIndex, refs.handles, cursor, aliases);
-        for (const line of own.slice(before, before + (step.answer.messages?.length ?? 0))) aliases.set(continuationLineId((said += 1) - 1), line.id);
-        cursor += ((step.answer.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
-      }
-      for (const { outcome } of step.calls ?? []) {
-        if (!outcome?.result) continue;
-        cursor += CONTINUATION_STEP_MS;
-        marks.push(callEffects(outcome, cursor));
-      }
+  // The turn's steps: every step's posted speech (a held step's is not in the chat), then its calls' effects and marks,
+  // in order. Her `#n` in a later step names the first request's lines: the request is never rebuilt.
+  const marks = [];
+  let cursor = at;
+  // A run without its loop record (a single reply, a call and a follow-up) is read as the steps it was.
+  const steps = Array.isArray(run?.loop?.steps)
+    ? run.loop.steps
+    : [
+        { answer: run?.answer, calls: run?.call && run?.outcome ? [{ outcome: run.outcome }] : [], idByIndex: refs.idByIndex },
+        ...(run?.followUp?.answer ? [{ answer: run.followUp.answer, calls: [], idByIndex: refs.followUpIdByIndex ?? refs.idByIndex }] : []),
+      ];
+  for (const step of steps) {
+    if (step.answer && step.held !== true) {
+      pass(step.answer, step.idByIndex ?? refs.idByIndex, refs.handles, cursor);
+      cursor += ((step.answer.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
     }
-    return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, ...marks], posted: own.map((line) => line.id) };
+    for (const { outcome } of step.calls ?? []) {
+      if (!outcome?.result) continue;
+      cursor += CONTINUATION_STEP_MS;
+      marks.push(callEffects(outcome, cursor));
+    }
   }
-  pass(run?.answer, refs.idByIndex, refs.handles, at);
-  const outcome = run?.call ? run.outcome : null;
-  if (!outcome?.result) {
-    return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks], posted: own.map((line) => line.id) };
-  }
-  const callAt = at + ((run.answer?.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
-  const firstCount = run.answer?.messages?.length ?? 0;
-  const firstOwn = own.slice(0, firstCount);
-  const effects = callEffects(outcome, callAt);
-  if (run.followUp?.answer) {
-    const firstLines = new Map(firstOwn.map((line, i) => [continuationLineId(i), line.id]));
-    pass(run.followUp.answer, refs.followUpIdByIndex ?? refs.idByIndex, refs.handles, callAt + CONTINUATION_STEP_MS, firstLines);
-  }
-  const mark = { ...effects, posted: own.map((line) => line.id) };
-  return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, mark], posted: own.map((line) => line.id) };
+  const posted = own.map((line) => line.id);
+  return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, ...marks.map((mark) => ({ ...mark, posted }))], posted };
 }
 
 /**
