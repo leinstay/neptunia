@@ -214,9 +214,9 @@ test('the step engine: every request of a trigger run takes the live cache marke
   assert.ok(second.at(-1) >= 1, 'the latest appended message carries the tail marker');
 });
 
-test('the step engine: the first request leaves the step reserve under the loop rail whatever the output reserve is, so a call that needs a follow-up gets one', async () => {
+test('the step engine: the first request leaves the step reserve under the prompt rail (cap x margin), whatever the output reserve is, so a call that needs a follow-up gets one', async () => {
   const config = toolConfig();
-  // An output reserve larger than the safety margin makes the loop rail (cap less output) the lower one.
+  // The output budget does not come off the prompt rail.
   config.llm = { maxRequestTokens: 14000, maxOutputTokens: 4000, safetyMargin: 0.9, timeoutMs: 1000 };
   config.skills.loop.stepReserveTokens = 2500;
   const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
@@ -233,8 +233,38 @@ test('the step engine: the first request leaves the step reserve under the loop 
     loop: { settings: loopSettings(config) },
   });
   const [run] = answered.runs;
-  const room = 14000 - 4000;
-  assert.ok(answered.request.tokens + answered.request.toolsTokens <= room - 2500 + 200, 'the first request leaves the reserve under the loop rail');
+  const room = Math.floor(14000 * 0.9);
+  const used = answered.request.tokens + answered.request.toolsTokens;
+  assert.ok(used <= room - 2500 + 200, 'the first request leaves the reserve under the prompt rail');
+  assert.ok(used > room - 2500 - 1500, 'and uses the room: the output reserve is not taken off it');
+  assert.equal(llm.calls.length, 2, 'the follow-up request was sent');
+  assert.deepEqual(run.loop.steps.map((step) => step.capped), [null, null]);
+});
+
+test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 output) the chat keeps its lines and the request fits the prompt rail less tools and reserve', async () => {
+  const config = toolConfig();
+  config.llm = { maxRequestTokens: 50000, maxOutputTokens: 10000, safetyMargin: 0.9, timeoutMs: 1000 };
+  config.skills.loop.stepReserveTokens = 6000;
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const view = liveView({ hot, store, guildId: 'g1' });
+  const here = { id: HERE, name: 'γενικά' };
+  const lines = [];
+  for (let i = 0; i < 1500; i += 1) lines.push(scenarioTrigger({ text: `γραμμή ${i} ${'καλημέρα κόσμε '.repeat(10)}`, authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW - (1600 - i) * 60_000 }));
+  const trigger = lines.at(-1);
+  const llm = scriptedLlm([toolAnswer(`${THINK}<msg>α</msg>`, [call('web.search', { query: 'q', goal: 'g' }, { id: 'w1' })]), `${THINK}<msg>β</msg>`]);
+  const answered = await answerSkillScenario({
+    view, situation: { history: lines, triggerId: trigger.id, kind: 'mention', mode: 'reply' }, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, searchAvailable: true,
+    onCall: async () => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill: 'web.search', args: {} }, result: { skill: 'web.search', status: 'ok', data: { text: 'R'.repeat(2600) } } }),
+    loop: { settings: loopSettings(config) },
+  });
+  const [run] = answered.runs;
+  const room = Math.floor(50000 * 0.9);
+  const used = answered.request.tokens + answered.request.toolsTokens;
+  assert.ok(used <= room - 6000 + 200, 'the first request leaves the reserve under the prompt rail');
+  assert.ok(used > room - 6000 - 2000, 'and uses the room: the output reserve is not taken off it');
+  const chatLines = llm.calls[0].messages.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n').match(/γραμμή \d+/g) ?? [];
+  assert.ok(chatLines.length >= 400, `the chat keeps its lines, got ${chatLines.length}`);
   assert.equal(llm.calls.length, 2, 'the follow-up request was sent');
   assert.deepEqual(run.loop.steps.map((step) => step.capped), [null, null]);
 });

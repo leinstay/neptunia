@@ -77,7 +77,7 @@ import { coerceArgs, toolResultText, transportOf } from '../skills/tool-calls.js
 import { buildTools } from '../skills/tools-json.js';
 import { skillRegistry } from '../skills/registry.js';
 import { toolsBlockText } from '../llm/tool-text.js';
-import { loopRequestRoom } from '../llm/budget.js';
+import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
@@ -1372,7 +1372,7 @@ function preRefusal(record, { isFinal, room, maxCallsPerStep, finalReason }) {
  * messages untouched, her whole text and her calls, one result per call in call order, a note (the
  * held-speech notice, the last-step notice, the parser's diagnostics) -- appendStep over both
  * transports. The last request allowed is final; its calls get `loop-cap` results, its speech is
- * held. A request over the room (llm.maxRequestTokens less the output reserve, the tools counted) cuts
+ * held. A request over the room (the prompt rail, llm.maxRequestTokens x llm.safetyMargin, the tools counted) cuts
  * the results to fit and is final. What it did is kept on the run (see answerSkillScenario). Resolves
  * `{ stopped }`; the clock is `clock`.
  */
@@ -1396,7 +1396,7 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   let finalReason = null;
   let loopStart = null;
   let stopped = false;
-  const tokenLimit = loopRequestRoom(config);
+  const tokenLimit = requestTokenLimit(config);
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const costOf = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(toolset.tools) : 0));
   for (;;) {

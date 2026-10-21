@@ -3,7 +3,7 @@
 // price of one item).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetDrops, fitSections, loopRequestRoom, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.js';
+import { budgetDrops, fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.js';
 import { createLimits } from '../src/llm/limits.js';
 
 // Every item costs its own string length in "tokens" -- makes the arithmetic
@@ -215,10 +215,4 @@ test('fitSections: a collector gets one budget-drop per section that lost items,
   const again = createLimits();
   budgetDrops(fitSections(sections, 7, cost).stats, again);
   assert.deepEqual(again.list(), limits.list());
-});
-
-test('loopRequestRoom: the request cap less the output reserve, with the rail\'s fallbacks', () => {
-  assert.equal(loopRequestRoom({ llm: { maxRequestTokens: 40000, maxOutputTokens: 10000 } }), 30000);
-  assert.equal(loopRequestRoom({}), 48000);
-  assert.equal(loopRequestRoom({ llm: { maxRequestTokens: 1000, maxOutputTokens: 5000 } }), 0);
 });
