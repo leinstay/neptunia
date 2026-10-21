@@ -2973,20 +2973,6 @@ test('renderSenses: an older labels set without senses.draw shows no draw line',
   assert.equal(senses[senses.length - 1], labels.senses.files);
 });
 
-test('buildRequest: a drawFailed turn fills triggers.drawFailed with the reason label', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'drawFailed', drawReason: 'moderation' }));
-  const user = contentText(request.messages[1].content);
-  assert.ok(user.includes(`they ${fill(labels.triggers.drawFailed, { reason: labels.draw.reasons.moderation })}.`));
-  assert.ok(!user.includes('{reason}'));
-});
-
-test('buildRequest: a drawFailed reason without a label is passed through as is', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'drawFailed', drawReason: 'quux' }));
-  assert.ok(contentText(request.messages[1].content).includes(fill(labels.triggers.drawFailed, { reason: 'quux' })));
-});
-
 // --- private chat (privateChat) ------------------------------------------------
 
 function privateScene(overrides = {}) {

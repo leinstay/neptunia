@@ -64,13 +64,12 @@ test('prefetchLanes: the trigger verbatim; with its replied-to line speaker by s
   assert.ok(!tight.some((lane) => lane.kind === 'recent'));
 });
 
-test('prefetchLanes: never for her own line, an errand result, a failed drawing, a diary post or a trivial trigger', () => {
+test('prefetchLanes: never for her own line, an errand result, a diary post or a trivial trigger', () => {
   const t = msg('t', 'θυμάσαι το δάσος;');
   assert.equal(prefetchLanes({ trigger: null, settings: SETTINGS }).skip, 'no-trigger');
   assert.equal(prefetchLanes({ trigger: { ...t, self: true }, settings: SETTINGS }).skip, 'no-trigger');
   assert.equal(prefetchLanes({ trigger: t, selfId: 'u1', settings: SETTINGS }).skip, 'no-trigger');
   assert.equal(prefetchLanes({ trigger: t, triggerKind: 'task', settings: SETTINGS }).skip, 'not-external');
-  assert.equal(prefetchLanes({ trigger: t, triggerKind: 'drawFailed', settings: SETTINGS }).skip, 'not-external');
   assert.equal(prefetchLanes({ trigger: t, mode: 'diary', settings: SETTINGS }).skip, 'not-external');
   assert.equal(prefetchLanes({ trigger: msg('t', 'ok'), settings: SETTINGS }).skip, 'trivial');
   // A split message's part: the part's text is the trigger.

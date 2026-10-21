@@ -2826,7 +2826,6 @@ test('runTurn: a draw.create call goes out before her messages, as a file; the m
   const { result, channel, images } = await runDrawTurn({ answers: [toolAnswer('<msg>one sec</msg><msg>here</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })])] });
 
   assert.equal(result.outcome, 'spoke');
-  assert.equal(result.drawFailed, undefined);
   assert.equal(channel.sent.length, 3);
   const file = channel.sent[0];
   assert.equal(file.content, undefined);
@@ -2927,7 +2926,7 @@ test('runTurn: a channel without Attach Files offers no drawing and a call of it
   assert.equal(images.generateCalls.length, 0, 'nothing is generated (or paid for)');
   assert.deepEqual(channel.sent.map((sent) => sent.content), ['ok']);
   assert.ok(!userTextOf(llm.calls[0]).includes(labels.senses.draw), 'no drawing line in the senses');
-  assert.equal(llm.calls.length, 2, 'the refusal came back to her; no drawFailed turn');
+  assert.equal(llm.calls.length, 2, 'the refusal came back to her');
 });
 
 test('runTurn: a draw.create alone with the feature off, or without an image client, posts nothing', async () => {
@@ -5270,7 +5269,7 @@ test('runTurn: a neighbour whose audience the channel does not cover is left out
   assert.equal(logs.find((l) => l.msg === 'turn: model answered').neighborsHidden, 1);
 });
 
-// --- I-7: destinations, send failures, the drawFailed turn, dry-run, caps -------
+// --- I-7: destinations, send failures, dry-run, caps -------
 
 test('usableDestination: the dry-run mirror or a channel the bot cannot read is never the destination', () => {
   const general = registerTextChannel(fakeTurnChannel());
@@ -6593,7 +6592,7 @@ test('runTurn: split.maxTasks cuts the parts', async () => {
   assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, SPLIT_PARTS.slice(0, 2))));
 });
 
-test('runTurn: an overheard line, a drawFailed turn or an unprompted turn never asks the splitter', async () => {
+test('runTurn: an overheard line or an unprompted turn never asks the splitter', async () => {
   const overheard = await runSplitTurn({ triggerKind: 'overheard' });
   assert.equal(overheard.llm.calls.split.length, 0);
   const llm = splitLlm();

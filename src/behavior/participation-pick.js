@@ -59,15 +59,13 @@ export function participationPickSettings(config) {
  * Whether a turn may ask the pick classifier: a server turn that builds a
  * reply request -- a reply of any trigger kind, an interject, an initiate, a
  * noticed comment -- may; a private chat (no `<participation>` block there),
- * a diary post and a `drawFailed` turn (it only says the picture failed: no
- * classifier is paid for a second time) may not.
+ * and a diary post may not.
  * @param {{ mode?: string, triggerKind?: string|null, privateChat?: boolean }} [turn]
  * @returns {boolean}
  */
 export function participationPickAllowed({ mode = 'reply', triggerKind = null, privateChat = false } = {}) {
   if (privateChat === true || triggerKind === 'private') return false;
-  if (mode === 'diary') return false;
-  return triggerKind !== 'drawFailed';
+  return mode !== 'diary';
 }
 
 const noPipes = (text) => String(text ?? '').replaceAll('|', '/');

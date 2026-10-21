@@ -3,8 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOutput, parseJsonObject } from '../src/llm/parse.js';
 
-/** parseOutput reading <draw> tags, as the diary post does. */
-const parseDraws = (raw, options = {}) => parseOutput(raw, { ...options, draws: true });
 
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
@@ -183,71 +181,6 @@ test('parseOutput: null/undefined raw input is treated as empty and skipped', ()
   assert.equal(parseOutput(null).skip, true);
 });
 
-test('parseOutput: <draw> yields the scene with defaults', () => {
-  const result = parseDraws('<draw> a cat on a windowsill </draw>');
-  assert.deepEqual(result.draw, { text: 'a cat on a windowsill', self: false, replyTo: null });
-});
-
-test('parseOutput: <draw self="yes" reply="#12"> sets self and replyTo', () => {
-  const result = parseDraws('<draw self="yes" reply="#12">a portrait</draw>');
-  assert.deepEqual(result.draw, { text: 'a portrait', self: true, replyTo: 12 });
-});
-
-test('parseOutput: <draw> attributes work in any order and any case', () => {
-  const result = parseDraws('<DRAW Reply="#7" SELF="TRUE">a lake</DRAW>');
-  assert.deepEqual(result.draw, { text: 'a lake', self: true, replyTo: 7 });
-  assert.equal(parseDraws('<draw self="1">x</draw>').draw.self, true);
-  assert.equal(parseDraws('<draw self="no">x</draw>').draw.self, false);
-});
-
-test('parseOutput: a second <draw> is ignored', () => {
-  const result = parseDraws('<draw>first scene</draw><draw self="yes">second scene</draw>');
-  assert.deepEqual(result.draw, { text: 'first scene', self: false, replyTo: null });
-});
-
-test('parseOutput: every <draw> is collected into draws, in order; draw stays the first', () => {
-  const result = parseDraws('<msg>εδώ</msg><draw self="yes">first scene</draw><draw>   </draw><draw reply="#3">second scene</draw>');
-  assert.deepEqual(result.draws, [
-    { text: 'first scene', self: true, replyTo: null },
-    { text: 'second scene', self: false, replyTo: 3 },
-  ]);
-  assert.deepEqual(result.draw, result.draws[0]);
-});
-
-test('parseOutput: draws holds at most 10 tags, and an answer without <draw> has none', () => {
-  const many = Array.from({ length: 12 }, (_, i) => `<draw>scene ${i + 1}</draw>`).join('');
-  const result = parseDraws(many);
-  assert.equal(result.draws.length, 10);
-  assert.equal(result.draws[9].text, 'scene 10');
-  assert.deepEqual(parseDraws('<msg>ναι</msg>').draws, []);
-  assert.equal(parseDraws('<msg>ναι</msg>').draw, null);
-});
-
-test('parseOutput: an empty <draw> is skipped in favour of a later non-empty one', () => {
-  const result = parseDraws('<draw>   </draw><draw>a forest</draw>');
-  assert.equal(result.draw.text, 'a forest');
-});
-
-test('parseOutput: <draw> text is clamped to 1600 chars', () => {
-  const result = parseDraws(`<draw>${'a'.repeat(1700)}</draw>`);
-  assert.equal(result.draw.text.length, 1600);
-});
-
-test('parseOutput: <draw> alone is not a skip and adds no fallback message', () => {
-  const result = parseDraws('<draw>a mountain at dawn</draw>');
-  assert.equal(result.skip, false);
-  assert.deepEqual(result.messages, []);
-  assert.deepEqual(result.reactions, []);
-  assert.equal(result.draw.text, 'a mountain at dawn');
-});
-
-test('parseOutput: <draw> alongside <msg> keeps both', () => {
-  const result = parseDraws('<msg reply="#4">εντάξει</msg><draw reply="#4">a boat</draw>');
-  assert.equal(result.skip, false);
-  assert.deepEqual(result.messages, [{ text: 'εντάξει', replyTo: 4 }]);
-  assert.deepEqual(result.draw, { text: 'a boat', self: false, replyTo: 4 });
-});
-
 test('parseJsonObject: extracts the object, bare, inside a code fence or surrounded by chatter', () => {
   const rows = [
     ['a bare JSON object', '{"a": 1, "b": "x"}', { a: 1, b: 'x' }],
@@ -261,20 +194,6 @@ test('parseJsonObject: extracts the object, bare, inside a code fence or surroun
 
 test('parseJsonObject: throws when there is no JSON object at all', () => {
   assert.throws(() => parseJsonObject('no json here'), /no JSON object in the model reply/);
-});
-
-test('parseOutput: a <draw> body is capped at 1600 by default, cut at a word boundary', () => {
-  const body = 'word '.repeat(400).trim();
-  const text = parseDraws(`<draw>${body}</draw>`).draw.text;
-  assert.ok(text.length <= 1600 && text.length > 1590);
-  assert.ok(text.endsWith('word'));
-});
-
-test('parseOutput: maxDrawChars sets the cap and cuts at the last sentence end', () => {
-  const result = parseDraws('<draw>Aaaa bbbb. Cccc dddd eeee</draw>', { maxDrawChars: 16 });
-  assert.equal(result.draw.text, 'Aaaa bbbb.');
-  assert.equal(parseDraws('<draw>άλφα βήτα γάμμα</draw>', { maxDrawChars: 12 }).draw.text, 'άλφα βήτα');
-  assert.equal(parseDraws('<draw>abcdefghij</draw>', { maxDrawChars: undefined }).draw.text, 'abcdefghij');
 });
 
 test('parse: a message cut at 1900 reports message-cut with the lost length', async () => {
@@ -316,8 +235,7 @@ test('parseOutput: a cut message, joined messages and an unclosed <think> are di
 test('parseOutput: a <call> or a <draw> outside code is a retired tag: cut out, told, never read, never posted as text', () => {
   const parsed = parseOutput('<think>x</think><msg>hello</msg><call skill="message.create">hi</call><draw self="yes">a boat</draw>');
   assert.deepEqual(parsed.messages, [{ text: 'hello', replyTo: null }]);
-  assert.equal(parsed.draw, null);
-  assert.deepEqual(parsed.draws, []);
+  assert.equal('draw' in parsed, false);
   assert.deepEqual(parsed.diagnostics, [{ kind: 'retiredTag', tag: 'call' }, { kind: 'retiredTag', tag: 'draw' }]);
   assert.equal('call' in parsed, false);
   const alone = parseOutput('<call skill="status.show"/>');
@@ -335,8 +253,10 @@ test('parseOutput: a retired tag inside a message is cut out of it; in code it s
   assert.deepEqual(code.diagnostics, []);
 });
 
-test('parseOutput: a <draw> is read only when the caller asks (the diary post); a <tool_call> is no plain-text fallback', () => {
-  assert.equal(parseDraws('<draw>a boat</draw>').draw.text, 'a boat');
-  assert.equal(parseOutput('<draw>a boat</draw>').draw, null);
+test('parseOutput: a draw tag alone is cut out and is no plain-text fallback; nor is a <tool_call>', () => {
+  const retired = parseOutput('<draw>a boat</draw>');
+  assert.equal(retired.skip, true);
+  assert.deepEqual(retired.messages, []);
+  assert.deepEqual(retired.diagnostics, [{ kind: 'retiredTag', tag: 'draw' }]);
   assert.equal(parseOutput('<tool_call>{"name":"x"}</tool_call>').skip, true);
 });

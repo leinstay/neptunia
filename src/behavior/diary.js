@@ -300,7 +300,7 @@ export function isSetKind(kind, setKinds) {
 /**
  * The settings of a set post (`diary.set`), each one replaced by its default
  * when missing or invalid: `pictures` `[min, max]` whole counts (max never
- * below min; the engine renders at most `max` <draw> tags, `min` is for the
+ * below min; the engine stages at most `max` draw.create pictures, `min` is for the
  * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
  * least 1), `seedSets` (the compose request's seed combinations, 0 allowed)
  * and `maxMessageBytes` (the attachment bytes of one message, positive).

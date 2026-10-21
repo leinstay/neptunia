@@ -55,7 +55,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `private.md` | no | Appended after the mode prompt (`reply.md`), before `forced.md`, only in a DM (`features.privateMessages`). This is a private conversation: what is said here stays here; the persona keeps their public knowledge. A missing file adds nothing | `{{name}}` `{{author}}` |
 | `inner.md` | no | Task of an inner turn (`features.innerLife`, mode `inner`; [Inner life](inner-life.md)): nobody wrote to the persona, she is awake for the reason in `<wake>`, the current channel comes from the cause of the wake (none on a review, a heartbeat or a wake with no place); her `<msg>`, `<gif>`, `<draw>` act in the current channel through the same gate as any turn, `<react>` needs its target, `message.create` is the way to post elsewhere or when there is none; the posting tools are in `<skills_tools>`; silence (`<skip/>`) is a valid answer. Missing or blank: the inner turn has no task text |
 | `heartbeat.md` | no | Task of an inner turn whose anchor wake is `heartbeat`, used INSTEAD of `inner.md` (every other inner turn keeps `inner.md`): a chain-of-thought scaffold for `<think>` with four ordered steps (`STEP n: Title` with a bracketed directive) and a final check. Missing or blank falls back to `inner.md` (degraded) | none | none |
-| `diary.md` | yes | Task: write a diary post. The persona's own channel, nobody asked. The plan's kind and brief, past posts, the optional world and search result are in the user message blocks. Output: `<msg>` (1 to `diary.maxMessages`), `<draw>` (several for a set kind, `diary.setKinds`), or `<skip/>`; `<react>` and `<gif>` are dropped. No reply attributes, no links | `{{name}}` |
+| `diary.md` | yes | Task: write a diary post. The persona's own channel, nobody asked. The plan's kind and brief, past posts, the optional world and search result are in the user message blocks. Output: `<msg>` (1 to `diary.maxMessages`), `draw.create` calls (several in one answer for a set kind, `diary.setKinds`), or `<skip/>`; `<react>` and `<gif>` are dropped. No reply attributes, no links | `{{name}}` |
 | `diary-plan.md` | yes | The planner: pick the kind, a brief and whether to search and draw. Runs on the `analyzer` role, no character card. Receives `<now>`, `<server>`, `<about_chat>`, `<recent>`, `<lore>`, `<world>`, `<diary>`, `<kinds>`, `<seeds>`, and `<topic>` when the owner gave one. Answers one JSON object | `{{name}}` |
 | `world.md` | no | The persona's virtual world: the places and routines it lives in outside the chat. Rendered as a `<world>` block only in the diary plan and compose requests, and only when `diary.world === true`. Never in an ordinary turn. A missing file or switch adds no block | `{{name}}` |
 | `diary-seeds.md` | no | Random seed families for the diary planner. `# name` headers start a family (place, setting, detail, activity, subject, twist); code draws one line per family and composes `diary.seedSets` combinations as a `<seeds>` block (and `diary.set.seedSets` for the compose request of a set post). Omitted when missing or the count is 0 | none |
@@ -263,7 +263,7 @@ call marks; blanking `transcript.postedFrom` drops the origin marker.
 Every chat turn (a reply, a follow-up, a mention, a name, a private chat, a part of a split message, a finished errand,
 an interjection, an initiative, an overheard line, an inner turn, a heartbeat) runs the same engine
 (`src/behavior/turn.js#runSteps`). The reply request carries her tools (`<tools>` on the text transport, the request's
-`tools` field on the native one; a diary post carries none yet and keeps its own `<draw>` tag). Her answer is a speech
+`tools` field on the native one; a diary post carries the same tools, and only `draw.create` runs there). Her answer is a speech
 part (`<think>` first, `<msg>`, `<react>`, `<gif>`, `<skip/>`) and tool calls: native tool calls, or on the text
 transport `<tool_call>{"name": "draw.create", "arguments": {...}}</tool_call>` blocks (parsed by
 `src/llm/tool-text.js`). A leftover `<call>` or `<draw>` tag in her text is a retired tag: cut out, never run, told once
@@ -641,11 +641,9 @@ elsewhere.called                         {channel} {destination}: appended to th
 elsewhere.link                           {text} {link}: joins the jump link to the persona's posted message; members read it, the model never sees it
 triggers.mention | reply | name | followUp | overheard   followUp = an untagged message the address classifier judged to be for the persona; overheard = talk about the persona, not to them. Both post plain, never as a Discord reply. overheard falls back to followUp, then reply
 triggers.private                         the trigger for a private (DM) message
-triggers.drawFailed                      {reason}: the drawing sub-process failed; reason is the human phrase from draw.reasons.*
 triggers.missed                          the trigger for a missed-answer recovery turn (features.missedRecovery)
 triggers.task                            the trigger for the turn a finished errand opens (its `<task_result>` turn)
 draw.when                                {when}: the local date and time shown to the image model so the light and season match. Filled for every picture (diary or not) when the time is known; empty otherwise
-draw.reasons.moderation | daily | userDaily | timeout | error    human phrases for the five failure reasons; daily and userDaily are reserved but no longer reached by triggers.drawFailed — an image cap now posts limits.notice instead of a follow-up turn
 videoAudio.none                          appended to the video model's system prompt when the file was measured to have no audible sound (no audio stream or silent throughout). Says it is a measurement, not a guess. No placeholders
 videoAudio.map                           {spans}: appended to the video model's system prompt when the file was measured to be mostly silent. {spans} is a comma-separated list of audible stretches (e.g. `0:12-0:13, 1:05-1:20`), formatted by code from the measured audio levels. Says sound is audible only during those stretches
 diary.intro                              first line of the `<diary>` block
@@ -1000,7 +998,7 @@ Only these tags are acted on:
 - `<msg>text</msg>` one chat message, up to 3 in a row; `reply="#87"` makes it a Discord reply. A fourth and any later `<msg>` is not dropped: the parser joins its text unchanged into the third, each on its own line (the third keeps its own `reply`, the joined ones' are lost), and the journal records a `message-merge` limit with the number joined; the joined message is then cut at 1900 characters like any other (`message-cut`).
 - `<react to="#87">💀</react>` one unicode emoji or one server custom emoji as `:name:`; alone or with `<msg>`.
 - `<gif reply="#87">g12</gif>` posts a GIF from the library by handle (body = the handle from the `<gifs>` list or from the transcript, never a URL). One per turn; `reply` optional as on `<msg>`. May stand alone or alongside `<msg>`, `<react>`, `<draw>`. Unknown handle = nothing posted.
-- `<draw self="yes" reply="#87">scene</draw>` a picture for the drawing sub-process, read only in a diary post until the diary moves to the `draw.create` tool; anywhere else it is a retired tag, cut out and told. One per turn, first non-empty wins, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary. A diary set post (the planned kind in `diary.setKinds`) is the one exception: every non-empty `<draw>` is read in order (the parser keeps at most 10) and the first `diary.set.pictures[1]` are generated, one picture each. `self="yes"` adds the persona's appearance; `reply="#87"` works like on `<msg>`. May appear alongside `<msg>` and `<react>`.
+- A picture is the `draw.create` tool, never a tag: a draw tag written in her text is a retired one, cut out of it, never run and counted as a `retiredTag` diagnostic (as the `<call>` tag below).
 - `<call …>` is retired: her calls are tool calls, not text (see "The steps of a turn"). A `<call>` written outside code is cut out, never run, and counted as a `retiredTag` diagnostic.
 - `<skip/>` stay silent.
 - `@handle` (a handle of `<directory>` or of a transcript author, exactly as shown) becomes a real mention; see [Mention handles](#mention-handles). With `features.mentionHandles` off: `@nick` exactly as in the transcript becomes a real mention. Failing that, a name of any other member of the served guild the bot knows (its member cache: display name, nickname, global name, username; with memory on, the stored names and aliases) becomes one too: matched case-insensitively, longest first and only as a whole name, and only when exactly one member carries it (a name two or more members share stays text; a member the request showed keeps a name it shares in any case). Bots and the persona herself are never mentioned.
@@ -1013,9 +1011,9 @@ An answer cut off at the output cap (the provider's finish reason `length`, on t
 The parser records a diagnostic for each change it makes to the output: a retired `<call>` or `<draw>` tag cut out (`retiredTag`), messages joined past the three-message limit (`messagesMerged`), a message cut at the length limit (`messageCut`), or unclosed thinking with finish reason `stop` (`thinkUnclosed`). A malformed call does not suppress well-formed calls after it; `<![CDATA[…]]>` wrapping a call body is unwrapped, and a `</call>` inside CDATA does not close the call. In a tool loop the diagnostics appear in the next step's task (under `labels.task.diagnostics`, one `- ` line each from `labels.skills.diagnostics.<kind>`); without a following step they are kept as feedback facts for the persona's next inner turn.
 
 `features.reactions: false` drops `<react>`, `features.multiMessage: false` keeps the first `<msg>`;
-`features.gifs: false` or an empty library drops `<gif>`; `features.imageGeneration: false` or no image client drops `<draw>`; on a `drawFailed` turn `<draw>` is dropped too. Prompts need not know.
+`features.gifs: false` or an empty library drops `<gif>`; `features.imageGeneration: false` or no image client refuses `draw.create`. Prompts need not know.
 
-With `format.stripDashes` on (default true; missing = on; only `false` turns it off), every em dash and en dash is removed from `<msg>` texts before posting: the dash and the spaces around it become one space, and every guillemet (`«`, `»`) becomes a plain `"`. A message left empty after stripping is not sent. Hyphens stay. `<draw>`, `<react>`, `<gif>` and reply ids are not touched. Logged as `turn: dashes stripped` with `channel` and `count`, never the text.
+With `format.stripDashes` on (default true; missing = on; only `false` turns it off), every em dash and en dash is removed from `<msg>` texts before posting: the dash and the spaces around it become one space, and every guillemet (`«`, `»`) becomes a plain `"`. A message left empty after stripping is not sent. Hyphens stay. `<react>`, `<gif>` and reply ids are not touched. Logged as `turn: dashes stripped` with `channel` and `count`, never the text.
 
 A `<react to="#n">` targeting a `<channel_view>` line places the reaction in that line's channel when the bot has Add Reactions and Read Message History there; otherwise the reaction is dropped. A `reply="#n"` targeting a pulled line posts plain in the turn's channel (never as a Discord reply to a message in another channel); each pulled line is linked at most once per turn. On a turn answering a call from a read-only channel, the first message carries one jump link: to the pulled line it answers, or to the routed call, or to the newest line of the source shown. The authors of pulled lines carry handles too (with `features.mentionHandles` off, `@name` resolves over them).
 
@@ -1475,7 +1473,7 @@ replied-to author does not count as such a mention. When `mention.followUpClassi
 missing key = on), a reply to another member's message goes to the classifier like plain text. With the switch off,
 any reply to another member is an automatic `no`. With `mention.classifyWhileBusy` on (default `true`, missing key = on), a follow-up candidate that arrives while a turn is running is still sent to the classifier through the same window, no-streak and pre-filter checks; at most one classifier call per channel at a time, and a newer held line replaces an older. The candidate is not classified when the switch is off or when its own channel is busy and `mention.pendingSameChannel` is off (the `yes` would be dropped anyway). Each such call is one `analyzer` request under `llm.maxRequestsPerDay`. A `yes` that meets a busy turn waits in the pending queue (logged `follow-up: deferred`). The queue holds one deferred follow-up per channel; a newer one replaces the older (logged `follow-up: dropped`, reason `newer`). When the attention frees it is picked up (`follow-up: picked up`) through the same checks as a mention (expiry, switches, paused, can send, message still exists) plus two of its own: the follow-up window for that channel and author must still be open (`mention.followUpMinutes` and the no-streak), otherwise dropped `closed`; and the line must not have appeared in the history of a turn that already spoke in that channel, otherwise dropped `answered`. After these checks, the deferred follow-up is counted as a call and rolled against `mention.followUpIgnoreChance`, like a live one. With `mention.pendingOverheard` on (default `true`, missing key = on), an `overheard` that meets a busy turn waits in the pending queue; the reaction runs after the current turn. A waiting follow-up is never pushed out by a later overheard line; a waiting overheard line is pushed out by a later follow-up, a later overheard line, or a direct mention, reply or name call. A waiting overheard line is not counted toward the spam limit and is not reported to other turns as a call waiting in the channel. With the switch off, the overheard is dropped (`busy`).
 
-`yes` goes through an ignore roll first and, unless it is ignored, runs a reply-mode turn with trigger kind `followUp`: its task text is `prompts/follow-up.md` when present (falling back to `reply.md`), so a `yes` does not promise an answer. The follow-up counts as a call by its author, like a mention, and the roll starts from `mention.followUpIgnoreChance` (default `0`) in place of `mention.ignoreChance`; the repeat penalty, the spam threshold and the affinity adjustment apply as for any call. An ignored follow-up is logged as `mention: decided` with reason `ignored:follow-up` (`ignored:repeat` or `ignored:spam` when the author's recent calls count as repeats or spam) and leaves the window and its no-streak as they are. `overheard` runs a reply-mode turn with trigger kind `overheard`: its task text is `prompts/overheard.md` when present (falling back to the mode prompt), no interlocutor mark on the author's profile heading, plain posting, not counted for the repeat penalty, no ignore roll, no limit notice when a rail refuses the turn, no search or re-watch classifier, drawing treated as unasked (no image-cap notice, no per-user image accounting, no `drawFailed` follow-up). With `mention.followUpOverheard` off, an `overheard` answer starts a plain follow-up turn instead (the log still records `answer: 'overheard'`). When a newer message was held during the classifier call and the verdict is `overheard`, the held message is classified first: a `yes` starts the follow-up turn for it, an `overheard` starts the overheard turn for the held message, a `no` starts the overheard turn for the original candidate.
+`yes` goes through an ignore roll first and, unless it is ignored, runs a reply-mode turn with trigger kind `followUp`: its task text is `prompts/follow-up.md` when present (falling back to `reply.md`), so a `yes` does not promise an answer. The follow-up counts as a call by its author, like a mention, and the roll starts from `mention.followUpIgnoreChance` (default `0`) in place of `mention.ignoreChance`; the repeat penalty, the spam threshold and the affinity adjustment apply as for any call. An ignored follow-up is logged as `mention: decided` with reason `ignored:follow-up` (`ignored:repeat` or `ignored:spam` when the author's recent calls count as repeats or spam) and leaves the window and its no-streak as they are. `overheard` runs a reply-mode turn with trigger kind `overheard`: its task text is `prompts/overheard.md` when present (falling back to the mode prompt), no interlocutor mark on the author's profile heading, plain posting, not counted for the repeat penalty, no ignore roll, no limit notice when a rail refuses the turn, no search or re-watch classifier, drawing treated as unasked (no per-user image accounting). With `mention.followUpOverheard` off, an `overheard` answer starts a plain follow-up turn instead (the log still records `answer: 'overheard'`). When a newer message was held during the classifier call and the verdict is `overheard`, the held message is classified first: a `yes` starts the follow-up turn for it, an `overheard` starts the overheard turn for the held message, a `no` starts the overheard turn for the original candidate.
 
 Three `no` in a row (`mention.followUpNoStreak`, default 3) close the window; `overheard` counts as `yes` for the streak. Switch `features.followUp` (default on). Logged as counts, verdicts and `answer` on `follow-up: verdict`.
 The window state survives a restart: active windows are saved in `data/state.json` under `followUpWindows` and restored at startup, with expired ones dropped.
@@ -1706,9 +1704,9 @@ Every offered block that ends up `invalid` or `missing`, and every offered block
 ## Drawing
 
 The persona can produce pictures through a drawing sub-process (`features.imageGeneration`, on by default). When the
-model emits a `<draw>` tag, `src/behavior/turn.js` assembles the image prompt from `draw.md` and generates one picture
-through OpenRouter's Images API (`src/llm/images.js`). The picture is posted as its own message after the persona's
-text messages, never inlined.
+model calls `draw.create`, `src/behavior/turn.js` assembles the image prompt from `draw.md` and generates one picture
+through OpenRouter's Images API (`src/llm/images.js`). The call runs before her speech goes out, and the picture is
+posted as its own message, never inlined. A diary post stages its pictures and posts them after its messages.
 
 ### Prompt assembly
 
@@ -1716,7 +1714,7 @@ text messages, never inlined.
 
 - `{{name}}` — the bot's display name.
 - `{{appearance}}` — `appearance.md` with `{{name}}` filled, included only when `self="yes"`. Empty otherwise.
-- `{{request}}` — the scene text from the `<draw>` tag, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary. `format.md` tells the persona this limit through `{{drawChars}}`.
+- `{{request}}` — the scene text of the `draw.create` call, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary. `format.md` tells the persona this limit through `{{drawChars}}`.
 - `{{when}}` — the local date and time through `labels.draw.when`, so the image model draws the right light and season. Empty when the time is unknown.
 
 The drawing sub-process never receives the character card, `rules.md` or the system prompt. It follows its own style
@@ -1739,27 +1737,16 @@ false:
 
 An older `labels.json` without `senses.draw` shows nothing.
 
-### Failure turn
+### Failures
 
-When a generation fails on a turn someone asked for (a mention, reply, name trigger or follow-up, not an overheard or spontaneous turn), a second turn fires automatically:
-
-- `triggerKind: 'drawFailed'`, with the failure reason rendered through `labels.draw.reasons.*` into
-  `labels.triggers.drawFailed`'s `{reason}` placeholder.
-- Mode is `reply`, same trigger message, replies allowed.
-- The second turn's own `<draw>` is dropped, so the model cannot retry the generation.
-- The channel's idle notification is held until the second turn finishes, so a pending ping is drained only after
-  the follow-up.
-
-On a spontaneous or overheard turn (nobody asked), a failed generation is only logged and no follow-up runs.
-
-An image cap (`ImageCapError`, reason `daily` or `userDaily`) does NOT fire the failure turn. Instead, the turn posts a
-limit notice (`labels.limits.notice`) as a plain reply. The senses line already told the persona the quota was spent;
-the notice tells the requester which limit and the numbers. `draw.reasons.daily` and `draw.reasons.userDaily` are
-reserved in `labels.json` but no longer reached by `triggers.drawFailed`.
+A failed picture is never a turn of its own and never a limit notice. The `draw.create` call comes back to her as a
+result with its code: `image-cap-daily` or `image-cap-user-daily` (the caps), `image-moderation`, `image-timeout`,
+`image-error`, a refused publication with its gateway code. Her speech of that step is held, and the next request
+tells her so ([The steps of a turn](#the-steps-of-a-turn)).
 
 ### Rails
 
-- One `<draw>` per turn; first non-empty wins, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary.
+- The scene text of one `draw.create` call is clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary.
 - `image.maxPerDay` (default 50) and `image.maxPerUserPerDay` (default 50) are checked and counted before the
   request; a cap error throws `ImageCapError` with reason `daily` or `userDaily`.
 - An unsupported model family (not `openai/*` or `google/*`) is refused with `UnsupportedImageModelError`.
@@ -1807,9 +1794,9 @@ the whole block. `<plan>`, `<seeds>` and `<kinds>` are never cut.
 
 Only `<msg>` tags are acted on. Reply attributes are dropped. URLs in the message text are removed mechanically. At most `diary.maxMessages` (3) messages; excess messages are trimmed. `<react>` and `<gif>` are dropped in this mode. `<skip/>` means no post. A post may be a picture alone.
 
-A failed drawing on a diary post is logged; no `drawFailed` follow-up turn fires (nobody asked for the post).
+A diary post runs on the same step engine as every turn, bounded by `diary.loop` (`maxSteps` 2, `timeBudgetMs` 600000) and with the same tools; only `draw.create` runs there. Any other call is refused `diary-draw-only` and she reads it. A step takes at most `diary.set.pictures[1]` (6) calls, a post at most that many pictures for a set kind and one for any other kind (past it: `loop-cap`). While the post may carry no picture (no image client, drawing off, no Attach Files, `diary.maxPicturesPerDay` or `image.maxPerDay` spent) `draw.create` is refused `daily-cap` with the gate that closed as its reason. Each picture is staged as it is generated (result `ok`, code `staged`) and counted against `diary.maxPicturesPerDay` then, posted or not, charged to no member. The messages go out first and then the staged pictures, after the calls of the step ran and only when every call worked: a failed picture holds the speech and the staged ones, she reads the failure, and may draw again or post with what she has. A failure is only a result she reads and a log line (`turn: draw error`); nothing else happens.
 
-**Set posts.** When the planned kind is in `diary.setKinds` (default `photoset`, `randomSet`), the single-drawing path is not used. The first `diary.set.pictures[1]` (6) `<draw>` tags are generated one after another, before anything is sent, charged to no member: the avatar reference for `self="yes"` as for one drawing; an image cap ends the generation (`turn: draw refused by a limit`, no notice); any other failure skips that picture (`turn: draw error`). The generation stops early once the pictures left cannot reach `diary.set.minPosted` (2). Every picture generated counts against `diary.maxPicturesPerDay`. With fewer than `diary.set.minPosted` pictures nothing is posted, not even the messages, and the turn ends `refused` with `reason: 'set-short'` (the post is not recorded and the day's post count is not bumped). Otherwise the messages are posted as usual, then the pictures as file messages with no text and no reply: one message, split when the pictures exceed `diary.set.maxMessageBytes` (8000000) or 10 files. `diary.set.pictures[0]` (4) is for the prompt; the engine does not enforce it. In dry-run nothing is generated; each picture logs `dry-run: would draw` with `set: true`, and a set with fewer `<draw>` tags than `diary.set.minPosted` ends `refused` / `set-short` too.
+**Set posts.** When the planned kind is in `diary.setKinds` (default `photoset`, `randomSet`), she makes up to `diary.set.pictures[1]` (6) `draw.create` calls in one answer. The staged pictures are posted after the messages as file messages with no text and no reply: one message, split when the pictures exceed `diary.set.maxMessageBytes` (8000000) or 10 files; a single picture of any other kind is a set of one. With fewer than `diary.set.minPosted` (2) pictures staged when the post is due nothing is posted, not even the messages, and the turn ends `refused` with `reason: 'set-short'` (the post is not recorded and the day's post count is not bumped). `diary.set.pictures[0]` (4) is for the prompt; the engine does not enforce it. In dry-run nothing is generated; each `draw.create` call logs `dry-run: would draw` (with `set: true` on a set kind), and a set with fewer calls than `diary.set.minPosted` ends `refused` / `set-short` too.
 
 ### The drawing prompt and `{{when}}`
 
@@ -1818,7 +1805,7 @@ Every drawing request (diary or not) now carries a local time: `draw.md`'s `{{wh
 
 ### Recording
 
-After posting, the post is recorded in `diary.json` (`store.appendDiaryPost`, newest `diary.historyPosts` kept): `{ at, kind, gist, picture, messageIds, search }`. `gist` is the post's text collapsed to one line and cut at `diary.gistChars`. `picture` is the scene text (cut the same way) or null. A set post stores the first posted picture's scene as `picture` and adds `pictures` (the count posted); `<diary>` renders it with `labels.diary.pictureSet` when the count is above 1. The day's diary post count is bumped; the picture count is bumped only when a picture was posted (for a set, by every picture generated, at generation time). The turn's outcome carries `diary: { kind, picture, search, messages, pictures }`.
+After posting, the post is recorded in `diary.json` (`store.appendDiaryPost`, newest `diary.historyPosts` kept): `{ at, kind, gist, picture, messageIds, search }`. `gist` is the post's text collapsed to one line and cut at `diary.gistChars`. `picture` is the scene text (cut the same way) or null. A set post stores the first posted picture's scene as `picture` and adds `pictures` (the count posted); `<diary>` renders it with `labels.diary.pictureSet` when the count is above 1. The day's diary post count is bumped; the picture count is bumped by every picture generated, at generation time, posted or not. The turn's outcome carries `diary: { kind, picture, search, messages, pictures }`.
 
 In dry-run the post is logged and mirrored. Nothing is recorded and no daily counter is bumped.
 
@@ -1916,6 +1903,6 @@ The config keys that can appear as `{limit}`: `llm.maxRequestsPerDay`, `llm.maxR
 `image.maxPerUserPerDay`, `private.maxPerUserPerDay`, `private.maxPerOwnerPerDay`.
 
 Private DM caps post the notice once per person per day (tracked by `replies.noticedDay` in the private file).
-Image caps post the notice instead of the `drawFailed` follow-up turn (the senses line already told the persona;
-the notice is the technical marker for the requester). Video and web daily caps do not block a reply and keep their
+An image cap on a `draw.create` call comes back to her as a result (`image-cap-daily`, `image-cap-user-daily`; the
+senses line already told her the quota was spent). Video and web daily caps do not block a reply and keep their
 in-transcript states; no notice.

@@ -193,7 +193,7 @@ test('answerReply: sends the live system prompt and renders the member\'s profil
   assert.ok(result.request.user.includes('CHARACTER_MARKER'));
   assert.ok(result.request.user.includes('what do you think about chess?'));
   assert.deepEqual(result.answers, [
-    { messages: [{ text: 'δεν ξέρω', replyTo: 2 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, draw: null, skip: false, think: '' },
+    { messages: [{ text: 'δεν ξέρω', replyTo: 2 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, skip: false, think: '' },
   ]);
   assert.equal(result.stopped, false);
   assert.deepEqual(store.writes, [], 'nothing is written to memory');
@@ -357,7 +357,7 @@ test('answerReply: the server\'s custom emoji and GIF library render as in a liv
   }
 });
 
-test('answerReply: a GIF or a drawing alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
+test('answerReply: a GIF alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
   const answer = async (text, { features = {}, gifs = GIF_LIBRARY } = {}) => {
     const view = liveView({ hot: fakeHot(features), store: fakeStore(), guildId: 'g1' });
     const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm(text), samples: 1, at: NOW, gifs });
@@ -366,20 +366,15 @@ test('answerReply: a GIF or a drawing alone is an action, not silence; switched 
   const gif = await answer('<gif reply="#2">g1</gif>');
   assert.equal(gif.skip, false);
   assert.deepEqual(gif.gif, { id: 'g1', replyTo: 2 });
-  const draw = await answer('<draw self="yes">a cat on a chessboard</draw>');
-  assert.equal(draw.skip, false);
-  assert.deepEqual(draw.draw, { text: 'a cat on a chessboard', self: true, replyTo: null });
 
   for (const [text, options] of [
     ['<gif>g9</gif>', {}],
     ['<gif>g1</gif>', { gifs: null }],
     ['<gif>g1</gif>', { features: { gifs: false } }],
-    ['<draw>a cat</draw>', { features: { imageGeneration: false } }],
   ]) {
     const dropped = await answer(text, options);
     assert.equal(dropped.skip, true, `${text} ${JSON.stringify(options)}`);
     assert.equal(dropped.gif, null);
-    assert.equal(dropped.draw, null);
   }
 });
 

@@ -46,7 +46,6 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'searchAvailable',
   'recallAvailable',
   'drawQuota',
-  'drawReason',
   'customEmoji',
   'mediaCache',
   'gifs',

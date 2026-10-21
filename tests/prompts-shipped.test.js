@@ -569,9 +569,6 @@ test('buildRequest: a reply fills system-prompt, character-card, rules, format a
   const tagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: true }));
   const taggedText = assertFilled(tagged.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (tagged reply)');
   assert.ok(!carries(taggedText, 'follow-up'), 'a tagged reply: the follow-up task is not sent');
-  // A failed drawing someone asked for: its reason through labels.draw.reasons.
-  const failed = buildRequest(await turnInput({ triggerKind: 'drawFailed', drawReason: 'moderation', drawQuota: undefined }));
-  assertFilled(failed.messages, { files: LOADS.reply }, 'reply (drawFailed)');
 });
 
 test('buildRequest: the skills protocol and an asked-for catalogue fill labels.skills from the shipped skill texts', async () => {

@@ -24,8 +24,8 @@ import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './r
 /** The lane kinds, in the order the query basis names them. */
 export const PREFETCH_LANES = Object.freeze(['message', 'reply', 'recent']);
 
-/** The trigger kinds a prefetch never runs for: an errand's result and the turn after a failed drawing. */
-const NOT_EXTERNAL = new Set(['task', 'drawFailed']);
+/** The trigger kinds a prefetch never runs for: an errand's result. */
+const NOT_EXTERNAL = new Set(['task']);
 
 /** Discord's inline tokens (`<@id>`, `<@!id>`, `<@&id>`, `<#id>`, `<:name:id>`, `<a:name:id>`, `<t:...>`). */
 const INLINE_TOKEN_RE = /<(?:@[!&]?|#|a?:[^:>\s]+:|t:)[^>\s]*>/g;

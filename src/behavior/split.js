@@ -20,7 +20,7 @@ export const SPLIT_DEFAULTS = Object.freeze({
 /**
  * The trigger kinds that may hold parts: a direct call (a mention, a reply,
  * the persona's name, a follow-up, a private message). Never an overheard
- * line, an unprompted turn or the drawFailed turn.
+ * line or an unprompted turn.
  */
 const SPLIT_KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'private']);
 

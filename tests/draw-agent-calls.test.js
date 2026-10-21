@@ -191,10 +191,13 @@ function store() {
 
 /** An LLM answering the diary plan with `plan` and every other request with `post`. */
 function llm(post, plan = null) {
+  let composed = 0;
   return {
     complete: async (_messages, opts) => {
       if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
-      return completionOf(post);
+      const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
+      composed += 1;
+      return completionOf(answer);
     },
   };
 }
@@ -247,7 +250,10 @@ test('draw agent: a diary set is recorded picture by picture; the avatar is fetc
   hotValue.config.agents = { drawing: { daily: { tasks: 2 } } };
   const { errands, records } = errandsOf(hotValue);
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
-  const answer = '<msg>a walk</msg><draw self="yes">me at the harbour gate</draw><draw>boats in the harbour</draw><draw>a café terrace</draw>';
+  const answer = [
+    toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]),
+    '<msg>a walk, two pictures</msg>',
+  ];
   const target = channel('d1', 'journal');
   const { result, logs } = await withCapturedLogs(() => runner({ answer, plan, images, errands, hotValue }).runTurn({ channel: target, mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');
@@ -255,7 +261,7 @@ test('draw agent: a diary set is recorded picture by picture; the avatar is fetc
   assert.deepEqual(images.calls.map((call) => call.reference), [AVATAR, null]);
   assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester.kind]), [['drawing', 'done', 'persona'], ['drawing', 'done', 'persona']]);
   const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.set, refused.asked], ['agents.drawing.daily.tasks', true, false]);
+  assert.deepEqual([refused.key, refused.asked], ['agents.drawing.daily.tasks', false]);
   assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
 });
 

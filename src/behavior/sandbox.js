@@ -89,7 +89,7 @@ const MODES = new Set(['reply', 'interject', 'initiate']);
 /** The modes of a turn nobody asked for: no trigger. */
 const SPONTANEOUS = new Set(['interject', 'initiate']);
 /** src/behavior/turn.js#TriggerKind without `private`: a private chat is never replayed. */
-const KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'overheard', 'drawFailed']);
+const KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'overheard']);
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The kinds of items `momentView` hides, in the order `hiddenLater` reports them. */
@@ -133,7 +133,6 @@ export const SANDBOX_OMITS = Object.freeze({
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
   drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
-  drawReason: 'a failed drawing\'s reason is not known to a replay',
   focus: 'no room question: a live turn has no caller for it either',
   tasks: 'no part of a split message, no queued or folded call: a replay knows none (a skill scenario\'s burst hands in its waiting calls: `queued`)',
   recentAudience: 'no guild to compare audiences in: <recent> shows the lines of the turn\'s own channel only',
@@ -755,7 +754,6 @@ export function sandboxRequestInput({
     // the pre-turn searches (`preTurn`): whether the replay's server search runner could run now.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
     drawQuota: null,
-    drawReason: null,
     focus: null,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,
@@ -818,9 +816,8 @@ export function sandboxRequestInput({
  * llm client caches (src/llm/openrouter.js#cacheTtlFor: `features.promptCache`,
  * role `core`, the model), the user message is one text part carrying a
  * cache marker, so samples 2..N read the cache instead of paying for it again.
- * An answer's `gif` (a handle of the library, `features.gifs` on) and `draw`
- * (`features.imageGeneration` on) count as actions, as in a real turn; an
- * unknown handle or a switched-off kind is dropped (null). `skip` is true
+ * An answer's `gif` (a handle of the library, `features.gifs` on) counts as an
+ * action, as in a real turn; an unknown handle or a switched-off GIF is dropped (null). `skip` is true
  * when the model skipped or left nothing to do (as a real turn treats it).
  * @param {object} input
  * @param {object} input.view        From `liveView` (or a view of the same shape, e.g. `momentView`).
@@ -846,7 +843,7 @@ export function sandboxRequestInput({
  *   `hasSearch()`); only `true` adds the search line (with `features.webLookup` on). No search is run.
  * @returns {Promise<{ request: { system: string, user: string },
  *   answers: { messages: { text: string, replyTo: number|null, mentions?: string[], unknownHandles?: number }[], reactions: { to: number, emoji: string }[],
- *     gif: { id: string, replyTo: number|null }|null, draw: { text: string, self: boolean, replyTo: number|null }|null,
+ *     gif: { id: string, replyTo: number|null }|null,
  *     skip: boolean, think: string }[], stopped: boolean }>}
  */
 export async function answerReply({
@@ -885,7 +882,7 @@ export async function answerReply({
     signal,
     onUsage,
     read: (text, completion) => {
-      const shaped = shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs, request.handles);
+      const shaped = shapeAnswer(parseOutput(text), view.config, gifs, request.handles);
       return Array.isArray(completion?.toolCalls) ? { ...shaped, toolCalls: completion.toolCalls } : shaped;
     },
   });
@@ -923,7 +920,7 @@ function sandboxMessages(input, samples) {
 /**
  * One parsed answer (parseOutput's) shaped like a real turn's under `config`: reactions with
  * `features.reactions` on, one message with `features.multiMessage` off, a GIF only from the
- * library with `features.gifs` on, a drawing only with `features.imageGeneration` on; `skip`
+ * library with `features.gifs` on; `skip`
  * when the model skipped or left nothing to do. With the request's `handles`
  * (features.mentionHandles on) a message whose text holds a handle-shaped token also carries
  * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
@@ -933,11 +930,10 @@ function shapeAnswer(parsed, config, gifs, handles = null) {
   const reactions = features.reactions === false ? [] : parsed.reactions;
   const kept = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
   const replies = kept.map((message) => ({ ...message, ...handleMentions(message.text, handles) }));
-  // As src/behavior/turn.js: a GIF off the library or with the switch off, a drawing with drawing off, is dropped.
+  // As src/behavior/turn.js: a GIF off the library or with the switch off is dropped.
   const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
-  const draw = features.imageGeneration === false ? null : parsed.draw;
-  const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null && draw === null;
-  return { messages: replies, reactions, gif, draw, skip: parsed.skip || nothingToDo, think: parsed.think };
+  const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null;
+  return { messages: replies, reactions, gif, skip: parsed.skip || nothingToDo, think: parsed.think };
 }
 
 /**
@@ -1233,7 +1229,7 @@ export async function answerSkillScenario({
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
   const history = situationHistory(moment).history;
-  const parseText = (text) => parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
+  const parseText = (text) => parseOutput(text);
   const out = [];
   let stopped = false;
   for (let i = 0; i < sampleCount(runs); i += 1) {
@@ -1401,7 +1397,7 @@ function withOwnReaction(line, emoji) {
  * (src/behavior/handles.js#resolveHandles over the request's handles; `mentionedUserIds` the
  * members it would mention), the reply target her `reply="#n"` names in the request that pass
  * answered, the link to the step's trigger (`triggerId`, as linkTriggers puts it on); a drawing
- * (`<draw>`) as a line of hers with a picture. Her reactions land on their lines (a normalized
+ * (a draw.create call) as a line of hers with a picture. Her reactions land on their lines (a normalized
  * reaction, `mine`). A call that passed and posts (message.create, draw.create) into this channel
  * leaves its post as a line of hers; into another channel nothing here but its mark; a call
  * that passed and reacts (message.react.add) on a line here leaves the reaction. Every call
@@ -1451,7 +1447,6 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     messages.forEach((message, i) => {
       addLine(start + (i + 1) * CONTINUATION_STEP_MS, () => ({ ...rendered(message.text, handles), replyToId: target(message.replyTo) }));
     });
-    if (answer.draw) addLine(start + messages.length * CONTINUATION_STEP_MS + CONTINUATION_STEP_MS / 2, (id) => ({ replyToId: target(answer.draw.replyTo), attachments: [postedPicture(id)] }));
     for (const reaction of Array.isArray(answer.reactions) ? answer.reactions : []) react(target(reaction.to), reaction.emoji);
   };
   const refs = run?.refs ?? {};

@@ -537,7 +537,7 @@ test('draw.create in the loop: the turn makes the picture from her scene and pos
   assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked === false));
 });
 
-test('draw.create: the daily caps and the generation failures come back as results with their own codes; no limit notice, no drawFailed turn', async () => {
+test('draw.create: the daily caps and the generation failures come back as results with their own codes; no limit notice', async () => {
   const { ImageCapError, ImageGenError } = await import('../src/llm/images.js');
   const cases = [
     [new ImageCapError('daily'), 'image-cap-daily'],

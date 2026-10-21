@@ -183,10 +183,13 @@ function store() {
 
 /** An LLM answering the diary plan with `plan` and every other request with `post`. */
 function llm(post, plan = null) {
+  let composed = 0;
   return {
     complete: async (_messages, opts) => {
       if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
-      return completionOf(post);
+      const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
+      composed += 1;
+      return completionOf(answer);
     },
   };
 }
@@ -230,7 +233,7 @@ test('draw parity: a reply turn\'s draw.create call asked by a member', async ()
 test('draw parity: a diary post\'s single self picture', async () => {
   const images = recordingImages();
   const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
-  const turns = runner({ answer: '<msg>early start</msg><draw self="yes">me on a pier at dawn, fog</draw>', plan, images });
+  const turns = runner({ answer: toolAnswer('<msg>early start</msg>', [call('draw.create', { text: 'me on a pier at dawn, fog', self: true })]), plan, images });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
@@ -245,7 +248,7 @@ test('draw parity: a diary post\'s single self picture', async () => {
 test('draw parity: a diary set\'s pictures, the persona in the first one only', async () => {
   const images = recordingImages();
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
-  const answer = '<msg>a walk</msg><draw self="yes">me at the harbour gate</draw><draw>boats in the harbour</draw><draw>a café terrace</draw>';
+  const answer = toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]);
   const turns = runner({ answer, plan, images });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');

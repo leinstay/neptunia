@@ -290,7 +290,6 @@
     "name": "said your name",
     "followUp": "continued your conversation",
     "overheard": "talked about you, not to you",
-    "drawFailed": "was about to get a picture, but the drawing sub-process failed: {reason}",
     "private": "wrote to you privately",
     "missed": "wrote to you earlier and got no answer from you",
     "task": "asked you for the errand whose result just came back"
@@ -384,13 +383,6 @@
     "contextMark": "(ctx) "
   },
   "draw": {
-    "reasons": {
-      "moderation": "content was filtered",
-      "daily": "daily picture limit reached",
-      "userDaily": "this person's daily limit reached",
-      "timeout": "drawing timed out",
-      "error": "something went wrong"
-    },
     "when": "Local time: {when}"
   },
   "videoAudio": {

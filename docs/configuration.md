@@ -920,8 +920,8 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 | `searchKinds` | `["news", "facts"]` | Kinds that may trigger a web search. The planner writes a query only for these kinds |
 | `pictureKinds` | `["selfPicture", "picture", "meme", "photoset", "randomSet"]` | Kinds that always get a picture when the day's picture caps allow it, whatever the planner answered. Other kinds draw only when the planner asks |
 | `setKinds` | `["photoset", "randomSet"]` | Kinds whose post is a set of pictures instead of one. Keep them in `pictureKinds` too, so they are dropped with the other picture kinds when the post cannot carry a picture |
-| `set.pictures` | `[4, 6]` | How many pictures a set has: the prompt asks for between the two numbers, the bot generates at most the second (the first `<draw>` tags of the answer, the rest ignored) |
-| `set.minPosted` | `2` | A set with fewer pictures generated than this is not posted at all, its messages included. Generation stops early once the pictures left cannot reach it. The pictures already generated still count against the day's picture caps |
+| `set.pictures` | `[4, 6]` | How many pictures a set has: the prompt asks for between the two numbers, a step takes at most the second as `draw.create` calls, and a set post stages at most that many pictures (the rest are `loop-cap` results) |
+| `set.minPosted` | `2` | A set with fewer pictures staged than this when the post is due is not posted at all, its messages included. The pictures already generated still count against the day's picture caps |
 | `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
 | `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
 | `loop.maxSteps` | `2` | The most follow-up requests one diary post makes after her calls (her picture calls and what they returned). The last one is always the final, no-action request |

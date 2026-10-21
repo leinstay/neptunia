@@ -277,19 +277,11 @@ export const labels = {
     name: 'mentioned you by name, without a tag',
     followUp: 'continued the conversation with you without tagging you',
     overheard: 'talked about you to someone else, not to you',
-    drawFailed: 'asked for a picture, the drawing failed: {reason}',
     private: 'wrote to you privately',
     missed: 'wrote to you earlier, unanswered',
     task: 'asked for the errand that just ended',
   },
   draw: {
-    reasons: {
-      moderation: 'filtered',
-      daily: 'daily limit',
-      userDaily: 'member daily limit',
-      timeout: 'timed out',
-      error: 'failed',
-    },
     when: 'Local time: {when}',
   },
   memory: {

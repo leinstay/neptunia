@@ -156,7 +156,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
 
 /**
  * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
- * (`message.create`), a `<react>` (`message.react.add`), a `<draw>` (`draw.create`), always in the
+ * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
  * current conversation: carried over without a grant (src/skills/access.js#CARRIED_OVER), even in
  * safe mode; refused only under the full stop (`features.skills` false: she goes silent). Never
  * throws.

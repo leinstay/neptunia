@@ -45,7 +45,7 @@ import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import { DailyCapError, REPLY_REQUEST, TokenLimitError, cacheTtlMs, errorCodeOf, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { channelById, messageRefOf, postingConversation } from '../ops/shared.js';
-import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
+import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
 import { between, typingMs } from './random.js';
 import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
@@ -121,19 +121,16 @@ export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
  * Why a reply turn runs: a `@mention`, a Discord reply to the persona, a
  * name trigger, a follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
- * or to the room (`overheard`), a private chat message, the second turn
- * after a drawing that failed, or a message to the persona left unanswered
+ * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
  * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'drawFailed'|'missed'|'task'} TriggerKind
+ * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'task'} TriggerKind
  */
 
 /**
  * Whether a turn of `triggerKind` posts plain, never as a Discord reply: the
  * address classifier's turns (a follow-up, an overheard line), whose model
  * `reply="#n"` quotes nothing for messages, the GIF and the picture alike (a
- * pulled line it points at still gets its jump link: replyTarget). The
- * drawFailed turn after such a turn posts plain too: runTurn hands it the
- * first turn's kind. Exported so a limit notice can quote by the same rule.
+ * pulled line it points at still gets its jump link: replyTarget). Exported so a limit notice can quote by the same rule.
  * @param {TriggerKind|null|undefined} triggerKind
  * @returns {boolean}
  */
@@ -202,6 +199,8 @@ export function paceSettings(config) {
 
 /** skills.loop's values when a key is missing (config.json's). */
 const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 });
+/** `diary.loop`'s values when a key is missing (config.json's). */
+const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 const LOOP_MIN_CALL_MS = 2000;
 /**
@@ -242,15 +241,26 @@ export function coreToolsOn(config) {
  * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
  * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
  * bounds, `innerLife.loop` (src/behavior/inner.js#innerSettings; nobody waits for it, so its
- * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run.
+ * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
+ * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
  * `skills.loop` never
  * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
  * @param {object} config
  * @param {{ inner?: boolean }} [options]
  * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number }}
  */
-export function loopSettings(config, { inner = false } = {}) {
+export function loopSettings(config, { inner = false, diary = false } = {}) {
   if (inner) return { ...innerSettings(config).loop };
+  // A diary post (`diary.loop`): two requests at most, a long budget (a picture takes its time); a step takes
+  // as many calls as a set has pictures at most (`diary.set.pictures[1]`).
+  if (diary) {
+    const raw = isPlainObject(config?.diary?.loop) ? config.diary.loop : {};
+    return {
+      maxSteps: Number.isInteger(raw.maxSteps) && raw.maxSteps >= 1 ? raw.maxSteps : DIARY_LOOP_FALLBACK.maxSteps,
+      timeBudgetMs: typeof raw.timeBudgetMs === 'number' && Number.isFinite(raw.timeBudgetMs) && raw.timeBudgetMs > 0 ? raw.timeBudgetMs : DIARY_LOOP_FALLBACK.timeBudgetMs,
+      maxCallsPerStep: setSettings(config?.diary).pictures[1],
+    };
+  }
   const loop = isPlainObject(config?.skills?.loop) ? config.skills.loop : {};
   const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
   return {
@@ -283,14 +293,13 @@ function resultCharsFor(result, config) {
 /**
  * Whether nobody waits for a turn of `triggerKind` -- a spontaneous one (no trigger kind: an
  * interject, an initiate, a noticed comment, a forced turn) or an overheard line -- so that, with
- * `pace.unpromptedWaits` on, it prepares without a deadline or a bar. A drawFailed turn answers
- * the direct call before it and keeps that call's pace.
+ * `pace.unpromptedWaits` on, it prepares without a deadline or a bar.
  * @param {TriggerKind|null} triggerKind
  * @param {{ unpromptedWaits: boolean }} pace  paceSettings of the turn's config.
  * @returns {boolean}
  */
 function unhurried(triggerKind, pace) {
-  return pace.unpromptedWaits && triggerKind !== 'drawFailed' && !DIRECT_CALLS.has(triggerKind);
+  return pace.unpromptedWaits && !DIRECT_CALLS.has(triggerKind);
 }
 
 /** What a turn throws to itself once its bar (pace.dropAfterMs) has passed: caught by runTurnOnce. */
@@ -432,7 +441,7 @@ function createDeadline({ clock, startedAt, schedule, limitMs }) {
 /**
  * Whether someone asked for this turn: it has a trigger that is not an
  * overheard line (talk about the persona asks it nothing). An unasked turn
- * gets no image-cap notice and no drawFailed turn, and charges no member's
+ * charges no member's
  * picture quota -- like a spontaneous turn.
  */
 function askedFor(trigger, triggerKind) {
@@ -1653,9 +1662,8 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
 
 /**
  * `images` (src/llm/images.js#createImageGen) is optional: absent,
- * `features.imageGeneration` false, a `drawFailed` turn, or a channel where
- * the bot cannot attach files, the persona's `<draw>` is dropped and no
- * drawing line reaches `<senses>`.
+ * `features.imageGeneration` false, or a channel where the bot cannot attach
+ * files, her `draw.create` is refused and no drawing line reaches `<senses>`.
  *
  * `lookup` (src/web/lookup.js#createLookup) is optional too: absent, or
  * `features.webLookup` not true, no link is read and no search is made.
@@ -1713,7 +1721,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * guild the ids are judged in, `partner` a private chat's partner (null on a
  * server turn). It is asked on a server turn, or a private chat with its
  * partner (features.privateLikeServer, see runTurn),
- * (never a drawFailed one) with features.channelPull on and the labels able
+ * with features.channelPull on and the labels able
  * to render the block (`labels.pull.header`) while a
  * `<channel_view>` slot (`context.pull.maxChannels`) is left after the turn's
  * source and the explicit `<#id>` mentions; its ids are pulled after those
@@ -1727,7 +1735,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * the history lines before it and the line it replies to (recordOwnParticipation; a dry run
  * records nothing). A server turn that builds a reply request (not a diary post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
- * (src/behavior/participation-pick.js, not on a drawFailed turn) chooses which stored episodes
+ * (src/behavior/participation-pick.js) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
  *
  * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
@@ -2585,9 +2593,13 @@ export function createTurnRunner({
    */
   async function runSteps({ channel, guildId, trigger, draft, transport, messages: requestMessages, first, readAnswer, actArgs, callContext, envelopeOf, routing, memoryOn, selfName }) {
     const inner = Boolean(draft.inner);
+    // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
+    const diary = Boolean(draft.diary);
     const registry = skills ?? defaultSkills();
     const definitionOf = (name) => registry.get(name) ?? null;
-    const settings = loopSettings(hot.config, { inner });
+    const settings = loopSettings(hot.config, { inner, diary });
+    // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
+    const stagedSet = () => (diary && (draft.staged?.length ?? 0) > 0 ? { pictures: draft.staged.map(({ picture, self, text }) => ({ ...picture, self, text })) } : null);
     // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else skills.callTimeoutMs (read now).
     const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000);
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
@@ -2665,8 +2677,7 @@ export function createTurnRunner({
       const loweredCalls = parsed.loweredCalls ?? [];
       const isFinal = finalReason !== null;
       const room = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: loopStartedAt === null ? 0 : clock() - loopStartedAt, timeBudgetMs: settings.timeBudgetMs });
-      const heldItems = speechItemsOf(parsed) + (step === 0 && actArgs.set ? 1 : 0);
-      if (records.length === 0 && heldItems === 0) break;
+      if (records.length === 0 && speechItemsOf(parsed) === 0 && !stagedSet()) break;
 
       // 1. Her calls, planned in her order and made.
       let plans = [];
@@ -2679,7 +2690,7 @@ export function createTurnRunner({
         // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
         let changePlanned = false;
         for (const record of records) {
-          const preRefuse = preRefusalOf(record, { isFinal, terminalAt, room, maxCallsPerStep: settings.maxCallsPerStep, finalReason });
+          const preRefuse = preRefusalOf(record, { isFinal, terminalAt, room, maxCallsPerStep: settings.maxCallsPerStep, finalReason, diary });
           const coercion = preRefuse ? { args: record.args, coerced: [] } : coerceArgs(record.args, registry.get(record.name)?.argsSchema);
           const second = !preRefuse && heartbeatOnly(draft) && HEARTBEAT_INTENT_SKILLS.includes(record.name) && changePlanned;
           if (second) log.info('heartbeat: call refused', { skill: record.name, code: CODE.HEARTBEAT_ONLY, reason: 'one-change' });
@@ -2709,6 +2720,8 @@ export function createTurnRunner({
       }
 
       // 2. Her speech: out after the calls when every one of them worked and needs no reading, else held.
+      // What there is to say now: her messages, reactions and GIF, and a diary post's staged pictures (one item).
+      const heldItems = speechItemsOf(parsed) + (stagedSet() ? 1 : 0);
       let speak = records.length === 0 ? true : stepVerdict(results.map((result) => ({ name: result.skill, result })), { definitionOf }).speak;
       if (isFinal && records.length > 0) speak = terminalAt >= 0 && coversSpeech(definitionOf(results[terminalAt].skill), results[terminalAt]);
       let loweredResults = [];
@@ -2727,7 +2740,8 @@ export function createTurnRunner({
         log.info('turn: speech held', { channel: channel.id, step, items: heldItems });
       }
       const stepResults = [...results, ...loweredResults];
-      if (stepResults.some((result) => result.status === 'ok' && ['effect', 'job'].includes(definitionOf(result.skill)?.result))) delivered = true;
+      // A staged picture reached no chat yet: the post that carries it says so.
+      if (stepResults.some((result) => result.status === 'ok' && result.code !== CODE.STAGED && ['effect', 'job'].includes(definitionOf(result.skill)?.result))) delivered = true;
       const posted = stepResults.some((result) => result.skill === 'message.create' && result.status === 'ok');
 
       // 3. What follows: a request when something is left to read and room is left, else the end.
@@ -2855,9 +2869,20 @@ export function createTurnRunner({
     /** Her speech of a step posted: the messages, reactions, GIF and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({ parsed, loweredCalls }) {
       let acted = null;
-      const spoken = parsed.messages.length > 0 || parsed.reactions.length > 0 || parsed.gif || parsed.draw || (step === 0 && actArgs.set);
+      const set = stagedSet();
+      // A set kind with fewer pictures staged than `diary.set.minPosted` is not posted at all, not even its messages.
+      if (diary && draft.diary.set) {
+        const staged = draft.staged?.length ?? 0;
+        const minPosted = setSettings(hot.config.diary).minPosted;
+        if (staged < minPosted) {
+          log.info('turn: set short', { channel: channel.id, pictures: staged, wanted: minPosted });
+          draft.setShort = staged;
+          return { acted: null, loweredResults: [], deliveries: [] };
+        }
+      }
+      const spoken = parsed.messages.length > 0 || parsed.reactions.length > 0 || parsed.gif || set;
       if (spoken) {
-        acted = await act({ ...actArgs, parsed, set: step === 0 ? actArgs.set : null, idByIndex: routed.idByIndex, history: routed.history, lines: routed.lines, pulledIds: routed.pulledIds, handles: routed.handles, channelHandles: routed.channelHandles });
+        acted = await act({ ...actArgs, parsed, set, idByIndex: routed.idByIndex, history: routed.history, lines: routed.lines, pulledIds: routed.pulledIds, handles: routed.handles, channelHandles: routed.channelHandles });
       }
       const out = { acted, loweredResults: [], deliveries: [] };
       if (loweredCalls.length === 0) return out;
@@ -2877,10 +2902,12 @@ export function createTurnRunner({
    * Why a call of a step cannot run, decided before it is planned: `{ code, reason, values? }`, or null when it can. A
    * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
    * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
-   * `loop-cap` with `what` saying which. An inner turn's last answer still makes its one terminal call (`terminalAt`).
+   * `loop-cap` with `what` saying which; in a diary post anything but `draw.create` is `diary-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
    */
-  function preRefusalOf(record, { isFinal, terminalAt, room, maxCallsPerStep, finalReason }) {
+  function preRefusalOf(record, { isFinal, terminalAt, room, maxCallsPerStep, finalReason, diary = false }) {
     if (record.problem) return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
+    // A diary post makes pictures and nothing else.
+    if (diary && record.name !== 'draw.create') return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
     const capped = (what) => ({ code: CODE.LOOP_CAP, reason: what });
     if (isFinal) return record.index === terminalAt ? null : capped(finalReason);
     if (!room.run) return capped(room.capReason ?? LOOP_WHY.time);
@@ -3384,15 +3411,15 @@ export function createTurnRunner({
    * @param {{ channel: object, guildId: string, parsed: object, idByIndex: Map<number, string>,
    *   history?: object[], mode: string, triggerKind: TriggerKind|null, trigger?: object|null, plain: boolean, selfName: string, pulledIds: Map<string, string>,
    *   lines: object[], knownNames: { name: string, id: string }[], directory?: (() => { name: string, id: string }[])|null,
-   *   linkFor: (pulledId: string|null) => string|null, part?: { index: number, total: number }|null, setDraws?: object[]|null }} args
-   *   `setDraws`: a diary set's drawings (in place of `parsed.draw`), each logged
-   *   `dry-run: would draw` with `set: true` and mirrored with its place in the set.
+   *   linkFor: (pulledId: string|null) => string|null, part?: { index: number, total: number }|null, diaryDraws?: object[]|null, diarySet?: boolean }} args
+   *   `diaryDraws`: a diary post's `draw.create` calls (`{ text, self }`), each logged
+   *   `dry-run: would draw` and mirrored; with `diarySet` (a set kind) logged with `set: true` and its place in the set.
    *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the pulled
    *   channels, then this chat's history (names and authors); `knownNames`: the stored names
    *   `@name` resolves by too (storedNames); `directory`: the fallback behind them (mentionDirectory);
    *   `handles`: the request's handle -> member id map, in place of all three (renderPost).
    */
-  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, directory = null, handles = null, channelHandles = null, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
+  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, directory = null, handles = null, channelHandles = null, linkFor, part = null, gifPick = true, diaryDraws = null, diarySet = false, draft = null }) {
     const channelName = channel.name ?? null;
     const where = mirrorChannelLabel(channel);
     // Every triggered turn shares the mode `reply`: the header names its
@@ -3459,21 +3486,19 @@ export function createTurnRunner({
 
     if (gif) await dryGif(gif);
 
-    // A diary set (`setDraws`): every picture it would generate, in order, in place of the one drawing.
-    const dryDraws = setDraws ?? (parsed.draw ? [parsed.draw] : []);
+    // A diary post (`diaryDraws`): every picture it would generate, in order. Her calls elsewhere are logged by the caller.
+    const dryDraws = diaryDraws ?? [];
     for (const [index, drawn] of dryDraws.entries()) {
       const self = drawn.self === true;
-      const { pulledId } = replyTarget(drawn.replyTo, { plain, idByIndex, pulledIds });
-      const link = linkFor(pulledId);
       // The FULL image prompt (prompt files + the persona's request), so the
       // owner can check the prompt files in dry-run. Same deliberate exception:
       // the persona's own output, dry-run only. Nothing is generated.
       const prompt = drawPromptFor(selfName, drawn);
-      await rehearse('draw', { input: { self, ...(setDraws ? { set: true } : {}) } });
-      log.info('dry-run: would draw', { channel: channel.id, channelName, mode, self, link, prompt, ...(setDraws ? { set: true } : {}) });
+      await rehearse('draw', { input: { self, ...(diarySet ? { set: true } : {}) } });
+      log.info('dry-run: would draw', { channel: channel.id, channelName, mode, self, prompt, ...(diarySet ? { set: true } : {}) });
       // A full prompt outgrows one Discord message: mirrored in numbered parts.
-      const setMark = setDraws ? ` · set ${index + 1}/${setDraws.length}` : '';
-      const header = `${head} · draw${self ? ' (self)' : ''}${setMark}${link ? ` · ${link}` : ''}`;
+      const setMark = diarySet ? ` · set ${index + 1}/${dryDraws.length}` : '';
+      const header = `${head} · draw${self ? ' (self)' : ''}${setMark}`;
       const parts = splitForMirror(prompt, MIRROR_MAX_CHARS - header.length - MIRROR_PART_MARK_CHARS);
       for (const [i, part] of parts.entries()) {
         await mirror(parts.length > 1 ? `${header} (${i + 1}/${parts.length})` : header, part);
@@ -3483,7 +3508,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The image prompt for `draw` (parsed.draw), as the drawing agent builds it
+   * The image prompt for `draw` (a `draw.create` call's `{ text, self }`), as the drawing agent builds it
    * (src/errands/tools.js#drawPromptOf): prompts read now, the request clamped to
    * image.maxPromptChars, the local date and time now (`bot.timezone`, read now) as its
    * `{{when}}` -- every picture, so its light and season follow the clock. Only the dry run
@@ -3515,124 +3540,6 @@ export function createTurnRunner({
   }
 
   /**
-   * The limit notice for a refused drawing (src/behavior/limits.js#postLimitNotice,
-   * labels and dry-run read now), posted in `channel`, quoting the trigger
-   * unless `plain` (a follow-up: never a Discord reply; a routed call: it lives
-   * in another channel). Never throws.
-   */
-  async function notifyLimit(channel, limit, trigger, plain) {
-    const posted = await postLimitNotice({
-      channel,
-      trigger,
-      limit,
-      asReply: !plain,
-      labels: hot.prompts?.labels,
-      config: hot.config,
-      client,
-    });
-    if (posted === 'sent') lastPostAt.set(channel.id, clock());
-  }
-
-  /**
-   * The persona's picture, after its messages: the draw prompt (prompts.draw,
-   * read now) with the request clamped to `image.maxPromptChars`, the avatar as
-   * reference for a picture the persona is in (`image.reference: 'avatar'`),
-   * then one generation (through the drawing agent, src/errands/tools.js) and one upload. No typing indicator while it works.
-   * Resolves `{ posted: true, pulledId, message }` when posted (`pulledId`: the pulled
-   * line it answers, or null; `message`: postedOf the port's answer), `{ drawFailed: reason }`
-   * otherwise (a generation failure keeps its reason, `empty` counts as
-   * `error`; anything else, the upload included, is `error`). A refusal by an
-   * image cap (`ImageCapError`) resolves `{}`: the senses line already told the
-   * persona; on a turn someone asked for the limit notice tells the
-   * requester, an unasked one (spontaneous, overheard: askedFor) stays silent
-   * and only logs it. An unasked picture is charged to no member. A picture
-   * answering a pulled line (`pulledIds`) posts plain (replyTarget); the link
-   * `linkFor` gives it, asked once the picture is ready, is its content. On a
-   * turn about another channel (`sourceId`) the trigger, if any, is a call
-   * written there: the limit notice is posted here as a plain message, never as
-   * a Discord reply across channels. `plain`: the turn quotes no chat line (postsPlain).
-   * The publication is a `message.create` with the picture as its media (checkEffect): a
-   * check that refuses it before the generation draws nothing, one that refuses it after
-   * (the switch moved meanwhile) posts nothing; both resolve `{}`. The upload goes through
-   * the port: anything but `ok` is `{ drawFailed: 'error' }`, journaled by its status, and the
-   * picture is never generated again.
-   */
-  async function draw({ channel, guildId = null, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
-    const self = parsed.draw.self === true;
-    const asked = askedFor(trigger, triggerKind);
-    const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
-    // Nothing is paid for a picture its publication may not have.
-    if (!checkEffect('message.create', sendArgs({ media: imageFileName(null), replyId }), { channel, trigger }).ok) return {};
-    // The journal: the picture is one operation from its generation to its post.
-    const op = journalOp(draft, 'draw', 'persona', { input: { self } });
-    if (op.opId) await op.started();
-    try {
-      const { picture, referenceMissing } = await makePicture({
-        channel,
-        guildId,
-        scene: parsed.draw.text,
-        self,
-        selfName,
-        userId: asked ? (trigger.authorId ?? null) : null,
-        messageId: trigger?.id ?? null,
-      });
-      if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
-      const link = linkFor(pulledId);
-      const name = imageFileName(picture.mediaType);
-      // Checked again right before the publication: generated or not, a refused picture is not posted.
-      const verdict = checkEffect('message.create', sendArgs({ text: link, media: name, replyId }), { channel, trigger });
-      if (!verdict.ok) {
-        if (op.opId) await op.failed(verdict.code);
-        return {};
-      }
-      const result = await iface.send(conversationOf(channel), {
-        ...(link ? { text: link } : {}),
-        attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
-        ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
-      });
-      if (result.status !== 'ok') {
-        if (op.opId) await closeResult(op, result);
-        log.warn('turn: draw error', { channel: channel.id, error: portError(result) });
-        return { drawFailed: 'error' };
-      }
-      const message = postedOf(result);
-      if (op.opId) await op.succeeded({ messageId: message.id, bytes: picture.buffer?.length ?? 0 });
-      lastPostAt.set(channel.id, clock());
-      log.info('turn: drew', {
-        channel: channel.id,
-        seconds: picture.seconds,
-        cost: picture.cost,
-        self,
-        bytes: picture.buffer?.length ?? 0,
-        ...(link ? { link: true } : {}),
-      });
-      return { posted: true, pulledId, replyId, message, op };
-    } catch (err) {
-      if (op.opId) await op.failed(err instanceof ImageCapError ? CODE.IMAGE_CAP : err instanceof ImageGenError ? (err.reason ?? CODE.ERROR) : CODE.ERROR);
-      if (err instanceof ImageCapError) {
-        const limit = limitOf(err);
-        log.info('turn: draw refused by a limit', {
-          channel: channel.id,
-          key: limit?.key ?? null,
-          used: limit?.used ?? null,
-          cap: limit?.cap ?? null,
-          spontaneous: !trigger,
-          // What decides the notice: an overheard turn has a trigger, yet nobody asked.
-          asked,
-        });
-        if (!asked) return {};
-        await notifyLimit(channel, limit, trigger, plain || Boolean(sourceId));
-        return {};
-      }
-      if (err instanceof ImageGenError) {
-        return { drawFailed: err.reason === 'empty' ? 'error' : err.reason };
-      }
-      log.warn('turn: draw error', { channel: channel.id, error: err });
-      return { drawFailed: 'error' };
-    }
-  }
-
-  /**
    * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, channelId?, replyTo? }`):
    * the picture through makePicture, the scene verbatim, with the local time, then one upload through
    * the port. It posts where `message.create` would: the channel she names, else the replied message's
@@ -3640,11 +3547,14 @@ export function createTurnRunner({
    * checked before anything is generated (src/ops/shared.js#postingConversation, `attach`). A reply
    * quotes the message in that channel. The picture is charged to the asking member's rail when the turn
    * was asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit
-   * notice or a drawFailed turn: an image cap is `image-cap-daily` or `image-cap-user-daily`, a
+   * notice: an image cap is `image-cap-daily` or `image-cap-user-daily`, a
    * generation failure `image-moderation`, `image-timeout` or `image-error`, a refused publication its
    * gateway code, and the port's answer to the upload passes through (`unknown` when it may have gone
    * out: never generated again). In a diary turn (`mode` 'diary') the picture is staged into
-   * `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`). Never throws.
+   * `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), counted against
+   * the day's diary pictures as it is generated, and refused `daily-cap` (reason: the gate that closed,
+   * diaryPictureGate) while the post may carry none, `loop-cap` past what the post's kind takes
+   * (one picture, or `diary.set.pictures[1]` for a set kind: `draft.diary.set`). Never throws.
    * @returns {Promise<{ status: string, code?: string, ref?: object|null, at?: number, error?: object|null, data: { text: string } }>}
    */
   async function drawTool(args, { channel, guildId = null, trigger = null, triggerKind = null, selfName, draft = null, mode = null, plain = false }) {
@@ -3656,6 +3566,12 @@ export function createTurnRunner({
     const scene = String(args?.text ?? '');
     const asked = askedFor(trigger, triggerKind);
     const staging = mode === 'diary';
+    if (staging) {
+      // A diary post's pictures: the gate is asked at every picture (the day's count moves as they are made).
+      const gate = diaryPictureGate(hot.config, channel, clock());
+      if (!gate.allowed) return failed(refusalStatus(CODE.DAILY_CAP), CODE.DAILY_CAP, { reason: gate.limit?.key ?? 'image.maxPerDay' });
+      if ((draft?.staged?.length ?? 0) >= (draft?.diary?.set ? setSettings(hot.config.diary).pictures[1] : 1)) return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
+    }
     try {
       let channelId = String(channel.id);
       let replyId = null;
@@ -3674,7 +3590,7 @@ export function createTurnRunner({
       if (!before.ok) return failed(refusalStatus(before.code), before.code, { reason: before.reason });
       let made;
       try {
-        made = await makePicture({ channel, guildId, scene, self, selfName, userId: asked ? (trigger.authorId ?? null) : null, messageId: trigger?.id ?? null });
+        made = await makePicture({ channel, guildId, scene, self, selfName, userId: asked ? (trigger.authorId ?? null) : null, messageId: trigger?.id ?? null, ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}) });
       } catch (err) {
         if (err instanceof ImageCapError) {
           const limit = limitOf(err);
@@ -3692,6 +3608,9 @@ export function createTurnRunner({
       if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       if (staging) {
         (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
+        // Counted when it is generated, posted or not.
+        bumpDaily(store.state.data, DIARY_PICTURES_DAILY, clock());
+        store.state.markDirty();
         return { status: 'ok', code: CODE.STAGED, data: none };
       }
       const name = imageFileName(picture.mediaType);
@@ -3714,53 +3633,6 @@ export function createTurnRunner({
       log.warn('turn: draw error', { channel: channel.id, error: err });
       return failed('failed', CODE.ERROR);
     }
-  }
-
-  /**
-   * A diary set's pictures, generated one after another before anything of the
-   * post is sent: for each of `draws` (already cut to `diary.set.pictures[1]`)
-   * the draw prompt as draw() builds it, the avatar as reference for a picture
-   * the persona is in (`image.reference: 'avatar'`, fetched once per set), charged
-   * to no member (nobody asked). A refusal by an image cap (`ImageCapError`) ends
-   * the generation (`turn: draw refused by a limit`, no notice); any other failure
-   * skips that picture (`turn: draw error` with its `reason`) and goes on. The
-   * generation also stops once the pictures left could no longer reach
-   * `minPosted` (the set would not be posted: nothing more is paid for).
-   * Resolves the pictures that came out, in order: `{ buffer, mediaType, seconds,
-   * cost, self, text }` (`text`: the persona's scene).
-   * @param {{ channel: object, draws: { text: string, self: boolean }[], selfName: string, minPosted: number }} args
-   * @returns {Promise<object[]>}
-   */
-  async function generateSet({ channel, draws, selfName, minPosted }) {
-    const pictures = [];
-    // The avatar is fetched once for the whole set, by the first picture the persona is in.
-    const avatar = {};
-    for (const [index, drawn] of draws.entries()) {
-      if (pictures.length + (draws.length - index) < minPosted) break;
-      const self = drawn.self === true;
-      try {
-        const { picture, referenceMissing } = await makePicture({ channel, scene: drawn.text, self, selfName, avatar });
-        if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
-        pictures.push({ ...picture, self, text: drawn.text });
-      } catch (err) {
-        if (err instanceof ImageCapError) {
-          const limit = limitOf(err);
-          log.info('turn: draw refused by a limit', {
-            channel: channel.id,
-            key: limit?.key ?? null,
-            used: limit?.used ?? null,
-            cap: limit?.cap ?? null,
-            spontaneous: true,
-            asked: false,
-            set: true,
-          });
-          break;
-        }
-        const reason = err instanceof ImageGenError ? (err.reason === 'empty' ? 'error' : err.reason) : 'error';
-        log.warn('turn: draw error', { channel: channel.id, reason, set: true, error: err });
-      }
-    }
-    return pictures;
   }
 
   /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily GIF counter). */
@@ -3992,9 +3864,7 @@ export function createTurnRunner({
    * anything reached the chat (a reaction put, a message, the GIF or the
    * picture posted; a limit notice is not the persona's answer), and the ids
    * of the pulled lines what reached it answered (a reaction put on one, a
-   * message, the GIF or the picture posted answering one: stampShownCalls) --
-   * plus `drawFailed` from draw() when the persona's picture could not be
-   * posted.
+   * message, the GIF or a diary set's pictures posted answering one: stampShownCalls).
    *
    * Everything is posted in `channel`. A reaction on a pulled line
    * (`pulledIds`) is put in that line's channel when the bot may react there,
@@ -4045,8 +3915,8 @@ export function createTurnRunner({
    *   message (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
    *   null): each message sent in a server channel is recorded in the participation store
    *   (recordOwnParticipation) with the lines of `history` before it.
-   *   `set` (`{ pictures }`, a diary set's pictures from generateSet): posted after the messages in
-   *   place of `parsed.draw`, as files with no text and no reply, split by chunkPictures over
+   *   `set` (`{ pictures }`, a diary post's staged pictures: a single picture is a set of one): posted
+   *   after the messages as files with no text and no reply, split by chunkPictures over
    *   `diary.set.maxMessageBytes` (read now) and 10 files; `turn: drew` per picture (`set: true`),
    *   then `turn: set posted` (`pictures`, `messages`: the file messages sent). A file message that
    *   fails to send ends the set (`turn: send failed` with `set: true`).
@@ -4054,7 +3924,7 @@ export function createTurnRunner({
    * posted, in order), `texts` (the messages posted, as the persona wrote them), `lines` (each
    * message posted as a transcript line of hers: its id, time and text as written), `gifs` (the
    * handles of the GIFs posted), `drew` (the
-   * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
+   * picture was posted); with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
    */
   async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, directory = null, handles = null, channelHandles = null, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
@@ -4316,16 +4186,7 @@ export function createTurnRunner({
       return { delivered, answered, ...posted };
     }
 
-    // The picture comes last, once every message is out.
-    if (!parsed.draw) return { delivered, answered, ...posted };
-    const drawn = await draw({ channel, guildId, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId, draft });
-    if (drawn.posted === true) {
-      if (drawn.pulledId) answered.add(drawn.pulledId);
-      notePost(drawn.message, drawn.replyId, drawn.op);
-      if (typeof drawn.message?.id === 'string' && drawn.message.id) messageIds.push(drawn.message.id);
-      posted.drew = true;
-    }
-    return { delivered: delivered || drawn.posted === true, answered, ...posted, ...(drawn.drawFailed ? { drawFailed: drawn.drawFailed } : {}) };
+    return { delivered, answered, ...posted };
   }
 
   /**
@@ -5342,17 +5203,17 @@ export function createTurnRunner({
    * its message ids and its search query; the day's diary post counted and,
    * when the picture was posted, the day's diary picture. A set post (`set`)
    * records the scene of its first picture posted with `pictures`, the count
-   * posted; its pictures were counted when they were generated. Settings come
+   * posted. Every picture was counted against the day's diary pictures when it was generated. Settings come
    * from `config`, the turn's live config. Returns the outcome's `diary` field
    * (`pictures`: the pictures posted).
    */
-  function recordDiaryPost({ config, guildId, now, plan, parsed, acted, set = false }) {
+  function recordDiaryPost({ config, guildId, now, plan, acted, set = false }) {
     const diaryCfg = config.diary ?? {};
     const gistChars = diaryCfg.gistChars ?? 200;
     const texts = Array.isArray(acted.texts) ? acted.texts : [];
     const drew = acted.drew === true;
-    const pictures = set ? (acted.setPictures ?? 0) : drew ? 1 : 0;
-    const scene = set ? acted.setScene : parsed.draw?.text;
+    const pictures = acted.setPictures ?? 0;
+    const scene = acted.setScene;
     if (typeof store.appendDiaryPost === 'function') {
       store.appendDiaryPost(
         guildId,
@@ -5369,7 +5230,6 @@ export function createTurnRunner({
       );
     }
     bumpDaily(store.state.data, DIARY_DAILY, now);
-    if (drew && !set) bumpDaily(store.state.data, DIARY_PICTURES_DAILY, now);
     store.state.markDirty();
     return { kind: plan.kind, picture: drew, search: Boolean(plan.search), messages: texts.length, pictures };
   }
@@ -5381,7 +5241,7 @@ export function createTurnRunner({
    * without it, so nothing else is fetched when it fails -- then the explicit
    * `<#id>` mentions of the trigger and of the last `context.pull.scanMessages`
    * messages, then the route hook's ids (routeIds; asked only with
-   * features.channelPull on, not on a drawFailed turn, and while a slot is
+   * features.channelPull on and while a slot is
    * left; on a routed turn it reads the source's lines; a pick marked
    * `earlier` fetches the page before the oldest line of the last view of that
    * channel shown here, pullViews within `context.pull.seenTtlMinutes`, else
@@ -5396,8 +5256,7 @@ export function createTurnRunner({
    * code, `pullReason` = `mention` or `route`), one whose check throws logs
    * `pull: failed` and is not pulled. Every pull reads the ring of calls
    * (`state.json` `elsewherePings`) for its ping marks. Fresh captions only
-   * with `certain` (no chooser can still end the turn as not-now), never on a
-   * drawFailed turn. Settings come from `config`, the turn's live config.
+   * with `certain` (no chooser can still end the turn as not-now). Settings come from `config`, the turn's live config.
    * `candidate` (default: the trigger) is what the route hook judges: on a
    * turn answering one part of a split message, the trigger with that part's text.
    * A private chat with its `partner` (privatePartner) pulls the same way from
@@ -5409,7 +5268,7 @@ export function createTurnRunner({
    * @returns {Promise<{ pulled: object[], sourceSkip: string|null }>}  The PulledChannel records,
    *   source first; `sourceSkip` is the skip code of a source that could not be pulled.
    */
-  async function pullChannels({ channel, guildId, guild = channel.guild, partner = null, history, trigger, candidate = trigger, triggerKind = null, source, selfId, selfName, config, now, certain, drawFailure, labelled, routePlan = null }) {
+  async function pullChannels({ channel, guildId, guild = channel.guild, partner = null, history, trigger, candidate = trigger, triggerKind = null, source, selfId, selfName, config, now, certain, labelled, routePlan = null }) {
     const settings = pullSettings(config);
     const channelPull = channelPullOn(config) && labelled;
     // Every candidate judged once: its skip code (null = pullable) and why it was a candidate.
@@ -5428,7 +5287,7 @@ export function createTurnRunner({
       return judged.get(id).skip === null;
     };
     // The channels the exchange with this author keeps from an earlier turn (context.pull.keepMinutes / keepTurns).
-    const keptIds = drawFailure ? [] : keptPullIds(channel.id, trigger, now, settings);
+    const keptIds = keptPullIds(channel.id, trigger, now, settings);
     const targetsWith = (extra, { pullable = isPullable, more = channelPull, kept = [] } = {}) =>
       pullTargets({
         source,
@@ -5451,7 +5310,7 @@ export function createTurnRunner({
     if (!labelled) {
       // What the turn would have pulled with the label (unjudged: no check is wasted on it).
       const wanted = targetsWith([], { pullable: () => true, more: channelPullOn(config) });
-      const hookWanted = typeof routeChannels === 'function' && channelPullOn(config) && !drawFailure && wanted.length < settings.maxChannels;
+      const hookWanted = typeof routeChannels === 'function' && channelPullOn(config) && wanted.length < settings.maxChannels;
       if (wanted.length > 0 || hookWanted) log.info('pull: skipped', { channel: channel.id, reason: 'no-label' });
     }
     const pings = store.state.data.elsewherePings ?? [];
@@ -5477,7 +5336,7 @@ export function createTurnRunner({
         selfId,
         now,
         describer: describer ?? null,
-        turnCertain: certain && !drawFailure && labelled,
+        turnCertain: certain && labelled,
       });
 
     let targets = targetsWith([]);
@@ -5492,7 +5351,7 @@ export function createTurnRunner({
       }
       sourcePulled = result.pulled;
     }
-    if ((routePlan || typeof routeChannels === 'function') && channelPull && !drawFailure && targets.length < settings.maxChannels) {
+    if ((routePlan || typeof routeChannels === 'function') && channelPull && targets.length < settings.maxChannels) {
       const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
       // With the turn planner its channel block stands in for the route hook (never both).
       const picks = routePlan
@@ -5514,7 +5373,7 @@ export function createTurnRunner({
     const fetched = await Promise.all(rest.map(pullOne));
     logRefused();
     const got = rest.filter((target, i) => fetched[i].pulled);
-    noteKeptPull(channel.id, trigger, now, settings, { fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.channelId), keptWanted: keptIds.length > 0, keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.channelId), drawFailure });
+    noteKeptPull(channel.id, trigger, now, settings, { fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.channelId), keptWanted: keptIds.length > 0, keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.channelId) });
     return { pulled: [sourcePulled, ...fetched.map((result) => result.pulled)].filter(Boolean), sourceSkip: null };
   }
 
@@ -5542,8 +5401,8 @@ export function createTurnRunner({
    * (`fresh`) start a new keep for the trigger's author; kept ones that were pulled again
    * (`keptUsed`) count one turn; kept ones that could not be pulled end the keep.
    */
-  function noteKeptPull(destinationId, trigger, now, settings, { fresh, keptWanted, keptUsed, drawFailure }) {
-    if (drawFailure || !trigger || settings.keepTurns <= 0) return;
+  function noteKeptPull(destinationId, trigger, now, settings, { fresh, keptWanted, keptUsed }) {
+    if (!trigger || settings.keepTurns <= 0) return;
     if (fresh.length > 0) {
       keptPulls.set(destinationId, { channelIds: fresh, at: now, turns: 0, authorId: trigger.authorId ?? null });
       return;
@@ -5709,7 +5568,7 @@ export function createTurnRunner({
    *   cannot be pulled a routed turn ends in `error` (`turn: source unavailable`), a noticed one
    *   in `not-now`. `channel` is where the words go and the one marked busy; the first post
    *   links to the routed call, or to the newest line of the source shown (none when the budget
-   *   dropped its block). The drawFailed turn after a failed picture keeps it.
+   *   dropped its block).
    * @param {object|null} [params.focus]  A normalized message of this chat put to everyone present
    *   (a room question): buildRequest appends `labels.room.focus` to the task.
    * @param {boolean} [params.forced]  True for a turn someone asked for (`/nep message create`; was `/nep interject`, `/nep
@@ -5739,17 +5598,19 @@ export function createTurnRunner({
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
    *   `topic` is the owner's topic for the planner and the plan, `forced` also appends
    *   prompts.forced to the task), then composed with `prompts.diary` as
-   *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its output keeps only
+   *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
-   *   message left empty not posted), `<draw>` (only while the plan's picture check allowed it)
-   *   and `<skip/>`; no reaction, no GIF, no GIF pick. A planned kind in `diary.setKinds` is a
-   *   set post: the first `diary.set.pictures[1]` `<draw>` tags are generated (generateSet)
-   *   before anything is sent and counted against the day's diary pictures; fewer than
-   *   `diary.set.minPosted` and nothing is posted (`turn: set short`, `{ outcome: 'refused',
-   *   reason: 'set-short' }`), else the messages go as usual and the pictures after them as
-   *   files (act's `set`). A post that reached the chat is recorded (recordDiaryPost) and its
-   *   outcome carries `diary: { kind, picture, search, messages, pictures }`; a dry run records
-   *   nothing. A failed picture is only logged: nobody asked for it.
+   *   message left empty not posted) and `<skip/>`; no reaction, no GIF, no GIF pick. It runs on the
+   *   step engine with `diary.loop`: only her `draw.create` calls run (any other is refused
+   *   `diary-draw-only`; at most `diary.set.pictures[1]` in a step), each picture staged as it is
+   *   generated and counted against the day's diary pictures then; a picture while the post may
+   *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech
+   *   with the staged pictures until her next step. The messages go out first, then every staged
+   *   picture as files (act's `set`; a single picture is a set of one). A planned kind in
+   *   `diary.setKinds` is a set post: fewer than `diary.set.minPosted` pictures staged and nothing
+   *   is posted (`turn: set short`, `{ outcome: 'refused', reason: 'set-short' }`). A post that
+   *   reached the chat is recorded (recordDiaryPost) and its outcome carries `diary: { kind,
+   *   picture, search, messages, pictures }`; a dry run records nothing.
    *
    * A private chat (`channel` without a guild) works like a server turn on behalf of its partner
    * (the trigger's author, fetched as a member of the served guild: privatePartner) with
@@ -5760,11 +5621,11 @@ export function createTurnRunner({
    * shows move no seen mark, stamp no call of the ring and count for no pending ping there: the
    * persona answered in private, not on the server. The switch off, or no partner: no pull, no
    * route hook, no server search, as before.
-   * @returns {Promise<{ outcome: TurnOutcome, mode?: string, dryRun?: boolean, drawFailed?: string,
+   * @returns {Promise<{ outcome: TurnOutcome, mode?: string, dryRun?: boolean,
    *   delivered?: boolean, reason?: string, limit?: { key: string, used: number, cap: number }|null }>}
-   *   `drawFailed` (the reason) when the persona's picture could not be posted; `delivered` on a
+   *   `delivered` on a
    *   `spoke` turn posted for real: whether anything reached the chat (a reaction put, a message,
-   *   the GIF or the picture posted -- by the drawFailed turn too; a send that fails stops the
+   *   the GIF or a diary post's pictures posted; a send that fails stops the
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
    *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
    *   set short of `diary.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
@@ -5786,7 +5647,7 @@ export function createTurnRunner({
     let thrown = null;
     try {
       const first = await runTurnOnce({ ...tracked, maySplit: true });
-      result = first.outcome === 'split' ? await runChain(tracked, first) : await answerDrawFailure(tracked, first);
+      result = first.outcome === 'split' ? await runChain(tracked, first) : first;
       return result;
     } catch (err) {
       thrown = err;
@@ -5881,56 +5742,6 @@ export function createTurnRunner({
       .catch((err) => log.warn('turn: onTurnEnd failed', { error: err }));
   }
 
-  /**
-   * After a turn whose picture failed (`first.drawFailed`): a failed picture
-   * someone asked for gets its own turn, started only once the first one has
-   * fully returned (and freed the channel), with the reason in the trigger
-   * label; its own <draw> is dropped. The first turn held back its idle
-   * notifications (see runTurnOnce's `finally`), so a pending ping is drained
-   * only after this second turn -- never raced by it. Nobody asked on a
-   * spontaneous or an overheard turn (askedFor, the same predicate as
-   * runTurnOnce's hand-off): the failure is only logged. A turn about another
-   * channel keeps its source: a routed call is still answered here, with the
-   * call shown and linked -- what that turn posts reached the chat for the
-   * call too (`delivered`). It posts plain when the first turn did (a
-   * follow-up, a later part of a split message: `plainPosts`): it carries that
-   * turn's kind. Inside a chain (`owned`) the second turn keeps the chain's
-   * attention and leaves the idle notifications to it. Any other `first` comes
-   * back as it is.
-   */
-  async function answerDrawFailure(params, first, { owned = false, plainPosts = false } = {}) {
-    if (!first.drawFailed) return first;
-    const { channel, guildId, trigger = null, triggerKind = null, source = null } = params;
-    if (askedFor(trigger, triggerKind)) {
-      try {
-        const second = await runTurnOnce({
-          channel,
-          guildId,
-          mode: 'reply',
-          trigger,
-          triggerKind: 'drawFailed',
-          drawReason: first.drawFailed,
-          drawFailedAfter: triggerKind,
-          source,
-          holdIdle: true,
-          owned,
-          plainPosts,
-          // The journal: the same turn, its next attempt.
-          journalAttempts: params.journalAttempts,
-          turnEnds: params.turnEnds,
-          journalTurn: first.turnId ? { turnId: first.turnId, attemptId: (first.attemptId ?? 1) + 1 } : null,
-        });
-        log.info('turn: draw failure answered', { channel: channel.id, reason: first.drawFailed, outcome: second.outcome });
-        if (second.outcome === 'spoke' && second.delivered === true) return { ...first, delivered: true };
-      } finally {
-        if (!owned) notifyIdle();
-      }
-    } else {
-      log.warn('turn: draw failed', { channel: channel.id, reason: first.drawFailed });
-    }
-    return first;
-  }
-
   /** Why a chain ends before its next part: `paused` (/nep pause), `warmup` (a warmup run), or null. */
   function chainStop() {
     if (store.state.data.paused) return 'paused';
@@ -5990,7 +5801,7 @@ export function createTurnRunner({
             added: [...(i === 0 && Array.isArray(params.added) ? params.added : []), ...(chain.added.get(index) ?? [])],
             plainPosts,
           });
-          result = await answerDrawFailure(params, once, { owned: true, plainPosts });
+          result = once;
         } catch (err) {
           const code = errorCodeOf(err);
           log.error('turn: failed', { channel: channel.id, code, error: err });
@@ -6048,11 +5859,7 @@ export function createTurnRunner({
   }
 
   /**
-   * One turn, as described on runTurn. Internal for the `drawFailed` turn:
-   * `drawReason`, `drawFailedAfter` (the first turn's trigger kind: the
-   * second posts plain when the first did, postsPlain), and `holdIdle` --
-   * leave the idle notifications to the caller (runTurn fires them once the
-   * second turn is over). Internal for a split message: `maySplit` (runTurn's
+   * One turn, as described on runTurn. Internal for a split message: `maySplit` (runTurn's
    * first turn may ask the splitter; parts in time end it with the internal
    * outcome `split`, `{ parts, history }`, still holding the attention for
    * runChain), `owned` (a turn of the chain: the chain holds the attention and
@@ -6139,9 +5946,6 @@ export function createTurnRunner({
     forced = false,
     source = null,
     focus = null,
-    drawReason = null,
-    drawFailedAfter = null,
-    holdIdle = false,
     queued = null,
     added = null,
     maySplit = false,
@@ -6173,8 +5977,6 @@ export function createTurnRunner({
     // The turn a finished errand of her own opens (asked in an inner turn: requester kind
     // `persona`, no person behind it) is her own initiative too: her grants alone decide her calls.
     if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.userId) draft.ownInitiative = true;
-    // Set when this turn hands off to a drawFailed turn: runTurn notifies after it.
-    let handOff = false;
     // Set when this turn hands its message to a chain of parts: the chain keeps the attention.
     let chained = false;
     // /nep pause: the owner is editing data/ by hand -- no new turn may
@@ -6248,7 +6050,7 @@ export function createTurnRunner({
       // with pace.unpromptedWaits on) has neither the bar nor the preparation's deadline below.
       const pace = paceSettings(config);
       const waitsForAll = unhurried(triggerKind, pace);
-      // The bar (pace.dropAfterMs, from the turn's start; a drawFailed turn has its own): the
+      // The bar (pace.dropAfterMs, from the turn's start): the
       // answer must be in hand by then, or the turn is dropped unposted. At the bar every wait
       // below gives up (beforeBar throws TOO_SLOW), the typing indicator stops, and the reply
       // request is aborted -- its client sends no retry once its signal is aborted.
@@ -6284,8 +6086,6 @@ export function createTurnRunner({
         const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
         return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
       };
-      // A drawFailed turn only says the picture failed: no classifier is paid for a second time.
-      const answersDrawFailure = triggerKind === 'drawFailed';
       // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
       const asked = askedFor(trigger, triggerKind);
       // A turn a returned errand opened answers with its result: the engine's own search
@@ -6367,12 +6167,12 @@ export function createTurnRunner({
       const webLookupOn = features.webLookup === true && Boolean(lookup);
       const webSearchOn = webLookupOn && config.web?.search?.enabled !== false && typeof lookup.search === 'function';
       const serverOn = (!isPrivate || likeServer) && recallAvailable();
-      // The turn planner (features.turnPlanner exactly true, read now; never on a drawFailed turn,
-      // which asks no classifier): one request for the route, the participation pick, the
+      // The turn planner (features.turnPlanner exactly true, read now; never for an inner turn):
+      // one request for the route, the participation pick, the
       // re-watch and the search classifier, none of which is asked then. It starts in the pull's
       // route step on a turn that waits for its pull (a source, or a mode still to choose), else
       // once the file previews are in (below), like the search classifier did.
-      planner = plannerOn(config) && !answersDrawFailure && !draft.inner
+      planner = plannerOn(config) && !draft.inner
         ? createTurnPlan({ config, channelId: channel.id, selfName, triggerKind, limits: draft.limits ?? null, early: Boolean(source) || mode === 'auto' })
         : null;
       // The planner's `skills:` line, once it answered (skills discovery, read when the request is built).
@@ -6452,7 +6252,7 @@ export function createTurnRunner({
       const pullStartedAt = clock();
       const pullsPending = isPrivate && !likeServer
         ? Promise.resolve({ pulled: [], sourceSkip: null })
-        : pullChannels({ channel, guildId, guild: servedGuild, partner, history, trigger, candidate, triggerKind, source, selfId, selfName, config, now, certain, drawFailure: answersDrawFailure, labelled: pullLabelled, routePlan })
+        : pullChannels({ channel, guildId, guild: servedGuild, partner, history, trigger, candidate, triggerKind, source, selfId, selfName, config, now, certain, labelled: pullLabelled, routePlan })
             // Never fails the turn: anything unexpected is no pull (and no source).
             .catch((err) => {
               log.warn('pull: failed', { channel: channel.id, error: err });
@@ -6548,7 +6348,7 @@ export function createTurnRunner({
       // (`split: skipped`, `no-prompt`); without labels.task.part (an older labels file) it is
       // never asked. A routed call is read in its source, as the search classifier reads it.
       let splitStage = null;
-      if (maySplit && !answersDrawFailure && splitCandidate(trigger, triggerKind, config)) {
+      if (maySplit && splitCandidate(trigger, triggerKind, config)) {
         const splitPrompt = hot.prompts?.split;
         if (!splitPrompt) {
           log.info('split: skipped', { channel: channel.id, reason: 'no-prompt' });
@@ -6598,8 +6398,7 @@ export function createTurnRunner({
       }
 
       // A second look when the trigger asks about a watched video or a posted picture: a
-      // direct address only (never a spontaneous or an overheard turn, never the drawFailed
-      // turn). Videos under features.videoRewatch (with the video stage), watched GIFs under
+      // direct address only (never a spontaneous or an overheard turn). Videos under features.videoRewatch (with the video stage), watched GIFs under
       // features.videoRewatch and video vision, pictures under features.imageRelook (a missing
       // key counts as on, each; the look runs through the vision model), the persona's own
       // posted drawings included.
@@ -6615,10 +6414,10 @@ export function createTurnRunner({
         isVideoVisionOn(config) && features.videoRewatch !== false && typeof describer?.rewatchGif === 'function' && typeof describer.watchedGifs === 'function';
       // The items a second look may be offered for (the re-watch, or the planner's `<media>`).
       // With features.coreTools no classifier picks a second look for her: she calls media.look.
-      const mediaWanted = asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn) && !routedPull && !coreTools;
+      const mediaWanted = asked && (videoRewatchOn || imageRelookOn || gifRewatchOn) && !routedPull && !coreTools;
       const pictures = mediaWanted && imageRelookOn ? relookCandidates(rawHistory) : [];
       const gifItems = mediaWanted && gifRewatchOn ? gifRewatchItems(rawHistory) : [];
-      if (asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn)) {
+      if (asked && (videoRewatchOn || imageRelookOn || gifRewatchOn)) {
         if (coreTools) {
           log.info('rewatch: skipped', { channel: channel.id, reason: 'core-tools' });
         } else if (routedPull) {
@@ -6750,8 +6549,8 @@ export function createTurnRunner({
       let lookupStage = null;
       let lookupChain = null;
       // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
-      if (asked && !answersDrawFailure && !answersTask && coreTools && (webSearchOn || serverOn)) log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
-      if (asked && !answersDrawFailure && !answersTask && !coreTools) {
+      if (asked && !answersTask && coreTools && (webSearchOn || serverOn)) log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
+      if (asked && !answersTask && !coreTools) {
         const webOn = webSearchOn;
         if (webOn || serverOn) {
           lookupChain = previews.settled
@@ -6878,7 +6677,7 @@ export function createTurnRunner({
       const participationShown = participationOn(channel, config) && finalMode !== 'diary';
       const participationAudienceOf = participationShown ? participationAudience(channel, config) : null;
       const participationStage =
-        participationShown && !answersDrawFailure
+        participationShown
           ? track('participation', () =>
               planner
                 ? // The planner's episodes block, mapped back to the episode ids it was offered.
@@ -6995,17 +6794,18 @@ export function createTurnRunner({
         const settled = await beforeBar(diaryPending);
         if (settled.error) throw settled.error;
         diaryPrep = settled.value;
+        // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
+        draft.diary = { set: isSetKind(diaryPrep.plan.kind, config.diary?.setKinds) };
       }
       const neighborDescriptions =
         features.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
           ? describer.cachedDescriptions(guildId, neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages, [])))
           : undefined;
       // Drawing (features.imageGeneration, a missing key counts as on) needs the image client
-      // and Attach Files here; a drawFailed turn answers the failure and never draws again.
-      // An unasked turn reads the quota for no member, like draw() charges none.
+      // and Attach Files here. An unasked turn reads the quota for no member, like draw.create charges none.
       // A diary post draws only while its picture check allowed it (its own daily cap and the image cap).
       const drawOn =
-        Boolean(images) && features.imageGeneration !== false && triggerKind !== 'drawFailed' && canAttach(channel) && (!diaryPrep || diaryPrep.pictureAllowed);
+        Boolean(images) && features.imageGeneration !== false && canAttach(channel) && (!diaryPrep || diaryPrep.pictureAllowed);
       const drawQuota = drawOn ? images.quota({ userId: asked ? (trigger.authorId ?? null) : null }) : undefined;
       // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
       // record carries its own mark). A pulled channel whose block is shown is left out of the
@@ -7066,11 +6866,11 @@ export function createTurnRunner({
       const offPeriods = await offPeriodsFor(guildId, config);
       // Skills discovery on a turn someone asked for: the catalogue when the question was what the
       // persona can do; named skills only logged and journaled (shadow).
-      const skillsInventory = asked && !answersDrawFailure ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
+      const skillsInventory = asked ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
       // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
       // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
-      // reads its picture tag until it moves to the tools: it carries none.
-      draft.toolNames = finalMode === 'diary' ? [] : exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
+      // has the same tools; only `draw.create` runs there (runSteps).
+      draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
       draft.tools = buildTools(draft.toolNames, { registry: skills ?? defaultSkills(), texts: prompts?.skills, fill: { drawChars: config.image?.maxPromptChars ?? 1600 } });
       const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;
       const toolsTokens = transport === 'native' ? calibrator.apply(estimateTools(draft.tools)) : 0;
@@ -7123,7 +6923,6 @@ export function createTurnRunner({
         // The search of the server's own history: the value the lookup stage used.
         recallAvailable: serverOn,
         drawQuota: drawQuota ?? null,
-        drawReason,
         // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
         customEmoji: emoji ? (emoji.list() ?? []) : [],
         // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
@@ -7267,7 +7066,7 @@ export function createTurnRunner({
           .filter((reaction) => reaction.emoji);
         if (features.multiMessage === false) parsed.messages = parsed.messages.slice(0, 1);
         // format.stripDashes (a missing key counts as on): no em/en dash in a <msg> text; a message
-        // left empty is not posted. Hyphens, <draw>, <react>, <gif> and reply ids are untouched.
+        // left empty is not posted. Hyphens, <react>, <gif> and reply ids are untouched.
         if (hot.config.format?.stripDashes !== false) {
           const dashes = parsed.messages.reduce((sum, message) => sum + countDashes(message.text), 0);
           if (dashes > 0) {
@@ -7275,8 +7074,6 @@ export function createTurnRunner({
             log.info('turn: dashes stripped', { channel: channel.id, count: dashes });
           }
         }
-        // No image client, drawing off, no Attach Files: the diary's <draw> (the only one read) is dropped.
-        if (!drawOn) parsed.draw = null;
         // An inner turn's tags are public actions in its current channel: lowered into the calls a
         // `message.create` / `message.react.add` of hers would be, planned after her own calls and made
         // with them once her speech may go out (src/behavior/inner-output.js).
@@ -7289,8 +7086,6 @@ export function createTurnRunner({
           parsed.reactions = [];
           parsed.untargetedReactions = [];
           parsed.gif = null;
-          parsed.draw = null;
-          parsed.draws = [];
         }
         if (diaryPrep) {
           // A diary post: no reaction, no GIF, nothing posted as a reply, no link, at most diary.maxMessages.
@@ -7300,7 +7095,6 @@ export function createTurnRunner({
             .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
             .filter((message) => message.text !== '')
             .slice(0, Math.max(0, config.diary?.maxMessages ?? 3));
-          if (parsed.draw) parsed.draw = { ...parsed.draw, replyTo: null };
         }
         return parsed;
       };
@@ -7310,7 +7104,7 @@ export function createTurnRunner({
       draft.steps = 0;
       const readAnswer = (answered, number) => {
         const split = answerOf(answered, { transport, step: number, registry: skills ?? defaultSkills() });
-        const shaped = shapeOutput(parseOutput(split.speechText, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft.limits, draws: Boolean(diaryPrep) }));
+        const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
         noteDiagnostics(draft, shaped, answered);
         noteThink(draft, shaped);
         // An inner turn keeps each step's think for its memory episode.
@@ -7321,19 +7115,11 @@ export function createTurnRunner({
           draft.format.thinkMissing += 1;
           log.info('turn: think missing', { channel: channel.id, step: number - 1 });
         }
-        return { completion: answered, ...split, calls: diaryPrep ? [] : split.calls, parsed: shaped };
+        return { completion: answered, ...split, parsed: shaped };
       };
       const first = readAnswer(completion, 1);
       const parsed = first.parsed;
-      // A set post (the plan's kind in diary.setKinds): the first diary.set.pictures[1] <draw> tags
-      // (none while drawing is off), never the single drawing.
-      const setDraws =
-        diaryPrep && isSetKind(diaryPrep.plan.kind, config.diary?.setKinds)
-          ? (drawOn ? parsed.draws : []).slice(0, setSettings(config.diary).pictures[1]).map((drawn) => ({ ...drawn, replyTo: null }))
-          : null;
-      if (setDraws) parsed.draw = null;
-      const nothingToDo =
-        parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.draw === null && parsed.gif === null && !(setDraws?.length > 0) && parsed.loweredCalls.length === 0;
+      const nothingToDo = parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.gif === null && parsed.loweredCalls.length === 0;
       // Nothing to post and nothing to call: silence (her calls run all the same when she wrote any).
       const silent = (parsed.skip || nothingToDo) && first.calls.length === 0;
       // The journal keeps the think (journal.thinkChars); the log then carries its length only.
@@ -7365,8 +7151,6 @@ export function createTurnRunner({
         skip: parsed.skip || nothingToDo,
         messages: parsed.messages.length,
         reactions: parsed.reactions.length,
-        draw: Boolean(parsed.draw),
-        ...(setDraws ? { draws: setDraws.length } : {}),
         gif: Boolean(parsed.gif),
         ...(first.calls.length > 0 ? { calls: first.calls.length } : {}),
       });
@@ -7428,17 +7212,16 @@ export function createTurnRunner({
         sourceTarget: isPrivate ? null : sourceLinkTarget({ source, trigger, pulledKept: shownPulled }),
       });
       // A follow-up or an overheard turn (postsPlain) never posts as a Discord reply -- the
-      // model's reply="#n" quotes nothing --, nor does the drawFailed turn after one.
+      // model's reply="#n" quotes nothing.
       // A later part of a split message posts plain too: the first part replied to the message.
-      const plain = postsPlain(triggerKind) || postsPlain(drawFailedAfter) || plainPosts;
+      const plain = postsPlain(triggerKind) || plainPosts;
       const routing = { pulledIds, lines, knownNames, directory, handles, channelHandles, linkFor, plain };
       // Read fresh right here, not from the `features` snapshot taken at the
       // top of this turn: unlike the other switches this one defaults to OFF,
       // and whether to actually post is the very last decision of a turn.
       // A set below diary.set.minPosted (read now) is not posted at all: not even its messages.
-      const setMinPosted = setDraws ? setSettings(hot.config.diary).minPosted : 0;
       const setShort = (pictures, extra = {}) => {
-        log.info('turn: set short', { channel: channel.id, pictures, wanted: setMinPosted, ...extra });
+        log.info('turn: set short', { channel: channel.id, pictures, wanted: setSettings(hot.config.diary).minPosted, ...extra });
         return { outcome: 'refused', mode: finalMode, reason: 'set-short', ...extra };
       };
       // A recovery turn (src/behavior/missed.js) asks right before anything is posted whether
@@ -7450,14 +7233,21 @@ export function createTurnRunner({
         return { outcome: 'not-now', mode: finalMode, reason: 'answered-meanwhile' };
       }
       if (hot.config.features?.dryRun === true) {
+        // A diary post's pictures as the dry run counts them: her draw.create calls, the first few its kind takes (none while drawing is off).
+        const diarySet = Boolean(draft.diary?.set);
+        const diaryDraws = diaryPrep
+          ? (drawOn ? first.calls.filter((one) => one.name === 'draw.create') : [])
+              .slice(0, diarySet ? setSettings(config.diary).pictures[1] : 1)
+              .map((one) => ({ text: String(one.args?.text ?? ''), self: one.args?.self === true }))
+          : null;
         // Nothing is generated: a set with fewer drawings than it needs would be short.
-        if (setDraws && setDraws.length < setMinPosted) return setShort(setDraws.length, { dryRun: true });
+        if (diarySet && diaryDraws.length < setSettings(config.diary).minPosted) return setShort(diaryDraws.length, { dryRun: true });
         // Her calls in a dry run: logged with the skill and the names of its arguments, never checked, run or followed by a step.
         for (const call of first.calls) log.info('dry-run: would call', { channel: channel.id, skill: call.name, args: Object.keys(call.args) });
-        await dryAct({ channel, guildId, parsed, idByIndex, history, mode: finalMode, triggerKind, trigger, selfName, part, ...routing, gifPick: !diaryPrep, setDraws, draft });
+        await dryAct({ channel, guildId, parsed, idByIndex, history, mode: finalMode, triggerKind, trigger, selfName, part, ...routing, gifPick: !diaryPrep, diaryDraws, diarySet, draft });
         noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
         // A rehearsed diary post is not recorded and counts for no daily cap.
-        const rehearsedPictures = setDraws ? setDraws.length : parsed.draw ? 1 : 0;
+        const rehearsedPictures = diaryDraws?.length ?? 0;
         const rehearsed = diaryPrep
           ? {
               diary: {
@@ -7479,21 +7269,6 @@ export function createTurnRunner({
         draft.callCount = index + 1;
         return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`, ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true, chainId: draft.inner?.wake?.chainId ?? null, wakeKind: draft.inner?.wake?.kind ?? null });
       };
-      // A set's pictures are generated before anything of the post is sent, and counted
-      // against the day's diary pictures as they were paid for, posted or not.
-      let set = null;
-      if (setDraws) {
-        // Nothing is paid for pictures their publication may not have (`message.create`, checkEffect).
-        const allowed = checkEffect('message.create', sendArgs({ media: imageFileName(null) }), { channel, trigger });
-        if (!allowed.ok) return { outcome: 'refused', mode: finalMode, reason: allowed.code };
-        const pictures = await generateSet({ channel, draws: setDraws, selfName, minPosted: setMinPosted });
-        if (pictures.length > 0) {
-          bumpDaily(store.state.data, DIARY_PICTURES_DAILY, now, pictures.length);
-          store.state.markDirty();
-        }
-        if (pictures.length < setMinPosted) return setShort(pictures.length);
-        set = { pictures };
-      }
       const actArgs = {
         channel,
         guildId,
@@ -7510,7 +7285,6 @@ export function createTurnRunner({
         sourceId: isPrivate ? null : (source?.channelId ?? null),
         gifPick: !diaryPrep,
         participation: isPrivate ? null : { descriptions: descriptions ?? null },
-        set,
         draft,
       };
       // The calls of the reply and of every later step, run in the turn's context (runCall's).
@@ -7537,6 +7311,8 @@ export function createTurnRunner({
         draft.reason = 'cut-off';
         return { outcome: 'error', mode: finalMode, reason: 'cut-off' };
       }
+      // A set kind that ended below diary.set.minPosted staged pictures (runSteps): nothing was posted.
+      if (draft.setShort !== undefined) return setShort(draft.setShort);
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
       const acts = stepped.acts;
       const answeredAll = new Set(acts.flatMap((acted) => [...(acted.answered ?? [])]));
@@ -7547,21 +7323,15 @@ export function createTurnRunner({
       }
       // The messages its posts replied to, for the end hook (noteTurnEnd), journal or not.
       draft.replyTargets = acts.flatMap((acted) => acted.posts ?? []).map((post) => post?.replyTo).filter((id) => typeof id === 'string' && id);
-      // A diary post that reached the chat is recorded and counted (a diary turn makes one act).
-      const acted = acts[0] ?? null;
+      // A diary post that reached the chat is recorded and counted (a diary turn posts once, with its staged pictures).
+      const acted = acts.find((one) => one.delivered === true) ?? null;
       const recorded =
         diaryPrep && acted?.delivered === true
-          ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, parsed, acted, set: Boolean(set) }) }
+          ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, acted, set: Boolean(draft.diary?.set) }) }
           : {};
       // An inner turn in shadow mode delivers nothing, whatever it proposed.
       const delivered = stepped.delivered && draft.inner?.shadow !== true;
-      const spoke = { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure || draft.gifFailure ? { partial: true } : {}) };
-      // The diary's picture that failed (its tag is the only one read): a failed picture someone asked for gets its own turn.
-      const drawFailed = acts.find((one) => one.drawFailed)?.drawFailed;
-      if (!drawFailed) return spoke;
-      // The same predicate as runTurn's hand-off: an unasked turn notifies right here.
-      handOff = asked;
-      return { ...spoke, drawFailed };
+      return { outcome: 'spoke', mode: finalMode, delivered, ...recorded, ...(draft.sendFailure || draft.gifFailure ? { partial: true } : {}) };
     } catch (err) {
       if (err === TOO_SLOW) {
         // Past the bar: nothing is posted; `error`, like a failed request (a routed call stays unanswered).
@@ -7594,9 +7364,7 @@ export function createTurnRunner({
       // A turn of a chain, or one that hands its message to a chain, leaves the attention and
       // the notifications to the chain (runChain), which releases them once every part is done.
       if (!owned && !chained) busy.delete(channel.id);
-      // A hand-off to the drawFailed turn (or that turn itself) leaves the
-      // notifications to runTurn, which fires them once both are done.
-      if (!handOff && !holdIdle && !owned && !chained) notifyIdle();
+      if (!owned && !chained) notifyIdle();
     }
   }
 

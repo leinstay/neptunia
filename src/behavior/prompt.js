@@ -2797,8 +2797,6 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   renders, right after the web search line, only when it is true (and never in a private chat).
  * @param {{ spent: boolean, userSpent: boolean }} [input.drawQuota]  The image client's
  *   quota for this turn (src/llm/images.js#quota); omitted -> no drawing line in `<senses>`.
- * @param {string} [input.drawReason]  For `triggerKind: 'drawFailed'`: the failure reason,
- *   rendered through `labels.draw.reasons` into `labels.triggers.drawFailed`'s `{reason}`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
  *   guild's custom emoji (interfaces/discord/emoji.js#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
@@ -3217,17 +3215,12 @@ export function buildRequest(input) {
   // A follow-up (triggerKind: 'followUp') falls back to labels.triggers.reply
   // when an older labels.json has no dedicated label yet -- see prompt-contract.md.
   // An overheard line (triggerKind: 'overheard') falls back to the follow-up's label, then reply's.
-  // A failed drawing (triggerKind: 'drawFailed') names its reason through labels.draw.reasons.
   const overheard = triggerKind === 'overheard';
-  const rawTriggerLabel = overheard
+  const triggerLabel = overheard
     ? (labels.triggers?.overheard ?? labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
     : triggerKind === 'followUp'
       ? (labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
       : (labels.triggers?.[triggerKind] ?? '');
-  const triggerLabel =
-    triggerKind === 'drawFailed'
-      ? fill(rawTriggerLabel, { reason: labels.draw?.reasons?.[input.drawReason] ?? input.drawReason ?? '' })
-      : rawTriggerLabel;
   // A turn about another channel (routed or noticed) names both channels in its task: the
   // source, and this one, where the words go (its live name first).
   const sourceChannel = source ? (offered.find((channel) => channel.channelId === source.channelId) ?? null) : null;
