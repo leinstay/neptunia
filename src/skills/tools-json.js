@@ -21,14 +21,38 @@ function filled(text, fill) {
   return String(text).replace(/\{\{(\w+)\}\}/g, (all, key) => (Object.hasOwn(fill, key) && fill[key] != null ? String(fill[key]) : all));
 }
 
-/** The skill's parameter schema with each argument's `description` from the skills layer, when it has one. */
+const DEFAULT_STRING_MAX = 6000;
+
+/**
+ * A copy of a validation schema for the model: the keywords only the engine's validator needs
+ * (`minLength: 1`, the default `maxLength` of 6000, `additionalProperties: false`) are left out;
+ * type, enum, bounds, required and descriptions stay. The engine still validates with the full one.
+ */
+function leanSchema(node) {
+  if (Array.isArray(node)) return node.map(leanSchema);
+  if (!node || typeof node !== 'object') return node;
+  const out = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'minLength' && value === 1) continue;
+    if (key === 'maxLength' && value === DEFAULT_STRING_MAX) continue;
+    if (key === 'additionalProperties' && value === false) continue;
+    if (key === 'properties' && value && typeof value === 'object') {
+      out[key] = Object.fromEntries(Object.entries(value).map(([name, sub]) => [name, leanSchema(sub)]));
+    } else {
+      out[key] = key === 'enum' || key === 'required' ? value : leanSchema(value);
+    }
+  }
+  return out;
+}
+
+/** The skill's lean parameter schema with each argument's `description` from the skills layer, when it has one. */
 function parametersOf(skill, texts, fill) {
   const schema = JSON.parse(JSON.stringify(skill.argsSchema));
   const described = skillArgTexts(skill, texts);
   for (const [name, text] of Object.entries(described)) {
     if (schema.properties && Object.hasOwn(schema.properties, name)) schema.properties[name].description = filled(text, fill);
   }
-  return schema;
+  return leanSchema(schema);
 }
 
 /** Title, when to use and when not to, one per line, the empty ones left out. */
