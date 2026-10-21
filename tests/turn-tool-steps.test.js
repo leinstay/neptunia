@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
-import { call, badCall, toolAnswer } from './fixtures/tool-answers.js';
+import { call, badCall, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
 import { appended, contentText, coreTurn, errandService, journalOverMemory, noteText, toolResults, AGENTS, WEB_CONFIG, hotWith, requestText } from './fixtures/turn-harness.js';
 
 const texts = (run) => run.sends.map((send) => send.text);
@@ -17,52 +17,6 @@ test('a speech-only answer is one request with no tools sent as calls: it posts,
   const run = await coreTurn({ answers: ['<think>t</think><msg>γεια</msg>'] });
   assert.equal(run.llm.calls.length, 1);
   assert.deepEqual(texts(run), ['γεια']);
-  assert.equal(run.result.outcome, 'spoke');
-});
-
-test('a read: its speech is held until she has read the result; the next request is the previous one plus her answer, the tool message and a note, the first user message untouched', async () => {
-  const run = await coreTurn({
-    answers: [toolAnswer('<think>look</think><msg>κοιτάζω</msg>', [call('lore.list', {}, { id: 'a1' })]), '<think>done</think><msg>τέλος</msg>'],
-  });
-  assert.equal(run.llm.calls.length, 2);
-  assert.deepEqual(texts(run), ['τέλος'], 'the first answer\'s speech was held, never posted later');
-  const [first, second] = run.llm.calls;
-  assert.equal(second[0], first[0], 'the system message is the same object');
-  assert.equal(second[1], first[1], 'the first user message is never rebuilt');
-  const added = appended(run.llm, 1);
-  assert.deepEqual(added.map((message) => message.role), ['assistant', 'tool', 'user']);
-  assert.equal(added[0].content, '<think>look</think><msg>κοιτάζω</msg>', 'her whole raw text');
-  assert.deepEqual(added[0].tool_calls.map((item) => [item.id, item.function.name]), [['a1', 'lore_list']]);
-  assert.equal(added[1].tool_call_id, 'a1');
-  assert.ok(contentText(added[1].content).startsWith(labels.skills.result.ok), contentText(added[1].content));
-  const note = noteText(run.llm, 1);
-  assert.ok(note.includes(labels.task.step.held), note);
-  assert.ok(!note.includes('κοιτάζω'), 'the held notice does not repeat her text');
-  assert.equal(run.logs.find((entry) => entry.msg === 'skills: loop').steps, 1);
-  assert.ok(run.logs.some((entry) => entry.msg === 'turn: speech held'));
-});
-
-test('mixed batch: the valid calls run, an unknown skill and unreadable arguments get results, the speech is held and she sees every call answered', async () => {
-  const run = await coreTurn({
-    answers: [toolAnswer('<think>x</think><msg>πρώτο</msg>', [call('lore.list', {}, { id: 'c1' }), call('no.such', {}, { id: 'c2' }), badCall('memory.server.read', '{"x": ', { id: 'c3' })]), '<msg>δεύτερο</msg>'],
-  });
-  assert.deepEqual(called(run).filter((line) => line.startsWith('lore.list')), ['lore.list:ok']);
-  assert.deepEqual(texts(run), ['δεύτερο']);
-  assert.deepEqual(toolResults(run.llm, 1).map((line) => line.split(':')[0]), ['c1', 'c2', 'c3'], 'one tool message per call, refused ones included, in call order');
-  const results = appended(run.llm, 1).filter((message) => message.role === 'tool').map((message) => contentText(message.content));
-  assert.ok(results[1].includes(labels.skills.result.reasons['unknown-skill'] ?? 'no such skill') || results[1].length > 0);
-  assert.ok(results[2].includes(labels.skills.result.reasons['malformed-call']), results[2]);
-  assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
-});
-
-test('truncated arguments: every call of an answer that ran out of room is a truncated-call result and the speech is held', async () => {
-  const run = await coreTurn({
-    answers: [toolAnswer('<think>x</think><msg>μισό</msg>', [badCall('lore.list', '{"te', { id: 't1', error: 'cut' })], { finishReason: 'length' }), '<msg>ξανά</msg>'],
-  });
-  assert.deepEqual(called(run), ['lore.list:invalid/truncated-call'], 'refused, never run');
-  const [result] = appended(run.llm, 1).filter((message) => message.role === 'tool');
-  assert.ok(contentText(result.content).includes(labels.skills.result.reasons['truncated-call']), contentText(result.content));
-  assert.deepEqual(texts(run), ['ξανά']);
   assert.equal(run.result.outcome, 'spoke');
 });
 
@@ -222,18 +176,6 @@ test('revocation mid-turn: a grant removed after her calls were planned, while a
   assert.equal(toolResults(run.llm, 1).length, 2);
 });
 
-test('cap exhaustion: past maxCallsPerStep a call is a loop-cap result and the rest ran; her speech is held', async () => {
-  const run = await coreTurn({
-    answers: [toolAnswer('<think>x</think><msg>a</msg>', [1, 2, 3, 4, 5].map((n) => call('lore.list', {}, { id: `r${n}` }))), '<msg>b</msg>'],
-    loop: { maxCallsPerStep: 4 },
-  });
-  assert.deepEqual(called(run).filter((line) => line.startsWith('lore.list:ok')).length, 4);
-  assert.deepEqual(toolResults(run.llm, 1).length, 5, 'a result for the fifth too');
-  const fifth = contentText(appended(run.llm, 1).filter((message) => message.role === 'tool')[4].content);
-  assert.ok(fifth.startsWith(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['loop-cap'] })), fifth);
-  assert.ok(called(run).includes('lore.list:invalid/loop-cap'));
-});
-
 test('steps spent: the last of the maxSteps requests is announced and final; its calls are loop-cap, journaled only, its speech held and a loopCut fact kept', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await coreTurn({
@@ -279,33 +221,6 @@ test('time spent: the calls of the last answer before the budget ran out still r
   });
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.last), 'the budget is spent after the first step: the next request is final');
   assert.deepEqual(called(run).filter((line) => line.endsWith('loop-cap')), ['memory.server.read:invalid/loop-cap']);
-});
-
-test('delta numbering: lines that came in meanwhile are numbered past the request\'s own and the search handles, hers left out, and a later call\'s #N resolves to them', async () => {
-  let added = false;
-  const run = await coreTurn({
-    answers: [
-      toolAnswer('<think>1</think>', [call('lore.list')]),
-      (messages) => {
-        const note = noteText({ calls: [messages] }, 0);
-        const match = /#(\d+) \[[^\]]*\] Zoë: ωραία νέα/.exec(note);
-        return toolAnswer('<think>2</think>', [call('message.react.add', { message: `#${match?.[1] ?? 0}`, emoji: '👍' })]);
-      },
-      '<skip/>',
-    ],
-    allowed: ['lore.list', 'message.react.add'],
-    onAnswer: (n, history, port) => {
-      if (n !== 0 || added) return;
-      added = true;
-      history.push({ id: 'm9', channelId: 'c1', author: { id: 'u2', bot: false, globalName: 'Zoë', username: 'Zoë' }, member: { displayName: 'Zoë' }, cleanContent: 'ωραία νέα', createdTimestamp: 1_000 + Date.parse('2026-10-17T12:00:00Z'), reference: null, attachments: new Map(), stickers: new Map() });
-      port.seed('c1', { authorId: 'u2', messageId: 'm9', text: 'ωραία νέα' });
-    },
-  });
-  const note = noteText(run.llm, 1);
-  assert.ok(note.includes(labels.task.step.delta), note);
-  assert.match(note, /#3 \[[^\]]*\] Zoë: ωραία νέα/, note);
-  assert.equal(called(run).at(-1), 'message.react.add:ok');
-  assert.ok(run.port.calls.some((item) => item.op === 'react' && item.args[0].messageId === 'm9'), 'the reaction landed on the new line');
 });
 
 test('append-only: every request is the previous one plus what was appended; the cached parts and the system message never change', async () => {
@@ -384,4 +299,178 @@ test('carried over: message.create in the current conversation also runs on a sp
   const run = await coreTurn({ spontaneous: 'initiate', allowed: [], answers: [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλησπέρα' })])] });
   assert.deepEqual(called(run), ['message.create:ok']);
   assert.deepEqual(texts(run), ['καλησπέρα']);
+});
+
+// The core cases over both transports: the same scripted answers, written as native tool calls or as <tool_call> blocks.
+const TRANSPORTS = ['native', 'text'];
+const answerFor = (transport) => (transport === 'text' ? textAnswer : toolAnswer);
+const onTransport = (transport) => (hot) => {
+  hot.config.skills.transport = transport;
+};
+/** The results request `i` carries, as `{ id, status, text }`: tool messages (native) or the <tool_result> parts of the user message (text). */
+const resultsOf = (llm, i, transport) => {
+  if (transport === 'native') return appended(llm, i).filter((message) => message.role === 'tool').map((message) => ({ id: message.tool_call_id, status: null, text: contentText(message.content) }));
+  return appended(llm, i)
+    .filter((message) => message.role === 'user')
+    .flatMap((message) => message.content)
+    .map((part) => /^<tool_result id="([^"]*)" name="([^"]*)" status="([^"]*)">\n([\s\S]*)\n<\/tool_result>$/.exec(part.text))
+    .filter(Boolean)
+    .map((match) => ({ id: match[1], name: match[2], status: match[3], text: match[4] }));
+};
+
+for (const transport of TRANSPORTS) {
+  const answer = answerFor(transport);
+  const run = (options) => coreTurn({ ...options, withHot: onTransport(transport) });
+
+  test(`[${transport}] a read: its speech is held until she has read the result; the next request is the previous one plus her answer, the result and a note`, async () => {
+    const turn = await run({ answers: [answer('<think>look</think><msg>κοιτάζω</msg>', [call('lore.list', {}, { id: 'a1' })]), '<think>done</think><msg>τέλος</msg>'] });
+    assert.equal(turn.llm.calls.length, 2);
+    assert.deepEqual(texts(turn), ['τέλος'], 'the first answer\'s speech was held, never posted later');
+    const [first, second] = turn.llm.calls;
+    assert.equal(second[0], first[0], 'the system message is the same object');
+    assert.equal(second[1], first[1], 'the first user message is never rebuilt');
+    const added = appended(turn.llm, 1);
+    const [result] = resultsOf(turn.llm, 1, transport);
+    assert.ok(result.text.startsWith(labels.skills.result.ok), result.text);
+    if (transport === 'native') {
+      assert.deepEqual(added.map((message) => message.role), ['assistant', 'tool', 'user']);
+      assert.equal(added[0].content, '<think>look</think><msg>κοιτάζω</msg>', 'her whole raw text');
+      assert.deepEqual(added[0].tool_calls.map((item) => [item.id, item.function.name]), [['a1', 'lore_list']]);
+      assert.equal(result.id, 'a1');
+    } else {
+      assert.deepEqual(added.map((message) => message.role), ['assistant', 'user'], 'the results and the note are one user message');
+      assert.equal(added[0].content, answer('<think>look</think><msg>κοιτάζω</msg>', [call('lore.list')]).text, 'her whole raw text, the block included');
+      assert.deepEqual([result.id, result.name, result.status], ['s1c1', 'lore.list', 'ok']);
+    }
+    const note = noteText(turn.llm, 1);
+    assert.ok(note.includes(labels.task.step.held), note);
+    assert.ok(!note.includes('κοιτάζω'), 'the held notice does not repeat her text');
+    assert.equal(turn.logs.find((entry) => entry.msg === 'skills: loop').steps, 1);
+    assert.ok(turn.logs.some((entry) => entry.msg === 'turn: speech held'));
+  });
+
+  test(`[${transport}] mixed batch: the valid call runs, an unknown name and unreadable arguments get results, the speech is held and every call is answered`, async () => {
+    const turn = await run({
+      answers: [answer('<think>x</think><msg>πρώτο</msg>', [call('lore.list', {}, { id: 'c1' }), call('no.such', {}, { id: 'c2' }), badCall('memory.server.read', '{"x": ', { id: 'c3' })]), '<msg>δεύτερο</msg>'],
+    });
+    assert.deepEqual(called(turn).filter((line) => line.startsWith('lore.list')), ['lore.list:ok']);
+    assert.deepEqual(texts(turn), ['δεύτερο']);
+    const results = resultsOf(turn.llm, 1, transport);
+    assert.equal(results.length, 3, 'one result per call, refused ones included');
+    if (transport === 'text') assert.deepEqual(results.map((item) => item.id), ['s1c1', 's1c2', 's1c3']);
+    else assert.deepEqual(results.map((item) => item.id), ['c1', 'c2', 'c3']);
+    assert.ok(results[0].text.startsWith(labels.skills.result.ok), results[0].text);
+    assert.ok(!results[1].text.startsWith(labels.skills.result.ok), results[1].text);
+    assert.ok(results[2].text.includes(labels.skills.result.reasons['malformed-call']), results[2].text);
+    assert.ok(noteText(turn.llm, 1).includes(labels.task.step.held));
+  });
+
+  test(`[${transport}] an unknown name: refused with its own result, never run, the rest of the batch runs`, async () => {
+    const turn = await run({ answers: [answer('<think>x</think>', [call('no.such', {}, { id: 'u1' }), call('lore.list', {}, { id: 'u2' })]), '<msg>ok</msg>'] });
+    assert.deepEqual(called(turn).filter((line) => !line.startsWith('no.such')), ['lore.list:ok']);
+    const results = resultsOf(turn.llm, 1, transport);
+    assert.equal(results.length, 2);
+    if (transport === 'text') assert.equal(results[0].status, 'invalid');
+    assert.ok(results[1].text.startsWith(labels.skills.result.ok));
+  });
+
+  test(`[${transport}] truncated call: an answer that ran out of room has a truncated-call result and the speech is held`, async () => {
+    const cut = transport === 'text'
+      ? toolAnswer('<think>x</think><msg>μισό</msg><tool_call>{"name": "lore.list", "arguments": {"te', [], { finishReason: 'length' })
+      : toolAnswer('<think>x</think><msg>μισό</msg>', [badCall('lore.list', '{"te', { id: 't1', error: 'cut' })], { finishReason: 'length' });
+    const turn = await run({ answers: [cut, '<msg>ξανά</msg>'] });
+    const [result] = resultsOf(turn.llm, 1, transport);
+    assert.ok(result.text.includes(labels.skills.result.reasons['truncated-call']), result.text);
+    assert.deepEqual(texts(turn), ['ξανά']);
+    assert.equal(turn.result.outcome, 'spoke');
+    assert.ok(!called(turn).some((line) => line.endsWith(':ok')), 'never run');
+  });
+
+  test(`[${transport}] cap exhaustion: past maxCallsPerStep a call is a loop-cap result and the rest ran; her speech is held`, async () => {
+    const turn = await run({
+      answers: [answer('<think>x</think><msg>a</msg>', [1, 2, 3, 4, 5].map((n) => call('lore.list', {}, { id: `r${n}` }))), '<msg>b</msg>'],
+      loop: { maxCallsPerStep: 4 },
+    });
+    assert.equal(called(turn).filter((line) => line.startsWith('lore.list:ok')).length, 4);
+    const results = resultsOf(turn.llm, 1, transport);
+    assert.equal(results.length, 5, 'a result for the fifth too');
+    assert.ok(results[4].text.startsWith(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['loop-cap'] })), results[4].text);
+    assert.ok(called(turn).includes('lore.list:invalid/loop-cap'));
+  });
+
+  test(`[${transport}] delta numbering: lines that came in meanwhile are numbered past the request's own, and a later call's #N resolves to them`, async () => {
+    let added = false;
+    const turn = await run({
+      answers: [
+        answer('<think>1</think>', [call('lore.list')]),
+        (messages) => {
+          const note = noteText({ calls: [messages] }, 0);
+          const match = /#(\d+) \[[^\]]*\] Zoë: ωραία νέα/.exec(note);
+          return answer('<think>2</think>', [call('message.react.add', { message: `#${match?.[1] ?? 0}`, emoji: '👍' })]);
+        },
+        '<skip/>',
+      ],
+      allowed: ['lore.list', 'message.react.add'],
+      onAnswer: (n, history, port) => {
+        if (n !== 0 || added) return;
+        added = true;
+        history.push({ id: 'm9', channelId: 'c1', author: { id: 'u2', bot: false, globalName: 'Zoë', username: 'Zoë' }, member: { displayName: 'Zoë' }, cleanContent: 'ωραία νέα', createdTimestamp: 1_000 + Date.parse('2026-10-17T12:00:00Z'), reference: null, attachments: new Map(), stickers: new Map() });
+        port.seed('c1', { authorId: 'u2', messageId: 'm9', text: 'ωραία νέα' });
+      },
+    });
+    const note = noteText(turn.llm, 1);
+    assert.ok(note.includes(labels.task.step.delta), note);
+    assert.match(note, /#3 \[[^\]]*\] Zoë: ωραία νέα/, note);
+    assert.equal(called(turn).at(-1), 'message.react.add:ok');
+    assert.ok(turn.port.calls.some((item) => item.op === 'react' && item.args[0].messageId === 'm9'));
+  });
+}
+
+test('[text] no tools field is sent, the tools are described in the <tools> block of the first message with dotted names, and the call ids are s<step>c<n>', async () => {
+  const turn = await coreTurn({ answers: [textAnswer('<think>x</think>', [call('lore.list'), call('memory.server.read')]), '<msg>ok</msg>'], withHot: onTransport('text') });
+  assert.ok(turn.llm.options.every((options) => options.tools === undefined && options.toolChoice === undefined), 'no tools field in any request');
+  const first = requestText(turn.llm, 0);
+  assert.ok(first.includes('<tools>'), 'the <tools> block');
+  assert.ok(first.includes(labels.skills.toolsText.lead) && first.includes(labels.skills.toolsText.protocol));
+  assert.ok(first.includes('"name":"lore.list"') && first.includes('"name":"memory.server.read"'), 'dotted names');
+  assert.ok(!first.includes('"name":"lore_list"'));
+  assert.deepEqual(resultsOf(turn.llm, 1, 'text').map((item) => item.id), ['s1c1', 's1c2']);
+  assert.equal(turn.llm.calls[1][1], turn.llm.calls[0][1], 'the first user message is not rebuilt');
+});
+
+test('[native] the tools travel as the request field and no <tools> block is written', async () => {
+  const turn = await coreTurn({ answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<msg>ok</msg>'], withHot: onTransport('native') });
+  assert.ok(turn.llm.options.every((options) => Array.isArray(options.tools) && options.tools.length > 0));
+  assert.ok(!requestText(turn.llm, 0).includes('<tools>'));
+});
+
+test('[text] a call nested in a <msg> is cut out of the message, never run, and answered as malformed-call; the message is not posted with it', async () => {
+  const nested = '<think>x</think><msg>hello <tool_call>{"name": "lore.list", "arguments": {}}</tool_call> there</msg>';
+  const turn = await coreTurn({ answers: [{ text: nested, usage: {}, estimated: 10, finishReason: 'stop' }, '<msg>ξανά</msg>'], withHot: onTransport('text') });
+  assert.ok(!called(turn).some((line) => line.endsWith(':ok')), 'never run');
+  const [result] = resultsOf(turn.llm, 1, 'text');
+  assert.ok(result.text.includes(labels.skills.result.reasons['malformed-call']), result.text);
+  assert.ok(texts(turn).every((text) => !text.includes('tool_call') && !text.includes('lore.list')), JSON.stringify(texts(turn)));
+});
+
+test('[text] the transport is read once per turn: a config change during the turn has no effect on it, the next turn follows the change', async () => {
+  let live;
+  const turn = await coreTurn({
+    answers: [
+      () => {
+        live.config.skills.transport = 'native';
+        return textAnswer('<think>x</think>', [call('lore.list')]);
+      },
+      '<msg>ok</msg>',
+    ],
+    withHot: (hot) => {
+      live = hot;
+      hot.config.skills.transport = 'text';
+    },
+  });
+  assert.equal(turn.llm.calls.length, 2);
+  assert.ok(turn.llm.options.every((options) => options.tools === undefined), 'still no tools field after the change');
+  assert.deepEqual(resultsOf(turn.llm, 1, 'text').map((item) => item.id), ['s1c1']);
+  await turn.again();
+  assert.ok(Array.isArray(turn.llm.options.at(-1).tools), 'the next turn is native');
 });

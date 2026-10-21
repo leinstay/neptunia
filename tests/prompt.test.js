@@ -4647,6 +4647,16 @@ test('buildRequest: skills -- the text transport puts her tools in <tools> in th
   assert.equal(blockTags(bare).includes('tools'), false);
 });
 
+test('buildRequest: skills -- the <tools> block keeps the stable part byte-identical whatever the tail holds, and it moves only with the block itself', () => {
+  const tools = ['lead', '{"name":"draw.create"}', 'protocol'].join('\n');
+  const base = buildRequest(segmentScene({ toolsBlock: tools })).messages[1].content[0].text;
+  assert.equal(buildRequest(segmentScene({ toolsBlock: tools, skillsInventory: SKILL_ROWS })).messages[1].content[0].text, base, 'the catalogue is in the tail');
+  assert.equal(buildRequest(segmentScene({ toolsBlock: tools, toolsTokens: 0 })).messages[1].content[0].text, base);
+  const changed = buildRequest(segmentScene({ toolsBlock: `${tools}\n{"name":"web.search"}` })).messages[1].content[0].text;
+  assert.notEqual(changed, base);
+  assert.equal(changed.replace('\n{"name":"web.search"}', ''), base, 'only the block differs');
+});
+
 test('buildRequest: skills -- the tools field of the request takes its tokens off the room the sections share', () => {
   const free = buildRequest(segmentScene());
   const taken = buildRequest(segmentScene({ toolsTokens: 5000 }));
