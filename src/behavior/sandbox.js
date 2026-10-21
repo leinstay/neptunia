@@ -1433,7 +1433,8 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
           let outcome;
           try {
             outcome = await onCall(plan.call, refs);
-          } catch {
+          } catch (err) {
+            log.warn('sandbox: tool call threw', { skill, error: err?.message ?? String(err) });
             outcome = null;
           }
           if (!outcome?.result) outcome = { verdict: { stage: 'command', ok: false, code: CODE.ERROR, reason: '' }, executed: null, result: { skill, status: 'failed', code: CODE.ERROR } };

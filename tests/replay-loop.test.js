@@ -11,7 +11,9 @@ import path from 'node:path';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { IN_TURN_TOOLS, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
-import { callViewOf, coreToolsOn, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
+import { runConversationRead, fetchSpan, recordMessages } from '../src/skills/conversation-read.js';
+import { pullPictures } from '../src/behavior/pull.js';
+import { callViewOf, searchHandles, coreToolsOn, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
 import { transportOf } from '../src/skills/tool-calls.js';
 import { createTaskStore } from '../src/errands/store.js';
 import { createImageGen } from '../src/llm/images.js';
@@ -683,4 +685,38 @@ test('--pair-transport: the native side as A, the text side as B, a blind sheet 
   assert.ok(pair.runs.B.blocks.tools && !pair.runs.A.blocks.tools);
   const sheet = fs.readFileSync(path.join(out, 'sheet.html'), 'utf8');
   assert.ok(sheet.includes('η Ana') && !sheet.includes('ψάχνω'), 'the held speech is not on the sheet');
+});
+
+test('createReplayTools: conversation.read runs the live reader over the REST history, its handles continuing the request numbering; no tool fails silently', async () => {
+  const conversationLabels = { ...labels, skills: { ...labels.skills, tools: { ...labels.skills.tools, conversation: { source: 'from #{channel}', handles: 'numbered lines', none: 'no messages', cut: '({dropped} cut)', earlier: 'earlier: before=#{n}', later: 'later: after=#{n}' } } } };
+  const line = (id, minutes, content) => ({ id, channelId: HERE, authorId: '100000000000000007', authorName: 'Élodie', self: false, bot: false, content, ts: NOW - minutes * 60000, replyToId: null, mentionedUserIds: [], mentionedChannelIds: [], attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] });
+  const fetched = [];
+  const discord = { fetchHistory: async (source, options) => (fetched.push([source.id, options.limit]), [line('m1', 3, 'πρώτο'), line('m2', 2, 'δεύτερο')]), checkPull: () => ({ skip: null }) };
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
+  const warnings = [];
+  const channel = fakeChannel();
+  const config = toolConfig({ features: { recall: true } });
+  const tools = createReplayTools({
+    hot: { config, prompts: { labels: conversationLabels } }, store, guild: channel.guild, guildId: GUILD, channel, selfId: SELF, selfName: 'Persona', llm: scriptedLlm([]),
+    createLookup: () => ({}), createRecall: () => ({}), runWebSearch, runMemorySearch, discord, recallSettings,
+    conversation: { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures }, log: { warn: (...a) => warnings.push(a) },
+  });
+  const idByIndex = new Map([[1, 'a'], [7, 'b']]);
+  const read = await tools.run('conversation.read', { last: 30 }, { history: [], at: NOW, idByIndex });
+  assert.equal(read.result.status, 'ok', JSON.stringify(read.result));
+  assert.deepEqual(fetched, [[HERE, 30]]);
+  assert.ok(read.result.data.text.includes('πρώτο') && read.result.data.text.includes('δεύτερο'), read.result.data.text);
+  assert.ok(read.result.data.text.includes('#28'), 'handles start past the request\'s highest line (7) and the gap: ' + read.result.data.text);
+  assert.equal((await tools.run('web.fetch-nothing', {}, {})).result.status, 'failed');
+  assert.equal(warnings.length, 1, 'a skill no tool runs is logged');
+});
+
+test('loopCall: a tool that throws logs one warning with its message', async () => {
+  const warnings = [];
+  const broken = loopCall({
+    simulate: () => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill: 'conversation.read', args: {} }, result: { skill: 'conversation.read', status: 'ok' } }),
+    runTool: () => { throw new Error('boom'); }, inTurn: IN_TURN_TOOLS, log: { warn: (...a) => warnings.push(a) },
+  });
+  assert.equal((await broken({ skill: 'conversation.read' }, {})).result.code, 'error');
+  assert.deepEqual(warnings, [['replay: in-turn tool threw', { skill: 'conversation.read', error: 'boom' }]]);
 });

@@ -3319,11 +3319,11 @@ const TOOL_TIMEOUT_RESULT = Object.freeze({ status: 'unknown', code: 'timeout', 
  * canned one, and `tool: { ms, requests,
  * tokens, cost }` what the tool's own requests used. A `task.run` that passed is never dispatched:
  * it keeps the canned result and records `errand: { agent, goal }` (the goal as resolved, else her
- * body). A tool that throws answers `failed` / `error`. `now` is the clock.
- * @param {{ simulate: Function, runTool?: Function|null, inTurn: readonly string[], now?: () => number }} input
+ * body). A tool that throws answers `failed` / `error` and logs one warning with the message (`log`). `now` is the clock.
+ * @param {{ simulate: Function, runTool?: Function|null, inTurn: readonly string[], now?: () => number, log?: { warn?: Function }|null }} input
  * @returns {(call: object, refs: object) => Promise<object>}
  */
-export function loopCall({ simulate, runTool = null, inTurn, now = Date.now }) {
+export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log = null }) {
   return async (call, refs = {}) => {
     const outcome = simulate(call, refs);
     const executed = outcome?.verdict?.ok === true ? outcome.executed : null;
@@ -3339,7 +3339,8 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now }) {
       const timeout = limit === null ? null : new Promise((resolve) => (timer = setTimeout(() => resolve({ result: TOOL_TIMEOUT_RESULT, usage: null, timedOut: true }), limit)));
       const running = Promise.resolve(runTool(executed.skill, { ...executed.args }, refs));
       ran = await (timeout ? Promise.race([running, timeout]) : running);
-    } catch {
+    } catch (err) {
+      log?.warn?.('replay: in-turn tool threw', { skill: executed.skill, error: err?.message ?? String(err) });
       ran = { result: { status: 'failed', code: 'error' }, usage: null };
     } finally {
       if (timer) clearTimeout(timer);
@@ -3368,9 +3369,12 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now }) {
  * history, at })` the automatic memory prefetch a live turn with features.coreTools runs for that
  * trigger (src/behavior/prefetch.js#prefetchLanes and the recall runner's `prefetch`, as of `at`:
  * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
- * `prefetchOn`, `recallSettings` its pure parts). Nothing reaches the store or data/.
+ * `prefetchOn`, `recallSettings` its pure parts). `conversation.read` runs the live reader
+ * (src/skills/conversation-read.js, `conversation`: its runConversationRead, fetchSpan, recordMessages,
+ * searchHandles and pullPictures) over `record` (iterated only) and the REST channel (GET only), its
+ * handles numbered on past the request's own (`idByIndex`). Nothing reaches the store or data/.
  */
-export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead = null, pageFetcher = null, linkOfMessage = null, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null }) {
+export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead = null, pageFetcher = null, linkOfMessage = null, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null, conversation = null, record = null, log = null }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -3400,6 +3404,66 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
     };
     return { usage, client };
   };
+  // conversation.read as a live turn runs it (src/behavior/turn.js#readConversation), read only: the record iterated,
+  // the interface's history over GET requests of the replay's channel. One registry of handles for the tools' life,
+  // numbered on past the highest line of the request (searchHandles over a draft with that floor).
+  const draft = {};
+  const readConversation = async (args, { at, idByIndex }) => {
+    const { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures } = conversation;
+    const config = hot.config;
+    const labels = hot.prompts?.labels ?? {};
+    const floor = idByIndex instanceof Map ? Math.max(0, ...[...idByIndex.keys()].filter(Number.isFinite)) : 0;
+    draft.handleFloor = Math.max(draft.handleFloor ?? 0, floor);
+    const channelOf = (id) => (String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null));
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), p]));
+    const nameOf = (id) => (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ?? guild.members?.cache?.get?.(id)?.displayName ?? null;
+    const settings = typeof recallSettings === 'function' ? recallSettings(config) : null;
+    const timezone = config.bot?.timezone ?? 'UTC';
+    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
+    return runConversationRead({
+      args,
+      labels,
+      config,
+      channelId: String(channel.id),
+      channelNameOf: (id) => channelOf(id)?.name ?? null,
+      allowed: (id) => {
+        if (String(id) === String(channel.id) && channel.guild) return true;
+        try {
+          return discord.checkPull({ guild, channelId: String(id), destination: channel, partner: null, config, now: at }).skip === null;
+        } catch {
+          return false;
+        }
+      },
+      readRecord: ({ channelId, from }) => (config.features?.record === true ? recordMessages(record, guildId, { channelId, from, nameOf, selfName }) : Promise.resolve([])),
+      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      render: (slice) => {
+        let descriptions;
+        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+          const { items, rest, emoji } = pullPictures(slice, 0);
+          try {
+            descriptions = describer.cachedDescriptions(guildId, [...items, ...rest, ...emoji]) ?? undefined;
+          } catch {
+            descriptions = undefined;
+          }
+        }
+        return {
+          timezone,
+          gapMinutes: config.context?.gapMarkerMinutes,
+          maxChars: config.context?.maxMessageChars ?? 2000,
+          selfName,
+          labels,
+          descriptions,
+          seeReactions: config.features?.seeReactions !== false,
+          reactionsPerMessage: config.context?.reactionsPerMessage,
+        };
+      },
+      refs: searchHandles(draft),
+      now: at,
+      timezone,
+      ...(Number.isFinite(settings?.quoteMaxChars) ? { maxChars: settings.quoteMaxChars } : {}),
+    });
+  };
   return {
     // The lookup and the recall runner over the same private copies, on one metered client: the
     // searches a live switch-off turn runs before her reply (preTurnLookup).
@@ -3426,7 +3490,7 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
       if (typeof recall.prefetch !== 'function') return null;
       return recall.prefetch({ guild, guildId, channel, partner: null, selfId, selfName, history, lanes, at });
     },
-    async run(skill, args, { history = [], at = Date.now() } = {}) {
+    async run(skill, args, { history = [], at = Date.now(), idByIndex = null } = {}) {
       const { usage, client } = metered();
       const labels = hot.prompts?.labels ?? {};
       if (skill === 'web.search') {
@@ -3446,6 +3510,10 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
         const result = await runMemorySearch({ recall: recallOf(client), store, config: hot.config, labels, guild, guildId, channel, partner: null, selfId, selfName, history, decorate: null, args, now: at });
         return { result, usage };
       }
+      if (skill === 'conversation.read' && conversation) {
+        return { result: await readConversation(args, { at, idByIndex }), usage };
+      }
+      log?.warn?.('replay: no tool runs this skill', { skill });
       return { result: { status: 'failed', code: 'error' }, usage };
     },
   };
@@ -4248,7 +4316,7 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; a task.run is only recorded.
     const onCallOf = (callRequester, now, resultText, tools) => {
       const simulate = simulatedCallOf(callRequester, now, resultText);
-      return loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at: now }), inTurn: loopDeps.IN_TURN_TOOLS });
+      return loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at: now, idByIndex: refs.idByIndex ?? null }), inTurn: loopDeps.IN_TURN_TOOLS, log });
     };
     const simulatedCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines, channelHandles = null }) =>
       simulateCall({
@@ -4688,7 +4756,7 @@ export async function runTriggerLoops({ single, args, root, liveData, pairTrigge
           config, selfId: self.id, requester, conversationId: channel.id, now: at, images, tasks, resultText: '',
         });
       const tools = loopDeps.toolsFor({ hot: hotLike, channel, llm: capped });
-      const onCall = loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at }), inTurn: loopDeps.IN_TURN_TOOLS });
+      const onCall = loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at, idByIndex: refs.idByIndex ?? null }), inTurn: loopDeps.IN_TURN_TOOLS, log });
       try {
         const answered = await answerSkillScenario({
           view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), llm: capped, runs: 1, at, signal: stop.signal,
@@ -4806,7 +4874,7 @@ function answerOut(answer) {
  * archive and vector index iterated only; with features.meaningSearch on, the embedder on the
  * simulator key, off the daily counter), the describer's cached captions only.
  */
-async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn }) {
+async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn, log = null }) {
   const { createLookup } = await load('web/lookup.js');
   const { createBraveSearch } = await load('web/brave.js');
   const { createExaSearch } = await load('web/exa.js');
@@ -4820,6 +4888,12 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const pageFetcher = typeof createPageFetcher === 'function' ? createPageFetcher() : null;
   const linkOfMessage = (message) =>
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ?? (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
+  // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
+  const conversationMod = await load('skills/conversation-read.js').catch(() => null);
+  const { pullPictures = null } = await load('behavior/pull.js').catch(() => ({}));
+  const conversation = conversationMod && typeof conversationMod.runConversationRead === 'function' && typeof turnMod?.searchHandles === 'function' && typeof pullPictures === 'function'
+    ? { runConversationRead: conversationMod.runConversationRead, fetchSpan: conversationMod.fetchSpan, recordMessages: conversationMod.recordMessages, searchHandles: turnMod.searchHandles, pullPictures }
+    : null;
   const { transportOf } = await load('skills/tool-calls.js');
   const { skillsIndex, discoveryOn } = await load('skills/discovery.js');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
@@ -4882,7 +4956,7 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
     toolsFor: ({ hot: sideHot, channel, llm }) =>
       createReplayTools({
         hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead, pageFetcher, linkOfMessage,
-        discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings,
+        discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings, conversation, record: sources.record ?? null, log,
       }),
   };
 }
@@ -5166,7 +5240,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const gifs = hot.config.features?.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
     const customEmoji = createEmojiIndex(client, guildId).list();
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
-    const loopDeps = loopWanted ? await loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn }) : null;
+    const loopDeps = loopWanted ? await loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn, log }) : null;
     // The live journal's records, read once on first need: the mode and trigger kind each turn recorded at its start.
     let journalCache = null;
     const journalOf = () => (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(guildId), 'journal')));
