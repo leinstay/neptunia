@@ -329,7 +329,7 @@ export const EXPECTED_DIFFERENCES = {
   'task.status': { schema: narrowed(['id'], []) },
   'task.read': { schema: narrowed(['id', 'from'], ['id']) },
   'task.resolve': { schema: narrowed(['id'], ['id']) },
-  'intent.set': { schema: narrowed(['text', 'due', 'every', 'expires', 'task', 'deadline', 'chain', 'condition', 'channel', 'attend', 'people', 'settle', 'perday'], []) },
+  'intent.set': { schema: narrowed(['text', 'due', 'every', 'expires', 'task', 'deadline', 'chain', 'condition', 'channel', 'attend', 'people', 'settle', 'perday', 'state', 'reason'], [], { state: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['dropped'] } }) },
   'intent.update': { schema: narrowed(['id', 'text', 'state', 'reason', 'due', 'every', 'expires', 'task', 'deadline', 'chain', 'condition', 'channel', 'people', 'settle', 'perday'], []) },
   'intent.cancel': { schema: narrowed(['id'], ['id']), body: 'id' },
   'intent.list': { schema: narrowed([], []), body: null },

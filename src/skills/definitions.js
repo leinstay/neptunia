@@ -62,6 +62,9 @@ export const INTENT_PARAMS = Object.freeze({
     people: str(500),
     settle: int(0, 86400),
     perday: int(1, 1000),
+    // A desire she considered and let go, recorded as born dropped (the handler takes only `dropped` here).
+    state: oneOf(['dropped']),
+    reason: str(300),
   }),
   update: obj({
     id: str(20),

@@ -120,7 +120,7 @@ test('the intent skills carry only what their operation reads', () => {
   assert.deepEqual(names('intent.cancel'), ['id']);
   assert.deepEqual(BY_NAME.get('intent.cancel').params.required, ['id']);
   assert.deepEqual(names('intent.list'), []);
-  assert.ok(!names('intent.set').includes('id') && !names('intent.set').includes('state') && !names('intent.set').includes('reason'));
+  assert.ok(!names('intent.set').includes('id') && names('intent.set').includes('state') && names('intent.set').includes('reason'));
   assert.ok(!names('intent.update').includes('attend'));
   assert.deepEqual(BY_NAME.get('intent.update').params.required, [], 'the id may be the bare text');
   assert.deepStrictEqual(BY_NAME.get('intent.cancel').toArgs({ id: 'i1' }), { action: 'cancel', id: 'i1' });
