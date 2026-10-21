@@ -46,14 +46,15 @@ export function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-/** One answer as sheet HTML: its messages, reactions, GIF and drawing, or that it stayed silent. */
+/** One answer as sheet HTML: its messages, reactions, GIF, pictures drawn and posts of message calls, or that it stayed silent. */
 function answerHtml(answer) {
   if (!answer) return '<p class="none">(no answer: the request failed)</p>';
   const parts = [];
   for (const text of answer.messages ?? []) parts.push(`<p class="msg">${escapeHtml(text)}</p>`);
   for (const reaction of answer.reactions ?? []) parts.push(`<p class="act">reaction: ${escapeHtml(reaction.emoji ?? reaction)}</p>`);
   if (answer.gif) parts.push(`<p class="act">gif: ${escapeHtml(answer.gif.id ?? '')}</p>`);
-  if (answer.draw) parts.push(`<p class="act">drawing: ${escapeHtml(answer.draw.text ?? '')}</p>`);
+  for (const drawing of answer.drawings ?? []) parts.push(`<p class="act">drawing: ${escapeHtml(drawing.text ?? '')}</p>`);
+  for (const post of answer.posts ?? []) parts.push(`<p class="act">posted: ${escapeHtml(post.text ?? '')}</p>`);
   if (parts.length === 0 || answer.skip) parts.push('<p class="none">(stays silent)</p>');
   return parts.join('\n');
 }

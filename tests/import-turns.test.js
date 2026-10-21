@@ -10,6 +10,7 @@ import {
   classify, contentOf, generationsOf, matchTurns, parseCsv, replyMatcher, similarity,
 } from '../tools/lib/import-turns.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
+import { parseOutput } from '../src/llm/parse.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createRecord } from '../src/memory/record.js';
@@ -93,6 +94,18 @@ test('import-turns classify: a reply turn needs the reply system prompt and an a
 });
 
 // ---- matching -------------------------------------------------------------------
+
+test('import-turns old tags: a stored output with <call> and <draw> is a reply turn read as text; the retired tags are cut out, never acted on', () => {
+  const old = '<think>θα ζωγραφίσω</think><msg>ορίστε</msg><call skill="web.search">γάτες</call><draw self="yes">a cat on a roof</draw>';
+  const entry = { system: REPLY_SYSTEM, output: old };
+  assert.equal(classify(entry, () => true), 'reply');
+  assert.equal(classify({ system: REPLY_SYSTEM, output: '<draw>a cat</draw>' }, () => true), 'reply', 'an old picture-only turn is still hers');
+  const parsed = parseOutput(old);
+  assert.deepEqual(parsed.messages.map((message) => message.text), ['ορίστε']);
+  assert.equal(parsed.think, 'θα ζωγραφίσω');
+  assert.deepEqual(parsed.diagnostics.filter((d) => d.kind === 'retiredTag').map((d) => d.tag).sort(), ['call', 'draw']);
+  for (const field of ['call', 'calls', 'draw', 'draws']) assert.equal(field in parsed, false, `the parser returns no ${field}`);
+});
 
 test('import-turns similarity: mention and emoji renderings are tolerated, other text is not', () => {
   assert.ok(similarity(`@Ελένη ναι, το είδα :smile:`, `<@${ELENI}> ναι, το είδα <:smile:123456789012345678>`) >= 0.9);

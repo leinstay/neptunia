@@ -11,6 +11,7 @@ import path from 'node:path';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
+import { call, toolAnswer } from './fixtures/tool-answers.js';
 import { answerSkillScenario, liveView, personaGrantsConfig, simulateCall, skillScenarioRequest } from '../src/behavior/sandbox.js';
 import { createTaskStore, parseFileHandle } from '../src/errands/store.js';
 import {
@@ -234,7 +235,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
   const channel = fakeChannel();
   // The requester a live result turn hands in: the asker's id, no roles.
   const requester = { id: MEMBER, roleIds: [] };
-  const input = { view, situation, selfId: SELF, selfName: 'Persona', channel: here, at, skillsGranted: null, taskResult: task };
+  const input = { view, situation, selfId: SELF, selfName: 'Persona', channel: here, at, taskResult: task };
 
   // What --dry builds: the request of the turn, with <task_result> and the file's handle in it.
   const dry = skillScenarioRequest(input);
@@ -249,7 +250,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
     calls,
     complete: async (messages, options) => {
       calls.push({ messages, options });
-      return { text: `<msg>έτοιμο</msg><call skill="message.create" channel="γενικά">Voilà le programme\n${handle}</call>`, usage: { prompt_tokens: 100, completion_tokens: 10 } };
+      return { ...toolAnswer('<think>t</think><msg>έτοιμο</msg>', [call('message.create', { channel: 'γενικά', text: 'Voilà le programme', file: handle })]), usage: { prompt_tokens: 100, completion_tokens: 10 } };
     },
   };
   const answered = await answerSkillScenario({
@@ -261,7 +262,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
         config, selfId: SELF, requester, conversationId: HERE, now: at, tasks, resultText: '',
       }),
   });
-  assert.equal(calls.length, 1, 'a message that went out is its own answer: no follow-up');
+  assert.equal(calls.length, 1, 'a message that went out covers her speech: no follow-up');
   const [run] = answered.runs;
   assert.deepEqual(run.outcome.verdict, { stage: 'gateway', ok: true });
   assert.deepEqual(run.outcome.executed, { skill: 'message.create', args: { channel: HERE, text: 'Voilà le programme', file: handle } });
@@ -274,7 +275,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
   const report = renderSkillsReport([{ scenario, grantNames: [], records: [record], summary }]);
   assert.ok(report.includes(`errand ${task.id} (web, done) asked by ${MEMBER}:`), report);
   assert.ok(report.includes(`\`${handle}\``) && report.includes('> Le programme est prêt.'));
-  assert.ok(report.includes('call: `message.create`') && report.includes('gateway: passed'));
+  assert.ok(report.includes('calls in order: 0:message.create ok') && report.includes('- call `message.create`') && report.includes(': passed; ok'));
 
   // A handle of no file of hers is refused at the resolution, as live.
   const wrong = simulateCall({

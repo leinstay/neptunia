@@ -12,11 +12,14 @@
 // - a diary day (`--diary-day`): a whole seeded day plan of the diary, each
 //   slot's turn run to the end with nothing posted, every drawing call recorded;
 // - skill scenarios (`--skills`): an invented request put to the persona
-//   after a real chat, with her skills shown, to see whether she uses one or
-//   declines; her calls pass the real gateway and never run -- but with her
-//   tool loop (features.coreTools, or `--core-tools`) her in-turn tools do run;
-// - a pair of core-tools sides (`--pair-core-tools`): the same triggers answered
-//   with features.coreTools off and on, on a blind sheet;
+//   after a real chat, with her tools sent as a live turn sends them, to see
+//   whether she calls one or declines; her calls pass the real gateway and
+//   never run (writes and paid effects are answered canned), but her reading
+//   tools (web.search, memory.search) do run, read only;
+// - a pair of transports (`--pair-transport`): the same triggers answered with
+//   the native tool-calling transport (A) and the text one (B), on a blind sheet;
+// - a loop run (`--loop-triggers`): real triggers answered on one transport,
+//   every step of the turn recorded (calls, held speech, tokens, latency);
 // - an inner turn (`--inner`): one turn of her inner life (src/behavior/inner.js) built
 //   from the live data and run in shadow, her proposed actions reported.
 // Exists so a prompt or profile change can be checked against real moments
@@ -40,10 +43,13 @@
 //        [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
-//        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]
-//   cd /opt/neptunia/app && node tools/replay.mjs --pair-core-tools
+//        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
+//   cd /opt/neptunia/app && node tools/replay.mjs --pair-transport
 //        (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
+//   cd /opt/neptunia/app && node tools/replay.mjs --loop-triggers
+//        (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--before 40]
+//        [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat>
@@ -122,20 +128,14 @@
 // `skills: inventory` (`discovery` "inventory", the default), the named ones
 // (`discovery` a list of up to four names, as after `skills: <names>`), or
 // none ("none"). Answered `runs` times (1..10, default 1) in the sandbox
-// (src/behavior/sandbox.js#answerSkillScenario). A `<call>` is resolved and
+// (src/behavior/sandbox.js#answerSkillScenario). A tool call is resolved and
 // checked as live (#simulateCall: src/skills/executors.js#resolveCall over
 // the guild's channels, roles and stored members, src/skills/gateway.js#checkSkill
 // with the requester's real role ids, the image quota read from a copy of
 // the state); the operation never runs: a call that passed is recorded and
 // answered `ok` with `result` (the text an operation would have answered,
-// '' when omitted); a refusal is answered as live. When a live turn would
-// ask her again (any refusal; an `ok` of an operation other than a message,
-// a reaction or a picture) the follow-up request is sent too, framed as the
-// live turn frames it under the config read: with features.followUpContinuation
-// on (a missing key counts as on) the turn continued over her lines with the
-// call's mark, off the reply request again with a `<result>` block -- set it
-// in config.local.json to compare the two; each run line says which
-// (`followUp.continuation`).
+// '' when omitted); a refusal is answered as live. Whether a request follows
+// is the step engine's decision over the results (below), not the scenario's.
 // A multi-step scenario has `steps` instead of `author` / `text` (parseScenarios:
 // each `{ author?, text?, gapMinutes?, burst?, result? }`): each run replays
 // every step from the start. A step's message, then its `burst` (more messages,
@@ -190,50 +190,67 @@
 // (runs.jsonl's `executed`, the report). Runs, results, follow-ups and the
 // report as a single-turn scenario; `--dry` adds the errand's id, whether
 // the request holds `<task_result>` and its file count.
-// Her tool loop (`--skills` with features.coreTools on in the config read --
-// config.local.json --, or `--core-tools`, which turns it on in the scenario's copy of the
-// config for the run): every scenario's turn is answered as a live turn with the switch on
-// runs it (src/behavior/sandbox.js#runSkillLoop, mirroring src/behavior/turn.js#toolLoop):
-// no search classifier, so no `<skills>` block whatever `discovery` says; `<skills_tools>`
-// (src/skills/discovery.js#coreToolRows) and the server search's senses line in every
-// request; every well-formed call of an answer (up to `skills.loop.maxCallsPerStep`) through
-// the real resolution and gateway (loopCall), the reads at once; while a result needs her to
-// see it, the turn continued with every result so far (`labels.task.continueTools`, the last
-// `continueToolsLast`), up to `skills.loop.maxSteps` follow-ups and `skills.loop.timeBudgetMs`.
+// Her turn on the step engine (every `--skills`, `--pair-transport` and `--loop-triggers` turn;
+// src/behavior/sandbox.js#runSkillLoop, mirroring src/behavior/turn.js#runSteps): her tools are
+// sent with every request as a live turn sends them (src/behavior/sandbox.js#sandboxToolset: the
+// skills granted to her and the carried-over ones, as the `tools` field on the native transport or
+// as the `<tools>` block and `<tool_call>` blocks on the text one, `skills.transport` or `--transport`);
+// her answer is split into speech and tool calls (src/behavior/turn.js#answerOf); each call is
+// refused before it runs when unreadable, unknown, cut off or past the step's cap
+// (`skills.loop.maxCallsPerStep`), repaired by coerceArgs, and put through the real resolution and
+// gateway (loopCall), the reads together, every other call alone in her order; her speech of a step
+// stands only when every call worked and its result is an effect or an accepted errand, else it is
+// held and never posted; a step that left something to read is followed by one request that appends her
+// answer, one result per call and a note to the first messages (nothing rebuilt), up to
+// `skills.loop.maxSteps` follow-ups, the last of them final (its calls get `loop-cap` results), and
+// `skills.loop.timeBudgetMs`. features.coreTools is only the pre-reply classifiers' switch: on, no
+// search classifier runs (no `<skills>` block whatever `discovery` says) and the memory prefetch and the
+// server search's senses line stand in every request; off, the search classifier names her skills.
 // Her `web.search` and `memory.search` that passed run for real and read only
 // (createReplayTools): the web search through the live lookup module and engines on the
 // simulator key (its summary request; the media cache and the daily web counter private
 // copies, nothing written back), the memory search through the live recall runner over the
 // data read (live data/ or --snapshot: its record, archive and vector index iterated, the
 // daily recall counter a private copy; Discord's own searches over REST, GET only). Every
-// other call is answered canned as above; a `task.run` that passed is never dispatched, only
-// recorded with its agent and goal (`errand`). runs.jsonl's line of such a run keeps the
-// single-call fields (the first call, the first follow-up) and adds `loop`: per step (0 the
-// reply) its calls in order with their verdict, result status, code and size, time and the
-// tool's own usage, the calls dropped and why, her answer, the request's size, latency,
-// tokens and cost; then the turn's calls, errands, messages, final messages, latency and
+// other call, a write or a paid effect (`draw.create` included), is answered canned as above and
+// nothing real runs; a `task.run` that passed is never dispatched, only recorded with its agent
+// and goal (`errand`). runs.jsonl's line of a run keeps the single-call fields (the first call, the
+// first follow-up) and adds `loop`: per step (0 the reply) its calls in order with their verdict,
+// result status, code and size, time and the tool's own usage, the calls dropped and why, whether her
+// speech was held, whether her text began with her thinking, the arguments read in another type, her
+// answer, the request's size, latency, tokens (with the cache reads and writes) and cost; then the
+// turn's calls, errands, drawings, posts, posted messages, final messages, counts, latency and
 // cost (loopRecord); report.md shows per run the calls in order, the final messages, the
 // total latency and cost, then each step. The estimate per decision is loopRequestEstimate (an
 // expected count, not a bound: the run stops once the reported cost reaches --spend).
-// `--dry` adds whether `<skills_tools>` is in the first request and the loop's bounds.
+// `--dry` adds the tools' count, tokens and transport, whether `<tools>` is in the first request
+// and the loop's bounds.
 //
-// `--pair-core-tools`: the same triggers (`--triggers <file>`, as `--pair` reads it, or one as
+// `--pair-transport`: the same triggers (`--triggers <file>`, as `--pair` reads it, or one as
 // positionals) answered twice over the same fetched chat, memory (`--snapshot`,
-// `--as-of-moment`) and clock (the trigger's moment), once with features.coreTools off (A)
-// and once on (B), under the live grants, each as a skill-scenario turn of the sandbox
-// (runPairCoreTools). A is what a live switch-off turn builds today: the search classifier
-// asked before her reply (preTurnLookup: its web search on the simulator key, its server search
-// read only, its `skills:` line naming her `<skills>`), the `<lookup>` it found in her request,
-// her calls answered canned with the one follow-up. B goes through the tool loop above. No
-// errand is dispatched in either. Written to `--out` (default
-// ./replay-pair-core-tools-<time>/, refused when it exists and is not empty) as `--pair`
-// writes it: `sheet.html` (every message of each side's turn, blind and in a random order) and
-// `key.json` (`a`/`b` name the sides; per pair `first`, the trigger, both answers with the
-// calls, and `runs`: per side the first request's estimated tokens, the reported tokens and
-// cost -- A's pre-turn requests included --, the latency, the calls, `blocks` (which of
-// `<lookup>`, `<skills>`, `<skills_tools>`, `<skills_granted>` and the search and recall senses
-// lines its request held), A's `preTurn` (what the classifier asked for, which search ran and
-// found) and the whole run record), which tools/replay-score.mjs tallies.
+// `--as-of-moment`) and clock (the trigger's moment), once on the native tool-calling transport
+// (A) and once on the text one (B), under the live grants, each as a skill-scenario turn of the
+// sandbox (runTriggerLoops). What a live turn runs before her reply is run once and shared: the
+// memory prefetch with features.coreTools on, else the search classifier (preTurnLookup: its web
+// search on the simulator key, its server search read only, its `skills:` line naming her
+// `<skills>`, the `<lookup>` it found). No errand is dispatched. Written to `--out` (default
+// ./replay-pair-transport-<time>/, refused when it exists and is not empty) as `--pair`
+// writes it: `sheet.html` (every posted message of each side's turn, its reactions, pictures and
+// message-call posts, blind and in a random order) and `key.json` (`a`/`b` name the sides; per pair
+// `first`, the trigger, both answers with the calls, `runs`: per side the first request's
+// estimated tokens, the tools' tokens, the reported tokens and cost, the latency, the calls, the
+// turn's counts, `blocks` (which of `<lookup>`, `<skills>`, `<tools>` and the search and recall
+// senses lines its request held) and the whole run record, and `shared`: the pre-reply
+// requests), which tools/replay-score.mjs tallies.
+//
+// `--loop-triggers`: the same triggers answered on one side, `--transport native|text` (default:
+// `skills.transport` of the config), and every turn recorded. `--out` (default
+// ./replay-loop-triggers-<time>/) gets `runs.jsonl` (one line per trigger: the trigger, its mode and
+// kind, the chat before it, the counts and the run record with every step -- calls with names and
+// statuses, held, thinkMissing, coerced, capped, requests, tokens in and out and from the cache,
+// latency) and `report.md`. With `--answers-dir` give each scenario its own directory and `--out`
+// (one trigger as the two positionals), or one directory for a whole `--triggers` file. The old and the
+// new side are compared blind by tools/replay-compare.mjs.
 //
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
@@ -535,8 +552,9 @@ const USAGE =
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]])';
@@ -686,7 +704,7 @@ export function parseArgs(argv) {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
-    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false, steps: false,
+    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairTransport: false, loopTriggers: false, transport: null, steps: false,
     inner: null, intention: null, review: false, hideChannels: [], hideMessages: [], answersDir: null, answersFirstOnly: false, answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
   };
   const positional = [];
@@ -712,7 +730,13 @@ export function parseArgs(argv) {
     else if (arg === '--dry') out.dry = true;
     else if (arg === '--steps') out.steps = true;
     else if (arg === '--core-tools') out.coreTools = true;
-    else if (arg === '--pair-core-tools') out.pairCoreTools = true;
+    else if (arg === '--pair-transport') out.pairTransport = true;
+    else if (arg === '--loop-triggers') out.loopTriggers = true;
+    else if (arg === '--transport') {
+      const transport = argv[(i += 1)];
+      if (transport !== 'native' && transport !== 'text') throw new CliError(USAGE);
+      out.transport = transport;
+    }
     else if (arg === '--as-of-moment') out.asOfMoment = true;
     else if (arg === '--hide-self-all') out.hideSelfAll = true;
     else if (arg === '--split') out.split = true;
@@ -782,7 +806,7 @@ export function parseArgs(argv) {
       positional.length > 0 || (bare ? out.intention !== null : out.intention === null || out.review) || (out.review && !review) || out.diaryDay || out.diary !== null || out.skills !== null ||
       out.showRequestTurn !== null || out.pair || out.triggers !== null || out.split || out.recall || out.text !== null || out.budget !== null ||
       out.hideSelfAll || out.hideSelf.length > 0 || out.asOfMoment || out.before !== null || out.count !== null || out.topic !== null || out.dry ||
-      out.pairPrompts !== null || out.coreTools || out.pairCoreTools || out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null
+      out.pairPrompts !== null || out.coreTools || out.pairTransport || out.loopTriggers || out.transport !== null || out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null
     ) {
       throw new CliError(USAGE);
     }
@@ -795,7 +819,7 @@ export function parseArgs(argv) {
       positional.length > 0 || out.diary !== null || out.skills !== null || out.showRequestTurn !== null || out.showRequest || out.pair || out.triggers !== null ||
       out.split || out.recall || out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.asOfMoment ||
       out.before !== null || out.snapshot !== null || out.count !== null || out.topic !== null || out.prompts !== null || out.dry || out.pairPrompts !== null ||
-      out.coreTools || out.pairCoreTools || (out.maxPictures !== null && out.draw !== 'live')
+      out.coreTools || out.pairTransport || out.loopTriggers || out.transport !== null || (out.maxPictures !== null && out.draw !== 'live')
     ) {
       throw new CliError(USAGE);
     }
@@ -808,14 +832,15 @@ export function parseArgs(argv) {
     if (
       positional.length > 0 || out.diary !== null || out.showRequestTurn !== null || out.showRequest || out.pair || out.triggers !== null || out.split || out.recall ||
       out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.count !== null || out.topic !== null ||
-      (out.prompts !== null && out.pairPrompts !== null) || out.pairCoreTools
+      (out.prompts !== null && out.pairPrompts !== null) || out.pairTransport || out.loopTriggers
     ) {
       throw new CliError(USAGE);
     }
     return { ...out, samples: 1, channelId: null, triggerId: null };
   }
   if (out.dry || out.pairPrompts !== null || out.coreTools) throw new CliError(USAGE);
-  if (out.pairCoreTools && (out.pair || out.diary !== null || out.showRequestTurn !== null)) throw new CliError(USAGE);
+  if ((out.pairTransport || out.loopTriggers) && (out.pair || out.diary !== null || out.showRequestTurn !== null || (out.pairTransport && out.loopTriggers))) throw new CliError(USAGE);
+  if (out.transport !== null && !out.loopTriggers) throw new CliError(USAGE);
   if (out.diary !== null) {
     // The diary flags, --out and --spend only; no positionals.
     if (
@@ -834,9 +859,10 @@ export function parseArgs(argv) {
     }
     return { ...out, samples: DEFAULT_SAMPLES, channelId: null, triggerId: null };
   }
-  if (out.pair || out.pairCoreTools) {
+  if (out.pair || out.pairTransport || out.loopTriggers) {
     // Reply mode only, one sample per side; the triggers from the file or the two positionals.
-    // --pair-core-tools: the two sides are features.coreTools off (A) and on (B), not two prompt layers.
+    // --pair-transport: the two sides are the native transport (A) and the text one (B), not two prompt layers.
+    // --loop-triggers: one side (`--transport`, default the config's), the turn's steps recorded.
     if (out.split || out.recall || out.samples !== null || out.showRequest || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0) throw new CliError(USAGE);
     if (out.triggers !== null ? positional.length > 0 : extra !== undefined || !SNOWFLAKE.test(channelId ?? '') || !SNOWFLAKE.test(triggerId ?? '')) throw new CliError(USAGE);
     return { ...out, samples: 1, channelId: channelId ?? null, triggerId: triggerId ?? null };
@@ -1810,6 +1836,7 @@ export async function loadDiaryMods(load) {
     ...(await load('web/exa.js')),
     ...(await load('web/lookup.js')),
     ...(await load('llm/parse.js')),
+    ...(await load('skills/tool-calls.js')),
     ...(await load('memory/clamp.js')),
     ...(await load('time.js')),
   };
@@ -1818,21 +1845,23 @@ export async function loadDiaryMods(load) {
 /**
  * The llm client of a diary run: every request the tool's own (`origin: 'replay'`, never
  * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
- * recorded in `calls` as `{ purpose, text, usage, error, code }` (`code`: the short failure code of
- * `errorCodeOf`, when given, else `error`).
+ * recorded in `calls` as `{ purpose, text, toolCalls, finishReason, usage, error, code }` (`toolCalls`: the native
+ * transport's calls of the answer; `code`: the short failure code of `errorCodeOf`, when given, else `error`).
  */
 export function recordingLlm(realLlm, calls, { noCache = false, errorCodeOf = null } = {}) {
   return new Proxy(realLlm, {
     get(target, prop) {
       if (prop === 'complete') {
         return async (messages, options = {}) => {
-          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null, code: null };
+          const call = { purpose: options?.purpose ?? null, text: null, toolCalls: null, finishReason: null, usage: null, error: null, code: null };
           calls.push(call);
           try {
             const completion = await target.complete(messages, {
               ...options, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, ...(noCache ? { cache: false } : {}),
             });
             call.text = completion?.text ?? null;
+            call.toolCalls = Array.isArray(completion?.toolCalls) ? completion.toolCalls : null;
+            call.finishReason = completion?.finishReason ?? null;
             call.usage = completion?.usage ?? null;
             return completion;
           } catch (err) {
@@ -2041,13 +2070,16 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       let draw = null;
       let messages = [];
       if (composeCall?.text) {
-        const parsed = parseOutput(composeCall.text);
+        // The post's picture is her draw.create call (a tool call of the native transport, a block of the text one).
+        const split = mods.answerOf({ text: composeCall.text, toolCalls: composeCall.toolCalls ?? [], finishReason: composeCall.finishReason }, { transport: mods.transportOf(hot.config) });
+        const parsed = parseOutput(split.speechText);
         const live = hot.config;
         messages = parsed.messages.map((m) => m.text);
         if (live.features?.multiMessage === false) messages = messages.slice(0, 1);
         if (live.format?.stripDashes !== false) messages = messages.map(stripDashes).filter((t) => t !== '');
         messages = messages.map(stripUrls).filter((t) => t !== '').slice(0, Math.max(0, live.diary?.maxMessages ?? 3));
-        draw = parsed.draw ?? null;
+        const drawCall = split.calls.find((call) => call.name === 'draw.create' && !call.problem);
+        draw = drawCall ? { text: String(drawCall.args.text ?? ''), self: drawCall.args.self === true || drawCall.args.self === 'true' } : null;
       }
       const brief = {
         kind,
@@ -2303,25 +2335,30 @@ export async function heartbeatReplayWake({ inner, hot, dataDir, guildId, now, d
 }
 
 /**
- * One reply of an `--inner` run, as the report shows it: her `<think>` whole, her messages, her calls with
- * their arguments, her reactions, gif and drawing, whether she skipped. Pure.
+ * One reply of an `--inner` run, as the report shows it: her `<think>` whole, her messages, her tool calls with
+ * their arguments (a drawing is a `draw.create` call), her reactions, gif, whether she skipped. `tools` gives
+ * the transport's side of the answer (`{ answerOf, transport, toolCalls, finishReason }`: src/behavior/turn.js#answerOf
+ * splits the text into speech and calls); without it the text is read as speech only. Pure.
  * @param {string|null} text  The raw reply.
  * @param {Function} parseOutput  src/llm/parse.js#parseOutput.
  * @param {string|null} [failedCode]  The failure code when the model request of this step failed (no reply).
+ * @param {{ answerOf?: Function, transport?: string, toolCalls?: object[]|null, finishReason?: string|null }|null} [tools]
  */
-export function innerAnswerOf(text, parseOutput, failedCode = null) {
+export function innerAnswerOf(text, parseOutput, failedCode = null, tools = null) {
   if (failedCode) {
     // The request itself failed: no answer exists, and an empty one would read as her choosing to skip.
-    return { failed: { code: String(failedCode) }, think: '', messages: [], calls: [], reactions: [], gif: null, draws: [], skip: false, text: '' };
+    return { failed: { code: String(failedCode) }, think: '', messages: [], calls: [], reactions: [], gif: null, skip: false, text: '' };
   }
-  const parsed = parseOutput(String(text ?? ''));
+  const split = typeof tools?.answerOf === 'function'
+    ? tools.answerOf({ text: String(text ?? ''), toolCalls: tools.toolCalls ?? [], finishReason: tools.finishReason ?? null }, { transport: tools.transport ?? 'native' })
+    : { speechText: String(text ?? ''), calls: [] };
+  const parsed = parseOutput(split.speechText);
   return {
     think: parsed.think,
     messages: parsed.messages.map((message) => message.text),
-    calls: (parsed.calls ?? []).map((call) => ({ skill: call.skill, args: call.args, body: call.body })),
+    calls: split.calls.map((call) => ({ skill: call.name, args: call.args, ...(call.problem ? { problem: call.problem } : {}) })),
     reactions: parsed.reactions,
     gif: parsed.gif,
-    draws: parsed.draws,
     skip: parsed.skip,
     text: String(text ?? ''),
   };
@@ -2354,7 +2391,6 @@ export function innerReportMarkdown(result) {
       if (answer.calls.length > 0) lines.push('calls:', '', fence(JSON.stringify(answer.calls, null, 2)), '');
       if (answer.reactions?.length > 0) lines.push('reactions:', '', fence(JSON.stringify(answer.reactions)), '');
       if (answer.gif) lines.push('gif:', '', fence(JSON.stringify(answer.gif)), '');
-      if (answer.draws?.length > 0) lines.push('drawings:', '', fence(JSON.stringify(answer.draws)), '');
       if (answer.skip) lines.push('skip', '');
     });
     lines.push('actions:', '', sample.actions.length > 0 ? fence(JSON.stringify(sample.actions, null, 2)) : '(none)', '');
@@ -2590,7 +2626,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       lastCost = usage.cost;
       const sent = port.calls.filter((call) => call.op === 'send').length;
       if (result?.outcome === 'error') code = 1;
-      const answers = calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null));
+      const answers = calls.filter((call) => call.purpose === 'reply').map((call) => innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null, { answerOf: mods.answerOf, transport: mods.transportOf(hot.config), toolCalls: call.toolCalls, finishReason: call.finishReason }));
       samples.push({
         outcome: result?.outcome ?? null,
         reason: result?.reason ?? null,
@@ -3277,14 +3313,14 @@ const TOOL_TIMEOUT_RESULT = Object.freeze({ status: 'unknown', code: 'timeout', 
  * operation never run), then -- when it passed and its skill is one of `inTurn` (web.search,
  * memory.search) -- run for real: `runTool(skill, resolvedArgs, refs)` resolving `{ result, usage }`
  * within `refs.timeoutMs` (past it the timeout result a live call gets), the result in place of the
- * canned one, `followUp` as a live turn reads it (`needsFollowUp`), and `tool: { ms, requests,
+ * canned one, and `tool: { ms, requests,
  * tokens, cost }` what the tool's own requests used. A `task.run` that passed is never dispatched:
  * it keeps the canned result and records `errand: { agent, goal }` (the goal as resolved, else her
  * body). A tool that throws answers `failed` / `error`. `now` is the clock.
- * @param {{ simulate: Function, runTool?: Function|null, inTurn: readonly string[], needsFollowUp: Function, now?: () => number }} input
+ * @param {{ simulate: Function, runTool?: Function|null, inTurn: readonly string[], now?: () => number }} input
  * @returns {(call: object, refs: object) => Promise<object>}
  */
-export function loopCall({ simulate, runTool = null, inTurn, needsFollowUp, now = Date.now }) {
+export function loopCall({ simulate, runTool = null, inTurn, now = Date.now }) {
   return async (call, refs = {}) => {
     const outcome = simulate(call, refs);
     const executed = outcome?.verdict?.ok === true ? outcome.executed : null;
@@ -3310,7 +3346,6 @@ export function loopCall({ simulate, runTool = null, inTurn, needsFollowUp, now 
     return {
       ...outcome,
       result,
-      followUp: needsFollowUp(executed.skill, result),
       tool: { ms: now() - started, requests: usage.requests ?? 0, tokens: usage.tokens ?? { prompt: 0, completion: 0 }, cost: Number.isFinite(usage.cost) ? usage.cost : null },
     };
   };
@@ -3433,7 +3468,6 @@ function visibleOf(answer) {
     ...mentionsOf(answer),
     reactions: answer.reactions.map((r) => r.emoji),
     gif: answer.gif?.id ?? null,
-    draw: answer.draw?.text ?? null,
     skip: answer.skip,
     think: answer.think ?? '',
   };
@@ -3484,9 +3518,13 @@ export function runRecord(scenarioId, index, run) {
 function usageTotals(usages) {
   const list = usages.filter(Boolean);
   const costs = list.map((u) => Number(u?.cost)).filter(Number.isFinite);
+  const cached = (u) => Number(u?.prompt_tokens_details?.cached_tokens ?? u?.cache_read_input_tokens) || 0;
+  const written = (u) => Number(u?.prompt_tokens_details?.cache_write_tokens ?? u?.cache_creation_input_tokens) || 0;
   return {
     prompt: list.reduce((t, u) => t + (Number(u?.prompt_tokens) || 0), 0),
     completion: list.reduce((t, u) => t + (Number(u?.completion_tokens) || 0), 0),
+    cacheRead: list.reduce((t, u) => t + cached(u), 0),
+    cacheWrite: list.reduce((t, u) => t + written(u), 0),
     cost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
   };
 }
@@ -3499,14 +3537,18 @@ function addCost(a, b) {
 /**
  * A tool-loop run's record (`run.loop`, src/behavior/sandbox.js#runSkillLoop's) as runs.jsonl keeps
  * it: per step (0 the reply) its number, the calls it made in order -- the skill, the arguments she
- * wrote (the body as `body`), the gateway's verdict, the resolved arguments when it passed, the
- * result's status, code and size (`chars`, its text), how long it took, what an in-turn tool's own
- * requests used (`tool`) and, for a `task.run` that passed, the errand recorded (`errand`: agent and
- * goal; never dispatched) --, the calls dropped (`dropped`; `capped` its reason on her last step),
- * her visible answer, the size of the request it answered (`requestChars`), its latency (`ms`),
- * tokens and cost; then the calls of the whole turn in order (`calls`), the errands (`errands`),
- * every message of the turn (`messages`), the last answer's (`final`), the turn's latency (`ms`),
- * and its tokens and cost (her requests and the tools' together). Pure.
+ * wrote, the gateway's verdict, the resolved arguments when it passed, the result's status, code and
+ * size (`chars`, its text), how long it took, what an in-turn tool's own requests used (`tool`) and,
+ * for a `task.run` that passed, the errand recorded (`errand`: agent and goal; never dispatched) --,
+ * the calls dropped (`dropped`; `capped` its reason), whether her speech of the step was `held`
+ * (never posted), `thinkMissing` (her text did not begin with her thinking), `coerced` (arguments
+ * read in another type), her visible answer, the size of the request it answered (`requestChars`),
+ * its latency (`ms`), tokens (with the cache reads and writes) and cost; then the calls of the whole
+ * turn in order (`calls`), the errands, the pictures she asked for (`drawings`), the texts her message
+ * calls posted (`posts`), every message of the turn that was posted -- a held step's are not --
+ * (`messages`), the last posted step's (`final`), the turn's counts (`requests`, `held`, `thinkMissing`,
+ * `coerced`, `capped`, `malformed`) and latency (`ms`), and its tokens and cost (her requests and the
+ * tools' together). Pure.
  * @param {{ steps: object[], ms: number }} loop
  * @returns {object}
  */
@@ -3519,6 +3561,7 @@ export function loopRecord(loop) {
       return {
         skill: call?.skill ?? null,
         args: call ? { ...call.args, ...(call.body ? { body: call.body } : {}) } : null,
+        ...(call?.toolCallId ? { id: call.toolCallId } : {}),
         verdict: outcome?.verdict ?? null,
         executed: outcome?.executed ?? null,
         result: result ? { status: result.status, code: result.code ?? null, chars: String(result.data?.text ?? '').length } : null,
@@ -3532,11 +3575,14 @@ export function loopRecord(loop) {
       calls,
       dropped: step.dropped ?? 0,
       capped: step.capped ?? null,
+      held: step.held === true,
+      thinkMissing: step.thinkMissing === true,
+      coerced: step.coerced ?? 0,
       ...(step.continuation !== undefined ? { continuation: step.continuation === true } : {}),
       ...(step.error ? { error: step.error } : { answer: visibleOf(step.answer) }),
       requestChars: step.requestChars ?? null,
       ms: Number.isFinite(step.ms) ? step.ms : null,
-      tokens: { prompt: own.prompt, completion: own.completion },
+      tokens: { prompt: own.prompt, completion: own.completion, cacheRead: own.cacheRead, cacheWrite: own.cacheWrite },
       cost: own.cost,
       resultChars: calls.reduce((total, c) => total + (c.result?.chars ?? 0), 0),
     };
@@ -3545,17 +3591,29 @@ export function loopRecord(loop) {
   const toolTokens = tools.reduce((t, x) => ({ prompt: t.prompt + (Number(x.tokens?.prompt) || 0), completion: t.completion + (Number(x.tokens?.completion) || 0) }), { prompt: 0, completion: 0 });
   const toolCost = tools.reduce((total, x) => addCost(total, Number.isFinite(x.cost) ? x.cost : null), null);
   const ownCost = steps.reduce((total, step) => addCost(total, step.cost), null);
-  const answered = steps.filter((step) => step.answer);
+  const posted = steps.filter((step) => step.answer && !step.held);
+  const okCalls = steps.flatMap((step) => step.calls.filter((c) => c.result?.status === 'ok' && c.verdict?.ok !== false).map((c) => ({ step: step.step, ...c })));
   return {
     steps,
     calls: steps.flatMap((step) => step.calls.map((c) => ({ step: step.step, skill: c.skill, status: c.result?.status ?? null, code: c.result?.code ?? (c.verdict && !c.verdict.ok ? c.verdict.code : null) }))),
     errands: steps.flatMap((step) => step.calls.filter((c) => c.errand).map((c) => ({ step: step.step, ...c.errand }))),
-    messages: answered.flatMap((step) => step.answer.messages),
-    final: answered.length > 0 ? answered[answered.length - 1].answer.messages : [],
+    drawings: okCalls.filter((c) => c.skill === 'draw.create').map((c) => ({ step: c.step, text: String(c.args?.text ?? ''), self: c.args?.self === true, channel: c.args?.channel ?? null })),
+    posts: okCalls.filter((c) => c.skill === 'message.create' && typeof c.args?.text === 'string' && c.args.text).map((c) => ({ step: c.step, text: c.args.text, channel: c.args.channel ?? null })),
+    messages: posted.flatMap((step) => step.answer.messages),
+    final: posted.length > 0 ? posted[posted.length - 1].answer.messages : [],
+    requests: steps.filter((step) => !step.error).length + tools.reduce((total, x) => total + (Number(x.requests) || 0), 0),
+    turnRequests: steps.filter((step) => !step.error).length,
+    held: steps.filter((step) => step.held).length,
+    thinkMissing: steps.filter((step) => step.thinkMissing).length,
+    coerced: steps.reduce((total, step) => total + step.coerced, 0),
+    capped: steps.reduce((total, step) => total + step.dropped, 0),
+    malformed: steps.reduce((total, step) => total + step.calls.filter((c) => ['malformed-call', 'truncated-call'].includes(c.verdict?.code)).length, 0),
     ms: Number.isFinite(loop.ms) ? loop.ms : null,
     tokens: {
       prompt: steps.reduce((t, step) => t + step.tokens.prompt, 0) + toolTokens.prompt,
       completion: steps.reduce((t, step) => t + step.tokens.completion, 0) + toolTokens.completion,
+      cacheRead: steps.reduce((t, step) => t + step.tokens.cacheRead, 0),
+      cacheWrite: steps.reduce((t, step) => t + step.tokens.cacheWrite, 0),
     },
     cost: addCost(ownCost, toolCost),
   };
@@ -3786,8 +3844,7 @@ function passLines(pass, { detail = false } = {}) {
   for (const message of pass.messages) out.push(quoted(message), '');
   if (pass.reactions.length > 0) out.push(`reactions: ${pass.reactions.join(' ')}`, '');
   if (pass.gif) out.push(`gif: ${pass.gif}`, '');
-  if (pass.draw) out.push(`draw: ${cell(pass.draw)}`, '');
-  if (pass.messages.length === 0 && pass.reactions.length === 0 && !pass.gif && !pass.draw) out.push(pass.skip ? '(skip)' : '(nothing)', '');
+  if (pass.messages.length === 0 && pass.reactions.length === 0 && !pass.gif) out.push(pass.skip ? '(skip)' : '(nothing)', '');
   if (detail && Array.isArray(pass.mentions)) out.push(`mentions: ${pass.mentions.length > 0 ? pass.mentions.join(', ') : '(none)'}; unknown handles: ${pass.unknownHandles ?? 0}`, '');
   if (detail && pass.think) out.push(`think: ${thinkExcerpt(pass.think)}`, '');
   return out;
@@ -3831,12 +3888,16 @@ function loopLines(record, heading) {
   const calls = loop.calls.map((c) => `${c.step}:${c.skill} ${c.status ?? 'refused'}${c.code ? ` (${c.code})` : ''}`);
   const lines = [heading, '', `calls in order: ${calls.length > 0 ? cell(calls.join('; ')) : '(none)'}`, ''];
   lines.push('final messages:', '', ...(loop.final.length > 0 ? loop.final.flatMap((m) => [quoted(m), '']) : ['(none)', '']));
-  lines.push(`turn: ${loop.ms ?? '-'} ms, ${loop.steps.length} requests, ${record.tokens.prompt} in, ${record.tokens.completion} out; cost: ${costText(record.cost)}`, '');
+  lines.push(`turn: ${loop.ms ?? '-'} ms, ${loop.steps.length} requests, ${record.tokens.prompt} in, ${record.tokens.completion} out, cache ${record.tokens.cacheRead ?? 0} read / ${record.tokens.cacheWrite ?? 0} written; cost: ${costText(record.cost)}`, '');
+  if (loop.held || loop.thinkMissing || loop.coerced || loop.capped || loop.malformed) lines.push(`held steps: ${loop.held ?? 0}; think missing: ${loop.thinkMissing ?? 0}; coerced: ${loop.coerced ?? 0}; capped: ${loop.capped ?? 0}; unreadable calls: ${loop.malformed ?? 0}`, '');
   for (const errand of loop.errands) lines.push(`errand recorded (step ${errand.step}, not dispatched): ${cell(errand.agent)}: ${cell(errand.goal)}`, '');
   for (const step of loop.steps) {
     lines.push(`step ${step.step}${step.step === 0 ? ' (reply)' : ''}: ${step.requestChars ?? '-'} chars, ${step.ms ?? '-'} ms, ${step.tokens.prompt} in, ${step.tokens.completion} out, cost ${costText(step.cost)}`, '');
     if (step.error) lines.push(`failed: ${cell(step.error)}`, '');
-    else lines.push(...passLines(step.answer, { detail: true }));
+    else {
+      if (step.held) lines.push('speech held (not posted):', '');
+      lines.push(...passLines(step.answer, { detail: true }));
+    }
     for (const c of step.calls) {
       const verdict = c.verdict?.ok ? 'passed' : `refused at ${c.verdict?.stage}: ${c.verdict?.code}`;
       const tool = c.tool ? `, tool ${c.tool.ms ?? '-'} ms, ${c.tool.requests ?? 0} requests, cost ${costText(c.tool.cost)}` : '';
@@ -4060,8 +4121,9 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
     createTaskStore, parseFileHandle,
   } = mods;
-  // Her tool loop (features.coreTools in the config read, or forced by --core-tools): its modules.
-  const loopOn = loopDeps !== null;
+  // Her tools run for real where they only read (web.search, memory.search: `loopDeps`); `coreOn` (features.coreTools in the
+  // config read, or forced by --core-tools) is the pre-reply classifiers' switch: off, the search classifier names her skills.
+  const coreOn = loopDeps.coreOn;
   const registry = skillRegistry();
   const names = [...registry.keys()];
   const pairing = sides.length > 1;
@@ -4152,8 +4214,8 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     const lineOf = (message, ts, { tagged = true } = {}) =>
       scenarioTrigger({ text: message.text, authorId: message.author, authorName: nameOf(message.author), channel: channelOf(channel), selfId: self.id, at: ts, tagged });
     // The config with her grants, read now and kept for the scenario (both sides); never written.
-    // --core-tools: features.coreTools on in that copy.
-    const scenarioConfig = personaGrantsConfig(loopOn ? withCoreTools(hot.config) : hot.config, self.id, grantNames);
+    // --core-tools: features.coreTools on in that copy; --transport: the tools' transport.
+    const scenarioConfig = personaGrantsConfig(withTransport(args.coreTools ? withCoreTools(hot.config) : hot.config, args.transport), self.id, grantNames);
     // A step's burst as the live queue plays it, with the scenario's config (name triggers, switches, caps).
     const planBurst = (incoming, { history: before }) => mods.burstTurns(incoming, { selfId: self.id, config: scenarioConfig, history: before });
     // A line of hers the scenario seeds: shaped as her live lines, no turn run for it.
@@ -4171,8 +4233,6 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     const firstTurn = task ? null : (first.turn ?? { line: first.lines[first.lines.length - 1], kind: 'mention', queued: [] });
     const trigger = firstTurn?.line ?? null;
     const situation = task ? { history: first.lines, mode: 'interject' } : { history: first.lines, triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
-    // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
-    const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
     const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
     // An errand's budget as live: the guild's tasks.json of the data read (live or --snapshot) against the scenario's config, never queued into.
     const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId, config: () => scenarioConfig, log });
@@ -4180,11 +4240,10 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
     const memoryOn = scenarioConfig.features?.memory !== false;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
-    // With the tool loop her in-turn tools run for real (`tools`, loopCall); a task.run is only recorded.
-    const onCallOf = (callRequester, now, resultText, tools = null) => {
+    // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; a task.run is only recorded.
+    const onCallOf = (callRequester, now, resultText, tools) => {
       const simulate = simulatedCallOf(callRequester, now, resultText);
-      if (!tools) return simulate;
-      return loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at: now }), inTurn: loopDeps.IN_TURN_TOOLS, needsFollowUp: loopDeps.needsFollowUp });
+      return loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at: now }), inTurn: loopDeps.IN_TURN_TOOLS });
     };
     const simulatedCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines, channelHandles = null }) =>
       simulateCall({
@@ -4211,19 +4270,18 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
           return scenarioConfig;
         },
       };
-      // Her in-turn tools over this side's prompts (the labels their results are worded by), and
-      // what every request of the loop carries as live: <skills_tools> and the server search's line.
-      const tools = loopOn ? loopDeps.toolsFor({ hot: hotLike, channel, llm: capped }) : null;
-      const coreTools = loopOn
+      // Her in-turn tools over this side's prompts (the labels their results are worded by); with
+      // features.coreTools on the server search's senses line and the memory prefetch stand in every request, as live.
+      const tools = loopDeps.toolsFor({ hot: hotLike, channel, llm: capped });
+      const coreTools = coreOn
         ? {
-            rows: loopDeps.coreToolRows({ config: scenarioConfig, selfId: self.id, registry, texts: sideHot.prompts?.skills }),
             recallAvailable: tools.recallAvailable(),
             // The automatic memory prefetch a live turn runs for the scenario's trigger, as of its first decision.
             prefetch: await tools.prefetch({ trigger, triggerKind: task ? 'task' : null, mode: situation.mode ?? null, history: situation.history, at: task ? at : newestTs(situation.history, trigger?.ts) }),
           }
         : null;
-      const loop = loopOn ? { settings: loopDeps.loopSettings(scenarioConfig) } : null;
-      const loopInput = loopOn ? { coreTools, loop } : {};
+      const loop = { settings: loopDeps.loopSettings(scenarioConfig) };
+      const loopInput = { ...(coreTools ? { coreTools } : {}), loop };
       // The first decision is answered once the first step's messages are in: at the newest of them (an errand's end: when it ended).
       const firstAt = task ? at : newestTs(situation.history, trigger.ts);
       // The memory as it stands at the scenario's first decision, for every step: nothing is learned in between.
@@ -4232,12 +4290,12 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
       const turnInput = (turnMoment, turnAt, turnTrigger) => {
         // An errand's end: who asked for it, as src/errands/turns.js hands them in (no roles: src/behavior/turn.js#callEnvelope).
         const requester = task ? { id: task.requester.userId, roleIds: [] } : requesterOf(turnTrigger, channel);
-        // With the tool loop no search classifier runs before her reply, so none names her skills: no <skills> (as live).
-        const inventory = loopOn ? null : scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: sideHot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+        // With features.coreTools on no search classifier runs before her reply, so none names her skills: no <skills> (as live).
+        const inventory = coreOn ? null : scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: sideHot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
         const media = replayMedia(turnMoment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
         const input = {
           view, situation: turnMoment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
-          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted, channelDirectory,
+          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, channelDirectory,
           ...(task ? { taskResult: task } : {}),
         };
         return { input, requester, shown: { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length } };
@@ -4248,10 +4306,12 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
         return {
           dry: {
             id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
-            tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
+            tokens: request.tokens, limit: request.limit, toolsTokens: request.toolsTokens, tools: request.tools, transport: request.transport, toolsBlock: blockOf(request.user, 'tools') !== null,
+            skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
             ...(scenario.steps ? { steps: scenario.steps.length } : {}),
             ...(task ? { taskResult: { id: task.id, block: blockOf(request.user, 'task_result') !== null, files: task.result.files.length } } : {}),
-            ...(loopOn ? { coreTools: { toolsBlock: blockOf(request.user, 'skills_tools') !== null, tools: coreTools.rows.map((row) => row.name), recallAvailable: coreTools.recallAvailable, loop: loop.settings } } : {}),
+            loop: loop.settings,
+            ...(coreTools ? { coreTools: { recallAvailable: coreTools.recallAvailable } } : {}),
           },
         };
       }
@@ -4430,15 +4490,14 @@ export async function preTurnLookup({ config, prompts, llm, lookup, recall, disc
   return done(result, parsed?.skills ?? null);
 }
 
-/** Which of the turn-shaping blocks and lines a request's user text holds (the key of --pair-core-tools). */
+/** Which of the turn-shaping blocks and lines a request's user text holds (the key of --pair-transport and --loop-triggers). */
 export function requestBlocks(user, labels) {
   const has = (tag) => blockOf(user, tag) !== null;
   const line = (text) => typeof text === 'string' && text !== '' && String(user ?? '').includes(text);
   return {
     lookup: has('lookup'),
     skills: has('skills'),
-    skillsTools: has('skills_tools'),
-    skillsGranted: has('skills_granted'),
+    tools: has('tools'),
     searchLine: line(labels?.senses?.search),
     searchToolLine: line(labels?.senses?.searchTool),
     recallLine: line(labels?.senses?.recall),
@@ -4446,54 +4505,81 @@ export function requestBlocks(user, labels) {
   };
 }
 
-/** The two sides of `--pair-core-tools`: features.coreTools off (A) and on (B). */
-const CORE_TOOLS_SIDES = Object.freeze({ A: false, B: true });
+/** The two sides of `--pair-transport`: the native transport (A) and the text one (B). */
+const TRANSPORT_SIDES = Object.freeze({ A: 'native', B: 'text' });
+
+/** `config` with her tools' transport set (`skills.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
+export function withTransport(config, transport) {
+  if (transport !== 'native' && transport !== 'text') return config;
+  return { ...config, skills: { ...(config?.skills ?? {}), transport } };
+}
 
 /**
  * One side's answer (runRecord's, of a reply turn answered as a skill scenario) as the blind sheet
- * shows it (tools/lib/pair.mjs#renderSheet): every message of the turn in order -- with the tool loop
- * every step's, else the reply's and the one follow-up's --, the reply's reactions, GIF and drawing,
- * her think, `skip` when nothing at all was said or done; and the calls she made in order (`calls`,
- * for the key: the sheet does not show them). Pure.
+ * shows it (tools/lib/pair.mjs#renderSheet): every message of the turn that was posted in order (a
+ * held step's speech is not), the reactions and GIF of the posted steps, the pictures she drew
+ * (`drawings`: her draw.create calls that went through) and the texts her message calls posted
+ * (`posts`), her think, `skip` when nothing at all was said or done; and the calls she made in order
+ * (`calls`, for the key: the sheet does not show them). A record without a loop (an old run: a reply and
+ * one follow-up) is read as it was. Pure.
  * @param {object|null} record
  * @returns {object|null}
  */
 export function pairAnswerOf(record) {
   if (!record) return null;
-  const first = record.first ?? { messages: [], reactions: [], gif: null, draw: null, skip: true, think: '' };
-  const messages = record.loop ? record.loop.messages : [...first.messages, ...(record.followUp && !record.followUp.error ? record.followUp.messages ?? [] : [])];
-  const calls = record.loop
-    ? record.loop.calls.map((c) => ({ step: c.step, skill: c.skill, status: c.status, code: c.code }))
+  const first = record.first ?? { messages: [], reactions: [], gif: null, skip: true, think: '' };
+  const loop = record.loop ?? null;
+  const posted = loop ? loop.steps.filter((step) => step.answer && !step.held).map((step) => step.answer) : [first, ...(record.followUp && !record.followUp.error ? [record.followUp] : [])];
+  const messages = posted.flatMap((answer) => answer.messages);
+  const reactions = posted.flatMap((answer) => answer.reactions ?? []);
+  const gif = posted.map((answer) => answer.gif).find(Boolean) ?? null;
+  const calls = loop
+    ? loop.calls.map((c) => ({ step: c.step, skill: c.skill, status: c.status, code: c.code }))
     : record.skill
       ? [{ step: 0, skill: record.skill, status: record.result?.status ?? null, code: record.result?.code ?? null }]
       : [];
-  const acted = messages.length > 0 || first.reactions.length > 0 || first.gif || first.draw;
+  const drawings = loop ? loop.drawings.map((d) => ({ text: d.text })) : [];
+  const posts = loop ? loop.posts.map((d) => ({ text: d.text })) : [];
+  const acted = messages.length > 0 || reactions.length > 0 || gif || drawings.length > 0 || posts.length > 0;
+  return { think: first.think ?? '', messages, reactions, gif: gif ? { id: gif } : null, drawings, posts, skip: !acted, calls };
+}
+
+/** A turn's flat counts for a report line or the compare tool: calls, requests, held steps and the like (runRecord's `loop`). */
+function turnCounts(record) {
+  const loop = record.loop;
   return {
-    think: first.think ?? '',
-    messages,
-    reactions: first.reactions,
-    gif: first.gif ? { id: first.gif } : null,
-    draw: first.draw ? { text: first.draw } : null,
-    skip: !acted,
-    calls,
+    calls: loop.calls.length,
+    requests: loop.requests,
+    turnRequests: loop.turnRequests,
+    held: loop.held,
+    thinkMissing: loop.thinkMissing,
+    steps: loop.steps.length,
+    coerced: loop.coerced,
+    capped: loop.capped,
+    malformed: loop.malformed,
   };
 }
 
 /**
- * `--pair-core-tools` (see the header): every trigger of `triggers` answered twice over the same
- * fetched chat, memory and clock, once with features.coreTools off (A) and once on (B), each as a
- * skill-scenario turn of the sandbox under the live grants (answerSkillScenario: her calls through
- * the real gateway; A's answered canned with the one follow-up, B's through her tool loop with
- * web.search and memory.search run for real, loopCall); a task.run is only recorded, never
- * dispatched. The sheet and key the `--pair` mode writes (tools/lib/pair.mjs#renderSheet, the key's
- * `pairs.<id>.answers`), each pair's key also carrying per side the first request's estimated
- * tokens, the tokens and cost reported, the latency and the calls (`runs`). Stops at `budget`
- * (what the provider reports spent, else USD_PER_ANSWER per request). Returns `{ code, result }`.
+ * `--pair-transport` and `--loop-triggers` (see the header): every trigger of `pairTriggers` answered as a
+ * skill-scenario turn of the sandbox over the same fetched chat, memory and clock, under the live grants --
+ * her calls through the real gateway, web.search and memory.search run for real (loopCall), every write and
+ * paid effect canned, a task.run only recorded --, her turn on the step engine (src/behavior/sandbox.js#runSkillLoop).
+ * `sides`: `[{ key, transport }]` -- A (native) and B (text) for the pair, one side (`--transport`, else the
+ * config's) for the loop run. What a live turn runs before her reply is run once per trigger and shared by the
+ * sides: with features.coreTools on the memory prefetch, else the search classifier (preTurnLookup). The pair
+ * writes the sheet and key `--pair` writes (tools/lib/pair.mjs#renderSheet; the key's `pairs.<id>.answers` and, per
+ * side, `runs`: the first request's estimated tokens, the tools' tokens, the tokens and cost reported, the latency,
+ * the calls, `blocks`, the whole run record); the loop run writes `runs.jsonl` (one line per trigger: the
+ * trigger, its chat, the run record with every step -- calls, held, thinkMissing, coerced, capped, tokens with
+ * the cache, latency) and `report.md`. Stops at `budget` (what the provider reports spent, else USD_PER_ANSWER per
+ * request). Returns `{ code, result }`.
  */
-async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory, signal, budget, mods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log }) {
-  const { answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, grantedSkillNames, createImageGen, createTaskStore, replayMedia, momentMode, momentKind, isSpontaneous, scenarioInventory, situationHistory } = mods;
+async function runTriggerLoops({ single, args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory, signal, budget, mods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log }) {
+  const { answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, createImageGen, createTaskStore, replayMedia, momentMode, momentKind, isSpontaneous, scenarioInventory, situationHistory } = mods;
   const registry = skillRegistry();
-  const outDir = path.resolve(root, args.outDir ?? `replay-pair-core-tools-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  const sides = single ? [{ key: 'single', transport: args.transport }] : Object.entries(TRANSPORT_SIDES).map(([key, transport]) => ({ key, transport }));
+  const outDir = path.resolve(root, args.outDir ?? `replay-${single ? 'loop-triggers' : 'pair-transport'}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   if (outDir === liveData || outDir.startsWith(`${liveData}${path.sep}`)) throw new CliError('replay-cli: --out may not be under data/');
   if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new CliError(`replay-cli: ${outDir} is not empty`);
   let spent = 0;
@@ -4517,7 +4603,8 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
   const refusing = async () => { throw new Error('replay-cli: no request from the image client'); };
   const order = pairOrder(pairTriggers.length, rng);
   const sheet = [];
-  const key = { a: 'features.coreTools off', b: 'features.coreTools on', mode: 'core-tools', asOfMoment: args.asOfMoment, snapshot: args.snapshot !== null ? dataDir : null, pairs: {} };
+  const key = { a: 'native transport', b: 'text transport', mode: 'transport', asOfMoment: args.asOfMoment, snapshot: args.snapshot !== null ? dataDir : null, pairs: {} };
+  const lines = [];
   const failed = [];
   for (const [index, trigger] of pairTriggers.entries()) {
     if (stop.signal.aborted) break;
@@ -4535,80 +4622,97 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
     const mode = recordedMode && !isSpontaneous(recordedMode) ? recordedMode : 'reply';
     const kind = recorded ? momentKind(recorded.trigger?.kind) : null;
     const situation = { history, triggerId: trigger.triggerId, kind, mode };
+    const triggerKind = situationHistory(situation).triggerKind;
     const media = replayMedia(history, { cache: mediaCache, sites: hot.config.media?.video?.sites, before: null });
     const requester = requesterOf(triggerLine, channel);
     const answers = {};
     const runs = {};
-    for (const [side, on] of Object.entries(CORE_TOOLS_SIDES)) {
-      // The config read now, with the switch set for this side; never written.
-      const config = structuredClone({ ...hot.config, features: { ...(hot.config.features ?? {}), coreTools: on } });
+    // What a live turn runs before her reply, once for every side: the memory prefetch with features.coreTools on,
+    // else the search classifier and its searches (preTurnLookup over private copies).
+    const baseConfig = structuredClone(hot.config);
+    const baseHot = { get prompts() { return hot.prompts; }, get config() { return baseConfig; } };
+    const shared = loopDeps.toolsFor({ hot: baseHot, channel, llm: capped });
+    const coreOn = loopDeps.coreToolsOn(baseConfig);
+    let sharedInput = {};
+    let preTurn = null;
+    let prefetched = null;
+    try {
+      if (coreOn) {
+        prefetched = await shared.prefetch({ trigger: triggerLine, triggerKind, mode, history, at });
+        sharedInput = { coreTools: { recallAvailable: shared.recallAvailable(), prefetch: prefetched } };
+      } else {
+        const preStarted = Date.now();
+        const searchers = shared.searchers();
+        const found = await preTurnLookup({
+          config: baseConfig, prompts: hot.prompts, llm: searchers.client, lookup: searchers.lookup, recall: searchers.recall,
+          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.skills), guild, guildId, channel, selfId: self.id, selfName: self.name,
+          history, trigger: triggerLine, triggerKind, descriptions: media.descriptions, videos: media.videos, at, store, deps: loopDeps.preTurnDeps,
+        });
+        const discovery = found.skills ? (found.skills.inventory === true ? 'inventory' : Array.isArray(found.skills.names) && found.skills.names.length > 0 ? found.skills.names : 'none') : 'none';
+        const inventory = scenarioInventory({ config: baseConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+        sharedInput = { preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable }, ...(inventory ? { skillsInventory: inventory } : {}) };
+        preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
+      }
+    } catch (err) {
+      failed.push({ id, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
+      continue;
+    }
+    for (const side of sides) {
+      // The config read now, with the tools' transport of this side; never written.
+      const config = withTransport(structuredClone(hot.config), side.transport);
       const hotLike = { get prompts() { return hot.prompts; }, get config() { return config; } };
       const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args, mods: viewMods });
       const images = { quota: createImageGen({ apiKey: '', getConfig: () => config, state: frozenState, fetchImpl: refusing }).quota };
       const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId, config: () => config, log });
-      const simulate = (call, { idByIndex, history: lines, channelHandles = null }) =>
+      const simulate = (call, { idByIndex, history: lines2, channelHandles = null }) =>
         simulateCall({
           call,
-          view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn: config.features?.memory !== false, store, selfId: self.id, skills: registry, channelHandles }),
+          view: callViewOf({ channel, guildId, idByIndex, lines: lines2, pulledIds: new Map(), memoryOn: config.features?.memory !== false, store, selfId: self.id, skills: registry, channelHandles }),
           config, selfId: self.id, requester, conversationId: channel.id, now: at, images, tasks, resultText: '',
         });
       const tools = loopDeps.toolsFor({ hot: hotLike, channel, llm: capped });
-      // The switch off: what the live turn runs before her reply -- the search classifier, its web
-      // search and server search (preTurnLookup over private copies), its `skills:` line -- handed in.
-      let offInput = {};
-      let preTurn = null;
-      const preStarted = Date.now();
-      if (!on) {
-        const searchers = tools.searchers();
-        const found = await preTurnLookup({
-          config, prompts: hot.prompts, llm: searchers.client, lookup: searchers.lookup, recall: searchers.recall,
-          discovery: loopDeps.discoveryOf(config, registry, hot.prompts?.skills), guild, guildId, channel, selfId: self.id, selfName: self.name,
-          history, trigger: triggerLine, triggerKind: situationHistory(situation).triggerKind, descriptions: media.descriptions, videos: media.videos, at, store, deps: loopDeps.preTurnDeps,
-        });
-        const discovery = found.skills ? (found.skills.inventory === true ? 'inventory' : Array.isArray(found.skills.names) && found.skills.names.length > 0 ? found.skills.names : 'none') : 'none';
-        const inventory = scenarioInventory({ config, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
-        offInput = { preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable }, ...(inventory ? { skillsInventory: inventory } : {}) };
-        preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
-      }
-      // The switch on: the automatic memory prefetch a live turn runs for this trigger, as of its moment.
-      const prefetched = on ? await tools.prefetch({ trigger: triggerLine, triggerKind: situationHistory(situation).triggerKind, mode, history, at }) : null;
-      const loopInput = on
-        ? {
-            coreTools: { rows: loopDeps.coreToolRows({ config, selfId: self.id, registry, texts: hot.prompts?.skills }), recallAvailable: tools.recallAvailable(), prefetch: prefetched },
-            loop: { settings: loopDeps.loopSettings(config) },
-          }
-        : {};
-      const onCall = on
-        ? loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at }), inTurn: loopDeps.IN_TURN_TOOLS, needsFollowUp: loopDeps.needsFollowUp })
-        : simulate;
-      const started = Date.now();
+      const onCall = loopCall({ simulate, runTool: (skill, toolArgs, refs) => tools.run(skill, toolArgs, { history: refs.history ?? [], at }), inTurn: loopDeps.IN_TURN_TOOLS });
       try {
         const answered = await answerSkillScenario({
           view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), llm: capped, runs: 1, at, signal: stop.signal,
           descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, channelDirectory,
-          skillsGranted: grantedSkillNames({ config, selfId: self.id, registry }), onCall, ...loopInput, ...offInput,
+          onCall, loop: { settings: loopDeps.loopSettings(config) }, ...sharedInput,
         });
         const run = answered.runs[0] ?? null;
         if (!run) throw new Error(answered.stopped ? 'stopped' : 'no answer');
         const record = runRecord(id, 0, run);
-        answers[side] = pairAnswerOf(record);
-        // The pre-turn searches' own requests count for the switch-off side's tokens and cost.
-        const pre = preTurn?.usage ?? null;
-        runs[side] = {
+        answers[side.key] = pairAnswerOf(record);
+        runs[side.key] = {
+          transport: side.transport ?? loopDeps.transportOf(config),
           requestTokens: answered.request.tokens,
-          tokens: pre ? { prompt: record.tokens.prompt + pre.tokens.prompt, completion: record.tokens.completion + pre.tokens.completion } : record.tokens,
-          cost: pre ? addCost(record.cost, pre.cost) : record.cost,
-          ms: on ? (record.loop?.ms ?? Date.now() - started) : Date.now() - preStarted,
-          calls: answers[side].calls,
+          tools: answered.request.tools,
+          toolsTokens: answered.request.toolsTokens,
+          tokens: record.tokens,
+          cost: record.cost,
+          ms: record.loop.ms,
+          calls: answers[side.key].calls,
+          counts: turnCounts(record),
           blocks: requestBlocks(answered.request.user, hot.prompts?.labels),
-          ...(preTurn ? { preTurn } : {}),
-          ...(prefetched ? { prefetch: prefetchSummary(prefetched) } : {}),
           record,
         };
       } catch (err) {
-        answers[side] = null;
-        failed.push({ id, side, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
+        answers[side.key] = null;
+        failed.push({ id, side: side.key, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
       }
+    }
+    const sharedOut = { ...(preTurn ? { preTurn } : {}), ...(prefetched ? { prefetch: prefetchSummary(prefetched) } : {}) };
+    if (single) {
+      const one = runs.single;
+      if (one) {
+        lines.push({
+          id, scenario: id, channelId: trigger.channelId, triggerId: triggerLine.id, turnId: trigger.turnId, at: new Date(at).toISOString(), mode, kind,
+          transport: one.transport, requestTokens: one.requestTokens, tools: one.tools, toolsTokens: one.toolsTokens, blocks: one.blocks, counts: one.counts,
+          context: history.map((line) => ({ author: line.self ? self.name : (line.authorName ?? line.authorId), text: line.content ?? '' })),
+          ...(Object.keys(sharedOut).length > 0 ? { shared: sharedOut } : {}),
+          ...one.record,
+        });
+      }
+      continue;
     }
     const first = order[index];
     const second = first === 'A' ? 'B' : 'A';
@@ -4618,16 +4722,46 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
       first: answers[first],
       second: answers[second],
     });
-    key.pairs[id] = { first, channelId: trigger.channelId, triggerId: triggerLine.id, turnId: trigger.turnId, answers: { A: answers.A ?? null, B: answers.B ?? null }, runs: { A: runs.A ?? null, B: runs.B ?? null } };
+    key.pairs[id] = { first, channelId: trigger.channelId, triggerId: triggerLine.id, turnId: trigger.turnId, answers: { A: answers.A ?? null, B: answers.B ?? null }, runs: { A: runs.A ?? null, B: runs.B ?? null }, ...(Object.keys(sharedOut).length > 0 ? { shared: sharedOut } : {}) };
   }
   fs.mkdirSync(outDir, { recursive: true });
+  const stoppedBy = stop.signal.aborted ? (signal?.aborted ? 'signal' : 'spend') : null;
+  if (single) {
+    fs.writeFileSync(path.join(outDir, 'runs.jsonl'), lines.map((line) => `${JSON.stringify(line)}\n`).join(''));
+    fs.writeFileSync(path.join(outDir, 'report.md'), renderLoopTriggersReport(lines, { transport: sides[0].transport ?? loopDeps.transportOf(hot.config), failed }));
+    return {
+      code: failed.length > 0 || stoppedBy !== null ? 1 : 0,
+      result: { out: outDir, runs: path.join(outDir, 'runs.jsonl'), report: path.join(outDir, 'report.md'), triggers: lines.length, failed, stoppedBy, spentUsd: Math.round(spent * 10000) / 10000 },
+    };
+  }
   fs.writeFileSync(path.join(outDir, 'sheet.html'), renderSheet(sheet));
   fs.writeFileSync(path.join(outDir, 'key.json'), `${JSON.stringify(key, null, 1)}\n`);
-  const stoppedBy = stop.signal.aborted ? (signal?.aborted ? 'signal' : 'spend') : null;
   return {
     code: failed.length > 0 || stoppedBy !== null ? 1 : 0,
     result: { sheet: path.join(outDir, 'sheet.html'), key: path.join(outDir, 'key.json'), pairs: sheet.length, failed, stoppedBy, spentUsd: Math.round(spent * 10000) / 10000 },
   };
+}
+
+/**
+ * The report of a `--loop-triggers` run: a table of the turns (steps, calls, held steps, think missing, tokens
+ * in, out and from the cache, cost, latency), then per trigger its calls in order with their results and each
+ * step's posted or held speech. Pure.
+ * @param {object[]} lines  runs.jsonl's lines.
+ * @param {{ transport: string, failed?: object[] }} meta
+ * @returns {string}
+ */
+export function renderLoopTriggersReport(lines, { transport, failed = [] }) {
+  const out = [`# Loop triggers (${transport} transport)`, '', `${lines.length} turn(s)${failed.length > 0 ? `, ${failed.length} failed` : ''}`, ''];
+  out.push('| id | trigger | steps | calls | held | think missing | coerced | capped | in | out | cache read | cost | ms |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const line of lines) {
+    const c = line.counts;
+    out.push(`| ${line.id} | ${line.triggerId} | ${c.steps} | ${c.calls} | ${c.held} | ${c.thinkMissing} | ${c.coerced} | ${c.capped} | ${line.tokens.prompt} | ${line.tokens.completion} | ${line.tokens.cacheRead ?? 0} | ${costText(line.cost)} | ${line.loop.ms ?? '-'} |`);
+  }
+  out.push('');
+  for (const item of failed) out.push(`failed: ${item.id}${item.side ? ` (${item.side})` : ''}: ${cell(item.error)}`);
+  if (failed.length > 0) out.push('');
+  for (const line of lines) out.push(`## ${line.id}: ${line.triggerId}`, '', ...loopLines(line, `### turn (${line.transport}, ${line.mode}${line.kind ? `, ${line.kind}` : ''})`));
+  return `${out.join('\n').trimEnd()}\n`;
 }
 
 /** The prefetch of a side as its key records it: the status, the lanes, the excerpts' sources and ids, the time. */
@@ -4649,14 +4783,13 @@ function answerOut(answer) {
 }
 
 /**
- * What a run with her tool loop needs (features.coreTools): the loop's bounds and tool rows, the
- * live follow-up rule, and `toolsFor({ hot, channel, llm })` -- createReplayTools over the guild of
+ * What a run on the step engine needs: the loop's bounds, the in-turn tools, and `toolsFor({ hot, channel, llm })` -- createReplayTools over the guild of
  * this connection: the lookup with the live search engines (Brave's and Exa's keys from the
  * environment, as src/index.js reads them), the recall runner over the data read (its record,
  * archive and vector index iterated only; with features.meaningSearch on, the embedder on the
  * simulator key, off the daily counter), the describer's cached captions only.
  */
-async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod }) {
+async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn }) {
   const { createLookup } = await load('web/lookup.js');
   const { createBraveSearch } = await load('web/brave.js');
   const { createExaSearch } = await load('web/exa.js');
@@ -4670,11 +4803,11 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const pageFetcher = typeof createPageFetcher === 'function' ? createPageFetcher() : null;
   const linkOfMessage = (message) =>
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ?? (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
-  const { needsFollowUp } = await load('skills/executors.js');
-  const { coreToolRows, skillsIndex, discoveryOn } = await load('skills/discovery.js');
+  const { transportOf } = await load('skills/tool-calls.js');
+  const { skillsIndex, discoveryOn } = await load('skills/discovery.js');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
-  // The switch-off side of --pair-core-tools: the search classifier's path before her reply (preTurnLookup).
+  // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
   const { fillPromptTemplate } = await load('behavior/prompt.js');
   const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
   const { zonedDay } = await load('time.js');
@@ -4688,7 +4821,7 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const { createArchive } = await load('memory/archive.js');
   const { createVectors } = await load('memory/vectors.js');
   const fns = {
-    createLookup, createBraveSearch, createExaSearch, createRecall, createDescriber, createDiscordInterface, runWebSearch, runMemorySearch, needsFollowUp, coreToolRows, createAppendStore, createRecord, createArchive, createVectors,
+    createLookup, createBraveSearch, createExaSearch, createRecall, createDescriber, createDiscordInterface, runWebSearch, runMemorySearch, transportOf, createAppendStore, createRecord, createArchive, createVectors,
     skillsIndex, discoveryOn, ...preTurnDeps,
   };
   for (const [name, fn] of Object.entries(fns)) if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (the tool loop needs it)`);
@@ -4716,8 +4849,10 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const discord = createDiscordInterface().capabilities;
   return {
     IN_TURN_TOOLS,
-    needsFollowUp,
-    coreToolRows,
+    transportOf,
+    // Whether the pre-reply classifiers are replaced by her own tools (features.coreTools); `coreOn` is the run's reading of it (--core-tools forces it).
+    coreOn,
+    coreToolsOn: turnMod.coreToolsOn,
     loopSettings: turnMod.loopSettings,
     preTurnDeps,
     // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
@@ -4776,7 +4911,7 @@ async function runMain(args, { root, signal, rng, answers }) {
 
   // The triggers of a pair, read before anything else: their number is the estimate.
   let pairTriggers = null;
-  if (args.pair || args.pairCoreTools) {
+  if (args.pair || args.pairTransport || args.loopTriggers) {
     if (args.triggers !== null) {
       try {
         pairTriggers = parseTriggers(fs.readFileSync(path.resolve(root, args.triggers), 'utf8'));
@@ -4803,16 +4938,17 @@ async function runMain(args, { root, signal, rng, answers }) {
 
   // Reads config.json, config.local.json and both prompt layers; writes nothing. Not watched: one request.
   const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
-  // Her tool loop (features.coreTools): forced by --core-tools, else as the config read has it;
-  // always one side of --pair-core-tools. Its bounds are read now for the estimate.
-  // (The operations register first, as for the skills below: src/ops/index.js.)
-  if (scenarios || args.pairCoreTools) await load('ops/index.js');
-  const turnMod = scenarios || args.pairCoreTools ? await load('behavior/turn.js') : null;
-  const loopWanted = Boolean(args.pairCoreTools || (scenarios && (args.coreTools || turnMod.coreToolsOn(hot.config))));
+  // Her turns run on the step engine in every mode that answers as a skill scenario (--skills, --pair-transport,
+  // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
+  // below: src/ops/index.js.)
+  const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
+  if (loopWanted) await load('ops/index.js');
+  const turnMod = loopWanted ? await load('behavior/turn.js') : null;
   if (loopWanted && (typeof turnMod.coreToolsOn !== 'function' || typeof turnMod.loopSettings !== 'function')) {
     hot.close();
-    throw new CliError('replay-cli: the engine has no tool loop (coreToolsOn, loopSettings)');
+    throw new CliError('replay-cli: the engine has no step engine (coreToolsOn, loopSettings)');
   }
+  const coreOn = loopWanted && (args.coreTools || turnMod.coreToolsOn(hot.config));
   const loopBounds = loopWanted ? turnMod.loopSettings(args.coreTools ? withCoreTools(hot.config) : hot.config) : null;
 
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
@@ -4826,8 +4962,10 @@ async function runMain(args, { root, signal, rng, answers }) {
         ? INNER_REQUESTS * args.samples
       : args.diary
         ? DIARY_REQUESTS_PER_BRIEF * args.count
-        : args.pairCoreTools
-          ? (PRE_TURN_REQUESTS + 1 + perDecision) * pairTriggers.length
+        : args.pairTransport
+          ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + 2 * perDecision) * pairTriggers.length
+          : args.loopTriggers
+            ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + perDecision) * pairTriggers.length
           : args.pair
             ? 2 * pairTriggers.length
             : args.recall
@@ -4835,10 +4973,10 @@ async function runMain(args, { root, signal, rng, answers }) {
               : scenarios
                 ? skillRequestEstimate(scenarios, { perDecision }) * (args.pairPrompts ? PAIR_SIDES.length : 1)
                 : args.samples;
-    const loopDetail = loopBounds ? `with her tool loop ~${perDecision} expected (her reply, a follow-up, a web search's summary; the run stops at --spend on reported cost)` : `up to ${SKILL_REQUESTS_PER_RUN}`;
-    const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${loopBounds ? '' : ': her answer and the follow-up after a call'}${args.pairPrompts ? ', under both prompt layers' : ''}`;
-    const pairDetail = `, per trigger ~${PRE_TURN_REQUESTS + 1} with features.coreTools off (the search classifier, a search's summary, her reply) and ${loopDetail} with it on`;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairCoreTools ? pairDetail : ''}`;
+    const loopDetail = loopBounds ? `~${perDecision} expected per turn (her reply, a follow-up step, a web search's summary; the run stops at --spend on reported cost)` : `up to ${SKILL_REQUESTS_PER_RUN}`;
+    const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${args.pairPrompts ? ', under both prompt layers' : ''}`;
+    const triggerDetail = `, per trigger${coreOn ? '' : ` ~${PRE_TURN_REQUESTS} before her reply (the search classifier, a search's summary) and`} ${loopDetail}${args.pairTransport ? ' on each of the two transports' : ''}`;
+    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
     let gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     // Anthropic models are answered from files and bill nothing: without --spend the run goes on (other models would bill, unbudgeted).
     if (!gate.ok && answers && args.spend === undefined) gate = { ...gate, ok: true, text: `${gate.text.split('\n')[0]}\nanswers-dir: Anthropic models are answered from files, not billed; give --spend <usd> to cap any other model` };
@@ -4947,7 +5085,7 @@ async function runMain(args, { root, signal, rng, answers }) {
   const recallMods = args.recall ? await loadRecallMods(load) : null;
   // --skills: the operations register themselves and the command tree the skills derive from (src/ops/index.js).
   let skillMods = null;
-  if (scenarios || args.pairCoreTools) {
+  if (loopWanted) {
     await load('ops/index.js');
     const { skillRegistry } = await load('skills/registry.js');
     const { expandPersonaGrant } = await load('ops/access.js');
@@ -4964,8 +5102,8 @@ async function runMain(args, { root, signal, rng, answers }) {
       ...(scenarios?.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),
       // Only a scenario that seeds a line of hers needs it.
       ...(scenarios?.some((scenario) => scenario.steps?.some((step) => step.messages.some((message) => message.self === true))) ? { seededSelfLine } : {}),
-      // --pair-core-tools reads the recorded turn's mode and kind as --pair does.
-      ...(args.pairCoreTools ? { momentMode, momentKind, isSpontaneous, situationHistory } : {}),
+      // --pair-transport and --loop-triggers read the recorded turn's mode and kind as --pair does.
+      ...(args.pairTransport || args.loopTriggers ? { momentMode, momentKind, isSpontaneous, situationHistory } : {}),
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);
@@ -5010,8 +5148,8 @@ async function runMain(args, { root, signal, rng, answers }) {
     const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
     const gifs = hot.config.features?.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
     const customEmoji = createEmojiIndex(client, guildId).list();
-    // Her tool loop's real tools (web.search, memory.search) over this guild, read only (createReplayTools).
-    const loopDeps = loopWanted ? await loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod }) : null;
+    // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
+    const loopDeps = loopWanted ? await loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, mediaCache, openrouterKey, turnMod, coreOn }) : null;
     // The live journal's records, read once on first need: the mode and trigger kind each turn recorded at its start.
     let journalCache = null;
     const journalOf = () => (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(guildId), 'journal')));
@@ -5019,9 +5157,9 @@ async function runMain(args, { root, signal, rng, answers }) {
       readMoment({ client, guild, guildId, self, channelId, triggerId, before, config, fetchHistoryWindow, fetchMessage, log });
     const channelOf = (channel) => ({ id: channel.id, name: channel.name ?? null, category: channel.parent?.name ?? null, topic: channel.topic ?? null });
 
-    if (args.pairCoreTools) {
-      return await runPairCoreTools({
-        args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory,
+    if (args.pairTransport || args.loopTriggers) {
+      return await runTriggerLoops({
+        single: args.loopTriggers, args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory,
         signal, budget: spendBudget, mods: skillMods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log,
       });
     }

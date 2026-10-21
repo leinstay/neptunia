@@ -53,7 +53,7 @@ import { addPending, followUpSlot, popOldest } from './pending.js';
 import { RECALL_DEFAULTS, recallSettings, snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
-import { answerOf, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
+import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { diagnosticText } from './wake.js';
 import { callReason, withCalls } from '../format.js';
@@ -1120,13 +1120,16 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
  * `skillsInventory`), never sent: its two texts, the token estimate the budget measured
  * (`tokens`, `limit`) and the transcript numbers (`idByIndex`). For `--dry`.
  * @param {object} input  `answerSkillScenario`'s request inputs.
- * @returns {{ system: string, user: string, tokens: number|null, limit: number|null, idByIndex: Map<number, string> }}
+ * @returns {{ system: string, user: string, transport: string, tools: number, toolsTokens: number, tokens: number|null, limit: number|null, idByIndex: Map<number, string> }}
  */
 export function skillScenarioRequest(input) {
-  const { request, systemMessage, userText } = sandboxMessages(input, 1);
+  const { request, systemMessage, userText, toolset } = sandboxMessages(input, 1);
   return {
     system: textOf(systemMessage.content),
     user: userText,
+    transport: toolset?.transport ?? 'native',
+    tools: toolset?.tools.length ?? 0,
+    toolsTokens: toolset?.tokens ?? 0,
     tokens: Number.isFinite(request.stats?.used) ? request.stats.used : null,
     limit: Number.isFinite(request.stats?.limit) ? request.stats.limit : null,
     idByIndex: request.idByIndex,

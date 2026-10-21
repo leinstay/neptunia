@@ -1,17 +1,14 @@
-// Tests for the tool loop of tools/replay.mjs (`--skills` with features.coreTools or
-// `--core-tools`, and `--pair-core-tools`): a scenario run answered as a live turn with the
-// switch on answers it -- every call of each answer through the real gateway, her in-turn tools
-// run (here by fakes), a task.run only recorded, the turn continued step after step within the
-// loop's bounds -- and what runs.jsonl, the report and the pair sheet make of it. Fakes only: no
-// network, no data/.
+// Tests for the step engine of tools/replay.mjs (`--skills`, `--pair-transport`, `--loop-triggers`): a
+// scenario run is answered as a live turn answers it -- every call of each answer through the real
+// gateway, her in-turn tools run (here by fakes), a task.run only recorded, the turn continued step after
+// step within the loop's bounds, her speech held when a call left something to read -- and what runs.jsonl,
+// the report and the pair sheet make of it. Fakes only: no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
-import { coreToolRows } from '../src/skills/discovery.js';
 import { IN_TURN_TOOLS, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
-import { needsFollowUp } from '../src/skills/executors.js';
 import { callViewOf, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { fillPromptTemplate } from '../src/behavior/prompt.js';
@@ -21,10 +18,11 @@ import { roleModel } from '../src/llm/roles.js';
 import { helperRequestOptions } from '../src/llm/openrouter.js';
 import { afterScenarioTurn, answerSkillScenario, liveView, personaGrantsConfig, simulateCall } from '../src/behavior/sandbox.js';
 import {
-  createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, preTurnLookup, renderSkillsReport, requestBlocks, runRecord, scenarioSummary,
-  scenarioTrigger, skillRequestEstimate, withCoreTools,
+  createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, preTurnLookup, renderLoopTriggersReport, renderSkillsReport, requestBlocks, runRecord, scenarioSummary,
+  scenarioTrigger, skillRequestEstimate, withCoreTools, withTransport,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
+import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
 
 const OWNER = '100000000000000042';
 const SELF = '100000000000000001';
@@ -32,6 +30,7 @@ const HERE = '200000000000000001';
 const GUILD = '300000000000000001';
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 const TOOLS = ['web.search', 'memory.search', 'task.run'];
+const THINK = '<think>t</think>';
 
 /** The config of a scenario with her tools granted and the switch on; `loop` its bounds. */
 function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 }, features = {} } = {}) {
@@ -45,7 +44,7 @@ function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep
     models: { core: 'x/chat' },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false, loop },
-    features: { skills: true, followUpContinuation: true, webLookup: true },
+    features: { skills: true, webLookup: true },
   });
   // A test's own switches last: `coreTools: false` turns the switch off again.
   return personaGrantsConfig({ ...base, features: { ...base.features, ...features } }, SELF, TOOLS);
@@ -60,22 +59,28 @@ function fakeChannel() {
   };
 }
 
-/** A model that answers `texts` in order (each with a reported cost) and keeps every request. */
-function scriptedLlm(texts) {
+/** A model that answers `answers` in order (a string is speech, an object a tool answer; each with a reported cost) and keeps every request. */
+function scriptedLlm(answers) {
   const calls = [];
   return {
     calls,
     complete: async (messages, options) => {
       calls.push({ messages, options });
-      return { text: texts[calls.length - 1] ?? '<skip/>', usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.01 } };
+      return { ...completionOf(answers[calls.length - 1] ?? '<skip/>'), usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.01 } };
     },
   };
 }
 
-/** The user text of one recorded request. */
-function userOf(call) {
-  const content = call.messages[1].content;
+/** The user text of one recorded request (the first user message: it is never rebuilt). */
+function userOf(recorded) {
+  const content = recorded.messages[1].content;
   return typeof content === 'string' ? content : content.map((part) => part.text ?? '').join('');
+}
+
+/** The note that ends a continued request (its last message when that is a user message). */
+function noteOf(recorded) {
+  const last = recorded.messages.at(-1);
+  return last.role === 'user' ? last.content.map((part) => part.text ?? '').join('\n') : '';
 }
 
 /** A clock that moves `step` ms on every read. */
@@ -88,8 +93,8 @@ function tickingClock(step = 10) {
  * One scenario run of the owner's message with her tool loop, against fakes: `answers` her
  * answers in order; `tool(skill, args)` what an in-turn tool answers (`{ result, usage }`).
  */
-async function loopRun(answers, { tool, config = toolConfig(), clock = tickingClock(), followUpContinuation = true, prefetch = null } = {}) {
-  const cfg = followUpContinuation ? config : { ...config, features: { ...config.features, followUpContinuation: false } };
+async function loopRun(answers, { tool, config = toolConfig(), clock = tickingClock(), prefetch = null } = {}) {
+  const cfg = config;
   const hot = { config: cfg, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
   const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
   const view = liveView({ hot, store, guildId: 'g1' });
@@ -105,7 +110,7 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
     simulateCall({
       call,
       view: callViewOf({ channel, guildId: GUILD, idByIndex, lines, pulledIds: new Map(), memoryOn: false, store: null, selfId: SELF, skills: registry, channelHandles }),
-      config: cfg, selfId: SELF, requester, conversationId: HERE, now: NOW, tasks, resultText: 'queued',
+      config: cfg, selfId: SELF, requester, conversationId: HERE, now: NOW, tasks, images: { quota: () => ({ spent: false, userSpent: false }) }, resultText: 'queued',
     });
   const onCall = loopCall({
     simulate,
@@ -114,13 +119,12 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
       return tool(skill, args);
     },
     inTurn: IN_TURN_TOOLS,
-    needsFollowUp,
     now: clock,
   });
   const llm = scriptedLlm(answers);
-  const coreTools = { rows: coreToolRows({ config: cfg, selfId: SELF, registry }), recallAvailable: true, ...(prefetch ? { prefetch } : {}) };
+  const coreTools = { recallAvailable: true, ...(prefetch ? { prefetch } : {}) };
   const answered = await answerSkillScenario({
-    view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, skillsGranted: TOOLS, searchAvailable: true,
+    view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, searchAvailable: true,
     onCall, coreTools, loop: { settings: loopSettings(cfg), now: clock },
   });
   return { answered, run: answered.runs[0], llm, toolCalls, trigger, here };
@@ -129,19 +133,35 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
 /** A tool answering ok with `text`, its own request costing `cost`. */
 const okTool = (text, cost = 0.002) => ({ result: { status: 'ok', data: { text } }, usage: { requests: 1, tokens: { prompt: 50, completion: 5 }, cost } });
 
-test('replay --core-tools: the flag goes with --skills only; --pair-core-tools takes the pair triggers and no prompt directories', () => {
+test('replay flags: --core-tools goes with --skills only; --pair-transport and --loop-triggers take triggers and no prompt directories; --transport goes with --loop-triggers and --skills', () => {
   assert.equal(parseArgs(['--skills', 'a.json', '--core-tools']).coreTools, true);
   assert.equal(parseArgs(['--skills', 'a.json']).coreTools, false);
+  assert.equal(parseArgs(['--skills', 'a.json', '--transport', 'text']).transport, 'text');
   assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--core-tools']), /usage/);
   assert.throws(() => parseArgs(['--diary-day', '--core-tools']), /usage/);
-  const pair = parseArgs(['--pair-core-tools', '--triggers', 't.txt', '--as-of-moment', '--snapshot', 'snap', '--out', 'o', '--spend', '3']);
-  assert.deepEqual([pair.pairCoreTools, pair.pair, pair.triggers, pair.asOfMoment, pair.snapshot, pair.outDir], [true, null, 't.txt', true, 'snap', 'o']);
-  const one = parseArgs(['--pair-core-tools', '123456789012345678', '223456789012345678']);
+  const pair = parseArgs(['--pair-transport', '--triggers', 't.txt', '--as-of-moment', '--snapshot', 'snap', '--out', 'o', '--spend', '3']);
+  assert.deepEqual([pair.pairTransport, pair.pair, pair.triggers, pair.asOfMoment, pair.snapshot, pair.outDir], [true, null, 't.txt', true, 'snap', 'o']);
+  const one = parseArgs(['--pair-transport', '123456789012345678', '223456789012345678']);
   assert.deepEqual([one.channelId, one.triggerId], ['123456789012345678', '223456789012345678']);
-  assert.throws(() => parseArgs(['--pair-core-tools', '--pair', 'a', 'b', '--triggers', 't.txt']), /usage/);
-  assert.throws(() => parseArgs(['--pair-core-tools']), /usage/);
-  assert.throws(() => parseArgs(['--skills', 'a.json', '--pair-core-tools']), /usage/);
-  assert.throws(() => parseArgs(['--pair-core-tools', '--triggers', 't.txt', '--split']), /usage/);
+  assert.throws(() => parseArgs(['--pair-transport', '--pair', 'a', 'b', '--triggers', 't.txt']), /usage/);
+  assert.throws(() => parseArgs(['--pair-transport']), /usage/);
+  assert.throws(() => parseArgs(['--skills', 'a.json', '--pair-transport']), /usage/);
+  assert.throws(() => parseArgs(['--pair-transport', '--triggers', 't.txt', '--split']), /usage/);
+  assert.throws(() => parseArgs(['--pair-core-tools', '--triggers', 't.txt']), /usage/, 'the old flag is gone');
+  assert.throws(() => parseArgs(['--pair-transport', '--loop-triggers', '--triggers', 't.txt']), /usage/);
+  assert.throws(() => parseArgs(['--pair-transport', '--triggers', 't.txt', '--transport', 'text']), /usage/, 'the pair fixes the transports');
+  // The single-side loop run.
+  const loop = parseArgs(['--loop-triggers', '--triggers', 't.txt', '--transport', 'text', '--out', 'o', '--answers-dir', 'a']);
+  assert.deepEqual([loop.loopTriggers, loop.transport, loop.triggers, loop.outDir, loop.answersDir], [true, 'text', 't.txt', 'o', 'a']);
+  const bare = parseArgs(['--loop-triggers', '123456789012345678', '223456789012345678']);
+  assert.deepEqual([bare.transport, bare.channelId, bare.triggerId], [null, '123456789012345678', '223456789012345678']);
+  assert.throws(() => parseArgs(['--loop-triggers']), /usage/);
+  assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--transport', 'carrier-pigeon']), /usage/);
+  assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--samples', '2']), /usage/);
+  assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--transport', 'text']), /usage/);
+  assert.deepEqual(withTransport({ skills: { loop: { maxSteps: 3 } } }, 'text'), { skills: { loop: { maxSteps: 3 }, transport: 'text' } });
+  const same = { skills: {} };
+  assert.equal(withTransport(same, null), same);
 });
 
 test('loopRequestEstimate: the expected requests -- her reply, one follow-up, one search before it --, not the bound; the per-decision count of skillRequestEstimate', () => {
@@ -152,12 +172,11 @@ test('loopRequestEstimate: the expected requests -- her reply, one follow-up, on
   assert.equal(skillRequestEstimate(scenarios, { perDecision: 16 }), 32);
 });
 
-test('the tool loop: her calls run step after step, the results appended in call order; a task.run is only recorded; the record keeps every step', async () => {
+test('the step engine: reads run together, a data result holds her speech, the next request appends to the first messages; a job covers the speech; a task.run is only recorded', async () => {
   const { run, llm, toolCalls } = await loopRun(
     [
-      '<msg>μισό λεπτό</msg><call skill="web.search" goal="ποιος κέρδισε">τελικός 2026</call><call skill="memory.search">τι είπαμε για τον τελικό</call>',
-      '<call skill="task.run" agent="web">Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα</call>',
-      '<msg>η Ana κέρδισε</msg>',
+      toolAnswer(`${THINK}<msg>μισό λεπτό</msg>`, [call('web.search', { query: 'τελικός 2026', goal: 'ποιος κέρδισε' }, { id: 'w1' }), call('memory.search', { question: 'τι είπαμε για τον τελικό' }, { id: 'm1' })]),
+      toolAnswer(`${THINK}<msg>το στέλνω</msg>`, [call('task.run', { agent: 'web', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }, { id: 't1' })]),
     ],
     { tool: (skill) => (skill === 'web.search' ? okTool('Η Ana κέρδισε.') : okTool('Élodie: το είδα', 0)) },
   );
@@ -165,12 +184,16 @@ test('the tool loop: her calls run step after step, the results appended in call
   assert.deepEqual(toolCalls.map((c) => c.skill).sort(), ['memory.search', 'web.search']);
   assert.equal(toolCalls.find((c) => c.skill === 'web.search').args.query, 'τελικός 2026');
   assert.ok(toolCalls.every((c) => c.timeoutMs >= 2000 && c.timeoutMs <= 20000));
-  assert.equal(llm.calls.length, 2, 'an accepted task.run is its own answer: no request after it');
-  const second = userOf(llm.calls[1]);
-  const webAt = second.indexOf('Η Ana κέρδισε.');
-  const memoryAt = second.indexOf('Élodie: το είδα');
-  assert.ok(webAt > 0 && memoryAt > webAt, 'each result in its own block, in the order she called');
-  assert.ok(second.includes(fill(labels.task.continueTools, { skill: 'web.search, memory.search' })));
+  assert.equal(llm.calls.length, 2, 'an accepted errand covers her speech: no request after it');
+  // Every request carries her tools; the second only appends to the first messages.
+  for (const recorded of llm.calls) assert.ok(recorded.options.tools.some((tool) => tool.function.name === 'web_search') && recorded.options.toolChoice === 'auto');
+  const [first, second] = llm.calls.map((recorded) => recorded.messages);
+  assert.equal(second[1], first[1]);
+  assert.deepEqual(second.slice(2).map((message) => message.role), ['assistant', 'tool', 'tool', 'user']);
+  assert.deepEqual(second[2].tool_calls.map((c) => c.id), ['w1', 'm1']);
+  assert.deepEqual(second.slice(3, 5).map((message) => message.tool_call_id), ['w1', 'm1']);
+  assert.ok(second[3].content.includes('Η Ana κέρδισε.') && second[4].content.includes('Élodie: το είδα'), 'each result in its own message, in the order she called');
+  assert.ok(noteOf(llm.calls[1]).includes(labels.task.step.held), 'she is told her speech was held');
   // runs.jsonl's line.
   const record = runRecord('s', 0, run);
   assert.deepEqual([record.decision, record.skill], ['call', 'web.search'], 'the single-call fields keep the first call');
@@ -179,84 +202,129 @@ test('the tool loop: her calls run step after step, the results appended in call
   assert.deepEqual(record.loop.errands, [{ step: 1, agent: 'web', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }]);
   const [reply, after] = record.loop.steps;
   assert.equal(reply.resultChars, 'Η Ana κέρδισε.'.length + 'Élodie: το είδα'.length);
+  assert.deepEqual([reply.held, after.held], [true, false]);
   assert.deepEqual(reply.answer.messages, ['μισό λεπτό']);
   assert.ok(reply.requestChars > 0 && after.requestChars > reply.requestChars, 'the continued request holds the results');
   assert.ok(Number.isFinite(reply.ms) && Number.isFinite(after.ms) && Number.isFinite(record.loop.ms));
   assert.equal(reply.calls.find((c) => c.skill === 'web.search').tool.requests, 1);
-  assert.deepEqual(record.loop.messages, ['μισό λεπτό']);
-  assert.deepEqual(record.loop.final, [], 'the errand step said nothing');
+  assert.deepEqual(record.loop.messages, ['το στέλνω'], 'a held speech is not a posted message');
+  assert.deepEqual(record.loop.final, ['το στέλνω']);
+  assert.deepEqual([record.loop.held, record.loop.thinkMissing, record.loop.requests, record.loop.turnRequests], [1, 0, 4, 2], 'the tools\' two requests are counted apart from her turn\'s');
   // Her two requests and the tools' own: tokens and cost together.
-  assert.deepEqual(record.tokens, { prompt: 300, completion: 30 });
+  assert.deepEqual([record.tokens.prompt, record.tokens.completion], [300, 30]);
   assert.ok(Math.abs(record.cost - 0.022) < 1e-9);
   assert.equal(scenarioSummary([record]).followUps, 1);
-  // The report: the calls in order, the final messages, the turn's time and cost, the errand recorded.
+  // The report: the calls in order, the held speech, the final messages, the turn's time and cost, the errand recorded.
   const report = renderSkillsReport([{ scenario: { id: 's', text: 'x', discovery: 'inventory' }, grantNames: TOOLS, summary: scenarioSummary([record]), records: [record] }]);
   assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:task.run ok'));
   assert.ok(report.includes('errand recorded (step 1, not dispatched): web: Βρες τον πλήρη'));
+  assert.ok(report.includes('speech held (not posted):'));
   assert.ok(report.includes('cost: 0.0220'));
 });
 
-test('the tool loop: <skills_tools> and the server search line are in every request; no <skills> list', async () => {
-  const { llm } = await loopRun(['<call skill="web.search">τελικός</call>', '<msg>ok</msg>'], { tool: () => okTool('κάτι') });
-  for (const call of llm.calls) {
-    const user = userOf(call);
-    assert.ok(user.includes('<skills_tools>'), 'her tools in full');
+test('the step engine: her tools are in every request and the server search line says she calls it; no <skills> list', async () => {
+  const { llm } = await loopRun([toolAnswer(THINK, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>ok</msg>`], { tool: () => okTool('κάτι') });
+  for (const recorded of llm.calls) {
+    const user = userOf(recorded);
     assert.ok(user.includes(labels.senses.recallTool), 'the server search line says she calls it');
     assert.ok(!user.includes('<skills>\n'), 'no classifier names her skills');
+    assert.ok(!user.includes('<tools>'), 'the native transport sends the tools as a field');
   }
 });
 
-test('the tool loop: at maxSteps the last request says no call runs, and a call there is dropped as the loop cap', async () => {
+test('the step engine on the text transport: the <tools> block in the request, her <tool_call> blocks read, the results as <tool_result> parts of a user message', async () => {
+  const config = withTransport(toolConfig(), 'text');
   const { run, llm } = await loopRun(
-    ['<call skill="web.search">α</call>', '<call skill="web.search">β</call>', '<msg>τέλος</msg><call skill="web.search">γ</call>'],
+    [textAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>βρήκα</msg>`],
+    { tool: () => okTool('Η Ana κέρδισε.'), config },
+  );
+  assert.equal('tools' in llm.calls[0].options, false);
+  assert.ok(userOf(llm.calls[0]).includes('<tools>'));
+  const appended = llm.calls[1].messages.slice(2);
+  assert.deepEqual(appended.map((message) => message.role), ['assistant', 'user']);
+  assert.ok(appended[1].content[0].text.startsWith('<tool_result id="s1c1" name="web.search" status="ok">'));
+  assert.ok(appended[1].content.at(-1).text.includes(labels.task.step.held));
+  const record = runRecord('s', 0, run);
+  assert.deepEqual(record.loop.calls.map((c) => [c.skill, c.status]), [['web.search', 'ok']]);
+  assert.deepEqual(record.loop.messages, ['βρήκα']);
+});
+
+test('the step engine: at maxSteps the last request says it is the last, and a call there gets a loop-cap result; its speech is held', async () => {
+  const { run, llm } = await loopRun(
+    [toolAnswer(THINK, [call('web.search', { query: 'α' })]), toolAnswer(THINK, [call('web.search', { query: 'β' })]), toolAnswer(`${THINK}<msg>τέλος</msg>`, [call('web.search', { query: 'γ' })])],
     { tool: (skill, args) => okTool(`αποτέλεσμα ${args.query}`), config: toolConfig({ loop: { maxSteps: 2, timeBudgetMs: 20000, maxCallsPerStep: 4 } }) },
   );
   assert.equal(llm.calls.length, 3);
-  assert.ok(userOf(llm.calls[1]).includes(fill(labels.task.continueTools, { skill: 'web.search' })));
-  const last = userOf(llm.calls[2]);
-  assert.ok(last.includes(fill(labels.task.continueToolsLast, { skill: 'web.search' })));
+  assert.ok(!noteOf(llm.calls[1]).includes(labels.task.step.last));
+  assert.ok(noteOf(llm.calls[2]).includes(labels.task.step.last));
+  const last = llm.calls[2].messages.map((message) => (typeof message.content === 'string' ? message.content : '')).join('\n');
   assert.ok(last.indexOf('αποτέλεσμα α') < last.indexOf('αποτέλεσμα β'), 'a later step only appends');
   const record = runRecord('s', 0, run);
-  assert.deepEqual([record.loop.steps[2].dropped, record.loop.steps[2].capped], [1, 'steps']);
-  assert.deepEqual(record.loop.final, ['τέλος']);
+  assert.deepEqual([record.loop.steps[2].dropped, record.loop.steps[2].capped, record.loop.steps[2].held], [1, 'steps', true]);
+  assert.deepEqual(record.loop.calls.at(-1), { step: 2, skill: 'web.search', status: 'invalid', code: 'loop-cap' });
+  assert.deepEqual(record.loop.final, [], 'the final answer held its speech');
 });
 
-test('the tool loop: once the time budget is spent the next request is her last; past maxCallsPerStep calls are dropped', async () => {
+test('the step engine: once the time budget is spent the next request is her last; calls past maxCallsPerStep get a loop-cap result and never run', async () => {
+  const ran = [];
   const { run, llm } = await loopRun(
-    ['<call skill="web.search">α</call><call skill="web.search">β</call><call skill="web.search">γ</call>', '<call skill="web.search">δ</call>'],
-    { tool: () => okTool('x'), clock: tickingClock(1000), config: toolConfig({ loop: { maxSteps: 3, timeBudgetMs: 1500, maxCallsPerStep: 2 } }) },
+    [
+      toolAnswer(THINK, [call('web.search', { query: 'α' }), call('web.search', { query: 'β' }), call('web.search', { query: 'γ' })]),
+      toolAnswer(THINK, [call('web.search', { query: 'δ' })]),
+    ],
+    { tool: (skill, args) => (ran.push(args.query), okTool('x')), clock: tickingClock(1000), config: toolConfig({ loop: { maxSteps: 3, timeBudgetMs: 1500, maxCallsPerStep: 2 } }) },
   );
   const record = runRecord('s', 0, run);
-  assert.equal(record.loop.steps[0].calls.length, 2);
-  assert.equal(record.loop.steps[0].dropped, 1, 'one of three dropped');
-  assert.equal(record.extraCalls, 1);
-  assert.ok(userOf(llm.calls[1]).includes(fill(labels.task.continueToolsLast, { skill: 'web.search' })));
+  assert.equal(record.loop.steps[0].calls.length, 3, 'a result for every call');
+  assert.deepEqual(record.loop.steps[0].calls.map((c) => c.result.code), [null, null, 'loop-cap']);
+  assert.deepEqual([record.loop.steps[0].dropped, record.extraCalls], [1, 1]);
+  assert.deepEqual(ran.sort(), ['α', 'β']);
+  assert.ok(noteOf(llm.calls[1]).includes(labels.task.step.last));
   assert.equal(record.loop.steps[1].capped, 'time');
 });
 
-test('the tool loop without the continuation: the reply request again with the results, always her last', async () => {
-  const { run, llm } = await loopRun(['<call skill="web.search">α</call>', '<call skill="web.search">β</call>'], { tool: () => okTool('βρέθηκε'), followUpContinuation: false });
-  assert.equal(llm.calls.length, 2);
-  assert.ok(userOf(llm.calls[1]).includes('βρέθηκε'));
-  assert.equal(runRecord('s', 0, run).loop.steps[1].capped, 'no-continuation');
+test('the step engine: unreadable and unknown calls get a refusal she reads; arguments read in another type are counted; a missing <think> is counted', async () => {
+  const { badCall } = await import('./fixtures/tool-answers.js');
+  const { run, llm } = await loopRun(
+    [toolAnswer('no think here', [badCall('web.search'), call('nope.skill', {}), call('web.search', { query: 'α', goal: 7 })]), `${THINK}<msg>εντάξει</msg>`],
+    { tool: () => okTool('x') },
+  );
+  const record = runRecord('s', 0, run);
+  assert.deepEqual(record.loop.calls.map((c) => [c.skill, c.code]).slice(0, 2), [['web.search', 'malformed-call'], ['nope.skill', 'unknown-skill']]);
+  assert.equal(record.loop.malformed, 1);
+  assert.deepEqual([record.loop.thinkMissing, record.loop.steps[0].thinkMissing, record.loop.steps[1].thinkMissing], [1, true, false]);
+  const results = llm.calls[1].messages.filter((message) => message.role === 'tool');
+  assert.equal(results.length, 3, 'one result for every call, refused ones included');
+  assert.ok(results[0].content.includes(labels.skills.result.reasons['malformed-call']));
 });
 
 test('loopCall: a tool past its time answers the live timeout; one that throws fails; a refused call never runs; a task.run is recorded only', async () => {
-  const outcome = (skill, args = {}) => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill, args }, result: { skill, status: 'ok', data: { text: 'canned' } }, followUp: true });
+  const outcome = (skill, args = {}) => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill, args }, result: { skill, status: 'ok', data: { text: 'canned' } } });
   let ran = 0;
-  const slow = loopCall({ simulate: () => outcome('web.search', { query: 'α' }), runTool: () => new Promise(() => {}), inTurn: IN_TURN_TOOLS, needsFollowUp });
+  const slow = loopCall({ simulate: () => outcome('web.search', { query: 'α' }), runTool: () => new Promise(() => {}), inTurn: IN_TURN_TOOLS });
   const late = await slow({ skill: 'web.search' }, { timeoutMs: 5 });
-  assert.deepEqual([late.result.status, late.result.code, late.followUp], ['unknown', 'timeout', true]);
-  const broken = loopCall({ simulate: () => outcome('memory.search'), runTool: () => { throw new Error('boom'); }, inTurn: IN_TURN_TOOLS, needsFollowUp });
+  assert.deepEqual([late.result.status, late.result.code], ['unknown', 'timeout']);
+  const broken = loopCall({ simulate: () => outcome('memory.search'), runTool: () => { throw new Error('boom'); }, inTurn: IN_TURN_TOOLS });
   assert.deepEqual(((await broken({ skill: 'memory.search' }, {})).result), { status: 'failed', code: 'error', skill: 'memory.search' });
-  const refusal = { verdict: { stage: 'gateway', ok: false, code: 'not-allowed' }, executed: null, result: { skill: 'web.search', status: 'denied' }, followUp: true };
-  const refused = loopCall({ simulate: () => refusal, runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS, needsFollowUp });
+  const refusal = { verdict: { stage: 'gateway', ok: false, code: 'not-allowed' }, executed: null, result: { skill: 'web.search', status: 'denied' } };
+  const refused = loopCall({ simulate: () => refusal, runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS });
   assert.equal(await refused({ skill: 'web.search' }, {}), refusal);
-  const errand = loopCall({ simulate: () => outcome('task.run', { agent: 'web' }), runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS, needsFollowUp });
-  const recorded = await errand({ skill: 'task.run', args: { agent: 'web' }, body: 'Βρες το πρόγραμμα' }, {});
+  const errand = loopCall({ simulate: () => outcome('task.run', { agent: 'web', goal: 'Βρες το πρόγραμμα' }), runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS });
+  const recorded = await errand({ skill: 'task.run', args: { agent: 'web', goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
   assert.deepEqual(recorded.errand, { agent: 'web', goal: 'Βρες το πρόγραμμα' });
   assert.equal(recorded.result.data.text, 'canned');
   assert.equal(ran, 0);
+});
+
+test('a write and a paid effect are answered canned: draw.create is recorded as a drawing, nothing real runs', async () => {
+  const { run, llm } = await loopRun(
+    [toolAnswer(`${THINK}<msg>ορίστε</msg>`, [call('draw.create', { text: 'a cat on a roof', self: true })]), `${THINK}<msg>δεύτερο</msg>`],
+    { tool: () => { throw new Error('no tool runs for a drawing'); }, config: toolConfig({ features: { imageGeneration: true } }) },
+  );
+  const record = runRecord('s', 0, run);
+  assert.equal(llm.calls.length, 1, 'a finished picture is an effect: it covers her speech');
+  assert.deepEqual(record.loop.drawings, [{ step: 0, text: 'a cat on a roof', self: true, channel: null }]);
+  assert.deepEqual(record.loop.messages, ['ορίστε']);
 });
 
 test('createReplayTools: web.search and web.read through the lookup and memory.search through the recall runner, metered; the store and its counters untouched', async () => {
@@ -307,30 +375,50 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
   assert.equal(mediaCache.touched, undefined);
 });
 
-test('afterScenarioTurn: a loop run carries every step\'s messages and every call\'s mark into the next step', async () => {
-  const { run, trigger, here } = await loopRun(['<msg>ψάχνω</msg><call skill="web.search">α</call>', '<msg>βρήκα</msg>'], { tool: () => okTool('x') });
+test('afterScenarioTurn: a loop run carries the speech that was posted and every call\'s mark into the next step; a held speech is not in the chat', async () => {
+  const { run, trigger, here } = await loopRun([toolAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'α' })]), `${THINK}<msg>βρήκα</msg>`], { tool: () => okTool('x') });
   const carried = afterScenarioTurn({ transcript: [trigger], run, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: toolConfig() });
   const mine = carried.transcript.filter((line) => line.authorId === SELF).map((line) => line.content);
-  assert.deepEqual(mine, ['ψάχνω', 'βρήκα']);
+  assert.deepEqual(mine, ['βρήκα']);
   assert.deepEqual(carried.callMarks.map((mark) => [mark.skill, mark.status]), [['web.search', 'ok']]);
 });
 
-test('pairAnswerOf: the sheet shows every message of a side\'s turn; the key keeps its calls', () => {
-  const answer = (text) => ({ messages: [{ text, replyTo: null }], reactions: [], gif: null, draw: null, skip: false, think: 'σκέψη' });
+test('pairAnswerOf: the sheet shows every posted message of a side\'s turn, its drawings and posts; the key keeps its calls', async () => {
+  const answer = (text) => ({ messages: [{ text, replyTo: null }], reactions: [], gif: null, skip: false, think: 'σκέψη' });
   const off = runRecord('p1', 0, {
     answer: answer('πρώτο'), call: { skill: 'lore.list', args: {}, body: '' }, callError: null, extraCalls: 0, usage: null,
-    outcome: { verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'lore.list', status: 'ok' }, followUp: true },
+    outcome: { verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'lore.list', status: 'ok' } },
     followUp: { answer: answer('δεύτερο'), extraCall: false, usage: null },
   });
-  assert.deepEqual(pairAnswerOf(off), { think: 'σκέψη', messages: ['πρώτο', 'δεύτερο'], reactions: [], gif: null, draw: null, skip: false, calls: [{ step: 0, skill: 'lore.list', status: 'ok', code: null }] });
-  const on = { ...off, loop: loopRecord({ ms: 30, steps: [{ step: 0, answer: answer('α'), calls: [], dropped: 0 }, { step: 1, answer: answer('β'), calls: [] }] }) };
-  assert.deepEqual(pairAnswerOf(on).messages, ['α', 'β']);
-  const silent = runRecord('p2', 0, { answer: { messages: [], reactions: [], gif: null, draw: null, skip: true, think: '' }, call: null, callError: null, extraCalls: 0, usage: null, outcome: null, followUp: null });
+  assert.deepEqual(pairAnswerOf(off), { think: 'σκέψη', messages: ['πρώτο', 'δεύτερο'], reactions: [], gif: null, drawings: [], posts: [], skip: false, calls: [{ step: 0, skill: 'lore.list', status: 'ok', code: null }] });
+  const on = { ...off, loop: loopRecord({ ms: 30, steps: [{ step: 0, answer: answer('α'), held: true, calls: [], dropped: 0 }, { step: 1, answer: answer('β'), calls: [] }] }) };
+  assert.deepEqual(pairAnswerOf(on).messages, ['β'], 'a held step is not on the sheet');
+  // A real run: a picture and a post by a message call show beside the messages.
+  const { run } = await loopRun(
+    [toolAnswer(`${THINK}<msg>ορίστε</msg>`, [call('draw.create', { text: 'a cat', self: false }), call('message.create', { channel: '#γενικά', text: 'και ένα κείμενο' })])],
+    { tool: () => okTool('x'), config: toolConfig({ features: { imageGeneration: true } }) },
+  );
+  const answerOfRun = pairAnswerOf(runRecord('p3', 0, run));
+  assert.deepEqual(answerOfRun.drawings, [{ text: 'a cat' }]);
+  assert.deepEqual(answerOfRun.posts, [{ text: 'και ένα κείμενο' }]);
+  assert.deepEqual(answerOfRun.calls.map((c) => c.skill), ['draw.create', 'message.create']);
+  const silent = runRecord('p2', 0, { answer: { messages: [], reactions: [], gif: null, skip: true, think: '' }, call: null, callError: null, extraCalls: 0, usage: null, outcome: null, followUp: null });
   assert.equal(pairAnswerOf(silent).skip, true);
   assert.equal(pairAnswerOf(null), null);
 });
 
-// ---- the switch-off side of --pair-core-tools: the search classifier before her reply ----
+test('renderLoopTriggersReport: a table of the turns, then each turn\'s calls and steps; held speech marked', async () => {
+  const { run } = await loopRun([toolAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'α' })]), `${THINK}<msg>βρήκα</msg>`], { tool: () => okTool('x') });
+  const record = runRecord('p1', 0, run);
+  const line = { id: 'p1', scenario: 'p1', channelId: HERE, triggerId: '400000000000000009', turnId: null, at: new Date(NOW).toISOString(), mode: 'reply', kind: 'mention', transport: 'native', requestTokens: 100, tools: 3, toolsTokens: 50, blocks: {}, counts: { steps: 2, calls: 1, requests: 3, turnRequests: 2, held: 1, thinkMissing: 0, coerced: 0, capped: 0, malformed: 0 }, context: [], ...record };
+  const report = renderLoopTriggersReport([line], { transport: 'native', failed: [{ id: 'p2', error: 'boom' }] });
+  assert.ok(report.startsWith('# Loop triggers (native transport)'));
+  assert.ok(report.includes('| p1 | 400000000000000009 | 2 | 1 | 1 | 0 | 0 | 0 |'));
+  assert.ok(report.includes('failed: p2: boom'));
+  assert.ok(report.includes('calls in order: 0:web.search ok') && report.includes('speech held (not posted):'));
+});
+
+// ---- the search classifier before her reply (features.coreTools off) ----
 
 const PRE_DEPS = { lookupClassifierInput, fallbackLookupPlan, fillPromptTemplate, zonedDay, roleModel, helperRequestOptions, parseLookupAnswer, recallSettings };
 
@@ -384,7 +472,7 @@ test('preTurnLookup: none runs nothing; a failed classifier on a direct call fal
   assert.deepEqual([closed.requests.length, closed.out.trace.asked, closed.out.lookup], [0, false, null]);
 });
 
-test('the switch-off side: <lookup> and the recall senses line reach her request; requestBlocks names what each side held', async () => {
+test('features.coreTools off: <lookup> and the recall senses line reach her request; on: the tool lines; requestBlocks names what each request held', async () => {
   const config = toolConfig({ features: { coreTools: false, recall: true } });
   const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
   const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
@@ -392,21 +480,21 @@ test('the switch-off side: <lookup> and the recall senses line reach her request
   const here = { id: HERE, name: 'γενικά' };
   const trigger = scenarioTrigger({ text: 'Ποιος κέρδισε;', authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW });
   const situation = { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
-  const llm = scriptedLlm(['<msg>η Ana</msg>']);
+  const llm = scriptedLlm([`${THINK}<msg>η Ana</msg>`]);
   const answered = await answerSkillScenario({
-    view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, skillsGranted: TOOLS, searchAvailable: true,
+    view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, searchAvailable: true,
     preTurn: { lookup: { query: 'τελικός', text: 'Η Ana κέρδισε.', sources: [] }, recallAvailable: true },
   });
   const off = requestBlocks(answered.request.user, labels);
   assert.equal(off.lookup, true);
   assert.ok(answered.request.user.includes('Η Ana κέρδισε.'));
-  assert.deepEqual([off.recallLine, off.skillsTools, off.recallToolLine], [true, false, false]);
-  const { llm: onLlm } = await loopRun(['<msg>ok</msg>'], { tool: () => okTool('x') });
+  assert.deepEqual([off.recallLine, off.tools, off.recallToolLine], [true, false, false]);
+  const { llm: onLlm } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('x') });
   const on = requestBlocks(userOf(onLlm.calls[0]), labels);
-  assert.deepEqual([on.lookup, on.skillsTools, on.recallToolLine, on.recallLine], [false, true, true, false]);
+  assert.deepEqual([on.lookup, on.recallToolLine, on.recallLine], [false, true, false]);
 });
 
-// The automatic memory prefetch in arm B: what a live turn with features.coreTools gets for the
+// The automatic memory prefetch with features.coreTools on: what a live turn gets for the
 // trigger, computed as of the moment and standing in every request of the loop.
 
 test('createReplayTools.prefetch: the live lanes of the trigger, run as of the moment; none with features.coreTools off or a trivial trigger', async () => {
@@ -431,16 +519,16 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
   assert.equal(runs.length, 1);
 });
 
-test('the tool loop with a prefetch: <retrieved> stands in every request of arm B, as live', async () => {
+test('the step engine with a prefetch: <retrieved> stands in every request, as live', async () => {
   const prefetch = { status: 'ok', basis: ['message'], excerpts: [{ source: 'history', channelId: 'c2', channelName: 'κήπος', startTs: NOW - 86_400_000, id: 'r1', ids: ['r1'], hitIds: ['r1'], lines: '>> [09:00] Élodie: plus ultra' }] };
-  const { llm } = await loopRun(['<call skill="web.search">τελικός</call>', '<msg>ok</msg>'], { tool: () => okTool('κάτι'), prefetch });
+  const { llm } = await loopRun([toolAnswer(THINK, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>ok</msg>`], { tool: () => okTool('κάτι'), prefetch });
   assert.equal(llm.calls.length, 2);
-  for (const call of llm.calls) {
-    const user = userOf(call);
+  for (const recorded of llm.calls) {
+    const user = userOf(recorded);
     assert.ok(user.includes(`<retrieved>\n${labels.prefetch.header}`), user);
     assert.ok(user.includes('>> [09:00] Élodie: plus ultra'));
     assert.ok(user.indexOf('<retrieved>') < user.indexOf('<chat>'));
   }
-  const { llm: bare } = await loopRun(['<msg>ok</msg>'], { tool: () => okTool('κάτι') });
+  const { llm: bare } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('κάτι') });
   assert.ok(!userOf(bare.calls[0]).includes('<retrieved>'), 'none handed in: no block');
 });

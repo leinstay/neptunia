@@ -53,6 +53,7 @@ import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
+import { answerOf } from '../../src/behavior/turn.js';
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
@@ -1352,17 +1353,22 @@ export function computeGates(run, fixture, effectsOf) {
 }
 
 const THINK_CUT = 1500;
-const BODY_CUT = 500;
 const cut = (text, max) => { const t = String(text ?? ''); return t.length > max ? `${t.slice(0, max)}...` : t; };
 
-/** Her raw answers of a live turn as steps: her think (cut), her messages, each call with its args and cut body. */
+/**
+ * Her raw answers of a live turn as steps: her think (cut), her messages, each tool call with its args. An answer is
+ * `{ text, toolCalls, finishReason?, transport? }` as the live voice records it (native: the completion's calls;
+ * text: the `<tool_call>` blocks of the text), or a bare string of speech.
+ */
 export function stepsOf(answers) {
   return (Array.isArray(answers) ? answers : []).map((raw) => {
-    const parsed = parseOutput(raw);
+    const given = typeof raw === 'string' ? { text: raw } : (raw ?? {});
+    const split = answerOf({ text: String(given.text ?? ''), toolCalls: given.toolCalls ?? [], finishReason: given.finishReason ?? null }, { transport: given.transport === 'text' ? 'text' : 'native' });
+    const parsed = parseOutput(split.speechText);
     return {
       think: cut(parsed.think, THINK_CUT),
       messages: parsed.messages.map((m) => cut(m.text, THINK_CUT)),
-      calls: parsed.calls.map((c) => ({ skill: c.skill, args: c.args, body: cut(c.body, BODY_CUT) })),
+      calls: split.calls.map((c) => ({ skill: c.name, args: c.args, ...(c.problem ? { problem: c.problem } : {}) })),
     };
   });
 }
@@ -1383,7 +1389,7 @@ export function liveReasons(run) {
   const due = [...new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => String(item.intentionId)))];
   const liveTurns = run.turns.filter((turn) => turn.voice === 'live');
   const steps = liveTurns.flatMap((turn) => stepsOf(turn.result?.answers));
-  const reasoned = (id) => steps.some((step) => step.calls.some((call) => String(call.skill).startsWith('intent.') && String(call.args?.id ?? '') === id && (String(call.args?.reason ?? '').trim() || call.body.trim() || step.think.trim())));
+  const reasoned = (id) => steps.some((step) => step.calls.some((call) => String(call.skill).startsWith('intent.') && String(call.args?.id ?? '') === id && (String(call.args?.reason ?? '').trim() || String(call.args?.text ?? '').trim() || step.think.trim())));
   const woken = (id) => liveTurns.some((turn) => (turn.items ?? []).some((item) => (item.intentionIds ?? []).map(String).includes(id)));
   const dropped = (id) => run.journal.find((entry) => ENGINE_DROPS.includes(entry.event) && (entry.wake?.intentionIds ?? []).map(String).includes(id))?.event ?? null;
   const byId = new Map(run.intentions.map((record) => [String(record.id), record]));
@@ -1498,7 +1504,7 @@ export function renderReport(report) {
       turn.steps.forEach((step, n) => {
         lines.push(`Step ${n + 1}`, '', `- think: ${step.think || '-'}`);
         for (const m of step.messages) lines.push(`- message: ${m}`);
-        for (const c of step.calls) lines.push(`- call ${c.skill} ${JSON.stringify(c.args)}${c.body ? ` body: ${c.body}` : ''}`);
+        for (const c of step.calls) lines.push(`- call ${c.skill} ${JSON.stringify(c.args)}${c.problem ? ` (${c.problem})` : ''}`);
         lines.push('');
       });
     }

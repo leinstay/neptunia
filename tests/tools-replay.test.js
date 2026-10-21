@@ -341,3 +341,16 @@ test('replay: a stored dump\'s later messages are shown as role, tool_calls and 
     { role: 'user', content: 'n' },
   ]);
 });
+
+test('replay: recordingLlm keeps the native tool calls and the finish reason of each answer, for the diary brief and the inner report', async () => {
+  const { recordingLlm } = await import('../tools/replay.mjs');
+  const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{"text":"a cat"}', parsed: { text: 'a cat' }, parseError: null }];
+  const real = { complete: async () => ({ text: '<think>t</think>', toolCalls, finishReason: 'stop', usage: { prompt_tokens: 3 } }), other: () => 'x' };
+  const calls = [];
+  const llm = recordingLlm(real, calls);
+  await llm.complete([], { purpose: 'reply' });
+  assert.deepEqual(calls.map((c) => [c.purpose, c.text, c.toolCalls, c.finishReason]), [['reply', '<think>t</think>', toolCalls, 'stop']]);
+  const plain = recordingLlm({ complete: async () => ({ text: 'x', usage: null }) }, calls);
+  await plain.complete([], {});
+  assert.deepEqual([calls[1].toolCalls, calls[1].finishReason], [null, null]);
+});

@@ -7,7 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { heartbeatReplayWake, hiddenCapabilities, hiddenPlaces, hiddenRecord, hideSetsOf, innerAnswerOf, innerReplayHot, innerReplayWake, innerReportMarkdown, parseArgs, readOnlyJournal, recordingLlm } from '../tools/replay.mjs';
+import '../src/ops/index.js';
 import { parseOutput } from '../src/llm/parse.js';
+import { answerOf } from '../src/behavior/turn.js';
+import { call as toolCall } from './fixtures/tool-answers.js';
 import * as inner from '../src/behavior/inner.js';
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
@@ -125,8 +128,8 @@ test('heartbeatReplayWake: no conversation to run in is a CliError, not a turn',
 });
 
 test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the calls with their arguments, the cost', () => {
-  const text = '<think>STEP 1: a\nSTEP 2: b</think><msg>hello</msg><call skill="message.create" channel="c1">body</call>';
-  const answer = innerAnswerOf(text, parseOutput);
+  const text = '<think>STEP 1: a\nSTEP 2: b</think><msg>hello</msg>';
+  const answer = innerAnswerOf(text, parseOutput, null, { answerOf, transport: 'native', toolCalls: [toolCall('message.create', { channel: 'c1', text: 'body' })] });
   assert.equal(answer.think, 'STEP 1: a\nSTEP 2: b');
   assert.deepEqual(answer.messages, ['hello']);
   assert.equal(answer.calls[0].skill, 'message.create');
