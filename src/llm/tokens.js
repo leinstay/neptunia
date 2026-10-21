@@ -52,10 +52,27 @@ export function estimateMessages(messages, tokensPerImage) {
   return total;
 }
 
-/** Raw estimate for a `tools` array: its JSON as the provider reads it, plus a little per definition. */
+// JSON schemas are denser than prose (braces, quotes, short keys): measured against a provider's prompt_tokens
+// (2026-10-21, 3.5 chars per token undercounted the request's tools by about a third) they cost about 2.5 ASCII
+// characters per token; the provider also adds its own tool-use preamble once per request.
+const TOOLS_ASCII_CHARS_PER_TOKEN = 2.5;
+const TOOLS_PREAMBLE = 350;
+
+/**
+ * Estimate for a `tools` array, in tokens as the provider will count them. Unlike the messages' estimate it is NOT
+ * multiplied by the calibration ratio and is kept out of what the calibrator learns from (the caller adds it to the
+ * calibrated messages and subtracts it from the observed prompt): the ratio is learned on prose, the definitions are
+ * a constant JSON block of another density, and mixing the two skews the ratio of every request without tools.
+ */
 export function estimateTools(tools) {
   if (!Array.isArray(tools) || tools.length === 0) return 0;
-  return estimateTokens(JSON.stringify(tools)) + tools.length * MESSAGE_OVERHEAD;
+  let ascii = 0;
+  let other = 0;
+  for (const ch of JSON.stringify(tools)) {
+    if (ch.codePointAt(0) < 128) ascii += 1;
+    else other += 1;
+  }
+  return Math.ceil(ascii / TOOLS_ASCII_CHARS_PER_TOKEN + other / OTHER_CHARS_PER_TOKEN) + tools.length * MESSAGE_OVERHEAD + TOOLS_PREAMBLE;
 }
 
 const RATIO_MIN = 0.6;

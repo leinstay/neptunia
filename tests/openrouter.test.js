@@ -3,6 +3,7 @@
 // line. No network: fetchImpl is always a fake. Only the few retry tests marked
 // below exercise a real retry sleep (~1.5s) -- the backoff sleep in src is not touched.
 import { test } from 'node:test';
+import { estimateMessages, estimateTools } from '../src/llm/tokens.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
@@ -3147,6 +3148,22 @@ test('complete: the tools count toward the token estimate and the request cap', 
   called = false;
   await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { tools: big }), (err) => err instanceof TokenLimitError);
   assert.equal(called, false);
+});
+
+test('complete: the tools are added raw to the calibrated estimate and kept out of what the calibrator learns', async () => {
+  const tools = [{ type: 'function', function: { name: 'x', description: 'd'.repeat(700), parameters: { type: 'object', properties: {} } } }];
+  const toolsTokens = estimateTools(tools);
+  const messages = [{ role: 'user', content: 'a'.repeat(1400) }];
+  const calibrator = { ratio: 0.5, apply: (n) => Math.ceil(n * 0.5), observed: [], observe(raw, actual) { this.observed.push([raw, actual]); } };
+  const llm = createLlm({ apiKey: 'k', getConfig: () => baseConfig({ maxRequestTokens: 100000 }), calibrator, state: fakeState(), fetchImpl: async () => okResponse('x', { prompt_tokens: 5000 }) });
+  const rawMessages = estimateMessages(messages);
+  const withTools = await llm.complete(messages, { tools });
+  assert.equal(withTools.estimated, Math.ceil(rawMessages * 0.5) + toolsTokens, 'the tools are not scaled by the ratio');
+  assert.deepEqual(calibrator.observed, [[rawMessages, 5000 - toolsTokens]], 'the calibrator sees the messages against the prompt without the tools');
+  calibrator.observed.length = 0;
+  const plain = await llm.complete(messages);
+  assert.equal(plain.estimated, Math.ceil(rawMessages * 0.5));
+  assert.deepEqual(calibrator.observed, [[rawMessages, 5000]]);
 });
 
 test('complete: the estimate includes the tool_calls of earlier assistant messages', async () => {

@@ -7492,8 +7492,8 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
 
   // A budget that drops chat lines: the drop is named in budget.dropped and in limits.
   hot.config.features.journal = true;
-  // 500 for the request itself, and what her three carried-over tools cost beside it.
-  hot.config.llm = { maxRequestTokens: 900, safetyMargin: 1, maxOutputTokens: 4000 };
+  // 500 for the request itself, and what her carried-over tools cost beside it (about 800 with the provider's tool preamble).
+  hot.config.llm = { maxRequestTokens: 1300, safetyMargin: 1, maxOutputTokens: 4000 };
   const crowded = [];
   for (let i = 0; i < 12; i += 1) crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
   const last = crowded.at(-1);

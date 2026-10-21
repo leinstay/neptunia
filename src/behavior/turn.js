@@ -2742,7 +2742,7 @@ export function createTurnRunner({
       let sent = build(last, resultTexts);
       // The request must fit under the cap with its tools: the results are cut to fit, and the request is the last one.
       const limit = requestTokenLimit(hot.config);
-      const cost = (list) => calibrator.apply(estimateMessages(list) + (transport === 'native' ? estimateTools(draft.tools) : 0));
+      const cost = (list) => calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(draft.tools) : 0);
       if (cost(sent) > limit) {
         const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));
         last = true;
@@ -6822,7 +6822,7 @@ export function createTurnRunner({
       draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
       draft.tools = buildTools(draft.toolNames, { registry: skills ?? defaultSkills(), texts: prompts?.skills, fill: { drawChars: config.image?.maxPromptChars ?? 1600 } });
       const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;
-      const toolsTokens = transport === 'native' ? calibrator.apply(estimateTools(draft.tools)) : 0;
+      const toolsTokens = transport === 'native' ? estimateTools(draft.tools) : 0;
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
       // A heartbeat's lines carry handles (`#N`) numbered on past the request's own lines, like a memory.search's quotes:
       // the text is worded once with a provisional base, then again when the request says where its own numbering ends.
