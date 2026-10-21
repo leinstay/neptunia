@@ -3140,7 +3140,7 @@ export function skillRequestEstimate(scenarios, { perDecision = SKILL_REQUESTS_P
 /** What a decision with her tool loop is expected to send beyond her reply: one follow-up step, one call before it. */
 const EXPECTED_LOOP_STEPS = 1;
 const EXPECTED_CALLS_PER_STEP = 1;
-/** What the switch-off side of --pair-core-tools is expected to send: the search classifier, one search's summary, her reply. */
+/** What a turn with features.coreTools off is expected to send before her reply: the search classifier and one search's summary. */
 const PRE_TURN_REQUESTS = 2;
 
 /**
@@ -4575,7 +4575,7 @@ function turnCounts(record) {
  * the cache, latency) and `report.md`. Stops at `budget` (what the provider reports spent, else USD_PER_ANSWER per
  * request). Returns `{ code, result }`.
  */
-async function runTriggerLoops({ single, args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory, signal, budget, mods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log }) {
+export async function runTriggerLoops({ single, args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory, signal, budget, mods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log }) {
   const { answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, createImageGen, createTaskStore, replayMedia, momentMode, momentKind, isSpontaneous, scenarioInventory, situationHistory } = mods;
   const registry = skillRegistry();
   const sides = single ? [{ key: 'single', transport: args.transport }] : Object.entries(TRANSPORT_SIDES).map(([key, transport]) => ({ key, transport }));

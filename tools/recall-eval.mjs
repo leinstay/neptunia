@@ -80,7 +80,7 @@
 // excerpts as the windows, their relevant lines as the matched ids) and reported side by side per
 // question, with the not-in-memory questions the prefetch still showed an excerpt for. The final
 // answer is not judged: this tool has no judge of answers, so (c) of the comparison (her reply with
-// the prefetch block and her tool loop) is measured by tools/replay.mjs --pair-core-tools instead.
+// the prefetch block and her tool loop) is measured by tools/replay.mjs --loop-triggers instead.
 // `--no-deadline`: the prefetch runs without its `recall.prefetch.deadlineMs` (retrieval quality
 // apart from latency); without it the live deadline applies and a cut search shows in the status.
 //

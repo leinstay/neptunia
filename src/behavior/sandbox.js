@@ -28,10 +28,13 @@
 // A skill scenario (tools/replay.mjs `--skills`, `answerSkillScenario`) is the
 // one sandbox turn that shows the persona her skills: the `<skills>` block of
 // the requester's catalogue (`scenarioInventory`, the live listing over a copy
-// of the config carrying the scenario's grants, `personaGrantsConfig`). Her
-// `<call>` passes the real resolution and the real gateway (`simulateCall`);
-// the operation itself never runs -- a canned result stands in for it -- and
-// the follow-up pass a live turn would make is made with that result. A
+// of the config carrying the scenario's grants, `personaGrantsConfig`). Every
+// sandbox turn sends her tools as a live turn does (`sandboxToolset`). Her
+// tool calls pass the real resolution and the real gateway (`simulateCall`);
+// the operation itself never runs -- a canned result stands in for it, a write
+// and a paid effect included -- and the turn goes on as a live one does on the
+// step engine (`runSkillLoop`: her speech held while a call left something to
+// read, one result per call, the next request appended to the first). A
 // multi-step scenario carries each turn into the next step's channel
 // (`afterScenarioTurn`: her lines, her reactions, a post the call left here,
 // every call's mark), so the next request reads what she said and did. A step
@@ -662,12 +665,14 @@ function sandboxChannels(given, view, channel) {
  * opens, as src/errands/turns.js runs it: trigger kind `task` whatever the mode, and `errands`
  * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
  * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
- * hers. `coreTools` (`{ rows, recallAvailable, prefetch? }`, a skill scenario run with her tool loop,
- * features.coreTools) hands in whether the server search could run
- * (`recallAvailable`) and the automatic memory prefetch of the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
- * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, the switch-off
- * side of tools/replay.mjs --pair-core-tools) hands in what a live turn's search classifier
- * and searches found before her reply (`<lookup>`) and whether the server search could run.
+ * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
+ * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
+ * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
+ * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, tools/replay.mjs with
+ * features.coreTools off) hands in what a live turn's search classifier and searches found before her
+ * reply (`<lookup>`) and whether the server search could run. `toolset` (sandboxToolset's) hands in her
+ * tools: their names (`<senses>`), the `<tools>` block of the text transport and the tokens the native
+ * `tools` field takes off the room.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
  *   `skillsInventory`, `toolset`, `queued`, `taskResult`, `coreTools`, `preTurn`
  *   (`answerSkillScenario`'s).
@@ -751,7 +756,7 @@ export function sandboxRequestInput({
     privateChat: null,
     privateProfile: null,
     reads: null,
-    // Absent (SANDBOX_OMITS) but on the switch-off side of tools/replay.mjs --pair-core-tools
+    // Absent (SANDBOX_OMITS) but when features.coreTools is off, in tools/replay.mjs
     // (`preTurn`): what the search classifier and its searches found before her turn, as live.
     lookup: preTurn?.lookup ?? null,
     // Absent (SANDBOX_OMITS) but in a scenario run with her tool loop (`coreTools.prefetch`): the

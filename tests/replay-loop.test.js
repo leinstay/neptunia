@@ -6,20 +6,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import fs from 'node:fs';
+import path from 'node:path';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { IN_TURN_TOOLS, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
-import { callViewOf, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
+import { callViewOf, coreToolsOn, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
+import { transportOf } from '../src/skills/tool-calls.js';
+import { createTaskStore } from '../src/errands/store.js';
+import { createImageGen } from '../src/llm/images.js';
+import { tempDir } from './fixtures/tmp.js';
 import { fill } from '../src/format.js';
 import { fillPromptTemplate } from '../src/behavior/prompt.js';
 import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
 import { zonedDay } from '../src/time.js';
 import { roleModel } from '../src/llm/roles.js';
 import { helperRequestOptions } from '../src/llm/openrouter.js';
-import { afterScenarioTurn, answerSkillScenario, liveView, personaGrantsConfig, simulateCall } from '../src/behavior/sandbox.js';
+import * as sandbox from '../src/behavior/sandbox.js';
+import { afterScenarioTurn, answerSkillScenario, hiddenLater, liveView, momentCutoff, momentView, personaGrantsConfig, simulateCall } from '../src/behavior/sandbox.js';
 import {
   createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, preTurnLookup, renderLoopTriggersReport, renderSkillsReport, requestBlocks, runRecord, scenarioSummary,
-  scenarioTrigger, skillRequestEstimate, withCoreTools, withTransport,
+  runTriggerLoops, scenarioTrigger, skillRequestEstimate, withCoreTools, withTransport,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
@@ -531,4 +538,82 @@ test('the step engine with a prefetch: <retrieved> stands in every request, as l
   }
   const { llm: bare } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('κάτι') });
   assert.ok(!userOf(bare.calls[0]).includes('<retrieved>'), 'none handed in: no block');
+});
+
+// ---- --loop-triggers and --pair-transport over fakes ----
+
+/** What runTriggerLoops needs, faked: one real-shaped trigger in a one-line chat, the tools answering ok, a model answering `answers`. */
+async function triggerRun({ single, transport = null, answers, config = toolConfig() }) {
+  const dataDir = tempDir('nep-loop-triggers-');
+  const out = path.join(dataDir, 'out');
+  const here = { id: HERE, name: 'γενικά' };
+  const channel = fakeChannel();
+  const trigger = scenarioTrigger({ text: 'Ποιος κέρδισε τον τελικό;', authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW });
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const llm = scriptedLlm(answers);
+  const tools = { run: async () => okTool('Η Ana κέρδισε.'), prefetch: async () => null, recallAvailable: () => true };
+  const loopDeps = { toolsFor: () => tools, coreToolsOn, loopSettings, IN_TURN_TOOLS, transportOf, discoveryOf: () => ({ index: '', names: [] }), preTurnDeps: {} };
+  const mods = {
+    answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, createImageGen, createTaskStore, replayMedia: sandbox.replayMedia,
+    momentMode: sandbox.momentMode, momentKind: sandbox.momentKind, isSpontaneous: sandbox.isSpontaneous, scenarioInventory: sandbox.scenarioInventory, situationHistory: sandbox.situationHistory,
+  };
+  const args = { transport, outDir: out, asOfMoment: false, snapshot: null, hideSelf: [], hideSelfAll: false };
+  const result = await runTriggerLoops({
+    single, args, root: dataDir, liveData: path.join(dataDir, 'live'), pairTriggers: [{ channelId: HERE, triggerId: trigger.id, turnId: null }], rng: () => 0.9, hot, store, guild: { id: GUILD }, guildId: GUILD,
+    self: { id: SELF, name: 'Persona' }, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => 1 }, mediaCache: null, gifs: null, customEmoji: [], searchAvailable: true, channelDirectory: null,
+    signal: undefined, budget: null, mods, loopDeps, viewMods: { liveView, momentView, momentCutoff, hiddenLater },
+    momentOf: async () => ({ channel, history: [trigger], triggerLine: trigger, at: NOW }), journalOf: () => [], channelOf: (c) => ({ id: c.id, name: c.name ?? null, category: null, topic: null }), dataDir, log: { info() {}, warn() {} },
+  });
+  return { result, out, llm, trigger };
+}
+
+test('--loop-triggers: one side, runs.jsonl with the turn\'s steps and the chat, report.md; the transport follows --transport', async () => {
+  const { result, out, llm, trigger } = await triggerRun({
+    single: true,
+    transport: 'text',
+    answers: [textAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>η Ana</msg>`],
+  });
+  assert.equal(result.code, 0, JSON.stringify(result.result));
+  assert.equal(result.result.triggers, 1);
+  assert.equal('tools' in llm.calls[0].options, false, 'the text transport: no tools field');
+  const lines = fs.readFileSync(path.join(out, 'runs.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(lines.length, 1);
+  const [line] = lines;
+  assert.deepEqual([line.triggerId, line.transport, line.mode, line.counts.steps, line.counts.calls, line.counts.held, line.counts.turnRequests], [trigger.id, 'text', 'reply', 2, 1, 1, 2]);
+  assert.deepEqual(line.context, [{ author: 'Élodie', text: 'Ποιος κέρδισε τον τελικό;' }]);
+  assert.deepEqual(line.loop.calls, [{ step: 0, skill: 'web.search', status: 'ok', code: null }]);
+  assert.deepEqual(line.loop.final, ['η Ana']);
+  assert.ok(line.tokens.prompt > 0 && line.blocks.tools === true);
+  const report = fs.readFileSync(path.join(out, 'report.md'), 'utf8');
+  assert.ok(report.includes('# Loop triggers (text transport)') && report.includes('speech held (not posted):'));
+});
+
+test('--loop-triggers without --transport follows the config; a refused output folder and a failed moment are reported, not thrown', async () => {
+  const { result, out } = await triggerRun({ single: true, answers: [`${THINK}<msg>ναι</msg>`] });
+  assert.equal(result.code, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(out, 'runs.jsonl'), 'utf8').trim()).transport, 'native');
+  await assert.rejects(runTriggerLoops({ single: true, args: { outDir: path.dirname(out), transport: null }, root: '/', liveData: '/live', pairTriggers: [], rng: () => 0, hot: { config: toolConfig() }, store: { state: { data: {} } }, mods: { skillRegistry }, loopDeps: {} }), /not empty/);
+});
+
+test('--pair-transport: the native side as A, the text side as B, a blind sheet and a key with both runs', async () => {
+  const { result, out, llm } = await triggerRun({
+    single: false,
+    answers: [
+      toolAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>η Ana</msg>`,
+      textAnswer(`${THINK}<msg>ψάχνω</msg>`, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>η Ana</msg>`,
+    ],
+  });
+  assert.equal(result.code, 0, JSON.stringify(result.result));
+  assert.equal(llm.calls.length, 4);
+  assert.ok(Array.isArray(llm.calls[0].options.tools) && !('tools' in llm.calls[2].options), 'A is native, B is text');
+  const key = JSON.parse(fs.readFileSync(path.join(out, 'key.json'), 'utf8'));
+  const [pair] = Object.values(key.pairs);
+  assert.equal(pair.first, 'B', 'rng 0.9 puts B first');
+  assert.deepEqual([pair.runs.A.transport, pair.runs.B.transport], ['native', 'text']);
+  assert.deepEqual([pair.answers.A.messages, pair.answers.B.messages], [['η Ana'], ['η Ana']]);
+  assert.deepEqual(pair.runs.A.calls, [{ step: 0, skill: 'web.search', status: 'ok', code: null }]);
+  assert.ok(pair.runs.B.blocks.tools && !pair.runs.A.blocks.tools);
+  const sheet = fs.readFileSync(path.join(out, 'sheet.html'), 'utf8');
+  assert.ok(sheet.includes('η Ana') && !sheet.includes('ψάχνω'), 'the held speech is not on the sheet');
 });
