@@ -476,7 +476,7 @@
       "delta": "New lines in the channel since your last answer:",
       "last": "This is your last step. A call here will not run. Answer from what you have, or end with <skip/>.",
       "delivery": "{n} of {total} deliveries went through; the rest did not ({code}).",
-      "lastInner": "[placeholder] This is your last step. Only a post or an intention change still runs here, one call."
+      "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through."
     }
   },
   "tasks": {
