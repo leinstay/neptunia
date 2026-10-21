@@ -150,7 +150,7 @@ export function journalOverMemory() {
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, onAnswer = null, withHot = null }) {
+export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = null, withHot = null }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },
@@ -174,7 +174,9 @@ export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, ...runner });
   // An inner turn (`inner`: the wake): nobody asked, no trigger.
-  const again = inner
+  const again = spontaneous
+    ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: spontaneous })
+    : inner
     ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
     : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind });
   const { result, logs } = await withCapturedLogs(again);

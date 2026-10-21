@@ -51,9 +51,10 @@ function noRequesterRefusal(skill) {
  * for a write). Her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) skip the
  * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
  * several people, only a read for nobody. Any other shared-state skill checks a requester's right
- * on its operation; with none the persona acts on her own.
+ * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
+ * conversation (`carriedOver`) runs with no requester too, as the reply tags did.
  */
-function requesterRefusal(skill, requester, context) {
+function requesterRefusal(skill, requester, context, carriedOver = false) {
   // A turn answering several people at once: no write runs on their mixed authority.
   if (context?.mixedRequesters === true && skill.kind !== 'read') return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
   const owners = skill.opBacked === true || skill.ownerOnly === true;
@@ -61,6 +62,8 @@ function requesterRefusal(skill, requester, context) {
   // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
   // unasked): her grants, checked before this, alone decide.
   if (!requester && context?.ownInitiative === true) return null;
+  // A carried-over skill in the current conversation (her reply tags of old) runs unasked as it always did.
+  if (!requester && carriedOver) return null;
   const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
   if (unasked) return unasked;
   if (SELF_OWNED_OPS.includes(skill.op)) return null;
@@ -148,7 +151,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
     : schemaError(args, skill.argsSchema);
   if (argsError) return refused(CODE.INVALID_ARGS, argsError);
 
-  return requesterRefusal(skill, requester, context) ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
+  return requesterRefusal(skill, requester, context, access.reason === 'carried-over') ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
 }
 
 /**

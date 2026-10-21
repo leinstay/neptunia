@@ -366,3 +366,22 @@ test('journal dumps: the reply request is dumped as the base dump, each later re
   assert.deepEqual(dumps[2].toolCalls, undefined, 'the last answer called nothing');
   assert.equal(dumps[0].toolCalls.length, 1);
 });
+
+test('carried over: draw.create in the current conversation runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
+  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
+  const here = await drawTurn({ spontaneous: 'initiate', allowed: [], answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })])] });
+  assert.deepEqual(called(here), ['draw.create:ok']);
+  assert.equal(here.sends.filter((send) => send.attachments?.length === 1).length, 1);
+
+  const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1', members: { me: { displayName: 'Bot' } } }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
+  const images = fakeImages();
+  const away = await drawTurn({ spontaneous: 'initiate', images, neighbours: [jardin], answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος', channel: '#jardin' })]), '<think>y</think><msg>τίποτα</msg>'] });
+  assert.deepEqual(called(away), ['draw.create:denied/no-requester']);
+  assert.equal(images.calls.length, 0);
+});
+
+test('carried over: message.create in the current conversation also runs on a spontaneous turn with nobody asking', async () => {
+  const run = await coreTurn({ spontaneous: 'initiate', allowed: [], answers: [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλησπέρα' })])] });
+  assert.deepEqual(called(run), ['message.create:ok']);
+  assert.deepEqual(texts(run), ['καλησπέρα']);
+});
