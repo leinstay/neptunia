@@ -143,15 +143,17 @@ test('skills registry: missingDefinitions names the table entries with no regist
   assert.deepEqual(missingDefinitions(partial).sort(), ['lore.list', 'task.run']);
 });
 
-test('skills registry: prompts/skills.json has the three texts of every operation, and no key that is not one', () => {
+test('skills registry: prompts/skills.json has the title and when-to-use of every operation (when-not-to-use optional), and no key that is not one', () => {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'skills.json');
   const texts = JSON.parse(fs.readFileSync(file, 'utf8'));
   const ops = listOps().map((op) => op.name);
   for (const name of ops) {
-    for (const key of ['title', 'whenToUse', 'whenNotToUse']) {
+    for (const key of ['title', 'whenToUse']) {
       assert.equal(typeof texts[name]?.[key], 'string', `${name}.${key}`);
       assert.ok(texts[name][key].trim(), `${name}.${key} is empty`);
     }
+    // `whenNotToUse` is optional: left out where it would say nothing the title does not.
+    if (texts[name] && Object.hasOwn(texts[name], 'whenNotToUse')) assert.ok(String(texts[name].whenNotToUse).trim(), `${name}.whenNotToUse is empty`);
   }
   assert.deepEqual(Object.keys(texts).filter((name) => !ops.includes(name)), [], 'a key that is no operation');
   assert.equal(Object.hasOwn(texts, 'memory.affinity.set'), false);

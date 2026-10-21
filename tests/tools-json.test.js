@@ -63,3 +63,14 @@ test('buildTools: the fill option replaces {{key}} in descriptions and argument 
   const [plain] = buildTools(['web.search'], { registry, texts: marked });
   assert.equal(plain.function.description, 'Up to {{n}} chars {{other}}');
 });
+
+test('buildTools: the model gets a lean schema without validation-only keywords, meaningful caps stay', () => {
+  const json = JSON.stringify(buildTools([...registry.keys()], { registry, texts: {} }));
+  assert.equal(json.includes('"minLength":1'), false);
+  assert.equal(json.includes('"maxLength":6000'), false);
+  assert.equal(json.includes('"additionalProperties":false'), false);
+  assert.match(json, /"maxLength":(?!6000)\d+/, 'smaller caps are kept');
+  assert.match(json, /"enum":\[/);
+  assert.match(json, /"required":\[/);
+  assert.equal(registry.get('web.search').argsSchema.additionalProperties, false, 'the engine schema is untouched');
+});

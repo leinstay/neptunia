@@ -843,3 +843,10 @@ test('message.create media=: over the interface\'s byte cap and a failed downloa
   assert.deepEqual([failed.status, failed.code], ['failed', 'file-unreadable']);
   assert.equal(port.messagesIn(HERE).length, 0);
 });
+
+test('an unknown argument is still refused by the engine although the model\'s schema is lean', () => {
+  const cfg = config();
+  const gate = checkSkill({ skill: 'message.create', args: { text: 'hi', bogus: 'y' }, principal: { kind: 'persona' }, requester: { id: OWNER, roleIds: [] }, audience: { conversationId: HERE }, context: { config: cfg, selfId: SELF } });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.code, 'invalid-args');
+});
