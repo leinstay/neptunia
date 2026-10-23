@@ -367,11 +367,12 @@
   },
   "media.look": {
     "title": "Look more closely",
-    "whenToUse": "Closer look at picture, GIF, or video. Same turn.",
-    "whenNotToUse": "Not when first look answers.",
+    "whenToUse": "Closer look at a picture, GIF or video in the chat, or at a video by link. Same turn.",
+    "whenNotToUse": "Not when the first look answers.",
     "args": {
+      "message": "#N to look at.",
       "url": "A video link from a supported site, instead of a message.",
-      "item": "Which attachment (1 to 20)."
+      "item": "Which attachment of the message (1 to 20)."
     }
   },
   "media.find": {
