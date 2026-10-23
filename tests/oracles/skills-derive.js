@@ -322,7 +322,11 @@ export const EXPECTED_DIFFERENCES = {
   },
   'message.create': { schema: (schema) => ({ ...schema, required: [] }) },
   // Her look takes a video link instead of a message (`/nep task look` stays on a message): one of the two, checked by the runner.
-  'media.look': { schema: (schema) => ({ ...schema, properties: { ...schema.properties, url: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['question'] }) },
+  'media.look': { schema: (schema) => ({ ...schema, properties: { message: schema.properties.message, url: { type: 'string', minLength: 1, maxLength: 2000 }, ...schema.properties }, required: ['question'] }),
+    // Her skill takes a link in place of the message: both are optional, the one not given stays undefined.
+    args: (args, sample) => ({ ...args, message: sample.message ?? undefined, url: sample.url ?? undefined }),
+    options: (options) => [options[0], { name: 'url', kind: 'string' }, ...options.slice(1)],
+  },
   'media.status': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
   'media.rescan': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
   'media.recache': { schema: narrowed(['kind', 'days'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['gifs', 'pictures'] } }) },

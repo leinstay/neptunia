@@ -83,7 +83,8 @@ test('every definition is equal to the derived skill: schema bytes, body, option
     assert.equal(definition.body, expectedBody, `${oracle.name}: body`);
     const options = optionsOfDefinition(definition).filter((option) => !(oracle.name === 'draw.create' && option.name === 'reply'));
     const oracleOptions = new Map(oracle.command.options.map((option) => [option.name, option.kind]));
-    assert.deepEqual(options, [...kept].filter((name) => oracleOptions.has(name)).map((name) => ({ name, kind: oracleOptions.get(name) })), `${oracle.name}: options`);
+    const expectedOptions = [...kept].filter((name) => oracleOptions.has(name)).map((name) => ({ name, kind: oracleOptions.get(name) }));
+    assert.deepEqual(options, EXPECTED_DIFFERENCES[oracle.name]?.options?.(expectedOptions) ?? expectedOptions, `${oracle.name}: options`);
     assert.equal(definition.effects, oracle.effects, `${oracle.name}: effects`);
     assert.equal(definition.effects !== 'read', oracle.sharedState, `${oracle.name}: sharedState`);
     assert.equal(definition.costClass, oracle.costClass, `${oracle.name}: costClass`);
