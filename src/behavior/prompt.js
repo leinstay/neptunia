@@ -1303,7 +1303,7 @@ function assembleUser({ nowText, timezone, labels, senses, tools = '', channelDi
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.
     block('people_now', (kept.peopleNow ?? []).join('\n')),
-    block('chat', renderTranscript(chatItems, timezone, labels)),
+    block('chat', chatItems === null ? '' : renderTranscript(chatItems, timezone, labels)),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
     // The per-turn senses lines (renderSenses' `turn` half); the rest lead the stable part.
@@ -3023,6 +3023,9 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   journal's turn record.
  */
 export function buildRequest(input) {
+  // The transport anchor is not a heartbeat's current conversation. Memory and its wake remain available.
+  const heartbeat = input.mode === 'inner' && input.wakeKind === 'heartbeat';
+  if (heartbeat) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
   const { config, prompts, calibrator, mode, forced = false, now, selfName, history, neighbors, trigger, triggerKind, channels = [], currentChannelId = null, descriptions, videos, imageAnswers, reads, lookup = null } = input;
   const labels = requireLabels(prompts);
   const privateChat = Boolean(input.privateChat);
@@ -3206,7 +3209,7 @@ export function buildRequest(input) {
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(history, now, routed ? null : trigger);
-  const tempoText = renderTempo(routed ? { ...tempo, lastIsOwn: false } : tempo, labels, config.context.tempo);
+  const tempoText = heartbeat ? '' : renderTempo(routed ? { ...tempo, lastIsOwn: false } : tempo, labels, config.context.tempo);
 
   // The trigger's line in another channel (a routed call), when a pulled channel holds it.
   const pulledTrigger =
@@ -4008,7 +4011,7 @@ export function buildRequest(input) {
   const seen = seenOf({ history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.
-  const user = assembleUser({ nowText, timezone, labels, senses, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
+  const user = assembleUser({ nowText, timezone, labels, senses, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: heartbeat ? null : keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
 
   return {
     messages: [

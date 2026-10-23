@@ -211,10 +211,16 @@ const LOOP_MIN_CALL_MS = 2000;
 const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', 'intent.set', 'intent.update', 'intent.cancel']);
 /**
  * The calls a heartbeat turn accepts while `innerLife.heartbeat.intentionsOnly` is on (docs/inner-life.md
- * "What a heartbeat may do"): one change of an intention. Anything else she calls is refused `heartbeat-only`;
+ * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
  * `<skip/>` is no call.
  */
 const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intent.set', 'intent.update', 'intent.cancel']);
+/** Memory inspection available while deciding a heartbeat; external reads and other effects remain deferred. */
+const HEARTBEAT_READ_SKILLS = Object.freeze([
+  'memory.search', 'memory.profile.read', 'memory.affinity.read', 'memory.channel.read',
+  'memory.server.read', 'memory.recent.read', 'memory.archive.read', 'memory.journal.read',
+  'conversation.read', 'intent.list', 'lore.list', 'lore.show', 'skills.describe',
+]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
 const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
 /** Why a call of a step did not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent. For the journal and the log. */
@@ -2072,8 +2078,8 @@ export function createTurnRunner({
       log.info('skill: refused', { skill: call.skill, code: call.preRefuse.code, reason: call.preRefuse.reason, channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
     }
-    // A heartbeat turn that may only change an intention: any other call is refused before anything is resolved (she reads why).
-    if (heartbeatOnly(draft) && !HEARTBEAT_INTENT_SKILLS.includes(call.skill)) {
+    // A heartbeat may inspect memory before changing an intention; other calls are refused before resolution.
+    if (heartbeatOnly(draft) && !HEARTBEAT_INTENT_SKILLS.includes(call.skill) && !HEARTBEAT_READ_SKILLS.includes(call.skill)) {
       log.info('skill: refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only', channel: channel.id });
       log.info('heartbeat: call refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY });
       return { call, op, envelope, resolved: null, refusal: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only' } };

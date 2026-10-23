@@ -1,5 +1,5 @@
 // Tests for what a heartbeat turn may do (docs/inner-life.md "What a heartbeat may do"): with
-// innerLife.heartbeat.intentionsOnly only an intention change and a skip are accepted (anything else is
+// innerLife.heartbeat.intentionsOnly memory inspection, an intention change and a skip are accepted (other calls are
 // refused heartbeat-only and she reads why), the turn ends after the first change that goes through with no
 // further request, the engine stamps origin `heartbeat` on what the turn creates and the updates keep it,
 // the caps (maxOpen, maxRecurring) refuse naming the open ones, and the switch gives the earlier
@@ -20,7 +20,7 @@ import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
 import { wakeBlockText } from '../src/behavior/wake.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { call, completionOf, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
 import { tempDir } from './fixtures/tmp.js';
 
 const DISCORD = createDiscordInterface().capabilities;
@@ -140,7 +140,7 @@ const BEAT_WAKE = {
   budgets: { chain: { used: 0, cap: 3, left: 3 } },
 };
 const DUE_WAKE = { ...BEAT_WAKE, kind: 'intention_due', items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }], chainId: 'i1' };
-const GRANTS = ['lore.list', 'message.create', 'intent.set', 'intent.update', 'intent.cancel'];
+const GRANTS = ['conversation.read', 'lore.show', 'lore.list', 'message.create', 'intent.set', 'intent.update', 'intent.cancel'];
 
 /** A real intention service over a temp data dir (guild g1) and a clock fixed at NOW. */
 function intentionService(hot) {
@@ -153,9 +153,10 @@ function intentionService(hot) {
  * wake (a heartbeat by default), `beat` the `innerLife.heartbeat` section of the turn's config, `seed(service)`
  * what exists before the turn.
  */
-async function liveTurn({ answers, wake = BEAT_WAKE, beat = {}, seed = null, intentionsCfg = {} }) {
+async function liveTurn({ answers, wake = BEAT_WAKE, beat = {}, seed = null, intentionsCfg = {}, transport = 'native', lore = [] }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' })];
   const hot = hotWith({ features: { intentions: true }, access: personaGrants(GRANTS), innerLife: { mode: 'live', heartbeat: beat } });
+  hot.config.skills.transport = transport;
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };
   const intentions = intentionService(hot);
   seed?.(intentions);
@@ -163,6 +164,7 @@ async function liveTurn({ answers, wake = BEAT_WAKE, beat = {}, seed = null, int
   for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
+  store.getLore = () => lore;
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, intentions });
   const llm = sequenceLlm(typeof answers === 'function' ? answers(intentions) : answers);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
@@ -179,14 +181,14 @@ const SET = (text, extra = {}) => toolAnswer(THINK, [call('intent.set', { due: '
 const readOf = (run, i) => run.llm.calls[i].filter((message) => message.role === 'tool').map((message) => (typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join(''))).join('\n');
 const actionsOf = (run) => run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
-test('heartbeat turn: a post and a read are refused heartbeat-only, she reads why, then one intent.set ends the turn with no further request', async () => {
+test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intent.set ends the turn with no further request', async () => {
   const run = await liveTurn({ answers: [toolAnswer(THINK, [call('message.create', { text: 'γεια' }), call('lore.list')]), SET('check the thread in #general and answer if it is still open')] });
-  assert.deepEqual(actionsOf(run), ['message.create:refused:heartbeat-only', 'lore.list:refused:heartbeat-only', 'intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(run), ['message.create:refused:heartbeat-only', 'lore.list:executed:ok', 'intent.set:executed:ok']);
   assert.deepEqual(run.sends, [], 'nothing was posted');
   assert.equal(run.llm.calls.length, 2, 'the refusal step, and no request after the change');
   assert.ok(readOf(run, 1).includes(labels.skills.result.reasons['heartbeat-only']), 'she reads the refusal');
   assert.equal(run.list().length, 1);
-  assert.ok(run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'lore.list'), 'the refusal is logged');
+  assert.ok(!run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'lore.list'), 'memory inspection is allowed');
 });
 
 test('heartbeat turn: the first change that goes through ends the turn at once; a skip is one request', async () => {
@@ -295,4 +297,54 @@ test('the heartbeat view marks an open intention a heartbeat made; the wake word
   assert.ok(text.includes(labels.wake.heartbeat.intentionsOnly));
   const off = await view({ intentionsOnly: false });
   assert.ok(!wakeBlockText({ ...BEAT_WAKE, heartbeat: off }, labels).includes(labels.wake.heartbeat.intentionsOnly));
+});
+
+for (const transport of ['native', 'text']) {
+  test(`heartbeat ${transport}: a read result is inspected before one intention ends the turn`, async () => {
+    const answer = transport === 'native' ? toolAnswer : textAnswer;
+    const run = await liveTurn({ transport, lore: [{ id: 'l1', title: 'Weekend tournament', keys: ['tournament'], text: 'A shared game', always: false }], answers: [
+      answer(THINK, [call('lore.list')]),
+      answer(THINK, [call('intent.set', { due: '1h', text: 'ask about the remembered conversation' })]),
+      answer(THINK, [call('lore.list')]),
+    ] });
+    assert.deepEqual(actionsOf(run), ['lore.list:executed:ok', 'intent.set:executed:ok']);
+    assert.equal(run.llm.calls.length, 2);
+    assert.equal(run.list().length, 1);
+    assert.deepEqual(run.sends, []);
+    assert.ok(JSON.stringify(run.llm.calls[1].slice(2)).includes('Weekend tournament'), 'the continuation receives the memory result');
+  });
+}
+
+test('heartbeat: inspecting memory may end in a skip without creating an intention', async () => {
+  const run = await liveTurn({ answers: [toolAnswer(THINK, [call('lore.list')]), '<skip/>'] });
+  assert.deepEqual(actionsOf(run), ['lore.list:executed:ok']);
+  assert.equal(run.llm.calls.length, 2);
+  assert.deepEqual(run.list(), []);
+  assert.deepEqual(run.sends, []);
+});
+
+test('heartbeat: an external read remains forbidden even though memory reads are allowed', async () => {
+  const run = await liveTurn({ answers: [toolAnswer(THINK, [call('web.read', { url: 'https://example.com' })]), '<skip/>'] });
+  assert.deepEqual(actionsOf(run), ['web.read:refused:heartbeat-only']);
+  assert.equal(run.llm.calls.length, 2);
+  assert.deepEqual(run.sends, []);
+});
+
+test('heartbeat: a failed memory read is returned to the model and can end in a skip', async () => {
+  const run = await liveTurn({ answers: [toolAnswer(THINK, [call('lore.show', { id: 'missing' })]), '<skip/>'] });
+  assert.equal(run.result.inner.actions[0].code, 'not-found');
+  assert.equal(run.llm.calls.length, 2);
+  assert.ok(readOf(run, 1).includes('missing'));
+  assert.deepEqual(run.list(), []);
+});
+
+test('heartbeat: conversation inspection returns real lines before creating a targeted intention', async () => {
+  const run = await liveTurn({ answers: [
+    toolAnswer(THINK, [call('conversation.read', { channel: '#general', last: 1 })]),
+    SET('reply to the remembered message in general'),
+  ] });
+  assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intent.set:executed:ok']);
+  assert.ok(readOf(run, 1).includes('πρώτο'), 'the continuation sees the actual conversation line');
+  assert.equal(run.llm.calls.length, 2);
+  assert.deepEqual(run.sends, []);
 });
