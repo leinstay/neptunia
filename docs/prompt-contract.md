@@ -283,7 +283,9 @@ something to read (a `data` result, a call that did not work, an inner turn's op
 request, append-only: the previous messages, her answer (`tool_calls` on the native transport, her raw text on the
 text one), one result for each call (a `tool` message, or a `<tool_result id name status>` block), and a note when there
 is something to say -- in this order the held notice, the lines that came in meanwhile under `task.step.delta`
-(numbered past the request's own lines and any `memory.search` handles; her own lines left out), one
+(numbered past the request's own lines and any `memory.search` handles; her own lines left out), the lines
+whose video or captions the first request showed as not ready and are ready now, once, under `task.step.late` (re-rendered
+with their original `#N`), one
 `task.step.delivery` line per speech message that did not go out, `task.step.last` (`task.step.lastInner` on an inner
 turn), an inner turn's open-intentions line and the parser's diagnostics under `task.diagnostics`. The first user
 message is never rebuilt; a fourth cache marker (5 minutes) sits on the last part of the appended prefix.
@@ -697,6 +699,7 @@ task.failedEarlier                       {author} {n} {ago} {code}: an addressed
 task.diagnostics                         OPTIONAL: the line that opens what the parser did with her last answer, added to the task of a loop step before one `- ` line per diagnostic (`skills.diagnostics.<kind>`); told once
 task.step.held                           the note's first line when her speech of the previous answer was held (not sent): says so, without repeating her text
 task.step.delta                          the lead of the lines that came in since her last answer, numbered past the request's own lines
+task.step.late                           the lead of the lines whose video or captions were not ready in the first request and are now, re-rendered under their original numbers, told once
 task.step.last                           the notice that this request is the last one: a call in it will not run
 task.step.lastInner                      the same for an inner turn, whose last request still runs one terminal call (a post or an intention change)
 task.step.delivery                       {n} {total} {code}: some of the messages of her speech did not go out ({code} the first failure)

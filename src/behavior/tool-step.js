@@ -83,19 +83,21 @@ export function appendStep({ transport, messages, rawText = '', calls, results, 
 
 /**
  * The trailing note of a step, lines in this order: a notice that her speech was held (it does not
- * repeat her text), the lines that came in meanwhile under their lead, one line per message that
+ * repeat her text), the lines that came in meanwhile under their lead, the lines whose media
+ * was not ready in the first request and is now (`lateText`) under theirs, one line per message that
  * did not go out, the last-step notice, the open-intentions line of an inner turn, and the parser's
  * diagnostics under their header. Every word from `labels.task`; '' when there is nothing to say.
- * @param {{ labels: object, held?: boolean, deltaText?: string, deliveries?: { n: number, total: number, code: string }[], last?: boolean, terminal?: boolean,
+ * @param {{ labels: object, held?: boolean, deltaText?: string, lateText?: string, deliveries?: { n: number, total: number, code: string }[], last?: boolean, terminal?: boolean,
  *   open?: string, diagnostics?: string[] }} input
  * @returns {string}
  */
-export function stepNote({ labels, held = false, deltaText = '', deliveries = [], last = false, terminal = false, open = '', diagnostics = [] }) {
+export function stepNote({ labels, held = false, deltaText = '', lateText = '', deliveries = [], last = false, terminal = false, open = '', diagnostics = [] }) {
   const task = labels?.task ?? {};
   const step = task.step ?? {};
   const lines = [];
   if (held && step.held) lines.push(step.held);
   if (deltaText) lines.push([step.delta, deltaText].filter(Boolean).join('\n'));
+  if (lateText) lines.push([step.late, lateText].filter(Boolean).join('\n'));
   for (const item of Array.isArray(deliveries) ? deliveries : []) if (step.delivery) lines.push(fill(step.delivery, item));
   // An inner turn's last step still allows one terminal call: its own notice, else the ordinary one.
   if (last) {
