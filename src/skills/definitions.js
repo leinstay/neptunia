@@ -494,11 +494,11 @@ const ENTRIES = [
     toArgs: (a) => ({ url: opt(a, 'url'), message: opt(a, 'message') }),
   }),
   def('media.look', {
-    params: obj({ message: str(200), question: str(500), item: int(1, 20) }, ['message', 'question']),
+    params: obj({ message: str(200), url: str(2000), question: str(500), item: int(1, 20) }, ['question']),
     body: 'question',
     effects: 'read',
     feature: 'coreTools',
-    toArgs: (a) => ({ message: val(a, 'message'), question: val(a, 'question'), ...(val(a, 'item') == null ? {} : { item: val(a, 'item') }) }),
+    toArgs: (a) => ({ message: opt(a, 'message'), url: opt(a, 'url'), question: val(a, 'question'), ...(val(a, 'item') == null ? {} : { item: val(a, 'item') }) }),
   }),
   def('media.find', {
     params: obj({ query: str(200), n: int(1, 10) }, ['query']),

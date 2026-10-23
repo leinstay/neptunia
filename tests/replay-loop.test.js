@@ -771,6 +771,28 @@ test('createReplayTools: media.look looks again through the describer over the m
   assert.equal(find.result.status, 'ok', JSON.stringify(find.result));
 });
 
+test('createReplayTools: media.look with a url looks at the video link through the same describer, no history needed', async () => {
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}), getGifs: () => [] };
+  const vision = { complete: async () => ({ text: 'x', usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 } }) };
+  const seen = [];
+  const createDescriber = ({ llm: client }) => ({ rewatchVideo: async (guildId, item, question) => (seen.push(item), await client.complete([], {}), { question, text: 'ένα τραγούδι' }) });
+  const config = toolConfig({ features: { vision: true, mediaDescriptions: true, videoDescriptions: true } });
+  const hot = { config: { ...config, media: { ...config.media, video: { ...config.media?.video, sites: ['youtube.com'] }, look: { maxPerTurn: 1 } } }, prompts: { labels } };
+  const tools = createReplayTools({
+    hot, store, guild: { id: GUILD }, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', llm: vision,
+    createLookup: () => ({}), createRecall: () => ({}), runWebSearch, runMemorySearch, discord: {}, mediaCache: {},
+    mediaTools: { createDescriber, runMediaLook, runMediaFind, lookPerTurn },
+  });
+  const url = 'https://www.youtube.com/watch?v=abc123';
+  const first = await tools.run('media.look', { url, question: 'τι ακούγεται;' }, { history: [] });
+  assert.equal(first.result.status, 'ok', JSON.stringify(first.result));
+  assert.ok(first.result.data.text.includes('ένα τραγούδι'));
+  assert.deepEqual([seen[0].source, seen[0].url, seen[0].messageId], ['link', url, null]);
+  assert.equal(first.usage.requests, 1);
+  const second = await tools.run('media.look', { url, question: 'και τώρα;' }, { history: [] });
+  assert.deepEqual([second.result.status, second.result.code], ['failed', 'turn-cap']);
+});
+
 test('loopCall: a tool that throws logs one warning with its message', async () => {
   const warnings = [];
   const broken = loopCall({

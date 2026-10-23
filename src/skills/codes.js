@@ -109,6 +109,7 @@ export const CATALOGUE = Object.freeze({
   'no-query': skill('invalid'),
   'no-link': skill('invalid'),
   'no-media': skill('invalid'),
+  'not-video-site': skill('invalid'),
   'invalid-action': skill('invalid'),
   'invalid-emoji': skill('invalid'),
   scheme: skill('invalid'),

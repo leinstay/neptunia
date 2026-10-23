@@ -459,6 +459,7 @@ export const labels = {
         'requester-denied': 'asker may not',
         'turn-cap': 'no more looks this turn',
         'no-media': 'nothing to look at',
+        'not-video-site': 'not a video site',
         'message-deleted': 'that message was deleted',
         'unknown-gif': 'no gif by that handle',
         'gif-cap': 'gif limit used up',
@@ -484,7 +485,7 @@ export const labels = {
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', handles: 'quoted lines carry message numbers', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found' },
       describe: { closest: 'no such skill; closest: {names}' },
-      look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', off: '{feature} is off' },
+      look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', off: '{feature} is off', notVideoSite: 'only these sites: {sites}' },
     },
     diagnostics: {
       retiredTag: 'retired tag cut out: {tag}',
