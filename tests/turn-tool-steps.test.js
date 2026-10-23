@@ -653,3 +653,63 @@ test('the journal records a late watch that a continuation request showed as del
   const watched = lines.map((line) => line.record).filter((record) => record.op === 'watch-video' || record.name === 'watch-video');
   assert.ok(JSON.stringify(watched).includes('"delivered":true'), JSON.stringify(watched));
 });
+
+/**
+ * A turn whose first line carries a picture the caption stage is still on when the request goes out, answered with `answers`;
+ * `settleAt` is the request number at whose answer the captions come in, after the request left.
+ */
+async function lateCaptionTurn({ answers, settleAt, journal = null }) {
+  let finish;
+  const captioned = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const describer = {
+    describeMany: async () => {
+      await captioned;
+      return { descriptions: new Map([['pa', 'a red kite over a field']]), newCount: 1 };
+    },
+  };
+  const attachment = { id: 'pa', contentType: 'image/png', name: 'kite.png', url: 'https://cdn.discordapp.com/attachments/1/2/kite.png', width: 640, height: 480 };
+  return coreTurn({
+    answers,
+    firstAttachments: new Map([['pa', attachment]]),
+    features: { mediaDescriptions: true },
+    config: { media: { maxPerTurn: 6, filePreviewChars: 500 }, pace: { prepareMs: 1000, dropAfterMs: 0, replyHedgeMs: 0, typingWhilePreparing: false } },
+    runner: { describer, schedule: (fn) => (setImmediate(fn), () => {}) },
+    journal,
+    onAnswer: (n) => {
+      if (n === settleAt) finish();
+    },
+  });
+}
+
+test('a picture whose caption was late is told in the next step\'s note once the captions are in, under its original handle, and not again', async () => {
+  const turn = await lateCaptionTurn({
+    answers: [toolAnswer('<think>1</think>', [call('lore.list')]), toolAnswer('<think>2</think>', [call('memory.server.read')]), '<skip/>'],
+    settleAt: 0,
+  });
+  assert.ok(!requestText(turn.llm, 0).includes('a red kite over a field'), 'the first request went out before the captions');
+  const first = noteText(turn.llm, 1);
+  assert.ok(first.includes(labels.task.step.late), first);
+  assert.match(first, /#1 [^\n]*a red kite over a field/, first);
+  assert.equal(turn.llm.calls.length, 3);
+  assert.ok(!noteText(turn.llm, 2).includes(labels.task.step.late), noteText(turn.llm, 2));
+});
+
+test('captions still out at a step say nothing in that step\'s note; the step after them, once they are in, tells the line', async () => {
+  const turn = await lateCaptionTurn({
+    answers: [toolAnswer('<think>1</think>', [call('lore.list')]), toolAnswer('<think>2</think>', [call('memory.server.read')]), '<skip/>'],
+    settleAt: 1,
+  });
+  assert.ok(!noteText(turn.llm, 1).includes(labels.task.step.late), noteText(turn.llm, 1));
+  const second = noteText(turn.llm, 2);
+  assert.ok(second.includes(labels.task.step.late), second);
+  assert.match(second, /#1 [^\n]*a red kite over a field/, second);
+});
+
+test('the journal records late captions that a continuation request showed as delivered', async () => {
+  const { journal, lines } = journalOverMemory();
+  await lateCaptionTurn({ answers: [toolAnswer('<think>1</think>', [call('lore.list')]), '<skip/>'], settleAt: 0, journal });
+  const described = lines.map((line) => line.record).filter((record) => record.name === 'describe');
+  assert.ok(JSON.stringify(described).includes('"delivered":true'), JSON.stringify(described));
+});
