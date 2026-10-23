@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IN_TURN_TOOLS, firstLinkIn, lookableMedia, mediaLookText, memorySearchText, runMediaLook, runMemorySearch, runWebRead, runWebSearch, webReadText, webSearchText } from '../src/skills/tools.js';
 import { fill } from '../src/format.js';
+import { videoSiteFor, videoUrlCacheKey } from '../src/media/video-sites.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12);
@@ -308,6 +309,57 @@ test('runMediaLook: the statuses -- arguments, message, media, switches, the tur
   assert.deepEqual(await run({ describer: fakeDescriber({ answer: null }) }), ['failed', 'error'], 'the describer gave nothing back');
   const throwing = { relookImage: async () => { throw new Error('boom'); } };
   assert.deepEqual(await run({ describer: throwing }), ['failed', 'error']);
+});
+
+test('runMediaLook url: a video link of a listed site goes to the video second look as a link item, with the question', async () => {
+  const describer = fakeDescriber({ answer: 'ένα τραγούδι' });
+  const config = { ...LOOK_ON, media: { video: { sites: ['youtube.com', 'tiktok.com'] } } };
+  const url = 'https://www.youtube.com/watch?v=abc123&t=5';
+  const result = await runMediaLook({ describer, config, labels, guildId: 'g1', args: { url, question: ' τι ακούγεται; ' }, mediaOf: () => { throw new Error('no message is read'); } });
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(describer.calls, [{ method: 'rewatchVideo', guildId: 'g1', itemId: videoUrlCacheKey(url), question: 'τι ακούγεται;' }]);
+  assert.equal(result.data.text, mediaLookText({ kind: 'video', name: url, question: 'τι ακούγεται;', text: 'ένα τραγούδι' }, { labels }));
+  let seen = null;
+  const spy = { rewatchVideo: async (guildId, item, question) => { seen = item; return { question, text: 'x' }; } };
+  await runMediaLook({ describer: spy, config, labels, guildId: 'g1', args: { url, question: 'q' }, mediaOf: null });
+  assert.deepEqual(seen, { source: 'link', messageId: null, itemId: videoUrlCacheKey(url), kind: 'link', url, site: videoSiteFor(url, config.media.video.sites), name: url, durationSec: null });
+});
+
+test('runMediaLook url: a link off the site list is refused as not-video-site and the result names the sites; nothing is fetched', async () => {
+  const describer = fakeDescriber();
+  const config = { ...LOOK_ON, media: { video: { sites: ['youtube.com', 'tiktok.com'] } } };
+  const result = await runMediaLook({ describer, config, labels, guildId: 'g1', args: { url: 'https://example.com/clip.mp4', question: 'τι;' }, mediaOf: null });
+  assert.deepEqual([result.status, result.code], ['invalid', 'not-video-site']);
+  assert.equal(result.data.text, fill(labels.skills.tools.look.notVideoSite, { sites: 'youtube.com, tiktok.com' }));
+  assert.deepEqual(describer.calls, []);
+});
+
+test('runMediaLook url: exactly one of message and url; an unparseable or non-http url is invalid-args', async () => {
+  const run = (args) => runMediaLook({ describer: fakeDescriber(), config: LOOK_ON, labels, guildId: 'g1', args, mediaOf: () => mediaMessage() }).then((r) => [r.status, r.code, r.reason]);
+  assert.deepEqual(await run({ message: 'm7', url: 'https://youtube.com/watch?v=abc', question: 'τι;' }), ['invalid', 'invalid-args', 'args.url|message:one']);
+  assert.deepEqual(await run({ question: 'τι;' }), ['invalid', 'invalid-args', 'args.url|message:one']);
+  assert.deepEqual(await run({ url: 'not a url', question: 'τι;' }), ['invalid', 'invalid-args', 'args.url:bad']);
+  assert.deepEqual(await run({ url: 'ftp://youtube.com/watch?v=abc', question: 'τι;' }), ['invalid', 'invalid-args', 'args.url:bad']);
+  assert.deepEqual(await run({ url: 'https://youtube.com/watch?v=abc' }), ['invalid', 'invalid-args', 'args.question:required']);
+});
+
+test('runMediaLook url: the video switch, the daily caps and the turn cap the message looks have, the turn count shared', async () => {
+  const given = { url: 'https://youtube.com/watch?v=abc', question: 'τι;' };
+  const run = ({ describer = fakeDescriber(), config = LOOK_ON, takeTurnSlot, args = given } = {}) => runMediaLook({ describer, config, labels, guildId: 'g1', args, mediaOf: () => mediaMessage(), ...(takeTurnSlot ? { takeTurnSlot } : {}) }).then((r) => [r.status, r.code]);
+  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, videoRewatch: false } } }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await run({ describer: null }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 0, rewatch: 5 } }) }), ['failed', 'daily-cap']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0 } }) }), ['failed', 'daily-cap']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 5, gif: 0 } }) }), ['ok', undefined], 'a video link takes no GIF slot');
+  // One per-turn count for both kinds of look.
+  let slots = 1;
+  const takeTurnSlot = () => (slots > 0 ? ((slots -= 1), true) : false);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;' }, takeTurnSlot }), ['ok', undefined]);
+  assert.deepEqual(await run({ takeTurnSlot }), ['failed', 'turn-cap']);
+  slots = 1;
+  assert.deepEqual(await run({ takeTurnSlot }), ['ok', undefined]);
+  assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;' }, takeTurnSlot }), ['failed', 'turn-cap']);
+  assert.deepEqual(await run({ describer: fakeDescriber({ answer: null }) }), ['failed', 'error']);
 });
 
 test('runMediaLook: a placeholder of a deleted message is refused as unknown-message with the reason message-deleted', async () => {

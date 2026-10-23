@@ -719,6 +719,7 @@
         "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
         "no-link": "that message has no link to read",
         "no-media": "that message holds no picture or video to look at",
+        "not-video-site": "that link is not on a site where a video can be watched",
         "turn-cap": "you have looked again as many times as one turn allows",
         "scheme": "that is not a web address",
         "private": "that address is private or local",
@@ -842,7 +843,8 @@
       "look": {
         "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
         "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
-        "off": "{feature} is off."
+        "off": "{feature} is off.",
+        "notVideoSite": "Only a video link from one of these sites can be watched: {sites}."
       },
       "find": {
         "source": "Source: media.find, your GIF library. {count} results for \"{query}\".",

@@ -305,7 +305,8 @@ const narrowed = (keep, required, changes = {}) => (schema) => ({
 
 /**
  * Where a definition is meant to differ from the owner's command tree (the oracle): `draw.create`
- * takes `reply` (the message to answer, which also names the channel), and `message.create` has no
+ * takes `reply` (the message to answer, which also names the channel), and `media.look` takes a `url` too and
+ * requires no `message`, and `message.create` has no
  * required argument (a post may be a GIF, a file or a media repost; the gateway still refuses an
  * empty one). Her schemas also carry only the arguments the operation reads and require what it
  * refuses without (the slash commands share one option list across their actions): `intent.*` one
@@ -320,6 +321,8 @@ export const EXPECTED_DIFFERENCES = {
     args: (args, sample) => (sample.reply === undefined ? args : { ...args, replyTo: sample.reply }),
   },
   'message.create': { schema: (schema) => ({ ...schema, required: [] }) },
+  // Her look takes a video link instead of a message (`/nep task look` stays on a message): one of the two, checked by the runner.
+  'media.look': { schema: (schema) => ({ ...schema, properties: { ...schema.properties, url: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['question'] }) },
   'media.status': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
   'media.rescan': { schema: narrowed(['kind'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['emoji', 'gifs'] } }) },
   'media.recache': { schema: narrowed(['kind', 'days'], ['kind'], { kind: { type: 'string', minLength: 1, maxLength: STRING_MAX, enum: ['gifs', 'pictures'] } }) },

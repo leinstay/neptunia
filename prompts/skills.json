@@ -370,6 +370,7 @@
     "whenToUse": "Closer look at picture, GIF, or video. Same turn.",
     "whenNotToUse": "Not when first look answers.",
     "args": {
+      "url": "A video link from a supported site, instead of a message.",
       "item": "Which attachment (1 to 20)."
     }
   },

@@ -27,6 +27,7 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.js';
+import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { foldText } from '../memory/recent.js';
 import { rankGifs } from '../memory/gifs.js';
@@ -510,11 +511,13 @@ function switchOf(kind, features, config) {
 
 /**
  * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
- * order) of the message `args.message` names (an id her `#N` resolved to; `mediaOf(id)`, the
- * caller's, gives the normalized message or null), looked at again with her `args.question` as
+ * order) of the message `args.message` names, or (`args.url`, exactly one of the two) a video link of a
+ * `media.video.sites` site (`not-video-site` otherwise, `data.text` from `labels.skills.tools.look.notVideoSite`, `{sites}`; the
+ * engine fetches no other host) looked at as a chat's video link is, with `name` the link itself. A message is an id her `#N` resolved to (`mediaOf(id)`, the
+ * caller's, gives the normalized message or null). The item is looked at again with her `args.question` as
  * she wrote it through the describer's second look (relookImage, rewatchGif, rewatchVideo: their
  * daily counters, their cache, `llm.maxRequestsPerDay`). `invalid` (`invalid-args`) without a
- * message or a question, or with an item the message does not hold; `invalid`
+ * message-or-url (both or neither) or a question, an unparseable url, or with an item the message does not hold; `invalid`
  * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
  * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.skills.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
@@ -529,20 +532,44 @@ function switchOf(kind, features, config) {
 export async function runMediaLook({ describer, config, labels, guildId, args, mediaOf, takeTurnSlot = null }) {
   try {
     const messageId = text(args?.message);
+    const link = text(args?.url);
     const question = text(args?.question);
-    if (!messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.message:required' };
+    if (messageId && link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
+    if (!messageId && !link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
     if (!question) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.question:required' };
-    if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
-    if (!message) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE };
-    // A placeholder line of a deleted message: gone, whatever it held.
-    if (message.deleted === true) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
-    const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
-    if (media.length === 0) return { status: 'invalid', code: CODE.NO_MEDIA };
-    const given = args?.item;
-    const n = given === undefined || given === null || given === '' ? 1 : Number(given);
-    if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
-    const { kind, item } = media[n - 1];
+    let kind;
+    let item;
+    if (link) {
+      let parsed = null;
+      try {
+        parsed = new URL(link);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:bad' };
+      const sites = config?.media?.video?.sites;
+      const site = Array.isArray(sites) ? videoSiteFor(link, sites) : null;
+      if (!site) {
+        const notVideo = toolLabels(labels, 'look').notVideoSite;
+        const list = Array.isArray(sites) ? sites.join(', ') : '';
+        return { status: 'invalid', code: CODE.NOT_VIDEO_SITE, ...(notVideo ? { data: { text: fill(notVideo, { sites: list }) } } : {}) };
+      }
+      if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      kind = 'video';
+      item = { source: 'link', messageId: null, itemId: videoUrlCacheKey(link), kind: 'link', url: link, site, name: link, durationSec: null };
+    } else {
+      if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
+      if (!message) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE };
+      // A placeholder line of a deleted message: gone, whatever it held.
+      if (message.deleted === true) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
+      const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
+      if (media.length === 0) return { status: 'invalid', code: CODE.NO_MEDIA };
+      const given = args?.item;
+      const n = given === undefined || given === null || given === '' ? 1 : Number(given);
+      if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
+      ({ kind, item } = media[n - 1]);
+    }
     const look = LOOKS[kind];
     if (!look.on(config?.features ?? {}, config) || typeof describer[look.method] !== 'function') {
       // The switch that is off, by name (`labels.skills.tools.look.off`, as the call mark's op text).

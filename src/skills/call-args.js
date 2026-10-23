@@ -8,7 +8,7 @@
 const SHOWN = Object.freeze({
   'web.search': ['query', 'goal'],
   'web.read': ['url'],
-  'media.look': ['question', 'item'],
+  'media.look': ['question', 'url', 'item'],
   'media.find': ['query', 'n'],
   'memory.search': ['question', 'people', 'channel', 'when', 'terms'],
   'conversation.read': ['channel', 'around', 'before', 'after', 'since', 'last'],
