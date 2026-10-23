@@ -367,7 +367,7 @@
   },
   "media.look": {
     "title": "Look more closely",
-    "whenToUse": "Closer look at a picture, GIF or video in the chat, or at a video by link. Same turn.",
+    "whenToUse": "Closer look at a picture, GIF or video in the chat. Watches a video by link before you share or talk about it. Same turn.",
     "whenNotToUse": "Not when the first look answers.",
     "args": {
       "message": "#N to look at.",
