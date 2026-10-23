@@ -590,3 +590,66 @@ test('a line shown to her in a step note counts as seen: the turn that spoke ans
   assert.equal(run.turns.spokeAfterSeeing('c1', 'm9'), true);
   assert.equal(run.turns.spokeAfterSeeing('c1', 'm1'), true, 'the initial window is still marked');
 });
+
+/**
+ * A turn whose first line carries a video the watch is still on when the request goes out (the deadline fires at once), answered
+ * with `answers`; `settleAt` is the request number at whose answer the watch finishes (`onAnswer`), after the request left.
+ */
+async function lateVideoTurn({ answers, settleAt, journal = null }) {
+  let finish;
+  const watch = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const describer = {
+    describeMany: async () => ({ descriptions: new Map(), newCount: 0 }),
+    describeVideos: async () => {
+      await watch;
+      return { videos: new Map([['va', { state: 'watched', text: 'a bridge at night' }]]), newCount: 1 };
+    },
+  };
+  const attachment = { id: 'va', contentType: 'video/mp4', name: 'clip.mov', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mov', duration: 20 };
+  return coreTurn({
+    answers,
+    firstAttachments: new Map([['va', attachment]]),
+    features: { mediaDescriptions: true, videoDescriptions: true },
+    config: { media: { maxPerTurn: 6, filePreviewChars: 500, video: { maxPerTurn: 1, sites: [] } }, pace: { prepareMs: 1000, dropAfterMs: 0, replyHedgeMs: 0, typingWhilePreparing: false } },
+    runner: { describer, schedule: (fn) => (setImmediate(fn), () => {}) },
+    journal,
+    onAnswer: (n) => {
+      if (n === settleAt) finish();
+    },
+  });
+}
+
+test('a video rendered still loading is told in the next step\'s note once its watch is done, under its original handle, and not again', async () => {
+  const turn = await lateVideoTurn({
+    answers: [toolAnswer('<think>1</think>', [call('lore.list')]), toolAnswer('<think>2</think>', [call('memory.server.read')]), '<skip/>'],
+    settleAt: 0,
+  });
+  assert.ok(requestText(turn.llm, 0).includes(labels.transcript.videoReason.pending), requestText(turn.llm, 0));
+  assert.ok(!requestText(turn.llm, 0).includes('a bridge at night'), 'the first request went out before the watch finished');
+  const first = noteText(turn.llm, 1);
+  assert.ok(first.includes(labels.task.step.late), first);
+  assert.match(first, /#1 [^\n]*a bridge at night/, first);
+  assert.ok(!first.includes(labels.transcript.videoReason.pending), 'the re-rendered line shows the finished state');
+  assert.equal(turn.llm.calls.length, 3);
+  assert.ok(!noteText(turn.llm, 2).includes(labels.task.step.late), noteText(turn.llm, 2));
+});
+
+test('a video still loading at a step says nothing in that step\'s note; the step after it, when the watch is done, tells it', async () => {
+  const turn = await lateVideoTurn({
+    answers: [toolAnswer('<think>1</think>', [call('lore.list')]), toolAnswer('<think>2</think>', [call('memory.server.read')]), '<skip/>'],
+    settleAt: 1,
+  });
+  assert.ok(!noteText(turn.llm, 1).includes(labels.task.step.late), noteText(turn.llm, 1));
+  const second = noteText(turn.llm, 2);
+  assert.ok(second.includes(labels.task.step.late), second);
+  assert.match(second, /#1 [^\n]*a bridge at night/, second);
+});
+
+test('the journal records a late watch that a continuation request showed as delivered', async () => {
+  const { journal, lines } = journalOverMemory();
+  await lateVideoTurn({ answers: [toolAnswer('<think>1</think>', [call('lore.list')]), '<skip/>'], settleAt: 0, journal });
+  const watched = lines.map((line) => line.record).filter((record) => record.op === 'watch-video' || record.name === 'watch-video');
+  assert.ok(JSON.stringify(watched).includes('"delivered":true'), JSON.stringify(watched));
+});

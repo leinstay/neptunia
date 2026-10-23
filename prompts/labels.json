@@ -474,6 +474,7 @@
     "step": {
       "held": "Your messages from the previous answer were not sent. The results of your calls are above.",
       "delta": "New lines in the channel since your last answer:",
+      "late": "These lines were not fully loaded when you first saw them; here they are as they are now:",
       "last": "This is your last step. A call here will not run. Answer from what you have, or end with <skip/>.",
       "delivery": "{n} of {total} deliveries went through; the rest did not ({code}).",
       "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through."

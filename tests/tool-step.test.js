@@ -179,3 +179,9 @@ test('appendStep: every request is the previous one plus what is appended, the f
     assert.ok(two.length > one.length);
   }
 });
+
+test('stepNote: the late-media lines come under their own lead, right after the delta', () => {
+  const note = stepNote({ labels, deltaText: 'D', lateText: '#3 clip' });
+  assert.equal(note, `${labels.task.step.delta}\nD\n\n${labels.task.step.late}\n#3 clip`);
+  assert.equal(stepNote({ labels, lateText: '#3 clip' }), `${labels.task.step.late}\n#3 clip`);
+});

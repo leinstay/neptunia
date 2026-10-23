@@ -1369,18 +1369,19 @@ function linkHosts(links) {
  * `succeeded(result, offered?)` keeps the result until `take(stage, used)` says whether the
  * stage's value reached the request, then writes `succeeded` with `delivered` (taken and
  * something to offer: `offered`, else `offeredOf(result)`). A step that settles after its
- * take, or one never taken (`closeAll`), is written with `delivered: false`.
+ * take, or one never taken (`closeAll`), is written with `delivered: false`; a stage taken still
+ * out with `hold` waits for `tell(stage)` (a later request showed its result) or `closeAll`.
  */
 function createPrepLedger() {
   const entries = [];
   const close = (entry) => {
-    if (entry.closed || entry.result === undefined || entry.taken === null) return;
+    if (entry.closed || entry.held || entry.result === undefined || entry.taken === null) return;
     entry.closed = true;
     entry.op.succeeded({ ...entry.result, delivered: entry.taken && entry.offered });
   };
   return {
     step(stage, op, offeredOf = () => true) {
-      const entry = { stage, op, result: undefined, offered: false, taken: null, closed: false };
+      const entry = { stage, op, result: undefined, offered: false, taken: null, closed: false, held: false };
       entries.push(entry);
       return {
         opId: op.opId,
@@ -1401,15 +1402,30 @@ function createPrepLedger() {
         },
       };
     },
-    take(stage, used) {
+    take(stage, used, { hold = false } = {}) {
       for (const entry of entries) {
         if (entry.stage !== stage || entry.taken !== null) continue;
         entry.taken = Boolean(used);
+        // A stage still out when taken may yet reach a later request (tell): its record waits for that.
+        entry.held = hold && !used;
+        close(entry);
+      }
+    },
+    /** A held stage's result reached a later request: its record is written as delivered. */
+    tell(stage) {
+      for (const entry of entries) {
+        if (entry.stage !== stage || !entry.held) continue;
+        entry.held = false;
+        entry.taken = true;
         close(entry);
       }
     },
     closeAll() {
       for (const entry of entries) {
+        if (entry.held) {
+          entry.held = false;
+          close(entry);
+        }
         if (entry.taken !== null) continue;
         entry.taken = false;
         close(entry);
@@ -2516,6 +2532,74 @@ export function createTurnRunner({
   }
 
   /**
+   * Lines of a step's note rendered like the chat (formatTranscript with the turn's options), numbered from `indexOffset`.
+   * `media` carries what a re-rendered line shows now (`videos`, `descriptions`); a delta's new lines need none.
+   */
+  function stepTranscript(lines, { selfName, handles, indexOffset, media = {} }) {
+    const config = hot.config;
+    const handleOf = handles instanceof Map ? new Map([...handles].map(([handle, id]) => [String(id), handle])) : undefined;
+    return formatTranscript(lines, {
+      timezone: config.bot?.timezone ?? 'UTC',
+      gapMinutes: config.context?.gapMarkerMinutes,
+      maxChars: config.context?.maxMessageChars,
+      selfName,
+      labels: hot.prompts?.labels ?? {},
+      now: clock(),
+      ageMinutes: config.context?.ageAfterMinutes ?? 60,
+      seeReactions: config.features?.seeReactions !== false,
+      reactionsPerMessage: config.context?.reactionsPerMessage,
+      replyQuoteChars: config.context?.replyQuoteChars,
+      handles: handleOf,
+      indexOffset,
+      ...media,
+    });
+  }
+
+  /**
+   * What the request showed as not ready and is ready now, told once in a step's note: a video the
+   * transcript rendered `pending` (the video stage past the deadline) whose watch finished, and,
+   * when the caption stage was late, every line with a picture once the captions are in. The lines
+   * come back re-rendered with their original handles. A stage still out says nothing; a line is
+   * told once. `pending` is what the request showed (`videoIds` the itemIds, `captions` whether the
+   * caption stage was late); `onTold(stage)` closes the journal's step as delivered.
+   * @returns {() => string}  The text for the next note ('' when nothing new).
+   */
+  function lateMediaTeller({ lines, idByIndex, handles, selfName, videoStage, videoItems, captions, captionItems, pending, onTold }) {
+    const told = { videos: new Set(), captions: false };
+    return () => {
+      const states = videoStage?.done && videoStage.value?.videos instanceof Map ? videoStage.value.videos : null;
+      const ids = new Set();
+      const newVideos = [];
+      for (const itemId of pending.videoIds) {
+        const state = states?.get(itemId);
+        if (told.videos.has(itemId) || !state || state.state === 'pending') continue;
+        newVideos.push(itemId);
+        const item = videoItems.find((one) => one.itemId === itemId);
+        if (item) ids.add(item.messageId);
+      }
+      const newCaptions = pending.captions && !told.captions && Boolean(captions?.done);
+      if (newCaptions) for (const item of captionItems) ids.add(item.messageId);
+      if (ids.size === 0) return '';
+      const handleById = new Map([...idByIndex].map(([index, id]) => [id, index]));
+      const media = { videos: states ?? undefined, descriptions: captions?.done ? captions.value?.descriptions : undefined };
+      const out = [];
+      for (const line of lines) {
+        const index = handleById.get(line.id);
+        if (!ids.has(line.id) || !index) continue;
+        const item = stepTranscript([line], { selfName, handles, indexOffset: index - 1, media }).find((one) => one.id === line.id);
+        if (item) out.push(item.text);
+      }
+      for (const itemId of newVideos) told.videos.add(itemId);
+      if (newVideos.length > 0) onTold('videos');
+      if (newCaptions) {
+        told.captions = true;
+        onTold('captions');
+      }
+      return out.join('\n');
+    };
+  }
+
+  /**
    * The steps of one turn, for every kind of chat turn (a reply, a follow-up, a mention, a name, a private chat, a part of a
    * split message, a finished errand, an interjection, an initiative, an overheard line, an inner turn, a heartbeat).
    * `first` is the reply request's answer (readAnswer's); the request in hand is `messages`, append-only from then on.
@@ -2551,7 +2635,7 @@ export function createTurnRunner({
     }
   }
 
-  async function runStepsIn({ channel, guildId, trigger, draft, transport, messages: requestMessages, first, readAnswer, actArgs, callContext, envelopeOf, routing, memoryOn, selfName, triggerKind, typing }) {
+  async function runStepsIn({ channel, guildId, trigger, draft, transport, messages: requestMessages, first, readAnswer, actArgs, callContext, envelopeOf, routing, memoryOn, selfName, triggerKind, lateMedia = null, typing }) {
     const inner = Boolean(draft.inner);
     // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
     const diary = Boolean(draft.diary);
@@ -2611,23 +2695,7 @@ export function createTurnRunner({
       if (numbered.lines.length === 0) return none;
       draft.deltaTaken = numbered.next - 1;
       searchHandles(draft).advance(numbered.next);
-      const config = hot.config;
-      const labels = hot.prompts?.labels ?? {};
-      const handleOf = routed.handles instanceof Map ? new Map([...routed.handles].map(([handle, id]) => [String(id), handle])) : undefined;
-      const items = formatTranscript(numbered.lines, {
-        timezone: config.bot?.timezone ?? 'UTC',
-        gapMinutes: config.context?.gapMarkerMinutes,
-        maxChars: config.context?.maxMessageChars,
-        selfName,
-        labels,
-        now: clock(),
-        ageMinutes: config.context?.ageAfterMinutes ?? 60,
-        seeReactions: config.features?.seeReactions !== false,
-        reactionsPerMessage: config.context?.reactionsPerMessage,
-        replyQuoteChars: config.context?.replyQuoteChars,
-        handles: handleOf,
-        indexOffset: numbered.offset,
-      });
+      const items = stepTranscript(numbered.lines, { selfName, handles: routed.handles, indexOffset: numbered.offset });
       return { text: items.map((item) => item.text).join('\n'), lines: numbered.lines, idByIndex: numbered.idByIndex };
     };
 
@@ -2733,6 +2801,8 @@ export function createTurnRunner({
 
       // 4. The request that follows: the messages so far, her answer, a result for every call, the note.
       const delta = await deltaOf();
+      // Media the request showed as not ready that is ready now (lateMediaTeller), told once.
+      const lateText = lateMedia ? lateMedia() : '';
       // Why a call did not work, in detail: the argument that was wrong, what the skill takes (the operation's own message is her data already).
       const detailOf = (result) =>
         callReason({ detail: outcomeDetail(result, { argNames: registry.get(result.skill)?.dispatch?.options?.map((option) => option.name) ?? null }) }, labels);
@@ -2751,7 +2821,7 @@ export function createTurnRunner({
           rawText: answer.rawText,
           calls: records,
           results: texts.map((text, i) => ({ text, status: results[i]?.status })),
-          note: stepNote({ labels, held: notice, deltaText: delta.text, deliveries, last, terminal: inner, open: openLine, diagnostics }),
+          note: stepNote({ labels, held: notice, deltaText: delta.text, lateText, deliveries, last, terminal: inner, open: openLine, diagnostics }),
         });
       let last = next === 'final';
       let reason = last ? (step >= settings.maxSteps - 1 ? LOOP_WHY.steps : LOOP_WHY.time) : null;
@@ -6754,6 +6824,12 @@ export function createTurnRunner({
             : videoStage
               ? lateVideoStates(videoCandidates, await videosSoFar(), config.media?.video?.maxPerTurn ?? 5)
               : undefined;
+      // What the request shows as not ready, for the steps that follow (lateMediaTeller): the videos rendered
+      // `pending`, and whether the captions were late.
+      const pendingMedia = {
+        videoIds: videoStage && !videoStage.done && !(rewatchStage?.done && rewatchStage.value?.videos) ? [...videos].filter(([, state]) => state?.state === 'pending').map(([id]) => id) : [],
+        captions: Boolean(captions) && !captions.done && captionCandidates.length > 0,
+      };
       // A picture's second look on a question (features.imageRelook): rendered under its line.
       const imageAnswers = rewatchStage?.done && rewatchStage.value?.imageAnswers?.size > 0 ? rewatchStage.value.imageAnswers : null;
       const reads = linksStage?.done ? linksStage.value : undefined;
@@ -6773,8 +6849,8 @@ export function createTurnRunner({
       noteSeen(draft, lookupResult, { read: true });
       noteSeen(draft, taskResult?.result, { read: true });
       // The journal: which preparation steps reached the request (the rest close as not delivered).
-      prep.take('captions', Boolean(captions?.done));
-      prep.take('videos', Boolean(videoStage?.done));
+      prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
+      prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });
       prep.take('links', Boolean(linksStage?.done));
       prep.take('lookup', Boolean(lookupStage?.done));
       const neighborsFound = neighborsStage?.done ? neighborsStage.value : null;
@@ -7286,6 +7362,10 @@ export function createTurnRunner({
       };
       // The calls of the reply and of every later step, run in the turn's context (runCall's).
       const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history, draft, trigger, triggerKind, mode: finalMode, plain }) };
+      const lateMedia =
+        pendingMedia.videoIds.length > 0 || pendingMedia.captions
+          ? lateMediaTeller({ lines: history, idByIndex, handles, selfName, videoStage, videoItems: videoCandidates, captions, captionItems: captionCandidates, pending: pendingMedia, onTold: (stage) => prep.tell(stage) })
+          : null;
       // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
       const stepped = await runSteps({
         channel,
@@ -7303,6 +7383,7 @@ export function createTurnRunner({
         memoryOn,
         selfName,
         triggerKind,
+        lateMedia,
       });
       // A step was cut off with nothing complete and nothing of the turn reached the chat: a lost answer.
       if (stepped.cutOff && !stepped.delivered) {
