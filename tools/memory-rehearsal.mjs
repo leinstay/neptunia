@@ -2,7 +2,8 @@
 // The rehearsal of the memory writer switch (spec 2026-10-24-memory-authority, section 6 items 9 and 10; stage W5):
 // the switch protocol run on copies of a frozen data directory and its database, then a real day replayed with the
 // database as the only writer, the cutover boundary, injected failures, ordering and duplicates, the restore of the
-// backup and the legacy fallback, each a row PASS or FAIL with its numbers, written as a Markdown report.
+// backup, each a row PASS or FAIL with its numbers, written as a Markdown report. There is no legacy fallback row: after
+// the switch the JSON memory is deleted and the database backups are the only way back (spec section 7).
 //
 //   node tools/memory-rehearsal.mjs --data <frozen copy of data/> --db <copy of memory.db> --day <YYYY-MM-DD>
 //        [--session fake|memory-key] [--report <file.md>] [--keep]
@@ -27,14 +28,18 @@
 //                     sync, the shadow writes drained, `verify` and `observe-check --data` at the barrier, a backup with
 //                     its counts and watermarks, a new process under `db` opened (the pending replay and the handoff
 //                     done) before the catch-up delivers anything.
-//   3. sole authority the memory files (paths.js#MEMORY_PATTERNS) moved out of the copy; the day `--day` replayed from
+//   3. sole authority the memory files (paths.js#MEMORY_PATTERNS) deleted from the copy; the day `--day` replayed from
 //                     its record and journal lines (both layers) as events in their arrival order: seen lines, edits and
 //                     deletions through the pipeline, her said lines and her turns' journal lines as the turn writes them,
 //                     their participation, the diary posts of the day, embeddings; her session sweeping on its schedule
 //                     (`fake`: fixed plans; `memory-key`: her real session on the memory key, the lead's choice); then
 //                     every consumer reads. Every file access under the copy is watched: a read or a write of a memory
 //                     path fails the row. The day's message ids are replayed under new ids (`8` before the id), so the
-//                     day lands as new lines beside the copy's own past.
+//                     day lands as new lines beside the copy's own past. Every line of the day must be a source: her
+//                     own lines are `said` rows whatever posted them (a line of hers the record kept as `seen`, such as
+//                     a diary post, is counted apart). Every line the meaning index takes (the newest revision of each
+//                     message with text, chunks.js#newestRevisions) must have its vector; the older revisions of an
+//                     edited message and the lines without text are counted apart, never embedded.
 //   4. cutover        what row 2's `json` process held at the switch (a dirty cache entry, a queued archive append,
 //                     buffered public and private lines, an in-flight turn's said line, an embedding backlog), a late
 //                     edit of a line from before the switch, and the start-up catch-up delivering the boundary lines
@@ -50,10 +55,6 @@
 //                     affinity decay and a session apply on one person at once: one row per logical event, both moves
 //                     counted.
 //   7. restore        `restore-test` of row 2's backup.
-//   8. fallback       `export` of the database after the day into a staging folder, a fresh service under `json` with the
-//                     sync on over it (the import), `verify`, the store's and the modules' reads compared with the
-//                     database's (`parity`, `reader-parity`), and the representability list: what the export cannot
-//                     carry, with counts.
 //
 // Storage parity is what this tool checks (fixed plans through the persistence paths); writer quality (her proposals
 // against the analyzer's) is tools/memory-session.mjs compare, linked from the report.
@@ -62,7 +63,6 @@
 
 import fs from 'node:fs';
 import os from 'node:os';
-import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
@@ -79,7 +79,10 @@ import { newestClaimVersion } from '../src/memory/db/session-write.js';
 import { observationOf } from '../src/memory/db/observe-event.js';
 import { groupContext } from '../src/memory/db/scope.js';
 import { search as dbSearch } from '../src/memory/db/recall.js';
-import { exportOne, idsUnderDir } from '../src/memory/db/export.js';
+import { graphNodeId } from '../src/memory/db/graph.js';
+import { newestRevisions } from '../src/memory/chunks.js';
+import { recordLayers } from '../src/memory/db/readers/record.js';
+import { decayAffinity } from '../src/memory/affinity.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { createJournal } from '../src/memory/journal.js';
@@ -124,7 +127,6 @@ export const ROWS = Object.freeze([
   ['failures', 'Failure injection and restart'],
   ['ordering', 'Ordering and duplicates'],
   ['restore', 'Restore of the backup'],
-  ['fallback', 'Legacy fallback through the export'],
 ]);
 
 const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
@@ -193,16 +195,14 @@ function memoryFilesOf(dataDir) {
   return filesUnder(dataDir).filter((rel) => pathClass(rel) === 'memory');
 }
 
-/** Moves every memory file of `dataDir` under `to` (same relative path); returns how many. */
-function moveMemoryFiles(dataDir, to) {
-  let moved = 0;
+/** Deletes every memory file of `dataDir` (the switch deletes the JSON memory, spec section 7); returns how many. */
+function deleteMemoryFiles(dataDir) {
+  let deleted = 0;
   for (const rel of memoryFilesOf(dataDir)) {
-    const target = path.join(to, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.renameSync(path.join(dataDir, rel), target);
-    moved += 1;
+    fs.rmSync(path.join(dataDir, rel));
+    deleted += 1;
   }
-  return moved;
+  return deleted;
 }
 
 /** The only guild of a data directory (the bot serves one). */
@@ -790,27 +790,64 @@ function readOf(core) {
   return core.memoryDb.readHandle();
 }
 
-/** The day's replayed lines against the sources: missing ones, duplicated ones, ones outside a record unit. */
-function linesAsSources(db, script) {
+/**
+ * The day's replayed lines against the sources: missing ones, duplicated ones, ones outside a record unit. A line of
+ * hers (`said`, or a `seen` line whose author is she: one the record kept from the gateway because no turn wrote it,
+ * such as a diary post) is her `said` row in the database, which writes every line of hers as said (observe-event.js);
+ * the `seen` ones are counted apart (`own`). A missing line is named with what the database holds of its message
+ * instead (`other kinds`: its rows of another kind or revision, or `no row`).
+ */
+function linesAsSources(db, script, selfId) {
   const missing = [];
   const duplicated = [];
   const ownerless = [];
   let checked = 0;
-  const seenRevision = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN owner_file GLOB '*/record/*' THEN 1 ELSE 0 END) AS owned FROM sources WHERE native_id = ? AND kind = ? AND revision = ? AND retired_at IS NULL");
+  let own = 0;
+  const lineRows = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN owner_file GLOB '*/record/*' THEN 1 ELSE 0 END) AS owned FROM sources WHERE native_id = ? AND kind = ? AND revision = ? AND retired_at IS NULL");
   const deleted = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN owner_file GLOB '*/record/*' THEN 1 ELSE 0 END) AS owned FROM sources WHERE native_id = ? AND kind = 'deleted' AND retired_at IS NULL");
+  const held = db.prepare('SELECT kind, revision FROM sources WHERE native_id = ? AND retired_at IS NULL ORDER BY kind, revision');
   for (const event of script.events) {
     if (event.type !== 'line') continue;
     const { line } = event;
     if (!['seen', 'said', 'deleted'].includes(line.kind) || !line.messageId) continue;
     if (!line.messageId.startsWith(ID_PREFIX)) continue;
     checked += 1;
-    const row = line.kind === 'deleted' ? deleted.get(line.messageId) : seenRevision.get(line.messageId, line.kind, line.revision ?? 1);
+    const hers = line.kind === 'seen' && selfId !== null && String(line.by ?? '') === String(selfId) && (line.revision ?? 1) === 1;
+    if (hers) own += 1;
+    const kind = hers ? 'said' : line.kind;
+    const row = kind === 'deleted' ? deleted.get(line.messageId) : lineRows.get(line.messageId, kind, line.revision ?? 1);
     const n = row?.n ?? 0;
-    if (n === 0) missing.push(`${line.kind}:${line.messageId}:${line.revision ?? 1}`);
-    else if (n > 1) duplicated.push(`${line.kind}:${line.messageId}:${line.revision ?? 1}`);
+    const name = `${line.kind}:${line.messageId}:${line.revision ?? 1}`;
+    if (n === 0) {
+      const other = held.all(line.messageId).map((entry) => `${entry.kind}${entry.revision ? `/${entry.revision}` : ''}`);
+      missing.push(`${name} (${other.length ? `other kinds ${other.join(' ')}` : 'no row'})`);
+    } else if (n > 1) duplicated.push(name);
     if (n > 0 && (row?.owned ?? 0) === 0) ownerless.push(`${line.kind}:${line.messageId}`);
   }
-  return { checked, missing, duplicated, ownerless };
+  return { checked, missing, duplicated, ownerless, own };
+}
+
+/**
+ * The meaning index over the day's replayed lines, as the embedder takes them (chunks.js#newestRevisions over the
+ * record the core reads): `wanted` (each message's newest revision with text), `indexed` (those with a live vector),
+ * `backlog` (wanted, no vector: the drain did not reach them), and apart the rows the index never embeds: `superseded`
+ * (an older revision of an edited message) and `textless` (no text, only media). `rows` is every seen and said row.
+ */
+async function embeddingsOfDay(core, db, { guildId, day }) {
+  const from = `${day}T00:00:00.000Z`;
+  const to = `${day}T23:59:59.999Z`;
+  const layers = [null, ...recordLayers(db, guildId)];
+  const lines = [];
+  for (const layer of layers) {
+    for await (const line of core.record.iterate(guildId, { from, to, privateUserId: layer })) {
+      if ((line.kind === 'seen' || line.kind === 'said') && String(line.messageId ?? '').startsWith(ID_PREFIX)) lines.push(line);
+    }
+  }
+  const wanted = newestRevisions(lines);
+  const vector = db.prepare('SELECT COUNT(*) AS n FROM vectors v JOIN sources s ON s.rowid = v.source_rowid WHERE v.retired_at IS NULL AND s.native_id = ? AND s.revision = ?');
+  const backlog = wanted.filter((line) => vector.get(line.messageId, line.revision ?? 1).n === 0);
+  const textless = lines.filter((line) => typeof line.text !== 'string' || line.text.trim() === '').length;
+  return { rows: lines.length, wanted: wanted.length, indexed: wanted.length - backlog.length, backlog, superseded: lines.length - textless - wanted.length, textless };
 }
 
 /** Her session's cursor of every scope against the scope's newest line. */
@@ -880,7 +917,7 @@ async function runConsumers(core, { guildId, day, selfId }) {
     const facts = await buildHeartbeatFacts({
       guildId, now: at, since: from, profiles: core.store.listUserProfiles(guildId), selfId, record: core.record, journal: core.journal,
       intentions: core.intentions.list(guildId), tasks: core.taskStores.get(guildId).recent(100), diary: core.store.getDiary(guildId).posts ?? [],
-      log: { warn: (message, fields) => failed.push({ name: `heartbeat ${fields?.source ?? ''}`.trim(), code: fields?.code ?? 'WARN' }) },
+      log: { warn: (message, fields) => failed.push({ name: `heartbeat view: ${message}${fields?.source ? ` (${fields.source})` : ''}`, code: fields?.code ?? 'WARN' }) },
     });
     return Object.keys(facts ?? {}).length;
   });
@@ -888,7 +925,11 @@ async function runConsumers(core, { guildId, day, selfId }) {
   await attempt('missed (journal answers)', async () => (await core.journal.read(guildId, { day, kind: 'answer', n: Number.MAX_SAFE_INTEGER })).length);
   await attempt('intentions service', async () => {
     await core.intentions.reconcile(guildId);
-    return core.intentions.list(guildId).length;
+    // Every record the store holds, closed and private ones too (a read of fewer would hide some).
+    const read = core.intentions.list(guildId, { closed: true, all: true }).length;
+    const held = core.intentionStores.get(guildId).list().length;
+    if (read !== held) throw Object.assign(new Error('the service reads fewer'), { code: `READ_${read}_OF_${held}` });
+    return read;
   });
   await attempt('tasks', async () => core.taskStores.get(guildId).recent(100).length);
   await attempt('status', async () => {
@@ -1153,9 +1194,8 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
     }
 
     // ---------------- the db process: opened before the catch-up, the memory files gone
-    const retired = path.join(work, 'retired');
     watch.pause();
-    const moved = moveMemoryFiles(live, retired);
+    const deleted = deleteMemoryFiles(live);
     watch.watch(live);
     const switchedAt = Date.now();
     clock.at = Math.max(clock.at + MINUTE, dayStart);
@@ -1168,7 +1208,7 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
       const state = dbCore.memoryDb.status();
       const read = dbCore.memoryDb.readHandle();
       handoff = read ? parse(read.db.prepare('SELECT value FROM meta WHERE key = ?').get(HANDOFF_KEY)?.value ?? 'null') : null;
-      switchNumbers.push(`db process: open ${state.open}, authority ${state.authority}, sync off ${state.syncOff}, handoff ${state.session?.handoff} (${handoff ? `scopes ${handoff.scopes}, set ${handoff.set}, kept ${handoff.kept}, buffered ${handoff.buffered}, behind ${handoff.behind}` : 'none'}); ${moved} memory files moved out`);
+      switchNumbers.push(`db process: open ${state.open}, authority ${state.authority}, sync off ${state.syncOff}, handoff ${state.session?.handoff} (${handoff ? `scopes ${handoff.scopes}, set ${handoff.set}, kept ${handoff.kept}, buffered ${handoff.buffered}, behind ${handoff.behind}` : 'none'}); ${deleted} memory files deleted`);
       const pending = fs.existsSync(path.join(live, 'memory-pending')) ? filesUnder(path.join(live, 'memory-pending')).length : 0;
       switchNumbers.push(`pending folder after the open: ${pending} files`);
       if (!state.open || state.authority !== 'db' || state.session?.handoff !== true || !handoff || pending > 0) switchOk = false;
@@ -1250,12 +1290,11 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
       await dbCore.tick();
       const consumers = await runConsumers(dbCore, { guildId, day, selfId: facts.self });
       const read = readOf(dbCore).db;
-      const sources = linesAsSources(read, script);
+      const sources = linesAsSources(read, script, facts.self);
       const cursors = cursorsAtEnd(read);
       const refs = danglingRefs(read);
       const added = newRefs(before.refs, refs);
-      const vectorsOfDay = count(read, `SELECT COUNT(*) AS n FROM vectors v JOIN sources s ON s.rowid = v.source_rowid WHERE v.retired_at IS NULL AND s.native_id GLOB '${ID_PREFIX}*'`);
-      const linesOfDay = count(read, `SELECT COUNT(*) AS n FROM sources WHERE native_id GLOB '${ID_PREFIX}*' AND kind IN ('seen', 'said') AND retired_at IS NULL AND text IS NOT NULL AND text != ''`);
+      const index = await embeddingsOfDay(dbCore, read, { guildId, day });
       const runs = read.prepare("SELECT outcome, COUNT(*) AS n FROM session_runs WHERE mode = 'apply' GROUP BY outcome ORDER BY outcome").all();
       const failures = failuresIn(logs.since(markDb));
       const hits = watch.take();
@@ -1265,15 +1304,14 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
       const retire = await tool(['retire-check', '--data', live, '--since', iso(switchedAt)]);
       soleNumbers.push(`script: ${script.counts.lines} record lines (${Object.entries(script.counts.kinds).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}) in ${script.counts.layers + 1} layers, ${script.counts.journal} journal records (${Object.entries(script.counts.journalKinds).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}), ${script.counts.posts} diary posts`);
       soleNumbers.push(`delivered: ${JSON.stringify(replayed.delivered)}; door ${JSON.stringify(replayed.statuses)}; journal ${JSON.stringify(replayed.journal)}; participation ${replayed.participation}; diary ${replayed.posts}; skipped ${JSON.stringify(replayed.skipped)}`);
-      soleNumbers.push(`lines of the day as sources: ${sources.checked} checked, ${sources.missing.length} missing, ${sources.duplicated.length} duplicated, ${sources.ownerless.length} outside a record unit${sources.missing.length ? ` (first: ${sources.missing.slice(0, 3).join(', ')})` : ''}`);
+      soleNumbers.push(`lines of the day as sources: ${sources.checked} checked (${sources.own} of them her own lines the record kept as seen, her said rows here), ${sources.missing.length} missing, ${sources.duplicated.length} duplicated, ${sources.ownerless.length} outside a record unit${sources.missing.length ? ` (first: ${sources.missing.slice(0, 3).join(', ')})` : ''}`);
       soleNumbers.push(`her session: ${runs.map((row) => `${row.outcome} ${row.n}`).join(', ') || 'no run'}; requests ${herLlm === fakeModel ? fakeModel.calls.length : 'n/a'}; scopes ${cursors.scopes}, behind ${cursors.behind.length}${cursors.behind.length ? ` (${cursors.behind.slice(0, 3).map((entry) => `${entry.scope} ${entry.left} left`).join(', ')})` : ''}; drain rounds ${rounds}; failures told ${dbFailures.length}`);
-      soleNumbers.push(`embeddings: ${vectorsOfDay} vectors for ${linesOfDay} lines of the day with text; fake embedder ${embed.calls.requests} requests, ${embed.calls.texts} texts`);
+      soleNumbers.push(`embeddings: ${index.indexed} of the ${index.wanted} lines the index takes (each message's newest revision with text) have their vector, ${index.backlog.length} wait${index.backlog.length ? ` (first: ${index.backlog.slice(0, 3).map((line) => `${line.kind}:${line.messageId}:${line.revision ?? 1}`).join(', ')})` : ''}; never embedded: ${index.superseded} older revisions of edited messages, ${index.textless} lines without text (of ${index.rows} seen and said rows); fake embedder ${embed.calls.requests} requests, ${embed.calls.texts} texts`);
       soleNumbers.push(`references: ${sumOf(refs)} dangling now, ${sumOf(before.refs)} before the switch; new ${JSON.stringify(added)}`);
-      soleNumbers.push(`consumers: ${Object.entries(consumers.numbers).map(([name, n]) => `${name} ${n}`).join(', ')}; failed ${consumers.failed.length}${consumers.failed.length ? ` (${consumers.failed.map((entry) => `${entry.name}: ${entry.code}`).join(', ')})` : ''}`);
+      soleNumbers.push(`consumers read: ${Object.entries(consumers.numbers).map(([name, n]) => `${name} ${n}`).join(', ')}; ${consumers.failed.length === 0 ? 'none failed' : `${consumers.failed.length} failed: ${consumers.failed.map((entry) => `${entry.name} (${entry.code})`).join(', ')}`}`);
       soleNumbers.push(`files: memory files in the copy now ${memoryNow.length}; reads of a retired path ${reads.length}, writes ${writes.length}${hits.length ? ` (${[...new Set(hits.map((hit) => `${hit.kind} ${hit.op} ${hit.rel}`))].slice(0, 5).join('; ')})` : ''}; retire-check: ${lastLine(retire)}`);
       soleNumbers.push(`warnings and errors: ${failures.length}${failures.length ? ` (${summarize(failures).slice(0, 6).join(', ')})` : ''}; the core's own model calls ${coreLlm.calls.length}`);
-      if (linesOfDay > vectorsOfDay) soleNotes.push(`${linesOfDay - vectorsOfDay} lines of the day have no vector after the catch-up`);
-      soleOk = sources.missing.length === 0 && sources.duplicated.length === 0 && sources.ownerless.length === 0 && cursors.behind.length === 0
+      soleOk = sources.missing.length === 0 && index.backlog.length === 0 && sources.duplicated.length === 0 && sources.ownerless.length === 0 && cursors.behind.length === 0
         && Object.keys(added).length === 0 && consumers.ok && memoryNow.length === 0 && hits.length === 0 && retire.code === 0 && failures.length === 0
         && dbFailures.length === 0 && (runs.length > 0 || script.counts.lines === 0);
       void markDay;
@@ -1327,8 +1365,6 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
       const restored = await tool(['restore-test', '--from', backupDir]);
       rows.set('restore', rowOf('restore', restored.code === 0, [`restore-test: ${lastLine(restored)}`, ...restored.lines.filter((line) => /differ [1-9]|FAILED|could not/.test(line)).slice(0, 8)]));
     }
-    // ---------------- row 8: the legacy fallback
-    rows.set('fallback', await fallbackRow({ work, afterDay, base, guildId, logs, hotOf }));
   } finally {
     watch.uninstall();
     logs.stop();
@@ -1574,20 +1610,23 @@ async function failureRows({ work, afterDay, coreOf, logs, watch, guildId, selfI
   });
 
   // 6. a write broken off inside its transaction: the line and its graph projection roll back together, the queue retries
+  // (at the next tick, or at once when the open is still writing what waited), and the retry projects the line
   await run('projection', async ({ core, fault, restart, dir }) => {
     const id = newId();
     fault.arm('before', { when: (db) => count(db, 'SELECT COUNT(*) AS n FROM sources WHERE native_id = ?', id) > 0 });
     await say(core(), { id });
     const during = sourcesOf(core(), id);
     await core().tick();
-    await core().tick();
+    await core().memoryDb.waitObservations();
+    const before = sourcesOf(core(), id);
     const next = await restart();
     await next.tick();
     const d = next.memoryDb.readHandle().db;
     const rows = sourcesOf(next, id);
     const sourceId = d.prepare('SELECT id FROM sources WHERE native_id = ? LIMIT 1').get(id)?.id ?? null;
-    const nodes = sourceId ? count(d, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', sourceId) : 0;
-    return { name: 'a write broken off inside its transaction (the line and its projection), retried', pass: fault.failed === 1 && during === 0 && rows === 1 && nodes === 1 && pendingCount(dir) === 0, detail: `fault hit ${fault.failed}, rows right after ${during}, rows at the end ${rows}, its graph node ${nodes}, pending ${pendingCount(dir)}` };
+    const nodes = sourceId ? count(d, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', graphNodeId('source', sourceId)) : 0;
+    const pendingGraph = count(d, "SELECT COUNT(*) AS n FROM meta WHERE key = 'graph_pending'");
+    return { name: 'a write broken off inside its transaction (the line and its projection), retried', pass: fault.failed === 1 && before === 1 && rows === 1 && nodes === 1 && pendingCount(dir) === 0, detail: `fault hit ${fault.failed}, rows right after ${during}, after the retry ${before}, after a restart ${rows}, its graph node ${nodes}${pendingGraph ? ' (the projection pending)' : ''}, pending ${pendingCount(dir)}` };
   });
 
   // 7. a backup that failed (the copy refused), in the status; the next try an hour later
@@ -1620,7 +1659,7 @@ async function failureRows({ work, afterDay, coreOf, logs, watch, guildId, selfI
   });
 
   // 9. the observation queue overflowing while the database is not open yet: the loss is in the status
-  await run('overflow', async ({ core, restart, dir }) => {
+  await run('overflow', async ({ core, restart, dir, logs }) => {
     const db = core().memoryDb.readHandle().db;
     const author = authorOf(db);
     const channel = channelOf(db);
@@ -1638,14 +1677,22 @@ async function failureRows({ work, afterDay, coreOf, logs, watch, guildId, selfI
     }
     const status = fresh.memoryDb.status();
     await fresh.memoryDb.tick();
-    await settle(20);
+    await fresh.memoryDb.tick();
+    const left = await fresh.memoryDb.waitObservations();
     const d = fresh.memoryDb.readHandle().db;
     const firstRows = count(d, 'SELECT COUNT(*) AS n FROM sources WHERE native_id = ?', first);
     const lastRows = count(d, 'SELECT COUNT(*) AS n FROM sources WHERE native_id = ?', last);
+    const written = count(d, "SELECT COUNT(*) AS n FROM sources WHERE native_id GLOB ? AND text = 'overflow' AND owner_file GLOB '*/record/*'", `${ID_PREFIX}7*`);
+    const after = fresh.memoryDb.status().observe ?? null;
     await fresh.shutdown();
     await restart();
     const dropped = status.observe?.dropped ?? null;
-    return { name: 'the observation queue overflowing before the open', pass: dropped === 1 && firstRows === 0 && lastRows === 1, detail: `queued ${total}, the status says dropped ${dropped ?? 'nothing (the status does not carry it)'}; the oldest written ${firstRows}, the newest ${lastRows}` };
+    const told = logs().filter((entry) => entry.message === 'memory db: observations dropped' && entry.fields?.count === 1).length;
+    return {
+      name: 'the observation queue overflowing before the open',
+      pass: dropped === 1 && after?.dropped === 1 && told === 1 && firstRows === 0 && lastRows === 1 && written === total - 1 && left === 0,
+      detail: `queued ${total}, the status says dropped ${dropped ?? 'nothing (the status does not carry it)'}, told with its count ${told}; written after the open ${written} (the oldest ${firstRows}, the newest ${lastRows}), left ${left}`,
+    };
   });
 
   // 10. a stale base: two revises of the same claim version, the second refused
@@ -1744,7 +1791,7 @@ async function orderingRow({ work, afterDay, coreOf, logs, watch, guildId, selfI
     // an affinity decay tick and a session apply on one person at once: both counted
     const before = db.prepare('SELECT affinity FROM people WHERE id = ?').get(person.person)?.affinity ?? 0;
     const eventsBefore = count(db, 'SELECT COUNT(*) AS n FROM affinity_events WHERE person_id = ?', person.person);
-    c.store.getUser(guildId, person.id);
+    const held = structuredClone(c.store.getUser(guildId, person.id)?.affinity ?? null);
     const source = db.prepare("SELECT id FROM sources WHERE native_id = ? AND kind = 'seen' LIMIT 1").get(a)?.id;
     const runId = `rh-order-${clock.at}`;
     const session = c.memoryDb.memoryWrite({
@@ -1752,7 +1799,9 @@ async function orderingRow({ work, afterDay, coreOf, logs, watch, guildId, selfI
       run: { id: runId, sweepId: `sweep-${runId}`, scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: `apply|${runId}`, startedAt: iso(clock.at), finishedAt: iso(clock.at), outcome: 'ok', counts: {}, errors: [] },
       plan: { claims: [], episodes: [], affinity: [{ personId: person.person, delta: 3, reason: 'rehearsal move', sources: [source] }], descriptions: [], people: [] },
     });
-    const decayed = c.store.decayAffinities(guildId, clock.at + 3 * DAY_MS, { decayPerDay: 0.5, decayPower: 1 });
+    const decayAt = clock.at + 3 * DAY_MS;
+    const decayCfg = { decayPerDay: 0.5, decayPower: 1 };
+    const decayed = c.store.decayAffinities(guildId, decayAt, decayCfg);
     await session;
     c.store.flush();
     await c.store.flushSettled({});
@@ -1761,113 +1810,18 @@ async function orderingRow({ work, afterDay, coreOf, logs, watch, guildId, selfI
     const eventsAfter = count(db, 'SELECT COUNT(*) AS n FROM affinity_events WHERE person_id = ?', person.person);
     const sessionEvent = count(db, "SELECT COUNT(*) AS n FROM affinity_events WHERE person_id = ? AND reason = 'rehearsal move'", person.person);
     const cached = c.store.getUser(guildId, person.id)?.affinity?.score ?? null;
-    const moved = Math.round(after) !== Math.round(before) || decayed.decayed > 0;
-    check('an affinity decay and a session apply on one person at once', sessionEvent === 1 && moved && Number.isFinite(after) && Math.abs(after - (cached ?? after)) < 1e-9
-      && Math.abs(after - before - 3) > 1e-9 === (decayed.decayed > 0) && after >= before + 3 - Math.abs(before) - 3,
-    `affinity ${before} -> ${after} (the store reads ${cached}); decayed ${decayed.decayed}; events ${eventsBefore} -> ${eventsAfter}, the session's ${sessionEvent}`);
+    // Both counted, in either order: the move then the decay of the moved score, or the decay then the move.
+    const clamp2 = (score) => Math.round(Math.max(-100, Math.min(100, score)) * 100) / 100;
+    const base = held ?? { score: before };
+    const decayOf = (affinity) => decayAffinity(affinity, decayAt, decayCfg).affinity.score;
+    const expected = [decayOf({ ...base, score: clamp2(base.score + 3) }), clamp2(decayOf(base) + 3)];
+    const both = expected.some((value) => Math.abs(after - value) < 1e-9);
+    check('an affinity decay and a session apply on one person at once', sessionEvent === 1 && both && cached !== null && Math.abs(after - cached) < 1e-9,
+      `affinity ${before} -> ${after} (the store reads ${cached}; both counted: ${expected.join(' or ')}); decayed ${decayed.decayed}; events ${eventsBefore} -> ${eventsAfter}, the session's ${sessionEvent}`);
     return { pending: pendingCount(dir) };
   });
   const pass = checks.every((entry) => entry.pass) && result.pending === 0;
   return rowOf('ordering', pass, [...checks.map((entry) => `${entry.pass ? 'PASS' : 'FAIL'} ${entry.name}: ${entry.detail}`), `pending folder ${result.pending}`]);
-}
-
-// ---------------------------------------------------------------- row 8
-
-/** What the export cannot carry, with counts, from the database after the day. */
-function representability(db) {
-  const has = (table) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
-  const safe = (table, sql) => (has(table) ? count(db, sql) : 0);
-  return {
-    participants: safe('participants', 'SELECT COUNT(*) AS n FROM participants'),
-    'capture bundles': safe('capture_bundles', 'SELECT COUNT(*) AS n FROM capture_bundles'),
-    "publications' grants": safe('publication_grants', 'SELECT COUNT(*) AS n FROM publication_grants'),
-    "her session's claim versions": safe('claim_versions', "SELECT COUNT(*) AS n FROM claim_versions WHERE owner_file IS NULL AND by = 'her'"),
-    "her session's description versions": safe('description_versions', "SELECT COUNT(*) AS n FROM description_versions WHERE owner_file IS NULL AND origin IN ('session', 'review')"),
-    "her session's claims": safe('claims', "SELECT COUNT(*) AS n FROM claims WHERE owner_file IS NULL AND retired_at IS NULL"),
-    "her session's attitude moves": safe('affinity_events', 'SELECT COUNT(*) AS n FROM affinity_events WHERE owner_file IS NULL'),
-    'graph-only facts (edges no typed row owns)': safe('graph_edges', "SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NULL AND owner_key NOT LIKE '%/%'"),
-    'session runs and decisions': safe('session_runs', 'SELECT COUNT(*) AS n FROM session_runs') + safe('decisions', 'SELECT COUNT(*) AS n FROM decisions WHERE owner_file IS NULL'),
-  };
-}
-
-/**
- * The store's public reads over the export (authority `json`: its files) and over the database (authority `db`: the
- * database alone, as the store reads it after the switch), compared deep. Returns `{ compared, differ: [kind] }`.
- */
-function compareStores(stagingDir, handle) {
-  const files = createStore({ dataDir: stagingDir });
-  const root = path.resolve(stagingDir);
-  const rel = (file) => path.relative(root, file).split(path.sep).join('/');
-  const reader = { value: (file) => exportOne(handle, rel(file)), ids: (dir) => idsUnderDir(handle, rel(dir)) };
-  const memoryDb = { authority: () => 'db', readHandle: () => handle, writeUnit: async () => { throw Object.assign(new Error('read only'), { code: 'READ_ONLY' }); }, reader };
-  const db = createStore({ dataDir: stagingDir, memoryDb, memoryRead: reader });
-  let compared = 0;
-  const differ = [];
-  for (const g of fs.existsSync(path.join(root, 'guilds')) ? fs.readdirSync(path.join(root, 'guilds')) : []) {
-    const users = files.listUserProfiles(g).map((user) => user.id);
-    const privates = files.listPrivate(g);
-    const channels = files.listChannels(g).map((channel) => channel.id);
-    const reads = (store) => ({
-      users: store.listUserProfiles(g), userCount: store.countUsers(g), privateIds: store.listPrivate(g), guild: store.getGuild(g),
-      channels: store.listChannels(g), lore: store.getLore(g), recent: store.getRecent(g), diary: store.getDiary(g), buffer: store.getBuffer(g),
-      voice: store.getVoiceQueue(g),
-      ...Object.fromEntries(users.flatMap((id) => [[`user:${id}`, store.getUser(g, id)], [`versions:${id}`, store.listVersions(g, 'users', id)]])),
-      ...Object.fromEntries(privates.map((id) => [`private:${id}`, store.getPrivate(g, id)])),
-      ...Object.fromEntries(channels.map((id) => [`channel:${id}`, store.getChannel(g, id)])),
-    });
-    const a = reads(files);
-    const b = reads(db);
-    for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-      compared += 1;
-      if (!isDeepStrictEqual(a[key], b[key])) differ.push(key.split(':')[0]);
-    }
-  }
-  return { compared, differ };
-}
-
-async function fallbackRow({ work, afterDay, guildId, logs, hotOf }) {
-  const numbers = [];
-  const notes = [];
-  const staging = path.join(work, 'staging');
-  const exported = await tool(['export', '--db', path.join(afterDay, 'memory.db'), '--to', staging]);
-  numbers.push(`export: ${exported.lines.join('; ')}`);
-  // the JSON path over the staging folder: a fresh service, authority json, the sync on (it imports the export)
-  const hot = hotOf('json');
-  hot.config.memoryDb.read = false;
-  const mark = logs.mark();
-  const service = createMemoryDb({ hot, dataDir: staging, log: logs.log, worker: false });
-  let imported = null;
-  try {
-    for (let i = 0; i < 200; i += 1) {
-      await service.tick();
-      imported = service.status();
-      if (imported.importDone && imported.lastSyncAt !== null) break;
-      await settle(2);
-    }
-  } finally {
-    await service.close();
-  }
-  numbers.push(`the json service over the export: import done ${imported?.importDone === true}, files ${imported?.files ?? 0}, rows ${imported?.rows ?? 0}`);
-  const stagingDb = path.join(staging, 'memory.db');
-  const verify = await tool(['verify', '--data', staging, '--db', stagingDb]);
-  const source = openMemoryDb(path.join(afterDay, 'memory.db'), { readOnly: true });
-  let stores = null;
-  try { stores = compareStores(staging, source); } finally { source.close(); }
-  const readers = await tool(['reader-parity', '--data', staging, '--db', path.join(afterDay, 'memory.db')]);
-  numbers.push(`verify (the export re-imported): ${lastLine(verify)}`);
-  numbers.push(`the store's reads, the export's files (json) against the database after the day (db): compared ${stores.compared}, differ ${stores.differ.length}${stores.differ.length ? ` (${[...new Set(stores.differ)].join(', ')})` : ''}`);
-  numbers.push(`reader-parity (the same): ${lastLine(readers)}`);
-  for (const line of readers.lines.filter((text) => /differ [1-9]/.test(text) || /^ {2}/.test(text)).slice(0, 10)) numbers.push(`  ${line.trim()}`);
-  const handle = openMemoryDb(path.join(afterDay, 'memory.db'), { readOnly: true });
-  try {
-    const list = representability(handle.db);
-    numbers.push(`not carried by the export: ${Object.entries(list).map(([what, n]) => `${what} ${n}`).join(', ')}`);
-  } finally { handle.close(); }
-  const failures = failuresIn(logs.since(mark));
-  if (failures.length) notes.push(`warnings: ${summarize(failures).slice(0, 6).join(', ')}`);
-  void guildId;
-  const pass = exported.code === 0 && imported?.importDone === true && verify.code === 0 && stores.differ.length === 0 && readers.code === 0;
-  return rowOf('fallback', pass, numbers, notes);
 }
 
 // ---------------------------------------------------------------- the command line
