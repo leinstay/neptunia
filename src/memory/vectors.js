@@ -35,6 +35,8 @@ import { archiveDrops } from './archive.js';
 import { chunkKey } from './chunks.js';
 import { readLedger } from './store.js';
 import { memoryRootOf } from './root.js';
+import { createReadSeam, hiddenIds, ledgerOf } from './db/readers/common.js';
+import { storedManifest, vectorMonthFiles, vectorMonthState, vectorMonthsAt } from './db/readers/vectors.js';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const GEN_FILE_RE = /^(\d+)\.(i8|jsonl)$/;
@@ -102,6 +104,11 @@ function checksumOf(i8Hash, metaHash) {
   return `fnv1a32:${hex(i8Hash)}:${hex(metaHash)}`;
 }
 
+/** The manifest checksum of a month's int8 data and jsonl bytes (what a fresh generation's manifest holds). */
+export function monthChecksum(i8, meta) {
+  return checksumOf(fnv(FNV_OFFSET, i8), fnv(FNV_OFFSET, meta));
+}
+
 /** The two hash states of a checksum, or null. */
 function parseChecksum(value) {
   const match = String(value ?? '').match(/^fnv1a32:([0-9a-f]{8}):([0-9a-f]{8})$/);
@@ -158,6 +165,12 @@ function validManifest(value) {
  *   runs under that lock and does not wait on it
  * @param {number} [options.maxCacheBytes=268435456]  loaded months kept in memory (int8 data plus
  *   their jsonl bytes), least recently used evicted first
+ * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
+ *   authority `db`, `search`, `stats` and `has` read the months from the database
+ *   (src/memory/db/readers/vectors.js; an evicted vector is left out), the forget markers and the deletion ledger
+ *   too, with no file fallback (a failed read rejects with a code); under `json` (the default) the files are read
+ *   as always. The writers are unchanged.
+ * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, rows: Array<{ meta: object, vector: ArrayLike<number> }>,
  *     opts?: { privateUserId?: string|null, model?: string|null }): Promise<{ written: number }>,
@@ -200,7 +213,12 @@ function validManifest(value) {
  *   cached one, read only, current as of the call: an append, a rewrite or a replace by this
  *   index or another process shows on the next call.
  */
-export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Date.now, writerGate = null, maxCacheBytes = DEFAULT_CACHE_BYTES }) {
+export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Date.now, writerGate = null, maxCacheBytes = DEFAULT_CACHE_BYTES, memoryDb = null, authorityOf = null }) {
+  const root = memoryRootOf(dataDir);
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'vectors' });
+  // Under `db`: the last months rebuilt from the database, by their stored state (a grown month is a new state).
+  const rebuilt = new Map(); // owner -> { stamp, files }
+  const REBUILT_MAX = 4;
   const cache = new Map(); // `${base}|${month}` -> { gen, rows, dims, bytes, metaBytes, data, metas, hashes, size }
   const keySets = new Map(); // `${base}|${month}` -> { gen, rows, metaBytes, keys }
   let cachedBytes = 0;
@@ -213,7 +231,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     return run;
   }
 
-  const guildDir = memoryRootOf(dataDir).guildDir;
+  const guildDir = root.guildDir;
 
   function baseDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId
@@ -232,11 +250,34 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     }
   }
 
-  async function months(base) {
+  async function months(base, db = null) {
+    if (db) return seam.run(() => vectorMonthsAt(db, root.relative(base)));
     return (await listDir(base)).filter((name) => MONTH_RE.test(name));
   }
 
-  async function readManifest(dir) {
+  /** A month's files rebuilt from the database (the last few kept while their stored state is unchanged), or null. */
+  function rebuiltMonth(db, dir) {
+    const owner = root.relative(dir);
+    return seam.run(() => {
+      const state = vectorMonthState(db, owner);
+      if (!state) return null;
+      const stamp = `${state.evicted}|${state.value}`;
+      const held = rebuilt.get(owner);
+      if (held && held.stamp === stamp) return held.files;
+      const files = vectorMonthFiles(db, owner, { checksum: monthChecksum });
+      rebuilt.delete(owner);
+      rebuilt.set(owner, { stamp, files });
+      while (rebuilt.size > REBUILT_MAX) rebuilt.delete(rebuilt.keys().next().value);
+      return files;
+    });
+  }
+
+  async function readManifest(dir, db = null) {
+    if (db) {
+      const state = seam.run(() => vectorMonthState(db, root.relative(dir)));
+      if (!state) return null;
+      return validManifest(state.evicted > 0 ? rebuiltMonth(db, dir)?.manifest : storedManifest(state.value));
+    }
     let text;
     try {
       text = await fs.readFile(path.join(dir, 'manifest.json'), 'utf8');
@@ -274,8 +315,20 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     }
   }
 
-  /** `length` bytes of `file` from `position`. */
-  async function readBytes(file, position, length) {
+  /** `length` bytes of `file` from `position` (under `db`: of the month's file as rebuilt from the database). */
+  async function readBytes(file, position, length, db = null) {
+    if (db) {
+      const files = rebuiltMonth(db, path.dirname(file));
+      const match = path.basename(file).match(GEN_FILE_RE);
+      if (!files || !match || Number(match[1]) !== files.manifest?.gen) throw Object.assign(new Error('vectors: no such generation'), { code: 'ENOENT' });
+      const data = match[2] === 'i8' ? files.i8 : files.meta;
+      if (position + length > data.length) {
+        const error = new Error('vectors: file shorter than its manifest');
+        error.code = 'vectors-short';
+        throw error;
+      }
+      return Buffer.from(data.subarray(position, position + length));
+    }
     const buf = Buffer.alloc(length);
     if (length === 0) return buf;
     const fd = await fs.open(file, 'r');
@@ -355,10 +408,10 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
    * A month as the manifest names it: the cached copy, its tail read when the generation grew, or
    * the whole generation. Null when the month is empty, missing or fails its checksum.
    */
-  async function loadMonth(base, month, retried = false) {
-    const key = `${base}|${month}`;
+  async function loadMonth(base, month, retried = false, db = null) {
+    const key = `${db ? 'db:' : ''}${base}|${month}`;
     const dir = path.join(base, month);
-    const manifest = await readManifest(dir);
+    const manifest = await readManifest(dir, db);
     if (!manifest || manifest.rows === 0) {
       dropCached(key);
       return null;
@@ -369,17 +422,18 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       cache.set(key, cached);
       return cached;
     }
-    const grows = cached && cached.gen === manifest.gen && cached.dims === manifest.dims && cached.rows < manifest.rows;
+    // Under `db` a month is always read whole: a vector embedded again after an eviction comes back in the middle.
+    const grows = !db && cached && cached.gen === manifest.gen && cached.dims === manifest.dims && cached.rows < manifest.rows;
     const fromBytes = grows ? cached.bytes : 0;
     const fromMeta = grows ? cached.metaBytes : 0;
     let dataBuf;
     let metaBuf;
     try {
-      dataBuf = await readBytes(genFile(dir, manifest.gen, 'i8'), fromBytes, manifest.bytes - fromBytes);
-      metaBuf = await readBytes(genFile(dir, manifest.gen, 'jsonl'), fromMeta, manifest.metaBytes - fromMeta);
+      dataBuf = await readBytes(genFile(dir, manifest.gen, 'i8'), fromBytes, manifest.bytes - fromBytes, db);
+      metaBuf = await readBytes(genFile(dir, manifest.gen, 'jsonl'), fromMeta, manifest.metaBytes - fromMeta, db);
     } catch (error) {
       // A rewrite switched the generation between the manifest and the files: read it again.
-      if (error?.code === 'ENOENT' && !retried) return loadMonth(base, month, true);
+      if (error?.code === 'ENOENT' && !retried) return loadMonth(base, month, true, db);
       if (error?.code === 'ENOENT' || error?.code === 'vectors-short') {
         log.warn('vectors: month unreadable', { month, code: error.code });
         dropCached(key);
@@ -677,9 +731,9 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
   }
 
   /** The forgotten members of the guild: user id -> their latest ledger time (epoch ms). */
-  function ledgerTimes(guildId) {
+  function ledgerTimes(guildId, db = null) {
     const latest = new Map();
-    for (const entry of readLedger(dataDir, guildId)) {
+    for (const entry of db ? seam.run(() => ledgerOf(db, guildId)) : readLedger(dataDir, guildId)) {
       const at = Date.parse(entry.at);
       if (!Number.isFinite(at)) continue;
       if (!(latest.get(entry.userId) >= at)) latest.set(entry.userId, at);
@@ -723,8 +777,9 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     for (let i = 0; i < q.length; i += 1) qq += q[i] * q[i];
     const qNorm = Math.sqrt(qq);
     if (!(qNorm > 0)) return [];
-    const hidden = [...(await forgettingIds(fs, dataDir, guildId))];
-    const ledger = ledgerTimes(guildId);
+    const db = seam.db();
+    const hidden = [...(db ? seam.run(() => hiddenIds(db, guildId)) : await forgettingIds(fs, dataDir, guildId))];
+    const ledger = ledgerTimes(guildId, db);
     const isPrivate = typeof privateUserId === 'string' && privateUserId;
     if (isPrivate && hidden.includes(privateUserId)) return [];
     const ownLedger = isPrivate ? ledger.get(privateUserId) : undefined;
@@ -735,10 +790,10 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     const wanted = Array.isArray(asked) ? new Set(asked) : null;
     const base = baseDir(guildId, privateUserId);
     const heap = [];
-    for (const month of await months(base)) {
+    for (const month of await months(base, db)) {
       if (wanted && !wanted.has(month)) continue;
       if ((fromIso && month < fromIso.slice(0, 7)) || (toIso && month > toIso.slice(0, 7))) continue;
-      const entry = await loadMonth(base, month);
+      const entry = await loadMonth(base, month, false, db);
       if (!entry) continue;
       if (entry.dims !== q.length) {
         log.warn('vectors: dims mismatch', { month, dims: entry.dims, query: q.length });
@@ -764,18 +819,19 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
         offer(heap, limit, { meta, score: (dot * meta.scale) / (qNorm * meta.norm) });
       }
       // A month larger than the whole bound is not kept after its scan.
-      if (entry.size > maxCacheBytes) dropCached(`${base}|${month}`);
+      if (entry.size > maxCacheBytes) dropCached(`${db ? 'db:' : ''}${base}|${month}`);
     }
     return heap.sort((a, b) => b.score - a.score);
   }
 
   async function stats(guildId, { privateUserId = null } = {}) {
+    const db = seam.db();
     const base = baseDir(guildId, privateUserId);
     let count = 0;
     let rows = 0;
     let bytes = 0;
-    for (const month of await months(base)) {
-      const manifest = await readManifest(path.join(base, month));
+    for (const month of await months(base, db)) {
+      const manifest = await readManifest(path.join(base, month), db);
       if (!manifest) continue;
       count += 1;
       rows += manifest.rows;
@@ -785,10 +841,10 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
   }
 
   /** The row keys of one month: the cached set, grown by the new jsonl lines, or read whole. */
-  async function keysOf(base, month, retried = false) {
-    const key = `${base}|${month}`;
+  async function keysOf(base, month, retried = false, db = null) {
+    const key = `${db ? 'db:' : ''}${base}|${month}`;
     const dir = path.join(base, month);
-    const manifest = await readManifest(dir);
+    const manifest = await readManifest(dir, db);
     if (!manifest || manifest.rows === 0) {
       keySets.delete(key);
       return new Set();
@@ -799,14 +855,14 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       keySets.set(key, held);
       return held.keys;
     }
-    const grows = held && held.gen === manifest.gen && held.rows < manifest.rows && held.metaBytes <= manifest.metaBytes;
+    const grows = !db && held && held.gen === manifest.gen && held.rows < manifest.rows && held.metaBytes <= manifest.metaBytes;
     const from = grows ? held.metaBytes : 0;
     let buf;
     try {
-      buf = await readBytes(genFile(dir, manifest.gen, 'jsonl'), from, manifest.metaBytes - from);
+      buf = await readBytes(genFile(dir, manifest.gen, 'jsonl'), from, manifest.metaBytes - from, db);
     } catch (error) {
       // A rewrite switched the generation between the manifest and the file: read it again.
-      if (error?.code === 'ENOENT' && !retried) return keysOf(base, month, true);
+      if (error?.code === 'ENOENT' && !retried) return keysOf(base, month, true, db);
       if (error?.code === 'ENOENT' || error?.code === 'vectors-short') {
         log.warn('vectors: month unreadable', { month, code: error.code });
         keySets.delete(key);
@@ -824,7 +880,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
 
   async function has(guildId, month, { privateUserId = null } = {}) {
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
-    return keysOf(baseDir(guildId, privateUserId), String(month));
+    return keysOf(baseDir(guildId, privateUserId), String(month), false, seam.db());
   }
 
   return { append, rewrite, replace, forgetUser, search, stats, has };

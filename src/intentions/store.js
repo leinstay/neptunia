@@ -19,22 +19,34 @@ import { log as defaultLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { checkInvariants, concernsMember, isOpen } from './model.js';
 import { CODE } from '../skills/codes.js';
+import { createReadSeam } from '../memory/db/readers/common.js';
+import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
 
 /** The closed intentions the file keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
 
 /**
- * @param {{ dataDir: string, guildId: string, now?: () => number, log?: object }} options
+ * `memoryDb` (the memory database service) and `authorityOf`: under the authority `db` the list is loaded from the
+ * database and `archived` reads it there (src/memory/db/readers/intentions.js), with no file fallback (a failed read
+ * throws, with a code); under `json` (the default) the files are read as always. The writers are unchanged.
+ * @param {{ dataDir: string, guildId: string, now?: () => number, log?: object, memoryDb?: object|null,
+ *   authorityOf?: (() => string)|null }} options
  */
-export function createIntentionStore({ dataDir, guildId, now = Date.now, log = defaultLog }) {
+export function createIntentionStore({ dataDir, guildId, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
   const dir = path.join(dataDir, 'guilds', String(guildId));
   const file = path.join(dir, 'intentions.json');
   const archiveFile = path.join(dir, 'intentions-archive.jsonl');
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'intentions' });
   const state = { list: load() };
 
-  /** intentions.json read once; a missing file is empty, a broken one copied aside first. */
+  /** intentions.json read once; a missing file is empty, a broken one copied aside first (from the database under `db`). */
   function load() {
     let raw;
+    const db = seam.db();
+    if (db) {
+      const found = seam.run(() => intentionsValue(db, guildId));
+      return valid(found.found ? found.value : null);
+    }
     try {
       raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch (err) {
@@ -47,10 +59,15 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
       log.warn('intentions: file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
       return [];
     }
+    return valid(raw);
+  }
+
+  /** The records of a loaded file value that keep the model's invariants. */
+  function valid(raw) {
     const list = Array.isArray(raw?.intentions) ? raw.intentions : [];
-    const valid = list.filter((record) => record && typeof record.id === 'string' && checkInvariants(record) === null);
-    if (valid.length < list.length) log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - valid.length });
-    return valid;
+    const kept = list.filter((record) => record && typeof record.id === 'string' && checkInvariants(record) === null);
+    if (kept.length < list.length) log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - kept.length });
+    return kept;
   }
 
   /** The list kept (every open record, then the latest KEEP_CLOSED closed ones) and the closed records beyond them. */
@@ -77,10 +94,15 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
   /** The archived records, oldest first (a line that does not parse is skipped). Tools only. */
   function archived() {
     let raw;
-    try {
-      raw = fs.readFileSync(archiveFile, 'utf8');
-    } catch {
-      return [];
+    const db = seam.db();
+    if (db) {
+      raw = seam.run(() => intentionsArchiveLines(db, guildId)).join('\n');
+    } else {
+      try {
+        raw = fs.readFileSync(archiveFile, 'utf8');
+      } catch {
+        return [];
+      }
     }
     const out = [];
     for (const line of raw.split('\n')) {
@@ -225,19 +247,20 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
 /**
  * One intention store per guild, created on first use over the same `data/` directory. `forgetUser`
  * and `wipe` are what the memory's deleters are handed (src/memory/store.js#forgetUser's
- * `intentions`, #wipeGuild's `intentions`).
- * @param {{ dataDir: string, now?: () => number, log?: object }} options
+ * `intentions`, #wipeGuild's `intentions`). `memoryDb` and `authorityOf` go to every store
+ * (createIntentionStore); a store whose load failed under `db` is not kept, so the next `get` tries again.
+ * @param {{ dataDir: string, now?: () => number, log?: object, memoryDb?: object|null, authorityOf?: (() => string)|null }} options
  * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null,
  *   forgetUser(guildId: string, userId: string, options?: { names?: string[], vault?: string|null }): { removed: number, copies: number },
  *   wipe(guildId: string): { files: number } }}
  */
-export function createIntentionStores({ dataDir, now = Date.now, log = defaultLog }) {
+export function createIntentionStores({ dataDir, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
   const stores = new Map();
   const api = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
-      if (!stores.has(key)) stores.set(key, createIntentionStore({ dataDir, guildId: key, now, log }));
+      if (!stores.has(key)) stores.set(key, createIntentionStore({ dataDir, guildId: key, now, log, memoryDb, authorityOf }));
       return stores.get(key);
     },
     forgetUser(guildId, userId, options = {}) {
