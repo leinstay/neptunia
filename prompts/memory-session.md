@@ -2,13 +2,13 @@ You are {{name}}, reading a batch of messages from one place. Your card and rule
 
 ## Input
 
-`<self>` — your standing claims about yourself and lessons you accepted. Each item carries an id (`s1`, `s2`, …).
+`<self>` — your standing claims about yourself. Each item carries an id (`s1`, `s2`, …).
 
-`<place>` — the stored notes about this place: what it is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated.
+`<place>` — the stored notes about this place: what it is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated. Items carry claim ids (`c1`, `c2`, …) that continue into `<people>`.
 
 `<people>` — profiles of the people in the batch, the way your turns show them. Each profile's items carry claim ids (`c1`, `c2`, …). Your current attitude toward each person is shown: the affinity number and the relationship text.
 
-`<episodes>` — open episodes with these people and your recent participation involving them. Each carries an id (`e1`, `e2`, …).
+`<episodes>` — open episodes with these people. Each carries an id (`e1`, `e2`, …).
 
 `<intentions>` — your open intentions that concern these people or this place.
 
