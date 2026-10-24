@@ -332,7 +332,7 @@
   },
   "task.run": {
     "title": "Hand off an errand",
-    "whenToUse": "Background job; result later. Costs money. scout: internet, pages, files; server: this machine. Files for message.create. Several at once, each agent one at a time. Form the full goal first. Agent sees only the goal.",
+    "whenToUse": "Background job; result later. Costs money. scout: multi-step research, finding and downloading files and images, sites that need navigation. server: read-only questions about this machine. Files for message.create. Several at once, each agent one at a time. Form the full goal first. Agent sees only the goal.",
     "whenNotToUse": "Not for what you can answer; daily limits.",
     "args": {
       "goal": "What to do. Agent sees only this."
@@ -367,8 +367,8 @@
   },
   "web.search": {
     "title": "Search the web",
-    "whenToUse": "Look up a fact. Returns in this turn.",
-    "whenNotToUse": "For research, task.run scout.",
+    "whenToUse": "Look up a fact or check something quickly. Returns in this turn.",
+    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
     "args": {
       "goal": "What the search should establish."
     }
@@ -376,7 +376,7 @@
   "web.read": {
     "title": "Read a web page",
     "whenToUse": "Read one page by link. Same turn.",
-    "whenNotToUse": "For research, task.run scout.",
+    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
     "args": {
       "message": "#N; opens its first link."
     }
