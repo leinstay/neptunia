@@ -44,6 +44,7 @@ export function createOpsEnv({
   llm,
   embedder,
   embedQueue = null,
+  memoryDb = null,
   record = null,
   metrics = null,
   lookup = null,
@@ -237,6 +238,8 @@ export function createOpsEnv({
     llm,
     embedder,
     embedQueue,
+    // /nep status: the memory database's state line (src/memory/db/service.js#status).
+    memoryDb,
     record,
     metrics,
     // The web lookup: the status card's search line and `/nep task search` (src/ops/search.js).

@@ -164,7 +164,7 @@ export function walk(dir, rel = '', out = []) {
 }
 
 /** Memory units of a data directory: one per file, one per month of vectors. */
-function unitsOf(files, unknown, skipped) {
+export function unitsOf(files, unknown, skipped) {
   const units = new Map();
   for (const file of files) {
     const info = classify(file.rel);

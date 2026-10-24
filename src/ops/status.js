@@ -128,6 +128,29 @@ export function innerLines(s, labels, { tokens = null } = {}) {
   ].filter(Boolean);
 }
 
+/**
+ * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
+ * `off` (the switch is off), `unavailable` (on, the database not open), `notSynced` (open, no pass yet, `{files}`),
+ * else `line` with `{rows}`, `{files}`, `{at}` (last sync), `{lag}` (seconds), `{read}` (`readOn` or `readOff`) and
+ * `{fallbacks}` (reads that fell back to the disk). Null when the label is missing or blank.
+ */
+export function memoryDbStatusLine(s, labels, nowMs = Date.now()) {
+  const L = labels?.status?.memoryDb;
+  if (!isPlainObject(L) || !isPlainObject(s)) return null;
+  if (!s.on) return labelLine(L.off, {});
+  if (!s.open) return labelLine(L.unavailable, {});
+  if (s.lastSyncAt === null || s.lastSyncAt === undefined) return labelLine(L.notSynced, { files: s.files ?? 0 });
+  const fallbacks = Object.entries(s.reads ?? {}).reduce((sum, [key, n]) => (key === 'db' ? sum : sum + (Number.isFinite(n) ? n : 0)), 0);
+  return labelLine(L.line, {
+    rows: s.rows ?? 0,
+    files: s.files ?? 0,
+    at: innerStamp(s.lastSyncAt),
+    lag: Number.isFinite(s.lagSeconds) ? s.lagSeconds : Math.max(0, Math.round((nowMs - s.lastSyncAt) / 1000)),
+    read: (s.read ? L.readOn : L.readOff) ?? '',
+    fallbacks,
+  });
+}
+
 /** `<role> · <model>`: each role shows its own model, never another role's. */
 function roleHead(role, model) {
   return `${role} · ${model}`;
@@ -300,7 +323,7 @@ function datedLine(name, count, starts, ends) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, lookup, usage, errands, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, lookup, usage, errands, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue, memoryDb } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
@@ -793,6 +816,12 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
+  /** The memory database's one line (words from `labels.status.memoryDb`; a missing or blank label leaves the line out). */
+  function memoryDbLine() {
+    if (typeof memoryDb?.status !== 'function') return null;
+    return memoryDbStatusLine(memoryDb.status(), hot.prompts?.labels, clock());
+  }
+
   /** The memory field (the coverage of every kind of memory), one line per kind. */
   async function computeMemory(guildId) {
     const cfg = hot.config;
@@ -806,7 +835,8 @@ const handlers = perEnv((env) => {
       await safeLine('channels', () => channelsLine(guildId)),
       await safeLine('recent lines', () => recentLine(guildId)),
       await safeLine('participation fragments', () => participationLine(guildId)),
-    ].join('\n');
+      memoryDbLine(),
+    ].filter(Boolean).join('\n');
   }
 
   /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */

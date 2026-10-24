@@ -7,6 +7,7 @@
 // a JSONL file one line per row in the old line order, vector bytes exactly, operational rows verbatim.
 //
 // exportAll(database, toDir) -> { files, byKind, failed }
+// exportOne(database, relPath, { dataDir }) -> { found, value } | { found: false, reason }   (one JSON file's value)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -115,4 +116,40 @@ export function exportAll(database, toDir) {
     }
   }
   return result;
+}
+
+/**
+ * The value of one JSON memory file, built from the database alone (the store's read switch, spec section 7).
+ * `relPath` is relative to the data root (`guilds/<id>/users/<id>.json`). Not found, with the reason: `unmapped` (not
+ * a memory file, or not a JSON one), `missing` (the database holds no unit for it), `stale` (with `dataDir`: the file
+ * on disk is not the one the last sync read, so the database is behind it), `empty` (the unit has no rows).
+ * @returns {{ found: true, value: any } | { found: false, reason: string }}
+ */
+export function exportOne(database, relPath, { dataDir = null } = {}) {
+  const db = database.db ?? database;
+  const info = classify(relPath);
+  if (!info || info.skipped || info.format !== 'json') return { found: false, reason: 'unmapped' };
+  const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
+  const file = db.prepare('SELECT size, mtime_ms FROM files WHERE path = ?').get(full);
+  if (!file) return { found: false, reason: 'missing' };
+  if (dataDir) {
+    let stat = null;
+    try { stat = fs.statSync(path.join(dataDir, relPath)); } catch { /* gone */ }
+    if (!stat || stat.size !== file.size || Math.floor(stat.mtimeMs) !== file.mtime_ms) return { found: false, reason: 'stale' };
+  }
+  const [out] = filesOfUnit(db, info.unit, info);
+  if (!out) return { found: false, reason: 'empty' };
+  return { found: true, value: JSON.parse(out.data.toString('utf8')) };
+}
+
+/** The ids (file names without `.json`) of the JSON memory files directly under `relDir`, or null when the database holds none. */
+export function idsUnderDir(database, relDir) {
+  const db = database.db ?? database;
+  const prefix = `${String(relDir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
+  const ids = [];
+  for (const row of db.prepare('SELECT path FROM files WHERE substr(path, 1, ?) = ?').all(prefix.length, prefix)) {
+    const rest = row.path.slice(prefix.length);
+    if (!rest.includes('/') && rest.endsWith('.json')) ids.push(rest.slice(0, -5));
+  }
+  return ids.length > 0 ? ids : null;
 }

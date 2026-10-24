@@ -35,6 +35,7 @@
     "archive": true,
     "meaningSearch": false,
     "embedIndex": false,
+    "memoryDb": false,
     "imageGeneration": false,
     "privateMessages": false,
     "privateLikeServer": true,
@@ -119,6 +120,12 @@
     "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["core"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
+  },
+  "memoryDb": {
+    "file": "memory.db",
+    "syncSeconds": 60,
+    "read": false,
+    "turnReads": true
   },
   "embed": {
     "dimensions": 1024,

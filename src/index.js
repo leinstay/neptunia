@@ -13,6 +13,7 @@ import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './ops/metrics.js';
 import { createUsage, usageTap } from './ops/usage.js';
+import { createMemoryDb } from './memory/db/service.js';
 import {
   createStore,
   createAppendStore,
@@ -229,8 +230,13 @@ const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, w
 // The journal's writer lock (a snapshot, a forget, a wipe, the ledger at start) flushes the record's
 // and the archive's append stores too, and holds their writers through their writerGate.
 const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore] });
+// The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
+// below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
+const memoryDb = createMemoryDb({ hot, dataDir, log });
 const store = createStore({
   dataDir,
+  memoryRead: memoryDb.reader,
+  afterFlush: () => memoryDb.requestSync(),
   record,
   recordOn: () => hot.config.features?.record === true,
   archive,
@@ -373,6 +379,8 @@ const intentions = createIntentionService({ stores: createIntentionStores({ data
 const turns = createTurnRunner({
   hot,
   store,
+  // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
+  memoryReads: (args) => memoryDb.recordTurnReads(args),
   llm,
   calibrator,
   client,
@@ -616,6 +624,8 @@ const admin = createAdmin({
   embedder,
   // /nep resume: a catch-up pass of the meaning index; /nep status: its index line.
   embedQueue,
+  // /nep status: the memory database's state line.
+  memoryDb,
   // /nep status: the record's month indexes for the memory coverage.
   record: recordWriter,
   // /nep status: the speed field.
@@ -807,6 +817,7 @@ client.once(Events.ClientReady, async () => {
   // The periodic work first, before anything below can throw or wait: the
   // flush, the spontaneous, diary, memory and portrait ticks, the hourly affinity decay.
   every(30_000, () => store.flush(), 'store.flush');
+  every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
   // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the scheduler's clock becomes a
   // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
   every(30_000, () => spontaneous.tick(), 'spontaneous.tick');
@@ -1090,6 +1101,8 @@ async function shutdown(signal) {
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  // The last sync after the last flush of every store, then the database closes and releases its lock.
+  await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }
