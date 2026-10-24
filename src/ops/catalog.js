@@ -173,8 +173,8 @@ export function readFlag(options, name) {
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
  * the Discord JSON of the node (`buildCommandTree` drops `args`); `personaOptions` are options
- * only the persona's own call of the operation gives, never sent to Discord (kept for `/nep` until the native-tools stage 7;
- * her skills no longer read them: src/skills/definitions.js is their source, tests/oracles/skills-derive.js the oracle); a leaf
+ * only the persona's own call of the operation gives, never sent to Discord (kept for `/nep` until the split;
+ * her skills do not read them: src/skills/definitions.js is her own table); a leaf
  * with `personaOnly` is her skill alone and is left out of the Discord tree. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
@@ -760,8 +760,6 @@ export const COMMAND_TABLE = Object.freeze([
           channelId: options.getChannel('channel')?.id,
           when: options.getString('when') ?? undefined,
           terms: options.getString('terms') ?? undefined,
-          // The window read's arguments ride along only when given.
-          ...Object.fromEntries(['anchor', 'move'].map((name) => [name, options.getString(name)]).concat(['messages', 'minutes'].map((name) => [name, options.getInteger(name)])).filter(([, value]) => value !== null && value !== undefined)),
         }),
       },
     ],

@@ -29,7 +29,7 @@ function sourcesUnder(dir) {
   });
 }
 
-test('skills static guard: nothing under src/skills/ or src/behavior/ imports the command catalog or the derivation, or resolves a command', () => {
+test('skills static guard: nothing under src/skills/ or src/behavior/ imports the command catalog, or resolves a command', () => {
   const files = [...sourcesUnder(path.join(ROOT, 'src', 'skills')), ...sourcesUnder(path.join(ROOT, 'src', 'behavior'))];
   assert.ok(files.length > 10);
   for (const file of files) {
@@ -38,7 +38,6 @@ test('skills static guard: nothing under src/skills/ or src/behavior/ imports th
     const imports = [...text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)].map((m) => m[1] ?? m[2]);
     for (const spec of imports) {
       assert.ok(!/ops\/catalog(\.js)?$/.test(spec), `${rel} imports ${spec}`);
-      assert.ok(!/(^|\/)derive(\.js)?$|skills-derive/.test(spec), `${rel} imports ${spec}`);
     }
     assert.ok(!/\bresolveCommand\b/.test(text), `${rel} mentions resolveCommand`);
   }
