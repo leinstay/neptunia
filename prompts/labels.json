@@ -574,7 +574,7 @@
       }
     },
     "here": "You are in #{channel} ({why})",
-    "hereNone": "You are not in any channel. The conversation shown above is the last place you were, kept for context only; nobody there is waiting for you, and a quiet channel says nothing about this wake.",
+    "hereNone": "This wake has no current channel. Choose where an intention or action belongs.",
     "expired": "Your intentions that expired untouched since you were last told:",
     "expiredItem": "{id} · {purpose} · expired {when}",
     "expiredMore": "... and {more} more",
@@ -590,7 +590,7 @@
       "chain": "turns for this thread: {left} remaining of {cap}"
     },
     "heartbeat": {
-      "intentionsOnly": "This wake accepts one intention change (intent.set, intent.update, intent.cancel) or <skip/>, nothing else.",
+      "intentionsOnly": "You may inspect memory and conversations in this wake, then finish with one intention change (intent.set, intent.update, intent.cancel) or <skip/>. Other activities belong to the intention's own turn.",
       "people": "People you are closest to:",
       "person": "{name}: {parts}",
       "partsJoin": "; ",
@@ -700,7 +700,7 @@
         "timeout": "{what} timed out",
         "cap-open": "too many of your errands are open already",
         "cap-tasks": "today's errands for that agent are used up",
-        "heartbeat-only": "only one intention change or a skip per heartbeat wake, nothing else",
+        "heartbeat-only": "heartbeat accepts memory and conversation reads, then one intention change or a skip; other activities need an intention",
         "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
         "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
         "not-requester": "only the person who asked for it or an owner can do that",

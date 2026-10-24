@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
 import { deepMerge, isPlainObject } from '../src/config.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
-import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, hasRequiredLabels } from '../src/behavior/prompt.js';
+import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, hasRequiredLabels, userText } from '../src/behavior/prompt.js';
 import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
 import { fill, formatDate } from '../src/format.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -818,7 +818,10 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
 
 test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a review keeps inner.md', async () => {
   const beat = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'heartbeat' });
-  const beatText = assertFilled(buildRequest(beat).messages, { files: LOADS.heartbeat, blocks: ['chat', 'task'] }, 'heartbeat turn');
+  const beatRequest = buildRequest(beat);
+  const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
+  assert.ok(!/^<chat>\s*$/m.test(userText(beatRequest.messages[1].content)), 'a heartbeat has no current conversation to answer');
+  assert.ok(!/^<tempo>\s*$/m.test(userText(beatRequest.messages[1].content)), 'silence in an anchor channel is not heartbeat tempo');
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
   const review = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'review' });
   const reviewText = assertFilled(buildRequest(review).messages, { files: LOADS.inner, blocks: ['chat', 'task'] }, 'review turn');
