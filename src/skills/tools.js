@@ -391,10 +391,11 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  * left to search; else `ok` with memorySearchText as its `data.text`. With `args.anchor` (a message id: the
  * executor resolves a `#N`) the call is a window read instead (`recall.window`: `move` `up` | `down`, `messages`
  * or `minutes`): the same text, `invalid` (`unknown-message`) for an anchor that cannot be opened,
- * `not_configured` while the runner has no database to read. Never throws.
+ * `not_configured` while the runner has no database to read. `asker` is the user id of whoever asked (the trigger's
+ * author): the hidden-DM marker is set only for that person's own private chat. Never throws.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
-export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null }) {
+export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null, asker = null }) {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
@@ -425,7 +426,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
       now,
     });
     if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
-    const candidate = { id: null, content: text(args?.question) };
+    const candidate = { id: null, content: text(args?.question), authorId: asker };
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
