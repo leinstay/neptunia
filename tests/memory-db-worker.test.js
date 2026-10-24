@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { CHANNEL, MEMBER, buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
@@ -113,12 +114,13 @@ test('turn reads are written by the worker and counted at debug', async () => {
   const env = setup();
   try {
     await env.service.tick();
-    env.service.recordTurnReads({ turnId: 'turn-9', step: 's0', reads: [{ kind: 'channel', id: CHANNEL }, { kind: 'claim', id: 'no-such-claim' }] });
+    env.service.recordTurnReads({ turnId: 'turn-9', step: 's0', reads: [{ kind: 'channel', id: CHANNEL, block: 'server', ord: 3 }, { kind: 'claim', id: 'no-such-claim', block: 'people', ord: 1 }] });
     await env.service.close();
     const reader = openMemoryDb(env.dbFile(), { readOnly: true });
     try {
-      const rows = reader.db.prepare('SELECT turn_id, step, row_kind FROM turn_reads').all().map((row) => ({ ...row }));
+      const rows = reader.db.prepare('SELECT turn_id, step, row_kind, block, ord FROM turn_reads').all().map((row) => ({ ...row }));
       assert.deepEqual(rows.filter((row) => row.turn_id === 'turn-9').map((row) => row.row_kind).sort(), ['claims', 'places']);
+      assert.deepEqual(rows.filter((row) => row.turn_id === 'turn-9').map((row) => [row.row_kind, row.block, row.ord]).sort(), [['claims', 'people', 1], ['places', 'server', 3]], 'resolved on the main thread, written by the worker');
     } finally { reader.close(); }
   } finally { await env.done(); }
 });
@@ -185,5 +187,34 @@ test('shutdown gives a stuck pass closeTimeoutMs, then terminates the worker and
     // Nothing is left running: the database opens again for a writer.
     const again = openMemoryDb(env.dbFile());
     again.close();
+  } finally { await env.done(); }
+});
+
+test('the worker refuses a pass while the database is the authority; a write through it is stamped with the live authority', async () => {
+  const root = tmpRoot();
+  const data = path.join(root, 'data');
+  fs.mkdirSync(data);
+  const worker = new Worker(new URL(REAL_WORKER), { workerData: { dataDir: data } });
+  const ask = (message) => new Promise((resolve) => { worker.once('message', resolve); worker.postMessage(message); });
+  try {
+    assert.equal((await ask({ id: 1, type: 'open', path: path.join(data, 'memory.db') })).ok, true);
+    const refused = await ask({ id: 2, type: 'pass', first: true, now: 0, authority: 'db' });
+    assert.deepEqual([refused.ok, refused.code], [false, 'SYNC_OFF']);
+    assert.equal((await ask({ id: 3, type: 'close' })).ok, true);
+  } finally {
+    await worker.terminate();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  const env = setup();
+  try {
+    await env.service.tick();
+    const run = { id: 'run:w', sweepId: 'sweep:w', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|w', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
+    const update = { kind: 'session', mode: 'apply', authority: 'db', run, plan: { claims: [], episodes: [], affinity: [], descriptions: [] }, now: 1 };
+    await assert.rejects(() => env.service.memoryWrite(update), (error) => error.code === 'APPLY_JSON_WRITER');
+    env.hot.config.memoryDb.authority = 'db';
+    await env.service.memoryWrite(update);
+    await env.service.close();
+    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
+    try { assert.equal(reader.db.prepare("SELECT COUNT(*) AS n FROM session_runs WHERE applied = 1").get().n, 1); } finally { reader.close(); }
   } finally { await env.done(); }
 });

@@ -10,9 +10,15 @@
 //   and <reason>.
 //
 // A claim "is shown" by a text when the text carries most of the claim's words (the claim-level diff is a text match,
-// not a model call). In shadow the draft and the final go into one `description_versions` row with `origin` shadow,
-// never current (the draft rides in `extra`). A final over the display cap is stored as it came with `extra.overCap`;
-// nothing is cut or rewritten by the engine. Nothing here touches `descriptions.current_version`.
+// not a model call). The draft and the final go into one `description_versions` row (the draft rides in `extra`, with
+// the exact evidence and claim ids both calls were given, the model, the hash of both prompts and the `sources` rows
+// that hold her two whole answers, `<think>` included). A final over the display cap is stored as it came with
+// `extra.overCap`; nothing is cut or rewritten by the engine.
+//   - shadow: origin `shadow`, never current, and it does not move the "last reviewed" mark the next review reads.
+//   - apply (`memoryDb.session.mode` `apply` and `memoryDb.authority` `db`): origin `review`, and the same
+//     transaction moves `descriptions.current_version` to it (session-write.js).
+// A description is identified by its scope as well as its subject and field: the id of one this module creates is
+// `desc:<scope>:<subject>:<field>`; a stored row of the same subject, field and scope keeps the id it has.
 //
 // reviewDescription(db, subject, field, { ctx }) -> { status, code?, draft?, final?, reason?, row? }
 //   subject: { kind: 'person' | 'place' | 'self', id, name? }
@@ -21,8 +27,8 @@
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { voiceLimits } from '../voice.js';
 import { shortHash } from './ids.js';
-import { groupContext, whereFor } from './scope.js';
-import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
+import { dmScope, groupContext, groupScope, whereFor } from './scope.js';
+import { CODES, DESCRIPTION_FIELDS, authorityOf, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
 import { block } from '../../behavior/prompt.js';
 
 export const DRAFT_PURPOSE = 'description-draft';
@@ -72,26 +78,49 @@ export function claimDiff(claims, before, after) {
 const claimStatus = (claim) => (claim.shown === 1 && (claim.truth === 'current' || claim.truth === 'disputed') ? `shown, ${claim.truth}` : `historical${claim.valid_to ? ` since ${claim.valid_to}` : ''}, ${claim.truth}`);
 const claimLine = (claim) => `[${claim.id}] ${claim.kind ? `${claim.kind}: ` : ''}${String(claim.text ?? '').replace(/\s+/g, ' ').trim()} (${[claim.first_seen_at, claim.last_seen_at].filter(Boolean).join(' to ') || 'undated'}; ${claimStatus(claim)})`;
 
-function sourceLines(db, claimId, timezone) {
+/** The scope columns a review reads and writes in: the read context's own. */
+export function scopeOfContext(readCtx) {
+  return readCtx?.kind === 'dm' ? dmScope(readCtx.person, readCtx.iface) : groupScope(readCtx?.iface);
+}
+
+/** The id of the description of `subject` and `field` in `scope`: the stored row's, else the scoped id of a new one. */
+export function descriptionIdFor(db, subject, field, scope) {
+  const found = db.prepare(
+    `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`,
+  ).get(subject.id, field, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+  if (found) return found.id;
+  const tag = scope.scope_kind === 'dm' ? `dm.${scope.scope_iface}.${scope.scope_dm}` : `${scope.scope_kind}.${scope.scope_iface}`;
+  return `desc:${tag}:${subject.id}:${field}`;
+}
+
+function sourceLines(db, claimId, timezone, seen) {
   return db.prepare(
-    `SELECT s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND s.retired_at IS NULL
+    `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL
       ORDER BY cs.position LIMIT ?`,
-  ).all(claimId, SOURCES_PER_ITEM).map((row) => `  source ${Number.isFinite(Date.parse(row.occurred_at)) ? stamp(Date.parse(row.occurred_at), timezone) : '?'}: ${String(row.text ?? '').replace(/\s+/g, ' ').slice(0, SOURCE_CHARS)}`);
+  ).all(claimId, SOURCES_PER_ITEM).map((row) => {
+    seen?.add(row.id);
+    return `  source ${Number.isFinite(Date.parse(row.occurred_at)) ? stamp(Date.parse(row.occurred_at), timezone) : '?'}: ${String(row.text ?? '').replace(/\s+/g, ' ').slice(0, SOURCE_CHARS)}`;
+  });
 }
 
 /** What the first call is given, from the database. */
 export function gatherReview(db, subject, field, { config, readCtx }) {
-  const descriptionId = `desc:${subject.id}:${field}`;
+  const scopeColumns = scopeOfContext(readCtx);
+  const descriptionId = descriptionIdFor(db, subject, field, scopeColumns);
+  const sourceIds = new Set();
   const timezone = config?.bot?.timezone ?? 'UTC';
   const scope = whereFor(readCtx, 'c');
   const claims = db.prepare(
     `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
       WHERE c.subject_kind = ? AND c.subject_id = ? AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`,
   ).all(subject.kind, subject.id, ...scope.params);
-  const current = db.prepare(
-    `SELECT v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version WHERE d.id = ? AND d.retired_at IS NULL`,
-  ).get(descriptionId)?.text ?? '';
-  const last = db.prepare('SELECT MAX(written_at) AS at FROM description_versions WHERE description_id = ? AND retired_at IS NULL AND written_at IS NOT NULL').get(descriptionId)?.at ?? null;
+  const currentRow = db.prepare(
+    `SELECT d.current_version AS id, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version WHERE d.id = ? AND d.retired_at IS NULL`,
+  ).get(descriptionId);
+  const current = currentRow?.text ?? '';
+  const currentVersion = db.prepare('SELECT current_version FROM descriptions WHERE id = ?').get(descriptionId)?.current_version ?? null;
+  // "Last reviewed" is the accepted path's mark: a shadow review never moves it.
+  const last = db.prepare("SELECT MAX(written_at) AS at FROM description_versions WHERE description_id = ? AND retired_at IS NULL AND written_at IS NOT NULL AND origin IS NOT 'shadow'").get(descriptionId)?.at ?? null;
 
   const byId = new Map(claims.map((claim) => [claim.id, claim]));
   const evidence = [];
@@ -104,7 +133,7 @@ export function gatherReview(db, subject, field, { config, readCtx }) {
     ).all(...claims.map((claim) => claim.id), ...(last ? [last] : []), EVIDENCE_MAX);
     for (const version of versions.reverse()) {
       evidenceClaims.add(version.claim_id);
-      evidence.push(`${version.recorded_at ?? 'undated'} ${version.event} [${version.claim_id}] ${String(version.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, version.claim_id, timezone));
+      evidence.push(`${version.recorded_at ?? 'undated'} ${version.event} [${version.claim_id}] ${String(version.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, version.claim_id, timezone, sourceIds));
     }
     // A claim the sync brought in without versions: it counts as evidence when it was seen after the last review.
     for (const claim of claims) {
@@ -112,7 +141,7 @@ export function gatherReview(db, subject, field, { config, readCtx }) {
       const seen = claim.last_seen_at ?? claim.first_seen_at;
       if (last && (!seen || seen <= last.slice(0, seen.length))) continue;
       evidenceClaims.add(claim.id);
-      evidence.push(`${seen ?? 'undated'} seen [${claim.id}] ${String(claim.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, claim.id, timezone));
+      evidence.push(`${seen ?? 'undated'} seen [${claim.id}] ${String(claim.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, claim.id, timezone, sourceIds));
     }
   }
   // Samples: lines from the other claims, spread over time.
@@ -121,14 +150,15 @@ export function gatherReview(db, subject, field, { config, readCtx }) {
   for (const claim of claims) {
     if (evidenceClaims.has(claim.id)) continue;
     for (const row of db.prepare(
-      `SELECT s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND s.retired_at IS NULL ORDER BY cs.position LIMIT 1`,
-    ).all(claim.id)) pool.push({ at: row.occurred_at ?? '', text: row.text });
+      `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL ORDER BY cs.position LIMIT 1`,
+    ).all(claim.id)) pool.push({ id: row.id, at: row.occurred_at ?? '', text: row.text });
   }
   pool.sort((a, b) => a.at.localeCompare(b.at));
   if (pool.length <= SAMPLES_MAX) sampled.push(...pool);
   else for (let i = 0; i < SAMPLES_MAX; i += 1) sampled.push(pool[Math.floor((i * (pool.length - 1)) / (SAMPLES_MAX - 1))]);
+  for (const row of sampled) sourceIds.add(row.id);
   const samples = sampled.map((row) => `${Number.isFinite(Date.parse(row.at)) ? stamp(Date.parse(row.at), timezone) : '?'}: ${String(row.text ?? '').replace(/\s+/g, ' ').slice(0, SOURCE_CHARS)}`);
-  return { descriptionId, claims, byId, current, last, evidence, samples };
+  return { descriptionId, scope: scopeColumns, claims, byId, current, currentVersion, last, evidence, evidenceClaims: [...evidenceClaims], sourceIds: [...sourceIds], samples };
 }
 
 /** `<description>` and `<reason>` of an answer (the thinking removed); null when the description is missing or empty. */
@@ -151,6 +181,7 @@ export function parseDescriptionAnswer(text) {
 export function reviewRefusal(config, env, prompts) {
   if (sessionSettings(config).mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
+  if (sessionSettings(config).mode === 'apply' && authorityOf(config) !== 'db') return CODES.APPLY_REFUSED;
   if (!present(prompts?.[DRAFT_PURPOSE]) || !present(prompts?.[CHECK_PURPOSE])) return CODES.NO_PROMPT;
   return null;
 }
@@ -202,9 +233,11 @@ export async function reviewDescription(db, subject, field, { ctx }) {
     block('samples', gathered.samples.join('\n')),
   ].filter(Boolean).join('\n\n');
   let draft;
+  const answers = [];
   try {
     const completion = await ask(ctx, [{ role: 'system', content: systemTextOf(prompts, selfName, prompts[DRAFT_PURPOSE]) }, { role: 'user', content: draftUser }], { purpose: DRAFT_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens });
     add(completion);
+    if (typeof completion?.text === 'string') answers.push({ purpose: DRAFT_PURPOSE, text: completion.text });
     draft = parseDescriptionAnswer(completion?.text);
   } catch (error) {
     log.warn?.('description review: draft failed', { code: codeOf(error) });
@@ -227,6 +260,7 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   try {
     const completion = await ask(ctx, [{ role: 'system', content: systemTextOf(prompts, selfName, prompts[CHECK_PURPOSE]) }, { role: 'user', content: checkUser }], { purpose: CHECK_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens });
     add(completion);
+    if (typeof completion?.text === 'string') answers.push({ purpose: CHECK_PURPOSE, text: completion.text });
     final = parseDescriptionAnswer(completion?.text);
   } catch (error) {
     log.warn?.('description review: check failed', { code: codeOf(error) });
@@ -246,10 +280,29 @@ export async function reviewDescription(db, subject, field, { ctx }) {
     removed: change.lost.length,
     added: change.gained.length,
     reason: final.reason || draft.reason || null,
-    extra: { draft: draft.description, draftReason: draft.reason || null, cap, ...(chars > cap ? { overCap: chars } : {}), model: roleModel(config, MEMORY_ROLE), tokens, sinceReview: gathered.last },
+    extra: {
+      draft: draft.description,
+      draftReason: draft.reason || null,
+      cap,
+      ...(chars > cap ? { overCap: chars } : {}),
+      model: roleModel(config, MEMORY_ROLE),
+      prompts: { draft: shortHash(prompts[DRAFT_PURPOSE]), check: shortHash(prompts[CHECK_PURPOSE]) },
+      tokens,
+      sinceReview: gathered.last,
+      basedOn: gathered.currentVersion,
+      claimIds: gathered.claims.map((claim) => claim.id),
+      evidenceClaimIds: gathered.evidenceClaims,
+      evidenceSourceIds: gathered.sourceIds,
+      evidence: gathered.evidence,
+      samples: gathered.samples,
+      diff: { lost: draftDiff.lost.map((claim) => claim.id), gained: draftDiff.gained.map((claim) => claim.id) },
+    },
   };
   try {
-    await ctx.write({ kind: 'description', row });
+    await ctx.write({
+      kind: 'description', mode: settings.mode, row, subject: { kind: subject.kind, id: subject.id, field }, scope: gathered.scope,
+      expectCurrent: gathered.currentVersion, answers, now: at,
+    });
   } catch (error) {
     log.warn?.('description review: write failed', { code: codeOf(error) });
     return { status: 'failed', code: codeOf(error), step: 'write' };

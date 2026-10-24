@@ -9,12 +9,13 @@ import {
   sessionSettings, sessionStatus, sweep, validateAnswer,
 } from '../src/memory/db/session.js';
 import { channelPlaceId, dmPlaceId, guildPlaceId, messageSourceId, personId, SELF_PERSON } from '../src/memory/db/ids.js';
+import { groupContext, whereFor } from '../src/memory/db/scope.js';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.js';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
+import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,7 +42,7 @@ const baseConfig = (session = {}, extra = {}) => ({
   models: { memory: 'x/memory' },
   llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   relationships: { maxDeltaPerUpdate: 5 },
-  memoryDb: { read: true, session: { mode: 'shadow', minMessages: 1, ...session } },
+  memoryDb: { read: true, authority: 'db', session: { mode: 'shadow', minMessages: 1, ...session } },
   ...extra,
 });
 
@@ -106,7 +107,8 @@ let clock = 0;
 function ctxOf(env, { llm, config = baseConfig(), promptSet = prompts, envVars = { OPENROUTER_MEMORY_KEY: 'k' }, write } = {}) {
   return {
     db: env.db,
-    write: write ?? (async (update) => applyMemoryWrite(env.handle, update)),
+    // The service stamps the authority of the live config into every write; so does this one.
+    write: write ?? (async (update) => applyMemoryWrite(env.handle, { ...update, authority: config?.memoryDb?.authority ?? 'json' })),
     llm,
     hot: { config, prompts: promptSet },
     env: envVars,
@@ -142,8 +144,12 @@ test('refusals: off, no key, apply while the JSON files write, no prompt; the ke
   assert.equal(refusalOf(baseConfig({ mode: 'off' }), env, prompts), CODES.OFF);
   assert.equal(refusalOf(baseConfig(), {}, prompts), CODES.NOT_CONFIGURED);
   assert.equal(refusalOf(baseConfig(), { OPENROUTER_MEMORY_KEY: '  ' }, prompts), CODES.NOT_CONFIGURED);
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: false, session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED);
+  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: false, authority: 'db', session: { mode: 'apply' } } }), env, prompts), null, 'the read switch is not the authority');
+  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED, 'reading from the database never unlocks a write');
+  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, authority: 'json', session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED);
+  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, authority: 'bogus', session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED, 'any other value is json');
   assert.equal(refusalOf(baseConfig({ mode: 'apply' }), env, prompts), null);
+  assert.equal(refusalOf(baseConfig({ mode: 'shadow' }, { memoryDb: { session: { mode: 'shadow' } } }), env, prompts), null, 'shadow needs no authority');
   assert.equal(refusalOf(baseConfig(), env, { ...prompts, 'memory-session': '' }), CODES.NO_PROMPT);
   assert.deepEqual(memoryKeyState(baseConfig(), env), { ok: true, name: 'OPENROUTER_MEMORY_KEY' });
   assert.deepEqual(memoryKeyState({ llm: { keyByRole: { memory: 'sk-or-pasted-key' } } }, env), { ok: false, name: null });
@@ -171,11 +177,11 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `blocks in order: ${order}`);
     const batch = user.content.slice(user.content.indexOf('<batch>')).split('\n');
     assert.equal(batch[1], 'cutoff: 2026-10-24 11:00', 'the cutoff is stated at the top');
-    assert.equal(batch[2], '#1 [2026-10-24 10:20] Ada: Καλημέρα, I like café mornings', 'the account name, not the account id');
-    assert.equal(batch[3], '#2 [2026-10-24 10:30] Βασίλης: ναι, σωστά');
-    assert.equal(batch[4], '→ #3 [2026-10-24 10:40] Ada: hey you there?', 'addressed to her: led by an arrow');
-    assert.equal(batch[5], '#4 [2026-10-24 10:50] Nep (you): I am here', 'her own line: her self label');
-    assert.equal(batch[6], '#5 [2026-10-24 11:00] Ada: I moved to Thessaloniki');
+    assert.equal(batch[2], '#1 [2026-10-24 10:20] [p1] Ada: Καλημέρα, I like café mornings', 'the account name, not the account id; the place handle of the line');
+    assert.equal(batch[3], '#2 [2026-10-24 10:30] [p1] Βασίλης: ναι, σωστά');
+    assert.equal(batch[4], '→ #3 [2026-10-24 10:40] [p1] Ada: hey you there?', 'addressed to her: led by an arrow');
+    assert.equal(batch[5], '#4 [2026-10-24 10:50] [p1] Nep (you): I am here', 'her own line: her self label');
+    assert.equal(batch[6], '#5 [2026-10-24 11:00] [p1] Ada: I moved to Thessaloniki');
     // The ids the answer may use stand for database ids.
     assert.equal(built.maps.sources.get('#1'), chat_ids(env).a);
     assert.equal(built.maps.sources.size, 5);
@@ -192,7 +198,8 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.match(people, /\[c\d+\] interest: likes café mornings/);
     assert.match(user.content, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
     assert.match(user.content, /open|pending: ask Ada about the move|pending: ask Ada/);
-    assert.match(user.content, /<place>\nscope: group\nchannel: general - chat/);
+    assert.match(user.content, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] guild: Server/);
+    assert.deepEqual([...built.maps.places.entries()], [['p1', CHANNEL], ['p2', guildPlaceId(GUILD)]]);
   } finally {
     env.done();
   }
@@ -217,14 +224,14 @@ test('validation: ids map back to the database; what the request did not carry i
     env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
     env.claim({ id: 'cl-self', subjectKind: 'self', subjectId: SELF_PERSON, kind: 'self_fact', text: 'keeps a small garden' });
     const built = request(env);
-    const check = (value) => validateAnswer(value, { maps: built.maps, people: built.people, placeId: guildPlaceId(GUILD), scopeKey: 'group:discord' });
+    const check = (value) => validateAnswer(value, { maps: built.maps, people: built.people });
     const label = [...built.maps.claims.entries()].find(([, id]) => id === 'cl-ada')[0];
     const selfLabel = [...built.maps.claims.entries()].find(([, id]) => id === 'cl-self')[0];
     const { plan, counts } = check({
       claims: [
         { op: 'add', subject: 'Ada', kind: 'detail', text: 'moved to Thessaloniki', how: 'said', sources: ['#5'], when: '2026-10' },
         { op: 'add', subject: 'ada', kind: 'detail', text: 'same person by a folded name', how: 'saw', sources: [5] },
-        { op: 'add', subject: 'place', kind: 'injoke', text: 'a joke', how: 'saw', sources: ['#1', '#99'] },
+        { op: 'add', subject: 'place', place: 'p2', kind: 'injoke', text: 'a joke', how: 'saw', sources: ['#1'] },
         { op: 'add', subject: 'self', kind: 'self_fact', text: 'I answered a greeting', how: 'saw', sources: ['#4'] },
         { op: 'add', subject: personId(BOB), kind: 'interest', text: 'Greek texts', how: 'inferred', sources: ['#2'] },
         { op: 'confirm', id: label, sources: ['#1'] },
@@ -237,6 +244,11 @@ test('validation: ids map back to the database; what the request did not carry i
         { op: 'add', subject: 'Ada', kind: 'detail', text: 'x', how: 'said', sources: ['#42'] },
         { op: 'add', subject: 'Ada', kind: 'detail', text: 'x', how: 'said', sources: [] },
         { op: 'add', subject: 'Ada', kind: 'detail', text: '  ', how: 'said', sources: ['#1'] },
+        { op: 'add', subject: 'place', place: 'p1', kind: 'injoke', text: 'x', how: 'saw', sources: ['#1', '#99'] },
+        { op: 'add', subject: 'place', kind: 'injoke', text: 'x', how: 'saw', sources: ['#1'] },
+        { op: 'add', subject: 'place', place: 'p9', kind: 'injoke', text: 'x', how: 'saw', sources: ['#1'] },
+        { op: 'revise', id: label, text: 'x', how: 'said', sources: ['#1'] },
+        { op: 'retire', id: label, truth: 'disputed', sources: ['#1'] },
         { op: 'confirm', id: 'c999', sources: ['#1'] },
         { op: 'confirm', id: 'cl-ada', sources: ['#1'] },
         { op: 'retire', id: label, truth: 'gone', sources: ['#1'] },
@@ -253,7 +265,8 @@ test('validation: ids map back to the database; what the request did not carry i
     ]);
     assert.deepEqual(plan.claims[0].sources, [ids.e], 'a #n is the line it numbered');
     assert.equal(plan.claims[0].when, '2026-10');
-    assert.deepEqual(plan.claims[2].sources, [ids.a], 'an unknown source is dropped, the other holds the claim');
+    assert.deepEqual(plan.claims[2].sources, [ids.a]);
+    assert.equal(plan.claims[2].subjectId, guildPlaceId(GUILD), 'a place is the one the handle names');
     assert.equal(plan.claims[5].id, 'cl-ada', 'cN back to the claim id');
     assert.equal(plan.claims[7].id, 'cl-self');
     assert.deepEqual(plan.episodes, [{ subjectId: personId(ADA), what: 'helped with the move', feeling: 'warm', sources: [ids.e] }]);
@@ -261,15 +274,20 @@ test('validation: ids map back to the database; what the request did not carry i
     assert.deepEqual(plan.descriptions, [{ subjectKind: 'person', subjectId: personId(ADA), field: 'character', why: 'new facts' }]);
     assert.equal(counts.kept, 8 + 1 + 1 + 1);
     assert.deepEqual(counts.dropped, {
-      unknown_source: 2, unknown_subject: 1, bad_kind: 1, bad_how: 1, no_sources: 3, no_text: 1, unknown_id: 2, bad_truth: 1, bad_op: 2, bad_delta: 2, bad_field: 1,
+      unknown_source: 2, unknown_subject: 1, bad_kind: 1, bad_how: 1, no_sources: 2, no_text: 1, unknown_id: 2, bad_truth: 1, bad_op: 2, bad_delta: 2, bad_field: 1,
+      no_place: 1, unknown_place: 1, no_reason: 2,
     });
+    // An op with one unknown source among known ones is dropped whole, never kept with part of its evidence.
+    assert.equal(check({ claims: [{ op: 'add', subject: 'Ada', kind: 'detail', text: 'x', how: 'said', sources: ['#1', '#99'] }] }).plan.claims.length, 0);
+    // A reason is required for a revision, a retirement, an attitude change and a description flag.
+    assert.deepEqual(check({ affinity: [{ person: 'Ada', delta: 1, sources: ['#1'] }], descriptions: [{ subject: 'Ada', field: 'character' }] }).counts.dropped, { no_reason: 2 });
     // a part that is not a list; two people with one name
     assert.deepEqual(check({ claims: 'x', episodes: {} }).counts.dropped, { claims_not_list: 1, episodes_not_list: 1 });
     env.db.prepare("UPDATE accounts SET names = ? WHERE id = ?").run(JSON.stringify(['Ada']), `discord:${BOB}`);
     const twin = request(env);
-    const result = validateAnswer({ episodes: [{ subject: 'Ada', what: 'x', sources: ['#1'] }] }, { maps: twin.maps, people: twin.people, placeId: null });
+    const result = validateAnswer({ episodes: [{ subject: 'Ada', what: 'x', sources: ['#1'] }] }, { maps: twin.maps, people: twin.people });
     assert.deepEqual(result.counts.dropped, { unknown_subject: 1 }, 'a name two people share names no one');
-    assert.equal(validateAnswer({ claims: [{ op: 'add', subject: 'place', kind: 'detail', text: 'x', how: 'said', sources: ['#1'] }] }, { maps: twin.maps, people: twin.people, placeId: null }).counts.dropped.unknown_subject, 1);
+    assert.equal(validateAnswer({ claims: [{ op: 'add', subject: 'place', kind: 'detail', text: 'x', how: 'said', sources: ['#1'] }] }, { maps: twin.maps, people: twin.people }).counts.dropped.no_place, 1, 'a place proposal names its place; there is no first-place default');
   } finally {
     env.done();
   }
@@ -370,7 +388,7 @@ test('refused before any request: off, no key of its own, apply while the JSON f
     assert.deepEqual([off.status, off.code], ['off', 'off']);
     const keyless = await sweep(ctxOf(env, { llm, envVars: { OPENROUTER_API_KEY: 'main', OPENROUTER_CORE_KEY: 'core' } }));
     assert.deepEqual([keyless.status, keyless.code], ['refused', 'not_configured'], 'another key never stands in');
-    const jsonWriter = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: false, session: { mode: 'apply', minMessages: 1 } } }) }));
+    const jsonWriter = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply', minMessages: 1 } } }) }));
     assert.deepEqual([jsonWriter.status, jsonWriter.code], ['refused', 'APPLY_JSON_WRITER']);
     assert.equal(llm.calls.length, 0);
     assert.equal(count(env.db, 'session_runs'), 0);
@@ -454,6 +472,7 @@ test('apply on a database that is the writer: claims with versions and sources, 
     env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
     env.claim({ id: 'cl-old', subjectId: personId(ADA), kind: 'detail', text: 'lives in Athens' });
     env.claim({ id: 'cl-gone', subjectId: personId(ADA), kind: 'detail', text: 'plays chess' });
+    env.claim({ id: 'cl-fresh', subjectId: personId(ADA), kind: 'detail', text: 'owns a bicycle' });
     const labelOf = (id) => [...request(env).maps.claims.entries()].find(([, value]) => value === id)[0];
     const llm = fakeLlm(() => memoryBlock({
       claims: [
@@ -496,10 +515,11 @@ test('apply on a database that is the writer: claims with versions and sources, 
     assert.equal(count(env.db, 'decisions', "action LIKE 'proposed:%'"), 0);
     // a second answer: dispute keeps the claim shown; an id that has since left is counted, not written
     env.say({ native: 'm7', minutesAgo: 20, text: 'no, I never played chess' });
-    const disputed = [...request(env).maps.claims.entries()].find(([, id]) => id === 'cl-old');
+    // (a claim the first answer touched is newer than the second batch's cutoff and is not in the request; this one is untouched)
+    const disputed = [...request(env).maps.claims.entries()].find(([, id]) => id === 'cl-fresh');
     const second = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({ claims: [{ op: 'retire', id: disputed[0], truth: 'disputed', reason: 'contradicted', sources: ['#1'] }] })), config }), { ignoreSweepCap: true });
     assert.equal(second.runs[0].outcome, 'ok');
-    assert.deepEqual(Object.values(env.db.prepare("SELECT truth, shown FROM claims WHERE id = 'cl-old'").get()), ['disputed', 1]);
+    assert.deepEqual(Object.values(env.db.prepare("SELECT truth, shown FROM claims WHERE id = 'cl-fresh'").get()), ['disputed', 1]);
   } finally {
     env.done();
   }
@@ -513,7 +533,7 @@ test('the status of the session and its line', async () => {
     const envVars = { OPENROUTER_MEMORY_KEY: 'k' };
     assert.equal(sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: envVars, prompts, now: NOW }).state, 'off');
     assert.equal(sessionStatus({ db: env.db, config, env: {}, prompts, now: NOW }).state, 'not_configured');
-    const refused = sessionStatus({ db: env.db, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: false, session: { mode: 'apply' } } }), env: envVars, prompts, now: NOW });
+    const refused = sessionStatus({ db: env.db, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply' } } }), env: envVars, prompts, now: NOW });
     assert.deepEqual([refused.state, refused.code], ['refused', 'APPLY_JSON_WRITER']);
     await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
     const ready = sessionStatus({ db: env.db, config, env: envVars, prompts, now: NOW });
@@ -538,12 +558,16 @@ test('the people block renders a stored profile the way her turns do, from the d
   const handle = openMemoryDb(path.join(root, 'memory.db'));
   try {
     assert.equal(syncOnce(handle, data).errors, 0);
-    const { MEMBER } = await import('./fixtures/memory-db/datadir.js');
     const scope = scopesOf(handle.db).find((entry) => entry.key === 'group:discord');
     assert.ok(scope, 'the synced record has a group scope');
     const batch = batchOf(handle.db, scope.scope, { cursor: 0, since: null, maxMessages: 50, settleBefore: Date.parse('2027-01-01') });
     assert.ok(batch.length >= 2);
     const built = buildSessionRequest({ db: handle.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
+    // A unit that left the disk is a tombstone (`gone_at`): its profile is not rendered.
+    handle.db.prepare("UPDATE files SET gone_at = '2026-10-24T00:00:00.000Z' WHERE path LIKE ?").run(`guilds/%/users/${MEMBER}.json`);
+    const withoutFile = buildSessionRequest({ db: handle.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
+    assert.ok(withoutFile.messages[1].content.length < built.messages[1].content.length, 'the profile of a file that is gone is left out');
+    handle.db.prepare("UPDATE files SET gone_at = NULL WHERE path LIKE ?").run(`guilds/%/users/${MEMBER}.json`);
     const people = built.messages[1].content;
     const stored = JSON.parse(fs.readFileSync(path.join(data, 'guilds', '300000000000000001', 'users', `${MEMBER}.json`), 'utf8'));
     assert.ok(built.people.some((person) => person.native === MEMBER));
@@ -611,4 +635,369 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
   assert.equal(opKinds(null), 'none');
   assert.deepEqual(parseSubject('person:person:discord:u-ada:character'), { subject: { kind: 'person', id: 'person:discord:u-ada' }, field: 'character' });
   assert.throws(() => parseSubject('character'), /--review wants/);
+});
+
+// ---------- before any `apply`: authority, idempotent runs, evidence, batches, stored answers ----------
+
+const GROUP = { scope_kind: 'group', scope_iface: 'discord', scope_dm: null };
+const DM_ADA = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personId(ADA) };
+const runOf = (extra = {}) => ({
+  id: 'run:t', sweepId: 'sweep:t', scopeKey: 'group:discord', scope: GROUP, batchKey: 'apply|group:discord|0|9|0', startedAt: new Date(NOW).toISOString(),
+  finishedAt: new Date(NOW).toISOString(), cursorFrom: 0, cursorTo: 9, sourcesN: 1, outcome: 'ok', counts: {}, errors: [], ...extra,
+});
+const emptyPlan = (extra = {}) => ({ claims: [], episodes: [], affinity: [], descriptions: [], ...extra });
+const applyOf = (env, update) => applyMemoryWrite(env.handle, { kind: 'session', mode: 'apply', authority: 'db', run: runOf(), maxDelta: 5, now: NOW, ...update });
+
+test('authority: the writer itself refuses apply unless the database is the authority, and any mode but shadow and apply', () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    const plan = emptyPlan({ claims: [{ op: 'add', subjectKind: 'self', subjectId: SELF_PERSON, kind: 'self_fact', text: 'a fact', how: 'saw', sources: [ids.a], when: null }] });
+    for (const authority of [undefined, 'json', 'bogus']) {
+      assert.throws(() => applyOf(env, { plan, authority }), (error) => error.code === 'APPLY_JSON_WRITER', `authority ${authority}`);
+    }
+    for (const mode of ['draft', 'off', undefined]) assert.throws(() => applyOf(env, { plan, mode }), (error) => error.code === 'BAD_MODE', `mode ${mode}`);
+    assert.throws(() => applyMemoryWrite(env.handle, { kind: 'other' }), (error) => error.code === 'BAD_UPDATE');
+    assert.deepEqual([count(env.db, 'session_runs'), count(env.db, 'claims', "author = 'her'"), count(env.db, 'decisions')], [0, 0, 0], 'a refusal writes nothing');
+    assert.equal(applyOf(env, { plan }).added, 1);
+    // shadow needs no authority
+    assert.equal(applyMemoryWrite(env.handle, { kind: 'session', mode: 'shadow', run: runOf({ id: 'run:s', batchKey: 'shadow|x' }), plan, now: NOW }).proposed, 1);
+  } finally {
+    env.done();
+  }
+});
+
+test('a run is applied once: a retried batch returns the first result and changes nothing, affinity above all', () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    const plan = emptyPlan({
+      episodes: [{ subjectId: personId(ADA), what: 'a kind moment', feeling: '', sources: [ids.a] }],
+      affinity: [{ personId: personId(ADA), delta: 3, reason: 'kind', sources: [ids.a] }],
+      claims: [{ op: 'add', subjectKind: 'person', subjectId: personId(ADA), kind: 'detail', text: 'new fact', how: 'said', sources: [ids.a], when: null }],
+    });
+    const cursor = cursorKey('apply', 'group:discord');
+    const update = { plan, advance: { key: cursor, value: 9, expect: 0 } };
+    const first = applyOf(env, update);
+    assert.deepEqual([first.added, first.episodes, first.affinity, first.replayed], [1, 1, 1, undefined]);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 8);
+    const again = applyOf(env, update);
+    assert.deepEqual([again.replayed, again.added, again.affinity], [true, 1, 1], 'the first result comes back');
+    const otherRun = applyOf(env, { ...update, run: runOf({ id: 'run:retry' }) });
+    assert.equal(otherRun.replayed, true, 'a retry under another run id is the same batch');
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 8, 'the attitude moved once');
+    assert.deepEqual([count(env.db, 'affinity_events'), count(env.db, 'episodes'), count(env.db, 'claims', "author = 'her'"), count(env.db, 'session_runs')], [1, 1, 1, 1]);
+    assert.equal(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value, '9');
+    // the same event id never applies twice, whatever the batch key
+    const sameEvent = applyOf(env, { run: runOf({ batchKey: 'apply|other' }), plan });
+    assert.equal(sameEvent.duplicate, 1);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 8);
+  } finally {
+    env.done();
+  }
+});
+
+test('the cursor moves by compare-and-set in the transaction of the write: a stale cursor writes nothing', () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    const cursor = cursorKey('apply', 'group:discord');
+    const plan = emptyPlan({ episodes: [{ subjectId: personId(ADA), what: 'x', feeling: '', sources: [ids.a] }] });
+    env.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(cursor, '4');
+    assert.throws(() => applyOf(env, { plan, advance: { key: cursor, value: 9, expect: 0 } }), (error) => error.code === 'CURSOR_CONFLICT');
+    assert.deepEqual([count(env.db, 'episodes'), count(env.db, 'session_runs'), count(env.db, 'decisions')], [0, 0, 0], 'the writes rolled back with it');
+    assert.equal(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value, '4');
+    applyOf(env, { plan, advance: { key: cursor, value: 9, expect: 4 } });
+    assert.equal(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value, '9');
+  } finally {
+    env.done();
+  }
+});
+
+test('an all_dropped answer leaves the cursor and the batch pending; after retryLimit tries it is skipped with a recorded decision', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const config = baseConfig({ retryLimit: 2 });
+    const llm = fakeLlm(memoryBlock({ claims: [{ op: 'add', subject: 'Nobody', kind: 'detail', text: 'x', how: 'said', sources: ['#1'] }] }));
+    const cursor = cursorKey('shadow', 'group:discord');
+    const first = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
+    assert.equal(first.runs[0].outcome, 'all_dropped');
+    assert.equal(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor), undefined, 'the cursor did not move');
+    const status = sessionStatus({ db: env.db, config, env: { OPENROUTER_MEMORY_KEY: 'k' }, prompts, now: NOW });
+    assert.deepEqual(status.pending.map((batch) => [batch.scope, batch.tries]), [['group:discord', 1]]);
+    const text = { status: { memorySession: { line: '{mode}', pending: 'WAITING {n} after {tries} of {limit}' } } };
+    assert.equal(memorySessionStatusLine(status, text), 'shadow\nWAITING 1 after 1 of 2');
+    assert.equal(memorySessionStatusLine(status, { status: { memorySession: { line: '{mode}' } } }), 'shadow', 'no label, no pending line');
+    const second = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
+    assert.equal(second.runs[0].outcome, 'all_dropped');
+    assert.equal(llm.calls.length, 2);
+    const third = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
+    assert.deepEqual(third.runs.map((run) => run.outcome), ['skipped']);
+    assert.equal(llm.calls.length, 2, 'a skipped batch costs no request');
+    assert.ok(Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value) > 0, 'the cursor moved past it');
+    const decision = env.db.prepare("SELECT by, action, extra FROM decisions WHERE action = 'skipped:all_dropped'").get();
+    assert.equal(decision.by, 'engine');
+    assert.equal(JSON.parse(decision.extra).tries, 2);
+    assert.equal(count(env.db, 'meta', "key LIKE 'memory_session.pending.%'"), 0);
+    assert.equal(sessionStatus({ db: env.db, config, env: { OPENROUTER_MEMORY_KEY: 'k' }, prompts, now: NOW }).pending.length, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test('a write that failed is never an ok run: the cursor stays, the error is in the result', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const down = async () => { throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' }); };
+    const result = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})), write: down }));
+    assert.equal(result.runs[0].outcome, 'write_failed');
+    assert.deepEqual(result.runs[0].errors, ['write:SQLITE_BUSY']);
+    assert.equal(count(env.db, 'meta', "key LIKE 'memory_session.cursor.%'"), 0);
+    const retried = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }), { ignoreSweepCap: true });
+    assert.equal(retried.runs[0].outcome, 'ok', 'the next sweep reads the same lines');
+  } finally {
+    env.done();
+  }
+});
+
+test('evidence: an op with a source that does not exist is rejected whole; a revision needs its reason', () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    const plan = emptyPlan({
+      claims: [
+        { op: 'add', subjectKind: 'person', subjectId: personId(ADA), kind: 'detail', text: 'half evidence', how: 'said', sources: [ids.a, 'src:missing'], when: null },
+        { op: 'revise', id: 'cl-ada', text: 'likes tea', how: 'said', sources: [ids.a], reason: '' },
+        { op: 'retire', id: 'cl-ada', truth: 'historical', sources: [ids.a] },
+        { op: 'confirm', id: 'cl-ada', sources: [] },
+      ],
+      affinity: [{ personId: personId(ADA), delta: 2, reason: '', sources: [ids.a] }],
+      episodes: [{ subjectId: personId(ADA), what: 'x', feeling: '', sources: ['src:missing'] }],
+    });
+    const counts = applyOf(env, { plan });
+    assert.equal(counts.rejected, 6);
+    assert.deepEqual([counts.added, counts.revised, counts.retired, counts.confirmed, counts.episodes, counts.affinity], [0, 0, 0, 0, 0, 0]);
+    assert.deepEqual([count(env.db, 'claims', "author = 'her'"), count(env.db, 'claim_sources'), count(env.db, 'episodes'), count(env.db, 'affinity_events')], [0, 0, 0, 0]);
+    assert.equal(env.db.prepare("SELECT text FROM claims WHERE id = 'cl-ada'").get().text, 'likes café mornings');
+    assert.deepEqual(env.db.prepare("SELECT action FROM decisions ORDER BY id").all().map((row) => row.action), [
+      'rejected:unknown_source', 'rejected:no_reason', 'rejected:no_reason', 'rejected:unknown_source', 'rejected:unknown_source', 'rejected:no_reason',
+    ]);
+  } finally {
+    env.done();
+  }
+});
+
+test('a revised or confirmed claim takes its scope from the evidence of the new version; a private line on a group claim makes a private claim, the group one stays', () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const dmLine = env.say({ native: 'd1', minutesAgo: 50, text: 'I moved to Lyon, keep it quiet', scope: DM_ADA, place: dmPlaceId(ADA) });
+    const groupLine = messageSourceId('m5', 1, 'seen');
+    env.claim({ id: 'cl-home', subjectId: personId(ADA), kind: 'detail', text: 'lives in Athens' });
+    env.claim({ id: 'cl-tea', subjectId: personId(ADA), kind: 'interest', text: 'likes tea' });
+    env.claim({ id: 'cl-chess', subjectId: personId(ADA), kind: 'interest', text: 'plays chess' });
+    const dmRun = runOf({ id: 'run:dm', scope: DM_ADA, scopeKey: `dm:discord:${personId(ADA)}`, batchKey: 'apply|dm' });
+    const counts = applyOf(env, {
+      run: dmRun,
+      plan: emptyPlan({
+        claims: [
+          { op: 'revise', id: 'cl-home', text: 'lives in Lyon', how: 'said', sources: [dmLine], reason: 'told in private' },
+          { op: 'confirm', id: 'cl-tea', sources: [dmLine] },
+          { op: 'retire', id: 'cl-chess', truth: 'historical', reason: 'stopped', sources: [dmLine] },
+        ],
+      }),
+    });
+    assert.deepEqual([counts.revised, counts.confirmed, counts.retired, counts.derived], [1, 1, 1, 3]);
+    for (const [id, text] of [['cl-home', 'lives in Athens'], ['cl-tea', 'likes tea'], ['cl-chess', 'plays chess']]) {
+      const old = env.db.prepare('SELECT text, scope_kind, last_seen_at, truth, shown FROM claims WHERE id = ?').get(id);
+      assert.deepEqual([old.text, old.scope_kind, old.last_seen_at, old.truth, old.shown], [text, 'group', '2026-10-20', 'current', 1], `the group claim ${id} stays as it was`);
+      assert.equal(count(env.db, 'claim_versions', `claim_id = '${id}'`), 0);
+    }
+    const derived = env.db.prepare("SELECT * FROM claims WHERE author = 'her' ORDER BY text").all();
+    assert.deepEqual(derived.map((row) => [row.text, row.scope_kind, row.scope_dm, row.truth]), [
+      ['likes tea', 'dm', personId(ADA), 'current'], ['lives in Lyon', 'dm', personId(ADA), 'current'], ['plays chess', 'dm', personId(ADA), 'historical'],
+    ]);
+    assert.equal(JSON.parse(derived[1].extra).derivedFrom, 'cl-home');
+    assert.deepEqual(env.db.prepare('SELECT source_id FROM claim_sources WHERE claim_id = ?').all(derived[1].id).map((row) => row.source_id), [dmLine], 'only the new evidence');
+    assert.deepEqual(env.db.prepare('SELECT event FROM claim_versions WHERE claim_id = ?').all(derived[1].id).map((row) => row.event), ['revise']);
+    // a group reader never sees the private versions
+    const group = whereFor(groupContext('discord'), 'c');
+    const seen = env.db.prepare(`SELECT c.text FROM claims c WHERE c.subject_id = ? AND ${group.sql} ORDER BY c.text`).all(personId(ADA), ...group.params).map((row) => row.text);
+    assert.deepEqual(seen, ['lives in Athens', 'likes tea', 'plays chess'].sort());
+    // a revision from group evidence stays on the group claim
+    const inPlace = applyOf(env, { run: runOf({ id: 'run:g', batchKey: 'apply|g' }), plan: emptyPlan({ claims: [{ op: 'revise', id: 'cl-home', text: 'lives in Thessaloniki', how: 'said', sources: [groupLine], reason: 'said so' }] }) });
+    assert.deepEqual([inPlace.revised, inPlace.derived], [1, 0]);
+    assert.equal(env.db.prepare("SELECT text FROM claims WHERE id = 'cl-home'").get().text, 'lives in Thessaloniki');
+    // a group run cannot touch a private claim
+    env.claim({ id: 'cl-private', subjectId: personId(ADA), text: 'private thing', scope: DM_ADA });
+    const out = applyOf(env, { run: runOf({ id: 'run:o', batchKey: 'apply|o' }), plan: emptyPlan({ claims: [{ op: 'confirm', id: 'cl-private', sources: [groupLine] }] }) });
+    assert.deepEqual([out.rejected, out.confirmed], [1, 0]);
+  } finally {
+    env.done();
+  }
+});
+
+test('child links: a retired link is not a link; the links the database writes carry no owner file', () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.db.prepare("INSERT INTO claim_sources (claim_id, source_id, position, retired_at, owner_file) VALUES ('cl-ada', ?, 0, '2026-10-01T00:00:00.000Z', 'guilds/G/users/x.json')").run(ids.a);
+    env.db.prepare("INSERT INTO claim_sources (claim_id, source_id, position, owner_file) VALUES ('cl-ada', ?, 1, 'guilds/G/users/x.json')").run(ids.b);
+    applyOf(env, { plan: emptyPlan({ claims: [{ op: 'confirm', id: 'cl-ada', sources: [ids.a, ids.b] }] }) });
+    const links = env.db.prepare("SELECT source_id, retired_at, owner_file FROM claim_sources WHERE claim_id = 'cl-ada' ORDER BY rowid").all();
+    assert.deepEqual(links.map((row) => [row.source_id, row.retired_at === null, row.owner_file]), [
+      [ids.a, false, 'guilds/G/users/x.json'], [ids.b, true, 'guilds/G/users/x.json'], [ids.a, true, null],
+    ], 'the retired link did not count as existing; the live one was not added twice');
+  } finally {
+    env.done();
+  }
+});
+
+test('batches are read in event time and each line names its place; the cursor still follows arrival', async () => {
+  const env = fixture();
+  try {
+    db_second_channel(env);
+    env.say({ native: 'm1', minutesAgo: 50, text: 'later line' });
+    env.say({ native: 'm2', minutesAgo: 90, text: 'earlier line, stored second', place: SECOND });
+    env.say({ native: 'm3', minutesAgo: 70, text: 'middle line' });
+    const scope = scopesOf(env.db)[0];
+    const batch = batchOf(env.db, scope.scope, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
+    assert.deepEqual(batch.map((line) => line.text), ['earlier line, stored second', 'middle line', 'later line'], 'occurred_at first, then arrival');
+    // the first `maxMessages` by arrival are the batch (no line is skipped by the cursor), shown in event time
+    assert.deepEqual(batchOf(env.db, scope.scope, { cursor: 0, since: null, maxMessages: 2, settleBefore: NOW }).map((line) => line.text), ['earlier line, stored second', 'later line']);
+    const built = buildSessionRequest({ db: env.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
+    const lines = built.messages[1].content.slice(built.messages[1].content.indexOf('<batch>')).split('\n');
+    assert.match(lines[2], /^#1 \[2026-10-24 10:30\] \[p1\] Ada: earlier line/);
+    assert.match(lines[3], /^#2 \[2026-10-24 10:50\] \[p2\] Ada: middle line/);
+    assert.match(lines[4], /^#3 \[2026-10-24 11:10\] \[p2\] Ada: later line/);
+    assert.match(built.messages[1].content, /\[p1\] channel: second\n\[p2\] channel: general - chat\n\[p3\] guild: Server/);
+    const result = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
+    assert.equal(result.runs[0].outcome, 'ok');
+    const run = env.db.prepare('SELECT cursor_to FROM session_runs').get();
+    assert.equal(run.cursor_to, Math.max(...batch.map((line) => line.rowid)), 'the cursor is the newest arrival, not the newest event');
+  } finally {
+    env.done();
+  }
+});
+
+const SECOND = channelPlaceId('c2');
+function db_second_channel(env) {
+  env.db.prepare("INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, topic) VALUES (?, 'discord', 'channel', 'c2', ?, 'group', 'second', NULL)").run(SECOND, guildPlaceId(GUILD));
+}
+
+test('every person of a batch is a subject: the people are paged over requests of the same batch, the cursor moves after the last', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const config = baseConfig({ maxPeople: 1 });
+    const answers = [
+      memoryBlock({ claims: [{ op: 'add', subject: 'Ada', kind: 'detail', text: 'first page fact', how: 'said', sources: ['#1'] }, { op: 'add', subject: 'Βασίλης', kind: 'detail', text: 'not on this page', how: 'said', sources: ['#2'] }] }),
+      memoryBlock({ claims: [{ op: 'add', subject: 'Βασίλης', kind: 'detail', text: 'second page fact', how: 'said', sources: ['#2'] }] }),
+    ];
+    const llm = fakeLlm(answers);
+    const result = await sweep(ctxOf(env, { llm, config }));
+    assert.deepEqual(result.runs.map((run) => [run.outcome, run.page]), [['ok', 0], ['ok', 1]]);
+    assert.equal(llm.calls.length, 2);
+    const [one, two] = llm.calls.map((call) => call.messages[1].content);
+    assert.match(one, /id: <@u-ada>/);
+    assert.doesNotMatch(one, /id: <@u-bob>/);
+    assert.match(two, /id: <@u-bob>/);
+    assert.doesNotMatch(two, /id: <@u-ada>/);
+    const batchOf2 = (text) => text.slice(text.indexOf('<batch>'));
+    assert.equal(batchOf2(one), batchOf2(two), 'the same lines in each request');
+    assert.deepEqual(env.db.prepare("SELECT action FROM decisions ORDER BY id").all().map((row) => row.action), ['proposed:add', 'proposed:add'], 'Ada\'s page keeps her claim; the claim about Bob on her page was dropped; Bob\'s page keeps his');
+    assert.equal(count(env.db, 'session_runs'), 2);
+    assert.equal(count(env.db, 'meta', "key LIKE 'memory_session.cursor.%'"), 1, 'one cursor for the batch');
+  } finally {
+    env.done();
+  }
+});
+
+test('apply over pages: a page applied before is not asked again, and the cursor moves once every page is in', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const config = baseConfig({ mode: 'apply', maxPeople: 1 });
+    const cursor = cursorKey('apply', 'group:discord');
+    const page = (subject, text, ref) => memoryBlock({ claims: [{ op: 'add', subject, kind: 'detail', text, how: 'said', sources: [ref] }], affinity: [{ person: subject, delta: 2, reason: 'kind', sources: [ref] }] });
+    const broken = fakeLlm([page('Ada', 'ada fact', '#1'), Object.assign(new Error('boom'), { code: 'ECONNRESET' })]);
+    const first = await sweep(ctxOf(env, { llm: broken, config }));
+    assert.deepEqual(first.runs.map((run) => run.outcome), ['ok', 'llm_error']);
+    assert.equal(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor), undefined, 'a page is missing: the cursor stays');
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 7);
+    const llm = fakeLlm([page('Βασίλης', 'bob fact', '#2')]);
+    const second = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
+    assert.deepEqual(second.runs.map((run) => run.outcome), ['applied_before', 'ok']);
+    assert.equal(llm.calls.length, 1, 'only the missing page is asked');
+    assert.ok(Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value) > 0);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 7, 'the first page was not applied again');
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(BOB)).affinity, 2);
+    assert.equal(count(env.db, 'claims', "author = 'her'"), 2);
+    // when the last page is the one applied before, the cursor still moves
+    const env2 = fixture();
+    try {
+      chat(env2);
+      const lastOnly = fakeLlm([Object.assign(new Error('boom'), { code: 'ECONNRESET' }), page('Βασίλης', 'bob fact', '#2')]);
+      const a = await sweep(ctxOf(env2, { llm: lastOnly, config }));
+      assert.deepEqual(a.runs.map((run) => run.outcome), ['llm_error', 'ok']);
+      assert.equal(env2.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor), undefined);
+      const b = await sweep(ctxOf(env2, { llm: fakeLlm([page('Ada', 'ada fact', '#1')]), config }), { ignoreSweepCap: true });
+      assert.deepEqual(b.runs.map((run) => run.outcome), ['ok', 'applied_before']);
+      assert.ok(Number(env2.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value) > 0);
+    } finally { env2.done(); }
+  } finally {
+    env.done();
+  }
+});
+
+test('the context is as of the batch cutoff: claims and episodes created or seen after it are left out', () => {
+  const env = fixture();
+  try {
+    chat(env);
+    env.claim({ id: 'cl-old', subjectId: personId(ADA), text: 'known before the batch ended' });
+    env.claim({ id: 'cl-new', subjectId: personId(ADA), text: 'created after the cutoff' });
+    env.claim({ id: 'cl-seen', subjectId: personId(ADA), text: 'seen again after the cutoff' });
+    env.claim({ id: 'cl-self-new', subjectKind: 'self', subjectId: SELF_PERSON, kind: 'self_fact', text: 'a later self fact' });
+    env.db.prepare("UPDATE claims SET created_at = '2026-10-24T11:30:00.000Z', last_seen_at = '2026-10-24T11:30:00.000Z' WHERE id IN ('cl-new', 'cl-self-new')").run();
+    env.db.prepare("UPDATE claims SET created_at = '2026-10-01T00:00:00.000Z', last_seen_at = '2026-10-24T11:45:00.000Z' WHERE id = 'cl-seen'").run();
+    env.db.prepare("UPDATE claims SET created_at = '2026-10-01T00:00:00.000Z', last_seen_at = '2026-10-24T10:00:00.000Z' WHERE id = 'cl-old'").run();
+    env.db.prepare("INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface, created_at) VALUES ('ep-old', 'profile', ?, '2026-10-10', 'before', 'open', 'group', 'discord', '2026-10-10T00:00:00.000Z')").run(personId(ADA));
+    env.db.prepare("INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface, created_at) VALUES ('ep-new', 'profile', ?, '2026-10-24', 'after', 'open', 'group', 'discord', '2026-10-24T11:40:00.000Z')").run(personId(ADA));
+    const built = request(env);
+    const claimed = [...built.maps.claims.values()];
+    assert.ok(claimed.includes('cl-old'));
+    for (const id of ['cl-new', 'cl-seen', 'cl-self-new']) assert.ok(!claimed.includes(id), `${id} is after the cutoff`);
+    assert.deepEqual([...built.maps.episodes.values()], ['ep-old']);
+    assert.equal(built.cutoff, Date.parse('2026-10-24T11:00:00.000Z'));
+  } finally {
+    env.done();
+  }
+});
+
+test('her whole answer, thinking included, is a source of kind memory_session, scope internal, that no reader of a group sees', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({ episodes: [] })) }));
+    const stored = env.db.prepare("SELECT * FROM sources WHERE kind = 'memory_session'").all();
+    assert.equal(stored.length, 1);
+    assert.deepEqual([stored[0].scope_kind, stored[0].scope_iface, stored[0].scope_dm], ['internal', null, null]);
+    assert.match(stored[0].text, /^<think>reading<\/think>/);
+    assert.equal(stored[0].think, 'reading');
+    assert.equal(env.db.prepare('SELECT answer_source FROM session_runs').get().answer_source, stored[0].id);
+    const group = whereFor(groupContext('discord'), 's');
+    assert.equal(env.db.prepare(`SELECT COUNT(*) AS n FROM sources s WHERE s.kind = 'memory_session' AND ${group.sql}`).get(...group.params).n, 0);
+    // an unreadable answer is kept as well
+    await sweep(ctxOf(env, { llm: fakeLlm('<think>hm</think> nothing parseable') }), { ignoreSweepCap: true });
+    env.say({ native: 'm9', minutesAgo: 20, text: 'one more line' });
+    const bad = await sweep(ctxOf(env, { llm: fakeLlm('<think>hm</think> nothing parseable') }), { ignoreSweepCap: true });
+    assert.equal(bad.runs[0].outcome, 'bad_answer');
+    assert.equal(count(env.db, 'sources', "kind = 'memory_session'"), 2);
+  } finally {
+    env.done();
+  }
 });

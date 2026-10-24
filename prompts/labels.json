@@ -384,13 +384,15 @@
       "notSynced": "db · {files} files not synced",
       "line": "db · {rows} rows · {files} files · last sync {at} · lag {lag} s · reads {read} · {fallbacks} fallbacks",
       "readOn": "on",
-      "readOff": "off"
+      "readOff": "off",
+      "syncOff": ""
     },
     "memorySession": {
       "off": "session: off",
       "notConfigured": "session: no key",
       "refused": "session: refused ({code})",
-      "line": "session · {mode} · {sweeps} of {cap} today · last run {outcome} at {at}"
+      "line": "session · {mode} · {sweeps} of {cap} today · last run {outcome} at {at}",
+      "pending": ""
     }
   },
   "warmup": {

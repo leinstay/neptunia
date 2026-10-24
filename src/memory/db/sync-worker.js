@@ -4,7 +4,7 @@
 //
 // Messages in  { id, type: 'open', path }                      open the database with the writer lock
 //              { id, type: 'pass', first, now }                 one sync pass (`first`: the full import, marked done)
-//              { id, type: 'turnReads', turnId, step, guildId, reads }
+//              { id, type: 'turnReads', turnId, step, rows }                   the turn_reads rows, resolved by the caller at assembly time
 //              { id, type: 'diaryApply', update }                one diary row's text and picture rows (diary-media.js)
 //              { id, type: 'memoryWrite', update }                one write of her memory session or a description review (session-write.js)
 //              { id, type: 'close' }                            close the database, release the lock, then the thread ends
@@ -16,7 +16,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import process from 'node:process';
 import { openMemoryDb } from './open.js';
 import { syncOnce } from './sync.js';
-import { turnReadRows } from './service.js';
+import { insertTurnReads, turnReadRows } from './service.js';
 import { applyDiaryUpdate } from './diary-media.js';
 import { applyMemoryWrite } from './session-write.js';
 
@@ -47,7 +47,9 @@ const handlers = {
     handle = openMemoryDb(path, { alive });
     return { importDone: metaOf(IMPORT_DONE) === '1' };
   },
-  pass({ first, now }) {
+  pass({ first, now, authority }) {
+    // The database is the writer: the sync is off, whatever asks for it.
+    if (authority === 'db') throw Object.assign(new Error('sync is off'), { code: 'SYNC_OFF' });
     const result = syncOnce(handle, dataDir, { now: () => now, log });
     let importDone = false;
     if (first && result.errors === 0) {
@@ -56,13 +58,11 @@ const handlers = {
     }
     return { seen: result.seen, changed: result.changed, upserted: result.upserted, retired: result.retired, errors: result.errors, importDone };
   },
-  turnReads({ turnId, step, guildId, reads }) {
-    const rows = turnReadRows(handle.db, reads, { guildId });
+  turnReads({ turnId, step, guildId, reads, rows: given }) {
+    // The rows are resolved by the caller at assembly time; a caller that sends the raw reads gets them resolved here.
+    const rows = Array.isArray(given) ? given : turnReadRows(handle.db, reads, { guildId });
     if (rows.length === 0) return { rows: 0 };
-    handle.transaction(() => {
-      const insert = handle.db.prepare('INSERT OR IGNORE INTO turn_reads (turn_id, step, row_kind, row_id) VALUES (?, ?, ?, ?)');
-      for (const row of rows) insert.run(String(turnId), String(step), row.row_kind, row.row_id);
-    });
+    insertTurnReads(handle, turnId, step, rows);
     return { rows: rows.length };
   },
   diaryApply({ update }) {

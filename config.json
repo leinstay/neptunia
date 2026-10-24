@@ -129,6 +129,7 @@
     "syncSeconds": 60,
     "closeTimeoutMs": 10000,
     "read": false,
+    "authority": "json",
     "turnReads": true,
     "diaryMedia": false,
     "diaryAudioMaxBytes": 8388608,
@@ -145,7 +146,8 @@
       "episodesMax": 20,
       "maxOutputTokens": 4000,
       "timeoutMs": 300000,
-      "descriptionMaxOutputTokens": 1500
+      "descriptionMaxOutputTokens": 1500,
+      "retryLimit": 3
     }
   },
   "embed": {

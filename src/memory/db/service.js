@@ -15,9 +15,17 @@
 //     are on and this process has synced once, a cache entry's first load takes the value from the database
 //     (export.js#exportOne) and a directory's ids come from it. A file the database does not hold, holds behind the
 //     disk, or does not map falls back to the disk read and is counted (`status().reads`).
-//   - `recordTurnReads` writes the turn_reads rows of one step (`memoryDb.turnReads`), deferred, one transaction.
+//   - `recordTurnReads` resolves the memory rows one step's request carried when it is called, at assembly time, on the
+//     read connection (the block each was in, its order, the exact claim / description version and source revision),
+//     and writes the turn_reads rows deferred, one transaction (`memoryDb.turnReads`). The persistence is deferred; the
+//     resolution is not, so a later sync cannot change which version a turn is said to have read.
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
-//     the worker, so the bot's loop never holds a write transaction.
+//     the worker, so the bot's loop never holds a write transaction. The service stamps `memoryDb.authority` into
+//     every write; `apply` is refused unless it is `db`.
+//   - `memoryDb.authority` (`json` by default, `db`) says who writes the memory. While `json`, the JSON-to-database sync
+//     runs as above. While `db`, the sync is off (no tick pass, no `requestSync`, no shutdown pass), the database is
+//     taken as in step from the moment it is opened, and the status says so (`authority`, `syncOff`). The read switch
+//     (`memoryDb.read`) never changes who writes.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -53,38 +61,63 @@ const UNIT_WEIGHT = 20 * 1024;
 const noop = () => {};
 const silent = { info: noop, warn: noop, error: noop, debug: noop };
 
-/** The turn_reads rows (`{ row_kind, row_id }`) of one `memoryReads` list (prompt.js#buildRequest), resolved against the database. */
+/**
+ * The turn_reads rows of one `memoryReads` list (prompt.js#buildRequest), resolved against the database now:
+ * `{ row_kind, row_id, block, ord, version_id, revision }`. `block` and `ord` are the block the read sat in and its place
+ * in the request; `version_id` is the newest claim version or the current description version; `revision` a source's.
+ */
 export function turnReadRows(db, reads, { guildId = null } = {}) {
   const rows = new Map();
-  const put = (rowKind, rowId) => {
-    if (typeof rowId === 'string' && rowId) rows.set(`${rowKind}\u0000${rowId}`, { row_kind: rowKind, row_id: rowId });
+  const claimVersion = db.prepare("SELECT id FROM claim_versions WHERE claim_id = ? AND retired_at IS NULL ORDER BY COALESCE(recorded_at, '') DESC, rowid DESC LIMIT 1");
+  const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
+  const sourceRevision = db.prepare('SELECT revision FROM sources WHERE id = ?');
+  let at = 0;
+  const put = (rowKind, rowId, read) => {
+    if (typeof rowId !== 'string' || !rowId) return;
+    const key = `${rowKind}\u0000${rowId}`;
+    if (rows.has(key)) return;
+    let versionId = null;
+    let revision = null;
+    if (rowKind === 'claims') versionId = claimVersion.get(rowId)?.id ?? null;
+    else if (rowKind === 'descriptions') versionId = descriptionVersion.get(rowId)?.id ?? null;
+    else if (rowKind === 'sources') revision = sourceRevision.get(rowId)?.revision ?? null;
+    rows.set(key, { row_kind: rowKind, row_id: rowId, block: typeof read.block === 'string' ? read.block : null, ord: Number.isInteger(read.ord) ? read.ord : at, version_id: versionId, revision });
   };
   const hasRow = (table, id) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE id = ? LIMIT 1`).get(id) !== undefined;
   const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
   for (const read of Array.isArray(reads) ? reads : []) {
+    at += 1;
     const id = read?.id === undefined || read?.id === null ? '' : String(read.id);
     if (!id) continue;
     switch (read.kind) {
-      case 'claim': put('claims', id); break;
-      case 'episode': put('episodes', id); break;
-      case 'participation': put('episodes', id); break;
-      case 'recent_line': put('claims', id); break;
-      case 'lore': put('claims', `lore:${id}`); break;
-      case 'channel': put('places', channelPlaceId(id)); break;
-      case 'guild_note': if (guildId) put('descriptions', `desc:${guildPlaceId(guildId)}:${id}`); break;
+      case 'claim': put('claims', id, read); break;
+      case 'episode': put('episodes', id, read); break;
+      case 'participation': put('episodes', id, read); break;
+      case 'recent_line': put('claims', id, read); break;
+      case 'lore': put('claims', `lore:${id}`, read); break;
+      case 'channel': put('places', channelPlaceId(id), read); break;
+      case 'guild_note': if (guildId) put('descriptions', `desc:${guildPlaceId(guildId)}:${id}`, read); break;
       case 'item':
-        if (hasRow('claims', id)) put('claims', id);
-        else if (hasRow('episodes', id)) put('episodes', id);
+        if (hasRow('claims', id)) put('claims', id, read);
+        else if (hasRow('episodes', id)) put('episodes', id, read);
         break;
       case 'source': {
         const found = latestMessage.get(id);
-        if (found) put('sources', found.id);
+        if (found) put('sources', found.id, read);
         break;
       }
       default: break;
     }
   }
   return [...rows.values()];
+}
+
+/** Writes resolved turn_reads rows (`turnReadRows`) of one step in one transaction. */
+export function insertTurnReads(handle, turnId, step, rows) {
+  handle.transaction(() => {
+    const insert = handle.db.prepare('INSERT OR IGNORE INTO turn_reads (turn_id, step, row_kind, row_id, block, ord, version_id, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const row of rows) insert.run(String(turnId), String(step), row.row_kind, row.row_id, row.block ?? null, row.ord ?? null, row.version_id ?? null, row.revision ?? null);
+  });
 }
 
 /** Waits for a promise (if any) for at most `ms`; a rejection of it is the caller's own business. */
@@ -207,6 +240,7 @@ export function createMemoryDb({
       file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
       syncMs: (Number.isFinite(given.syncSeconds) && given.syncSeconds > 0 ? given.syncSeconds : DEFAULT_SYNC_SECONDS) * 1000,
       read: given.read === true,
+      authority: given.authority === 'db' ? 'db' : 'json',
       turnReads: given.turnReads !== false,
       closeMs: Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0 ? given.closeTimeoutMs : DEFAULT_CLOSE_TIMEOUT_MS,
     };
@@ -230,7 +264,8 @@ export function createMemoryDb({
         handle = open(dbPath);
         importDone = meta(IMPORT_DONE) === '1';
       }
-      lastSyncAt = null;
+      // Authority `db`: no sync will ever run, and the database is the memory, so it counts as in step from the start.
+      lastSyncAt = settings().authority === 'db' ? now() : null;
       dirty = true;
       openErrors.clear();
       log.info('memory db: opened', { file });
@@ -310,13 +345,14 @@ export function createMemoryDb({
   }
 
   async function pass(reason) {
+    if (settings().authority === 'db') return;
     const started = clock();
     const first = !importDone;
     dirty = false;
     try {
       let result;
       if (engine) {
-        result = await engine.call('pass', { first, now: now() });
+        result = await engine.call('pass', { first, now: now(), authority: settings().authority });
         if (result.importDone) importDone = true;
       } else {
         result = first ? await importSliced() : sync(handle, dataDir, { now, log: passLog });
@@ -373,6 +409,8 @@ export function createMemoryDb({
       if (threaded) await opening;
     }
     if (!handle || running) return;
+    // Authority `db`: the sync stays off. A switch back to `json` finds the database dirty and runs a pass.
+    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); return; }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
     startDiaryMedia();
   }
@@ -380,7 +418,7 @@ export function createMemoryDb({
   /** A flush wrote files: a pass soon, off the caller's path. */
   function requestSync() {
     dirty = true;
-    if (!on() || closing) return;
+    if (!on() || closing || settings().authority === 'db') return;
     defer(() => { tick().catch((error) => log.warn('memory db: tick failed', { code: codeOf(error) })); });
   }
 
@@ -425,10 +463,19 @@ export function createMemoryDb({
    */
   function recordTurnReads({ turnId, step = 's0', guildId = null, reads: carried }) {
     if (!handle || !on() || !settings().turnReads || !turnId || !Array.isArray(carried) || carried.length === 0) return;
+    // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
+    let rows;
+    try {
+      rows = turnReadRows(handle.db, carried, { guildId });
+    } catch (error) {
+      log.warn('memory db: turn reads failed', { code: codeOf(error) });
+      return;
+    }
+    if (rows.length === 0) return;
     if (engine) {
       defer(() => {
         if (!engine || engine.dead) return;
-        engine.call('turnReads', { turnId: String(turnId), step: String(step), guildId, reads: carried })
+        engine.call('turnReads', { turnId: String(turnId), step: String(step), rows })
           .then((done) => { if (done.rows > 0) log.debug?.('memory db: turn reads', { rows: done.rows }); })
           .catch((error) => log.warn('memory db: turn reads failed', { code: codeOf(error) }));
       });
@@ -437,12 +484,7 @@ export function createMemoryDb({
     defer(() => {
       if (!handle) return;
       try {
-        const rows = turnReadRows(handle.db, carried, { guildId });
-        if (rows.length === 0) return;
-        handle.transaction(() => {
-          const insert = handle.db.prepare('INSERT OR IGNORE INTO turn_reads (turn_id, step, row_kind, row_id) VALUES (?, ?, ?, ?)');
-          for (const row of rows) insert.run(String(turnId), String(step), row.row_kind, row.row_id);
-        });
+        insertTurnReads(handle, turnId, step, rows);
         log.debug?.('memory db: turn reads', { rows: rows.length });
       } catch (error) {
         log.warn('memory db: turn reads failed', { code: codeOf(error) });
@@ -456,8 +498,10 @@ export function createMemoryDb({
    */
   async function memoryWrite(update) {
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    if (engine) return engine.call('memoryWrite', { update });
-    return applyMemoryWrite(handle, update);
+    // Who writes is the live config's word, never the caller's.
+    const stamped = { ...update, authority: settings().authority };
+    if (engine) return engine.call('memoryWrite', { update: stamped });
+    return applyMemoryWrite(handle, stamped);
   }
 
   /** The state for the status card: on/off, rows, the last pass, how far behind it is, the read switch. */
@@ -481,7 +525,9 @@ export function createMemoryDb({
       rows,
       importDone,
       lastSyncAt,
-      lagSeconds: open && lastSyncAt !== null ? Math.max(0, Math.round((now() - lastSyncAt) / 1000)) : null,
+      lagSeconds: open && lastSyncAt !== null && settings().authority !== 'db' ? Math.max(0, Math.round((now() - lastSyncAt) / 1000)) : null,
+      authority: settings().authority,
+      syncOff: on() && settings().authority === 'db',
       read: on() && settings().read,
       readActive: readActive(),
       lastPass,
@@ -496,7 +542,7 @@ export function createMemoryDb({
     const deadline = performance.now() + closeMs;
     await waitFor(diaryJob.stop(), closeMs);
     await waitFor(running, closeMs);
-    if (handle && on() && importDone && !running && !engine?.dead) {
+    if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
     }
     await closeNow(Math.max(0, deadline - performance.now()));

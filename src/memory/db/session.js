@@ -7,8 +7,13 @@
 //   each private conversation alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
 //   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerDay` sweeps a
 //   UTC day. One request per scope with at least `minMessages` new lines, at most `maxMessages` lines each, serial.
-//   The cursor moves only when the answer parsed; a failed request or an unreadable answer leaves the lines for the
-//   next sweep.
+//   The batch is the next lines by arrival (so none is ever skipped) shown in event time (`occurred_at`, then rowid);
+//   when it holds more people than `maxPeople`, the batch is sent again with the next page of people (the same lines, the
+//   next people), one request per page. The cursor moves, by compare-and-set and in the same transaction as the last
+//   write, only when every page was written (or had been applied before); a failed request, an unreadable answer, a
+//   write that failed and an `all_dropped` answer leave the lines for the next sweep. An `all_dropped` batch is
+//   remembered as pending (`memory_session.pending.<mode>.<scope>`, with a retry count); after `retryLimit` tries it is
+//   skipped, the cursor moves and a `decisions` row records why.
 //
 // The request (buildSessionRequest): the system text her turns get (system prompt, card, rules, format), then
 // prompts/memory-session.md; the user content in blocks, stable first: <self> <place> <people> <episodes>
@@ -37,15 +42,19 @@ export const TRUTHS = Object.freeze(['historical', 'disputed', 'retired']);
 export const DESCRIPTION_FIELDS = Object.freeze(['character', 'style', 'relationship', 'purpose', 'topics', 'tone', 'patterns', 'starters', 'self_view']);
 /** Status codes. */
 export const CODES = Object.freeze({ OFF: 'off', NOT_CONFIGURED: 'not_configured', APPLY_REFUSED: 'APPLY_JSON_WRITER', NO_PROMPT: 'no_prompt', SWEEP_CAP: 'sweep_cap', NOT_READY: 'not_ready' });
+export const pendingKey = (mode, scopeKey) => `memory_session.pending.${mode}.${scopeKey}`;
 
 const DEFAULTS = Object.freeze({
   mode: 'off', maxMessages: 200, minMessages: 5, sweepsPerDay: 4, settleMinutes: 10, since: null, maxPeople: 12,
-  claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 4000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500,
+  claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 4000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500, retryLimit: 3,
 });
 const MODES = ['off', 'shadow', 'apply'];
 const MINUTE = 60_000;
 
 const posInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
+
+/** Who writes the memory: `json` (the files; the default) or `db`. Anything else is `json`. Separate from the read switch. */
+export const authorityOf = (config) => (config?.memoryDb?.authority === 'db' ? 'db' : 'json');
 
 /** The session settings of this moment, from the live config. */
 export function sessionSettings(config) {
@@ -64,6 +73,7 @@ export function sessionSettings(config) {
     maxOutputTokens: posInt(given.maxOutputTokens, DEFAULTS.maxOutputTokens),
     timeoutMs: posInt(given.timeoutMs, DEFAULTS.timeoutMs),
     descriptionMaxOutputTokens: posInt(given.descriptionMaxOutputTokens, DEFAULTS.descriptionMaxOutputTokens),
+    retryLimit: posInt(given.retryLimit, DEFAULTS.retryLimit),
   };
 }
 
@@ -80,13 +90,14 @@ export function memoryKeyState(config, env) {
 
 /**
  * Why the session cannot run now, or null: `off` (mode), `not_configured` (no key of its own), `APPLY_JSON_WRITER`
- * (mode apply while `memoryDb.read` is not on: the JSON files are still the writer), `no_prompt`.
+ * (mode apply while `memoryDb.authority` is not `db`: the JSON files are still the writer; the read switch does not
+ * count), `no_prompt`.
  */
 export function refusalOf(config, env, prompts) {
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
-  if (mode === 'apply' && config?.memoryDb?.read !== true) return CODES.APPLY_REFUSED;
+  if (mode === 'apply' && authorityOf(config) !== 'db') return CODES.APPLY_REFUSED;
   if (typeof prompts?.['memory-session'] !== 'string' || !prompts['memory-session'].trim()) return CODES.NO_PROMPT;
   return null;
 }
@@ -141,7 +152,10 @@ export const cursorKey = (mode, scopeKey) => `memory_session.cursor.${mode}.${sc
 
 const metaOf = (db, key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 
-/** The lines of a scope after its cursor, up to `maxMessages`, cut at the first line newer than `settleBefore` (ms). */
+/**
+ * The lines of a scope after its cursor (the next `maxMessages` by arrival, so none is skipped), cut at the first line
+ * newer than `settleBefore` (ms), then put in event time: `occurred_at`, then `rowid`.
+ */
 export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore }) {
   const where = ['s.rowid > ?', 's.scope_kind = ?', 's.scope_iface = ?', CURRENT];
   const params = [cursor, scope.scope_kind, scope.scope_iface];
@@ -157,7 +171,7 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore })
     if (Number.isFinite(settleBefore) && Number.isFinite(at) && at > settleBefore) break;
     out.push({ ...row, at: Number.isFinite(at) ? at : 0 });
   }
-  return out;
+  return out.sort((a, b) => a.at - b.at || a.rowid - b.rowid);
 }
 
 // ---------- the request ----------
@@ -186,12 +200,13 @@ function peopleOf(db, batch, selfName) {
   return { accounts, people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)), selfName };
 }
 
-/** One line of the batch: `#n [time] name: text`, a line addressed to her led by `→ `, her own under her self label. */
-function lineText(line, n, { accounts, selfName, labels, timezone }) {
+/** One line of the batch: `#n [time] [pN] name: text`, a line addressed to her led by `→ `, her own under her self label. */
+function lineText(line, n, { accounts, selfName, labels, timezone, handle }) {
   const own = line.kind === 'said';
   const author = own ? String(labels?.self ?? '{name}').replace('{name}', selfName) : (accounts.get(line.author_account)?.name ?? line.author_account ?? '?');
   const lead = !own && line.direct ? '→ ' : '';
-  return `${lead}#${n} [${stamp(line.at, timezone)}] ${author}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
+  const place = handle ? `[${handle}] ` : '';
+  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${author}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
 }
 
 function claimLine(label, row) {
@@ -208,22 +223,71 @@ function currentDescriptions(db, subjectIds, ctx) {
   ).all(...subjectIds, ...scope.params);
 }
 
+/** How many requests a batch takes: its people, `maxPeople` to a request (one request at least). */
+export function pagesOf(db, batch, config, selfName = '') {
+  return Math.max(1, Math.ceil(peopleOf(db, batch, selfName).people.length / sessionSettings(config).maxPeople));
+}
+
+/** The claim / episode ids a profile may not show as of `cutoff` (created or last seen after it). */
+function lateIds(db, ids, cutoff) {
+  if (ids.length === 0) return new Set();
+  const marks = ids.map(() => '?').join(', ');
+  const late = new Set();
+  for (const row of db.prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`).all(...ids, cutoff, cutoff)) late.add(row.id);
+  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff)) late.add(row.id);
+  return late;
+}
+
+/** A profile as of `cutoff`: the items whose claim or episode appeared or was seen again after it are left out. */
+function profileAsOf(db, profile, cutoff) {
+  const ids = [];
+  for (const value of Object.values(profile)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) if (typeof item?.itemId === 'string' && item.itemId) ids.push(item.itemId);
+  }
+  const late = lateIds(db, [...new Set(ids)], cutoff);
+  if (late.size === 0) return profile;
+  const out = { ...profile };
+  for (const [key, value] of Object.entries(profile)) {
+    if (Array.isArray(value)) out[key] = value.filter((item) => !(typeof item?.itemId === 'string' && late.has(item.itemId)));
+  }
+  return out;
+}
+
 /**
- * The request of one batch. Returns `{ messages, maps, lines, people, places }`: `maps` carries what the answer's local
- * ids stand for (`sources`: `#n` -> source id, `claims`: `cN` / `sN` -> claim id, `episodes`: `eN` -> episode id).
- * @param {{ db: object, scope: object, batch: object[], config: object, prompts: object, selfName: string, now: number }} input
+ * The request of one batch (one page of its people). Returns `{ messages, maps, lines, people, places, pages, cutoff }`:
+ * `maps` carries what the answer's local ids stand for (`sources`: `#n` -> source id, `claims`: `cN` / `sN` -> claim id,
+ * `episodes`: `eN` -> episode id, `places`: `pN` -> place id); `people` are the page's people (the answer's subjects);
+ * `pages` is how many requests the batch takes. The context (profiles, claims, episodes) is as of the batch's
+ * cutoff, the newest line: what was created or seen after it is left out.
+ * @param {{ db: object, scope: object, batch: object[], config: object, prompts: object, selfName: string, now: number, page?: number }} input
  */
-export function buildSessionRequest({ db, scope, batch, config, prompts, selfName, now }) {
+export function buildSessionRequest({ db, scope, batch, config, prompts, selfName, now, page = 0 }) {
   const settings = sessionSettings(config);
   const labels = prompts?.labels ?? {};
   const timezone = config?.bot?.timezone ?? 'UTC';
   const { ctx } = scope;
-  const maps = { sources: new Map(), claims: new Map(), episodes: new Map() };
+  const maps = { sources: new Map(), claims: new Map(), episodes: new Map(), places: new Map() };
   const touched = peopleOf(db, batch, selfName);
   const nameOf = (id) => {
     for (const account of touched.accounts.values()) if (account.native === String(id)) return account.name;
     return null;
   };
+  const pages = Math.max(1, Math.ceil(touched.people.length / settings.maxPeople));
+  const cutoff = batch.length > 0 ? Math.max(...batch.map((line) => line.at)) : now;
+  const cutoffIso = new Date(cutoff).toISOString();
+  const early = (alias) => `(${alias}.created_at IS NULL OR ${alias}.created_at <= ?) AND (${alias}.last_seen_at IS NULL OR ${alias}.last_seen_at <= ?)`;
+
+  // The places of the batch get a handle each (`p1`, ...), in order of their first line; the guilds they sit in follow.
+  const placeIds = [...new Set(batch.map((line) => line.place_id).filter(Boolean))];
+  const placeRows = placeIds.map((id) => db.prepare('SELECT id, kind, name, topic, parent_id FROM places WHERE id = ?').get(id)).filter(Boolean);
+  const guilds = [...new Set(placeRows.map((row) => row.parent_id).filter(Boolean))];
+  const handleOf = new Map();
+  for (const id of [...placeRows.map((row) => row.id), ...guilds]) {
+    const handle = `p${handleOf.size + 1}`;
+    handleOf.set(id, handle);
+    maps.places.set(handle, id);
+  }
 
   // <batch>
   const rendered = [];
@@ -232,35 +296,35 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     if (typeof line.text !== 'string' || line.text.trim() === '') continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id);
-    rendered.push(lineText(line, n, { accounts: touched.accounts, selfName, labels, timezone }));
+    rendered.push(lineText(line, n, { accounts: touched.accounts, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null }));
   }
-  const cutoff = batch.length > 0 ? batch[batch.length - 1].at : now;
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 
   // <self>
   const selfScope = whereFor(ctx, 'c');
   const selfClaims = db.prepare(
     `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'self' AND c.retired_at IS NULL AND c.shown = 1 AND c.truth IN ('current', 'disputed')
-       AND ${selfScope.sql} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-  ).all(...selfScope.params, settings.selfMax);
+       AND ${selfScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
+  ).all(...selfScope.params, cutoffIso, cutoffIso, settings.selfMax);
   const selfLines = selfClaims.map((row, index) => {
     maps.claims.set(`s${index + 1}`, row.id);
     return claimLine(`s${index + 1}`, row);
   });
 
   // <place>
-  const placeIds = [...new Set(batch.map((line) => line.place_id).filter(Boolean))];
-  const placeRows = placeIds.map((id) => db.prepare('SELECT id, kind, name, topic, parent_id FROM places WHERE id = ?').get(id)).filter(Boolean);
-  const guilds = [...new Set(placeRows.map((row) => row.parent_id).filter(Boolean))];
   const placeLines = [`scope: ${scope.scope.scope_kind}`];
-  for (const row of placeRows) placeLines.push(`${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`);
+  for (const row of placeRows) placeLines.push(`[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`);
+  for (const id of guilds) {
+    const row = db.prepare('SELECT name FROM places WHERE id = ?').get(id);
+    placeLines.push(`[${handleOf.get(id)}] guild: ${row?.name || id}`);
+  }
   for (const description of currentDescriptions(db, [...guilds, ...placeIds], ctx)) placeLines.push(`${description.field}: ${description.text}`);
   const placeScope = whereFor(ctx, 'c');
   const placeSubjects = [...guilds, ...placeIds];
   const placeClaims = placeSubjects.length === 0 ? [] : db.prepare(
     `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'place' AND c.subject_id IN (${placeSubjects.map(() => '?').join(', ')}) AND c.retired_at IS NULL
-       AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${placeScope.sql} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-  ).all(...placeSubjects, ...placeScope.params, settings.claimsPerPerson);
+       AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${placeScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
+  ).all(...placeSubjects, ...placeScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
   let claimNumber = 0;
   for (const row of placeClaims) {
     claimNumber += 1;
@@ -268,8 +332,8 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     placeLines.push(claimLine(`c${claimNumber}`, row));
   }
 
-  // <people>
-  const shown = touched.people.slice(0, settings.maxPeople);
+  // <people>: this page's people (every person of the batch is on some page)
+  const shown = touched.people.slice(page * settings.maxPeople, (page + 1) * settings.maxPeople);
   const profileOptions = {
     interlocutor: true,
     relationships: true,
@@ -289,12 +353,12 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const peopleBodies = [];
   const personScope = whereFor(ctx, 'c');
   for (const person of shown) {
-    const file = db.prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT 1").get(`guilds/%/users/${person.native}.json`);
+    const file = db.prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' AND gone_at IS NULL ORDER BY path LIMIT 1").get(`guilds/%/users/${person.native}.json`);
     let profile = null;
     if (file) {
       try {
         const found = exportOne(db, file.path);
-        if (found.found) profile = found.value;
+        if (found.found) profile = profileAsOf(db, found.value, cutoffIso);
       } catch { /* the profile is shown without the stored text */ }
     }
     let text = '';
@@ -304,8 +368,8 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     const row = db.prepare('SELECT affinity FROM people WHERE id = ?').get(person.id);
     const claims = db.prepare(
       `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'person' AND c.subject_id = ? AND c.retired_at IS NULL AND c.shown = 1
-         AND c.truth IN ('current', 'disputed') AND ${personScope.sql} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-    ).all(person.id, ...personScope.params, settings.claimsPerPerson);
+         AND c.truth IN ('current', 'disputed') AND ${personScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
+    ).all(person.id, ...personScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
     const lines = [text || `## ${person.name}`, `id: <@${person.native}>`];
     if (row && Number.isFinite(row.affinity)) lines.push(`affinity: ${row.affinity}`);
     for (const claim of claims) {
@@ -324,8 +388,9 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     const rows = db.prepare(
       `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
         WHERE e.retired_at IS NULL AND (e.status IS NULL OR e.status != 'closed') AND e.subject_id IN (${ids.map(() => '?').join(', ')}) AND ${episodeScope.sql}
+          AND (e.created_at IS NULL OR e.created_at <= ?)
         ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`,
-    ).all(...ids, ...episodeScope.params, settings.episodesMax);
+    ).all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
     rows.forEach((row, index) => {
       maps.episodes.set(`e${index + 1}`, row.id);
       const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
@@ -354,7 +419,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     block('intentions', intentionLines.join('\n')),
     block('batch', batchBody),
   ].filter(Boolean).join('\n\n');
-  return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maps, lines: rendered.length, people: shown, places: placeIds };
+  return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maps, lines: rendered.length, people: shown, places: placeIds, pages, cutoff };
 }
 
 // ---------- the answer ----------
@@ -382,11 +447,14 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 
 /**
  * Checks a parsed answer against the request and resolves it to database ids. Anything that does not hold is dropped
- * and counted by reason, never repaired. Returns `{ plan, counts }`; `counts.kept` and `counts.dropped` (by reason).
+ * and counted by reason, never repaired. An op whose sources do not ALL resolve to lines of the batch is dropped whole
+ * (`unknown_source`), never kept with part of its evidence. A place is named by the handle the request gave it (`pN`),
+ * in `place` (or as the `subject`): a place op without one is dropped (`no_place`, `unknown_place`). Returns
+ * `{ plan, counts }`; `counts.kept` and `counts.dropped` (by reason).
  * @param {object} value  The `<memory>` object.
- * @param {{ maps: object, people: object[], placeId: string|null, scopeKey: string }} request
+ * @param {{ maps: object, people: object[] }} request  `people`: the subjects of this request (its page of the batch)
  */
-export function validateAnswer(value, { maps, people, placeId }) {
+export function validateAnswer(value, { maps, people }) {
   const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
   const counts = { kept: 0, dropped: {} };
   const drop = (reason) => { counts.dropped[reason] = (counts.dropped[reason] ?? 0) + 1; };
@@ -399,13 +467,17 @@ export function validateAnswer(value, { maps, people, placeId }) {
     }
   }
 
+  // The evidence of an op: every declared source must be a line of the batch; null (and the op dropped) otherwise.
   const sourcesOf = (list) => {
     const out = [];
+    let unknown = false;
     for (const ref of Array.isArray(list) ? list : []) {
       const key = typeof ref === 'number' ? `#${ref}` : text(ref).replace(/^(?!#)/, '#');
       const id = maps.sources.get(key);
-      if (id) { if (!out.includes(id)) out.push(id); } else drop('unknown_source');
+      if (id) { if (!out.includes(id)) out.push(id); } else unknown = true;
     }
+    if (unknown) { drop('unknown_source'); return null; }
+    if (out.length === 0) { drop('no_sources'); return null; }
     return out;
   };
   const person = (subject) => {
@@ -413,11 +485,18 @@ export function validateAnswer(value, { maps, people, placeId }) {
     if (ambiguous.has(key)) return null;
     return personByKey.get(key) ?? personByKey.get(text(subject)) ?? null;
   };
-  const subjectOf = (subject) => {
-    const word = foldName(subject);
+  const subjectOf = (item) => {
+    const word = foldName(item.subject);
     if (word === 'self') return { kind: 'self', id: SELF_PERSON };
-    if (word === 'place') return placeId ? { kind: 'place', id: placeId } : null;
-    const found = person(subject);
+    if (word === 'place' || maps.places?.has(text(item.subject))) {
+      const handle = maps.places?.has(text(item.subject)) ? text(item.subject) : text(item.place);
+      if (!handle) { drop('no_place'); return null; }
+      const id = maps.places?.get(handle);
+      if (!id) { drop('unknown_place'); return null; }
+      return { kind: 'place', id };
+    }
+    const found = person(item.subject);
+    if (!found) drop('unknown_subject');
     return found ? { kind: 'person', id: found.id } : null;
   };
   const keep = (group, entry) => { plan[group].push(entry); counts.kept += 1; };
@@ -433,28 +512,30 @@ export function validateAnswer(value, { maps, people, placeId }) {
     if (!isObject(item)) { drop('bad_op'); continue; }
     const op = text(item.op);
     if (op === 'add') {
-      const subject = subjectOf(item.subject);
-      if (!subject) { drop('unknown_subject'); continue; }
+      const subject = subjectOf(item);
+      if (!subject) continue;
       if (!CLAIM_KINDS.includes(item.kind)) { drop('bad_kind'); continue; }
       if (!text(item.text)) { drop('no_text'); continue; }
       if (!HOW.includes(item.how)) { drop('bad_how'); continue; }
       const sources = sourcesOf(item.sources);
-      if (sources.length === 0) { drop('no_sources'); continue; }
+      if (!sources) continue;
       keep('claims', { op, subjectKind: subject.kind, subjectId: subject.id, kind: item.kind, text: text(item.text), how: item.how, sources, when: text(item.when) || null });
     } else if (op === 'confirm' || op === 'revise' || op === 'retire') {
       const id = maps.claims.get(text(item.id));
       if (!id) { drop('unknown_id'); continue; }
       const sources = sourcesOf(item.sources);
-      if (sources.length === 0) { drop('no_sources'); continue; }
+      if (!sources) continue;
       if (op === 'confirm') { keep('claims', { op, id, sources }); continue; }
       if (op === 'revise') {
         if (!text(item.text)) { drop('no_text'); continue; }
         if (!HOW.includes(item.how)) { drop('bad_how'); continue; }
-        keep('claims', { op, id, text: text(item.text), how: item.how, sources, reason: text(item.reason) || null });
+        if (!text(item.reason)) { drop('no_reason'); continue; }
+        keep('claims', { op, id, text: text(item.text), how: item.how, sources, reason: text(item.reason) });
         continue;
       }
       if (!TRUTHS.includes(item.truth)) { drop('bad_truth'); continue; }
-      keep('claims', { op, id, truth: item.truth, reason: text(item.reason) || null, sources });
+      if (!text(item.reason)) { drop('no_reason'); continue; }
+      keep('claims', { op, id, truth: item.truth, reason: text(item.reason), sources });
     } else {
       drop('bad_op');
     }
@@ -466,7 +547,7 @@ export function validateAnswer(value, { maps, people, placeId }) {
     if (!found) { drop('unknown_subject'); continue; }
     if (!text(item.what)) { drop('no_text'); continue; }
     const sources = sourcesOf(item.sources);
-    if (sources.length === 0) { drop('no_sources'); continue; }
+    if (!sources) continue;
     keep('episodes', { subjectId: found.id, what: text(item.what), feeling: text(item.feeling), sources });
   }
 
@@ -475,17 +556,19 @@ export function validateAnswer(value, { maps, people, placeId }) {
     const found = person(item.person);
     if (!found) { drop('unknown_subject'); continue; }
     if (typeof item.delta !== 'number' || !Number.isFinite(item.delta) || Math.round(item.delta) === 0) { drop('bad_delta'); continue; }
+    if (!text(item.reason)) { drop('no_reason'); continue; }
     const sources = sourcesOf(item.sources);
-    if (sources.length === 0) { drop('no_sources'); continue; }
-    keep('affinity', { personId: found.id, delta: Math.round(item.delta), reason: text(item.reason) || null, sources });
+    if (!sources) continue;
+    keep('affinity', { personId: found.id, delta: Math.round(item.delta), reason: text(item.reason), sources });
   }
 
   for (const item of list('descriptions')) {
     if (!isObject(item)) { drop('bad_op'); continue; }
-    const subject = subjectOf(item.subject);
-    if (!subject) { drop('unknown_subject'); continue; }
+    const subject = subjectOf(item);
+    if (!subject) continue;
     if (!DESCRIPTION_FIELDS.includes(item.field)) { drop('bad_field'); continue; }
-    keep('descriptions', { subjectKind: subject.kind, subjectId: subject.id, field: item.field, why: text(item.why) || null });
+    if (!text(item.why)) { drop('no_reason'); continue; }
+    keep('descriptions', { subjectKind: subject.kind, subjectId: subject.id, field: item.field, why: text(item.why) });
   }
   return { plan, counts };
 }
@@ -500,12 +583,24 @@ export function sweepsToday(db, now) {
   return db.prepare("SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL").get(dayOf(now)).n;
 }
 
+/** The batches waiting for another try: `[{ scope, tries, from, to }]` (an `all_dropped` answer leaves its lines pending). */
+export function pendingBatches(db) {
+  const out = [];
+  for (const row of db.prepare("SELECT key, value FROM meta WHERE key LIKE 'memory_session.pending.%' ORDER BY key").all()) {
+    const record = parseJson(row.value);
+    if (!record) continue;
+    out.push({ scope: row.key.split('.').slice(3).join('.'), mode: row.key.split('.')[2], tries: record.tries ?? 0, from: record.from ?? null, to: record.to ?? null });
+  }
+  return out;
+}
+
 /**
- * The state of the session for the status card: `{ mode, state, code, sweepsToday, last }` (`state`: `off`,
- * `not_configured`, `refused`, `ready`). `last` is the newest run's outcome and time.
+ * The state of the session for the status card: `{ mode, authority, state, code, sweepsToday, last, pending }`
+ * (`state`: `off`, `not_configured`, `refused`, `ready`). `last` is the newest run's outcome and time; `pending` the
+ * batches waiting for another try, with their retry counts.
  */
 export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
-  const { mode, sweepsPerDay } = sessionSettings(config);
+  const { mode, sweepsPerDay, retryLimit } = sessionSettings(config);
   const code = refusalOf(config, env, prompts);
   let state = 'ready';
   if (code === CODES.OFF) state = 'off';
@@ -513,14 +608,16 @@ export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
   else if (code) state = 'refused';
   let today = null;
   let last = null;
+  let pending = [];
   if (db) {
     try {
       today = sweepsToday(db, now);
       const row = db.prepare('SELECT outcome, finished_at, scope_key FROM session_runs ORDER BY finished_at DESC, rowid DESC LIMIT 1').get();
       if (row) last = { outcome: row.outcome, at: row.finished_at };
+      pending = pendingBatches(db);
     } catch { /* an older database without the table */ }
   }
-  return { mode, state, code, sweepsToday: today, sweepsPerDay, last };
+  return { mode, authority: authorityOf(config), state, code, sweepsToday: today, sweepsPerDay, retryLimit, last, pending };
 }
 
 /**
@@ -547,48 +644,145 @@ export async function sweep(ctx, options = {}) {
     const cursor = Number(metaOf(db, key) ?? 0);
     const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages, settleBefore: now() - settings.settleMinutes * MINUTE });
     if (batch.length < Math.min(settings.minMessages, maxMessages)) { runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length }); continue; }
-    runs.push(await runScope(ctx, { scope, batch, cursor, key, sweepId, settings, maxMessages }));
+    runs.push(...await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }));
   }
   return { status: 'ok', runs };
 }
 
-/** One request: build, send, parse, validate, write. Never throws; the outcome is in the result. */
-async function runScope(ctx, { scope, batch, cursor, key, sweepId, settings, maxMessages }) {
+/**
+ * One batch: one request per page of its people, serial. The cursor moves, in the write of the last page, only when every
+ * page was written (or had been applied before); an `all_dropped` page keeps the batch pending, and after `retryLimit`
+ * tries the batch is skipped with a recorded decision. Never throws; returns one entry per page (or the skip).
+ */
+async function runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }) {
+  const { db, hot } = ctx;
+  const config = hot.config;
+  const cursorTo = Math.max(...batch.map((line) => line.rowid));
+  const holdKey = pendingKey(settings.mode, scope.key);
+  const held = parseJson(metaOf(db, holdKey));
+  const tries = held && held.from === cursor ? Number(held.tries) || 0 : 0;
+  if (tries >= settings.retryLimit) return [await skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
+
+  const pages = pagesOf(db, batch, config, ctx.selfName ?? '');
+  const results = [];
+  const state = { ok: true, dropped: false };
+  let lastApplied = false;
+  for (let page = 0; page < pages; page += 1) {
+    const batchKey = [settings.mode, scope.key, cursor, cursorTo, page].join('|');
+    const last = page === pages - 1;
+    if (settings.mode === 'apply' && db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey)) {
+      results.push({ scope: scope.key, outcome: 'applied_before', lines: batch.length, page });
+      lastApplied = last;
+      continue;
+    }
+    results.push(await runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, page, pages, batchKey, state, tries }));
+  }
+  if (lastApplied) {
+    // The last page needs no write of its own (it was applied in an earlier try): the cursor moves on its own.
+    const final = settleState(state, { key, holdKey, cursor, cursorTo, tries, from: cursor });
+    if (final.advance || final.pending) {
+      try {
+        await ctx.write({ kind: 'session', mode: settings.mode, run: null, plan: null, advance: final.advance, pending: final.pending, now: (ctx.now ?? Date.now)() });
+      } catch (error) {
+        ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
+        results.push({ scope: scope.key, outcome: 'write_failed', lines: batch.length, errors: [`write:${codeOf(error)}`] });
+      }
+    }
+  }
+  return results;
+}
+
+/** What the end of a batch does to the cursor and to the pending mark, from how its pages went. */
+function settleState(state, { key, holdKey, cursor, cursorTo, tries, from }) {
+  if (state.ok) return { advance: { key, value: cursorTo, expect: cursor }, pending: { key: holdKey, value: null } };
+  if (state.dropped) return { advance: null, pending: { key: holdKey, value: json({ from, to: cursorTo, tries: tries + 1 }) } };
+  return { advance: null, pending: null };
+}
+
+const json = (value) => JSON.stringify(value);
+
+/** A batch whose answers were all dropped `retryLimit` times: the cursor moves past it and a decision says why. */
+async function skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries }) {
+  const now = ctx.now ?? Date.now;
+  const id = `skip:${shortHash(sweepId, scope.key)}`;
+  try {
+    await ctx.write({
+      kind: 'session',
+      mode: settings.mode,
+      run: null,
+      plan: null,
+      advance: { key, value: cursorTo, expect: cursor },
+      pending: { key: holdKey, value: null },
+      decision: { id, scope: scope.key, action: 'skipped:all_dropped', reason: 'every answer was dropped', extra: { scope: scope.key, tries, from: cursor, to: cursorTo, lines: batch.length } },
+      now: now(),
+    });
+  } catch (error) {
+    ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
+    return { scope: scope.key, outcome: 'write_failed', lines: batch.length, errors: [`write:${codeOf(error)}`] };
+  }
+  ctx.log?.debug?.('memory session: batch skipped', { scope: scope.scope.scope_kind, tries, lines: batch.length });
+  return { scope: scope.key, outcome: 'skipped', lines: batch.length, tries };
+}
+
+/** One request (one page of the batch): build, send, parse, validate, write. Never throws; the outcome is in the result. */
+async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, page, pages, batchKey, state, tries }) {
   const { db, write, llm, hot, log = {} } = ctx;
   const now = ctx.now ?? Date.now;
   const config = hot.config;
   const startedAt = now();
-  const runId = `run:${shortHash(sweepId, scope.key)}`;
+  const runId = `run:${shortHash(sweepId, scope.key, page)}`;
+  const last = page === pages - 1;
   const run = {
-    id: runId, sweepId, scopeKey: scope.key, scope: scope.scope, startedAt: new Date(startedAt).toISOString(), finishedAt: null,
-    cursorFrom: cursor, cursorTo: batch[batch.length - 1].rowid, sourcesN: batch.length, tokensPrompt: null, tokensCompletion: null,
+    id: runId, sweepId, scopeKey: scope.key, scope: scope.scope, batchKey, startedAt: new Date(startedAt).toISOString(), finishedAt: null,
+    cursorFrom: cursor, cursorTo, sourcesN: batch.length, tokensPrompt: null, tokensCompletion: null,
     model: roleModel(config, MEMORY_ROLE), outcome: 'error', counts: {}, errors: [],
   };
   const finish = async (outcome, extra = {}) => {
     run.outcome = outcome;
     run.finishedAt = new Date(now()).toISOString();
-    Object.assign(run, extra);
-    const advance = extra.plan ? { key, value: run.cursorTo } : null;
-    try {
-      await write({ kind: 'session', mode: settings.mode, run, plan: extra.plan ?? null, advance, maxDelta: config?.relationships?.maxDeltaPerUpdate, now: now() });
-    } catch (error) {
-      run.errors.push(`write:${codeOf(error)}`);
-      log.warn?.('memory session: write failed', { code: codeOf(error) });
+    Object.assign(run, { counts: extra.counts ?? run.counts });
+    // A page is fine when its answer was written and not all of it was dropped. The cursor moves with the last page's
+    // write, and only if every page before it was fine too.
+    if (outcome !== 'ok') {
+      state.ok = false;
+      if (outcome === 'all_dropped') state.dropped = true;
     }
-    log.debug?.('memory session: run', { scope: scope.scope.scope_kind, outcome, lines: batch.length, ...run.counts });
-    return { scope: scope.key, outcome, lines: batch.length, counts: run.counts, errors: run.errors, ...(extra.plan ? { plan: extra.plan } : {}) };
+    let advance = null;
+    let pending = null;
+    if (last) {
+      const final = settleState(state, { key, holdKey, cursor, cursorTo, tries, from: cursor });
+      advance = final.advance;
+      pending = final.pending;
+    }
+    let written = null;
+    try {
+      written = await write({
+        kind: 'session', mode: settings.mode, run, plan: extra.plan ?? null, advance, pending, answer: extra.answer ? { text: extra.answer } : null,
+        maxDelta: config?.relationships?.maxDeltaPerUpdate, now: now(),
+      });
+    } catch (error) {
+      // A failed write is never an ok run, and the cursor did not move (it rides in the same transaction).
+      run.errors.push(`write:${codeOf(error)}`);
+      state.ok = false;
+      log.warn?.('memory session: write failed', { code: codeOf(error) });
+      return { scope: scope.key, outcome: 'write_failed', lines: batch.length, page, counts: run.counts, errors: run.errors };
+    }
+    log.debug?.('memory session: run', { scope: scope.scope.scope_kind, outcome, lines: batch.length, page, ...run.counts });
+    return {
+      scope: scope.key, outcome, lines: batch.length, page, counts: run.counts, errors: run.errors, ...(written?.replayed ? { replayed: true } : {}),
+      ...(extra.plan ? { plan: extra.plan } : {}),
+    };
   };
 
   let request;
   try {
     request = buildSessionRequest({
-      db, scope, batch, config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: startedAt,
+      db, scope, batch, config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: startedAt, page,
     });
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
     return finish('build_error');
   }
-  const placeId = request.places.length > 0 ? (db.prepare('SELECT parent_id FROM places WHERE id = ?').get(request.places[0])?.parent_id ?? request.places[0]) : null;
 
   let completion;
   try {
@@ -609,15 +803,16 @@ async function runScope(ctx, { scope, batch, cursor, key, sweepId, settings, max
   }
   run.tokensPrompt = Number(completion?.usage?.prompt_tokens) || null;
   run.tokensCompletion = Number(completion?.usage?.completion_tokens) || null;
+  const answer = typeof completion?.text === 'string' && completion.text ? completion.text : null;
 
   const parsed = parseSessionAnswer(completion?.text);
   if (!parsed.ok) {
     run.errors.push(parsed.code);
-    return finish('bad_answer');
+    return finish('bad_answer', { answer });
   }
-  const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people, placeId, scopeKey: scope.key });
-  run.counts = { lines: request.lines, kept: counts.kept, dropped: counts.dropped, claims: plan.claims.length, episodes: plan.episodes.length, affinity: plan.affinity.length, descriptions: plan.descriptions.length };
-  return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', { plan });
+  const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people });
+  const counted = { lines: request.lines, page, pages, kept: counts.kept, dropped: counts.dropped, claims: plan.claims.length, episodes: plan.episodes.length, affinity: plan.affinity.length, descriptions: plan.descriptions.length };
+  return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', { plan, counts: counted, answer });
 }
 
 /** The status card's line for the session, from `sessionStatus` and `labels.status.memorySession`; '' without the label. */
@@ -627,5 +822,9 @@ export function memorySessionStatusLine(status, labels, fill = (template, values
   if (status.state === 'off') return set.off ?? '';
   if (status.state === 'not_configured') return set.notConfigured ?? '';
   if (status.state === 'refused') return fill(set.refused ?? '', { code: status.code });
-  return fill(set.line ?? '', { mode: status.mode, sweeps: status.sweepsToday ?? 0, cap: status.sweepsPerDay, outcome: status.last?.outcome ?? '-', at: status.last?.at ?? '-' });
+  const line = fill(set.line ?? '', { mode: status.mode, sweeps: status.sweepsToday ?? 0, cap: status.sweepsPerDay, outcome: status.last?.outcome ?? '-', at: status.last?.at ?? '-' });
+  // Batches waiting for another try (an all-dropped answer leaves its lines pending), with the most tries any has had.
+  const waiting = status.pending ?? [];
+  if (waiting.length === 0 || !set.pending) return line;
+  return `${line}\n${fill(set.pending, { n: waiting.length, tries: Math.max(...waiting.map((batch) => batch.tries)), limit: status.retryLimit ?? '-' })}`;
 }
