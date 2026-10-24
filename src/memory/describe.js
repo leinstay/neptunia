@@ -1128,7 +1128,8 @@ export function createDescriber({
         maxBytes,
         toolTimeoutMs,
         ffmpegPath,
-        fetchTimeoutMs: hot.config.context?.vision?.fetchTimeoutMs,
+        // A video file is downloaded under the video tools' timeout, never a picture's (context.vision.fetchTimeoutMs):
+        // a large clip on a slow CDN outlives ten seconds.
         audioMap,
       });
       if (got.ok) {
