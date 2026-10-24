@@ -749,7 +749,7 @@ export const COMMAND_TABLE = Object.freeze([
           channelOption('Only this channel.'),
           { type: STRING, name: 'when', description: 'YYYY-MM-DD, or a range A..B (either side may be open).', required: false, max_length: 40 },
           { type: STRING, name: 'terms', description: 'Exact words or phrases, comma-separated.', required: false, max_length: 300 },
-          { type: STRING, name: 'anchor', description: 'A message id: read the lines next to it instead of searching.', required: false, max_length: 200 },
+          { type: STRING, name: 'anchor', description: 'A message id: read the lines around it.', required: false, max_length: 200 },
           { type: STRING, name: 'move', description: 'With anchor: up reads earlier lines, down later ones.', required: false, choices: choicesOf(['up', 'down']) },
           { type: INTEGER, name: 'messages', description: 'With anchor: how many lines.', required: false, min_value: 1, max_value: 60 },
           { type: INTEGER, name: 'minutes', description: 'With anchor: how many minutes.', required: false, min_value: 1, max_value: 1440 },
