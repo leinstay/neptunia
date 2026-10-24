@@ -38,6 +38,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `day` | audience-scoped | what she did, turn by turn |
 | `diary` | audience-scoped | her diary entries |
 | `diary_mirrors` | inherits from diary | where an entry was posted |
+| `publications` | internal-only | every outward send of something of hers: the exact text and its hash, the destination, the context, the grant, the state and the receipts; what was sent is read outward through the lines it became, never through this table |
+| `publication_grants` | internal-only | the owner's exceptions: one content hash of one row allowed to these destinations |
 | `media` | audience-scoped | pictures and audio she keeps, with the audience of what they belong to |
 | `intentions` | audience-scoped | what she means to do |
 | `work` | audience-scoped | errands and tasks |
@@ -46,6 +48,10 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `decisions` | internal-only | why the engine or she changed memory (proposals, rejections, quarantines) |
 | `turn_reads` | internal-only | which rows each request carried, in which context and by which reader |
 | `execution_contexts` | internal-only | the contexts the core issued for turns, sessions and wakes |
+| `relationship_daily` | internal-only | how often she and each person addressed each other, per day and audience (counts only, recounted from `sources`) |
+| `focus_members` | internal-only | her current close and exploring sets; only the focus code and her internal wakes read it (`src/memory/db/focus.js`) |
+| `focus_events` | internal-only | every change of those sets, every challenge and its end (append-only) |
+| `focus_overrides` | internal-only | the owner's pins and exclusions |
 | `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
 | `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
 | `ledger_tasks` | internal-only | the task ledger's copy |
@@ -115,3 +121,14 @@ closed until the partner becomes a person.
   place), a repeated key suffixed with `#dup` and the row number. Every later row gets its id the same way.
 - `graph_nodes`, `graph_edges`, `node_access`: created empty; the projection of the existing rows is left pending and
   done by the next full sync pass, in slices. Until then a walk sees only what was written since.
+
+## Rows filled by the migration to schema 10
+
+- `publications`: one `sent` row per `diary_mirrors` row, with the mirror's id, the entry it posted (`row_kind`
+  `diary`), the entry's text as `rendered` and its SHA-256 as `content_hash` (both empty while the entry's text is not
+  stored yet; filled once when it is, never changed after), the mirror's place as the destination when that place is
+  stored (the diary mirrors name none today), the mirror's message ids as receipts, the key `diary:<entry>:<place>` and
+  the mirror's owner file. `created_at` is the mirror's posting time, else the time of the last sync before the
+  migration. Each is projected into the graph (`published_as` from the entry, `publication_source` to each stored line
+  a receipt names). Later mirrors get theirs from the sync the same way.
+- `publication_grants`, `relationship_daily`, `focus_members`, `focus_events`, `focus_overrides`: created empty.

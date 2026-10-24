@@ -37,6 +37,9 @@
 // (graph.js#projectRow), and a full pass (no `filter`) finishes the projection the v9 migration left pending
 // (graph.js#projectPending, in slices) in its closing step. Lines are matched to a message by their native tuple (the
 // authority, the native kind and generation, and the native id), never by the native id alone.
+// From schema v10 every diary mirror a pass writes or retires derives its `publications` row in the same transaction
+// (publish.js#deriveMirrorPublication: inserted once by its key, then following the mirror); the other publications,
+// the grants and the focus tables are the database's own and no pass touches them.
 //
 // Order inside a pass: ordinary files first, then archive segments, participation and vectors (an archived item that is not in hot
 // memory becomes a retired `historical` claim, which needs the hot claims to be in), then request dumps (a dump's
@@ -57,6 +60,7 @@ import { personId } from './ids.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.js';
 import { projectPending, projectRow } from './graph.js';
+import { deriveMirrorPublication } from './publish.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -205,6 +209,7 @@ function retireAbsent(db, owner, mapping, at) {
     for (const row of existing) {
       if (keep.has(childKey(child, row))) continue;
       prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
+      if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
       projectRow(db, child, row, { at });
       count += 1;
     }
@@ -257,7 +262,11 @@ function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
   // A participation file names lines by their message (`src:discord:<id>`): they are pointed at the stored revision
   // before the episodes are projected, so a remap never projects the bare reference for a moment.
   if ((mapping.episode_sources ?? []).length > 0) relinkParticipation(db, at);
-  for (const [child, row] of touched) projectRow(db, child, row, { at });
+  // Schema v10: a mirror's publication follows the mirror (publish.js#deriveMirrorPublication), on this one path.
+  for (const [child, row] of touched) {
+    if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
+    projectRow(db, child, row, { at });
+  }
   return count;
 }
 

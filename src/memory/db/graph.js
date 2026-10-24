@@ -17,6 +17,8 @@
 //       kept there), in slices; the key goes once everything is projected. Run by a full sync pass and by the last
 //       slice of the first import.
 //   rebuildGraph(handle)   drops the three tables' rows and projects everything again (the rebuildability contract).
+// Schema v10: a publication (publish.js) is its own unit: its node, `published_as` from the entry it publishes and
+// `publication_source` to each stored line its receipts name; the diary unit no longer reads `diary_mirrors`.
 // An edge whose end has no typed row yet gets a placeholder node (the epoch as its time); the row's own projection
 // fills it in. A node with its own audience witnesses itself; every live edge witnesses both ends with its audience.
 // A retired row's own edges retire with it and its own witness goes, but a live edge of another row that names it (a
@@ -320,11 +322,22 @@ const PRODUCERS = {
       out.nodes.push(node('diary', row));
       if (!parentRetired) out.own.push({ node: graphNodeId('diary', id), audience });
     }
-    for (const mirror of all(db, 'SELECT * FROM diary_mirrors WHERE diary_id = ? AND id IS NOT NULL ORDER BY id', id)) {
-      const retired = mirror.retired_at ?? parentRetired;
-      out.nodes.push(node('publication', mirror));
-      if (!retired) out.own.push({ node: graphNodeId('publication', mirror.id), audience });
-      out.edges.push(edge('published_as', ['diary', id], ['publication', mirror.id], { audience, recorded: recordedOf(mirror.posted_at), retired }));
+    return out;
+  },
+  publications(db, id) {
+    // Schema v10: a publication is its own unit (a diary mirror's is one); its node, the entry it publishes and the lines
+    // its receipts became.
+    const out = empty();
+    const row = one(db, 'SELECT * FROM publications WHERE id = ?', id);
+    if (!row) return out;
+    out.nodes.push(node('publication', row));
+    const audience = publicationAudience(db, row);
+    const retired = row.retired_at ?? null;
+    if (!retired) out.own.push({ node: graphNodeId('publication', id), audience });
+    const recorded = recordedOf(row.sent_at, row.created_at);
+    if (row.row_kind === 'diary' && filled(row.row_id)) out.edges.push(edge('published_as', ['diary', row.row_id], ['publication', id], { audience, recorded, retired }));
+    if (row.status === 'sent') {
+      for (const source of receiptSources(db, row.receipts)) out.edges.push(edge('publication_source', ['publication', id], ['source', source], { audience, evidence: source, recorded, retired }));
     }
     return out;
   },
@@ -333,6 +346,34 @@ const PRODUCERS = {
   work: ownOnly('work', 'work'),
   decisions: ownOnly('decisions', 'decision'),
 };
+
+/**
+ * The audience a publication is read with: once sent, its destination place's (the entry's own when it names no
+ * destination); before that (queued, failed, unknown) internal: nothing outward has seen it.
+ */
+function publicationAudience(db, row) {
+  if (row.status !== 'sent') return AUD_INTERNAL;
+  if (filled(row.destination_place_id)) return placeAudience(one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.destination_place_id));
+  if (row.row_kind === 'diary' && filled(row.row_id)) {
+    const entry = one(db, 'SELECT audience_id FROM diary WHERE id = ?', row.row_id);
+    if (entry && filled(entry.audience_id)) return entry.audience_id;
+  }
+  return AUD_INTERNAL;
+}
+
+/** The stored lines a publication's receipts name (`[{ authority, kind, key }]`): the first stored revision of each. */
+function receiptSources(db, receipts) {
+  let list;
+  try { list = JSON.parse(receipts ?? '[]'); } catch { list = []; }
+  const out = [];
+  for (const receipt of Array.isArray(list) ? list : []) {
+    if (!receipt || !filled(receipt.authority) || !filled(receipt.kind) || !filled(receipt.key)) continue;
+    const found = one(db, `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = 1
+      AND kind IN ('said', 'seen') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`, receipt.authority, receipt.kind, receipt.key);
+    if (found && !out.includes(found.id)) out.push(found.id);
+  }
+  return out;
+}
 
 /** A table whose row is one node with its own audience (a decision is internal) and no edges. */
 function ownOnly(table, kind) {
@@ -478,7 +519,7 @@ function unitIds(db, table, after, limit) {
     claims: ['SELECT id FROM claims', 'SELECT claim_id FROM claim_versions', 'SELECT claim_id FROM claim_sources'],
     descriptions: ['SELECT id FROM descriptions', 'SELECT description_id FROM description_versions'],
     episodes: ['SELECT id FROM episodes', 'SELECT episode_id FROM episode_sources'],
-    diary: ['SELECT id FROM diary', 'SELECT diary_id FROM diary_mirrors'],
+    diary: ['SELECT id FROM diary'],
   }[table] ?? [`SELECT id FROM ${quote(table)}`];
   return db.prepare(`SELECT v AS id FROM (${sources.map((sql) => sql.replace(/^SELECT (\S+)/, 'SELECT $1 AS v')).join(' UNION ')})
     WHERE v IS NOT NULL AND (? IS NULL OR v > ?) ORDER BY v LIMIT ?`).all(after, after, limit).map((r) => String(r.id));

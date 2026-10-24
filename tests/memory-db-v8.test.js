@@ -69,7 +69,7 @@ test('v8 migration: replies backfilled into source_relations, native kinds fille
   const handle = openMemoryDb(env.file);
   const { db } = handle;
   try {
-    // The database goes to the newest schema; v8 is the eighth entry (tests/memory-db-graph.test.js pins the count).
+    // The database goes to the newest schema; v8 is the eighth entry.
     assert.equal(schemaVersion(db), MIGRATIONS.length);
     assert.ok(MIGRATIONS.length >= 8);
     for (const table of V8_TABLES) assert.ok(db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table), table);

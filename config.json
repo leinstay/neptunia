@@ -134,6 +134,7 @@
     "audienceColumn": false,
     "diaryMedia": false,
     "diaryAudioMaxBytes": 8388608,
+    "focus": { "enabled": false },
     "session": {
       "mode": "off",
       "maxMessages": 200,
@@ -162,6 +163,23 @@
   "graph": {
     "maxDepth": 6,
     "maxRows": 2000
+  },
+  "focus": {
+    "policyVersion": 1,
+    "size": 24,
+    "exploring": 4,
+    "exploringShare": 0.15,
+    "entryAffinity": 0.6,
+    "margin": 0.08,
+    "confirmHours": 24,
+    "maxMovesPerWeek": 2,
+    "settleDays": 21,
+    "weights": { "affinity": 0.55, "reciprocity": 0.15, "sharedInterest": 0.1, "recency": 0.1, "consistency": 0.1 },
+    "noveltyMax": 0.12,
+    "noveltyHalfLifeDays": 14,
+    "recencyHalfLifeDays": 60,
+    "consistencyDays": 28,
+    "consistencyCap": 8
   },
   "embed": {
     "dimensions": 1024,
@@ -566,7 +584,7 @@
     "queueMax": 20,
     "chatMessages": 30,
     "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
-    "heartbeat": { "enabled": true, "everyMinutes": 180, "jitterMinutes": 60, "people": 8, "filteredShown": 10, "closedShown": 10, "historyDays": 14, "placesHours": 6, "placesShown": 6, "placeLines": 2, "maxTokens": 2500, "intentionsOnly": true, "maxOpen": 3, "maxRecurring": 1 },
+    "heartbeat": { "enabled": true, "everyMinutes": 180, "jitterMinutes": 60, "people": 8, "filteredShown": 10, "closedShown": 10, "historyDays": 14, "placesHours": 6, "placesShown": 6, "placeLines": 2, "maxTokens": 2500, "intentionsOnly": true, "maxOpen": 3, "maxRecurring": 1, "focusSource": "profiles" },
     "caps": { "perChain": 3 },
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
     "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },

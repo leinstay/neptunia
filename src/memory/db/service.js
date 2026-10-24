@@ -31,6 +31,10 @@
 //     runs as above. While `db`, the sync is off (no tick pass, no `requestSync`, no shutdown pass), the database is
 //     taken as in step from the moment it is opened, and the status says so (`authority`, `syncOff`). The read switch
 //     (`memoryDb.read`) never changes who writes.
+//   - the focus job (schema v10, focus.js; `memoryDb.focus.enabled`, off by default): once per UTC day, at a tick, the
+//     relationship counts of yesterday and today are recounted and the close and exploring sets recomputed, through the
+//     writer (the worker), with the live `focus` settings. `focusPeople()` reads the sets for the heartbeat's people
+//     view on the read connection (an internal reader), with `focus.exploringShare`; null while the database is closed.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -57,6 +61,8 @@ import { memoryRootOf } from '../root.js';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.js';
 import { projectPending } from './graph.js';
+import { focusView, lastFocusDay, runFocusDay } from './focus.js';
+import { utcDay } from '../../time.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -412,6 +418,45 @@ export function createMemoryDb({
     diaryJob.run().catch((error) => log.warn('diary media: run failed', { code: codeOf(error) }));
   }
 
+  // The focus job (focus.js): once per UTC day, through the writer, with the live settings.
+  let focusRun = null;
+  let focusDay = null;
+  function startFocus() {
+    if (closing || !on() || !handle || !importDone || focusRun || engine?.dead) return;
+    if (hot.config?.memoryDb?.focus?.enabled !== true) return;
+    const at = now();
+    const day = utcDay(at);
+    if (focusDay === day) return;
+    try {
+      if (lastFocusDay(handle.db) === day) { focusDay = day; return; }
+    } catch { /* a database before v10: the job runs and fails with a code */ }
+    const config = { focus: hot.config?.focus ?? null };
+    const job = engine ? engine.call('focus', { now: at, config }) : Promise.resolve().then(() => runFocusDay(handle, { now: at, config }));
+    focusRun = job
+      .then((done) => {
+        focusDay = day;
+        log.debug?.('memory db: focus', { days: done.days, rows: done.rows, close: done.close, exploring: done.exploring, events: done.events });
+      })
+      .catch((error) => log.warn('memory db: focus failed', { code: codeOf(error) }))
+      .finally(() => { focusRun = null; });
+  }
+
+  /**
+   * The focus sets for the heartbeat's people view (focus.js#focusView, an internal read): `{ close, exploring,
+   * exploringShare }` as member ids of the interface, each the best scored first; null while the database is closed.
+   */
+  function focusPeople({ iface = 'discord' } = {}) {
+    if (!handle || !on()) return null;
+    try {
+      const sets = focusView(handle.db, { iface });
+      const share = hot.config?.focus?.exploringShare;
+      return { ...sets, exploringShare: Number.isFinite(share) && share >= 0 && share <= 1 ? share : 0.15 };
+    } catch (error) {
+      log.warn('memory db: focus read failed', { code: codeOf(error) });
+      return null;
+    }
+  }
+
   /** The tick: follows the switch, runs a pass when one is due. Safe to call at any rate. */
   async function tick() {
     if (closing) return;
@@ -430,9 +475,10 @@ export function createMemoryDb({
     }
     if (!handle || running) return;
     // Authority `db`: the sync stays off. A switch back to `json` finds the database dirty and runs a pass.
-    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); return; }
+    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); startFocus(); return; }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
     startDiaryMedia();
+    startFocus();
   }
 
   /** A flush wrote files: a pass soon, off the caller's path. */
@@ -602,6 +648,7 @@ export function createMemoryDb({
     const deadline = performance.now() + closeMs;
     await waitFor(diaryJob.stop(), closeMs);
     await waitFor(running, closeMs);
+    await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
@@ -609,5 +656,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, issueContext, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, issueContext, focusPeople, status, close };
 }

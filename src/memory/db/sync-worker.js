@@ -7,6 +7,7 @@
 //              { id, type: 'turnReads', turnId, step, rows }                   the turn_reads rows, resolved by the caller at assembly time
 //              { id, type: 'diaryApply', update }                one diary row's text and picture rows (diary-media.js)
 //              { id, type: 'memoryWrite', update }                one write of her memory session or a description review (session-write.js)
+//              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.js#runFocusDay)
 //              { id, type: 'close' }                            close the database, release the lock, then the thread ends
 // Messages out { id, ok: true, result } | { id, ok: false, code }   one reply per message
 //              { type: 'log', level, message, fields }              a line for the service's log (warnings only)
@@ -19,6 +20,7 @@ import { syncOnce } from './sync.js';
 import { insertTurnReads, turnReadRows } from './service.js';
 import { applyDiaryUpdate } from './diary-media.js';
 import { applyMemoryWrite } from './session-write.js';
+import { runFocusDay } from './focus.js';
 
 const IMPORT_DONE = 'service_import_done';
 const dataDir = workerData?.dataDir;
@@ -71,6 +73,9 @@ const handlers = {
   },
   memoryWrite({ update }) {
     return applyMemoryWrite(handle, update);
+  },
+  focus({ now, config }) {
+    return runFocusDay(handle, { now, config });
   },
   close() {
     handle?.close();

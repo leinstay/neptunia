@@ -22,8 +22,11 @@
 // (graph.js#projectRow: the row's unit, again from the database as it is now): `insertRows`, the DM place, the interface
 // and authority rows, the links `ensureLinks` adds, and the sources whose relations `ensureRelations` and
 // `resolveRelationsTo` wrote or resolved.
+// Schema v10 (stages 4 and 5): a diary mirror written through `insertRows` derives its publication
+// (publish.js#deriveMirrorPublication, the function the sync calls for every mirror write), and a line of hers that is
+// stored after the mirror that names it projects that publication again (its `publication_source` edge).
 // Every helper checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
-// v9 no projection.
+// v9 no projection, before v10 no publication.
 
 import { log as engineLog } from '../../log.js';
 import {
@@ -33,6 +36,7 @@ import {
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.js';
 import { SELF_SOURCE_KINDS } from './schema.js';
 import { projectRow } from './graph.js';
+import { deriveMirrorPublication, projectPublicationsNaming } from './publish.js';
 
 const quote = (name) => `"${String(name).replace(/"/g, '""')}"`;
 const bind = (value) => (value === undefined ? null : value);
@@ -283,6 +287,7 @@ export function ensureRelations(db, row, { at } = {}) {
   }
   resolveRelationsTo(db, row, { at });
   projectRow(db, 'sources', { id: row.id }, { at });
+  projectPublicationsNaming(db, row, { at });
 }
 
 /**
@@ -339,6 +344,7 @@ export function insertRows(db, mapping, { log = engineLog, at } = {}) {
       db.prepare(sql).run(...cols.map((col) => bind(row[col])));
       if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, row, { at });
       if (table === 'sources') ensureRelations(db, row, { at });
+      else if (table === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
       else projectRow(db, table, row, { at });
     }
   }

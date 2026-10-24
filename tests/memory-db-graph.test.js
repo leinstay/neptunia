@@ -400,8 +400,9 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
     const migrated = performance.now() - started;
     const { db } = handle;
     try {
-      assert.equal(schemaVersion(db), 9);
-      assert.equal(MIGRATIONS.length, 9);
+      // The database goes to the newest schema; v9 is the ninth entry.
+      assert.equal(schemaVersion(db), MIGRATIONS.length);
+      assert.ok(MIGRATIONS.length >= 9);
       assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
       assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
       for (const table of ['claim_sources', 'episode_sources', 'diary_mirrors']) {
