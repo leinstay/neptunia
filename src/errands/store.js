@@ -48,6 +48,8 @@ import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
+import { createReadSeam } from '../memory/db/readers/common.js';
+import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
 import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../skills/codes.js';
 
@@ -99,11 +101,17 @@ export function isToolTask(task) {
  * @param {{ action: Function }|null} [options.journal]  src/memory/journal.js#createJournal's.
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
+ * @param {object|null} [options.memoryDb]  the memory database service: under its authority `db` the list and the
+ *   spend records are loaded from the database (src/memory/db/readers/tasks.js), with no file fallback (a failed
+ *   read throws, with a code); under `json` (the default) from the files as always. The writers are unchanged.
+ * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  */
-export function createTaskStore({ dataDir, guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog }) {
+export function createTaskStore({ dataDir, guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog, memoryDb = null, authorityOf = null }) {
   const dir = path.join(dataDir, 'guilds', String(guildId));
   const listFile = path.join(dir, 'tasks.json');
   const logFile = path.join(dir, 'tasks.jsonl');
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'tasks' });
+  const db = seam.db();
   const state = load();
   // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
   const spend = loadSpend();
@@ -111,10 +119,15 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** tasks.json read once: its list; a missing or broken file starts empty (a broken one logged). */
   function load() {
     let raw = null;
-    try {
-      raw = JSON.parse(fs.readFileSync(listFile, 'utf8'));
-    } catch (err) {
-      if (err?.code !== 'ENOENT') log.warn('errands: tasks file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
+    if (db) {
+      const found = seam.run(() => tasksValue(db, guildId));
+      raw = found.found ? found.value : null;
+    } else {
+      try {
+        raw = JSON.parse(fs.readFileSync(listFile, 'utf8'));
+      } catch (err) {
+        if (err?.code !== 'ENOENT') log.warn('errands: tasks file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
+      }
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
     for (const task of tasks) {
@@ -136,10 +149,14 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   function loadSpend() {
     const records = new Map();
     let text = '';
-    try {
-      text = fs.readFileSync(logFile, 'utf8');
-    } catch (err) {
-      if (err?.code !== 'ENOENT') log.warn('errands: tasks log unreadable, spend from the list only', { guildId: String(guildId), code: err?.code ?? null });
+    if (db) {
+      text = seam.run(() => taskEventLines(db, guildId)).join('\n');
+    } else {
+      try {
+        text = fs.readFileSync(logFile, 'utf8');
+      } catch (err) {
+        if (err?.code !== 'ENOENT') log.warn('errands: tasks log unreadable, spend from the list only', { guildId: String(guildId), code: err?.code ?? null });
+      }
     }
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
@@ -667,18 +684,21 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
  * and journal (createTaskStore). `forgetUser` and `wipe` are what the memory's deleters are
  * handed (src/memory/store.js#forgetUser's `errands`, #wipeGuild's `errands`): the guild's
  * store does the work, so its own copy changes with its files.
- * @param {{ dataDir: string, config?: () => object, journal?: object|null, now?: () => number, log?: object }} options
+ * `memoryDb` and `authorityOf` go to every store (createTaskStore); a store whose load failed under `db` is not
+ * kept, so the next `get` tries again.
+ * @param {{ dataDir: string, config?: () => object, journal?: object|null, now?: () => number, log?: object,
+ *   memoryDb?: object|null, authorityOf?: (() => string)|null }} options
  * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore>,
  *   forgetUser(guildId: string, userId: string, options?: { vault?: string|null }): { removed: number, lines: number },
  *   wipe(guildId: string): { files: number } }}
  */
-export function createTaskStores({ dataDir, config = () => ({}), journal = null, now = Date.now, log = defaultLog }) {
+export function createTaskStores({ dataDir, config = () => ({}), journal = null, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
   const stores = new Map();
   const tasks = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
-      if (!stores.has(key)) stores.set(key, createTaskStore({ dataDir, guildId: key, config, journal, now, log }));
+      if (!stores.has(key)) stores.set(key, createTaskStore({ dataDir, guildId: key, config, journal, now, log, memoryDb, authorityOf }));
       return stores.get(key);
     },
     forgetUser(guildId, userId, options = {}) {

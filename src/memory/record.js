@@ -28,6 +28,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
+import { createReadSeam, hiddenIds } from './db/readers/common.js';
+import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.js';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -292,6 +294,46 @@ export async function forgettingIds(fs, dataDir, guildId) {
 }
 
 /**
+ * The guild record's counts read from its files: `messages` (the distinct message ids its month id indexes hold; a
+ * month without an index counts none), `days` (day files) and `first` (the earliest day, or null). What the status
+ * card shows; src/ops/status.js falls back to it for a record without `stats`.
+ * @param {object} fs  a `node:fs/promises`-shaped API
+ * @param {string} base  the guild record's directory
+ * @returns {Promise<{ messages: number, days: number, first: string|null }>}
+ */
+export async function recordFileStats(fs, base) {
+  const list = async (dir) => {
+    try {
+      return (await fs.readdir(dir)).sort();
+    } catch (error) {
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
+      throw error;
+    }
+  };
+  const ids = new Set();
+  let days = 0;
+  let first = null;
+  for (const month of (await list(base)).filter((name) => MONTH_RE.test(name))) {
+    for (const name of await list(path.join(base, month))) {
+      const day = name.match(DAY_FILE_RE)?.[1];
+      if (!day) continue;
+      days += 1;
+      if (first === null || day < first) first = day;
+    }
+    let keys = null;
+    try {
+      keys = JSON.parse(await fs.readFile(path.join(base, month, 'ids.json'), 'utf8'));
+    } catch {
+      // no index for the month yet: its messages are not counted
+    }
+    if (Array.isArray(keys)) {
+      for (const key of keys) if (typeof key === 'string' && key.includes(':')) ids.add(key.slice(0, key.lastIndexOf(':')));
+    }
+  }
+  return { messages: ids.size, days, first };
+}
+
+/**
  * Create the record.
  *
  * @param {object} options
@@ -304,6 +346,10 @@ export async function forgettingIds(fs, dataDir, guildId) {
  * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append: the
  *   journal's `waitUnlocked`, so a forget's writer lock (src/memory/journal.js#withWriterLock)
  *   holds the record's appends too
+ * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
+ *   authority `db` every read below is answered from the database (src/memory/db/readers/record.js), with no file
+ *   fallback (a failed read rejects with a code); under `json` (the default) the files are read as always
+ * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   dayFile(guildId: string, occurredAtIso: string, privateUserId?: string|null): string,
@@ -311,7 +357,9 @@ export async function forgettingIds(fs, dataDir, guildId) {
  *   newestRevision(guildId: string, messageId: string, occurredAtIso: string, opts?: { privateUserId?: string|null }): Promise<number|null>,
  *   rebuildIndex(guildId: string, month: string, privateUserId?: string|null): Promise<number>,
  *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ dropped: number }>,
+ *   stats(guildId: string): Promise<{ messages: number, days: number, first: string|null }>,
  * }}
+ *   `stats` counts the guild record (recordFileStats; from the database: the distinct message ids of its lines).
  *   `iterate` leaves out the lines naming a member under a forgetting marker (`recordDrops`),
  *   and yields nothing of such a member's private record. `forgetUser` with `before` (the
  *   deletion ledger re-applied, src/memory/store.js#applyLedger) writes no marker and drops only
@@ -331,8 +379,9 @@ export async function forgettingIds(fs, dataDir, guildId) {
  *   member's private record whole and removes the marker it wrote last; `dropped` counts the
  *   guild lines removed. Appends and forgets run one at a time.
  */
-export function createRecord({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
+export function createRecord({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null, memoryDb = null, authorityOf = null }) {
   const root = memoryRootOf(dataDir);
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'record' });
   const indexes = new Map(); // ids.json path -> Set of keys
   let chain = Promise.resolve();
 
@@ -467,7 +516,23 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     });
   }
 
+  /** The members under a forgetting marker: the marker files, or the database's markers under `db`. */
+  async function hiddenOf(guildId, db) {
+    if (!db) return forgettingIds(fs, dataDir, guildId);
+    return seam.run(() => hiddenIds(db, guildId));
+  }
+
+  /** The lines (text) of one day: the day file's, or the database's unit under `db`. */
+  async function* dayLines(db, unit) {
+    if (db) {
+      for (const line of seam.run(() => recordLines(db, unit.owner))) yield line;
+      return;
+    }
+    for await (const { line } of appendStore.iterate(unit.file)) yield line;
+  }
+
   async function* iterate(guildId, { from = null, to = null, channelIds = null, privateUserId = null } = {}) {
+    const db = seam.db();
     const base = baseDir(guildId, privateUserId);
     const fromMs = from ? Date.parse(from) : -Infinity;
     const toMs = to ? Date.parse(to) : Infinity;
@@ -475,13 +540,16 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     const toDay = to ? dayOf(to) : '9999-99-99';
     const channels = Array.isArray(channelIds) ? new Set(channelIds) : null;
     // A member being forgotten is hidden until the forget is done.
-    const hidden = await forgettingIds(fs, dataDir, guildId);
+    const hidden = await hiddenOf(guildId, db);
     if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return;
-    for (const month of await listDir(base)) {
+    const months = db ? seam.run(() => recordMonths(db, guildId, privateUserId)) : await listDir(base);
+    for (const month of months) {
       if (!MONTH_RE.test(month) || month < fromDay.slice(0, 7) || month > toDay.slice(0, 7)) continue;
-      for (const { day, file } of await dayFiles(base, month)) {
+      const days = db ? seam.run(() => recordDays(db, guildId, privateUserId, month)) : await dayFiles(base, month);
+      for (const unit of days) {
+        const { day } = unit;
         if (day < fromDay || day > toDay) continue;
-        for await (const { line } of appendStore.iterate(file)) {
+        for await (const line of dayLines(db, unit)) {
           const value = parse(line);
           if (!value) continue;
           const at = Date.parse(value.occurredAt);
@@ -523,6 +591,8 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
 
   function newestRevision(guildId, messageId, occurredAtIso, { privateUserId = null } = {}) {
     return serial(async () => {
+      const db = seam.db();
+      if (db) return seam.run(() => recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId));
       const keys = await loadIndex(baseDir(guildId, privateUserId), dayOf(occurredAtIso).slice(0, 7));
       const prefix = `${messageId}:`;
       let newest = null;
@@ -583,5 +653,11 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     });
   }
 
-  return { append, dayFile, iterate, newestRevision, rebuildIndex, forgetUser };
+  async function stats(guildId) {
+    const db = seam.db();
+    if (db) return seam.run(() => recordStats(db, guildId));
+    return recordFileStats(fs, baseDir(guildId));
+  }
+
+  return { append, dayFile, iterate, newestRevision, rebuildIndex, forgetUser, stats };
 }

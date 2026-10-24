@@ -121,6 +121,8 @@ import { journalDrops, requestMentions } from './journal.js';
 import { redactUser } from './mentions.js';
 import { normalizeAvatar } from './avatars.js';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.js';
+import { createReadSeam, ledgerEntries } from './db/readers/common.js';
+import { idsUnderDir } from './db/export.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -350,9 +352,10 @@ function walkJsonFiles(dir) {
  * @param {string} dataDir
  * @returns {string[]}
  */
-function findInvalidJsonFiles(dataDir) {
+function findInvalidJsonFiles(dataDir, { only = null } = {}) {
   const bad = [];
   for (const file of walkJsonFiles(dataDir)) {
+    if (only && !only(memoryRootOf(dataDir).relative(file))) continue;
     try {
       JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch {
@@ -360,6 +363,27 @@ function findInvalidJsonFiles(dataDir) {
     }
   }
   return bad;
+}
+
+/**
+ * The JSON files still written while the memory database is the authority (spec 2026-10-24-memory-authority,
+ * sections 0 and 6 item 8): the process's operational state, the request dumps and tool lists, the backfill folder,
+ * the vault and the snapshots, the GIF library and the vision cache, the participation file. Paths relative to the
+ * data directory. Under authority `db` `/nep resume` checks only these (`validate`); the memory files are not written
+ * and not read then.
+ * @param {string} rel
+ * @returns {boolean}
+ */
+export function operationalJsonPath(rel) {
+  const name = String(rel).replace(/\\/g, '/');
+  if (/^(?:state|usage|metrics)\.json$/.test(name)) return true;
+  if (/^(?:vault|snapshots)\//.test(name)) return true;
+  const inGuild = /^guilds\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
+  if (!inGuild) return false;
+  return /^(?:state|usage|metrics|inner|missed|voice|participation|gifs|media)\.json$/.test(inGuild)
+    || /^journal\/requests\//.test(inGuild)
+    || /^backfill\//.test(inGuild)
+    || inGuild === 'record/backfill.json';
 }
 
 /**
@@ -485,8 +509,7 @@ export function backfillDrops(candidate, userId) {
 
 /** A ledger file's entries (`[{ userId, at }]`), [] when it is missing or not a list. */
 function readLedgerFile(file) {
-  const value = readJson(file, []);
-  return Array.isArray(value) ? value.filter((entry) => isPlainObject(entry) && typeof entry.userId === 'string') : [];
+  return ledgerEntries(readJson(file, []));
 }
 
 /**
@@ -1111,9 +1134,13 @@ function normalizeChannel(channel) {
  *   `ids(dir)` the ids under a directory; either returns null while the switch is off or the database has
  *   nothing, and the store reads the disk as before. Writes are unchanged. `afterFlush` (optional) is called after
  *   a flush that wrote files (the database sync follows it); a throw there is swallowed.
+ *   `memoryDb` (the memory database service, optional): under its authority `db` a directory's ids come from the
+ *   database only (no `readdir`; a closed database or a failed read throws, with a code) and `validate` checks only
+ *   the operational JSON files (`operationalJsonPath`); under `json` both are as before.
  */
-export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null, memoryRead = null, afterFlush = null }) {
+export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null, memoryRead = null, afterFlush = null, memoryDb = null }) {
   const root = memoryRootOf(dataDir);
+  const seam = createReadSeam({ memoryDb, log, reader: 'store' });
   const entries = new Map(); // file path -> { value, dirty }
 
   // ---- The archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
@@ -1457,7 +1484,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   /** Every id found under `dir`'s `.json` files, on disk or only cached (no side effects on the cache). */
   function idsUnder(dir) {
     const ids = new Set();
-    const fromDb = memoryRead?.ids(dir) ?? null;
+    const db = seam.db();
+    const fromDb = db ? (seam.run(() => idsUnderDir(db, root.relative(dir))) ?? []) : (memoryRead?.ids(dir) ?? null);
     if (Array.isArray(fromDb)) {
       for (const id of fromDb) ids.add(id);
     } else {
@@ -4535,7 +4563,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @returns {string[]}
      */
     validate() {
-      return findInvalidJsonFiles(dataDir);
+      return findInvalidJsonFiles(dataDir, seam.authority() === 'db' ? { only: operationalJsonPath } : {});
     },
   };
 

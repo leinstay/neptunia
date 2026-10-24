@@ -31,6 +31,8 @@ import { stripUrls } from './clamp.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
 import { forgettingIds, isoOf, revisionOf } from './record.js';
 import { memoryRootOf } from './root.js';
+import { createReadSeam, hiddenIds } from './db/readers/common.js';
+import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.js';
 
 /** The schema version every entry carries. */
 export const ARCHIVE_VERSION = 1;
@@ -300,6 +302,10 @@ export function archiveDrops(entry, userId, before = null) {
  * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append, queue and
  *   drain: the journal's `waitUnlocked`, so a forget's writer lock
  *   (src/memory/journal.js#withWriterLock) holds the archive's writers too
+ * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
+ *   authority `db`, `iterate` and `find` are answered from the database (src/memory/db/readers/archive.js), with no
+ *   file fallback (a failed read rejects with a code); under `json` (the default) the files are read as always
+ * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   iterate(guildId: string, query?: { from?: string, to?: string, scope?: object, kinds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
@@ -332,8 +338,9 @@ export function archiveDrops(entry, userId, before = null) {
  *   and removes the marker it wrote last; `dropped` counts the guild entries removed (pending
  *   ones included). Every method but `iterate`, `find` and `stats` runs one at a time.
  */
-export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
+export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null, memoryDb = null, authorityOf = null }) {
   const root = memoryRootOf(dataDir);
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'archive' });
   const indexes = new Map(); // ids.json path -> Set of keys
   const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
   let chain = Promise.resolve();
@@ -498,7 +505,17 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return serial(() => appendNow(guildId, entries, privateUserId));
   }
 
+  /** The lines (text) of one month segment: the file's, or the database's unit under `db`. */
+  async function* segmentLines(db, guildId, privateUserId, base, month) {
+    if (db) {
+      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) yield line;
+      return;
+    }
+    for await (const { line } of appendStore.iterate(segmentFile(base, month))) yield line;
+  }
+
   async function* iterate(guildId, { from = null, to = null, scope = null, kinds = null, privateUserId = null } = {}) {
+    const db = seam.db();
     const base = baseDir(guildId, privateUserId);
     const fromMs = from ? Date.parse(from) : -Infinity;
     const toMs = to ? Date.parse(to) : Infinity;
@@ -507,12 +524,13 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
     const scopeKeys = isPlainObject(scope) ? Object.entries(scope) : [];
     // A member being forgotten is hidden until the forget is done.
-    const hidden = await forgettingIds(fs, dataDir, guildId);
+    const hidden = db ? seam.run(() => hiddenIds(db, guildId)) : await forgettingIds(fs, dataDir, guildId);
     if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return;
-    for (const month of await months(base)) {
+    const segments = db ? seam.run(() => archiveMonths(db, guildId, privateUserId)) : await months(base);
+    for (const month of segments) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
-      for await (const { line } of appendStore.iterate(segmentFile(base, month))) {
+      for await (const line of segmentLines(db, guildId, privateUserId, base, month)) {
         const entry = parse(line);
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -528,7 +546,9 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
 
   async function find(guildId, itemId) {
     const out = [];
-    for (const { privateUserId } of await bases(guildId)) {
+    const db = seam.db();
+    const layers = db ? [{ privateUserId: null }, ...seam.run(() => archiveLayers(db, guildId)).map((userId) => ({ privateUserId: userId }))] : await bases(guildId);
+    for (const { privateUserId } of layers) {
       for await (const entry of iterate(guildId, { privateUserId })) if (entry.itemId === itemId) out.push(entry);
     }
     return out.sort((a, b) => String(a.recordedAt).localeCompare(String(b.recordedAt)));

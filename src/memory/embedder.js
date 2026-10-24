@@ -38,6 +38,8 @@ import { CHUNK_CONTEXT_LINES, chunkKey, compareLines, contextFor, embeddableLine
 import { forgettingIds, isoOf, recordDrops } from './record.js';
 import { readLedger } from './store.js';
 import { memoryRootOf } from './root.js';
+import { createReadSeam, hiddenIds, ledgerOf } from './db/readers/common.js';
+import { recordHoldsDay, recordLayers } from './db/readers/record.js';
 
 /** `embed.batch` when missing or invalid: config.json's value. */
 const BATCH_FALLBACK = 64;
@@ -80,6 +82,11 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  * @param {(guildId: string, userId: string) => string|null} [deps.nameOf]  A member's display name now.
  * @param {(guildId: string) => string} [deps.selfName]  The persona's display name.
  * @param {() => boolean} [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
+ * @param {object|null} [deps.memoryDb]  The memory database service: under its authority `db` the forgets (markers,
+ *   ledger), the private layers and whether a day is held come from the database
+ *   (src/memory/db/readers/record.js), with no file fallback (a failed read is an error of the pass); the lines
+ *   always come through `record.iterate`, which reads the database itself then.
+ * @param {(() => string)|null} [deps.authorityOf]  The authority, when not the service's own.
  * @returns {{
  *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,
  *   flush(): Promise<{ embedded: number, dropped: number, left: number }>,
@@ -108,7 +115,8 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
  *   the timeout, a failure or a second call; after it nothing is queued.
  */
-export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null, paused = () => false }) {
+export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null, paused = () => false, memoryDb = null, authorityOf = null }) {
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'embedder' });
   let queue = [];
   const rings = new Map(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
   const latest = new Map(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
@@ -250,9 +258,10 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   /** What a guild's forgets say now: the ids under a marker and each forgotten member's latest ledger time. */
   async function forgetsOf(guildId, cache) {
     if (cache.has(guildId)) return cache.get(guildId);
-    const hidden = await forgettingIds(fs, dataDir, guildId);
+    const db = seam.db();
+    const hidden = db ? seam.run(() => hiddenIds(db, guildId)) : await forgettingIds(fs, dataDir, guildId);
     const ledger = new Map();
-    for (const entry of readLedger(dataDir, guildId)) {
+    for (const entry of db ? seam.run(() => ledgerOf(db, guildId)) : readLedger(dataDir, guildId)) {
       const at = Date.parse(entry.at);
       if (Number.isFinite(at) && !(ledger.get(entry.userId) >= at)) ledger.set(entry.userId, at);
     }
@@ -281,10 +290,15 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     const file = record.dayFile(job.guildId, job.line.occurredAt, job.privateUserId);
     if (!cache.has(file)) {
       let held = true;
-      try {
-        await fs.stat(file);
-      } catch (error) {
-        if (error?.code === 'ENOENT') held = false;
+      const db = seam.db();
+      if (db) {
+        held = seam.run(() => recordHoldsDay(db, memoryRootOf(dataDir).relative(file)));
+      } else {
+        try {
+          await fs.stat(file);
+        } catch (error) {
+          if (error?.code === 'ENOENT') held = false;
+        }
       }
       cache.set(file, held);
     }
@@ -411,6 +425,8 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
 
   /** The members with a private layer in the guild (a directory under `private/`). */
   async function privateLayers(guildId) {
+    const db = seam.db();
+    if (db) return seam.run(() => recordLayers(db, guildId));
     try {
       const entries = await fs.readdir(memoryRootOf(dataDir).privateDir(guildId), { withFileTypes: true });
       return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();

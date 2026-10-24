@@ -188,6 +188,17 @@ const appendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
+// The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
+// below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
+// Created before the memory modules: under memoryDb.authority `db` (fixed for the process, memoryDb.authority())
+// their reads go to the database (src/memory/db/readers/); under `json` they read their files.
+// diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
+// `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
+const memoryDb = createMemoryDb({
+  hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
+  embed: (texts, options) => embedder.embed(texts, options),
+  selfName: () => getSelfName(getGuildId()),
+});
 // The record (src/memory/record.js): every observed message, the persona's own lines and her
 // feelings, written while features.record is exactly true (read at each write). Its own append
 // store, flushed every record.fsyncMs (read once here).
@@ -197,9 +208,9 @@ const recordAppendStore = createAppendStore({
   log,
 });
 // A forget holds the record's appends with the journal's writer lock (journal.withWriterLock).
-const recordWriter = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+const recordWriter = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
 // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
-const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked() });
+const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
 // The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
 let embedQueue = null;
 // The one place the meaning index hears of new record lines: every writer (the analyzer's
@@ -228,19 +239,10 @@ const archiveAppendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
 // The journal's writer lock (a snapshot, a forget, a wipe, the ledger at start) flushes the record's
 // and the archive's append stores too, and holds their writers through their writerGate.
-const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore] });
-// The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
-// below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
-// diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
-// `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
-const memoryDb = createMemoryDb({
-  hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
-  embed: (texts, options) => embedder.embed(texts, options),
-  selfName: () => getSelfName(getGuildId()),
-});
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore], memoryDb });
 const store = createStore({
   dataDir,
   memoryRead: memoryDb.reader,
@@ -251,6 +253,7 @@ const store = createStore({
   archiveOn: () => hot.config.features?.archive === true,
   // A forget and the ledger take members' rows out of the meaning index too.
   vectors,
+  memoryDb,
 });
 
 const calibrator = createCalibrator(store.state.data.calibration);
@@ -271,6 +274,7 @@ embedQueue = createEmbedQueue({
   selfName: (guildId) => getSelfName(guildId),
   // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
   paused: () => store.state.data.paused === true,
+  memoryDb,
 });
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
 // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
@@ -383,7 +387,7 @@ const activity = createActivity();
 // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
-const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
+const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log, memoryDb });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
 // An errand's end is a `task.completed` event through the event door (`door`, created below with
 // the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
@@ -391,7 +395,7 @@ const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal
 const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
 // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
 // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
-const intentions = createIntentionService({ stores: createIntentionStores({ dataDir, log }), hot, tasks: errands, journal, getGuildId, log });
+const intentions = createIntentionService({ stores: createIntentionStores({ dataDir, log, memoryDb }), hot, tasks: errands, journal, getGuildId, log });
 const turns = createTurnRunner({
   hot,
   store,

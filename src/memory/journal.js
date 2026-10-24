@@ -66,6 +66,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
+import { createReadSeam } from './db/readers/common.js';
+import { journalLastWrite, journalLines, journalMarkerNames } from './db/readers/journal.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** The schema version every record carries. */
@@ -543,6 +545,12 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the markers, listing and deleting)
  * @param {Array<{ flush: Function }>} [options.lockStores]  other append stores `withWriterLock`
  *   flushes before `fn` (the record's and the archive's, src/index.js)
+ * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
+ *   authority `db` the day reads (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`,
+ *   `triggerLinks`, `callMarks`, `reconcile`'s scan) and `stats` are answered from the database
+ *   (src/memory/db/readers/journal.js), with no file fallback (a failed read rejects with a code); under `json` (the
+ *   default) the files are read as always. The writers are unchanged.
+ * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
  *     participants?: string[], sourceMessageIds?: string[], privateUserId?: string|null,
@@ -581,7 +589,11 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   forgetRequests(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ removed: number }>,
  *   withWriterLock<T>(fn: () => Promise<T>|T): Promise<T>,
  *   waitUnlocked(): Promise<void>,
+ *   stats(guildId: string, query?: { now?: number }): Promise<{ lastWriteMs: number|null }>,
  * }}
+ *   `stats` says when the guild journal was last written: the newer modification time of the day files of `now`
+ *   and the day before (the first hour after midnight), or, from the database, the latest `recordedAt` of their
+ *   lines; null when neither exists.
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
  *   same turn. The writers resolve once the append store took the line and never reject (a
@@ -609,8 +621,9 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   `stalled` says whether the append store's retry queue is full (`stats().stalled`; false for a
  *   store without stats): what depends on a record being taken (memory application) waits.
  */
-export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [] }) {
+export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [], memoryDb = null, authorityOf = null }) {
   const root = memoryRootOf(dataDir);
+  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'journal' });
   const guildDir = root.guildDir;
   function journalDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId
@@ -740,13 +753,30 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return out;
   }
 
+  /** The lines (text) of one day file, or of its unit in the database under `db`. */
+  async function* dayLines(db, file) {
+    if (db) {
+      for (const line of seam.run(() => journalLines(db, root.relative(file)))) yield line;
+      return;
+    }
+    for await (const { line } of appendStore.iterate(file)) yield line;
+  }
+
+  /** The members a read hides: the forget markers' ids (the files', or the database's under `db`). */
+  async function hiddenOf(guildId, db) {
+    if (!db) return new Set((await markers(guildId)).map((marker) => marker.userId));
+    const names = seam.run(() => journalMarkerNames(db, guildId));
+    return new Set(names.filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length)).filter((id) => USER_ID_RE.test(id)));
+  }
+
   async function read(guildId, { day, kind = null, n = DEFAULT_READ_N, privateUserId = null } = {}) {
+    const db = seam.db();
     const limit = Number.isInteger(n) && n > 0 ? n : DEFAULT_READ_N;
     // A member being forgotten is hidden until the rewrite is done.
-    const hidden = new Set((await markers(guildId)).map((marker) => marker.userId));
+    const hidden = await hiddenOf(guildId, db);
     if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return [];
     const out = [];
-    for await (const { line } of appendStore.iterate(dayFile(guildId, day, privateUserId))) {
+    for await (const line of dayLines(db, dayFile(guildId, day, privateUserId))) {
       let record;
       try {
         record = JSON.parse(line);
@@ -770,11 +800,12 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
    * not read.
    */
   async function timeline(guildId, { from } = {}) {
+    const db = seam.db();
     const end = now();
     const start = Number.isFinite(from) ? Math.min(from, end) : end;
     const out = [];
     for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
-      for await (const { line } of appendStore.iterate(dayFile(guildId, utcDay(day)))) {
+      for await (const line of dayLines(db, dayFile(guildId, utcDay(day)))) {
         const head = ENVELOPE_HEAD_RE.exec(line);
         let kind = head?.[1] ?? null;
         let occurredAt = head?.[2] ?? null;
@@ -1323,6 +1354,22 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     await fs.rm(runningFile(guildId), { force: true });
   }
 
+  async function stats(guildId, { now: at = now() } = {}) {
+    const files = [at, at - DAY_MS].map((ms) => dayFile(guildId, new Date(ms).toISOString()));
+    const db = seam.db();
+    if (db) return { lastWriteMs: seam.run(() => journalLastWrite(db, files.map((file) => root.relative(file)))) };
+    let last = null;
+    for (const file of files) {
+      try {
+        const stat = await fs.stat(file);
+        if (last === null || stat.mtimeMs > last) last = stat.mtimeMs;
+      } catch {
+        // no file that day
+      }
+    }
+    return { lastWriteMs: last };
+  }
+
   return {
     start,
     turn,
@@ -1333,6 +1380,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     inner,
     read,
     timeline,
+    stats,
     triggerLinks,
     callMarks,
     findTurn,

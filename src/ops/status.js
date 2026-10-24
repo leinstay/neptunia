@@ -38,6 +38,7 @@ import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../ti
 import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../memory/index.js';
 import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
+import { recordFileStats } from '../memory/record.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.js';
 import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
@@ -282,19 +283,7 @@ const COVERAGE_CACHE_MS = MINUTE_MS;
 /** `embed.catchUpHours` when config.json lacks it (the same value). */
 const CATCH_UP_HOURS = 72;
 
-const MONTH_DIR_RE = /^\d{4}-\d{2}$/;
-const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** The names in `dir`, sorted; [] when it does not exist. */
-async function listDir(dir) {
-  try {
-    return (await fs.readdir(dir)).sort();
-  } catch (err) {
-    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return [];
-    throw err;
-  }
-}
 
 /** The days from `from` to `to` (both `YYYY-MM-DD`), both counted. */
 function daysBetween(from, to) {
@@ -371,8 +360,10 @@ const handlers = perEnv((env) => {
   }
 
   /** When the journal was last written (today's day file, else yesterday's: the first hour after
-   * midnight), as epoch ms, or null (no journal, no file). */
+   * midnight), as epoch ms, or null (no journal, no file): the journal's own `stats` (which reads the
+   * database under its authority), else the day files' modification times. */
   async function journalLastWrite(guildId, nowMs) {
+    if (typeof journal?.stats === 'function') return (await journal.stats(guildId, { now: nowMs }))?.lastWriteMs ?? null;
     if (typeof journal?.dayFile !== 'function') return null;
     let last = null;
     for (const at of [nowMs, nowMs - DAY_MS]) {
@@ -666,35 +657,22 @@ const handlers = perEnv((env) => {
   }
 
   /** The record line: its messages (the distinct ids of the month indexes), its first day to
-   * today, and the share of those days with a day file. Reads directory listings and one
-   * `ids.json` per month, never a day file. */
+   * today, and the share of those days with a day file: the record's own `stats` (which reads the
+   * database under its authority), else its files (directory listings and one `ids.json` per month,
+   * never a day file). */
   async function recordLine(guildId, today) {
-    if (typeof record?.dayFile !== 'function') return 'record: not available';
-    // The guild record's root: the parent of a month directory (src/memory/record.js's layout).
-    const base = path.dirname(path.dirname(record.dayFile(guildId, '2000-01-01T00:00:00.000Z')));
-    const ids = new Set();
-    let days = 0;
-    let first = null;
-    for (const month of (await listDir(base)).filter((name) => MONTH_DIR_RE.test(name))) {
-      for (const name of await listDir(path.join(base, month))) {
-        const day = name.match(DAY_FILE_RE)?.[1];
-        if (!day) continue;
-        days += 1;
-        if (first === null || day < first) first = day;
-      }
-      let keys = null;
-      try {
-        keys = JSON.parse(await fs.readFile(path.join(base, month, 'ids.json'), 'utf8'));
-      } catch {
-        // no index for the month yet: its messages are not counted
-      }
-      if (Array.isArray(keys)) {
-        for (const key of keys) if (typeof key === 'string' && key.includes(':')) ids.add(key.slice(0, key.lastIndexOf(':')));
-      }
+    let counts;
+    if (typeof record?.stats === 'function') {
+      counts = await record.stats(guildId);
+    } else {
+      if (typeof record?.dayFile !== 'function') return 'record: not available';
+      // The guild record's root: the parent of a month directory (src/memory/record.js's layout).
+      counts = await recordFileStats(fs, path.dirname(path.dirname(record.dayFile(guildId, '2000-01-01T00:00:00.000Z'))));
     }
-    if (first === null) return `record: ${ids.size} messages`;
+    const { messages, days, first } = counts;
+    if (first === null) return `record: ${messages} messages`;
     const since = Math.max(1, daysBetween(first, today));
-    return `record: ${ids.size} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
+    return `record: ${messages} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
   }
 
   /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both

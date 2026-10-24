@@ -52,6 +52,13 @@
 //     (observe.js#observe, the envelope from observe-event.js#observationOf) through the writer, like every other
 //     write; while the JSON files are the writer it lands on the rows the sync writes (observe.js resolves them, the
 //     sync adopts the ones it wrote first). Null while the switch is off or the database closed; never throws.
+//   - `authority()` is who the memory's readers read (stage W1, spec 2026-10-24-memory-authority section 6 item 1):
+//     `memoryDb.authority` as it was when the service was created, fixed for the process. A later change of the
+//     config is logged once per value (`memory db: authority change needs a restart`) and changes nothing here;
+//     the modules (record, archive, journal, vectors, the intention and task stores, the store's directory ids, the
+//     embedder's catch-up) ask this, never the config. `readHandle()` is the read-only connection while the
+//     database is open (null otherwise): what their database readers read through (src/memory/db/readers/).
+//     The sync, the status and the write stamping still follow the live value until the writers move (stage W2).
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -310,6 +317,9 @@ export function createMemoryDb({
   let closed = false;
   const openErrors = new Set();
   const reads = { db: 0, missing: 0, stale: 0, unmapped: 0, empty: 0, errors: 0 };
+  // Who the readers read, fixed for the process (see `authority()`), and the changes already logged.
+  const pinnedAuthority = hot.config?.memoryDb?.authority === 'db' ? 'db' : 'json';
+  const authorityChanges = new Set();
 
   const on = () => hot.config?.features?.memoryDb === true;
   const settings = () => {
@@ -669,9 +679,26 @@ export function createMemoryDb({
     }
   }
 
+  /**
+   * The readers' authority, fixed when the service was created; a different live value is logged once and ignored.
+   * @returns {'json'|'db'}
+   */
+  function authority() {
+    const asked = hot.config?.memoryDb?.authority === 'db' ? 'db' : 'json';
+    if (asked !== pinnedAuthority && !authorityChanges.has(asked)) {
+      authorityChanges.add(asked);
+      log.warn('memory db: authority change needs a restart', { running: pinnedAuthority, asked });
+    }
+    return pinnedAuthority;
+  }
+
+  /** The read-only connection (`{ db }`) while the switch is on and the database is open, else null. */
+  const readHandle = () => (on() && handle !== null && !closed ? handle : null);
+
   /** The tick: follows the switch, runs a pass when one is due. Safe to call at any rate. */
   async function tick() {
     if (closing) return;
+    authority();
     if (!on()) {
       if (handle || engine) {
         await waitFor(running, settings().closeMs);
@@ -878,5 +905,5 @@ export function createMemoryDb({
     closed = true;
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, recordWake, issueContext, observe, focusPeople, status, close };
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, recordWake, issueContext, observe, focusPeople, status, close };
 }

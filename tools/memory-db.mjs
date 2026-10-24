@@ -17,6 +17,19 @@
 //        Reads every public read of the store twice, from the JSON files and through the database (the read switch,
 //        `memoryDb.read`), and compares them deep. Exit 1 on any difference. Run `sync` first; a file that changed on
 //        disk since the last sync is read from the disk and counted as stale. Opens the database read-only.
+//   node tools/memory-db.mjs reader-parity --data <dir> --db <file> [--days N] [--live]
+//        The memory modules' reads (stage W1) both ways over the same frozen snapshot: each module created over the data
+//        directory (authority `json`, the files) and over the database (authority `db`, src/memory/db/readers/), and
+//        the same calls with fixed parameters compared, for every guild and private layer: record.iterate over the
+//        last N days (default 30, ending on the newest record or journal day) and per channel, record.newestRevision
+//        for a sample of 200 message ids, archive.iterate over the range and archive.find for a sample of items,
+//        journal.read per day, findTurn, turnOperations and pending for a sample of turns, timeline, vectors.search
+//        for 20 query vectors taken from the index itself (top 20 ids, scores within 1e-6), vectors.has and stats,
+//        the intention stores' list, get and archived, the task stores' open, recent, get and costs. Prints per
+//        function `compared / equal / differ` and the first three differences (key paths only, never values); exit 1
+//        on any difference. Opens the database read-only. Refuses a data directory or a database a live process holds
+//        (its writer lock) unless --live: give it a copy. The file side is the engine's own code: a record month
+//        without its id index gets it rebuilt (written) by newestRevision, as at any start.
 //   node tools/memory-db.mjs stats --db <file>
 //        Row counts of every table of the schema (sqlite_master), per scope kind where a table has scopes, and per
 //        audience where it has `audience_id` (none, internal, each interface's group, DM rows with the number of DM
@@ -80,9 +93,17 @@ import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
 import { createHash } from 'node:crypto';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.js';
-import { schemaVersion } from '../src/memory/db/open.js';
+import { schemaVersion, lockPathOf } from '../src/memory/db/open.js';
+import { createAppendStore } from '../src/memory/append-store.js';
+import { createRecord } from '../src/memory/record.js';
+import { createArchive } from '../src/memory/archive.js';
+import { createJournal } from '../src/memory/journal.js';
+import { createVectors, dequantize } from '../src/memory/vectors.js';
+import { createIntentionStores } from '../src/intentions/store.js';
+import { createTaskStores } from '../src/errands/store.js';
+import { chunkKey } from '../src/memory/chunks.js';
 
-const FLAGS = new Set(['resume', 'apply']);
+const FLAGS = new Set(['resume', 'apply', 'live']);
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -353,6 +374,222 @@ function runParity(io, options) {
     return ok ? 0 : 1;
   } finally {
     handle.close();
+  }
+}
+
+// ---------- reader-parity ----------
+
+const DAY_MS = 86_400_000;
+const PARITY_DAYS = 30;
+const SAMPLE_MESSAGES = 200;
+const SAMPLE_ITEMS = 50;
+const SAMPLE_TURNS = 50;
+const QUERY_VECTORS = 20;
+const SEARCH_K = 20;
+const SCORE_EPSILON = 1e-6;
+
+/** Whether a live process holds the writer lock of `dbPath`. */
+function heldLive(dbPath) {
+  let lock = null;
+  try {
+    lock = JSON.parse(fs.readFileSync(lockPathOf(dbPath), 'utf8'));
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(lock?.pid) || lock.pid <= 0) return false;
+  try {
+    process.kill(lock.pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+/** Sorted names under `dir` ([] when missing); `dirs` keeps directories only. */
+function namesIn(dir, { dirs = false } = {}) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => !dirs || entry.isDirectory()).map((entry) => entry.name).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** `count` items of `list` spread evenly over it, in order. */
+function spread(list, count) {
+  if (list.length <= count) return [...list];
+  return Array.from({ length: count }, (_, i) => list[Math.floor((i * list.length) / count)]);
+}
+
+/** The newest day (`YYYY-MM-DD`) of a guild's record and journal files, or null. */
+function newestDayOf(guildDir) {
+  let newest = null;
+  for (const month of namesIn(path.join(guildDir, 'record'), { dirs: true })) {
+    for (const name of namesIn(path.join(guildDir, 'record', month))) {
+      const day = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(name)?.[1];
+      if (day && (newest === null || day > newest)) newest = day;
+    }
+  }
+  for (const name of namesIn(path.join(guildDir, 'journal'))) {
+    const day = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(name)?.[1];
+    if (day && (newest === null || day > newest)) newest = day;
+  }
+  return newest;
+}
+
+/** Up to `count` query vectors of a layer's index, read from its own month files (dequantised rows). */
+function queryVectorsOf(baseDir, count) {
+  const rows = [];
+  for (const month of namesIn(baseDir, { dirs: true }).filter((name) => /^\d{4}-\d{2}$/.test(name))) {
+    let manifest = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(baseDir, month, 'manifest.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!Number.isInteger(manifest?.rows) || !Number.isInteger(manifest?.dims) || manifest.dims < 1) continue;
+    let i8;
+    let metas;
+    try {
+      i8 = fs.readFileSync(path.join(baseDir, month, `${manifest.gen}.i8`));
+      metas = fs.readFileSync(path.join(baseDir, month, `${manifest.gen}.jsonl`), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    } catch {
+      continue;
+    }
+    for (let row = 0; row < Math.min(manifest.rows, metas.length); row += 1) {
+      if (!(metas[row]?.scale > 0) || (row + 1) * manifest.dims > i8.length) continue;
+      const bytes = new Int8Array(i8.buffer, i8.byteOffset + row * manifest.dims, manifest.dims);
+      rows.push(Array.from(dequantize(bytes, metas[row].scale)));
+    }
+  }
+  return spread(rows, count);
+}
+
+/** Two search results the same: the same rows in the same order, scores within SCORE_EPSILON. */
+function sameHits(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((hit, i) => chunkKey(hit.meta) === chunkKey(b[i].meta) && Math.abs(hit.score - b[i].score) <= SCORE_EPSILON && isDeepStrictEqual(hit.meta, b[i].meta));
+}
+
+/**
+ * The memory modules' reads from the files and from the database, compared (see the head of this file).
+ * @returns {Promise<number>} the exit code
+ */
+async function runReaderParity(io, options) {
+  need(options, 'data', 'db');
+  const days = options.days === undefined ? PARITY_DAYS : Number(options.days);
+  if (!Number.isInteger(days) || days < 1) throw new Error('--days must be a whole number of days, 1 or more');
+  const root = path.resolve(options.data);
+  if (!options.live && (heldLive(options.db) || heldLive(path.join(root, 'memory.db')))) {
+    throw new Error('a live process holds this data: run on a frozen copy, or pass --live');
+  }
+  const start = performance.now();
+  const handle = openMemoryDb(options.db, { readOnly: true });
+  const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'reader-parity-'));
+  const failures = [];
+  const quiet = { info() {}, debug() {}, error() {}, warn: (message, fields) => { if (message === 'memory db: read failed') failures.push(fields?.code ?? 'ERROR'); } };
+  try {
+    const memoryDb = { authority: () => 'db', readHandle: () => handle };
+    const results = new Map();
+    const compare = (fn, label, fileValue, dbValue, same = isDeepStrictEqual(fileValue, dbValue)) => {
+      const entry = results.get(fn) ?? { compared: 0, equal: 0, differ: 0, first: [] };
+      results.set(fn, entry);
+      entry.compared += 1;
+      if (same) { entry.equal += 1; return; }
+      entry.differ += 1;
+      if (entry.first.length < 3) entry.first.push(`${label}: ${diffPaths(dbValue, fileValue).join('; ') || 'differs'}`);
+    };
+    const both = async (fn, label, read) => {
+      let fileValue;
+      let dbValue;
+      try { fileValue = await read('files'); } catch (error) { fileValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
+      try { dbValue = await read('db'); } catch (error) { dbValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
+      compare(fn, label, fileValue, dbValue);
+      return fileValue;
+    };
+    const collect = async (iterable) => { const out = []; for await (const value of iterable) out.push(value); return out; };
+    const make = (factory, args) => ({ files: factory({ ...args, log: quiet }), db: factory({ ...args, log: quiet, memoryDb }) });
+    const appendStore = createAppendStore({ log: quiet });
+    const noOut = path.join(scratch, 'no-out');
+    const taskConfig = () => ({ agents: new Proxy({}, { get: () => ({ out: noOut }) }) });
+    const guilds = namesIn(path.join(root, 'guilds'), { dirs: true });
+    for (const g of guilds) {
+      const guildDir = path.join(root, 'guilds', g);
+      const endDay = newestDayOf(guildDir) ?? new Date().toISOString().slice(0, 10);
+      const endMs = Date.parse(`${endDay}T23:59:59.999Z`);
+      const startMs = Date.parse(`${endDay}T00:00:00.000Z`) - (days - 1) * DAY_MS;
+      const range = { from: new Date(startMs).toISOString(), to: new Date(endMs).toISOString() };
+      const dayList = Array.from({ length: days }, (_, i) => new Date(startMs + i * DAY_MS).toISOString().slice(0, 10));
+      const record = make(createRecord, { appendStore, dataDir: root });
+      const archive = make(createArchive, { appendStore, dataDir: root });
+      const journal = make(createJournal, { appendStore, dataDir: root, now: () => endMs });
+      const vectors = make(createVectors, { dataDir: root });
+      const layers = [null, ...namesIn(path.join(guildDir, 'private'), { dirs: true })];
+      for (const layer of layers) {
+        const at = `${g}${layer ? `/private/${layer}` : ''}`;
+        const lines = await both('record.iterate', at, (side) => collect(record[side].iterate(g, { ...range, privateUserId: layer })));
+        const list = Array.isArray(lines) ? lines : [];
+        for (const channel of spread([...new Set(list.map((line) => line?.scope?.channel).filter(Boolean))], 3)) {
+          await both('record.iterate', `${at} channel`, (side) => collect(record[side].iterate(g, { ...range, channelIds: [channel], privateUserId: layer })));
+        }
+        const messages = new Map();
+        for (const line of list) if (typeof line?.messageId === 'string' && !messages.has(line.messageId)) messages.set(line.messageId, line.occurredAt);
+        for (const [id, occurredAt] of spread([...messages], SAMPLE_MESSAGES)) {
+          await both('record.newestRevision', at, (side) => record[side].newestRevision(g, id, occurredAt, { privateUserId: layer }));
+        }
+        const entries = await both('archive.iterate', at, (side) => collect(archive[side].iterate(g, { ...range, privateUserId: layer })));
+        const everything = await collect(archive.files.iterate(g, { privateUserId: layer })).catch(() => []);
+        const items = [...new Set([...(Array.isArray(entries) ? entries : []), ...everything].map((entry) => entry?.itemId).filter((id) => typeof id === 'string'))];
+        for (const itemId of spread(items, SAMPLE_ITEMS)) await both('archive.find', at, (side) => archive[side].find(g, itemId));
+        const turns = [];
+        for (const day of dayList) {
+          const records = await both('journal.read', `${at} ${day}`, (side) => journal[side].read(g, { day, n: Number.MAX_SAFE_INTEGER, privateUserId: layer }));
+          for (const rec of Array.isArray(records) ? records : []) if (rec?.kind === 'turn' && typeof rec.turnId === 'string') turns.push({ rec, day });
+        }
+        for (const { rec, day } of spread(turns, SAMPLE_TURNS)) {
+          const next = new Date(Date.parse(`${day}T00:00:00.000Z`) + DAY_MS).toISOString().slice(0, 10);
+          await both('journal.turnOperations', at, (side) => journal[side].turnOperations(g, { turnId: rec.turnId, days: [day, next], privateUserId: layer }));
+          if (layer) continue;
+          for (const posted of (Array.isArray(rec.posted) ? rec.posted : []).slice(0, 1)) {
+            if (typeof posted?.messageId !== 'string') continue;
+            await both('journal.findTurn', at, (side) => journal[side].findTurn(g, { messageId: posted.messageId, at: Date.parse(rec.occurredAt) }));
+          }
+        }
+        const vectorBase = layer ? path.join(guildDir, 'private', layer, 'vectors') : path.join(guildDir, 'vectors');
+        for (const query of queryVectorsOf(vectorBase, QUERY_VECTORS)) {
+          const fileHits = await vectors.files.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
+          const dbHits = await vectors.db.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
+          compare('vectors.search', at, fileHits, dbHits, sameHits(fileHits, dbHits));
+        }
+        for (const month of namesIn(vectorBase, { dirs: true }).filter((name) => /^\d{4}-\d{2}$/.test(name))) {
+          await both('vectors.has', `${at} ${month}`, async (side) => [...await vectors[side].has(g, month, { privateUserId: layer })].sort());
+        }
+        await both('vectors.stats', at, (side) => vectors[side].stats(g, { privateUserId: layer }));
+      }
+      await both('journal.timeline', g, (side) => journal[side].timeline(g, { from: startMs }));
+      await both('journal.pending', g, (side) => journal[side].pending(g, { days: dayList }));
+      const intentions = make(createIntentionStores, { dataDir: root });
+      const ids = await both('intentions.list', g, (side) => intentions[side].get(g).list());
+      for (const intention of Array.isArray(ids) ? ids : []) await both('intentions.get', g, (side) => intentions[side].get(g).get(intention.id));
+      await both('intentions.archived', g, (side) => intentions[side].get(g).archived());
+      const tasks = make(createTaskStores, { dataDir: root, config: taskConfig });
+      await both('tasks.open', g, (side) => tasks[side].get(g).open());
+      const recent = await both('tasks.recent', g, (side) => tasks[side].get(g).recent(Number.MAX_SAFE_INTEGER));
+      for (const task of Array.isArray(recent) ? recent : []) await both('tasks.get', g, (side) => tasks[side].get(g).get(task.id));
+      await both('tasks.costs', g, (side) => tasks[side].get(g).costs());
+    }
+    await appendStore.close?.();
+    let differ = 0;
+    for (const [fn, entry] of [...results].sort(([a], [b]) => a.localeCompare(b))) {
+      differ += entry.differ;
+      io.out(`${fn.padEnd(24)} compared ${entry.compared}  equal ${entry.equal}  differ ${entry.differ}`);
+      for (const line of entry.first) io.out(`  ${line}`);
+    }
+    if (failures.length > 0) io.out(`database reads failed: ${failures.length} (${[...new Set(failures)].join(', ')})`);
+    io.out(differ === 0 ? `reader parity ok (${seconds(start)})` : `reader parity FAILED: ${differ} differ (${seconds(start)})`);
+    return differ === 0 ? 0 : 1;
+  } finally {
+    handle.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -725,6 +962,7 @@ const COMMANDS = {
   export: runExport,
   verify: runVerify,
   parity: runParity,
+  'reader-parity': runReaderParity,
   stats: runStats,
   hash: runHash,
   reproject: runReproject,
@@ -737,7 +975,7 @@ const COMMANDS = {
   restore: runRestore,
 };
 
-/** Runs a command line; returns the exit code. `io` is { out(line), err(line) }. */
+/** Runs a command line; returns the exit code (a promise of it for `reader-parity`). `io` is { out(line), err(line) }. */
 export function main(argv, io = { out: (line) => console.log(line), err: (line) => console.error(line) }) {
   try {
     const { command, options } = parseArgs(argv);
@@ -746,7 +984,14 @@ export function main(argv, io = { out: (line) => console.log(line), err: (line) 
       io.err(`usage: memory-db.mjs <${Object.keys(COMMANDS).join('|')}> [options] (see the header of this file)`);
       return 2;
     }
-    return run(io, options);
+    const code = run(io, options);
+    if (code && typeof code.then === 'function') {
+      return code.catch((error) => {
+        io.err(`memory-db: ${error.message}`);
+        return 2;
+      });
+    }
+    return code;
   } catch (error) {
     io.err(`memory-db: ${error.message}`);
     return 2;
@@ -754,5 +999,5 @@ export function main(argv, io = { out: (line) => console.log(line), err: (line) 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
-  process.exitCode = main(process.argv.slice(2));
+  Promise.resolve(main(process.argv.slice(2))).then((code) => { process.exitCode = code; });
 }
