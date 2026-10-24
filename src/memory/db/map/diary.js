@@ -4,7 +4,9 @@
 //
 // A post's id is its `itemId` (a derived one, marked `$derived`, when it has none); `at` is at_ms, `picture` is
 // picture_prompt, `search` the search column (null stays null through the `$null` list). `pictures` (a count) and
-// anything else no column names stay in `extra`; the diary's text and pictures themselves arrive in stage 6.
+// anything else no column names stay in `extra`. The post's `text` and `lost` columns are not set here (a re-map leaves
+// them alone): src/memory/db/diary-media.js fills them from the interface, with the pictures, and the old JSON has no
+// such fields, so the export ignores them.
 // The diary is public: scope group.
 //
 // toRows(rel, value, ctx) -> { diary, diary_mirrors, operational }     fromRows(rows, ctx) -> the file's value
@@ -42,13 +44,11 @@ export function toRows(rel, value) {
       put(rows, 'diary', {
         id,
         ...part.cols,
-        text: null,
         topic: null,
         world: null,
         status: null,
         perspective: null,
         ...groupScope(),
-        lost: null,
         extra: extraText(part.rest),
         owner_file: rel,
         position,

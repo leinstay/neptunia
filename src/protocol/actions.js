@@ -68,6 +68,7 @@
  *   react(message: MessageRef, emoji: string): Promise<PortResult>,
  *   unreact(message: MessageRef, emoji: string): Promise<PortResult>,
  *   typing(conversation: ConversationRef): Promise<PortResult>,
+ *   fetchMessages(conversation: ConversationRef, messageIds: string[]): Promise<PortResult & { messages?: ({ messageId: string, missing: true } | { messageId: string, text: string, attachments: { url?: string, name?: string, contentType?: string, size?: number }[] })[] }>,
  *   capabilities(): Capabilities,
  *   onMessage(handler: (event: object) => void): () => void,
  *   onEdit(handler: (event: object) => void): () => void,

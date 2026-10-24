@@ -236,6 +236,47 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
       }
     },
 
+    /**
+     * Reads messages by id from one conversation: their text and attachments (url, name, content type, size), or
+     * `missing` for an id Discord no longer has. A read, not an effect: it is not one of CAPABILITIES. A failure that
+     * is not "the message is gone" fails the whole call, so the caller can try again later.
+     */
+    async fetchMessages(conversation, messageIds) {
+      const refused = refRefusal(conversation, DISCORD_IFACE);
+      if (refused) return refused;
+      const { channel, result } = await resolveChannel(conversation);
+      if (result) return result;
+      if (typeof channel.messages?.fetch !== 'function') return unsupported();
+      const messages = [];
+      for (const id of Array.isArray(messageIds) ? messageIds : []) {
+        try {
+          const found = await channel.messages.fetch(String(id));
+          if (!found) {
+            messages.push({ messageId: String(id), missing: true });
+            continue;
+          }
+          const files = found.attachments?.values ? [...found.attachments.values()] : [];
+          messages.push({
+            messageId: String(id),
+            text: typeof found.content === 'string' ? found.content : '',
+            attachments: files.map((file) => ({
+              url: file.url,
+              name: file.name,
+              contentType: file.contentType ?? undefined,
+              size: Number.isFinite(file.size) ? file.size : undefined,
+            })),
+          });
+        } catch (err) {
+          if (err?.status === 404 || err?.code === 10008) {
+            messages.push({ messageId: String(id), missing: true });
+            continue;
+          }
+          return discordFailure(err, { sent: false });
+        }
+      }
+      return { ...ok(), messages };
+    },
+
     capabilities() {
       return { operations: new Set(offered), limits: { ...caps } };
     },

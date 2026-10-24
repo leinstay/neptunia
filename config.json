@@ -126,7 +126,8 @@
     "syncSeconds": 60,
     "closeTimeoutMs": 10000,
     "read": false,
-    "turnReads": true
+    "turnReads": true,
+    "diaryMedia": false
   },
   "embed": {
     "dimensions": 1024,
