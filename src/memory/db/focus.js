@@ -19,6 +19,7 @@
 //       relationship claims; the weights and thresholds live in the config (`focus`).
 //   runFocusDay(handle, { now, config })   both, for yesterday and today, then the recomputation (the daily job).
 //   focusView(db, { iface })   the close and exploring sets as member ids of an interface, for the heartbeat (internal).
+//   closePeople(db)   the close set as person ids, the best first, for her memory session's description reviews (internal).
 //
 // The rules of a recomputation (pure: decideFocus):
 //   - precedence: exclude > bot > pin > settling. An excluded person is never in a bucket; a person all of whose
@@ -479,6 +480,20 @@ export function setOverride(handle, { person, kind, approvedBy, expiresAt = null
 export function clearOverride(handle, person) {
   const db = dbOf(handle);
   txOf(handle)(() => db.prepare('DELETE FROM focus_overrides WHERE person_id = ?').run(person));
+}
+
+/**
+ * Her focus close set as person ids, the best scored first (an internal reader: the description reviews of her memory
+ * session put these people first, writer-switch.js#openFlags). Empty without the table.
+ * @param {object} db
+ * @returns {string[]}
+ */
+export function closePeople(db) {
+  try {
+    return dbOf(db).prepare("SELECT person_id FROM focus_members WHERE bucket = 'close' ORDER BY score DESC, person_id").all().map((row) => row.person_id);
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -529,7 +529,8 @@ test('the status of the session and its line', async () => {
   const env = fixture();
   try {
     chat(env);
-    const config = baseConfig();
+    // The cap the line shows is the per-scope one (stage W3); the test sets its own value.
+    const config = baseConfig({ sweepsPerScopePerDay: 4 });
     const envVars = { OPENROUTER_MEMORY_KEY: 'k' };
     assert.equal(sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: envVars, prompts, now: NOW }).state, 'off');
     assert.equal(sessionStatus({ db: env.db, config, env: {}, prompts, now: NOW }).state, 'not_configured');

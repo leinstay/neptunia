@@ -5,8 +5,11 @@
 // sweep(ctx) -> { status, code?, runs[] }
 //   A sweep is one pass over the scopes with new lines: the public channels of an interface together (`group:<iface>`),
 //   each private conversation alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
-//   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerDay` sweeps a
-//   UTC day. One request per scope with at least `minMessages` new lines, at most `maxMessages` lines each, serial.
+//   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerScopePerDay`
+//   sweeps of one scope a UTC day (stage W3; the old `sweepsPerDay` is read when the new key is missing); a sweep whose
+//   every scope with work is at its cap is refused (`sweep_cap`). `options.scopes` (a Set of scope keys) limits a sweep
+//   to those scopes (the service's schedule, writer-switch.js#dueScopes). One request per scope with at least
+//   `minMessages` new lines, at most `maxMessages` lines each, serial.
 //   The batch is the next lines by arrival (so none is ever skipped) shown in event time (`occurred_at`, then rowid);
 //   when it holds more people than `maxPeople`, the batch is sent again with the next page of people (the same lines, the
 //   next people), one request per page. The cursor moves, by compare-and-set and in the same transaction as the last
@@ -58,7 +61,7 @@ export const CODES = Object.freeze({ OFF: 'off', NOT_CONFIGURED: 'not_configured
 export const pendingKey = (mode, scopeKey) => `memory_session.pending.${mode}.${scopeKey}`;
 
 const DEFAULTS = Object.freeze({
-  mode: 'off', maxMessages: 200, minMessages: 5, sweepsPerDay: 4, settleMinutes: 10, since: null, maxPeople: 12,
+  mode: 'off', maxMessages: 200, minMessages: 5, sweepsPerScopePerDay: 24, everyMinutes: 60, reviewsPerDay: 6, settleMinutes: 10, since: null, maxPeople: 12,
   claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 4000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500, retryLimit: 3,
 });
 const MODES = ['off', 'shadow', 'apply'];
@@ -76,7 +79,10 @@ export function sessionSettings(config) {
     mode: MODES.includes(given.mode) ? given.mode : DEFAULTS.mode,
     maxMessages: posInt(given.maxMessages, DEFAULTS.maxMessages),
     minMessages: posInt(given.minMessages, DEFAULTS.minMessages),
-    sweepsPerDay: posInt(given.sweepsPerDay, DEFAULTS.sweepsPerDay),
+    // Per scope since stage W3; the old daily key stands in while the new one is missing.
+    sweepsPerScopePerDay: posInt(given.sweepsPerScopePerDay, posInt(given.sweepsPerDay, DEFAULTS.sweepsPerScopePerDay)),
+    everyMinutes: Number.isFinite(given.everyMinutes) && given.everyMinutes >= 0 ? given.everyMinutes : DEFAULTS.everyMinutes,
+    reviewsPerDay: Number.isInteger(given.reviewsPerDay) && given.reviewsPerDay >= 0 ? given.reviewsPerDay : DEFAULTS.reviewsPerDay,
     settleMinutes: Number.isFinite(given.settleMinutes) && given.settleMinutes >= 0 ? given.settleMinutes : DEFAULTS.settleMinutes,
     since: typeof given.since === 'string' && given.since ? given.since : null,
     maxPeople: posInt(given.maxPeople, DEFAULTS.maxPeople),
@@ -697,6 +703,12 @@ export function sweepsToday(db, now) {
   return db.prepare("SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL").get(dayOf(now)).n;
 }
 
+/** How many sweeps reached the scope `scopeKey` (in `mode`) on the UTC day of `now`. */
+export function scopeSweepsToday(db, scopeKey, now, mode) {
+  return db.prepare("SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL")
+    .get(scopeKey, mode, dayOf(now)).n;
+}
+
 /** The batches waiting for another try: `[{ scope, tries, from, to }]` (an `all_dropped` answer leaves its lines pending). */
 export function pendingBatches(db) {
   const out = [];
@@ -714,7 +726,7 @@ export function pendingBatches(db) {
  * batches waiting for another try, with their retry counts.
  */
 export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
-  const { mode, sweepsPerDay, retryLimit } = sessionSettings(config);
+  const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
   const code = refusalOf(config, env, prompts);
   let state = 'ready';
   if (code === CODES.OFF) state = 'off';
@@ -731,12 +743,14 @@ export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
       pending = pendingBatches(db);
     } catch { /* an older database without the table */ }
   }
-  return { mode, authority: authorityOf(config), state, code, sweepsToday: today, sweepsPerDay, retryLimit, last, pending };
+  // `sweepsPerDay` is the per-scope cap since stage W3 (the status line's `{cap}`).
+  return { mode, authority: authorityOf(config), state, code, sweepsToday: today, sweepsPerDay: sweepsPerScopePerDay, sweepsPerScopePerDay, retryLimit, last, pending };
 }
 
 /**
- * One sweep (see the head of this file). Options: `scope` (a scope key: only that one), `limit` (a smaller
- * `maxMessages`), `ignoreSweepCap`. Resolves `{ status, code?, runs }`; `runs` has one entry per request.
+ * One sweep (see the head of this file). Options: `scope` (a scope key: only that one), `scopes` (a Set of scope keys:
+ * only those), `limit` (a smaller `maxMessages`), `ignoreSweepCap`. Resolves `{ status, code?, runs }`; `runs` has one
+ * entry per request (a scope at its daily cap: `capped`).
  * @param {object} ctx
  */
 export async function sweep(ctx, options = {}) {
@@ -747,19 +761,29 @@ export async function sweep(ctx, options = {}) {
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused, runs: [] };
   const settings = sessionSettings(config);
   const started = now();
-  if (!options.ignoreSweepCap && sweepsToday(db, started) >= settings.sweepsPerDay) return { status: 'refused', code: CODES.SWEEP_CAP, runs: [] };
   const sweepId = `sweep:${new Date(started).toISOString()}`;
   const maxMessages = options.limit ? Math.min(options.limit, settings.maxMessages) : settings.maxMessages;
   const runs = [];
+  let ran = 0;
+  let capped = 0;
 
   for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
     if (options.scope && options.scope !== scope.key) continue;
+    if (options.scopes instanceof Set && !options.scopes.has(scope.key)) continue;
     const key = cursorKey(settings.mode, scope.key);
     const cursor = Number(metaOf(db, key) ?? 0);
     const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages, settleBefore: now() - settings.settleMinutes * MINUTE, audienceId: scope.audienceId ?? null });
     if (batch.length < Math.min(settings.minMessages, maxMessages)) { runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length }); continue; }
+    if (!options.ignoreSweepCap && scopeSweepsToday(db, scope.key, started, settings.mode) >= settings.sweepsPerScopePerDay) {
+      capped += 1;
+      runs.push({ scope: scope.key, outcome: 'capped', lines: batch.length });
+      continue;
+    }
+    ran += 1;
     runs.push(...await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }));
   }
+  // Every scope with work is at its daily cap: the sweep did nothing.
+  if (ran === 0 && capped > 0) return { status: 'refused', code: CODES.SWEEP_CAP, runs };
   return { status: 'ok', runs };
 }
 

@@ -30,6 +30,9 @@
 //   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode and no authority.
+//   { kind: 'handoff', authority, now }
+//       Stage W3: the analyzer-to-session handoff (handoff.js#handoff), refused unless authority is `db`
+//       (`HANDOFF_JSON_WRITER`); idempotent through its `meta` marker.
 //   { kind: 'unit', op, authority, ... }
 //       Stage W2a: the append-like memory units (record and journal lines, participation, the diary, the vectors) and
 //       the projection the writers finish under authority `db`, handed to unit-write.js#applyUnitWrite (the authority
@@ -79,6 +82,7 @@ import { applyWakeWrite } from './wakes.js';
 import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
+import { handoff } from './handoff.js';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -389,6 +393,11 @@ export function applyMemoryWrite(handle, update) {
   if (update?.kind === 'skills') return applySkillsWrite(handle, update);
   if (update?.kind === 'index-policy' || update?.kind === 'touch' || update?.kind === 'reembed') return applyIndexWrite(handle, update);
   if (update?.kind === 'unit') return applyUnitWrite(handle, update);
+  // Stage W3: the analyzer-to-session handoff at the switch (handoff.js), only with the database as the writer.
+  if (update?.kind === 'handoff') {
+    if (update.authority !== 'db') throw coded('HANDOFF_JSON_WRITER');
+    return handoff(handle, { now: update.now ?? Date.now() });
+  }
   if (update?.kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
   const at = iso(now ?? Date.now());

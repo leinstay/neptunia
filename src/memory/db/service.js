@@ -77,6 +77,24 @@
 //     anything reads the database (`readHandle()` and `reader` answer nothing meanwhile), deleting a file only after
 //     its write resolved. A replay that fails keeps its file, logs `memory db: pending replay failed` (an error, with
 //     the count) and fails the open (`PENDING_REPLAY`): the database is not used behind a write it has not taken.
+//   - stage W3, under `db` only (spec 2026-10-24-memory-authority, section 6 item 7): her memory session is the memory
+//     writer. At the first open under `db`, before any observation is written, the analyzer-to-session handoff
+//     (handoff.js, `{ kind: 'handoff' }` through the writer, once: its `meta` marker) puts every scope's apply cursor at
+//     the analyzer's boundary; until it is done no session runs and the observations wait in their bounded queue (a
+//     failure is logged and tried again at the next tick).
+//     The same open logs the effective models (`memory db: effective models`: purpose, model id and key variable of
+//     the memory session, the description review and every purpose that stays; writer-switch.js#effectiveModels).
+//     With `memoryDb.session.mode` `apply`, an LLM client (`sessionLlm`) and the key of the memory role (`sessionEnv`),
+//     a tick looks at most once a minute for due scopes (writer-switch.js#dueScopes: `minMessages` settled lines and
+//     `everyMinutes` since the scope's last run or `maxMessages` waiting, under the per-scope daily cap) and runs one
+//     sweep over them (session.js#sweep), then the description reviews her flags ask for (writer-switch.js#openFlags,
+//     at most `memoryDb.session.reviewsPerDay` accepted or failed a UTC day; describe.js#reviewDescription). Never two
+//     at once; every write through the writer. A run that fails (`llm_error`, `bad_answer`, `build_error`,
+//     `write_failed`, `not_configured`, `skipped`) is a warning (`memory session: run failed`, the code and the scope
+//     kind), the status's `session.lastFailure`, and one `onSessionFailure({ scopeKey, scopeKind, partner, code, lines,
+//     at })` per failing scope until that scope runs fine again (src/index.js tells her: a `memoryFailed` fact); a
+//     failed review is a warning and the status's `session.lastFailure`, and its flag waits for the next day. Never a
+//     file write.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -324,6 +342,7 @@ export function createMemoryDb({
   defer = (fn) => setImmediate(fn), sliceMs = 30, clock = () => performance.now(),
   worker: useWorker, workerFile = WORKER_FILE, diaryMediaDeps = null, diarySleep,
   embed = null, commit = null, selfName = () => '',
+  sessionLlm = () => null, sessionEnv = () => null, onSessionFailure = null, sessionLookMs = 60_000,
 }) {
   const threaded = useWorker ?? (open === undefined && sync === undefined);
   open ??= openMemoryDb;
@@ -412,6 +431,11 @@ export function createMemoryDb({
       dirty = true;
       openErrors.clear();
       log.info('memory db: opened', { file });
+      // Authority `db`: the analyzer's boundary becomes her session's cursors before any new line is written.
+      if (pinnedAuthority === 'db') {
+        await runHandoff();
+        await logEffectiveModels();
+      }
       drainObservations();
       startupJobs();
     } catch (error) {
@@ -739,6 +763,11 @@ export function createMemoryDb({
   function observe(envelope, where = null) {
     if (!observeOn(envelope)) return null;
     const item = { envelope, owner: recordUnitOf(envelope, where), attempts: 0 };
+    // Under `db` an observation waits while the handoff runs: a line written before it would count as consumed.
+    if (handle && handingOff) {
+      queueObservation(item);
+      return null;
+    }
     if (!handle) {
       if (closed) {
         observeDropped += 1;
@@ -753,7 +782,7 @@ export function createMemoryDb({
 
   /** Writes the observations that waited (for the database to open, or for a retry), in arrival order. */
   function drainObservations() {
-    if (!handle || observeQueue.length === 0) return;
+    if (!handle || handingOff || observeQueue.length === 0) return;
     const waiting = observeQueue.splice(0, observeQueue.length);
     log.info('memory db: observations written after open', { count: waiting.length });
     for (const item of waiting) sendObservation(item);
@@ -888,6 +917,125 @@ export function createMemoryDb({
     }
   }
 
+  // Stage W3 (under `db`): the handoff, the effective models, and her memory session's schedule (see the head of this
+  // file). `handingOff` holds the observations back while the handoff runs.
+  let handingOff = false;
+  let handoffDone = false;
+  let handoffRun = null;
+  let modelsLogged = false;
+  let sessionRun = null;
+  let sessionLookAt = -Infinity;
+  const sessionState = { lastAt: null, lastOutcome: null, lastFailure: null, told: new Set(), reviewFailDay: null, reviewFails: 0, reviewSkip: new Set() };
+  const SESSION_FAILURES = new Set(['llm_error', 'bad_answer', 'build_error', 'write_failed', 'not_configured', 'skipped']);
+  /** The live config with the fixed authority: what the session and the review check their refusals against. */
+  const pinnedConfig = () => ({ ...hot.config, memoryDb: { ...(hot.config?.memoryDb ?? {}), authority: pinnedAuthority } });
+
+  /** The handoff through the writer, once per process (its marker makes a second run change nothing). */
+  function runHandoff() {
+    if (handoffDone || pinnedAuthority !== 'db') return Promise.resolve();
+    if (handoffRun) return handoffRun;
+    handingOff = true;
+    handoffRun = (async () => {
+      try {
+        const done = await memoryWrite({ kind: 'handoff', now: now() });
+        handoffDone = true;
+        if (done?.already !== true) {
+          log.info('memory db: handoff', { scopes: done?.scopes ?? 0, set: done?.set ?? 0, kept: done?.kept ?? 0, buffered: done?.buffered ?? 0, behind: done?.behind ?? 0 });
+          if ((done?.behind ?? 0) > 0) log.warn('memory db: handoff left buffered lines behind', { behind: done.behind });
+        }
+      } catch (error) {
+        log.warn('memory db: handoff failed', { code: codeOf(error) });
+      } finally {
+        // Until it is done the observations keep waiting (bounded): a line written first would count as consumed.
+        handingOff = !handoffDone;
+        handoffRun = null;
+      }
+    })();
+    return handoffRun;
+  }
+
+  /** The start-up line of the effective models under `db` (codes and model ids only, never a key value). */
+  function logEffectiveModels() {
+    if (modelsLogged) return Promise.resolve();
+    modelsLogged = true;
+    return import('./writer-switch.js')
+      .then(({ effectiveModels, effectiveModelsLine }) => log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(pinnedConfig(), sessionEnv?.() ?? null)) }))
+      .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
+  }
+
+  /** One failing scope told once (`onSessionFailure`) until it runs fine again. */
+  function sessionFailed(run, at) {
+    const code = run.outcome;
+    sessionState.lastFailure = { code, at, scope: String(run.scope ?? '').split(':')[0] || null };
+    log.warn('memory session: run failed', { code, scope: sessionState.lastFailure.scope, lines: run.lines ?? 0 });
+    if (sessionState.told.has(run.scope)) return;
+    sessionState.told.add(run.scope);
+    if (typeof onSessionFailure !== 'function') return;
+    const [scopeKind, iface, ...rest] = String(run.scope ?? '').split(':');
+    try {
+      onSessionFailure({ scopeKey: run.scope, scopeKind, iface: iface ?? null, partner: scopeKind === 'dm' ? rest.join(':') || null : null, code, lines: run.lines ?? 0, at });
+    } catch (error) {
+      log.warn('memory session: the failure could not be told', { code: codeOf(error) });
+    }
+  }
+
+  /** One scheduled look: a sweep over the due scopes, then the reviews her flags ask for. Never throws. */
+  async function sessionJob(at) {
+    const [{ sweep, refusalOf, sessionSettings }, { reviewDescription, reviewRefusal }, { dueScopes, openFlags, reviewsToday }] = await Promise.all([
+      import('./session.js'), import('./describe.js'), import('./writer-switch.js'),
+    ]);
+    const config = pinnedConfig();
+    const env = sessionEnv?.() ?? null;
+    const llm = sessionLlm?.() ?? null;
+    if (!llm || !handle || refusalOf(config, env, hot.prompts)) return;
+    const db = handle.db;
+    const ctx = {
+      db, write: memoryWrite, llm, hot: { get config() { return pinnedConfig(); }, get prompts() { return hot.prompts; } }, env, now, log, selfName: selfName() ?? '',
+    };
+    const due = dueScopes(db, config, at);
+    if (due.length > 0) {
+      const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
+      sessionState.lastAt = at;
+      sessionState.lastOutcome = result.status === 'ok' ? 'ok' : result.code ?? result.status;
+      for (const run of result.runs ?? []) {
+        if (SESSION_FAILURES.has(run.outcome)) sessionFailed(run, at);
+        else if (run.outcome === 'ok' || run.outcome === 'applied_before') sessionState.told.delete(run.scope);
+      }
+      log.debug?.('memory session: sweep', { scopes: due.length, runs: result.runs?.length ?? 0, status: result.status });
+    }
+    // The reviews: at most `reviewsPerDay` a UTC day, accepted or failed.
+    if (closing || !handle || reviewRefusal(config, env, hot.prompts)) return;
+    const day = utcDay(at);
+    if (sessionState.reviewFailDay !== day) { sessionState.reviewFailDay = day; sessionState.reviewFails = 0; sessionState.reviewSkip = new Set(); }
+    let left = sessionSettings(config).reviewsPerDay - reviewsToday(db, at) - sessionState.reviewFails;
+    if (left <= 0) return;
+    for (const flag of openFlags(db, config, { skip: sessionState.reviewSkip, selfName: ctx.selfName })) {
+      if (left <= 0 || closing || !handle) break;
+      left -= 1;
+      const reviewed = await reviewDescription(db, flag.subject, flag.field, { ctx: { ...ctx, readCtx: flag.readCtx } });
+      if (reviewed.status === 'ok') continue;
+      sessionState.reviewFails += 1;
+      sessionState.reviewSkip.add(flag.key);
+      sessionState.lastFailure = { code: reviewed.code ?? reviewed.status, at, scope: flag.readCtx?.kind ?? null, review: true };
+      log.warn('memory session: review failed', { code: reviewed.code ?? reviewed.status, step: reviewed.step ?? null, kind: flag.subject.kind });
+    }
+  }
+
+  /** The schedule's tick: at most one look a `sessionLookMs`, never two at once. */
+  function startSession() {
+    if (closing || !on() || !handle || sessionRun || engine?.dead || pinnedAuthority !== 'db' || !handoffDone) return;
+    if (hot.config?.memoryDb?.session?.mode !== 'apply') return;
+    const at = now();
+    if (at - sessionLookAt < sessionLookMs) return;
+    sessionLookAt = at;
+    sessionRun = sessionJob(at)
+      .catch((error) => {
+        sessionState.lastFailure = { code: codeOf(error), at, scope: null };
+        log.warn('memory session: run failed', { code: codeOf(error), scope: null });
+      })
+      .finally(() => { sessionRun = null; });
+  }
+
   /**
    * The readers' authority, fixed when the service was created; a different live value is logged once and ignored.
    * @returns {'json'|'db'}
@@ -923,7 +1071,11 @@ export function createMemoryDb({
     }
     if (!handle || running) return;
     // Authority `db`: the sync stays off; the writers' own jobs run instead (the waiting observations, the projection).
-    if (pinnedAuthority === 'db') { drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); return; }
+    if (pinnedAuthority === 'db') {
+      if (!handoffDone) await runHandoff();
+      drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); startSession();
+      return;
+    }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
     startDiaryMedia();
     startFocus();
@@ -1108,6 +1260,7 @@ export function createMemoryDb({
       readActive: readActive(),
       lastPass,
       reads: { ...reads },
+      session: { running: sessionRun !== null, handoff: handoffDone, lastAt: sessionState.lastAt, lastOutcome: sessionState.lastOutcome, lastFailure: sessionState.lastFailure, reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0 },
     };
   }
 
@@ -1122,6 +1275,7 @@ export function createMemoryDb({
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
     await waitFor(projectRun, Math.max(0, deadline - performance.now()));
+    await waitFor(sessionRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     await flushObservations(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
@@ -1131,5 +1285,8 @@ export function createMemoryDb({
     closed = true;
   }
 
-  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close };
+  /** The scheduled session look under way (stage W3), or a resolved promise: its end. */
+  const waitSession = () => sessionRun ?? Promise.resolve();
+
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close, waitSession };
 }
