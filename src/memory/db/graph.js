@@ -560,10 +560,12 @@ export function reproject(handle, { tables = UNIT_ORDER, sliceUnits = SLICE_UNIT
 /**
  * The projection the v9 migration left pending, from where it stopped (`meta.graph_pending`: the unit table and the last
  * id done, moved in the same transaction as each slice). Returns `{ done, units, ms }` (`done`: nothing is pending now).
+ * `maxSlices` bounds one call (the writers' own job under authority `db`, stage W2a, gives the loop back between calls);
+ * the rest stays pending for the next.
  * @param {object} handle  an `openMemoryDb` handle (the writer)
- * @param {{ sliceUnits?: number, at?: string, clock?: () => number }} [opts]
+ * @param {{ sliceUnits?: number, maxSlices?: number, at?: string, clock?: () => number }} [opts]
  */
-export function projectPending(handle, { sliceUnits = SLICE_UNITS, at, clock = () => performance.now() } = {}) {
+export function projectPending(handle, { sliceUnits = SLICE_UNITS, maxSlices = Infinity, at, clock = () => performance.now() } = {}) {
   const db = dbOf(handle);
   const transaction = handle.transaction ?? ((fn) => fn());
   const started = clock();
@@ -574,8 +576,10 @@ export function projectPending(handle, { sliceUnits = SLICE_UNITS, at, clock = (
     try { return JSON.parse(value); } catch { return { unit: 0, after: null }; }
   };
   let units = 0;
+  let slices = 0;
   let state = read();
-  while (state) {
+  while (state && slices < maxSlices) {
+    slices += 1;
     const index = Number.isInteger(state.unit) && state.unit >= 0 ? state.unit : 0;
     if (index >= UNIT_ORDER.length) {
       transaction(() => prepared(db, 'DELETE FROM meta WHERE key = ?').run(PENDING_KEY));

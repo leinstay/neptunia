@@ -20,9 +20,9 @@
 //     and writes the turn_reads rows deferred, one transaction (`memoryDb.turnReads`). The persistence is deferred; the
 //     resolution is not, so a later sync cannot change which version a turn is said to have read.
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
-//     the worker, so the bot's loop never holds a write transaction. The service stamps `memoryDb.authority` (and
-//     `memoryDb.audienceColumn`, the read predicate of the target check) into every write; `apply` is refused unless
-//     authority is `db`.
+//     the worker, so the bot's loop never holds a write transaction. The service stamps its authority (fixed for the
+//     process) and `memoryDb.audienceColumn` (the read predicate of the target check) into every write; `apply` is
+//     refused unless authority is `db`.
 //   - `issueContext(spec)` issues an execution context (scope.js#issueContext: an id, the mode, the destination) read
 //     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
 //     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.
@@ -52,13 +52,22 @@
 //     (observe.js#observe, the envelope from observe-event.js#observationOf) through the writer, like every other
 //     write; while the JSON files are the writer it lands on the rows the sync writes (observe.js resolves them, the
 //     sync adopts the ones it wrote first). Null while the switch is off or the database closed; never throws.
-//   - `authority()` is who the memory's readers read (stage W1, spec 2026-10-24-memory-authority section 6 item 1):
-//     `memoryDb.authority` as it was when the service was created, fixed for the process. A later change of the
-//     config is logged once per value (`memory db: authority change needs a restart`) and changes nothing here;
-//     the modules (record, archive, journal, vectors, the intention and task stores, the store's directory ids, the
-//     embedder's catch-up) ask this, never the config. `readHandle()` is the read-only connection while the
-//     database is open (null otherwise): what their database readers read through (src/memory/db/readers/).
-//     The sync, the status and the write stamping still follow the live value until the writers move (stage W2).
+//   - `authority()` is who writes and reads the memory (stages W1 and W2a, spec 2026-10-24-memory-authority section 6
+//     item 1): `memoryDb.authority` as it was when the service was created, fixed for the process. A later change of
+//     the config is logged once per value (`memory db: authority change needs a restart`) and changes nothing: the
+//     sync, the status, the write stamping and the modules (record, archive, journal, vectors, the intention and task
+//     stores, the store's directory ids, the embedder's catch-up) all follow the fixed value, never the config.
+//     `readHandle()` is the read-only connection while the database is open (null otherwise): what their database
+//     readers read through (src/memory/db/readers/).
+//   - start checks (authority.js#authorityRefusal): under `db` the database is not opened (the memory does not start)
+//     unless `memoryDb.read` is exactly true, `recall.backend` is `db` and `memoryDb.observeLive` is exactly true; the
+//     sync is off under `db` by construction. A refusal is logged once per code (`memory db: start refused`), the
+//     status says it (`refused`), and every tick checks the live config again.
+//   - `writeUnit(update)` (stage W2a, unit-write.js): the database writers of the append-like units (record and
+//     journal lines, participation, the diary, the vectors) through the writer, stamped with the fixed authority;
+//     resolves once the worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Under `db`
+//     each tick also finishes the graph projection and the stems a sync pass would have finished (one slice a tick).
+//     The opener's migration context is the live `diary.channelId`'s place (schema v12's data step).
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -92,6 +101,9 @@ import { fileURLToPath } from 'node:url';
 import { skillVersionsOf } from './skills.js';
 import { indexSettings, reembedTouched } from './index-policy.js';
 import { observe as observeEnvelope } from './observe.js';
+import { authorityRefusal } from './authority.js';
+import { graphPending } from './graph.js';
+import { stemsPending } from './stems.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -328,7 +340,8 @@ export function createMemoryDb({
       file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
       syncMs: (Number.isFinite(given.syncSeconds) && given.syncSeconds > 0 ? given.syncSeconds : DEFAULT_SYNC_SECONDS) * 1000,
       read: given.read === true,
-      authority: given.authority === 'db' ? 'db' : 'json',
+      // Fixed for the process (see `authority()`): every consumer below reads this, never the live value.
+      authority: pinnedAuthority,
       turnReads: given.turnReads !== false,
       closeMs: Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0 ? given.closeTimeoutMs : DEFAULT_CLOSE_TIMEOUT_MS,
     };
@@ -337,19 +350,39 @@ export function createMemoryDb({
   const meta = (key) => handle.db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
   const setMeta = (key, value) => handle.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 
+  // Why the memory may not start under the fixed authority (authority.js), as of the last open attempt; null when it may.
+  let refused = null;
+  const refusedLogged = new Set();
+  /** The start check of the live config under the fixed authority: the refusal code, logged once per code, or null. */
+  function startRefusal() {
+    refused = authorityRefusal({ ...hot.config, memoryDb: { ...(hot.config?.memoryDb ?? {}), authority: pinnedAuthority } });
+    if (refused && !refusedLogged.has(refused)) {
+      refusedLogged.add(refused);
+      log.warn('memory db: start refused', { code: refused, authority: pinnedAuthority });
+    }
+    return refused;
+  }
+
+  /** What a migration needs from the opener (open.js#migrate): the deployment's diary channel as a place. */
+  const openContext = () => {
+    const channel = hot.config?.diary?.channelId;
+    return { diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(channel) : null };
+  };
+
   async function openNow() {
+    if (startRefusal()) return;
     const { file } = settings();
     const dbPath = path.join(dataDir, file);
     let started = null;
     try {
       if (threaded) {
         started = startWorker({ workerFile, dataDir, log, codeOf });
-        const opened = await started.call('open', { path: dbPath });
+        const opened = await started.call('open', { path: dbPath, context: openContext() });
         handle = open(dbPath, { readOnly: true });
         engine = started;
         importDone = opened.importDone === true;
       } else {
-        handle = open(dbPath);
+        handle = open(dbPath, { context: openContext() });
         importDone = meta(IMPORT_DONE) === '1';
       }
       // Authority `db`: no sync will ever run, and the database is the memory, so it counts as in step from the start.
@@ -525,26 +558,60 @@ export function createMemoryDb({
    * One observation of the live message path (observe.js#observe) through the writer, while `memoryDb.observeLive` is
    * exactly true and the database is open: resolves the observe result (`{ ok, ... }` or `{ ok: false, code }`).
    * Otherwise null (nothing is written). A failed write is logged with a code and resolves null: never a turn's failure.
+   * `where` (`{ guildId, privateUserId }`) names the record the line belongs to: under authority `db` the observation
+   * is the record of the line (its record unit is passed to observe.js), and a write that failed (not a refusal) stays
+   * in the queue below and is tried again at the next tick, up to OBSERVE_ATTEMPTS times (then dropped, a warning).
    */
   // Observations that came while the database was not open yet (the start's catch-up runs before it opens) wait here
   // and are written right after it opens; a shutdown writes the waiting ones and those under way before it closes.
   // Bounded: past OBSERVE_QUEUE_MAX the oldest is dropped and counted (a warning, never silent).
   const OBSERVE_QUEUE_MAX = 5000;
+  const OBSERVE_ATTEMPTS = 5;
   const observeQueue = [];
   const observing = new Set();
   let observeDropped = 0;
   const observeOn = (envelope) => on() && hot.config?.memoryDb?.observeLive === true && envelope !== null && typeof envelope === 'object';
 
-  function sendObservation(envelope) {
+  /** The record unit of an observed line under authority `db` (record.js#dayFile's day: the UTC day of the line), or null. */
+  function recordUnitOf(envelope, where) {
+    if (pinnedAuthority !== 'db') return null;
+    const guildId = where?.guildId;
+    const day = /^\d{4}-\d{2}-\d{2}/.exec(String(envelope?.occurredAt ?? ''))?.[0];
+    if (typeof guildId !== 'string' || !guildId || !day) return null;
+    const layer = typeof where.privateUserId === 'string' && where.privateUserId ? `guilds/${guildId}/private/${where.privateUserId}` : `guilds/${guildId}`;
+    return `${layer}/record/${day.slice(0, 7)}/${day}.jsonl`;
+  }
+
+  /** Queues an observation (bounded: the oldest goes first, counted). */
+  function queueObservation(item) {
+    observeQueue.push(item);
+    if (observeQueue.length > OBSERVE_QUEUE_MAX) {
+      observeQueue.shift();
+      observeDropped += 1;
+      log.warn('memory db: observe dropped', { reason: 'queue_full', dropped: observeDropped });
+    }
+  }
+
+  function sendObservation(item) {
+    const { envelope, owner } = item;
     const done = (engine
-      ? engine.call('observe', { envelope, now: now() })
-      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log })))
+      ? engine.call('observe', { envelope, now: now(), owner })
+      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log, owner })))
       .then((result) => {
         if (result && result.ok === false) log.warn('memory db: observe refused', { code: result.code ?? null });
         return result;
       })
       .catch((error) => {
         log.warn('memory db: observe failed', { code: codeOf(error) });
+        // Under `db` the observation is the line's only record: it waits for the next tick, never for a file.
+        if (pinnedAuthority === 'db') {
+          const attempts = (item.attempts ?? 0) + 1;
+          if (attempts < OBSERVE_ATTEMPTS) queueObservation({ ...item, attempts });
+          else {
+            observeDropped += 1;
+            log.warn('memory db: observe dropped', { reason: 'retries', dropped: observeDropped });
+          }
+        }
         return null;
       });
     observing.add(done);
@@ -552,31 +619,58 @@ export function createMemoryDb({
     return done;
   }
 
-  function observe(envelope) {
+  function observe(envelope, where = null) {
     if (!observeOn(envelope)) return null;
+    const item = { envelope, owner: recordUnitOf(envelope, where), attempts: 0 };
     if (!handle) {
       if (closed) {
         observeDropped += 1;
         log.warn('memory db: observe dropped', { reason: 'closed', dropped: observeDropped });
         return null;
       }
-      observeQueue.push(envelope);
-      if (observeQueue.length > OBSERVE_QUEUE_MAX) {
-        observeQueue.shift();
-        observeDropped += 1;
-        log.warn('memory db: observe dropped', { reason: 'queue_full', dropped: observeDropped });
-      }
+      queueObservation(item);
       return null;
     }
-    return sendObservation(envelope);
+    return sendObservation(item);
   }
 
-  /** Writes the observations that waited for the database to open, in arrival order. */
+  /** Writes the observations that waited (for the database to open, or for a retry), in arrival order. */
   function drainObservations() {
     if (!handle || observeQueue.length === 0) return;
     const waiting = observeQueue.splice(0, observeQueue.length);
     log.info('memory db: observations written after open', { count: waiting.length });
-    for (const envelope of waiting) sendObservation(envelope);
+    for (const item of waiting) sendObservation(item);
+  }
+
+  /**
+   * One write of an append-like memory unit (unit-write.js) through the writer, stamped with the fixed authority.
+   * Resolves the writer's counts once committed; rejects with a code (`DB_CLOSED` while the database is not open). A
+   * record line's shadow (op `lines`, mode `shadow`) resolves null, writing nothing, unless `memoryDb.observeLive` is
+   * exactly true.
+   */
+  async function writeUnit(update) {
+    // A shadow of a record line (authority `json`) belongs to the live observation path: nothing without its switch.
+    if (update?.op === 'lines' && update?.mode === 'shadow' && hot.config?.memoryDb?.observeLive !== true) return null;
+    if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
+    const stamped = { ...update, kind: 'unit', authority: pinnedAuthority, now: Number.isFinite(update?.now) ? update.now : now() };
+    // A diary post's destination is the deployment's diary channel (the live `diary.channelId`, as its place).
+    if (stamped.op === 'diary' && stamped.destination === undefined) stamped.destination = openContext().diaryPlaceId;
+    if (engine) return engine.call('memoryWrite', { update: stamped });
+    return applyMemoryWrite(handle, stamped);
+  }
+
+  // Under `db` no sync pass finishes the graph projection a migration left pending or the stems of new lines: the
+  // writer does, one slice per tick (unit-write.js, op `project`).
+  let projectRun = null;
+  function startProject() {
+    if (closing || !on() || !handle || projectRun || engine?.dead || pinnedAuthority !== 'db') return;
+    let due = false;
+    try { due = graphPending(handle) || stemsPending(handle.db); } catch { due = false; }
+    if (!due) return;
+    projectRun = writeUnit({ op: 'project', maxSlices: 1 })
+      .then((done) => { if (done?.units > 0 || done?.stems > 0) log.debug?.('memory db: projected', { units: done.units, stems: done.stems, done: done.done }); })
+      .catch((error) => log.warn('memory db: projection failed', { code: codeOf(error) }))
+      .finally(() => { projectRun = null; });
   }
 
   /** Shutdown: the waiting observations are written, then every one under way is awaited. */
@@ -713,8 +807,8 @@ export function createMemoryDb({
       if (threaded) await opening;
     }
     if (!handle || running) return;
-    // Authority `db`: the sync stays off. A switch back to `json` finds the database dirty and runs a pass.
-    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); return; }
+    // Authority `db`: the sync stays off; the writers' own jobs run instead (the waiting observations, the projection).
+    if (pinnedAuthority === 'db') { drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); return; }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
     startDiaryMedia();
     startFocus();
@@ -829,7 +923,8 @@ export function createMemoryDb({
    */
   async function memoryWrite(update) {
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // Who writes is the live config's word, never the caller's; so is the read predicate of the target check.
+    // Who writes is the service's (fixed for the process), never the caller's; the read predicate of the target check is
+    // the live config's.
     const stamped = { ...update, authority: settings().authority, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
     // A session's batch read its lines: touched while eviction is on.
     if (update?.kind === 'session' && Array.isArray(update.reads)) touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
@@ -877,8 +972,9 @@ export function createMemoryDb({
       importDone,
       lastSyncAt,
       lagSeconds: open && lastSyncAt !== null && settings().authority !== 'db' ? Math.max(0, Math.round((now() - lastSyncAt) / 1000)) : null,
-      authority: settings().authority,
-      syncOff: on() && settings().authority === 'db',
+      authority: pinnedAuthority,
+      syncOff: on() && pinnedAuthority === 'db',
+      refused,
       read: on() && settings().read,
       readActive: readActive(),
       lastPass,
@@ -896,6 +992,7 @@ export function createMemoryDb({
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
+    await waitFor(projectRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     await flushObservations(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
@@ -905,5 +1002,5 @@ export function createMemoryDb({
     closed = true;
   }
 
-  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, recordWake, issueContext, observe, focusPeople, status, close };
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, recordWake, issueContext, observe, focusPeople, status, close };
 }

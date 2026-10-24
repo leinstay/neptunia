@@ -20,6 +20,15 @@
 // hides such a member until the forget is done, and `append` waits while a writer lock is held
 // (`writerGate`).
 //
+// Under authority `db` (the memory database's service, fixed for the process; spec 2026-10-24-memory-authority, stage
+// W2a) `append` writes no file: every line is written to the database as the record mapper maps it, in its day's unit
+// (`memoryDb.writeUnit`, op `lines`), which refuses a line whose message revision (or deletion) the month already
+// holds, as the id index does, and adopts a line the live observation wrote first; the promise resolves once the
+// writer committed and rejects with the writer's code (no file fallback). Under `json` the files are written as always,
+// and a `said`, `deleted` or `felt` line that was written is also sent as its shadow (mode `shadow`: the row the sync
+// adopts when it reads the file; nothing without `memoryDb.observeLive`), so `tools/memory-db.mjs observe-check` sees
+// every kind of line; seen lines and edits have theirs from the live observation.
+//
 // Logs carry counts and ids of guilds, never a line's contents.
 
 import * as nodeFs from 'node:fs/promises';
@@ -210,6 +219,9 @@ export function feltLine({ userId, itemId = null, text, date = null, sourceMessa
   };
 }
 
+/** The kinds of line whose shadow `append` sends under authority `json` (seen lines and edits are observed live). */
+const SHADOWED_KINDS = new Set(['said', 'deleted', 'felt']);
+
 /** How many times appendRevision moves an edit past a revision the record already holds. */
 export const EDIT_REVISION_RETRIES = 5;
 
@@ -347,8 +359,9 @@ export async function recordFileStats(fs, base) {
  *   journal's `waitUnlocked`, so a forget's writer lock (src/memory/journal.js#withWriterLock)
  *   holds the record's appends too
  * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
- *   authority `db` every read below is answered from the database (src/memory/db/readers/record.js), with no file
- *   fallback (a failed read rejects with a code); under `json` (the default) the files are read as always
+ *   authority `db` every read below is answered from the database (src/memory/db/readers/record.js) and `append`
+ *   writes the database only (`writeUnit`), with no file fallback (a failed read or write rejects with a code); under
+ *   `json` (the default) the files are read and written as always, with the shadow of said, deleted and felt lines
  * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
@@ -472,24 +485,75 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     return keys;
   }
 
+  /** A line as `append` stores it: `guildId` stamped, `occurredAt` as ISO, a private line's scope. */
+  function stamped(guildId, raw, privateUserId) {
+    const line = { ...raw, guildId: String(guildId) };
+    line.occurredAt = isoOf(line.occurredAt) ?? new Date(now()).toISOString();
+    if (typeof privateUserId === 'string' && privateUserId) {
+      const channel = typeof raw.scope?.channel === 'string' ? raw.scope.channel : null;
+      line.scope = { user: privateUserId, private: true, ...(channel ? { channel } : {}) };
+    }
+    return line;
+  }
+
+  /** The database's writer, or a coded rejection when there is none (authority `db` has no file fallback). */
+  function unitWriter() {
+    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    return memoryDb.writeUnit;
+  }
+
+  /** Authority `db`: the lines go to the database, each run of lines of one day as one write; no file is written. */
+  async function appendToDb(guildId, lines, privateUserId) {
+    const write = seam.run(() => unitWriter());
+    let written = 0;
+    let duplicates = 0;
+    const flush = async (owner, run) => {
+      if (run.length === 0) return;
+      const done = await seam.run(() => write({ op: 'lines', mode: 'db', owner, lines: run }));
+      written += done?.written ?? 0;
+      duplicates += done?.duplicates ?? 0;
+    };
+    let owner = null;
+    let run = [];
+    for (const raw of Array.isArray(lines) ? lines : []) {
+      if (!raw || typeof raw !== 'object') continue;
+      const line = stamped(guildId, raw, privateUserId);
+      const unit = root.relative(dayFile(guildId, line.occurredAt, privateUserId));
+      if (unit !== owner) {
+        await flush(owner, run);
+        owner = unit;
+        run = [];
+      }
+      run.push(line);
+    }
+    await flush(owner, run);
+    return { written, duplicates };
+  }
+
+  /** Authority `json`: the shadow of the lines just written (see the head of this file); never fails the append. */
+  function shadow(byOwner) {
+    if (typeof memoryDb?.writeUnit !== 'function') return;
+    for (const [owner, run] of byOwner) {
+      Promise.resolve()
+        .then(() => memoryDb.writeUnit({ op: 'lines', mode: 'shadow', owner, lines: run }))
+        .catch((error) => log.debug?.('record: shadow write failed', { code: error?.code ?? null }));
+    }
+  }
+
   async function append(guildId, lines, { privateUserId = null } = {}) {
     // Outside the chain: a forget queued behind a held append would wait for itself.
     if (typeof writerGate === 'function') await writerGate();
     return serial(async () => {
+      if (seam.authority() === 'db') return appendToDb(guildId, lines, privateUserId);
       const base = baseDir(guildId, privateUserId);
-      const isPrivate = typeof privateUserId === 'string' && privateUserId;
       const touched = new Map(); // ids.json path -> keys
+      const shadowed = new Map(); // unit -> lines
       let written = 0;
       let duplicates = 0;
       try {
         for (const raw of Array.isArray(lines) ? lines : []) {
           if (!raw || typeof raw !== 'object') continue;
-          const line = { ...raw, guildId: String(guildId) };
-          line.occurredAt = isoOf(line.occurredAt) ?? new Date(now()).toISOString();
-          if (isPrivate) {
-            const channel = typeof raw.scope?.channel === 'string' ? raw.scope.channel : null;
-            line.scope = { user: privateUserId, private: true, ...(channel ? { channel } : {}) };
-          }
+          const line = stamped(guildId, raw, privateUserId);
           const month = dayOf(line.occurredAt).slice(0, 7);
           const key = keyOf(line);
           let keys = null;
@@ -500,8 +564,14 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
               continue;
             }
           }
-          await appendStore.append(dayFile(guildId, line.occurredAt, privateUserId), JSON.stringify(line));
+          const file = dayFile(guildId, line.occurredAt, privateUserId);
+          await appendStore.append(file, JSON.stringify(line));
           written += 1;
+          if (SHADOWED_KINDS.has(line.kind)) {
+            const unit = root.relative(file);
+            if (!shadowed.has(unit)) shadowed.set(unit, []);
+            shadowed.get(unit).push(line);
+          }
           if (key) {
             keys.add(key);
             touched.set(path.join(base, month, 'ids.json'), keys);
@@ -511,6 +581,7 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
         for (const [file, keys] of touched) {
           await writeIndex(file, keys).catch((error) => log.warn('record: index write failed', { code: error?.code ?? null, guildId: String(guildId) }));
         }
+        shadow(shadowed);
       }
       return { written, duplicates };
     });

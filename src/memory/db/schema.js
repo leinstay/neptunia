@@ -8,7 +8,7 @@
 //
 // There is no `now` table and no `states` table: the owner dropped both.
 
-import { deriveAllMirrorPublications } from './publish.js';
+import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.js';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
@@ -819,9 +819,38 @@ const V11 = [
   `ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'unknown' CHECK (availability IN (${IN(MEDIA_AVAILABILITY)}));`,
 ].join('\n');
 
-/** Each entry moves the schema one version up: SQL text, or a function of the connection for a step SQL cannot do.
- * Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11];
+// Version 12 (spec 2026-10-24-memory-authority, stage W2a): a data step, no table. The diary's legacy mirrors name no
+// place, so their `publications` rows have no destination; the deployment's diary channel (`diary.channelId` of the
+// live config, which only the opener knows: open.js passes it as `context.diaryPlaceId`) becomes it, where that place is
+// stored (publish.js#assignDiaryDestination). Opened without the channel (a tool), the step leaves the meta key
+// `diary_destination_pending` (when there is a publication to give it to), and the next open that knows the channel
+// does it (open.js#migrate). A mirror the sync brings later gets it from the diary's own write under authority `db`.
+
+/** The meta key of a diary destination the v12 step could not set yet. */
+export const DIARY_DESTINATION_PENDING = 'diary_destination_pending';
+
+/** Gives the diary's publications the channel's place as destination, once, when the opener knows it. */
+export function finishDiaryDestination(db, context = {}) {
+  if (db.prepare('SELECT 1 AS ok FROM meta WHERE key = ?').get(DIARY_DESTINATION_PENDING) === undefined) return 0;
+  const place = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId ? context.diaryPlaceId : null;
+  if (!place) return 0;
+  const at = db.prepare(`SELECT ${NOW_SQL} AS at`).get().at;
+  const pending = db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'graph_pending'").get() !== undefined;
+  const set = assignDiaryDestination(db, place, { at, project: !pending });
+  db.prepare('DELETE FROM meta WHERE key = ?').run(DIARY_DESTINATION_PENDING);
+  return set;
+}
+
+function V12(db, context = {}) {
+  // Only a database holding diary publications without a destination has anything to wait for.
+  if (db.prepare("SELECT 1 AS ok FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL LIMIT 1").get() === undefined) return;
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(DIARY_DESTINATION_PENDING, '1');
+  finishDiaryDestination(db, context);
+}
+
+/** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
+ * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];

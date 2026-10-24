@@ -21,6 +21,9 @@
 //   status    Phase, progress and tokens used, from state.json (no Discord, no model).
 //   reset     Clears the warmup progress (`state.warmup`), never the memory it wrote.
 //
+// Under `memoryDb.authority` `db` (the database is the memory) run, users, channels and server refuse (exit 2) unless
+// `--dry-run`: they would write memory files nobody reads.
+//
 // Spending: the subcommands that send model requests (run, users, channels, server) print the plan
 // and the estimate first -- every request at `warmup.maxRequestTokens`, within what is left of
 // `warmup.maxTokens` and within `--max-usd`, priced at `--usd-per-ktok` (0.005 by default) -- and
@@ -45,6 +48,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { toolRefusal } from '../src/memory/db/authority.js';
 import {
   SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
@@ -197,6 +201,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     const guildDir = path.join(dataDir, 'guilds', guildId);
     // What writes under data/: reset, and a spending subcommand that is not a dry run.
     const writes = args.sub === 'reset' || (SPENDING_SUBCOMMANDS.has(args.sub) && !args.dryRun);
+    // Under memoryDb.authority `db` the memory files are no longer the memory: a subcommand that writes them refuses
+    // (`reset` clears the warmup's progress in state.json only, an operational file).
+    const refused = SPENDING_SUBCOMMANDS.has(args.sub) && !args.dryRun ? toolRefusal(hot.config, 'warmup') : null;
+    if (refused) throw new CliError(refused, { exitCode: REFUSED_EXIT });
     if (writes) assertBotStopped(guildDir);
 
     const stores = openStores(dataDir, hot, now, log);

@@ -28,7 +28,7 @@ test('service: the readers\' authority is the one at creation; a change is logge
     const dataDir = path.join(env.root, 'service');
     fs.mkdirSync(dataDir);
     buildDataDir(dataDir);
-    const hot = { config: { features: { memoryDb: true }, memoryDb: { authority: 'db' } } };
+    const hot = { config: { features: { memoryDb: true }, memoryDb: { authority: 'db', read: true, observeLive: true }, recall: { backend: 'db' } } };
     const log = collect();
     const service = createMemoryDb({ hot, dataDir, log, worker: false, now: () => Date.UTC(2026, 9, 24) });
     assert.equal(service.authority(), 'db');

@@ -19,12 +19,16 @@ directory's path, sorted as bytes (the order of a sorted listing of ASCII names)
 
 - **Authority.** Fixed for the process: the service reads `memoryDb.authority` once at start and the modules ask it
   (`memoryDb.authority()`), never the config. A later change is logged as `memory db: authority change needs a
-  restart` and ignored by the readers.
+  restart` and ignored by the readers, the writers, the sync and the status alike. Under `db` the service opens the
+  database only when `memoryDb.read`, `recall.backend: db` and `memoryDb.observeLive` are on (otherwise
+  `memory db: start refused` with a code, and every read is `DB_CLOSED`).
 - **No fallback under `db`.** A closed database (`DB_CLOSED`) or a failed query is an error to the caller, logged
   once as `memory db: read failed` with the reader's name and the code. No function reads a file then.
 - **Read-after-write.** Database writes go through the service's writer thread. A write is visible to the next read
-  of the same process once its promise resolved (the read connection sees every committed transaction). In this
-  stage the modules' writers still write the files; their database writers come later.
+  of the same process once its promise resolved (the read connection sees every committed transaction). Under `db`
+  the record's, the journal's and the meaning index's writers write the database only (`memoryDb.writeUnit`, see
+  "The writers under `db`" below), so a read after an awaited write finds it; the intention and task stores and the
+  store's other files still write their files in this stage.
 - **Forgets.** Members under a forget marker (`forgetting/<id>.json`) are hidden by the same rule on both sides;
   under `db` the markers and the deletion ledger are read from their operational rows.
 - **Logs.** Codes and counts only, never a path, a name or a text.
@@ -88,6 +92,21 @@ Under `db` a store whose load failed is not kept: `get(guildId)` throws the code
   request dumps, the backfill folder, the vault and snapshots, the GIF library, the vision cache, participation).
 - The embedder's catch-up: its forgets, private layers and day checks come from the database under `db`; its lines
   always come through `record.iterate`.
+
+## The writers under `db`
+
+Every row the writers make is the row their unit's mapper derives, through the sync's own path
+(`src/memory/db/unit-write.js`), with the unit's path as `owner_file` and the next `position` of the unit; the unit's
+`files` row is kept, so the export and the directory ids list it.
+
+| Writer | Under `db` | Under `json` |
+|---|---|---|
+| `record.append` | each line as the record maps it in its day's unit; a revision (or deletion) the month already holds is a duplicate, as the id index says; a line the live observation wrote first is taken over in its place | the day files and id indexes, plus the shadow of `said`, `deleted` and `felt` lines (an observation-shaped row the sync adopts) |
+| the live observation (`memoryDb.observe`) | written into the line's record day (the handler waits for it), so a seen line is in the record before the analyzer's batch; an edit's revision is the database's | no owner; the sync adopts it |
+| `journal.write` (every journal writer) | `day`, `decisions`, her answers' `sources` and `affinity_events` as the journal maps the line | the day file; the sync mirrors it |
+| `vectors.append`, `rewrite`, `replace` | the month's rows (appended to the stored month, or a new generation whole) | the month's files |
+| `store.setParticipation` | the file as always, and its episodes from each flush | the file |
+| `store.appendDiaryPost` | the post appended to the diary the database holds, with its mirror's `sent` publication (destination: the diary channel); `diary.json` is not written and its first load is the database's | the file |
 
 ## Known differences on the same snapshot
 

@@ -38,12 +38,16 @@
 // per-request token cap, the daily request cap counted from today's count without writing it
 // back).
 //
+// Under `memoryDb.authority` `db` (the database is the memory) `build` refuses (exit 2) unless `--dry-run`: it would
+// write index files nobody reads.
+//
 // Output: counts, tokens and USD only, never a message's text.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { simKey, CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.mjs';
+import { toolRefusal } from '../src/memory/db/authority.js';
 import { log as defaultLog } from '../src/log.js';
 import { roleModel } from '../src/llm/roles.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -141,6 +145,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
     hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
+  }
+  // Under memoryDb.authority `db` the index files are no longer the memory: a build that writes them refuses.
+  const refused = sub === 'build' && flags['--dry-run'] !== true ? toolRefusal(hot.config, 'embed-index') : null;
+  if (refused) {
+    if (!givenHot) hot.close?.();
+    throw new CliError(refused, { exitCode: REFUSED_EXIT });
   }
   const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config.bot?.guildId || undefined));

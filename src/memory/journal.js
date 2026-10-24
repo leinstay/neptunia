@@ -548,8 +548,11 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
  *   authority `db` the day reads (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`,
  *   `triggerLinks`, `callMarks`, `reconcile`'s scan) and `stats` are answered from the database
- *   (src/memory/db/readers/journal.js), with no file fallback (a failed read rejects with a code); under `json` (the
- *   default) the files are read as always. The writers are unchanged.
+ *   (src/memory/db/readers/journal.js), with no file fallback (a failed read rejects with a code), and every line
+ *   the writers write goes to the database as the journal mapper maps it (`day`, `decisions`, her answers' `sources`,
+ *   `affinity_events`, in the day's unit, `memoryDb.writeUnit`), never to a file: the request dumps and the
+ *   `.running` marker stay files. Under `json` (the default) the files are read and written as always (the sync
+ *   mirrors them).
  * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
@@ -677,7 +680,14 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     try {
       const { record, privateUserId } = envelope(guildId, kind, fields);
       await unlocked();
-      await appendStore.append(dayFile(guildId, record.occurredAt, privateUserId), JSON.stringify(record));
+      const file = dayFile(guildId, record.occurredAt, privateUserId);
+      // Authority `db`: the line goes to the database as the journal mapper maps it, and no file is written.
+      if (seam.authority() === 'db') {
+        if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+        await memoryDb.writeUnit({ op: 'lines', mode: 'db', owner: root.relative(file), lines: [record] });
+        return;
+      }
+      await appendStore.append(file, JSON.stringify(record));
     } catch (error) {
       log.warn('journal: append failed', { kind, code: error?.code ?? null, guildId: String(guildId) });
     }

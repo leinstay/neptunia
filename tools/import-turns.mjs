@@ -35,7 +35,8 @@
 // every key's rows are read, and the summary counts the generations per key name.
 //
 // A dry run is the default (`--dry` says so explicitly): it fetches into the cache and prints the
-// counts, writing nothing under data/. `--write` refuses while the bot runs (the journal's
+// counts, writing nothing under data/. Under `memoryDb.authority` `db` `--write` refuses (exit 2): the record and
+// journal files are no longer read. `--write` refuses while the bot runs (the journal's
 // `.running` marker) or a forget is under way, and leaves out a turn the deletion ledger would
 // drop. Fetching spends no model request; it keeps to `--concurrency` requests at once and
 // `--rate` per second, retries a 429 or a 5xx twice, and stops after ten failures in a row or when
@@ -48,7 +49,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { simKey, CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.mjs';
+import { toolRefusal } from '../src/memory/db/authority.js';
 import {
   DEFAULT_GEN_MS, cacheEntryOf, classify, contentOf, generationsOf, kindKey, matchTurns, parseCsv, replyMatcher, shapeOf,
 } from './lib/import-turns.mjs';
@@ -422,6 +424,12 @@ export async function main(argv, {
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
     hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
+  }
+  // Under memoryDb.authority `db` the record and journal files are no longer the memory: `--write` refuses.
+  const refused = write ? toolRefusal(hot.config, 'import-turns') : null;
+  if (refused) {
+    if (!givenHot) hot.close?.();
+    throw new CliError(refused, { exitCode: REFUSED_EXIT });
   }
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config?.bot?.guildId || undefined));
   const guildDir = path.join(dataDir, 'guilds', guildId);

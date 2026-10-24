@@ -68,11 +68,13 @@
 //        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
 //        checks the schema version and the row counts of the restored file.
 //   node tools/memory-db.mjs observe-check --db <file> --since <iso> [--data <dir>]   (--data: lines still in the analyzer buffer are pending)
-//        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the lines (`seen`, `said`) that
-//        happened since --since and that only one side wrote: observed and never brought by a record file (an
-//        observation the sync did not adopt), and brought by a record file and never observed (no source key in
-//        `external_keys`). Lines of a DM are counted apart. Prints counts and at most five source ids per list, no
-//        text; exit 1 when a list outside DMs is not empty. Opens the database read-only.
+//        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the record lines of every kind
+//        (`seen`, `said`, `deleted`, `felt`) that happened since --since and that only one side wrote: observed and
+//        never brought by a record file (an observation, or the record's shadow of a said, deleted or felt line, that
+//        the sync did not adopt), and brought by a record file and never observed (no source key in `external_keys`;
+//        a seen or said line also counts as observed through the same message under the other subtype). Lines of a DM
+//        are counted apart. Prints counts and at most five source ids per list, no text; exit 1 when a list outside
+//        DMs is not empty. Opens the database read-only.
 //
 // import, sync, reproject, rebuild, ledger-import, index-policy --apply and media-check --apply take the database's
 // writer lock and refuse while the bot (or another tool) holds it.
@@ -897,6 +899,9 @@ function runRestore(io, options) {
 
 // ---------- observe-check ----------
 
+/** The record kinds the check covers. */
+const CHECKED_KINDS = "'seen', 'said', 'deleted', 'felt'";
+
 /** A DM line: its audience or its scope says so. */
 const DM_LINE_SQL = "(s.audience_id LIKE 'aud:dm:%' OR s.scope_kind = 'dm')";
 
@@ -925,13 +930,13 @@ function runObserveCheck(io, options) {
   try {
     const { db } = handle;
     const observedRows = db.prepare(`SELECT s.id AS id, s.native_id AS native, ${DM_LINE_SQL} AS dm FROM sources s
-      WHERE s.origin = 'observation' AND s.owner_file IS NULL AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL ORDER BY s.occurred_at, s.id`).all(since);
+      WHERE s.origin = 'observation' AND s.owner_file IS NULL AND s.kind IN (${CHECKED_KINDS}) AND s.occurred_at >= ? AND s.retired_at IS NULL ORDER BY s.occurred_at, s.id`).all(since);
     const syncOnly = db.prepare(`SELECT s.id AS id, ${DM_LINE_SQL} AS dm FROM sources s
-      WHERE s.owner_file GLOB '*record/*' AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL
+      WHERE s.owner_file GLOB '*record/*' AND s.kind IN (${CHECKED_KINDS}) AND s.occurred_at >= ? AND s.retired_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM external_keys k WHERE k.object_kind = 'source' AND k.node_id = s.id)
         -- the same message observed under the other subtype (her echo recorded as \`seen\` beside her \`said\`) is observed
-        AND NOT EXISTS (SELECT 1 FROM sources o JOIN external_keys k ON k.object_kind = 'source' AND k.node_id = o.id
-          WHERE o.native_id = s.native_id AND o.authority_id IS s.authority_id AND o.retired_at IS NULL)
+        AND (s.kind NOT IN ('seen', 'said') OR NOT EXISTS (SELECT 1 FROM sources o JOIN external_keys k ON k.object_kind = 'source' AND k.node_id = o.id
+          WHERE o.native_id = s.native_id AND o.authority_id IS s.authority_id AND o.retired_at IS NULL))
         ORDER BY s.occurred_at, s.id`).all(since);
     const report = (name, rows) => {
       const outside = rows.filter((row) => !row.dm);

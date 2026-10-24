@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
-import { CHANNEL, MEMBER, buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
 const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/sync-worker.js')).href;
@@ -190,7 +190,7 @@ test('shutdown gives a stuck pass closeTimeoutMs, then terminates the worker and
   } finally { await env.done(); }
 });
 
-test('the worker refuses a pass while the database is the authority; a write through it is stamped with the live authority', async () => {
+test('the worker refuses a pass while the database is the authority; a write through it is stamped with the service\'s fixed authority', async () => {
   const root = tmpRoot();
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -205,17 +205,51 @@ test('the worker refuses a pass while the database is the authority; a write thr
     await worker.terminate();
     fs.rmSync(root, { recursive: true, force: true });
   }
+  const run = { id: 'run:w', sweepId: 'sweep:w', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|w', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
+  const update = { kind: 'session', mode: 'apply', authority: 'db', run, plan: { claims: [], episodes: [], affinity: [], descriptions: [] }, now: 1 };
   const env = setup();
   try {
     await env.service.tick();
-    const run = { id: 'run:w', sweepId: 'sweep:w', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|w', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
-    const update = { kind: 'session', mode: 'apply', authority: 'db', run, plan: { claims: [], episodes: [], affinity: [], descriptions: [] }, now: 1 };
     await assert.rejects(() => env.service.memoryWrite(update), (error) => error.code === 'APPLY_JSON_WRITER');
+    // The authority is fixed for the process: a live change does not unlock the write.
     env.hot.config.memoryDb.authority = 'db';
-    await env.service.memoryWrite(update);
-    await env.service.close();
-    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
+    await assert.rejects(() => env.service.memoryWrite(update), (error) => error.code === 'APPLY_JSON_WRITER');
+  } finally { await env.done(); }
+  // A service started under db (every start check met) writes it through the worker.
+  const db = setup({ memoryDb: { authority: 'db', read: true, observeLive: true } });
+  db.hot.config.recall = { backend: 'db' };
+  try {
+    await db.service.tick();
+    await db.service.memoryWrite(update);
+    await db.service.close();
+    const reader = openMemoryDb(db.dbFile(), { readOnly: true });
     try { assert.equal(reader.db.prepare("SELECT COUNT(*) AS n FROM session_runs WHERE applied = 1").get().n, 1); } finally { reader.close(); }
+  } finally { await db.done(); }
+});
+
+test('worker: under db the unit writers and the observation write through the worker (buffers cross the thread)', async () => {
+  const env = setup({ memoryDb: { authority: 'db', read: true, observeLive: true } });
+  env.hot.config.recall = { backend: 'db' };
+  const owner = `guilds/${GUILD}/record/2026-11/2026-11-03.jsonl`;
+  const month = `guilds/${GUILD}/vectors/2026-11`;
+  try {
+    await env.service.tick();
+    const envelope = {
+      v: 1, iface: 'discord', authority: 'discord/global', native: { kind: 'message', key: '600000000000000001', subtype: 'seen', revision: 1 },
+      place: { authority: 'discord/global', key: `channel:${CHANNEL}`, kind: 'channel', conversation: 'group' },
+      author: { kind: 'account', key: MEMBER, account_kind: 'user' }, occurredAt: '2026-11-03T10:00:00.000Z', observedAt: '2026-11-03T10:00:00.000Z',
+      text: 'Καλημέρα', mentions: [], direct: false, relations: [],
+    };
+    const observed = await env.service.observe(envelope, { guildId: GUILD });
+    assert.deepEqual([observed.ok, observed.revision], [true, 1]);
+    const line = { v: 1, id: 'r-w', kind: 'said', messageId: '600000000000000002', revision: 1, occurredAt: '2026-11-03T10:01:00.000Z', recordedAt: '2026-11-03T10:01:00.000Z', guildId: GUILD, scope: { channel: CHANNEL }, replyTo: null, text: 'Γεια', media: [], mentions: [], turnId: 't-w', opId: 'op-w', participants: [], sourceMessageIds: ['600000000000000002'], origin: 'live' };
+    assert.deepEqual(await env.service.writeUnit({ op: 'lines', mode: 'db', owner, lines: [line] }), { written: 1, duplicates: 0, adopted: 0 });
+    const meta = '{"row":0,"kind":"record","id":"600000000000000002","revision":1,"occurredAt":"2026-11-03T10:01:00.000Z","channelId":null,"by":null,"participants":[],"sourceIds":[],"scale":0.01,"norm":1}\n';
+    const manifest = { v: 1, gen: 1, rows: 1, bytes: 4, metaBytes: Buffer.byteLength(meta), model: 'test/embedder', dims: 4, checksum: 'fnv1a32:00000000:00000000' };
+    await env.service.writeUnit({ op: 'vectors', owner: month, delta: { manifest, meta, i8: Buffer.from([1, 2, 3, 4]) } });
+    const db = env.service.readHandle().db;
+    assert.deepEqual(db.prepare('SELECT kind, position FROM sources WHERE owner_file = ? ORDER BY position').all(owner).map((row) => [row.kind, row.position]), [['seen', 0], ['said', 1]]);
+    assert.deepEqual([...db.prepare('SELECT bytes FROM vectors WHERE owner_file = ?').get(month).bytes], [1, 2, 3, 4]);
   } finally { await env.done(); }
 });
 

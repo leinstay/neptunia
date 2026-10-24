@@ -244,8 +244,12 @@ function bufferedMediaIds(buffered) {
  *   src/memory/db/service.js#createMemoryDb, optional: with `memoryDb.observeLive` exactly true (read
  *   at each message), every message memory observes and every edit the record writes is also sent to
  *   the memory database as an observation (src/memory/db/observe-event.js#observationOf), through
- *   its writer; never awaited, never a message's failure (a refusal is logged with its code at
- *   debug). Absent or off: nothing is sent.
+ *   its writer; never a message's failure (a refusal is logged with its code at debug). Under its
+ *   authority `db` (`memoryDb.authority()`, fixed for the process) the observation is the line's
+ *   record: it names the line's record (`{ guildId, privateUserId }`) and the handler awaits its
+ *   commit, at most `memoryDb.observeTimeoutMs` (5000), before it goes on (a failed write waits in
+ *   the service's queue for the next tick, never for a file); an edit's record line then takes the
+ *   revision the database counted. Under `json` it is never awaited. Absent or off: nothing is sent.
  * @param {{ noteFact: Function, noteActivity: Function }|null} [deps.missed]  From
  *   src/behavior/missed.js#createMissed, optional: a failed address classifier
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
@@ -303,20 +307,44 @@ export function createMessageHandler({
   const revisions = new Map();
   let revisionsDay = null;
 
+  /** Whether the memory database is the memory's writer (fixed for the process): the observation is then the record. */
+  const dbWrites = () => typeof memoryDb?.authority === 'function' && memoryDb.authority() === 'db';
+
   /**
-   * The shadow write of the live observation path: `event` as an observation of the memory
-   * database (see deps.memoryDb), with `direct` as memory gets it. Fire-and-forget; codes only.
+   * The live observation path: `event` as an observation of the memory database (see
+   * deps.memoryDb), with `direct` as memory gets it and `where` (`{ guildId, privateUserId }`)
+   * the record the line belongs to. Under `json` fire-and-forget (null); under `db` a promise of
+   * the observe result (null on a failure or past `memoryDb.observeTimeoutMs`), which the caller
+   * awaits. Codes only.
    */
-  function observeShadow(event, direct = false) {
-    if (!memoryDb || typeof memoryDb.observe !== 'function' || hot.config?.memoryDb?.observeLive !== true) return;
+  function observeShadow(event, direct = false, where = null) {
+    if (!memoryDb || typeof memoryDb.observe !== 'function' || hot.config?.memoryDb?.observeLive !== true) return null;
     try {
       const envelope = observationOf(event, { selfId: client.user?.id ?? null, direct });
-      if (!envelope) return;
-      Promise.resolve(memoryDb.observe(envelope))
-        .then((done) => { if (done && done.ok === false) log.debug?.('events: observe refused', { code: done.code }); })
-        .catch((err) => log.warn('events: observe failed', { code: err?.code ?? null }));
+      if (!envelope) return null;
+      const sent = Promise.resolve(memoryDb.observe(envelope, where))
+        .then((done) => {
+          if (done && done.ok === false) log.debug?.('events: observe refused', { code: done.code });
+          return done ?? null;
+        })
+        .catch((err) => {
+          log.warn('events: observe failed', { code: err?.code ?? null });
+          return null;
+        });
+      if (!dbWrites()) return null;
+      const limit = hot.config?.memoryDb?.observeTimeoutMs;
+      const ms = Number.isFinite(limit) && limit > 0 ? limit : 5000;
+      let timer;
+      const late = new Promise((resolve) => {
+        timer = timers.set(() => {
+          log.warn('events: observe slow', { code: 'OBSERVE_TIMEOUT' });
+          resolve(null);
+        }, ms);
+      });
+      return Promise.race([sent, late]).finally(() => timers.clear(timer));
     } catch (err) {
       log.warn('events: observe failed', { code: err?.code ?? null });
+      return null;
     }
   }
 
@@ -2348,7 +2376,8 @@ export function createMessageHandler({
       if (isLimitNotice(hot.prompts?.labels, normalized.content)) return;
       if (memoryOn) {
         memory.observe(guildId, normalized, { private: partnerId });
-        observeShadow(event);
+        const observing = observeShadow(event, false, { guildId, privateUserId: String(partnerId) });
+        if (observing) await observing;
       }
       return;
     }
@@ -2363,7 +2392,8 @@ export function createMessageHandler({
     // Observed like a direct call; during a memory warmup run, never answered.
     if (memoryOn) {
       memory.observe(guildId, normalized, { direct: true, private: authorId });
-      observeShadow(event, true);
+      const observing = observeShadow(event, true, { guildId, privateUserId: String(authorId) });
+      if (observing) await observing;
     }
     if (isWarmingUp()) return;
 
@@ -2598,7 +2628,8 @@ export function createMessageHandler({
         noteFollowUpSend(normalized.channelId, normalized.ts);
         if (memoryOn) {
           memory.observe(guildId, normalized);
-          observeShadow(event);
+          const observing = observeShadow(event, false, { guildId });
+          if (observing) await observing;
         }
         return 'observed';
       }
@@ -2616,7 +2647,8 @@ export function createMessageHandler({
         warmMediaCache(guildId, normalized);
         if (memoryOn) {
           memory.observe(guildId, normalized, { direct: false });
-          observeShadow(event);
+          const observing = observeShadow(event, false, { guildId });
+          if (observing) await observing;
         }
         return 'observed';
       }
@@ -2641,7 +2673,8 @@ export function createMessageHandler({
       const ownPrefill = warmMediaCache(guildId, normalized);
       if (memoryOn) {
         memory.observe(guildId, normalized, { direct: Boolean(kind) });
-        observeShadow(event, Boolean(kind));
+        const observing = observeShadow(event, Boolean(kind), { guildId });
+        if (observing) await observing;
       }
 
       // 9b. A channel whose call waits to be answered elsewhere is still
@@ -2799,9 +2832,17 @@ export function createMessageHandler({
       revisions.set(normalized.id, revision);
       const slim = slimMessage(normalized, buffered?.direct === true);
       // A revision the record already holds (a tool appended one) moves the edit past it; later edits continue from there.
-      // The database counts its own revisions (observe.js): the edit goes there without one.
-      observeShadow(event, buffered?.direct === true);
-      const landed = await appendRevision(record, guildId, (next) => toRecordLine(slim, { revision: next, now }), revision);
+      // The database counts its own revisions (observe.js): the edit goes there without one. Under authority `db` the
+      // observation is the record: the edit's line takes the revision the database counted (and waits for a failed
+      // observation's retry, never for a file).
+      const observed = observeShadow(event, buffered?.direct === true, { guildId });
+      let start = revision;
+      if (dbWrites()) {
+        const done = await observed;
+        if (!done || done.ok !== true || !Number.isInteger(done.revision)) return;
+        start = done.revision;
+      }
+      const landed = await appendRevision(record, guildId, (next) => toRecordLine(slim, { revision: next, now }), start);
       if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
     } catch (err) {
       log.warn('events: record failed', { kind: 'seen', lines: 1, code: err?.code ?? null });

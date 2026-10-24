@@ -25,6 +25,12 @@
 // alone and kept per month while its manifest says the generation and the row count are the same
 // (a grown month reads only its new lines, a new generation is read whole).
 //
+// Under authority `db` (the memory database's service, fixed for the process; stage W2a) the writers write no file:
+// `append` sends the month's new rows (the new manifest, the jsonl lines and their int8 bytes, built exactly as the
+// file append builds them, the checksum continued from the stored manifest) and `rewrite` / `replace` the month's next
+// generation whole, through `memoryDb.writeUnit` (op `vectors`): the `vectors` rows and the month's `operational` row
+// as map/vectors.js maps the three files. Eviction stays off.
+//
 // Logs carry counts, months and guild ids, never a row's contents.
 
 import * as nodeFs from 'node:fs/promises';
@@ -169,7 +175,8 @@ function validManifest(value) {
  *   authority `db`, `search`, `stats` and `has` read the months from the database
  *   (src/memory/db/readers/vectors.js; an evicted vector is left out), the forget markers and the deletion ledger
  *   too, with no file fallback (a failed read rejects with a code); under `json` (the default) the files are read
- *   as always. The writers are unchanged.
+ *   as always. Under `db` the writers write the database only (see the head of this file), rejecting with the
+ *   writer's code when it fails.
  * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, rows: Array<{ meta: object, vector: ArrayLike<number> }>,
@@ -500,10 +507,16 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     return error;
   }
 
-  async function appendMonth(base, month, items, dims, model) {
+  /** The database's writer of a month (authority `db`): one write, resolved once committed; no file. */
+  async function writeMonth(dir, payload) {
+    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    await memoryDb.writeUnit({ op: 'vectors', owner: root.relative(dir), ...payload });
+  }
+
+  async function appendMonth(base, month, items, dims, model, db = null) {
     const dir = path.join(base, month);
-    await fs.mkdir(dir, { recursive: true });
-    const current = await readManifest(dir);
+    if (!db) await fs.mkdir(dir, { recursive: true });
+    const current = await readManifest(dir, db);
     let manifest = current ?? {
       v: MANIFEST_VERSION, gen: 1, rows: 0, bytes: 0, metaBytes: 0, model: model ?? null, dims, checksum: checksumOf(FNV_OFFSET, FNV_OFFSET),
     };
@@ -512,8 +525,10 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     const hashes = parseChecksum(manifest.checksum) ?? [FNV_OFFSET, FNV_OFFSET];
     const i8File = genFile(dir, manifest.gen, 'i8');
     const metaFile = genFile(dir, manifest.gen, 'jsonl');
-    await cutTo(i8File, manifest.bytes, month);
-    await cutTo(metaFile, manifest.metaBytes, month);
+    if (!db) {
+      await cutTo(i8File, manifest.bytes, month);
+      await cutTo(metaFile, manifest.metaBytes, month);
+    }
     const data = Buffer.alloc(items.length * dims);
     let lines = '';
     items.forEach(({ quantized, meta, iso }, i) => {
@@ -521,8 +536,6 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       lines += `${JSON.stringify(storedMeta(meta, manifest.rows + i, iso, quantized.scale, quantized.norm))}\n`;
     });
     const metaBuf = Buffer.from(lines, 'utf8');
-    await appendBytes(i8File, data);
-    await appendBytes(metaFile, metaBuf);
     const next = {
       ...manifest,
       v: MANIFEST_VERSION,
@@ -531,6 +544,12 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       metaBytes: manifest.metaBytes + metaBuf.length,
       checksum: checksumOf(fnv(hashes[0], data), fnv(hashes[1], metaBuf)),
     };
+    if (db) {
+      await writeMonth(dir, { delta: { manifest: next, meta: lines, i8: data } });
+      return;
+    }
+    await appendBytes(i8File, data);
+    await appendBytes(metaFile, metaBuf);
     await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify(next));
   }
 
@@ -550,8 +569,9 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
         byMonth.get(month).push({ quantized: quantize(row.vector), meta: row.meta, iso });
       }
       const base = baseDir(guildId, privateUserId);
+      const db = seam.db();
       for (const [month, items] of [...byMonth].sort(([a], [b]) => a.localeCompare(b))) {
-        await appendMonth(base, month, items, dims, model);
+        await appendMonth(base, month, items, dims, model, db);
       }
       log.info('vectors: appended', { guildId: String(guildId), rows: list.length, months: byMonth.size });
       return { written: list.length };
@@ -559,13 +579,13 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
   }
 
   /** Rewrite one month into a new generation with the rows `keep` accepts; the old ones deleted. */
-  async function rewriteMonth(base, month, keep) {
+  async function rewriteMonth(base, month, keep, db = null) {
     const key = `${base}|${month}`;
     const dir = path.join(base, month);
-    const manifest = await readManifest(dir);
+    const manifest = await readManifest(dir, db);
     if (!manifest || manifest.rows === 0) return { kept: 0, dropped: 0 };
-    const data = await readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes);
-    const metas = parseLines(await readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes));
+    const data = await readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes, db);
+    const metas = parseLines(await readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes, db));
     const keptRows = [];
     for (let row = 0; row < manifest.rows; row += 1) {
       const meta = metas[row];
@@ -581,9 +601,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       lines += `${JSON.stringify({ ...metas[row], row: i })}\n`;
     });
     const metaBuf = Buffer.from(lines, 'utf8');
-    await writeAtomic(genFile(dir, gen, 'i8'), out);
-    await writeAtomic(genFile(dir, gen, 'jsonl'), metaBuf);
-    await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify({
+    const nextManifest = {
       ...manifest,
       v: MANIFEST_VERSION,
       gen,
@@ -591,7 +609,14 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       bytes: out.length,
       metaBytes: metaBuf.length,
       checksum: checksumOf(fnv(FNV_OFFSET, out), fnv(FNV_OFFSET, metaBuf)),
-    }));
+    };
+    if (db) {
+      await writeMonth(dir, { value: { manifest: nextManifest, meta: lines, i8: out } });
+      return { kept: keptRows.length, dropped };
+    }
+    await writeAtomic(genFile(dir, gen, 'i8'), out);
+    await writeAtomic(genFile(dir, gen, 'jsonl'), metaBuf);
+    await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify(nextManifest));
     dropCached(key);
     keySets.delete(key);
     // Every other generation goes: the one just replaced and any a crashed rewrite left behind.
@@ -606,7 +631,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
     if (typeof writerGate === 'function') await writerGate();
     return serial(async () => {
-      const result = await rewriteMonth(baseDir(guildId, privateUserId), String(month), keep);
+      const result = await rewriteMonth(baseDir(guildId, privateUserId), String(month), keep, seam.db());
       if (result.dropped > 0) log.info('vectors: rewritten', { guildId: String(guildId), month, ...result });
       return result;
     });
@@ -617,15 +642,15 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
    * `keep` accepts (none when they are of another length or model), written as the next
    * generation, the manifest switched by rename, the older generations deleted.
    */
-  async function replaceMonth(base, month, items, dims, model, keep) {
+  async function replaceMonth(base, month, items, dims, model, keep, db = null) {
     const key = `${base}|${month}`;
     const dir = path.join(base, month);
-    await fs.mkdir(dir, { recursive: true });
-    const manifest = await readManifest(dir);
+    if (!db) await fs.mkdir(dir, { recursive: true });
+    const manifest = await readManifest(dir, db);
     const kept = [];
     if (manifest && manifest.rows > 0 && typeof keep === 'function' && manifest.dims === dims && !(model && manifest.model && model !== manifest.model)) {
-      const data = await readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes);
-      const metas = parseLines(await readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes));
+      const data = await readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes, db);
+      const metas = parseLines(await readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes, db));
       for (let row = 0; row < manifest.rows; row += 1) {
         if (metas[row] && keep(metas[row])) kept.push({ meta: metas[row], bytes: data.subarray(row * dims, (row + 1) * dims) });
       }
@@ -644,9 +669,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       lines += `${JSON.stringify({ ...meta, row })}\n`;
     });
     const metaBuf = Buffer.from(lines, 'utf8');
-    await writeAtomic(genFile(dir, gen, 'i8'), out);
-    await writeAtomic(genFile(dir, gen, 'jsonl'), metaBuf);
-    await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify({
+    const nextManifest = {
       v: MANIFEST_VERSION,
       gen,
       rows,
@@ -655,7 +678,15 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       model: model ?? manifest?.model ?? null,
       dims,
       checksum: checksumOf(fnv(FNV_OFFSET, out), fnv(FNV_OFFSET, metaBuf)),
-    }));
+    };
+    const result = { written: items.length, kept: kept.length, dropped: (manifest?.rows ?? 0) - kept.length };
+    if (db) {
+      await writeMonth(dir, { value: { manifest: nextManifest, meta: lines, i8: out } });
+      return result;
+    }
+    await writeAtomic(genFile(dir, gen, 'i8'), out);
+    await writeAtomic(genFile(dir, gen, 'jsonl'), metaBuf);
+    await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify(nextManifest));
     dropCached(key);
     keySets.delete(key);
     for (const name of await listDir(dir)) {
@@ -679,7 +710,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
         if (rowMonth !== String(month)) throw new TypeError(`vectors: a row of ${rowMonth} in a replace of ${month}`);
         return { quantized: quantize(row.vector), meta: row.meta, iso };
       });
-      const result = await replaceMonth(baseDir(guildId, privateUserId), String(month), items, dims, model, keep);
+      const result = await replaceMonth(baseDir(guildId, privateUserId), String(month), items, dims, model, keep, seam.db());
       log.info('vectors: replaced', { guildId: String(guildId), month: String(month), ...result });
       return result;
     });

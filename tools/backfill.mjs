@@ -82,6 +82,9 @@
 // dropped. Model requests go through the bot's client with its rails (the per-request token
 // cap), marked `origin: 'backfill'`, never counted against `llm.maxRequestsPerDay`.
 //
+// Under `memoryDb.authority` `db` (the database is the memory) every subcommand that would write refuses (exit 2):
+// only `report`, a dry run and `links` without `--write` run.
+//
 // `links --write` also refuses while the bot runs (its journal's `.running` marker): the running
 // bot holds the record's id index in memory.
 //
@@ -95,6 +98,7 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { simKey, CliError, REFUSED_EXIT, daysBetween, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { toolRefusal } from '../src/memory/db/authority.js';
 import {
   WINDOW_MAX_LINES, advanceCursor, archiveItemOf, buildExtractRequest, candidateItemId, dedupeCandidates, estimate,
   DEDUPE_REASONS, ledgerDrops, linkCandidates, linkRevision, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
@@ -398,6 +402,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
     hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
+  }
+  // Under memoryDb.authority `db` the memory files are no longer the memory: a subcommand that writes them refuses.
+  const writes = sub !== 'report' && !dryRun && !(sub === 'links' && flags['--write'] !== true);
+  const refused = writes ? toolRefusal(hot.config, 'backfill') : null;
+  if (refused) {
+    if (!givenHot) hot.close?.();
+    throw new CliError(refused, { exitCode: REFUSED_EXIT });
   }
   const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config.bot?.guildId || undefined));
