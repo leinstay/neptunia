@@ -124,6 +124,7 @@
   "memoryDb": {
     "file": "memory.db",
     "syncSeconds": 60,
+    "closeTimeoutMs": 10000,
     "read": false,
     "turnReads": true
   },

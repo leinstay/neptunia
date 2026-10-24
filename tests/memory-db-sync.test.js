@@ -355,3 +355,64 @@ test('a request dump file without the journal turn does not break a pass', () =>
     env.done();
   }
 });
+
+/** Writes the vector month of the synthetic directory with the given rows (ids), under a generation. */
+function writeMonth(g, ids, { gen = 1 } = {}) {
+  const dir = path.join(g, 'vectors', '2026-10');
+  const lines = ids.map((id, row) => ({
+    row, kind: 'record', id, revision: 1, occurredAt: '2026-10-20T09:00:00.000Z', channelId: CHANNEL,
+    by: MEMBER, participants: [MEMBER], sourceIds: [id], scale: 0.01, norm: 0.99,
+  }));
+  const meta = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+  const i8 = Buffer.concat(ids.map((_, row) => Buffer.alloc(4, row + 1)));
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name));
+  fs.writeFileSync(path.join(dir, `${gen}.i8`), i8);
+  fs.writeFileSync(path.join(dir, `${gen}.jsonl`), meta);
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+    v: 1, gen, rows: ids.length, bytes: i8.length, metaBytes: Buffer.byteLength(meta), model: 'test/embedder', dims: 4, checksum: 'fnv1a32:00000000:00000000',
+  }));
+}
+
+test('a vector month that only grew reads just its new rows, and the export stays byte-exact', () => {
+  const env = setup();
+  try {
+    writeMonth(env.g, ['400000000000000001', '400000000000000002']);
+    syncOnce(env.handle, env.data);
+    assert.deepEqual({ ...env.db.prepare("SELECT offset, lines FROM files WHERE path LIKE '%vectors/2026-10'").get() }, { offset: 1, lines: 2 }, 'the generation and the row count are kept');
+    const rowids = env.db.prepare('SELECT rowid FROM vectors ORDER BY rowid').all().map((row) => row.rowid);
+    writeMonth(env.g, ['400000000000000001', '400000000000000002', '400000000000000003', '400000000000000004']);
+    const result = syncOnce(env.handle, env.data);
+    assert.equal(result.errors, 0);
+    assert.equal(result.byKind.vectors.upserted, 3, 'two new rows and the month record, not the four rows again');
+    assert.equal(result.byKind.vectors.retired, 0);
+    assert.deepEqual(env.db.prepare('SELECT rowid FROM vectors ORDER BY rowid').all().slice(0, 2).map((row) => row.rowid), rowids);
+    assert.equal(count(env.db, 'SELECT COUNT(*) AS n FROM vectors WHERE retired_at IS NULL'), 4);
+    assert.equal(env.db.prepare("SELECT lines FROM files WHERE path LIKE '%vectors/2026-10'").get().lines, 4);
+    assert.equal(verify(env).different, 0);
+    assert.equal(syncOnce(env.handle, env.data).changed, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test('a new generation of a vector month (a rewrite) is mapped whole, and the rows it dropped are retired', () => {
+  const env = setup();
+  try {
+    writeMonth(env.g, ['400000000000000001', '400000000000000002', '400000000000000003']);
+    syncOnce(env.handle, env.data);
+    writeMonth(env.g, ['400000000000000001', '400000000000000003'], { gen: 2 });
+    const result = syncOnce(env.handle, env.data);
+    assert.equal(result.errors, 0);
+    assert.equal(result.byKind.vectors.upserted, 3, 'the two kept rows and the month record, all read again');
+    assert.equal(result.byKind.vectors.retired, 1);
+    assert.deepEqual({ ...env.db.prepare("SELECT offset, lines FROM files WHERE path LIKE '%vectors/2026-10'").get() }, { offset: 2, lines: 2 });
+    assert.equal(verify(env).different, 0);
+    // A new generation is read whole even when its row count grew.
+    writeMonth(env.g, ['400000000000000001', '400000000000000003', '400000000000000005'], { gen: 3 });
+    assert.equal(syncOnce(env.handle, env.data).byKind.vectors.upserted, 4);
+    assert.equal(verify(env).different, 0);
+  } finally {
+    env.done();
+  }
+});

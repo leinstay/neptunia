@@ -17,11 +17,22 @@
 //     disk, or does not map falls back to the disk read and is counted (`status().reads`).
 //   - `recordTurnReads` writes the turn_reads rows of one step (`memoryDb.turnReads`), deferred, one transaction.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
-//     and releases the lock.
+//     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
+//     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
+//
+// Threads. By default the writer connection, the lock, every sync pass and the turn_reads writes live in a worker
+// thread (sync-worker.js); the main thread keeps a read-only connection, which is all the read switch and the status
+// card need (WAL: readers never wait for the writer). turn_reads go to the worker as messages rather than being
+// written from the main thread: a second writer would wait out the worker's write transaction (up to the busy
+// timeout) on the bot's own loop. A worker that exits or crashes is logged with a code, its calls fail, and the next
+// tick opens a new one (the dead one's lock is ours to take over). The main thread never runs a mapper. Injecting
+// `sync` or `open` (the tests), or `worker: false`, keeps everything on the calling thread, with the sliced import.
 // Counts and codes only in the logs, never a path, a name or a text.
 
+import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from './open.js';
+import { Worker } from 'node:worker_threads';
+import { lockPathOf, openMemoryDb } from './open.js';
 import { syncOnce, walk, unitsOf } from './sync.js';
 import { exportOne, idsUnderDir } from './export.js';
 import { channelPlaceId, guildPlaceId } from './ids.js';
@@ -29,6 +40,8 @@ import { memoryRootOf } from '../root.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
+const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
+const WORKER_FILE = new URL('./sync-worker.js', import.meta.url);
 const IMPORT_DONE = 'service_import_done';
 /** The weight of opening one unit in a slice, in bytes of file (about what a small file costs to import). */
 const UNIT_WEIGHT = 20 * 1024;
@@ -69,6 +82,90 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
   return [...rows.values()];
 }
 
+/** Waits for a promise (if any) for at most `ms`; a rejection of it is the caller's own business. */
+async function waitFor(promise, ms) {
+  if (!promise) return;
+  let timer;
+  try {
+    await Promise.race([promise.catch(() => {}), new Promise((resolve) => { timer = setTimeout(resolve, ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Starts the sync worker. `call(type, payload)` posts one message and resolves with the worker's reply (a rejection
+ * carries the worker's `code`); when the worker exits or fails, `dead` turns true, the calls under way reject with
+ * `WORKER_EXIT` (or the error's code) and the exit is logged once, with a code and the exit code only.
+ */
+function startWorker({ workerFile, dataDir, log, codeOf }) {
+  const worker = new Worker(workerFile, { workerData: { dataDir } });
+  worker.unref();
+  const pending = new Map();
+  let seq = 0;
+  let stopping = false;
+  let logged = false;
+  let exited = false;
+  let onExit;
+  const exit = new Promise((resolve) => { onExit = resolve; });
+  const engine = { dead: false, call, stop };
+
+  function fail(code) {
+    engine.dead = true;
+    for (const waiting of pending.values()) waiting.reject(Object.assign(new Error('memory db worker stopped'), { code }));
+    pending.clear();
+  }
+
+  function call(type, payload = {}) {
+    if (engine.dead) return Promise.reject(Object.assign(new Error('memory db worker stopped'), { code: 'WORKER_EXIT' }));
+    return new Promise((resolve, reject) => {
+      seq += 1;
+      pending.set(seq, { resolve, reject });
+      worker.postMessage({ ...payload, id: seq, type });
+    });
+  }
+
+  worker.on('message', (message) => {
+    if (message?.type === 'log') {
+      log[message.level]?.(message.message, message.fields);
+      return;
+    }
+    const waiting = pending.get(message?.id);
+    if (!waiting) return;
+    pending.delete(message.id);
+    if (message.ok) waiting.resolve(message.result);
+    else waiting.reject(Object.assign(new Error('memory db worker call failed'), { code: message.code }));
+  });
+  worker.on('error', (error) => {
+    if (!logged && !stopping) { logged = true; log.warn('memory db: worker failed', { code: codeOf(error) }); }
+    fail(codeOf(error));
+  });
+  worker.on('exit', (exitCode) => {
+    exited = true;
+    if (!logged && !stopping) { logged = true; log.warn('memory db: worker exited', { code: 'WORKER_EXIT', exit: exitCode }); }
+    fail('WORKER_EXIT');
+    onExit();
+  });
+
+  /** Asks the worker to close its database, waits up to `timeoutMs` for it to end, terminates it otherwise. */
+  async function stop(timeoutMs, lockFile) {
+    stopping = true;
+    if (!engine.dead && timeoutMs > 0) {
+      call('close').catch(() => {});
+      await waitFor(exit, timeoutMs);
+    }
+    if (!exited) await worker.terminate();
+    if (lockFile) {
+      // A terminated or crashed worker cannot release the lock it took for this process.
+      try {
+        if (JSON.parse(fs.readFileSync(lockFile, 'utf8'))?.pid === process.pid) fs.rmSync(lockFile, { force: true });
+      } catch { /* no lock, or not ours */ }
+    }
+  }
+
+  return engine;
+}
+
 /**
  * @param {{ hot: { config: object }, dataDir: string, log?: object, now?: () => number,
  *   open?: typeof openMemoryDb, sync?: typeof syncOnce, defer?: (fn: () => void) => void, sliceMs?: number,
@@ -77,11 +174,16 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
  *   millisecond clock for the slices (performance.now); both are injected by the tests.
  */
 export function createMemoryDb({
-  hot, dataDir, log = silent, now = Date.now, open = openMemoryDb, sync = syncOnce,
+  hot, dataDir, log = silent, now = Date.now, open, sync,
   defer = (fn) => setImmediate(fn), sliceMs = 30, clock = () => performance.now(),
+  worker: useWorker, workerFile = WORKER_FILE,
 }) {
+  const threaded = useWorker ?? (open === undefined && sync === undefined);
+  open ??= openMemoryDb;
+  sync ??= syncOnce;
   const root = memoryRootOf(dataDir);
   let handle = null;
+  let engine = null;
   let running = null;
   let dirty = true;
   let lastSyncAt = null;
@@ -99,23 +201,36 @@ export function createMemoryDb({
       syncMs: (Number.isFinite(given.syncSeconds) && given.syncSeconds > 0 ? given.syncSeconds : DEFAULT_SYNC_SECONDS) * 1000,
       read: given.read === true,
       turnReads: given.turnReads !== false,
+      closeMs: Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0 ? given.closeTimeoutMs : DEFAULT_CLOSE_TIMEOUT_MS,
     };
   };
   const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
   const meta = (key) => handle.db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
   const setMeta = (key, value) => handle.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 
-  function openNow() {
+  async function openNow() {
     const { file } = settings();
+    const dbPath = path.join(dataDir, file);
+    let started = null;
     try {
-      handle = open(path.join(dataDir, file));
-      importDone = meta(IMPORT_DONE) === '1';
+      if (threaded) {
+        started = startWorker({ workerFile, dataDir, log, codeOf });
+        const opened = await started.call('open', { path: dbPath });
+        handle = open(dbPath, { readOnly: true });
+        engine = started;
+        importDone = opened.importDone === true;
+      } else {
+        handle = open(dbPath);
+        importDone = meta(IMPORT_DONE) === '1';
+      }
       lastSyncAt = null;
       dirty = true;
       openErrors.clear();
       log.info('memory db: opened', { file });
     } catch (error) {
       handle = null;
+      engine = null;
+      if (started) await started.stop(0);
       const code = codeOf(error);
       if (!openErrors.has(code)) {
         openErrors.add(code);
@@ -124,12 +239,18 @@ export function createMemoryDb({
     }
   }
 
-  function closeNow() {
-    if (!handle) return;
-    try { handle.close(); } catch (error) { log.warn('memory db: close failed', { code: codeOf(error) }); }
+  /** Closes the database; the worker gets `timeoutMs` to finish what it holds, then it is terminated. */
+  async function closeNow(timeoutMs = settings().closeMs) {
+    if (!handle && !engine) return;
+    if (handle) {
+      try { handle.close(); } catch (error) { log.warn('memory db: close failed', { code: codeOf(error) }); }
+    }
+    const worker = engine;
     handle = null;
+    engine = null;
     importDone = false;
     lastSyncAt = null;
+    if (worker) await worker.stop(timeoutMs, lockPathOf(path.join(dataDir, settings().file)));
     log.info('memory db: closed', {});
   }
 
@@ -177,7 +298,13 @@ export function createMemoryDb({
     const first = !importDone;
     dirty = false;
     try {
-      const result = first ? await importSliced() : sync(handle, dataDir, { now, log: passLog });
+      let result;
+      if (engine) {
+        result = await engine.call('pass', { first, now: now() });
+        if (result.importDone) importDone = true;
+      } else {
+        result = first ? await importSliced() : sync(handle, dataDir, { now, log: passLog });
+      }
       lastSyncAt = now();
       lastPass = { at: lastSyncAt, first, ms: Math.round(clock() - started), errors: result.errors, changed: result.changed, ...(first ? { slices: result.slices, maxSliceMs: Math.round(result.maxSliceMs * 10) / 10 } : {}) };
       if (result.errors > 0) dirty = true;
@@ -185,7 +312,7 @@ export function createMemoryDb({
     } catch (error) {
       dirty = true;
       lastPass = { at: now(), first, failed: true };
-      log.warn('memory db: pass failed', { reason, code: codeOf(error) });
+      if (!closing) log.warn('memory db: pass failed', { reason, code: codeOf(error) });
     }
   }
 
@@ -199,13 +326,18 @@ export function createMemoryDb({
   async function tick() {
     if (closing) return;
     if (!on()) {
-      if (handle) {
-        if (running) await running;
-        closeNow();
+      if (handle || engine) {
+        await waitFor(running, settings().closeMs);
+        await closeNow();
       }
       return;
     }
-    if (!handle) openNow();
+    if (engine?.dead && !running) await closeNow(0);
+    if (!handle) {
+      // On the calling thread the open is synchronous; only the worker's open is waited for.
+      const opening = openNow();
+      if (threaded) await opening;
+    }
     if (!handle || running) return;
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
   }
@@ -252,6 +384,15 @@ export function createMemoryDb({
    */
   function recordTurnReads({ turnId, step = 's0', guildId = null, reads: carried }) {
     if (!handle || !on() || !settings().turnReads || !turnId || !Array.isArray(carried) || carried.length === 0) return;
+    if (engine) {
+      defer(() => {
+        if (!engine || engine.dead) return;
+        engine.call('turnReads', { turnId: String(turnId), step: String(step), guildId, reads: carried })
+          .then((done) => { if (done.rows > 0) log.debug('memory db: turn reads', { rows: done.rows }); })
+          .catch((error) => log.warn('memory db: turn reads failed', { code: codeOf(error) }));
+      });
+      return;
+    }
     defer(() => {
       if (!handle) return;
       try {
@@ -300,11 +441,13 @@ export function createMemoryDb({
   /** Shutdown: waits for a pass under way, runs a last one (the store is flushed), closes the database, releases the lock. */
   async function close() {
     closing = true;
-    if (running) await running;
-    if (handle && on() && importDone) {
-      try { await runPass('shutdown'); } catch { /* logged inside */ }
+    const { closeMs } = settings();
+    const deadline = performance.now() + closeMs;
+    await waitFor(running, closeMs);
+    if (handle && on() && importDone && !running && !engine?.dead) {
+      try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
     }
-    closeNow();
+    await closeNow(Math.max(0, deadline - performance.now()));
   }
 
   return { tick, requestSync, reader, recordTurnReads, status, close };

@@ -64,12 +64,37 @@ function cleanLines(text) {
   return parsed;
 }
 
+/** The `vectors` row of one clean jsonl line; `index` is its position in the month, `unique` the month's chunk_key dedup. */
+function lineRow(line, index, ctx) {
+  const { manifest, dims, i8, prefix, unique, scope } = ctx;
+  const keys = Object.keys(line);
+  const part = split(line, SPEC);
+  if (!sameOrder(keys, canonicalOrder(keys))) part.rest.$keys = keys;
+  return {
+    source_rowid: null,
+    ...part.cols,
+    chunk_key: unique(chunkKeyOf(line, prefix)),
+    model: typeof manifest.model === 'string' ? manifest.model : null,
+    dims,
+    bytes: i8.subarray(index * dims, (index + 1) * dims),
+    context: extraText(part.rest),
+    ...scope,
+  };
+}
+
+function monthContext(dir, manifest, i8, unique) {
+  const user = privateUserOf(dir);
+  return {
+    manifest, i8, unique, dims: manifest.dims, prefix: user ? `private:${user}:` : '', scope: user ? dmScope(personId(user)) : groupScope(),
+  };
+}
+
+const metaText = (value) => (Buffer.isBuffer(value.meta) ? value.meta.toString('utf8') : String(value.meta ?? ''));
+
 export function toRows(rel, value) {
   const dir = monthDirOf(rel);
-  const user = privateUserOf(dir);
-  const scope = user ? dmScope(personId(user)) : groupScope();
   const manifest = value.manifest;
-  const meta = Buffer.isBuffer(value.meta) ? value.meta.toString('utf8') : String(value.meta ?? '');
+  const meta = metaText(value);
   const i8 = Buffer.from(value.i8 ?? []);
   const rows = {};
   const operational = { manifest, gen: manifest?.gen ?? null };
@@ -78,27 +103,50 @@ export function toRows(rel, value) {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const uniq = uniqueIds();
-    const prefix = user ? `private:${user}:` : '';
-    lines.forEach((line, index) => {
-      const keys = Object.keys(line);
-      const part = split(line, SPEC);
-      if (!sameOrder(keys, canonicalOrder(keys))) part.rest.$keys = keys;
-      put(rows, 'vectors', {
-        source_rowid: null,
-        ...part.cols,
-        chunk_key: uniq(chunkKeyOf(line, prefix)),
-        model: typeof manifest.model === 'string' ? manifest.model : null,
-        dims,
-        bytes: i8.subarray(index * dims, (index + 1) * dims),
-        context: extraText(part.rest),
-        ...scope,
-      });
-    });
+    const ctx = monthContext(dir, manifest, i8, uniqueIds());
+    lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, ctx)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
   }
   put(rows, 'operational', { kind: 'vectors', owner: dir, value: JSON.stringify(operational), owner_file: dir });
+  return rows;
+}
+
+/**
+ * The part of a month that came after the rows already stored, as rows: for a month whose generation is the same and
+ * whose files only grew. `previous` is the stored operational value (parsed) and `keys` the chunk_keys already in
+ * the month. Returns null when the stored state cannot be extended (a raw month, a counted tail, a changed shape, a
+ * delta that is not clean lines, a row count that does not add up); the caller then maps the month whole.
+ * @param {string} rel
+ * @param {{ manifest: object, meta: string, i8: Buffer }} delta  the jsonl text and the int8 bytes from the stored
+ *   `metaBytes` / `bytes` on (to the end of each file), with the new manifest
+ * @param {{ previous: object, keys: Iterable<string> }} state
+ */
+export function appendRows(rel, delta, { previous, keys }) {
+  const dir = monthDirOf(rel);
+  const manifest = delta.manifest;
+  const old = previous?.manifest;
+  if (!old || previous.raw || previous.tailI8 || !Number.isInteger(manifest?.dims) || manifest.dims <= 0) return null;
+  if (old.gen !== manifest.gen || old.dims !== manifest.dims || old.model !== manifest.model || manifest.rows <= old.rows) return null;
+  const lines = cleanLines(metaText(delta));
+  if (lines === null || lines.length !== manifest.rows - old.rows) return null;
+  const i8 = Buffer.from(delta.i8 ?? []);
+  if (i8.length < lines.length * manifest.dims) return null;
+  const seen = new Set(keys);
+  const unique = (id) => {
+    let n = 1;
+    let out = id;
+    while (seen.has(out)) { n += 1; out = `${id}-${n}`; }
+    seen.add(out);
+    return out;
+  };
+  const ctx = monthContext(dir, manifest, i8, unique);
+  const rows = {};
+  lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, ctx)));
+  const next = { manifest, gen: manifest.gen ?? null };
+  const used = lines.length * manifest.dims;
+  if (i8.length > used) next.tailI8 = i8.subarray(used).toString('base64');
+  put(rows, 'operational', { kind: 'vectors', owner: dir, value: JSON.stringify(next), owner_file: dir });
   return rows;
 }
 

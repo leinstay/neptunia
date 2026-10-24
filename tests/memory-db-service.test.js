@@ -21,6 +21,7 @@ function logs() {
 
 /** A data directory, a switchable config and a service whose loop is stepped by hand when `manual` is set. */
 function setup({ features = { memoryDb: true }, memoryDb = {}, manual = false, ...rest } = {}) {
+  // These tests drive the passes on the calling thread; tests/memory-db-worker.test.js covers the worker.
   const root = tmpRoot();
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -30,7 +31,7 @@ function setup({ features = { memoryDb: true }, memoryDb = {}, manual = false, .
   const queue = [];
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({
-    hot, dataDir: data, log, now: () => time, defer: manual ? (fn) => queue.push(fn) : (fn) => setImmediate(fn), ...rest,
+    hot, dataDir: data, log, worker: false, now: () => time, defer: manual ? (fn) => queue.push(fn) : (fn) => setImmediate(fn), ...rest,
   });
   const dbFile = () => path.join(data, 'memory.db');
   return {

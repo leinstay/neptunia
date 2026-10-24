@@ -111,3 +111,36 @@ test('filesOf lists the three files of the month under the generation the manife
   assert.equal(mapper.monthDirOf(`${DIR}/manifest.json`), DIR);
   assert.equal(mapper.monthDirOf('private/1/vectors/2026-10/3.jsonl'), 'private/1/vectors/2026-10');
 });
+
+const keysOf = (rows) => rows.vectors.map((row) => row.chunk_key);
+
+test('appendRows maps only the rows past the stored ones and keeps the whole month exact', () => {
+  const first = month([line(0), line(1)], Buffer.from([1, 1, 1, 1, 2, 2, 2, 2]));
+  const whole = month([line(0), line(1), line(2), line(3, { id: line(0).id })], Buffer.from([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]));
+  const stored = mapper.toRows(DIR, first);
+  const previous = JSON.parse(stored.operational[0].value);
+  const delta = { manifest: whole.manifest, meta: whole.meta.slice(first.manifest.metaBytes), i8: whole.i8.subarray(first.manifest.bytes) };
+  const added = mapper.appendRows(DIR, delta, { previous, keys: keysOf(stored) });
+  assert.equal(added.vectors.length, 2);
+  assert.deepEqual([...added.vectors[0].bytes], [3, 3, 3, 3]);
+  assert.equal(added.vectors[1].chunk_key, `${keysOf(stored)[0]}-2`, 'a key the month already holds gets a suffix');
+  // The stored rows plus the appended ones come back as the whole month.
+  const all = { vectors: [...stored.vectors, ...added.vectors], operational: added.operational };
+  assertSame(whole, mapper.fromRows(all));
+});
+
+test('appendRows declines what it cannot extend: a raw month, a counted tail, another shape, unclean lines', () => {
+  const first = month([line(0)], Buffer.from([1, 1, 1, 1]));
+  const previous = JSON.parse(mapper.toRows(DIR, first).operational[0].value);
+  const next = month([line(0), line(1)], Buffer.from([1, 1, 1, 1, 2, 2, 2, 2]));
+  const delta = { manifest: next.manifest, meta: next.meta.slice(first.manifest.metaBytes), i8: next.i8.subarray(4) };
+  const state = { previous, keys: [] };
+  assert.ok(mapper.appendRows(DIR, delta, state));
+  assert.equal(mapper.appendRows(DIR, delta, { previous: { ...previous, raw: {} }, keys: [] }), null);
+  assert.equal(mapper.appendRows(DIR, delta, { previous: { ...previous, tailI8: 'CQ==' }, keys: [] }), null);
+  assert.equal(mapper.appendRows(DIR, { ...delta, manifest: { ...delta.manifest, gen: 2 } }, state), null);
+  assert.equal(mapper.appendRows(DIR, { ...delta, manifest: { ...delta.manifest, model: 'other' } }, state), null);
+  assert.equal(mapper.appendRows(DIR, { ...delta, meta: delta.meta.slice(0, -1) }, state), null);
+  assert.equal(mapper.appendRows(DIR, { ...delta, i8: Buffer.alloc(2) }, state), null);
+  assert.equal(mapper.appendRows(DIR, { ...delta, manifest: { ...delta.manifest, rows: 1 } }, state), null);
+});

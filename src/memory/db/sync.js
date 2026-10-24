@@ -7,7 +7,10 @@
 //   - a JSONL file is read from the stored byte `offset` to its last complete line (a partial last line waits for
 //     its newline) and the lines are upserted; a file that shrank, or whose first 4 KB no longer hash as before, is
 //     read whole again and handled like a changed JSON file;
-//   - a month of vectors (three files) is one unit, mapped together;
+//   - a month of vectors (three files) is one unit, mapped together; a month whose generation is the one stored and
+//     whose rows only grew reads just the jsonl bytes and int8 bytes past the stored counts (`appendRows` in
+//     map/vectors.js), a new generation (a rewrite) is mapped whole. The month's `gen` and `rows` are kept in the
+//     `files` row (`offset` and `lines`);
 //   - each file is one transaction, and one bad file is counted and logged (its kind and error code, never its
 //     path or content) while the pass goes on.
 // A file that left the disk retires its rows and drops its `files` row. A forgotten member (`forgotten.json`,
@@ -242,10 +245,26 @@ function readHead(fd, length) {
   return buffer.subarray(0, read);
 }
 
-function readVectors(unit) {
+function vectorsManifest(unit) {
   const manifestFile = unit.parts.find((part) => part.rel.endsWith('/manifest.json'));
   if (!manifestFile) throw Object.assign(new Error('vectors month without a manifest'), { code: 'NO_MANIFEST' });
-  const manifest = JSON.parse(fs.readFileSync(manifestFile.abs, 'utf8'));
+  return JSON.parse(fs.readFileSync(manifestFile.abs, 'utf8'));
+}
+
+/** Reads a file from a byte position to its end. */
+function readFrom(abs, from) {
+  const fd = fs.openSync(abs, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const buffer = Buffer.alloc(Math.max(0, size - from));
+    const read = buffer.length ? fs.readSync(fd, buffer, 0, buffer.length, from) : 0;
+    return buffer.subarray(0, read);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readVectors(unit, manifest) {
   const gen = manifest?.gen;
   const find = (ext) => unit.parts.find((part) => part.rel.endsWith(`/${gen}.${ext}`));
   const meta = find('jsonl');
@@ -255,6 +274,23 @@ function readVectors(unit) {
     meta: meta ? fs.readFileSync(meta.abs, 'utf8') : '',
     i8: i8 ? fs.readFileSync(i8.abs) : Buffer.alloc(0),
   };
+}
+
+/** The new rows of a month that only grew since the stored pass, or null when the month has to be mapped whole. */
+function vectorsAppend(db, unit, prior, manifest) {
+  if (!prior || prior.offset !== manifest?.gen || !Number.isInteger(prior.lines) || !(manifest.rows > prior.lines)) return null;
+  const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner = ?").get(unit.rel);
+  let previous;
+  try { previous = stored ? JSON.parse(stored.value) : null; } catch { return null; }
+  const old = previous?.manifest;
+  if (!old || old.rows !== prior.lines || !(old.bytes >= 0) || !(old.metaBytes >= 0)) return null;
+  const find = (ext) => unit.parts.find((part) => part.rel.endsWith(`/${manifest.gen}.${ext}`));
+  const meta = find('jsonl');
+  const i8 = find('i8');
+  if (!meta || !i8 || meta.size < manifest.metaBytes || i8.size < manifest.bytes) return null;
+  const delta = { manifest, meta: readFrom(meta.abs, old.metaBytes).toString('utf8'), i8: readFrom(i8.abs, old.bytes) };
+  const keys = db.prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?').all(unit.rel).map((row) => row.chunk_key);
+  return unit.mapper.appendRows(unit.rel, delta, { previous, keys });
 }
 
 function hotClaimIds(db) {
@@ -302,8 +338,20 @@ const upsertFile = (db, unit, fields) => prepared(db, `INSERT INTO files (path, 
 /** Syncs one JSON, text or vectors unit. Returns { upserted, retired } (null upserted when nothing changed). */
 function syncWhole(db, unit, prior, at) {
   let value;
-  if (unit.format === 'vectors') value = readVectors(unit);
-  else {
+  let generation = null;
+  if (unit.format === 'vectors') {
+    const manifest = vectorsManifest(unit);
+    generation = { gen: Number.isInteger(manifest?.gen) ? manifest.gen : null, rows: Number.isInteger(manifest?.rows) ? manifest.rows : null };
+    const rows = vectorsAppend(db, unit, prior, manifest);
+    if (rows) {
+      for (const row of rows.vectors ?? []) row.owner_file = unit.rel;
+      linkVectors(db, rows.vectors ?? []);
+      const upserted = writeMapping(db, rows);
+      upsertFile(db, unit, { size: unit.size, mtimeMs: unit.mtimeMs, sha1: null, offset: generation.gen, lines: generation.rows, at });
+      return { upserted, retired: 0 };
+    }
+    value = readVectors(unit, manifest);
+  } else {
     const text = fs.readFileSync(unit.abs, 'utf8');
     value = unit.format === 'text' ? text : JSON.parse(text);
   }
@@ -322,7 +370,7 @@ function syncWhole(db, unit, prior, at) {
   }
   const upserted = writeMapping(db, mapping, { ignoreClaims: unit.kind === 'archive' });
   const retired = retireAbsent(db, unit.rel, mapping, at);
-  upsertFile(db, unit, { size: unit.size, mtimeMs: pending ? null : unit.mtimeMs, sha1: pending ? 'pending' : null, offset: null, lines: null, at });
+  upsertFile(db, unit, { size: unit.size, mtimeMs: pending ? null : unit.mtimeMs, sha1: pending ? 'pending' : null, offset: generation?.gen ?? null, lines: generation?.rows ?? null, at });
   return { upserted, retired };
 }
 

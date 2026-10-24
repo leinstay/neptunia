@@ -224,12 +224,13 @@ With `llm.hedge` configured, requests on the roles it lists are hedged: a second
 
 ## `memoryDb`
 
-The memory database (`features.memoryDb`). One SQLite file holding the memory in a new shape, kept equal to the JSON memory files by a sync that runs off the turn path.
+The memory database (`features.memoryDb`). One SQLite file holding the memory in a new shape, kept equal to the JSON memory files by a sync that runs off the turn path, in a worker thread: the worker holds the writer connection and runs the passes and the turn records; the main thread only reads.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `file` | `"memory.db"` | The database file under `data/`. Only the bot writes it (a lock file `<file>.lock` names the process); the tools open it read-only |
-| `syncSeconds` | `60` | The longest gap between sync passes. A pass also runs soon after each store flush. A pass reads only the files that changed since the last one. The first pass on an empty database is the full import, done in slices that give the event loop back between them |
+| `syncSeconds` | `60` | The longest gap between sync passes. A pass also runs soon after each store flush. A pass reads only the files that changed since the last one (a month of vectors that only grew reads just its new rows). The first pass on an empty database is the full import |
+| `closeTimeoutMs` | `10000` | At shutdown (or when the switch turns off), how long to wait for the pass under way and for the worker to close the database before the worker is terminated. A pass cut short is safe: the next start takes it up again |
 | `read` | `false` | Needs `features.memoryDb`. The store takes a memory file's first load, and the list of ids under a directory, from the database instead of the JSON files, once the process has synced. A file the database does not hold, or holds behind the disk, is read from the disk as before. Writes are unchanged. Must be exactly `true` to enable |
 | `turnReads` | `true` | Needs `features.memoryDb`. After a turn's request is built, record which memory rows it carried (profile items, channel and guild notes, lore, recent lines, participation episodes, retrieved sources) in the database, one transaction per turn step. A missing key counts as on |
 
