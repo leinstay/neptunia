@@ -669,7 +669,9 @@ async function readDay({ dataDir, guildId, day, log }) {
   const all = new Map([...ids, ...turnIds]);
   const at = (value, fallback) => { const ms = Date.parse(value); return Number.isFinite(ms) ? ms : fallback; };
   const events = [
-    ...lines.map(({ line, layer, order: n }) => ({ type: 'line', at: at(line.recordedAt, at(line.occurredAt, 0)), order: n, layer, line: mapDeep(line, all), original: line })),
+    // A first revision of a seen line is replayed when it happened (the live path observes a message as it arrives; the
+    // record took it later, with the analyzer's batch); an edit, a deletion and her own lines when they were recorded.
+    ...lines.map(({ line, layer, order: n }) => ({ type: 'line', at: line.kind === 'seen' && (line.revision ?? 1) === 1 ? at(line.occurredAt, at(line.recordedAt, 0)) : at(line.recordedAt, at(line.occurredAt, 0)), order: n, layer, line: mapDeep(line, all), original: line })),
     ...records.map(({ record: entry, layer, order: n }) => ({ type: 'journal', at: at(entry.recordedAt, at(entry.occurredAt, 0)), order: n, layer, record: mapDeep(entry, all) })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
   let diary = null;
@@ -798,6 +800,20 @@ function readOf(core) {
  * instead (`other kinds`: its rows of another kind or revision, or `no row`).
  */
 function linesAsSources(db, script, selfId) {
+  // A record revision whose text and media equal the message's previous revision is no new revision for the live path
+  // (observe takes a revision only when the text changed): counted apart (`unchanged`), never as missing.
+  const byMessage = new Map();
+  for (const event of script.events) {
+    if (event.type !== 'line' || event.line.kind !== 'seen' || !event.line.messageId) continue;
+    if (!byMessage.has(event.line.messageId)) byMessage.set(event.line.messageId, new Map());
+    byMessage.get(event.line.messageId).set(event.line.revision ?? 1, event.line);
+  }
+  const sameAsBefore = (line) => {
+    const revisions = byMessage.get(line.messageId);
+    const before = revisions?.get((line.revision ?? 1) - 1);
+    return Boolean(before) && (before.text ?? '') === (line.text ?? '') && JSON.stringify(before.media ?? []) === JSON.stringify(line.media ?? []);
+  };
+  let unchanged = 0;
   const missing = [];
   const duplicated = [];
   const ownerless = [];
@@ -818,13 +834,17 @@ function linesAsSources(db, script, selfId) {
     const row = kind === 'deleted' ? deleted.get(line.messageId) : lineRows.get(line.messageId, kind, line.revision ?? 1);
     const n = row?.n ?? 0;
     const name = `${line.kind}:${line.messageId}:${line.revision ?? 1}`;
+    if (n === 0 && line.kind === 'seen' && (line.revision ?? 1) > 1 && sameAsBefore(line)) {
+      unchanged += 1;
+      continue;
+    }
     if (n === 0) {
       const other = held.all(line.messageId).map((entry) => `${entry.kind}${entry.revision ? `/${entry.revision}` : ''}`);
       missing.push(`${name} (${other.length ? `other kinds ${other.join(' ')}` : 'no row'})`);
     } else if (n > 1) duplicated.push(name);
     if (n > 0 && (row?.owned ?? 0) === 0) ownerless.push(`${line.kind}:${line.messageId}`);
   }
-  return { checked, missing, duplicated, ownerless, own };
+  return { checked, missing, duplicated, ownerless, own, unchanged };
 }
 
 /**
@@ -1285,8 +1305,11 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
         clock.at += everyMs + MINUTE;
       }
       await dbCore.embedQueue.flush();
-      await dbCore.embedQueue.catchUp(guildId).catch((error) => soleNotes.push(`embedding catch-up failed: ${codeOf(error)}`));
-      await dbCore.embedQueue.flush();
+      // The live catch-up runs every embed.catchUpEveryMinutes; a pass may leave lines for the next one: three passes.
+      for (let pass = 0; pass < 3; pass += 1) {
+        await dbCore.embedQueue.catchUp(guildId).catch((error) => soleNotes.push(`embedding catch-up failed: ${codeOf(error)}`));
+        await dbCore.embedQueue.flush();
+      }
       await dbCore.tick();
       const consumers = await runConsumers(dbCore, { guildId, day, selfId: facts.self });
       const read = readOf(dbCore).db;
@@ -1304,7 +1327,7 @@ export async function rehearse({ data, db, day, session = 'fake', base, env = {}
       const retire = await tool(['retire-check', '--data', live, '--since', iso(switchedAt)]);
       soleNumbers.push(`script: ${script.counts.lines} record lines (${Object.entries(script.counts.kinds).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}) in ${script.counts.layers + 1} layers, ${script.counts.journal} journal records (${Object.entries(script.counts.journalKinds).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}), ${script.counts.posts} diary posts`);
       soleNumbers.push(`delivered: ${JSON.stringify(replayed.delivered)}; door ${JSON.stringify(replayed.statuses)}; journal ${JSON.stringify(replayed.journal)}; participation ${replayed.participation}; diary ${replayed.posts}; skipped ${JSON.stringify(replayed.skipped)}`);
-      soleNumbers.push(`lines of the day as sources: ${sources.checked} checked (${sources.own} of them her own lines the record kept as seen, her said rows here), ${sources.missing.length} missing, ${sources.duplicated.length} duplicated, ${sources.ownerless.length} outside a record unit${sources.missing.length ? ` (first: ${sources.missing.slice(0, 3).join(', ')})` : ''}`);
+      soleNumbers.push(`lines of the day as sources: ${sources.checked} checked (${sources.own} of them her own lines the record kept as seen, her said rows here; ${sources.unchanged} record revisions with the text and media of the one before, no new revision for the live path), ${sources.missing.length} missing, ${sources.duplicated.length} duplicated, ${sources.ownerless.length} outside a record unit${sources.missing.length ? ` (first: ${sources.missing.slice(0, 3).join(', ')})` : ''}`);
       soleNumbers.push(`her session: ${runs.map((row) => `${row.outcome} ${row.n}`).join(', ') || 'no run'}; requests ${herLlm === fakeModel ? fakeModel.calls.length : 'n/a'}; scopes ${cursors.scopes}, behind ${cursors.behind.length}${cursors.behind.length ? ` (${cursors.behind.slice(0, 3).map((entry) => `${entry.scope} ${entry.left} left`).join(', ')})` : ''}; drain rounds ${rounds}; failures told ${dbFailures.length}`);
       soleNumbers.push(`embeddings: ${index.indexed} of the ${index.wanted} lines the index takes (each message's newest revision with text) have their vector, ${index.backlog.length} wait${index.backlog.length ? ` (first: ${index.backlog.slice(0, 3).map((line) => `${line.kind}:${line.messageId}:${line.revision ?? 1}`).join(', ')})` : ''}; never embedded: ${index.superseded} older revisions of edited messages, ${index.textless} lines without text (of ${index.rows} seen and said rows); fake embedder ${embed.calls.requests} requests, ${embed.calls.texts} texts`);
       soleNumbers.push(`references: ${sumOf(refs)} dangling now, ${sumOf(before.refs)} before the switch; new ${JSON.stringify(added)}`);

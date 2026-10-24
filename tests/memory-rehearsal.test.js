@@ -57,7 +57,7 @@ test('the rehearsal on the fixture: every row passes, the given copy is only rea
   assert.ok(!ROWS.some(([key]) => key === 'fallback'), 'no legacy fallback row');
   assert.match(done.report, /verdict: every row PASS/);
   const sole = done.rows.find((row) => row.key === 'sole').numbers.join('\n');
-  assert.match(sole, /\(1 of them her own lines the record kept as seen, her said rows here\), 0 missing/);
+  assert.match(sole, /\(1 of them her own lines the record kept as seen, her said rows here; 0 record revisions with the text and media of the one before, no new revision for the live path\), 0 missing/);
   assert.match(sole, /0 wait; never embedded: 1 older revisions of edited messages/);
   assert.match(sole, /none failed/);
   assert.match(done.rows.find((row) => row.key === 'switch').numbers.join('\n'), /memory files deleted/);
