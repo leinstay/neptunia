@@ -295,7 +295,7 @@
   },
   "message.edit": {
     "title": "Edit your message",
-    "whenToUse": "Replace text of your message.",
+    "whenToUse": "Change the text of any message you sent, any time after sending: a typo, a tag that tagged nobody, a wrong fact, a line you want to word differently. Others see the message marked as edited. A tag you add by editing sends no notification; when someone was missed, edit the message and send a follow-up that tags them.",
     "whenNotToUse": "Your messages only.",
     "args": {
       "message": "#N, link, or \"last\" (most recent in channel).",
@@ -304,7 +304,7 @@
   },
   "message.delete": {
     "title": "Delete your message",
-    "whenToUse": "Remove your message. #N, link, or \"last\"; channel required with \"last\".",
+    "whenToUse": "Remove any message you sent that you regret or posted by mistake.",
     "whenNotToUse": "Irreversible.",
     "args": {
       "message": "#N, link, or \"last\".",

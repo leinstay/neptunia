@@ -18,6 +18,7 @@ import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
 import { clampWithEllipsis, oneLine } from './memory/clamp.js';
 import { isWordChar, numberMessageLinks, outsideUrls } from './memory/mentions.js';
+import { untaggedNames, withUserHandles } from './handles-text.js';
 
 // config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
 const DEFAULT_REPLY_QUOTE_CHARS = 80;
@@ -769,6 +770,14 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  *   author of a line that is neither the persona's nor a bot's and has a handle renders as that
  *   label with `{name}` and `{handle}` (the exact token to write, `@` included). Omitted, or
  *   without the label: the bare name, as before.
+ * @param {Map<string, string[]>} [options.memberNames]  Member id -> the names and aliases the request
+ *   knows (src/behavior/handles.js#memberNameMap). With `handles` (chat mode, the same conditions),
+ *   a member a line really mentions (`mentionedUserIds`; their name from the line's `mentionedUsers`
+ *   or here) reads in its text as their `@handle`, not Discord's `@DisplayName`
+ *   (withUserHandles); a mentioned member without a handle keeps the name. With a non-empty
+ *   `transcript.untagged`, a line of the persona's whose text holds a whole `@name` of a member
+ *   in `memberNames` who has a handle and is not among the line's mentions ends with that label
+ *   (`{names}`: the `@name`s as written, joined by ", "; untaggedNames), for as long as it is shown.
  * @param {Map<string, { handle: string, name: string }>} [options.channels]  Channel id -> its handle
  *   (without `#`) and name (src/behavior/handles.js#assignChannelHandles over the channel
  *   directory). In `mode: 'chat'` with a non-empty `transcript.channel` label, a channel a line's
@@ -828,6 +837,16 @@ export function formatTranscript(messages, options) {
     if (self) return selfLabel;
     const handle = authorHandles && !bot ? authorHandles.get(String(id)) : undefined;
     return handle ? fill(authorLabel, { name, handle: `@${handle}` }) : name;
+  };
+  const memberNames = authorHandles && options.memberNames instanceof Map ? options.memberNames : new Map();
+  const untaggedLabel = authorHandles && typeof labels.transcript.untagged === 'string' && labels.transcript.untagged !== '' ? labels.transcript.untagged : null;
+  /** The names a line's mentions go by: the line's own (as Discord rendered them), then the request's. */
+  const mentionNamesOf = (message) => {
+    const names = new Map(memberNames);
+    for (const user of Array.isArray(message.mentionedUsers) ? message.mentionedUsers : []) {
+      if (user?.id !== undefined && typeof user.name === 'string' && user.name) names.set(String(user.id), [user.name, ...(names.get(String(user.id)) ?? [])]);
+    }
+    return names;
   };
   // Each channel a line mentions with its handle (chat mode only, and only with `transcript.channel` set).
   const channelLabel = labels.transcript.channel;
@@ -892,7 +911,9 @@ export function formatTranscript(messages, options) {
       previousChannelId = message.channelId;
       continue;
     }
-    const marked = channelMarks ? withChannelHandles(message.content, message.mentionedChannelIds, channelMarks, channelLabel) : message.content;
+    const mentionedIds = Array.isArray(message.mentionedUserIds) ? message.mentionedUserIds : [];
+    const named = authorHandles && mentionedIds.length > 0 ? withUserHandles(message.content, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles }) : message.content;
+    const marked = channelMarks ? withChannelHandles(named, message.mentionedChannelIds, channelMarks, channelLabel) : named;
     const content = linkNumbers ? numberMessageLinks(marked, (id) => indexById.get(id)) : marked;
     if (content) body.push(clipWithEllipsis(content, maxChars));
     if (message.replyToId) {
@@ -910,6 +931,11 @@ export function formatTranscript(messages, options) {
     if (seeReactions) body.push(reactionsTag(message, labels, reactionsPerMessage, reactorNames));
     // An edited message ends with the mark (chat mode, with `transcript.edited` set).
     if (mode === 'chat' && message.editedAt && typeof labels.transcript.edited === 'string') body.push(labels.transcript.edited);
+    // A tag of hers that named a member and tagged nobody (its text still reads `@name`).
+    if (untaggedLabel && message.self && typeof message.content === 'string') {
+      const untagged = untaggedNames(message.content, { names: mentionNamesOf(message), handles: authorHandles, mentionedIds });
+      if (untagged.length > 0) body.push(fill(untaggedLabel, { names: untagged.map((hit) => `@${hit.name}`).join(', ') }));
+    }
     // The skill calls of the turn that posted this line of hers (chat mode; see withCalls).
     if (callsOn && message.self) for (const mark of message.calls ?? []) body.push(callText(mark, indexById, labels));
 

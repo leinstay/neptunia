@@ -380,6 +380,10 @@ export function normalizeMessage(message, selfId, options = {}) {
   const sourceChannelId = isForward ? message.reference?.channelId : null;
   const sourceChannel = sourceChannelId ? message.guild?.channels?.cache?.get(sourceChannelId) : null;
   const mentionedUserIds = [...(message.mentions?.users?.keys?.() ?? [])];
+  // The name `content` reads for each (`@DisplayName`, cleanContent), so the transcript can show their handle instead.
+  const mentionedUsers = mentionedUserIds
+    .map((id) => ({ id, name: displayNameOf(message.mentions?.members?.get?.(id) ?? message.guild?.members?.cache?.get?.(id), message.mentions?.users?.get?.(id)) }))
+    .filter((user) => typeof user.name === 'string' && user.name);
 
   return {
     id: message.id,
@@ -401,6 +405,7 @@ export function normalizeMessage(message, selfId, options = {}) {
     // above is `cleanContent`-derived and already reads "@DisplayName", so
     // this is the only place a stable member id survives normalization.
     mentionedUserIds,
+    mentionedUsers,
     // Channels written as `<#id>` -- the only place their ids survive, since
     // `content` reads `#name`; an explicit mention pulls that channel into a
     // turn (src/behavior/pull.js).
@@ -542,6 +547,7 @@ export function toEvent(message, selfId, options = {}) {
       mentioned: message.mentions?.users?.has?.(selfId) === true,
       replyToSelf: cachedReplyToSelf(message, normalized.replyToId, selfId),
       mentionedUserIds: normalized.mentionedUserIds,
+      mentionedUsers: normalized.mentionedUsers,
       mentionedConversationIds: normalized.mentionedChannelIds,
     },
     ...editPart,
@@ -574,6 +580,7 @@ export function normalizedOf(event) {
     ts: message.at,
     editedAt: message.editedAt ?? null,
     mentionedUserIds: addressing.mentionedUserIds,
+    mentionedUsers: addressing.mentionedUsers ?? [],
     mentionedChannelIds: addressing.mentionedConversationIds,
     replyToId: message.replyToId,
     replyPingUserId: message.replyPingUserId,

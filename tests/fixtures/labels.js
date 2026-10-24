@@ -23,6 +23,7 @@ export const labels = {
     replyToMemory: '(reply to {author}: {quote})',
     replyToOld: '(replying to an older message)',
     edited: '(edited)',
+    untagged: '({names} tagged nobody)',
     deleted: 'message deleted',
     triggeredBy: '(turn triggered by #{n})',
     triggeredByOlder: '(turn triggered by an older message)',
@@ -446,6 +447,7 @@ export const labels = {
     proposedDenied: 'proposed but not for the asker: {names}',
     result: {
       coerced: '{arg} read as {value}',
+      untaggedNote: '{name} tagged nobody; handle @{handle}',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',

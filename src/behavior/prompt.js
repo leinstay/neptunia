@@ -100,7 +100,7 @@ import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSet
 import { mediaParts } from '../media/classify.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
-import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
+import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, memberNameMap, renderChannelDirectory, renderDirectory } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../skills/discovery.js';
 import { inertThink } from './previous-think.js';
@@ -3113,6 +3113,11 @@ export function buildRequest(input) {
       })
     : null;
   const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
+  // The names each member in view goes by (the directory's, the lines' authors and mentioned members): a mention reads
+  // as its handle in the transcript, and a tag of hers that names one without the handle is marked (transcript.untagged).
+  const memberNames = handleById
+    ? memberNameMap(directory, [history, ...(privateChat ? [] : [input.pulled, neighbors].flatMap((source) => (Array.isArray(source) ? source : []).map((entry) => entry?.messages)))].flat().filter(Boolean))
+    : null;
   // Channel handles (features.mentionHandles too): each text channel the persona can read
   // (`channelDirectory`) gets one, listed in `<channel_directory>` (the stable part) and shown
   // beside every channel a line mentions.
@@ -3165,6 +3170,7 @@ export function buildRequest(input) {
     imageAnswers,
     // Each author in view carries their mention handle (transcript.author).
     handles: handleById ?? undefined,
+    memberNames: memberNames ?? undefined,
     // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
     messageNumbers: config.features?.messageLinks !== false,
     // Each channel a line mentions carries its handle (transcript.channel).
@@ -4117,6 +4123,8 @@ export function buildRequest(input) {
     memoryReads: [...new Map(memoryReads.map((read) => [`${read.kind}\u0000${read.id}`, read])).values()],
     // Handle -> member id, for the persona's `@handle` (null with features.mentionHandles off).
     handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
+    // Member id -> names, for the note on her tag that named a member without the handle (null with the handles off).
+    memberNames: memberNames ?? null,
     // Channel handle -> channel id, for the persona's `#handle` (null with features.mentionHandles
     // off or no channel given).
     channelHandles: channelHandleById ? new Map([...channelHandleById].map(([id, handle]) => [handle, id])) : null,

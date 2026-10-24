@@ -33,7 +33,7 @@ import {
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
 import { isTaggedCall } from './mention.js';
-import { resolveHandles } from './handles.js';
+import { resolveHandles, untaggedNames } from './handles.js';
 import { roleModel } from '../llm/roles.js';
 import { RECALL_DEFAULTS, fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
@@ -1270,6 +1270,28 @@ export function journalResultOf(result) {
   return out;
 }
 
+/** The skills whose text she writes: a post (`message.create`) or an edit (`message.edit`). */
+const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
+
+/**
+ * What a post of hers tells her about the tags that went nowhere: one `labels.skills.result.untaggedNote`
+ * (`{name}`, `{handle}`) per member whose name she wrote after `@` instead of their handle
+ * (src/behavior/handles.js#untaggedNames over the request's handles and names), joined by a space.
+ * '' without handles (`handles`: handle -> member id), without the label or when nothing went nowhere. Pure.
+ * @param {string} text  The text as she wrote it.
+ * @param {{ handles?: Map<string, string>|null, memberNames?: Map<string, string[]>|null, mentionedIds?: string[] }} request
+ * @param {object} [labels]
+ * @returns {string}
+ */
+export function untaggedNote(text, { handles = null, memberNames = null, mentionedIds = [] }, labels) {
+  const template = labels?.skills?.result?.untaggedNote;
+  if (typeof template !== 'string' || !template || !(handles instanceof Map) || !(memberNames instanceof Map)) return '';
+  const handleById = new Map([...handles].map(([handle, id]) => [String(id), handle]));
+  return untaggedNames(text, { names: memberNames, handles: handleById, mentionedIds })
+    .map((hit) => fill(template, { name: `@${hit.name}`, handle: hit.handle }))
+    .join(' ');
+}
+
 /** The list fields of a normalized message (interfaces/discord/collect.js#normalizeMessage), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze(['mentionedUserIds', 'mentionedChannelIds', 'attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions']);
 
@@ -2166,7 +2188,7 @@ export function createTurnRunner({
    * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill`. Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null, handles = null, channelHandles = null, timeoutMs = null, inTurn = null }) {
+  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null, handles = null, memberNames = null, channelHandles = null, timeoutMs = null, inTurn = null }) {
     const { call, op, envelope } = plan;
     const skill = call.skill;
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
@@ -2274,7 +2296,9 @@ export function createTurnRunner({
       args: callArgsText(skill, args),
     });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
-    return { skill, ...result };
+    // A tag of hers that named a member without their handle went out as plain text: the result tells her, and the post stays ok.
+    const note = result.status === 'ok' && WRITTEN_SKILLS.includes(skill) ? untaggedNote(typeof args.text === 'string' ? args.text : '', { handles, memberNames, mentionedIds: rendered?.userIds ?? [] }, hot.prompts?.labels) : '';
+    return { skill, ...result, ...(note ? { note } : {}) };
   }
 
   /**
@@ -2547,7 +2571,7 @@ export function createTurnRunner({
    * Lines of a step's note rendered like the chat (formatTranscript with the turn's options), numbered from `indexOffset`.
    * `media` carries what a re-rendered line shows now (`videos`, `descriptions`); a delta's new lines need none.
    */
-  function stepTranscript(lines, { selfName, handles, indexOffset, media = {} }) {
+  function stepTranscript(lines, { selfName, handles, memberNames = null, indexOffset, media = {} }) {
     const config = hot.config;
     const handleOf = handles instanceof Map ? new Map([...handles].map(([handle, id]) => [String(id), handle])) : undefined;
     return formatTranscript(lines, {
@@ -2562,6 +2586,7 @@ export function createTurnRunner({
       reactionsPerMessage: config.context?.reactionsPerMessage,
       replyQuoteChars: config.context?.replyQuoteChars,
       handles: handleOf,
+      memberNames: memberNames ?? undefined,
       indexOffset,
       ...media,
     });
@@ -2576,7 +2601,7 @@ export function createTurnRunner({
    * caption stage was late); `onTold(stage)` closes the journal's step as delivered.
    * @returns {() => string}  The text for the next note ('' when nothing new).
    */
-  function lateMediaTeller({ lines, idByIndex, handles, selfName, videoStage, videoItems, captions, captionItems, pending, onTold }) {
+  function lateMediaTeller({ lines, idByIndex, handles, memberNames = null, selfName, videoStage, videoItems, captions, captionItems, pending, onTold }) {
     const told = { videos: new Set(), captions: false };
     return () => {
       const states = videoStage?.done && videoStage.value?.videos instanceof Map ? videoStage.value.videos : null;
@@ -2598,7 +2623,7 @@ export function createTurnRunner({
       for (const line of lines) {
         const index = handleById.get(line.id);
         if (!ids.has(line.id) || !index) continue;
-        const item = stepTranscript([line], { selfName, handles, indexOffset: index - 1, media }).find((one) => one.id === line.id);
+        const item = stepTranscript([line], { selfName, handles, memberNames, indexOffset: index - 1, media }).find((one) => one.id === line.id);
         if (item) out.push(item.text);
       }
       for (const itemId of newVideos) told.videos.add(itemId);
@@ -2679,7 +2704,7 @@ export function createTurnRunner({
     const knownIds = new Set([...(routing.history ?? []), ...(routing.lines ?? [])].map((line) => line?.id).filter((id) => typeof id === 'string' && id));
     if (trigger?.id) knownIds.add(String(trigger.id));
     const viewOf = (r) => callView({ channel, guildId, idByIndex: r.idByIndex, lines: r.lines, pulledIds: r.pulledIds, memoryOn, channelHandles: r.channelHandles, memberHandles: r.handles, trigger, deletedIds: draft.deletedIds, searchRefs: draft.searchRefs ?? null });
-    const contextOf = (r, timeoutMs = null) => ({ ...callContext, idByIndex: r.idByIndex, lines: r.lines, pulledIds: r.pulledIds, handles: r.handles ?? null, channelHandles: r.channelHandles ?? null, timeoutMs });
+    const contextOf = (r, timeoutMs = null) => ({ ...callContext, idByIndex: r.idByIndex, lines: r.lines, pulledIds: r.pulledIds, handles: r.handles ?? null, memberNames: r.memberNames ?? null, channelHandles: r.channelHandles ?? null, timeoutMs });
 
     /**
      * The lines that came in since the last request, numbered on past every number in use (tool-step.js#deltaLines), her
@@ -2707,7 +2732,7 @@ export function createTurnRunner({
       if (numbered.lines.length === 0) return none;
       draft.deltaTaken = numbered.next - 1;
       searchHandles(draft).advance(numbered.next);
-      const items = stepTranscript(numbered.lines, { selfName, handles: routed.handles, indexOffset: numbered.offset });
+      const items = stepTranscript(numbered.lines, { selfName, handles: routed.handles, memberNames: routed.memberNames, indexOffset: numbered.offset });
       return { text: items.map((item) => item.text).join('\n'), lines: numbered.lines, idByIndex: numbered.idByIndex };
     };
 
@@ -2790,7 +2815,8 @@ export function createTurnRunner({
 
       // 3. What follows: a request when something is left to read and room is left, else the end.
       const verdict = stepVerdict(results.map((result) => ({ name: result.skill, result })), { definitionOf });
-      const fresh = records.length > 0 && verdict.fresh;
+      // A note on a post that went out (a tag that named nobody) is something to read too: she may edit the post.
+      const fresh = records.length > 0 && (verdict.fresh || results.some((result) => typeof result.note === 'string' && result.note !== ''));
       const labels = hot.prompts?.labels ?? {};
       // The room the calls left: the time they took counts.
       const left = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: loopStartedAt === null ? 0 : clock() - loopStartedAt, timeBudgetMs: settings.timeBudgetMs });
@@ -7305,7 +7331,7 @@ export function createTurnRunner({
       // model's reply="#n" quotes nothing.
       // A later part of a split message posts plain too: the first part replied to the message.
       const plain = postsPlain(triggerKind) || plainPosts;
-      const routing = { pulledIds, lines, knownNames, directory, handles, channelHandles, linkFor, plain };
+      const routing = { pulledIds, lines, knownNames, directory, handles, memberNames: request.memberNames ?? null, channelHandles, linkFor, plain };
       // Read fresh right here, not from the `features` snapshot taken at the
       // top of this turn: unlike the other switches this one defaults to OFF,
       // and whether to actually post is the very last decision of a turn.
@@ -7381,7 +7407,7 @@ export function createTurnRunner({
       const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history, draft, trigger, triggerKind, mode: finalMode, plain }) };
       const lateMedia =
         pendingMedia.videoIds.length > 0 || pendingMedia.captions
-          ? lateMediaTeller({ lines: history, idByIndex, handles, selfName, videoStage, videoItems: videoCandidates, captions, captionItems: captionCandidates, pending: pendingMedia, onTold: (stage) => prep.tell(stage) })
+          ? lateMediaTeller({ lines: history, idByIndex, handles, memberNames: request.memberNames ?? null, selfName, videoStage, videoItems: videoCandidates, captions, captionItems: captionCandidates, pending: pendingMedia, onTold: (stage) => prep.tell(stage) })
           : null;
       // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
       const stepped = await runSteps({
@@ -7396,7 +7422,7 @@ export function createTurnRunner({
         actArgs,
         callContext,
         envelopeOf,
-        routing: { idByIndex, history, lines, pulledIds, handles, channelHandles },
+        routing: { idByIndex, history, lines, pulledIds, handles, memberNames: request.memberNames ?? null, channelHandles },
         memoryOn,
         selfName,
         triggerKind,

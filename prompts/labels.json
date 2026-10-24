@@ -20,6 +20,7 @@
     "replyToMemory": "(reply to {author}: {quote})",
     "replyToOld": "(replying to an older message)",
     "edited": "(edited)",
+    "untagged": "({names} tagged nobody: the tag needs the handle)",
     "deleted": "message deleted",
     "triggeredBy": "(turn triggered by #{n})",
     "triggeredByOlder": "(turn triggered by an older message)",
@@ -677,6 +678,7 @@
     "proposedDenied": "Might also fit, but the person asking has no right to them: {names}.",
     "result": {
       "coerced": "{arg} was read as {value}.",
+      "untaggedNote": "{name} tagged nobody; their handle is @{handle}. Editing the message fixes the tag.",
       "ok": "Call succeeded:",
       "refused": "Call did not run: {reason}.",
       "denied": "Call was blocked: {reason}.",
