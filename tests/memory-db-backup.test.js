@@ -102,3 +102,38 @@ test('restore: a backup whose file does not match its manifest is refused before
     env.done();
   }
 });
+
+/** The scratch folders `restore-test` leaves under TMPDIR (it must leave none). */
+const restoreScratch = () => fs.readdirSync(process.env.TMPDIR || os.tmpdir()).filter((name) => name.startsWith('restore-test-'));
+
+test('restore-test: the backup restored into an isolated db service reads and exports as the backup itself, then the scratch goes', async () => {
+  const env = imported();
+  try {
+    const to = path.join(env.root, 'backup');
+    backupDatabase({ db: env.file, to, data: env.data });
+    const scratchBefore = restoreScratch();
+    const lines = [];
+    const code = await main(['restore-test', '--from', to], { out: (line) => lines.push(line), err: (line) => lines.push(line) });
+    const text = lines.join('\n');
+    assert.equal(code, 0, text);
+    assert.match(text, /restored: schema \d+, 3 files checked/);
+    assert.match(text, /record\.iterate +compared [1-9]\d* +equal [1-9]\d* +differ 0/);
+    assert.match(text, /journal\.read +compared [1-9]\d* +equal [1-9]\d* +differ 0/);
+    assert.match(text, /intentions\.list +compared 1 +equal 1 +differ 0/);
+    assert.match(text, /export user +equal 1 +differs 0 +missing 0 +extra 0/);
+    assert.match(text, /restore-test ok: reads equal, the restored export equals the backup's/);
+    assert.deepEqual(restoreScratch(), scratchBefore, 'the temporary data directory is removed');
+    // The backup itself is unchanged: it still restores and matches its manifest.
+    const target = path.join(env.root, 'again', 'memory.db');
+    assert.equal(restoreDatabase({ from: to, db: target }).files.length, 3);
+
+    // A backup that does not match its manifest fails before any service opens, and leaves no scratch either.
+    fs.appendFileSync(path.join(to, 'memory.db'), Buffer.from([0]));
+    const bad = [];
+    assert.equal(await main(['restore-test', '--from', to], { out: (line) => bad.push(line), err: (line) => bad.push(line) }), 2);
+    assert.match(bad.join('\n'), /does not match the manifest: memory\.db/);
+    assert.deepEqual(restoreScratch(), scratchBefore);
+  } finally {
+    env.done();
+  }
+});

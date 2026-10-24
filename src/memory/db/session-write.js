@@ -37,6 +37,9 @@
 //       Stage W2a: the append-like memory units (record and journal lines, participation, the diary, the vectors) and
 //       the projection the writers finish under authority `db`, handed to unit-write.js#applyUnitWrite (the authority
 //       is the service's stamp).
+//   { kind: 'backup', to, dataDir, now, commit, configHash }
+//       Stage W4: the daily backup (backup.js#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
+//       a consistent copy, no WAL file copied. Not a memory write: no mode and no authority; returns the manifest.
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -83,6 +86,7 @@ import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
 import { handoff } from './handoff.js';
+import { writeBackup } from './backup.js';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -393,6 +397,9 @@ export function applyMemoryWrite(handle, update) {
   if (update?.kind === 'skills') return applySkillsWrite(handle, update);
   if (update?.kind === 'index-policy' || update?.kind === 'touch' || update?.kind === 'reembed') return applyIndexWrite(handle, update);
   if (update?.kind === 'unit') return applyUnitWrite(handle, update);
+  if (update?.kind === 'backup') {
+    return writeBackup(handle, { to: update.to, dataDir: update.dataDir, now: () => update.now ?? Date.now(), commit: update.commit ?? null, configHash: update.configHash ?? null });
+  }
   // Stage W3: the analyzer-to-session handoff at the switch (handoff.js), only with the database as the writer.
   if (update?.kind === 'handoff') {
     if (update.authority !== 'db') throw coded('HANDOFF_JSON_WRITER');

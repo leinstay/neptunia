@@ -95,6 +95,15 @@
 //     at })` per failing scope until that scope runs fine again (src/index.js tells her: a `memoryFailed` fact); a
 //     failed review is a warning and the status's `session.lastFailure`, and its flag waits for the next day. Never a
 //     file write.
+//   - stage W4, under `db` only (spec 2026-10-24-memory-authority, section 6 items 4 and 8): the daily backup
+//     (backup.js), while `memoryDb.backup.enabled` is exactly true (read at each tick). At a tick at or after
+//     `memoryDb.backup.hour` (UTC) on a UTC day with no finished backup in `memoryDb.backup.dir` (resolved against the data directory; default `../backups/memory`, outside `data/`), the
+//     writer takes it (`{ kind: 'backup' }`: `VACUUM INTO` on the writer connection, the diary media, the manifest with
+//     the schema version, the engine commit (`commit`, else `git rev-parse HEAD`), the hash of the live config and the
+//     row count of every table) into `<YYYY-MM-DD-HHMMSS>-memory.partial/`, renamed to its name once whole; then all
+//     but the newest `memoryDb.backup.keep` backups and every other unfinished one are deleted. Never two at once. A
+//     failure is a warning (`memory db: backup failed`, the code), the status's `backup.lastFailure`, and one
+//     `onBackupFailure({ code, at })` per UTC day (her fact); it is tried again an hour later. Under `json` nothing runs.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -132,6 +141,7 @@ import { authorityRefusal } from './authority.js';
 import { graphPending } from './graph.js';
 import { stemsPending } from './stems.js';
 import { createHash } from 'node:crypto';
+import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.js';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -143,6 +153,8 @@ const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
 const DEFAULT_TURN_BUDGET_MS = 180_000;
 /** The least time between two runs of the re-embed job. */
 const REEMBED_EVERY_MS = 60_000;
+/** The least time between a failed daily backup and the next try. */
+const BACKUP_RETRY_MS = 3_600_000;
 const OPS_DIR = new URL('../../ops/', import.meta.url);
 const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -343,6 +355,7 @@ export function createMemoryDb({
   worker: useWorker, workerFile = WORKER_FILE, diaryMediaDeps = null, diarySleep,
   embed = null, commit = null, selfName = () => '',
   sessionLlm = () => null, sessionEnv = () => null, onSessionFailure = null, sessionLookMs = 60_000,
+  onBackupFailure = null,
 }) {
   const threaded = useWorker ?? (open === undefined && sync === undefined);
   open ??= openMemoryDb;
@@ -917,6 +930,62 @@ export function createMemoryDb({
     }
   }
 
+  // Stage W4 (under `db`): the daily backup through the writer (see the head of this file).
+  let backupRun = null;
+  const backupState = { doneDay: null, lastAt: null, lastName: null, lastFailure: null, failedAt: null, toldDay: null };
+
+  /** One failed backup: a warning, the status, and her fact once per UTC day. */
+  function backupFailed(code, at) {
+    backupState.lastFailure = { code, at };
+    backupState.failedAt = at;
+    log.warn('memory db: backup failed', { code });
+    const day = utcDay(at);
+    if (backupState.toldDay === day || typeof onBackupFailure !== 'function') return;
+    backupState.toldDay = day;
+    try {
+      onBackupFailure({ code, at });
+    } catch (error) {
+      log.warn('memory db: the backup failure could not be told', { code: codeOf(error) });
+    }
+  }
+
+  /** The tick's look: a backup when one is due today, never two at once. */
+  function startBackup() {
+    if (closing || !on() || !handle || backupRun || engine?.dead || pinnedAuthority !== 'db') return;
+    if (hot.config?.memoryDb?.backup?.enabled !== true) return;
+    const at = now();
+    const day = utcDay(at);
+    if (backupState.doneDay === day) return;
+    const { hour, dir, keep } = backupSettings(hot.config, dataDir);
+    if (new Date(at).getUTCHours() < hour) return;
+    if (backupState.failedAt !== null && utcDay(backupState.failedAt) === day && at - backupState.failedAt < BACKUP_RETRY_MS) return;
+    let done = null;
+    try { done = backupOn(dir, day); } catch { done = null; }
+    if (done) { backupState.doneDay = day; return; }
+    const name = backupName(at);
+    const partial = path.join(dir, partialOf(name));
+    backupRun = (async () => {
+      try {
+        fs.rmSync(partial, { recursive: true, force: true });
+        fs.mkdirSync(dir, { recursive: true });
+        const update = { kind: 'backup', to: partial, dataDir, now: at, commit: typeof commit === 'string' ? commit : engineCommit(), configHash: configHash(hot.config) };
+        const manifest = await write(update);
+        fs.renameSync(partial, path.join(dir, name));
+        backupState.doneDay = day;
+        backupState.lastAt = at;
+        backupState.lastName = name;
+        backupState.lastFailure = null;
+        backupState.failedAt = null;
+        let removed = 0;
+        try { removed = pruneBackups(dir, keep); } catch (error) { log.warn('memory db: backup prune failed', { code: codeOf(error) }); }
+        log.info('memory db: backup', { files: manifest?.files?.length ?? 0, tables: Object.keys(manifest?.rows ?? {}).length, removed });
+      } catch (error) {
+        try { fs.rmSync(partial, { recursive: true, force: true }); } catch { /* removed at the next prune */ }
+        backupFailed(codeOf(error), at);
+      }
+    })().finally(() => { backupRun = null; });
+  }
+
   // Stage W3 (under `db`): the handoff, the effective models, and her memory session's schedule (see the head of this
   // file). `handingOff` holds the observations back while the handoff runs.
   let handingOff = false;
@@ -1073,7 +1142,7 @@ export function createMemoryDb({
     // Authority `db`: the sync stays off; the writers' own jobs run instead (the waiting observations, the projection).
     if (pinnedAuthority === 'db') {
       if (!handoffDone) await runHandoff();
-      drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); startSession();
+      drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); startSession(); startBackup();
       return;
     }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
@@ -1260,6 +1329,7 @@ export function createMemoryDb({
       readActive: readActive(),
       lastPass,
       reads: { ...reads },
+      backup: pinnedAuthority === 'db' ? { running: backupRun !== null, lastAt: backupState.lastAt, lastName: backupState.lastName, lastFailure: backupState.lastFailure } : null,
       session: { running: sessionRun !== null, handoff: handoffDone, lastAt: sessionState.lastAt, lastOutcome: sessionState.lastOutcome, lastFailure: sessionState.lastFailure, reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0 },
     };
   }
@@ -1276,6 +1346,7 @@ export function createMemoryDb({
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
     await waitFor(projectRun, Math.max(0, deadline - performance.now()));
     await waitFor(sessionRun, Math.max(0, deadline - performance.now()));
+    await waitFor(backupRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     await flushObservations(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
@@ -1287,6 +1358,8 @@ export function createMemoryDb({
 
   /** The scheduled session look under way (stage W3), or a resolved promise: its end. */
   const waitSession = () => sessionRun ?? Promise.resolve();
+  /** The daily backup under way (stage W4), or a resolved promise: its end. */
+  const waitBackup = () => backupRun ?? Promise.resolve();
 
-  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close, waitSession };
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close, waitSession, waitBackup };
 }

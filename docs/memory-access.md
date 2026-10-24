@@ -159,3 +159,38 @@ closed until the partner becomes a person.
   channel's place is stored. Opened without it (by a tool), the step waits (meta `diary_destination_pending`) for the
   first open that knows the channel. Under `memoryDb.authority` `db` every new diary post's publication gets the same
   destination when it is written.
+
+## Files under `data/` when the database is the writer
+
+Under `memoryDb.authority: db` the database (with `data/media/diary/`) is the memory, and the JSON memory files are no
+longer written. `src/memory/db/paths.js` lists, by exact pattern, what is still written as a file and what retires;
+`tests/memory-db-paths.test.js` fails on a path the sync maps or skips, or a path of the data layout, that is in
+neither list or in both. Paths are relative to the data directory; `[private/*/]` is a member's private layer.
+
+Still written as files (operational, `OPERATIONAL_PATTERNS`):
+
+- `state.json`, `usage.json`, `metrics.json`; a guild's (or a private layer's) `state.json`, `usage.json`,
+  `metrics.json`, `inner.json`, `missed.json`, `participation.json`, `gifs.json` (the GIF library) and `media.json`
+  (the vision cache; its memory rows are in the `media` table);
+- `guilds/*/recall-trace.jsonl`;
+- `guilds/*/[private/*/]journal/.running` and `guilds/*/[private/*/]journal/requests/**` (the journal folder is mixed:
+  only its day files retire, so it is never made read-only or deleted whole);
+- `guilds/*/[private/*/]backfill/**`, `guilds/*/[private/*/]record/backfill.json` (the backfill tool's cursor) and
+  `guilds/*/[private/*/]archive/pending*.jsonl` (the archive's pending queue);
+- `vault/**`, `snapshots/**`, `memory-pending/**` (unit writes a shutdown could not make), `media/diary/**` (her diary
+  media), `memory.db*` (the database's own files);
+- the tools' output folders (`mentor/`, `recall-eval/`, `vision-compare/`, at the top or in a guild);
+- the leftovers of any file: `*.bak*`, `*.unreadable-*`, `*.tmp`, `*.tmp-*`, `*.torn-*`.
+
+Retire at the switch (memory, `MEMORY_PATTERNS`), leftovers and the operational paths above excepted:
+
+- a guild's `users/**`, `channels/**`, `versions/**`, `vectors/**`, `forgetting/**` and `private/**`;
+- `guilds/*/record/**` but `record/backfill.json`, and `guilds/*/archive/**` but `archive/pending*.jsonl`;
+- `guilds/*/journal/<YYYY-MM-DD>.jsonl` only;
+- `guilds/*/guild.json`, `lore.json`, `recent.json`, `diary.json`, `buffer.json`, `voice.json` and `forgotten.json`
+  (no forget runs under `db`);
+- `guilds/*/intentions*.json`, `intentions*.jsonl`, `tasks*.json`, `tasks*.jsonl`.
+
+`tools/memory-db.mjs retire-check --data <dir> --since <switch time>` lists the memory files per pattern with their
+newest time and exits 1 when one was modified after the switch. The exact restore is a backup (`memoryDb.backup`,
+`tools/memory-db.mjs backup`), proven by `tools/memory-db.mjs restore-test --from <backup>`.
