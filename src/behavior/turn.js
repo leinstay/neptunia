@@ -2532,7 +2532,7 @@ export function createTurnRunner({
     const pending = (async () => {
       await op?.started();
       try {
-        const found = await recall.prefetch({ guild, guildId, channel, partner, selfId, selfName, history, lanes, decorate: (lines) => linkCalls(lines, { channel, guildId }) });
+        const found = await recall.prefetch({ guild, guildId, channel, partner, selfId, selfName, history, lanes, asker: candidate?.authorId ?? null, decorate: (lines) => linkCalls(lines, { channel, guildId }) });
         op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
         return found;
       } catch (err) {

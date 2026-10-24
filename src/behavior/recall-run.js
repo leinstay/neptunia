@@ -1610,7 +1610,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    *   decorate?: ((messages: object[]) => object[])|null }} input
    * @returns {Promise<object|null>}
    */
-  async function prefetch({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], lanes = [], at = null, decorate = null } = {}) {
+  async function prefetch({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], lanes = [], at = null, decorate = null, asker = null, memoryContext = null } = {}) {
     const started = now();
     const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
     const basis = list.map((lane) => lane.kind);
@@ -1793,7 +1793,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         // One search of the database per lane: words, letters, meaning and people fused, the stretches built around the
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
-        const reader = dbReader({ db, config, guild, guildId, channel, partner, asker: candidate?.authorId ?? null, memoryContext });
+        const reader = dbReader({ db, config, guild, guildId, channel, partner, asker, memoryContext });
         list.forEach((lane, i) => {
           const plan = plans[i];
           const forms = plan ? [...plan.phrases, ...plan.forms] : [];

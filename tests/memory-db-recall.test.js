@@ -877,3 +877,20 @@ test('names: an alias claim resolves only through verified accounts and only whe
     env.done();
   }
 });
+
+test('recall.prefetch with backend db reads the database without throwing, and the asker it is given is the asker of its read', async () => {
+  const env = fixture();
+  try {
+    env.account(ALICE, ['Αλίκη']);
+    env.say({ native: 'p1', at: NOW - 3 * DAY, text: 'το σπιτι του δασκαλου', place: channelPlaceId('c1') });
+    env.say({ native: 'p2', at: NOW - 3 * DAY + 60000, text: 'ναι ηταν μεγαλο', place: channelPlaceId('c1') });
+    env.stem();
+    const s = runner(env);
+    const warned = [];
+    const found = await s.recaller.prefetch({ ...s.args, asker: BOB, lanes: [{ kind: 'trigger', text: 'το σπιτι' }] });
+    assert.notEqual(found?.status, 'unavailable', 'the database prefetch ran');
+    assert.deepEqual(warned, []);
+  } finally {
+    env.done();
+  }
+});
