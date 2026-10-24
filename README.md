@@ -33,7 +33,7 @@ cd neptunia && npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they do not spend the bot's live `OPENROUTER_API_KEY` (without it the tools fall back to that key and warn on stderr; the owner's `/nep status` card shows the simulator key's limit too). Optionally set `OPENROUTER_MANAGEMENT_KEY` so the status card shows every key's last 7 and 30 days from OpenRouter's activity records; such a key can manage every key of the account, the bot only reads activity with it. Create `config.local.json` with your Discord user ID:
+Edit `.env` with your Discord token and your main OpenRouter key (`OPENROUTER_CORE_KEY`). To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they never spend the bot's live key (without it a tool stops with an error; the owner's `/nep status` card shows the simulator key's limit too). Optionally set `OPENROUTER_MANAGEMENT_KEY` so the status card shows every key's last 7 and 30 days from OpenRouter's activity records; such a key can manage every key of the account, the bot only reads activity with it. Create `config.local.json` with your Discord user ID:
 
 ```json
 {
@@ -121,7 +121,7 @@ The persona can see pictures through a vision helper model's captions, watch sho
 
 ## Costs
 
-Each turn is one LLM request; a memory update adds a second. A split-message classifier and a merge classifier may add one request each on the `analyzer` role when their conditions are met. Cost depends on the models and endpoint; `models.core`, `models.helpers.*`, `models.agents.*` and `llm.baseUrl` accept any compatible values. The daily cap (`llm.maxRequestsPerDay`) prevents runaway spending. Video descriptions add one request per watched clip to the `video` role (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads and web searches (`features.webLookup`, off by default) add requests to the `analyzer` role, capped by `web.maxPerDay`; web search additionally needs a Brave Search API key (free tier: 2,000 queries/month). Server-history searches (`features.recall`, on by default) use Discord's built-in search API and add only the classifier and summary requests. Image generation (`features.imageGeneration`, off by default) bills per output token through `models.agents.drawing`; `image.maxPerDay` caps the daily count separately from chat requests. Private chat (`features.privateMessages`, off by default) uses the same models and caps; each DM reply is one request, each private analyzer batch is another. With `features.webLookup` on, the bot makes outbound HTTP requests to fetch pages and to the Brave Search API; private addresses are refused.
+Each turn is one LLM request; a memory update adds a second. A split-message classifier and a merge classifier may add one request each on the `analyzer` role when their conditions are met. Cost depends on the models and endpoint; `models.base.*` and `llm.baseUrl` accept any compatible values. The daily cap (`llm.maxRequestsPerDay`) prevents runaway spending. Video descriptions add one request per watched clip to the `video` role (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads and web searches (`features.webLookup`, off by default) add requests to the `analyzer` role, capped by `web.maxPerDay`; web search additionally needs a Brave Search API key (free tier: 2,000 queries/month). Server-history searches (`features.recall`, on by default) use Discord's built-in search API and add only the classifier and summary requests. Image generation (`features.imageGeneration`, off by default) bills per output token through `models.base.drawing`; `image.maxPerDay` caps the daily count separately from chat requests. Private chat (`features.privateMessages`, off by default) uses the same models and caps; each DM reply is one request, each private analyzer batch is another. With `features.webLookup` on, the bot makes outbound HTTP requests to fetch pages and to the Brave Search API; private addresses are refused.
 
 `data/` holds per-member profiles, relationship scores, channel observations, server patterns, cached media descriptions and web excerpts. It stays on your machine, is gitignored, and is only sent to the LLM as context. The analyzer is instructed not to store sensitive details. `/nep memory forget` deletes a profile entirely.
 
@@ -163,7 +163,7 @@ Runs with `node --test`. No network or Discord connection needed. The same comma
 
 ```
 config.json                defaults for every setting, hot-reloaded
-.env.example               template for DISCORD_TOKEN, OPENROUTER_API_KEY, optional OPENROUTER_SIM_KEY (tools only), OPENROUTER_MANAGEMENT_KEY (status card activity, read only), YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
+.env.example               template for DISCORD_TOKEN, OPENROUTER_CORE_KEY, optional OPENROUTER_SIM_KEY (tools only), OPENROUTER_MANAGEMENT_KEY (status card activity, read only), YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
 prompts/
   system-prompt.md         how to behave like an ordinary chat member
   character-card.md        the personality (working example)
@@ -296,7 +296,7 @@ src/
     budget.js              priority-ordered section trimming
     openrouter.js          chat completions, safety rails
     parse.js               output tags to actions
-    roles.js               the model roles (models.core for the persona's model, models.helpers for the helper roles, models.agents for the agents and drawing) with their defaults and per-purpose mapping
+    roles.js               the model roles in three groups (models.base: her core, helpers and drawing; models.errands: the delegated agents; models.development: outside her) with their defaults and per-purpose mapping
     embed.js               OpenRouter embeddings client (embedding role)
   media/
     classify.js            media classification, label selection, proxy URLs
