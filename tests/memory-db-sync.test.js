@@ -10,10 +10,12 @@ import { exportAll } from '../src/memory/db/export.js';
 import { syncOnce } from '../src/memory/db/sync.js';
 import { compareTrees, main } from '../tools/memory-db.mjs';
 import {
-  CHANNEL, HOT_ITEM, MEMBER, buildDataDir, dump, envelope, guildDir, seen, turnLine, writeJson, writeLines,
+  CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, dump, envelope, guildDir, seen, turnLine, writeJson, writeLines,
 } from './fixtures/memory-db/datadir.js';
 
 const OTHER = '100000000000000002';
+/** The full unit path the database owns a file by (the guild's directory included). */
+const owned = (rel) => `guilds/${GUILD}/${rel}`;
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-sync-'));
 
 /** A data directory, an open database and a cleanup. */
@@ -127,14 +129,14 @@ test('appended journal lines are read from the offset and a partial last line wa
   try {
     syncOnce(env.handle, env.data);
     const file = path.join(env.g, 'journal', '2026-10-20.jsonl');
-    const before = count(env.db, "SELECT COUNT(*) AS n FROM day WHERE owner_file = 'journal/2026-10-20.jsonl'");
+    const before = count(env.db, 'SELECT COUNT(*) AS n FROM day WHERE owner_file = ?', owned('journal/2026-10-20.jsonl'));
     const whole = `${JSON.stringify(envelope('system', { id: 'j-system-2', event: 'stop', by: 'owner' }))}\n`;
     const partial = JSON.stringify(envelope('system', { id: 'j-system-3', event: 'start', by: 'owner' }));
     fs.appendFileSync(file, whole + partial.slice(0, 40));
     touch(file);
     const first = syncOnce(env.handle, env.data);
     assert.equal(first.byKind.journal.changed, 1);
-    assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM day WHERE owner_file = 'journal/2026-10-20.jsonl'"), before + 1);
+    assert.equal(count(env.db, 'SELECT COUNT(*) AS n FROM day WHERE owner_file = ?', owned('journal/2026-10-20.jsonl')), before + 1);
     assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM day WHERE id = 'j-system-3'"), 0, 'the partial line is not read');
     const row = env.db.prepare("SELECT offset, lines FROM files WHERE path LIKE '%journal/2026-10-20.jsonl'").get();
     assert.equal(row.offset, Buffer.byteLength(fs.readFileSync(file, 'utf8')) - 40);
@@ -143,7 +145,7 @@ test('appended journal lines are read from the offset and a partial last line wa
     touch(file, 10);
     syncOnce(env.handle, env.data);
     assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM day WHERE id = 'j-system-3'"), 1);
-    assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM day WHERE owner_file = 'journal/2026-10-20.jsonl'"), before + 2);
+    assert.equal(count(env.db, 'SELECT COUNT(*) AS n FROM day WHERE owner_file = ?', owned('journal/2026-10-20.jsonl')), before + 2);
     assert.equal(verify(env).different, 0);
   } finally {
     env.done();
@@ -159,7 +161,7 @@ test('a JSONL file that shrank or was rewritten is read whole again and the miss
     touch(file);
     const result = syncOnce(env.handle, env.data);
     assert.equal(result.errors, 0);
-    assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM sources WHERE owner_file = 'record/2026-10/2026-10-20.jsonl' AND retired_at IS NOT NULL"), 2);
+    assert.equal(count(env.db, 'SELECT COUNT(*) AS n FROM sources WHERE owner_file = ? AND retired_at IS NOT NULL', owned('record/2026-10/2026-10-20.jsonl')), 2);
     assert.equal(verify(env).different, 0);
   } finally {
     env.done();
@@ -174,7 +176,7 @@ test('a file that left the disk retires its rows', () => {
     const result = syncOnce(env.handle, env.data);
     assert.equal(result.byKind.recent.changed, 1);
     assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM claims WHERE kind = 'recent_line' AND retired_at IS NULL"), 0);
-    assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM files WHERE path LIKE '%recent.json'"), 0);
+    assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM files WHERE path LIKE '%recent.json' AND gone_at IS NOT NULL"), 1, 'the files row stays as a tombstone');
     assert.equal(count(env.db, "SELECT COUNT(*) AS n FROM claims WHERE kind = 'recent_line'"), 1, 'nothing is deleted');
   } finally {
     env.done();
@@ -206,7 +208,7 @@ test('an archived item missing from hot memory is a retired historical claim; a 
     const hot = env.db.prepare('SELECT truth, retired_at, owner_file FROM claims WHERE id = ?').get(HOT_ITEM);
     assert.equal(hot.truth, 'current');
     assert.equal(hot.retired_at, null);
-    assert.equal(hot.owner_file, `users/${MEMBER}.json`);
+    assert.equal(hot.owner_file, owned(`users/${MEMBER}.json`));
     const stub = env.db.prepare('SELECT truth, retired_at, kind FROM claims WHERE id = ?').get('gone-item');
     assert.equal(stub.truth, 'historical');
     assert.ok(stub.retired_at);
@@ -258,7 +260,7 @@ test('vector rows are linked to the record source of their message', () => {
     syncOnce(env.handle, env.data);
     const rows = env.db.prepare('SELECT chunk_key, source_rowid, owner_file FROM vectors ORDER BY chunk_key').all();
     assert.equal(rows.length, 2);
-    assert.ok(rows.every((row) => row.owner_file === 'vectors/2026-10'));
+    assert.ok(rows.every((row) => row.owner_file === owned('vectors/2026-10')));
     const linked = rows.find((row) => row.chunk_key === 'record:400000000000000001:1');
     assert.ok(linked.source_rowid);
     assert.equal(env.db.prepare('SELECT native_id FROM sources WHERE rowid = ?').get(linked.source_rowid).native_id, '400000000000000001');

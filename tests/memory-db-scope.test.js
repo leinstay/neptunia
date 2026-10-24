@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import {
-  SCOPE_NONE, allowed, dmContext, dmScope, groupContext, groupScope, internalContext, narrowest, scopeColumns, whereFor,
+  SCOPE_INTERNAL, SCOPE_NONE, allowed, dmContext, dmScope, groupContext, groupScope, internalContext, narrowest, scopeColumns, whereFor,
 } from '../src/memory/db/scope.js';
 import {
   accountId, answerSourceId, channelPlaceId, dmPlaceId, guildPlaceId, itemOrDerivedId, messageSourceId, nativeOf, otherSourceId,
@@ -17,8 +17,8 @@ const BOB = personId('100000000000000002');
 test('scope columns from an old scope object', () => {
   assert.deepEqual(scopeColumns({ channel: '200000000000000001' }), groupScope());
   assert.deepEqual(scopeColumns({ guild: true }), groupScope());
-  assert.deepEqual(scopeColumns({}), SCOPE_NONE);
-  assert.deepEqual(scopeColumns(undefined), SCOPE_NONE);
+  assert.deepEqual(scopeColumns({}), SCOPE_INTERNAL, 'an unknown legacy scope is never shown outward');
+  assert.deepEqual(scopeColumns(undefined), SCOPE_INTERNAL);
   assert.deepEqual(scopeColumns({ user: '100000000000000001' }), dmScope(ALICE));
 });
 

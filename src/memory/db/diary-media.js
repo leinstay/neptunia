@@ -60,7 +60,7 @@ export function pendingDiaryRows(db) {
   const rows = db.prepare(
     `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
-      WHERE d.retired_at IS NULL
+      WHERE d.retired_at IS NULL AND m.retired_at IS NULL
         AND (d.text IS NULL
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
@@ -91,7 +91,8 @@ export function applyDiaryUpdate(handle, update) {
     const db = handle.db;
     const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
     if (!diary) return;
-    db.prepare('UPDATE diary SET text = ? WHERE id = ?').run(update.text ?? '', update.id);
+    // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
+    db.prepare("UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?").run(update.text ?? '', update.id);
     const insert = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at)
        VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)

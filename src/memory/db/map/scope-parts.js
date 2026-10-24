@@ -7,9 +7,9 @@ import { channelPlaceId, dmPlaceId, nativeOf } from '../ids.js';
 import { dmUserOf, scopeColumns } from '../scope.js';
 import { jsonEqual } from './common.js';
 
-/** The member id of a private layer file or directory path (`private/<id>.json`, `private/<id>/...`), else null. */
+/** The member id of a private layer file or directory path (`private/<id>.json`, `private/<id>/...`, with or without the `guilds/<g>/` prefix of a full unit path), else null. */
 export function privateUserOf(rel) {
-  const match = /^private\/([^/]+?)(?:\.json$|\/)/.exec(String(rel));
+  const match = /^(?:guilds\/[^/]+\/)?private\/([^/]+?)(?:\.json$|\/)/.exec(String(rel));
   return match ? match[1] : null;
 }
 

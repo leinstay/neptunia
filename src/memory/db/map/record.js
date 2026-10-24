@@ -2,6 +2,9 @@
 // The line's kind is the source's kind (seen, said, deleted, felt). Every field a column names is in the column;
 // the rest of the line (`v`, `id`, `guildId`, `participants`, `sourceMessageIds`, `links`, ...) is in `extra`.
 //
+// `seen_at` is the time the line's message was observed: the line's own `recordedAt` for a `seen` line (the moment the
+// engine saw the message), null for every other kind (a line of hers, a deletion, a feeling is not an observation).
+//
 // toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, guildId? }
 // fromRows(rows, ctx) -> the line
 
@@ -48,7 +51,7 @@ export function toRows(rel, line, ctx = {}) {
     iface: IFACE,
     ...cols,
     ...scope,
-    seen_at: null,
+    seen_at: line.kind === 'seen' && typeof line.recordedAt === 'string' && line.recordedAt ? line.recordedAt : null,
     extra: extraText(rest),
     owner_file: rel,
     position: ctx.position ?? null,

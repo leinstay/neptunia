@@ -179,8 +179,51 @@ UPDATE diary SET text = '' WHERE lost = 1 AND text IS NULL;
 ALTER TABLE diary DROP COLUMN lost;
 `;
 
+// Version 5 (sync and import integrity):
+//  - `owner_file` is the full, guild-namespaced path of the unit (`guilds/<g>/users/<u>.json`); existing values are
+//    rewritten from the `files` rows (an operational row's `owner` follows when it was built from the path);
+//  - the child links (`claim_sources`, `episode_sources`, `diary_mirrors`) get `retired_at` and `owner_file` (the unit
+//    that wrote the link; a link with no `owner_file` was written by the database itself and no file remap touches it);
+//  - `files` gets `gone_at` (a unit that left the disk is a tombstone, never a deleted row), `tail_sha1` (the hash of the
+//    last bytes before the stored offset, so a rewritten JSONL file is told from a grown one) and `bad` (the line
+//    positions and byte starts of malformed lines still to retry);
+//  - `co_owners`: a row two guilds both map (one person in two servers) stays one row owned by the first guild; the
+//    others are listed here so their export finds it and retiring the owner hands it over instead of retiring it;
+//  - `vectors(model, dims)` is indexed, and `sources.seen_at` of an old record line is its `recordedAt`.
+const OWNER_TABLES = [
+  'people', 'accounts', 'places', 'memberships', 'sources', 'claims', 'claim_versions', 'descriptions',
+  'description_versions', 'episodes', 'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events',
+  'decisions', 'vectors',
+];
+const CHILD_TABLES = [['claim_sources', 'claims', 'claim_id'], ['episode_sources', 'episodes', 'episode_id'], ['diary_mirrors', 'diary', 'diary_id']];
+// The full path of a guild-relative owner (from the `files` rows), looked up in a temporary index so the rewrite of a
+// large table is one pass.
+const FULL_PATH = (table) => `(SELECT o.full FROM _owner_paths o WHERE o.rel = ${table}.owner_file)`;
+const V5 = [
+  'CREATE TEMP TABLE _owner_paths AS SELECT substr(path, instr(substr(path, 8), \'/\') + 8) AS rel, MIN(path) AS full FROM files WHERE path LIKE \'guilds/%\' GROUP BY 1;',
+  'CREATE INDEX temp._owner_paths_rel ON _owner_paths(rel);',
+  ...CHILD_TABLES.flatMap(([table]) => [
+    `ALTER TABLE ${table} ADD COLUMN retired_at TEXT;`,
+    `ALTER TABLE ${table} ADD COLUMN owner_file TEXT;`,
+    `CREATE INDEX ${table}_owner ON ${table}(owner_file);`,
+  ]),
+  'ALTER TABLE files ADD COLUMN gone_at TEXT;',
+  'ALTER TABLE files ADD COLUMN tail_sha1 TEXT;',
+  'ALTER TABLE files ADD COLUMN bad TEXT;',
+  'CREATE TABLE co_owners (tbl TEXT, key TEXT, owner_file TEXT, PRIMARY KEY (tbl, key, owner_file));',
+  'CREATE INDEX co_owners_owner ON co_owners(owner_file);',
+  'CREATE INDEX vectors_model ON vectors(model, dims);',
+  ...OWNER_TABLES.map((table) => `UPDATE ${table} SET owner_file = ${FULL_PATH(table)} WHERE owner_file IS NOT NULL AND owner_file NOT LIKE 'guilds/%' AND ${FULL_PATH(table)} IS NOT NULL;`),
+  `UPDATE operational SET owner = CASE WHEN substr(owner, 1, length(owner_file)) = owner_file THEN ${FULL_PATH('operational')} || substr(owner, length(owner_file) + 1) ELSE owner END,
+     owner_file = ${FULL_PATH('operational')}
+   WHERE owner_file IS NOT NULL AND owner_file NOT LIKE 'guilds/%' AND ${FULL_PATH('operational')} IS NOT NULL;`,
+  ...CHILD_TABLES.map(([table, parent, link]) => `UPDATE ${table} SET owner_file = (SELECT p.owner_file FROM ${parent} p WHERE p.id = ${table}.${link});`),
+  "UPDATE sources SET seen_at = recorded_at WHERE kind = 'seen' AND seen_at IS NULL AND recorded_at IS NOT NULL;",
+  'DROP TABLE temp._owner_paths;',
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4];
+export const MIGRATIONS = [V1, V2, V3, V4, V5];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [
