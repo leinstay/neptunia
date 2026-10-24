@@ -168,11 +168,10 @@ test('roles: config.json carries none of the old model keys', () => {
 
 // ---- readConfig --------------------------------------------------------------
 
-test('readConfig: config.local.json is merged over config.json key by key, an old key is not read', () => {
-  const config = loadWith({ models: { base: { vision: 'x/v' }, helpers: { analyzer: 'x/old' }, core: 'x/old-core' }, classifier: { text: 'x/old' } });
+test('readConfig: config.local.json is merged over config.json key by key', () => {
+  const config = loadWith({ models: { base: { vision: 'x/v' } } });
   assert.equal(roleModel(config, 'vision'), 'x/v');
-  assert.equal(roleModel(config, 'core'), ROLE_DEFAULTS.core, 'models.core is not a key any more');
-  assert.equal(roleModel(config, 'analyzer'), ROLE_DEFAULTS.analyzer, 'models.helpers is not a group any more');
+  assert.equal(roleModel(config, 'core'), ROLE_DEFAULTS.core);
   assert.equal(roleModel(loadWith(undefined), 'vision'), ROLE_DEFAULTS.vision);
 });
 

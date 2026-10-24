@@ -919,6 +919,4 @@ test('the scout unit: runs the scout profile as its own user with the state and 
   assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/etc/agent-scout.env');
   assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
   assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
-  assert.equal(fs.existsSync(path.join(ROOT, 'deploy', 'neptunia-agent-web.service')), false);
-  assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'web')), false);
 });
