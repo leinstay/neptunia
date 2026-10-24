@@ -327,8 +327,7 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
       ['a1', { kind: 'participant', id: p1.author.participant, hasPerson: false }],
       ['a2', { kind: 'account', id: p2.author.account, hasPerson: false }],
     ]);
-    assert.ok(!built.messages[1].content.includes('a1'), 'the handles are not rendered yet');
-    assert.ok(built.messages[1].content.includes('Ab12: post 101'), 'a participant line is shown under its display name');
+    assert.ok(built.messages[1].content.includes('[a1] Ab12: post 101'), 'a participant line shows its handle before its display name');
 
     const maps = { ...built.maps, authors: new Map([...built.maps.authors, ['a3', { kind: 'account', id: 'account:linked', hasPerson: true }]]) };
     const { plan, counts } = validateAnswer({
