@@ -136,3 +136,42 @@ export function buildDataDir(root) {
   writeLines(path.join(g, 'recall-trace.jsonl'), [{ at: '2026-10-20T10:00:00.000Z', channelId: CHANNEL, hits: 0 }]);
   return g;
 }
+
+export const GUILD_2 = '300000000000000002';
+
+/** Every file under `from`, as [relative path, Buffer]. */
+function filesUnder(from, rel = '', out = []) {
+  for (const entry of fs.readdirSync(path.join(from, rel), { withFileTypes: true })) {
+    const child = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) filesUnder(from, child, out);
+    else out.push([child, fs.readFileSync(path.join(from, child))]);
+  }
+  return out;
+}
+
+/**
+ * A second guild next to the first: the same member id, the same file names and the same days, but the ids that are
+ * unique in Discord (guild, channel, message) and the ones the engine makes unique (items, turns, journal lines) are
+ * its own. `buildDataDir` must have run on `root`. Returns the second guild's directory.
+ */
+export function buildSecondGuild(root) {
+  const from = guildDir(root);
+  const to = path.join(root, 'guilds', GUILD_2);
+  const rename = (text) => text
+    .replaceAll(GUILD, GUILD_2)
+    .replaceAll(CHANNEL, '200000000000000002')
+    .replaceAll('200000000000000099', '200000000000000098')
+    .replace(/\b4000000000000000(\d\d)\b/g, '4100000000000000$1')
+    .replaceAll('500000000000000001', '510000000000000001')
+    .replaceAll('1555006398444736533', '1555006398444736534')
+    .replaceAll('itemId#', 'itemId.g2#')
+    .replace(/"(turn-1|j-[a-z-]+|ar-\d|rv-ar-\d|p-1|ep-1|rc-1|d-1|i1|t1|t-1|b-1)(-s1)?"/g, (match, id, step) => `"${id}.g2${step ?? ''}"`)
+    .replaceAll('turn-1-s1', 'turn-1.g2-s1');
+  for (const [rel, data] of filesUnder(from)) {
+    const target = path.join(to, rename(rel));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const binary = /\.i8$/.test(rel);
+    fs.writeFileSync(target, binary ? data : rename(data.toString('utf8')));
+  }
+  return to;
+}

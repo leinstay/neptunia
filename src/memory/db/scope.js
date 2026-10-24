@@ -20,7 +20,9 @@ export const internalContext = () => ({ internal: true });
 /**
  * The scope columns of an old scope object (`{ channel }`, `{ guild: true }`, `{ user }`, `{}`).
  * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member; a channel or
- * `guild: true` is `group`; anything else is `none`.
+ * `guild: true` is `group`; anything else (no scope, an empty or unknown one) is `internal`: an unknown legacy scope
+ * is never shown outward. `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted
+ * line), which its mapper sets itself with SCOPE_NONE.
  * @param {object|null|undefined} oldScope
  * @param {{ privateUser?: string|null }} [opts]
  */
@@ -28,7 +30,7 @@ export function scopeColumns(oldScope, opts = {}) {
   const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
   if (user) return dmScope(personId(user));
   if (oldScope && (typeof oldScope.channel === 'string' || oldScope.guild === true)) return groupScope();
-  return { ...SCOPE_NONE };
+  return { ...SCOPE_INTERNAL };
 }
 
 /** The user id a scope row's `scope_dm` names, or null. */

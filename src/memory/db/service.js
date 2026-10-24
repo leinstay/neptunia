@@ -467,7 +467,7 @@ export function createMemoryDb({
     let files = null;
     if (open) {
       try {
-        files = handle.db.prepare('SELECT COUNT(*) AS n FROM files').get().n;
+        files = handle.db.prepare('SELECT COUNT(*) AS n FROM files WHERE gone_at IS NULL').get().n;
         rows = 0;
         for (const table of ['sources', 'claims', 'episodes', 'descriptions', 'places', 'people', 'day', 'diary']) {
           rows += handle.db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NULL`).get().n;

@@ -5,15 +5,25 @@
 //   - a JSON (or text) file that changed is re-mapped whole and upserted by id; rows of that file that the new
 //     mapping no longer holds get `retired_at` (never deleted; a row that comes back is un-retired by the upsert);
 //   - a JSONL file is read from the stored byte `offset` to its last complete line (a partial last line waits for
-//     its newline) and the lines are upserted; a file that shrank, or whose first 4 KB no longer hash as before, is
-//     read whole again and handled like a changed JSON file;
+//     its newline) and the lines are upserted; a file that shrank, whose first 4 KB or whose last 4 KB before the
+//     offset no longer hash as before (a rewrite that kept its start), or that has no stored tail hash yet, is read
+//     whole again and handled like a changed JSON file. A malformed line is not consumed: its position and byte start
+//     are kept in `files.bad` and it is read again on every pass that reads the file, logged with a code (BAD_LINE)
+//     until it parses; a rewritten file starts the list over;
 //   - a month of vectors (three files) is one unit, mapped together; a month whose generation is the one stored and
 //     whose rows only grew reads just the jsonl bytes and int8 bytes past the stored counts (`appendRows` in
 //     map/vectors.js), a new generation (a rewrite) is mapped whole. The month's `gen` and `rows` are kept in the
 //     `files` row (`offset` and `lines`);
 //   - each file is one transaction, and one bad file is counted and logged (its kind and error code, never its
 //     path or content) while the pass goes on.
-// A file that left the disk retires its rows and drops its `files` row. A forgotten member (`forgotten.json`,
+// A file that left the disk retires its rows and its `files` row becomes a tombstone (`gone_at`); a directory that
+// cannot be read is not a vanished directory (nothing under it is retired, the pass logs DIR_UNREADABLE). A unit's
+// `owner_file` (and the `files.path`) is the full path from the data root (`guilds/<g>/users/<u>.json`), so two guilds
+// never share a unit. A row that two guilds both map (one person in two servers) stays one row owned by the first;
+// the others are listed in `co_owners` (an export of their unit finds it, and retiring the owner hands it over). Rows
+// the database itself wrote (no `owner_file`) are never updated or retired by a file remap, and neither are child links
+// (`claim_sources`, `episode_sources`, `diary_mirrors`) without an `owner_file`: a remap retires the links its file no
+// longer holds (`retired_at`) and un-retires the ones that return, it never deletes. A forgotten member (`forgotten.json`,
 // `forgetting/*`) is never imported: the member's files and lines are skipped and rows already imported are retired.
 //
 // Order inside a pass: ordinary files first, then archive segments, participation and vectors (an archived item that is not in hot
@@ -50,6 +60,7 @@ const CHILDREN = {
 };
 
 const HEAD_BYTES = 4096;
+const TAIL_BYTES = 4096;
 const noop = () => {};
 const silent = { info: noop, warn: noop, error: noop, debug: noop };
 
@@ -75,6 +86,9 @@ function prepared(db, sql) {
 
 const bind = (value) => (value === undefined ? null : value);
 
+/** The guild directory prefix of a full unit path (`guilds/<g>/`), or null. */
+const guildOf = (owner) => /^guilds\/[^/]+\//.exec(String(owner ?? ''))?.[0] ?? null;
+
 /** Inserts a row, or updates the columns it names when the primary key exists (rowid and unnamed columns stay). */
 function upsert(db, table, row, { ignore = false } = {}) {
   const have = columnsOf(db, table);
@@ -92,6 +106,57 @@ function upsert(db, table, row, { ignore = false } = {}) {
 
 const keyOf = (table, row) => OWNED[table].map((col) => row[col]).join('\u0000');
 
+/** The existing row of a mapped row's primary key: { owner_file, retired_at } or undefined. */
+function existingOf(db, table, row) {
+  const key = OWNED[table];
+  return prepared(db, `SELECT owner_file, retired_at FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`)
+    .get(...key.map((col) => bind(row[col])));
+}
+
+/**
+ * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;
+ * a live row of another guild is shared (listed in `co_owners`, not rewritten); anything else is upserted.
+ * Returns true when the row is now this unit's to write (false: skipped).
+ */
+function writeRow(db, table, row, opts) {
+  const found = existingOf(db, table, row);
+  if (found) {
+    if (found.owner_file === null || found.owner_file === undefined) return false;
+    const mine = row.owner_file;
+    if (found.owner_file !== mine && found.retired_at === null) {
+      const theirs = guildOf(found.owner_file);
+      if (theirs !== null && guildOf(mine) !== null && theirs !== guildOf(mine)) {
+        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_file) VALUES (?, ?, ?)').run(table, keyOf(table, row), mine);
+        return false;
+      }
+    }
+  }
+  upsert(db, table, row, opts);
+  if (found && found.owner_file !== row.owner_file) {
+    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, row), row.owner_file);
+  }
+  return true;
+}
+
+/** Hands a row over to another live unit that also maps it; false when there is none. */
+function handOver(db, table, key, owner) {
+  const heir = prepared(db, `SELECT c.owner_file FROM co_owners c JOIN files f ON f.path = c.owner_file
+     WHERE c.tbl = ? AND c.key = ? AND c.owner_file != ? AND f.gone_at IS NULL ORDER BY c.owner_file LIMIT 1`).get(table, keyOf(table, key), owner);
+  if (!heir) return false;
+  const cols = OWNED[table];
+  prepared(db, `UPDATE ${quote(table)} SET owner_file = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`).run(heir.owner_file, ...cols.map((col) => key[col]));
+  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, key), heir.owner_file);
+  for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
+    if (parent === table) prepared(db, `UPDATE ${quote(child)} SET owner_file = ? WHERE ${quote(link)} = ? AND owner_file = ?`).run(heir.owner_file, key.id, owner);
+  }
+  return true;
+}
+
+/** The identity of a child link inside its unit: where it sits under its parent (a mirror: which place it was sent to). */
+const childKey = (child, row) => (child === 'diary_mirrors'
+  ? [row.diary_id, row.iface, row.place_id ?? ''].join('\u0000')
+  : [row[CHILDREN[child][1]], row.position].join('\u0000'));
+
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
 function retireAbsent(db, owner, mapping, at) {
   let count = 0;
@@ -101,7 +166,23 @@ function retireAbsent(db, owner, mapping, at) {
     const update = prepared(db, `UPDATE ${quote(table)} SET retired_at = ? WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`);
     for (const row of existing) {
       if (keep.has(keyOf(table, row))) continue;
+      if (handOver(db, table, row, owner)) continue;
       update.run(at, ...key.map((col) => row[col]));
+      count += 1;
+    }
+    // This unit no longer maps the rows it shared with another guild.
+    for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?').all(table, owner)) {
+      if (!keep.has(shared.key)) prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, shared.key, owner);
+    }
+  }
+  for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
+    const keep = new Set((mapping[child] ?? []).map((row) => childKey(child, row)));
+    const cols = child === 'diary_mirrors' ? 'rowid, diary_id, iface, place_id' : `rowid, ${quote(link)}, position`;
+    const existing = prepared(db, `SELECT ${cols} FROM ${quote(child)} c WHERE owner_file = ? AND retired_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_file IS NOT NULL AND p.owner_file != ?)`).all(owner, owner);
+    for (const row of existing) {
+      if (keep.has(childKey(child, row))) continue;
+      prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
       count += 1;
     }
   }
@@ -111,28 +192,55 @@ function retireAbsent(db, owner, mapping, at) {
 /** Retires every active row of a unit. */
 const retireUnit = (db, owner, at) => retireAbsent(db, owner, {}, at);
 
-/** Writes a mapping (table -> rows). Children of a parent row are replaced with the mapping's. */
-function writeMapping(db, mapping, { ignoreClaims = false } = {}) {
+/** Writes the child links of a mapping for one unit: a link that is already there is updated and un-retired, a new one is inserted. */
+function writeChildren(db, mapping, owner, skippedParents) {
   let count = 0;
-  for (const [table, rows] of Object.entries(mapping)) {
-    if (CHILDREN[table] || !rows.length) continue;
-    for (const row of rows) {
-      upsert(db, table, row, { ignore: table === 'claims' && ignoreClaims });
-      count += 1;
-    }
-  }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    const parents = mapping[parent] ?? [];
-    if (!parents.length) continue;
-    const remove = prepared(db, `DELETE FROM ${quote(child)} WHERE ${quote(link)} = ?`);
-    for (const row of parents) remove.run(row.id);
     for (const row of mapping[child] ?? []) {
-      const cols = Object.keys(row);
-      prepared(db, `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((col) => bind(row[col])));
+      if (skippedParents.has(`${parent}\u0000${row[link]}`)) continue;
+      const out = { ...row, owner_file: owner, retired_at: null };
+      const cols = Object.keys(out);
+      const where = child === 'diary_mirrors' ? 'diary_id = ? AND iface = ? AND coalesce(place_id, \'\') = ?' : `${quote(link)} = ? AND position = ?`;
+      const args = child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
+      const found = prepared(db, `SELECT rowid, owner_file FROM ${quote(child)} WHERE ${where} ORDER BY owner_file IS NULL DESC, rowid LIMIT 1`).get(...args);
+      if (found && (found.owner_file === null || found.owner_file === undefined)) continue;
+      if (found) {
+        prepared(db, `UPDATE ${quote(child)} SET ${cols.map((col) => `${quote(col)} = ?`).join(', ')} WHERE rowid = ?`).run(...cols.map((col) => bind(out[col])), found.rowid);
+      } else {
+        prepared(db, `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((col) => bind(out[col])));
+      }
       count += 1;
     }
   }
   return count;
+}
+
+/** Writes a mapping (table -> rows) of the unit `owner`. */
+function writeMapping(db, mapping, owner, { ignoreClaims = false } = {}) {
+  let count = 0;
+  const skippedParents = new Set();
+  for (const [table, rows] of Object.entries(mapping)) {
+    if (CHILDREN[table] || !rows.length) continue;
+    for (const row of rows) {
+      if (writeRow(db, table, row, { ignore: table === 'claims' && ignoreClaims })) count += 1;
+      else if (Object.values(CHILDREN).some(([parent]) => parent === table)) skippedParents.add(`${table}\u0000${row.id}`);
+    }
+  }
+  return count + writeChildren(db, mapping, owner, skippedParents);
+}
+
+/** Makes a unit's mapping use the full unit path: `owner_file` of every row, and the `owner` of an operational row built from the path. */
+function qualify(mapping, unit) {
+  for (const rows of Object.values(mapping)) {
+    for (const row of rows) {
+      if (row.owner_file !== undefined && row.owner_file !== null && row.owner_file === unit.rel) {
+        if (row.owner !== undefined && (row.owner === unit.rel || String(row.owner).startsWith(`${unit.rel}#`))) row.owner = `${unit.full}${String(row.owner).slice(unit.rel.length)}`;
+        row.owner_file = unit.full;
+      }
+    }
+  }
+  for (const child of Object.keys(CHILDREN)) for (const row of mapping[child] ?? []) row.owner_file = unit.full;
+  return mapping;
 }
 
 function merge(into, mapping) {
@@ -143,13 +251,18 @@ function merge(into, mapping) {
 
 const TEMP_FILE = /\.\d+\.tmp$/;
 
-/** Every file under `dir` as { rel, abs, size, mtimeMs }, depth first in name order. Skipped trees are not entered. */
-export function walk(dir, rel = '', out = []) {
+/**
+ * Every file under `dir` as { rel, abs, size, mtimeMs }, depth first in name order. Skipped trees are not entered. A
+ * directory or file that cannot be read (anything but a file that vanished between the listing and the stat) is
+ * pushed to `unreadable` as { rel, code }: what was under it is not known to be gone.
+ */
+export function walk(dir, rel = '', out = [], unreadable = []) {
   let entries;
   try {
     entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
   } catch (error) {
     if (rel === '') throw error;
+    unreadable.push({ rel, code: error?.code ?? error?.name ?? 'ERROR' });
     return out;
   }
   entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -157,13 +270,15 @@ export function walk(dir, rel = '', out = []) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       if (classify(`${child}/_`)?.skipped) continue;
-      walk(dir, child, out);
+      walk(dir, child, out, unreadable);
     } else if (entry.isFile() && !TEMP_FILE.test(entry.name)) {
       const abs = path.join(dir, child);
       try {
         const stat = fs.statSync(abs);
         out.push({ rel: child, abs, size: stat.size, mtimeMs: Math.floor(stat.mtimeMs) });
-      } catch { /* vanished between listing and stat */ }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') unreadable.push({ rel: child, code: error?.code ?? error?.name ?? 'ERROR' });
+      }
     }
   }
   return out;
@@ -281,8 +396,8 @@ function readVectors(unit, manifest) {
 
 /** The new rows of a month that only grew since the stored pass, or null when the month has to be mapped whole. */
 function vectorsAppend(db, unit, prior, manifest) {
-  if (!prior || prior.offset !== manifest?.gen || !Number.isInteger(prior.lines) || !(manifest.rows > prior.lines)) return null;
-  const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner = ?").get(unit.rel);
+  if (!prior || prior.gone_at || prior.offset !== manifest?.gen || !Number.isInteger(prior.lines) || !(manifest.rows > prior.lines)) return null;
+  const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner = ?").get(unit.full);
   let previous;
   try { previous = stored ? JSON.parse(stored.value) : null; } catch { return null; }
   const old = previous?.manifest;
@@ -292,7 +407,7 @@ function vectorsAppend(db, unit, prior, manifest) {
   const i8 = find('i8');
   if (!meta || !i8 || meta.size < manifest.metaBytes || i8.size < manifest.bytes) return null;
   const delta = { manifest, meta: readFrom(meta.abs, old.metaBytes).toString('utf8'), i8: readFrom(i8.abs, old.bytes) };
-  const keys = db.prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?').all(unit.rel).map((row) => row.chunk_key);
+  const keys = db.prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?').all(unit.full).map((row) => row.chunk_key);
   return unit.mapper.appendRows(unit.rel, delta, { previous, keys });
 }
 
@@ -311,7 +426,7 @@ function relinkParticipation(db) {
   const find = prepared(db, "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
   const update = prepared(db, 'UPDATE episode_sources SET source_id = ? WHERE episode_id = ? AND position = ? AND source_id = ?');
   let count = 0;
-  for (const row of db.prepare("SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%'").all()) {
+  for (const row of db.prepare("SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%' AND retired_at IS NULL").all()) {
     const messageId = /^src:discord:([^:]+)/.exec(row.source_id)?.[1];
     const found = messageId ? find.get(messageId) : null;
     if (!found || found.id === row.source_id) continue;
@@ -333,10 +448,11 @@ function linkVectors(db, rows) {
 
 // ---------- the pass ----------
 
-const upsertFile = (db, unit, fields) => prepared(db, `INSERT INTO files (path, kind, size, mtime_ms, sha1, offset, synced_at, lines)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, size = excluded.size,
-  mtime_ms = excluded.mtime_ms, sha1 = excluded.sha1, offset = excluded.offset, synced_at = excluded.synced_at, lines = excluded.lines`)
-  .run(unit.full, unit.kind, fields.size, bind(fields.mtimeMs), bind(fields.sha1), bind(fields.offset), fields.at, bind(fields.lines));
+const upsertFile = (db, unit, fields) => prepared(db, `INSERT INTO files (path, kind, size, mtime_ms, sha1, offset, synced_at, lines, tail_sha1, bad, gone_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, size = excluded.size,
+  mtime_ms = excluded.mtime_ms, sha1 = excluded.sha1, offset = excluded.offset, synced_at = excluded.synced_at, lines = excluded.lines,
+  tail_sha1 = excluded.tail_sha1, bad = excluded.bad, gone_at = NULL`)
+  .run(unit.full, unit.kind, fields.size, bind(fields.mtimeMs), bind(fields.sha1), bind(fields.offset), fields.at, bind(fields.lines), bind(fields.tail), bind(fields.bad));
 
 /** Syncs one JSON, text or vectors unit. Returns { upserted, retired } (null upserted when nothing changed). */
 function syncWhole(db, unit, prior, at) {
@@ -349,7 +465,7 @@ function syncWhole(db, unit, prior, at) {
     if (rows) {
       for (const row of rows.vectors ?? []) row.owner_file = unit.rel;
       linkVectors(db, rows.vectors ?? []);
-      const upserted = writeMapping(db, rows);
+      const upserted = writeMapping(db, qualify(rows, unit), unit.full);
       upsertFile(db, unit, { size: unit.size, mtimeMs: unit.mtimeMs, sha1: null, offset: generation.gen, lines: generation.rows, at });
       return { upserted, retired: 0 };
     }
@@ -371,13 +487,35 @@ function syncWhole(db, unit, prior, at) {
     for (const row of mapping.vectors ?? []) row.owner_file = unit.rel;
     linkVectors(db, mapping.vectors ?? []);
   }
-  const upserted = writeMapping(db, mapping, { ignoreClaims: unit.kind === 'archive' });
-  const retired = retireAbsent(db, unit.rel, mapping, at);
+  qualify(mapping, unit);
+  const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive' });
+  const retired = retireAbsent(db, unit.full, mapping, at);
   upsertFile(db, unit, { size: unit.size, mtimeMs: pending ? null : unit.mtimeMs, sha1: pending ? 'pending' : null, offset: generation?.gen ?? null, lines: generation?.rows ?? null, at });
   return { upserted, retired };
 }
 
-/** Syncs one JSONL unit: from the stored offset when the file only grew, else whole. */
+/** The bytes of a file from `from` to `to` (clamped to the file). */
+function readRange(fd, from, to) {
+  const length = Math.max(0, to - from);
+  const buffer = Buffer.alloc(length);
+  const read = length > 0 ? fs.readSync(fd, buffer, 0, length, from) : 0;
+  return buffer.subarray(0, read);
+}
+
+/** The malformed lines still to retry, as stored: [[position, byteStart], ...]. */
+function badOf(prior) {
+  try {
+    const list = JSON.parse(prior?.bad ?? '[]');
+    return Array.isArray(list) ? list.filter((entry) => Array.isArray(entry) && Number.isInteger(entry[0]) && Number.isInteger(entry[1])) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Syncs one JSONL unit: from the stored offset when the file only grew (its first 4 KB and the last 4 KB before the
+ * offset still hash as stored), else whole. A malformed line is not consumed: it is read again on the next pass.
+ */
 function syncLines(db, unit, prior, at, forgotten, errors) {
   const fd = fs.openSync(unit.abs, 'r');
   try {
@@ -385,12 +523,15 @@ function syncLines(db, unit, prior, at, forgotten, errors) {
     let start = 0;
     let lines = 0;
     let whole = true;
-    if (prior && Number.isInteger(prior.offset) && size >= prior.offset && prior.sha1) {
+    let retry = [];
+    if (prior && !prior.gone_at && Number.isInteger(prior.offset) && prior.offset > 0 && size >= prior.offset && prior.sha1 && prior.tail_sha1) {
       const head = readHead(fd, Math.min(HEAD_BYTES, prior.offset));
-      if (sha1Of(head) === prior.sha1) {
+      const tail = readRange(fd, Math.max(0, prior.offset - TAIL_BYTES), prior.offset);
+      if (sha1Of(head) === prior.sha1 && sha1Of(tail) === prior.tail_sha1 && (prior.offset === 0 || tail[tail.length - 1] === 0x0a)) {
         start = prior.offset;
         lines = prior.lines ?? 0;
         whole = false;
+        retry = badOf(prior);
       }
     }
     const chunk = Buffer.alloc(size - start);
@@ -401,28 +542,47 @@ function syncLines(db, unit, prior, at, forgotten, errors) {
     const mapping = {};
     const ctxBase = { guildId: unit.guildId };
     if (unit.kind === 'archive') ctxBase.hotClaimIds = hotClaimIds(db);
-    let position = lines;
-    for (const text of data.subarray(0, end).toString('utf8').split('\n')) {
-      if (!text.trim()) continue;
+    const bad = [];
+    const take = (text, position) => {
+      if (!text.trim()) return true;
       let value;
       try {
         value = JSON.parse(text);
       } catch {
-        errors.push('BAD_LINE');
-        position += 1;
-        continue;
+        return false;
       }
       if (!lineIsForgotten(value, forgotten)) merge(mapping, unit.mapper.toRows(unit.rel, value, { ...ctxBase, position }));
-      position += 1;
+      return true;
+    };
+    // Lines that did not parse on an earlier pass: the same bytes are tried again.
+    for (const [position, byteStart] of retry) {
+      const raw = readRange(fd, byteStart, Math.min(prior.offset, byteStart + (1 << 20)));
+      const stop = raw.indexOf(0x0a);
+      const text = (stop < 0 ? raw : raw.subarray(0, stop)).toString('utf8');
+      if (!take(text, position)) bad.push([position, byteStart]);
     }
-    const upserted = writeMapping(db, mapping, { ignoreClaims: unit.kind === 'archive' });
-    const retired = whole ? retireAbsent(db, unit.rel, mapping, at) : 0;
-    const head = offset === start && !whole ? null : readHead(fd, Math.min(HEAD_BYTES, offset));
+    let position = lines;
+    let cursor = start;
+    for (const text of data.subarray(0, end).toString('utf8').split('\n')) {
+      if (text.trim()) {
+        if (!take(text, position)) bad.push([position, cursor]);
+        position += 1;
+      }
+      cursor += Buffer.byteLength(text) + 1;
+    }
+    const known = new Set(retry.map(([at2]) => at2));
+    for (const [position2] of bad) if (!known.has(position2)) errors.push('BAD_LINE');
+    const stillBad = bad.filter(([position2]) => known.has(position2)).length;
+    qualify(mapping, unit);
+    const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive' });
+    const retired = whole ? retireAbsent(db, unit.full, mapping, at) : 0;
+    const keepHead = offset === start && !whole;
     upsertFile(db, unit, {
-      size: unit.size, mtimeMs: unit.mtimeMs, offset, lines: position, at,
-      sha1: head === null ? prior.sha1 : sha1Of(head),
+      size: unit.size, mtimeMs: unit.mtimeMs, offset, lines: position, at, bad: bad.length ? JSON.stringify(bad) : null,
+      sha1: keepHead ? prior.sha1 : sha1Of(readHead(fd, Math.min(HEAD_BYTES, offset))),
+      tail: keepHead ? prior.tail_sha1 : sha1Of(readRange(fd, Math.max(0, offset - TAIL_BYTES), offset)),
     });
-    return { upserted, retired };
+    return { upserted, retired, stillBad };
   } finally {
     fs.closeSync(fd);
   }
@@ -445,7 +605,10 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
   const at = iso(now);
   const result = { seen: 0, changed: 0, upserted: 0, retired: 0, errors: 0, forgotten: 0, byKind: {}, unknown: [], skipped: 0 };
   const skipped = { count: 0 };
-  const everything = walk(dataDir);
+  const unreadable = [];
+  const everything = walk(dataDir, '', [], unreadable);
+  for (const entry of unreadable) log.warn('memory sync: path unreadable, nothing under it is retired', { kind: 'directory', code: entry.code });
+  const underUnreadable = (full) => unreadable.some((entry) => full === entry.rel || full.startsWith(`${entry.rel}/`) || entry.rel.startsWith(`${full}/`));
   const files = filter ? everything.filter((file) => filter(file.rel)) : everything;
   const units = unitsOf(files, result.unknown, skipped);
   result.skipped = skipped.count;
@@ -467,9 +630,9 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
         const prior = db.prepare('SELECT * FROM files WHERE path = ?').get(unit.full);
         const member = memberOfUnit(unit.rel);
         if (member && forgotten.has(member)) {
-          if (prior) {
-            const retired = retireUnit(db, unit.rel, at);
-            db.prepare('DELETE FROM files WHERE path = ?').run(unit.full);
+          if (prior && !prior.gone_at) {
+            const retired = retireUnit(db, unit.full, at);
+            db.prepare('UPDATE files SET gone_at = ?, synced_at = ? WHERE path = ?').run(at, at, unit.full);
             counts.retired += retired;
             result.retired += retired;
             counts.changed += 1;
@@ -478,7 +641,7 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
           result.forgotten += 1;
           return;
         }
-        if (prior && prior.size === unit.size && prior.mtime_ms === unit.mtimeMs) return;
+        if (prior && prior.size === unit.size && prior.mtime_ms === unit.mtimeMs && !prior.gone_at && !prior.bad) return;
         const lineErrors = [];
         const done = unit.format === 'jsonl' ? syncLines(db, unit, prior, at, forgotten, lineErrors) : syncWhole(db, unit, prior, at);
         counts.changed += 1;
@@ -490,8 +653,9 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
         if (lineErrors.length) {
           counts.errors += lineErrors.length;
           result.errors += lineErrors.length;
-          log.warn('memory sync: unreadable lines skipped', { kind: unit.kind, code: 'BAD_LINE', count: lineErrors.length });
+          log.warn('memory sync: unreadable lines, retried on the next pass', { kind: unit.kind, code: 'BAD_LINE', count: lineErrors.length });
         }
+        if (done.stillBad) log.debug?.('memory sync: a line is still unreadable', { kind: unit.kind, code: 'BAD_LINE', count: done.stillBad });
       });
     } catch (error) {
       counts.errors += 1;
@@ -499,17 +663,18 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
       log.warn('memory sync: file failed', { kind: unit.kind, code: error?.code ?? error?.name ?? 'ERROR' });
     }
   }
-  // Files that left the disk.
+  // Files that left the disk: their rows are retired and the `files` row stays as a tombstone. Nothing is retired
+  // under a directory that could not be read.
   if (units.length) {
-    for (const prior of db.prepare('SELECT path, kind FROM files').all()) {
+    for (const prior of db.prepare('SELECT path, kind FROM files WHERE gone_at IS NULL').all()) {
       if (seenPaths.has(prior.path)) continue;
-      const rel = prior.path.replace(/^guilds\/[^/]+\//, '');
       if (filter && !filter(prior.path)) continue;
+      if (underUnreadable(prior.path)) continue;
       const counts = bump(result.byKind, prior.kind);
       try {
         transaction(() => {
-          const retired = retireUnit(db, rel, at);
-          db.prepare('DELETE FROM files WHERE path = ?').run(prior.path);
+          const retired = retireUnit(db, prior.path, at);
+          db.prepare('UPDATE files SET gone_at = ?, synced_at = ? WHERE path = ?').run(at, at, prior.path);
           counts.retired += retired;
           counts.changed += 1;
           result.retired += retired;

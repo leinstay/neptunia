@@ -2,8 +2,10 @@
 // proved file by file (`tools/memory-db.mjs verify`) and the old files can one day be rebuilt or dropped.
 //
 // Which files exist comes from the `files` table (a sync records every unit it read, a month of vectors being one
-// unit); what is in them comes from the rows whose `owner_file` is that unit and that are not retired. A retired row
-// left its file, so it is not written. JSON is written the way the store writes it (2 spaces, no trailing newline),
+// unit; a unit that left the disk is a tombstone (`gone_at`) and is not written); what is in them comes from the rows
+// whose `owner_file` is the unit's full path (`guilds/<g>/users/<u>.json`) or that the unit shares with another guild
+// (`co_owners`), and that are not retired. A retired row left its file, so it is not written. JSON is written the way
+// the store writes it (2 spaces, no trailing newline),
 // a JSONL file one line per row in the old line order, vector bytes exactly, operational rows verbatim.
 //
 // exportAll(database, toDir) -> { files, byKind, failed }
@@ -26,16 +28,20 @@ const HAS_POSITION = new Set([
   'intentions', 'work', 'work_events', 'decisions',
 ]);
 
-/** The active rows of one unit: table -> rows (every table present), children included. */
-export function unitRows(db, rel) {
+const KEY_SQL = (table) => (OWNED[table].length === 1 ? `"${OWNED[table][0]}"` : OWNED[table].map((col) => `"${col}"`).join(" || char(0) || "));
+
+/** The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included. */
+export function unitRows(db, owner) {
   const rows = {};
   for (const table of Object.keys(OWNED)) {
     const order = HAS_POSITION.has(table) ? 'position, rowid' : 'rowid';
-    rows[table] = db.prepare(`SELECT * FROM "${table}" WHERE owner_file = ? AND retired_at IS NULL ORDER BY ${order}`).all(rel).map((row) => ({ ...row }));
+    rows[table] = db.prepare(`SELECT * FROM "${table}" WHERE (owner_file = ? OR ${KEY_SQL(table)} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND retired_at IS NULL ORDER BY ${order}`)
+      .all(owner, table, owner).map((row) => ({ ...row }));
   }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    rows[child] = db.prepare(`SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}" WHERE p.owner_file = ? AND p.retired_at IS NULL ORDER BY c.rowid`)
-      .all(rel).map((row) => ({ ...row }));
+    rows[child] = db.prepare(`SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}"
+      WHERE (p.owner_file = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`)
+      .all(owner, parent, owner).map((row) => ({ ...row }));
   }
   return rows;
 }
@@ -72,9 +78,9 @@ function linesOf(kind, mapper, rows) {
   }
 }
 
-/** The files of one unit: [{ rel, data }] relative to the unit's guild directory. */
-export function filesOfUnit(db, unitRel, info) {
-  const rows = unitRows(db, unitRel);
+/** The files of one unit: [{ rel, data }] relative to the unit's guild directory. `unitFull` is the unit's full path. */
+export function filesOfUnit(db, unitRel, info, unitFull = unitRel) {
+  const rows = unitRows(db, unitFull);
   const { kind, mapper, format } = info;
   if (format === 'vectors') {
     if (!rows.operational.length) return [];
@@ -96,7 +102,7 @@ export function filesOfUnit(db, unitRel, info) {
 export function exportAll(database, toDir) {
   const db = database.db ?? database;
   const result = { files: 0, byKind: {}, failed: [] };
-  for (const file of db.prepare('SELECT path, kind FROM files ORDER BY path').all()) {
+  for (const file of db.prepare('SELECT path, kind FROM files WHERE gone_at IS NULL ORDER BY path').all()) {
     const match = /^guilds\/([^/]+)\/(.+)$/.exec(file.path);
     const guildPrefix = match ? `guilds/${match[1]}/` : '';
     const unitRel = match ? match[2] : file.path;
@@ -104,7 +110,7 @@ export function exportAll(database, toDir) {
     const counts = (result.byKind[file.kind] ??= { files: 0 });
     if (!info || info.skipped) continue;
     try {
-      for (const out of filesOfUnit(db, unitRel, info)) {
+      for (const out of filesOfUnit(db, unitRel, info, file.path)) {
         const target = path.join(toDir, guildPrefix, out.rel);
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.writeFileSync(target, out.data);
@@ -130,14 +136,14 @@ export function exportOne(database, relPath, { dataDir = null } = {}) {
   const info = classify(relPath);
   if (!info || info.skipped || info.format !== 'json') return { found: false, reason: 'unmapped' };
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  const file = db.prepare('SELECT size, mtime_ms FROM files WHERE path = ?').get(full);
+  const file = db.prepare('SELECT size, mtime_ms FROM files WHERE path = ? AND gone_at IS NULL').get(full);
   if (!file) return { found: false, reason: 'missing' };
   if (dataDir) {
     let stat = null;
     try { stat = fs.statSync(path.join(dataDir, relPath)); } catch { /* gone */ }
     if (!stat || stat.size !== file.size || Math.floor(stat.mtimeMs) !== file.mtime_ms) return { found: false, reason: 'stale' };
   }
-  const [out] = filesOfUnit(db, info.unit, info);
+  const [out] = filesOfUnit(db, info.unit, info, full);
   if (!out) return { found: false, reason: 'empty' };
   return { found: true, value: JSON.parse(out.data.toString('utf8')) };
 }
@@ -147,7 +153,7 @@ export function idsUnderDir(database, relDir) {
   const db = database.db ?? database;
   const prefix = `${String(relDir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
   const ids = [];
-  for (const row of db.prepare('SELECT path FROM files WHERE substr(path, 1, ?) = ?').all(prefix.length, prefix)) {
+  for (const row of db.prepare('SELECT path FROM files WHERE gone_at IS NULL AND substr(path, 1, ?) = ?').all(prefix.length, prefix)) {
     const rest = row.path.slice(prefix.length);
     if (!rest.includes('/') && rest.endsWith('.json')) ids.push(rest.slice(0, -5));
   }
