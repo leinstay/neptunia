@@ -515,14 +515,14 @@ test('createHot: an old config that still sets innerLife.loop.strayFollowUps loa
 
 test('createHot: a config that still sets a dollar limit loads and warns once per key at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { caps: { usdPerDay: 4 } }, agents: { web: { daily: { usd: 8 }, limits: { usd: 1 } } } }));
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { caps: { usdPerDay: 4 } }, agents: { scout: { daily: { usd: 8 }, limits: { usd: 1 } } } }));
   const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: .*usd.* is no longer read$/i.test(entry.msg)).map((entry) => entry.msg).sort();
   let hot;
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.deepEqual(retired(started.logs), ['config: agents.web.daily.usd is no longer read', 'config: agents.web.limits.usd is no longer read', 'config: innerLife.caps.usdPerDay is no longer read']);
+    assert.deepEqual(retired(started.logs), ['config: agents.scout.daily.usd is no longer read', 'config: agents.scout.limits.usd is no longer read', 'config: innerLife.caps.usdPerDay is no longer read']);
     const again = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(retired(again.logs).length, 0);
   } finally {
@@ -549,58 +549,26 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
   }
 });
 
-test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
-  const dir = makeRoot({ config: { models: { helpers: { analyzer: 'x/default' } } } });
+test('createHot: a config.local.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
+  const dir = makeRoot({ config: { models: { base: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');
-  fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, llm: { cache: { roles: ['voice', 'classifier.text'] } } }));
-  const warned = (logs) => logs.filter((entry) => entry.msg === 'config: old model keys read under their new names');
+  fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } }));
   let hot;
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.equal(hot.config.models.helpers.analyzer, 'x/old-text');
-    assert.deepEqual(hot.config.llm.cache.roles, ['core', 'analyzer'], 'voice is read as core, classifier.text as analyzer');
-    assert.equal(hot.config.classifier, undefined);
-    assert.equal(warned(started.logs).length, 1);
-    assert.equal(warned(started.logs)[0].level, 'warn');
-    assert.deepEqual(warned(started.logs)[0].keys, [
-      { key: 'classifier.text', use: 'models.helpers.analyzer' },
-      { key: 'llm.cache.roles: voice', use: 'core' },
-      { key: 'llm.cache.roles: classifier.text', use: 'analyzer' },
-    ]);
-    assert.ok(!JSON.stringify(started.logs).includes('x/old-text'), 'the key, never its value');
+    assert.equal(hot.config.models.base.analyzer, 'x/default', 'classifier.text is no model key any more');
+    assert.equal(hot.config.models.base.vision, 'x/new-vision');
+    assert.equal(started.logs.filter((entry) => entry.level === 'warn').length, 0, 'no listing of old keys');
 
-    const reloads = await withCapturedLogs(() => {
-      hot.reloadConfig(); // the same keys: no second warning
-      fs.writeFileSync(localFile, JSON.stringify({ models: { helpers: { analyzer: 'x/new-text' } } }));
-      hot.reloadConfig(); // none left: quiet
-    });
-    assert.equal(warned(reloads.logs).length, 0);
-    assert.equal(hot.config.models.helpers.analyzer, 'x/new-text');
-  } finally {
-    hot?.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('createHot: a config.local.json still holding the flat roles map fails the start; on a reload the previous config stays live', async () => {
-  const dir = makeRoot({ config: { models: { agents: { web: 'openrouter/x/default' } } } });
-  const localFile = path.join(dir, 'config.local.json');
-  fs.writeFileSync(localFile, JSON.stringify({ roles: { 'agent.web': 'openrouter/x/old-shape' } }));
-  let hot;
-  try {
-    assert.throws(() => createHot({ rootDir: dir }), (err) => err.name === 'ConfigShapeError' && err.message.includes('"roles.agent.web" -> "models.agents.web"'));
-    fs.writeFileSync(localFile, JSON.stringify({ models: { agents: { web: 'openrouter/x/new-shape' } } }));
-    hot = createHot({ rootDir: dir });
-    assert.equal(hot.config.models.agents.web, 'openrouter/x/new-shape');
-    fs.writeFileSync(localFile, JSON.stringify({ roles: { agentWeb: 'openrouter/x/older' } }));
+    fs.writeFileSync(localFile, '{ not json');
     const reload = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(reload.result, false, 'the reload is refused');
-    assert.equal(hot.config.models.agents.web, 'openrouter/x/new-shape', 'the previous config stays live');
-    assert.equal(Object.hasOwn(hot.config, 'roles'), false);
-    assert.equal(reload.logs.filter((entry) => entry.msg === 'hot: config not reloaded, keeping the previous one').length, 1);
-    assert.ok(!JSON.stringify(reload.logs).includes('openrouter/x/older'), 'the key, never its value');
+    assert.equal(hot.config.models.base.vision, 'x/new-vision', 'the previous config stays live');
+    fs.writeFileSync(localFile, JSON.stringify({ models: { base: { analyzer: 'x/new-text' } } }));
+    hot.reloadConfig();
+    assert.equal(hot.config.models.base.analyzer, 'x/new-text');
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -767,19 +735,19 @@ test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts
   fs.writeFileSync(path.join(dir, 'prompts', 'preambles', 'all.md'), 'tracked');
   writePreamble(dir, 'all', '\uFEFFΚοινό.\r\n');
   writePreamble(dir, '@moonshotai-kimi-k3', 'Για το μοντέλο.');
-  writePreamble(dir, 'web', '');
+  writePreamble(dir, 'scout', '');
   fs.writeFileSync(path.join(dir, 'prompts.local', 'preambles', 'notes.txt'), 'not a prompt');
   const hot = createHot({ rootDir: dir });
   try {
-    assert.deepEqual(hot.prompts.preambles, { all: 'Κοινό.', '@moonshotai-kimi-k3': 'Για το μοντέλο.', web: '' });
+    assert.deepEqual(hot.prompts.preambles, { all: 'Κοινό.', '@moonshotai-kimi-k3': 'Για το μοντέλο.', scout: '' });
     assert.equal(hot.prompts.rules, 'base text');
     const before = hot.hashes.promptsHash;
 
-    writePreamble(dir, 'web', 'Ιστός.');
+    writePreamble(dir, 'scout', 'Ιστός.');
     fs.rmSync(path.join(dir, 'prompts.local', 'preambles', '@moonshotai-kimi-k3.md'));
     writePreamble(dir, 'all', ''); // emptied: '' at once, no keep-the-previous guard
     assert.equal(hot.reloadPrompts(), true);
-    assert.deepEqual(hot.prompts.preambles, { all: '', web: 'Ιστός.' });
+    assert.deepEqual(hot.prompts.preambles, { all: '', scout: 'Ιστός.' });
     assert.notEqual(hot.hashes.promptsHash, before, 'the preambles count in the prompts hash');
 
     fs.rmSync(path.join(dir, 'prompts.local', 'preambles'), { recursive: true, force: true });
@@ -819,7 +787,7 @@ test('watch: prompts.local/preambles/ gets a watcher of its own; created, edited
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual(hot.prompts.preambles, {});
 
-    writePreamble(dir, 'web', 'again');
+    writePreamble(dir, 'scout', 'again');
     local.listener('rename', 'preambles');
     assert.equal(watch.of(preamblesDir).length, 2);
     hot.close();
@@ -852,32 +820,32 @@ test('watch: a preambles/ folder present at start is watched; an error frees its
 test('createHot: an emptied preamble file composes to nothing at once, while an emptied top-level prompt keeps its text', () => {
   const dir = makeRoot();
   writeLocalPrompt(dir, 'rules', 'local rules');
-  writePreamble(dir, 'web', 'Ιστός.');
+  writePreamble(dir, 'scout', 'Ιστός.');
   const hot = createHot({ rootDir: dir });
-  const webPreamble = () => composePreamble({ prompts: hot.prompts, agent: 'web', model: null }).text;
+  const scoutPreamble = () => composePreamble({ prompts: hot.prompts, agent: 'scout', model: null }).text;
   try {
-    assert.equal(webPreamble(), 'Ιστός.');
-    writePreamble(dir, 'web', 'Ιστός, δεύτερο.');
+    assert.equal(scoutPreamble(), 'Ιστός.');
+    writePreamble(dir, 'scout', 'Ιστός, δεύτερο.');
     assert.equal(hot.reloadPrompts(), true);
-    assert.equal(webPreamble(), 'Ιστός, δεύτερο.');
+    assert.equal(scoutPreamble(), 'Ιστός, δεύτερο.');
 
-    writePreamble(dir, 'web', '');
+    writePreamble(dir, 'scout', '');
     writeLocalPrompt(dir, 'rules', ''); // half-written top-level file: the guard stays
     assert.equal(hot.reloadPrompts(), true);
-    assert.equal(webPreamble(), '', 'an empty preamble file is nothing');
+    assert.equal(scoutPreamble(), '', 'an empty preamble file is nothing');
     assert.equal(hot.prompts.rules, 'local rules');
 
-    writePreamble(dir, 'web', 'Ιστός.');
+    writePreamble(dir, 'scout', 'Ιστός.');
     hot.reloadPrompts();
-    writePreamble(dir, 'web', '  \n\t\n');
+    writePreamble(dir, 'scout', '  \n\t\n');
     hot.reloadPrompts();
-    assert.equal(webPreamble(), '', 'whitespace only is nothing');
+    assert.equal(scoutPreamble(), '', 'whitespace only is nothing');
 
-    writePreamble(dir, 'web', 'Ιστός.');
+    writePreamble(dir, 'scout', 'Ιστός.');
     hot.reloadPrompts();
-    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', 'web.md'));
+    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', 'scout.md'));
     hot.reloadPrompts();
-    assert.equal(webPreamble(), '', 'a deleted file is nothing');
+    assert.equal(scoutPreamble(), '', 'a deleted file is nothing');
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -894,7 +862,7 @@ test('createHot: prompts.local/agents.md is not a preamble and draws no warning'
       hot.reloadPrompts();
     });
     assert.deepEqual(hot.prompts.preambles, {});
-    assert.equal(composePreamble({ prompts: hot.prompts, agent: 'web', model: null }).text, '');
+    assert.equal(composePreamble({ prompts: hot.prompts, agent: 'scout', model: null }).text, '');
     assert.ok(!logs.some((entry) => entry.level === 'warn'), 'no warning about it');
   } finally {
     hot?.close();

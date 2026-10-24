@@ -235,13 +235,13 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC', grants = [],
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, coreTools: true, innerLife: true, intentions: true, ...features },
-      models: { helpers: { analyzer: 'x/text' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       mention: { oneAtATime: true },
       skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
       innerLife: { mode: 'live', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, heartbeat: { enabled: false }, caps: { perChain: 3 }, ...innerLife },
-      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, resultMaxChars: 1000, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
+      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, resultMaxChars: 1000, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
       ...config,
     },
     prompts: {
@@ -633,7 +633,7 @@ test('row 3: the process dies after an errand\'s result was stored and before it
   const origin = chat.say('c1', 'u1', 'find the changelog');
   const runErrand = async () => ({ status: 'done', result: { text, sources: ['https://example.org/a'] }, usage: { usd: 0.02 } });
   const before = boot(chat, { dataDir, die: true, runErrand });
-  const submitted = before.errands.submit({ guildId: GUILD, agent: 'web', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
+  const submitted = before.errands.submit({ guildId: GUILD, agent: 'scout', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
   assert.equal(submitted.ok, true);
   await before.errands.idle();
   const id = submitted.task.id;
@@ -908,7 +908,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   const origin = chat.say('c1', 'u1', 'find the changelog');
   const run = boot(chat, { dataDir, runErrand: async () => ({ status: 'done', result: { text }, usage: { usd: 0.01 } }) });
   chat.fallback = providerLimit();
-  const submitted = run.errands.submit({ guildId: GUILD, agent: 'web', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
+  const submitted = run.errands.submit({ guildId: GUILD, agent: 'scout', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
   const id = submitted.task.id;
   await withCapturedLogs(async () => {
     await run.errands.idle();
@@ -939,7 +939,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
 test('row 12: a memory write fails -- the failure is logged, nothing is consumed, and her next request does not carry the unsaved fact', async () => {
   const dir = tempDir('nep-fault-');
   const store = createStore({ dataDir: dir });
-  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { core: 'x/y', helpers: { extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
+  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { base: { core: 'x/y', extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
   const llm = { complete: async () => ({ text: JSON.stringify({ users: { 1: { relationship: 'a secret the persona must not claim to know' } } }), usage: {}, estimated: 10 }) };
   const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => clock.t });
   store.applyProfileOps = () => {
@@ -963,7 +963,7 @@ test('row 12: a memory write fails -- the failure is logged, nothing is consumed
 /** A memory updater over a store whose profile writes fail, with `lines` buffered lines of `channelId` (a DM when `privateUserId` is given). */
 function failingMemory({ lines = 20, privateUserId = null, channelId = 'c1' } = {}) {
   const store = createStore({ dataDir: tempDir('nep-fault-') });
-  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { core: 'x/y', helpers: { extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
+  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { base: { core: 'x/y', extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
   const llm = { complete: async () => ({ text: JSON.stringify({ users: { [privateUserId ?? '1']: { relationship: 'something to keep' } } }), usage: {}, estimated: 10 }) };
   const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => clock.t });
   const broken = () => {

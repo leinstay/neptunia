@@ -131,7 +131,7 @@ function fakeErrands(tasks = []) {
 
 const runningTask = {
   id: 'tab01',
-  agent: 'web',
+  agent: 'scout',
   goal: `find the release notes of the new version ${'and more '.repeat(20)}`,
   state: 'running',
   createdAt: NOW - 7 * MINUTE,
@@ -144,7 +144,7 @@ const runningTask = {
 
 const doneTask = {
   id: 'tab02',
-  agent: 'web',
+  agent: 'scout',
   goal: 'find a meme',
   state: 'done',
   createdAt: NOW - 3 * MINUTE,
@@ -164,30 +164,30 @@ test('tasksBlockText / taskResultText: every word from labels.tasks; none withou
   const text = tasksBlockText([runningTask], labels, { now: NOW });
   const [header, line] = text.split('\n');
   assert.equal(header, labels.tasks.header);
-  assert.ok(line.startsWith('tab01 | web | running | 7 min | find the release notes'));
+  assert.ok(line.startsWith('tab01 | scout | running | 7 min | find the release notes'));
   assert.ok(line.length < 200, 'the goal is cut to 120 characters');
   assert.equal(tasksBlockText([], labels, { now: NOW }), '');
   assert.equal(tasksBlockText([runningTask], {}, { now: NOW }), '');
   const result = taskResultText(doneTask, labels, { maxChars: 30 }).split('\n');
-  assert.equal(result[0], 'errand tab02 (web) ended done: find a meme');
+  assert.equal(result[0], 'errand tab02 (scout) ended done: find a meme');
   assert.equal(result[1], labels.tasks.result.text);
   assert.ok(result[2].length <= 31, 'the result text cut to maxChars');
   assert.deepEqual(result.slice(3), ['sources:', '1. https://example.org/board/1', '2. https://example.org/board/2', 'files:', 'file:tab02/meme.png | image/png | 2048 bytes']);
   const failed = taskResultText({ ...doneTask, state: 'failed', error: 'withheld-path', result: null }, labels).split('\n');
-  assert.deepEqual(failed, ['errand tab02 (web) ended failed: find a meme', 'no result text', 'error: withheld-path']);
+  assert.deepEqual(failed, ['errand tab02 (scout) ended failed: find a meme', 'no result text', 'error: withheld-path']);
   assert.equal(taskResultText(doneTask, {}), '');
 });
 
 test('tasksBlockText / taskResultText: expired files show the expired state word and no handle', () => {
   const expired = { ...doneTask, filesExpired: true };
   const withWord = { ...labels, tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } } };
-  assert.ok(tasksBlockText([expired], withWord, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done, files gone | 3 min'));
+  assert.ok(tasksBlockText([expired], withWord, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done, files gone | 3 min'));
   const result = taskResultText(expired, withWord).split('\n');
-  assert.equal(result[0], 'errand tab02 (web) ended done, files gone: find a meme');
+  assert.equal(result[0], 'errand tab02 (scout) ended done, files gone: find a meme');
   assert.ok(!result.includes('files:') && !result.some((line) => line.startsWith('file:')), 'no handle of an expired file');
   // Without the label, the state's own word.
-  assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done | 3 min'));
-  assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (web) ended done: find a meme');
+  assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done | 3 min'));
+  assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (scout) ended done: find a meme');
 });
 
 test('taskResultText: the withheld paths close the block in labels.tasks.result.withheld; without the label, no line', () => {
@@ -200,7 +200,7 @@ test('taskResultText: the withheld paths close the block in labels.tasks.result.
   assert.equal(without.at(-1), 'file:tab02/meme.png | image/png | 2048 bytes');
   assert.equal(taskResultText(doneTask, withLabel), taskResultText(doneTask, labels), 'no withheld path, no line');
   const failed = taskResultText({ ...withheld, state: 'failed', error: 'withheld-path', result: { text: '', withheld: ['/etc/shadow'] } }, withLabel).split('\n');
-  assert.deepEqual(failed, ['errand tab02 (web) ended failed: find a meme', 'no result text', 'error: withheld-path', 'not readable here: /etc/shadow']);
+  assert.deepEqual(failed, ['errand tab02 (scout) ended failed: find a meme', 'no result text', 'error: withheld-path', 'not readable here: /etc/shadow']);
 });
 
 test('taskResultText: the files the runner held back follow the withheld line in labels.tasks.result.held, with no handle; without the label, no line', () => {
@@ -227,7 +227,7 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
     const first = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
     assert.equal(first.outcome, 'skip');
     const text = userText(llm.calls[0][1].content);
-    assert.ok(text.includes(`<tasks>\n${labels.tasks.header}\ntab01 | web | running | 7 min | find the release notes`), 'the block with its line');
+    assert.ok(text.includes(`<tasks>\n${labels.tasks.header}\ntab01 | scout | running | 7 min | find the release notes`), 'the block with its line');
     const tail = llm.calls[0][1].content.at(-1);
     assert.equal(tail.cacheSegment, undefined, 'in the tail, never a cached part');
     assert.ok(tail.text.indexOf('<tasks>') < tail.text.indexOf('<chat>'), 'before the chat');
@@ -245,7 +245,7 @@ test('<tasks>: a finished errand she has not read is listed with its marker and 
   const llm = fakeLlm('<skip/>');
   const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), errands, now: () => NOW });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
-  assert.ok(userText(llm.calls[0][1].content).includes('tab02 | web | done | 3 min | find a meme [unread]'));
+  assert.ok(userText(llm.calls[0][1].content).includes('tab02 | scout | done | 3 min | find a meme [unread]'));
   assert.deepEqual(errands.seen, [], 'appearing in <tasks> marks nothing');
   assert.deepEqual(errands.read, []);
 });
@@ -264,7 +264,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 1);
   const text = userText(llm.calls[0][1].content);
-  assert.ok(text.includes('<task_result>\nerrand tab02 (web) ended done: find a meme\nresult:\n'), 'the block, its header first');
+  assert.ok(text.includes('<task_result>\nerrand tab02 (scout) ended done: find a meme\nresult:\n'), 'the block, its header first');
   assert.ok(text.includes('sources:\n1. https://example.org/board/1\n2. https://example.org/board/2'), 'the sources numbered');
   assert.ok(text.includes('files:\nfile:tab02/meme.png | image/png | 2048 bytes'), 'the file as its handle');
   assert.ok(!text.includes('posted this morning'), 'the text cut to agents.resultMaxChars');

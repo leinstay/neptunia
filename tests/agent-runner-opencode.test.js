@@ -7,7 +7,7 @@
 // taken from the profile's model role, the task's secrets from the core
 // taking over the runner's environment, the server agent's git variables, and
 // the shared preamble put first in the system prompt (never logged), and the
-// web child's PATH (its own commands, node) and search model.
+// scout child's PATH (its own commands, node) and search model.
 // No real OpenCode, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createOpencodeRunner } from '../src/agent-runner/opencode.js';
-import { SERVER, WEB, WEB_TOOLS_DIR } from '../src/agent-runner/profiles.js';
+import { SERVER, SCOUT, SCOUT_TOOLS_DIR } from '../src/agent-runner/profiles.js';
 import { WEB_SEARCH_MODEL_ENV } from '../src/web/web-search.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -31,12 +31,12 @@ async function workspace() {
   return { base, outDir: path.join(base, 'out'), promptFile, cleanup: () => fsp.rm(base, { recursive: true, force: true }) };
 }
 
-function fakeProfile(promptFile, name = 'web') {
+function fakeProfile(promptFile, name = 'scout') {
   return {
     name,
     agentId: `errand-${name}`,
     promptFiles: [promptFile],
-    modelRole: name === 'web' ? 'web' : 'server',
+    modelRole: name === 'scout' ? 'scout' : 'server',
     defaultModel: 'openrouter/x-ai/default-model',
     defaultLimits: { steps: 25, seconds: 300 },
     defaultSearchProvider: 'exa',
@@ -360,29 +360,10 @@ test('opencode: in a filtered scope a clean run delivers its files', async () =>
   await ws.cleanup();
 });
 
-test('opencode: the runner reads OPENROUTER_AGENT_KEY while OPENROUTER_ERRAND_KEY is unset, and prefers the new name', async () => {
-  for (const [env, want] of [[{ OPENROUTER_AGENT_KEY: 'old-key' }, 'old-key'], [{ OPENROUTER_AGENT_KEY: 'old-key', OPENROUTER_ERRAND_KEY: 'new-key' }, 'new-key']]) {
-    const ws = await workspace();
-    const spawn = fakeSpawn();
-    const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env, spawnImpl: spawn.spawnImpl });
-    const result = await withCapturedLogs(async () => {
-      const p = runner.run({ id: 't', goal: 'g', context: { scope: 'core' } });
-      const child = await spawn.waitForChild();
-      emit(child, { type: 'text', part: { text: 'ok', time: { end: 1 } } });
-      await new Promise((r) => setImmediate(r));
-      child.emit('close', 0);
-      return p;
-    });
-    assert.equal(result.result.status, 'done');
-    assert.equal(spawn.children[0].options.env.OPENROUTER_API_KEY, want);
-    await ws.cleanup();
-  }
-});
-
 test('opencode: the child gets the runner key, config content and isolation env, not the persona key', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'runner-key', OPENROUTER_API_KEY: 'persona-key' }, spawnImpl: spawn.spawnImpl });
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'runner-key', OPENROUTER_CORE_KEY: 'persona-key' }, spawnImpl: spawn.spawnImpl });
   await withCapturedLogs(async () => {
     const p = runner.run({ id: 't', goal: 'g', context: { scope: 'core' } });
     const child = await spawn.waitForChild();
@@ -420,9 +401,9 @@ test('opencode: the task\'s secrets from the core take over the runner\'s enviro
   const ws = await workspace();
   const spawn = fakeSpawn();
   const env = { OPENROUTER_ERRAND_KEY: 'runner-key', OPENCODE_WEBSEARCH_KEY: 'runner-search', PROXY_URL: 'http://runner-proxy.example:1' };
-  const web = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env, spawnImpl: spawn.spawnImpl });
+  const scout = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env, spawnImpl: spawn.spawnImpl });
   const secrets = { openrouterKey: 'core-key', proxy: 'http://u:p@core-proxy.example:8000', searchKey: 'core-search' };
-  const given = await envOfRun(web, spawn, { id: 's1', secrets });
+  const given = await envOfRun(scout, spawn, { id: 's1', secrets });
   assert.equal(given.env.OPENROUTER_API_KEY, 'core-key');
   assert.equal(given.env.EXA_API_KEY, 'core-search');
   for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) assert.equal(given.env[name], 'http://u:p@core-proxy.example:8000', name);
@@ -430,12 +411,12 @@ test('opencode: the task\'s secrets from the core take over the runner\'s enviro
   for (const text of ['core-key', 'core-search', 'core-proxy']) assert.ok(!JSON.stringify(given.logs).includes(text), `no ${text} in a log line`);
   assert.ok(!JSON.stringify(given.outcome).includes('core-key'), 'nor in the outcome');
 
-  const keyOnly = await envOfRun(web, spawn, { id: 's2', secrets: { openrouterKey: 'core-key' } });
+  const keyOnly = await envOfRun(scout, spawn, { id: 's2', secrets: { openrouterKey: 'core-key' } });
   assert.equal(keyOnly.env.OPENROUTER_API_KEY, 'core-key');
   assert.equal(keyOnly.env.EXA_API_KEY, 'runner-search', 'what the task does not bring comes from the environment');
   assert.equal(keyOnly.env.HTTPS_PROXY, 'http://runner-proxy.example:1');
 
-  const none = await envOfRun(web, spawn, { id: 's3' });
+  const none = await envOfRun(scout, spawn, { id: 's3' });
   assert.equal(none.env.OPENROUTER_API_KEY, 'runner-key', 'no secrets: the runner\'s environment, as before');
 
   const socks = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { PROXY_URL: 'socks5h://u:p@proxy.example:1080' }, spawnImpl: spawn.spawnImpl });
@@ -449,7 +430,7 @@ test('opencode: the task\'s secrets from the core take over the runner\'s enviro
   await ws.cleanup();
 });
 
-test('opencode: the server agent\'s child trusts every git repository and never pages; the web agent\'s child gets neither', async () => {
+test('opencode: the server agent\'s child trusts every git repository and never pages; the scout agent\'s child gets neither', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
   const env = { OPENROUTER_ERRAND_KEY: 'k', GIT_CONFIG_COUNT: '3', GIT_PAGER: 'less' };
@@ -461,22 +442,22 @@ test('opencode: the server agent\'s child trusts every git repository and never 
   assert.equal(onServer.GIT_PAGER, 'cat');
   assert.equal(onServer.OPENCODE_DISABLE_PROJECT_CONFIG, '1', 'the isolation env stays');
 
-  const web = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), childEnv: WEB.childEnv }, outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
-  const onWeb = (await envOfRun(web, spawn, { id: 'g2' })).env;
+  const scout = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), childEnv: SCOUT.childEnv }, outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  const onWeb = (await envOfRun(scout, spawn, { id: 'g2' })).env;
   for (const name of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_PAGER']) assert.equal(onWeb[name], undefined, name);
   await ws.cleanup();
 });
 
-test('opencode: the web child finds its own commands and node first on its PATH, and gets the search model of the config read at the task', async () => {
+test('opencode: the scout child finds its own commands and node first on its PATH, and gets the search model of the config read at the task', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { models: { helpers: { analyzer: 'openrouter-x/cheap-one' } } };
-  const web = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), pathDirs: WEB.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
-  const first = (await envOfRun(web, spawn, { id: 'p1' })).env;
-  assert.equal(first.PATH, [WEB_TOOLS_DIR, path.dirname(process.execPath), '/usr/bin:/bin'].join(path.delimiter));
+  const config = { models: { base: { analyzer: 'openrouter-x/cheap-one' } } };
+  const scout = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), pathDirs: SCOUT.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
+  const first = (await envOfRun(scout, spawn, { id: 'p1' })).env;
+  assert.equal(first.PATH, [SCOUT_TOOLS_DIR, path.dirname(process.execPath), '/usr/bin:/bin'].join(path.delimiter));
   assert.equal(first[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-one');
-  config.models.helpers.analyzer = 'openrouter-x/cheap-two';
-  assert.equal((await envOfRun(web, spawn, { id: 'p2', model: 'openrouter/x-ai/task-model' })).env[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-two', 'read at each task, a task model too');
+  config.models.base.analyzer = 'openrouter-x/cheap-two';
+  assert.equal((await envOfRun(scout, spawn, { id: 'p2', model: 'openrouter/x-ai/task-model' })).env[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-two', 'read at each task, a task model too');
 
   const server = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile, 'server'), pathDirs: SERVER.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
   const onServer = (await envOfRun(server, spawn, { id: 'p3' })).env;
@@ -488,7 +469,7 @@ test('opencode: the web child finds its own commands and node first on its PATH,
 test('opencode: a task with no key from the core nor the environment fails no-key, warned once, nothing spawned', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_API_KEY: 'persona-key' }, spawnImpl: spawn.spawnImpl });
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_CORE_KEY: 'persona-key' }, spawnImpl: spawn.spawnImpl });
   const { result, logs } = await withCapturedLogs(async () => [await runner.run({ id: 'n1', goal: 'g' }), await runner.run({ id: 'n2', goal: 'g' })]);
   assert.deepEqual(result.map((outcome) => [outcome.status, outcome.error]), [['failed', 'no-key'], ['failed', 'no-key']]);
   assert.equal(spawn.children.length, 0, 'never the persona key: no child at all');
@@ -516,14 +497,14 @@ async function modelOfRun(runner, spawn, task) {
 test('opencode: a task without a model runs on the profile\'s model role, read at each task; a task model wins', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { models: { agents: { web: 'openrouter/x-ai/web-one', server: 'openrouter/x-ai/server-one' } } };
+  const config = { models: { errands: { scout: 'openrouter/x-ai/web-one', server: 'openrouter/x-ai/server-one' } } };
   const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'models.agents.web, never the server role');
-  config.models.agents.web = 'openrouter/x-ai/web-two';
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'models.errands.scout, never the server role');
+  config.models.errands.scout = 'openrouter/x-ai/web-two';
   assert.equal(await modelOfRun(runner, spawn, { id: 'm2' }), 'openrouter/x-ai/web-two', 'a /nep model set reaches the next task');
   assert.equal(await modelOfRun(runner, spawn, { id: 'm3', model: 'openrouter/x-ai/override' }), 'openrouter/x-ai/override');
-  delete config.models.agents.web;
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS.web, 'an unset role: its own default');
+  delete config.models.errands.scout;
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS.scout, 'an unset role: its own default');
   const broken = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_ERRAND_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => { throw new SyntaxError('bad json'); } });
   assert.equal(await modelOfRun(broken, spawn, { id: 'm5' }), 'openrouter/x-ai/default-model', 'an unreadable config: the profile default, the task still runs');
   await ws.cleanup();

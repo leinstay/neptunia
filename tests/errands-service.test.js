@@ -1,7 +1,7 @@
 // Tests for src/errands/service.js: the secrets every run carries to its agent runner. Over a real
 // task store (a temp data/ directory) with a FAKE journal, a FAKE errand client and a FAKE log:
 // a run carries the key of its agent's model role as the bot resolves a role's key
-// (`llm.keyByRole`), never the persona's main key; the web agent also gets the proxy in its http
+// (`llm.keyByRole`), never the persona's main key; the scout agent also gets the proxy in its http
 // form and the search key, the server agent neither; without the role's key no secrets go out;
 // and no secret reaches a log call, a journal line or the store's files. The runner's health flag
 // (over a real errand client and a fake runner socket): a runner known unreachable refuses a new
@@ -48,8 +48,8 @@ function makeService(env, { keyByRole } = {}) {
   const hot = {
     config: {
       features: { journal: true },
-      llm: { keyByRole: keyByRole ?? { web: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY', dev: 'OPENROUTER_DEV_KEY' } },
-      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
+      llm: { keyByRole: keyByRole ?? { scout: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY', dev: 'OPENROUTER_DEV_KEY' } },
+      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
   };
   const journalLines = [];
@@ -73,18 +73,18 @@ function filesText(dir) {
 }
 
 const ENV = {
-  OPENROUTER_API_KEY: 'sk-persona-SECRET',
+  OPENROUTER_CORE_KEY: 'sk-persona-SECRET',
   OPENROUTER_ERRAND_KEY: 'sk-agent-SECRET',
   OPENROUTER_DEV_KEY: 'sk-dev-SECRET',
   MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
   OPENCODE_WEBSEARCH_KEY: 'search-SECRET',
 };
 
-test('errands service: a web run carries its role\'s key, the proxy in its http form and the search key; no secret in a log, a journal line or a file', async () => {
+test('errands service: a scout run carries its role\'s key, the proxy in its http form and the search key; no secret in a log, a journal line or a file', async () => {
   const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV);
   try {
     const { logs } = await withCapturedLogs(async () => {
-      assert.equal(errands.submit(ask('web')).ok, true);
+      assert.equal(errands.submit(ask('scout')).ok, true);
       await errands.idle();
     });
     assert.equal(client.runs.length, 1);
@@ -117,10 +117,10 @@ test('errands service: a server run carries only its role\'s key; never the pers
 
 test('errands service: the key follows llm.keyByRole read now; an http proxy is sent as it is; no search key, none sent', async () => {
   const env = { ...ENV, OPENROUTER_WEB_ONLY: 'sk-web-only', MEDIA_VIDEO_PROXY: 'http://proxy.example:8000', OPENCODE_WEBSEARCH_KEY: '' };
-  const { errands, client, cleanup } = makeService(env, { keyByRole: { web: 'OPENROUTER_WEB_ONLY' } });
+  const { errands, client, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_WEB_ONLY' } });
   try {
     await withCapturedLogs(async () => {
-      errands.submit(ask('web'));
+      errands.submit(ask('scout'));
       await errands.idle();
     });
     assert.deepEqual(client.runs[0].secrets, { openrouterKey: 'sk-web-only', proxy: 'http://proxy.example:8000' });
@@ -130,18 +130,18 @@ test('errands service: the key follows llm.keyByRole read now; an http proxy is 
 });
 
 test('errands service: without the role\'s key no secrets are sent (never the main key); the missing name is logged, never a value', async () => {
-  const env = { OPENROUTER_API_KEY: 'sk-persona-SECRET', MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080' };
-  const { errands, client, log, cleanup } = makeService(env, { keyByRole: { web: 'OPENROUTER_UNSET_AGENT_KEY' } });
+  const env = { OPENROUTER_CORE_KEY: 'sk-persona-SECRET', MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080' };
+  const { errands, client, log, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_UNSET_AGENT_KEY' } });
   try {
     const { logs } = await withCapturedLogs(async () => {
-      errands.submit(ask('web'));
+      errands.submit(ask('scout'));
       errands.submit(ask('server'));
       await errands.idle();
     });
     assert.equal(client.runs.length, 2);
     for (const run of client.runs) assert.equal(Object.hasOwn(run, 'secrets'), false, run.agent);
     const missing = logs.filter((entry) => entry.msg === 'llm: role key missing');
-    assert.deepEqual(missing.map((entry) => [entry.role, entry.name]), [['web', 'OPENROUTER_UNSET_AGENT_KEY']]);
+    assert.deepEqual(missing.map((entry) => [entry.role, entry.name]), [['scout', 'OPENROUTER_UNSET_AGENT_KEY']]);
     const recorded = JSON.stringify({ calls: log.calls, logs });
     for (const secret of SECRETS) assert.ok(!recorded.includes(secret), `${secret} never recorded`);
   } finally {
@@ -151,7 +151,7 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
 
 test('errands service: forgetUser cancels the member\'s running task at its runner, then drops their tasks; wipe empties the guild\'s', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const gates = new Map();
   const cancels = [];
   const client = {
@@ -166,8 +166,8 @@ test('errands service: forgetUser cancels the member\'s running task at its runn
   const log = fakeLog();
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
-  const mine = errands.submit(ask('web')).task.id;
-  const theirs = errands.submit({ ...ask('web'), requester: { userId: '8', kind: 'member' } }).task.id;
+  const mine = errands.submit(ask('scout')).task.id;
+  const theirs = errands.submit({ ...ask('scout'), requester: { userId: '8', kind: 'member' } }).task.id;
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(errands.forgetUser('g1', '7'), { removed: 1, lines: 2 });
   assert.deepEqual(cancels, [mine], 'only the member\'s running task is cancelled');
@@ -183,7 +183,7 @@ test('errands service: forgetUser cancels the member\'s running task at its runn
 
 test('errands service: a task carries context.recent, the origin channel\'s last agents.recentLines lines as of its queuing; a dm task sends none', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const buffer = [
     { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
     { channelId: 'c2', authorName: 'Νίκος', content: 'elsewhere' },
@@ -198,8 +198,8 @@ test('errands service: a task carries context.recent, the origin channel\'s last
   const deferred = [];
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
   const errands = createErrandService({ client, stores, hot, memory, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => deferred.push(fn) });
-  errands.submit(ask('web'));
-  errands.submit({ ...ask('web'), origin: { channelId: 'dm1', messageId: null }, scope: 'dm' });
+  errands.submit(ask('scout'));
+  errands.submit({ ...ask('scout'), origin: { channelId: 'dm1', messageId: null }, scope: 'dm' });
   // A line after the queuing is not in the task's context.
   buffer.push({ channelId: 'c1', authorName: 'Νίκος', content: 'later' });
   for (const fn of deferred.splice(0)) fn();
@@ -214,7 +214,7 @@ test('errands service: a task carries context.recent, the origin channel\'s last
   assert.deepEqual(dm.context.recent, [], 'nothing of a private chat');
   assert.equal(dm.context.scope, 'dm');
   hot.config.agents.recentLines = 0;
-  errands.submit(ask('web'));
+  errands.submit(ask('scout'));
   for (const fn of deferred.splice(0)) fn();
   await errands.idle();
   assert.deepEqual(client.runs[2].context.recent, []);
@@ -261,7 +261,7 @@ function fakeMirror() {
 
 test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { models: { agents: { web: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
+  const hot = { config: { models: { errands: { scout: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, scout: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
   const gates = new Map();
   const listeners = [];
   const client = {
@@ -281,20 +281,20 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
   try {
     assert.equal(errands.ledger, ledger);
-    const done = errands.submit(ask('web')).task.id;
+    const done = errands.submit(ask('scout')).task.id;
     assert.equal(errands.store('g1').get(done).ledgerId, 'L1', 'the ledger id is kept');
     await new Promise((resolve) => setImmediate(resolve));
-    for (const fn of listeners) fn({ agent: 'web', id: done, step: 1, tool: 'fetch', note: '' });
-    for (const fn of listeners) fn({ agent: 'web', id: 'tunknown', step: 1, tool: null, note: '' });
+    for (const fn of listeners) fn({ agent: 'scout', id: done, step: 1, tool: 'fetch', note: '' });
+    for (const fn of listeners) fn({ agent: 'scout', id: 'tunknown', step: 1, tool: null, note: '' });
     gates.get(done)({ status: 'done', result: { text: 'found it' }, usage: { usd: 0.01, steps: 2 } });
     await errands.idle();
     // After its end, a late progress is not mirrored.
-    for (const fn of listeners) fn({ agent: 'web', id: done, step: 3, tool: null, note: '' });
-    const cancelled = errands.submit(ask('web')).task.id;
+    for (const fn of listeners) fn({ agent: 'scout', id: done, step: 3, tool: null, note: '' });
+    const cancelled = errands.submit(ask('scout')).task.id;
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(errands.cancel({ guildId: 'g1', id: cancelled, by: 'owner' }).ok, true);
     await errands.idle();
-    const forgotten = errands.submit(ask('web')).task.id;
+    const forgotten = errands.submit(ask('scout')).task.id;
     await new Promise((resolve) => setImmediate(resolve));
     errands.forgetUser('g1', '7');
     await errands.idle();
@@ -318,13 +318,13 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
 
 test('errands service: at start the open tasks without a ledger id are mirrored, then each one\'s restart failure; a mirror that throws never stops an errand', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     // Before the restart: two open tasks, one of them already mirrored.
     const before = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
-    const first = before.add(ask('web')).task.id;
-    const second = before.add(ask('web')).task.id;
+    const first = before.add(ask('scout')).task.id;
+    const second = before.add(ask('scout')).task.id;
     before.start(second);
     before.setLedgerId(second, 'L5');
     const ledger = fakeMirror();
@@ -332,7 +332,7 @@ test('errands service: at start the open tasks without a ledger id are mirrored,
     const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
     assert.equal(errands.start('g1'), 2);
     assert.deepEqual(ledger.calls, [
-      ['mirrorOpen', [first], 'g1', [errands.limitsOf('web')]],
+      ['mirrorOpen', [first], 'g1', [errands.limitsOf('scout')]],
       ['finish', first, 'failed', 'restarted', `R-${first}`, 3000],
       ['finish', second, 'failed', 'restarted', 'L5', 3000],
     ]);
@@ -345,7 +345,7 @@ test('errands service: at start the open tasks without a ledger id are mirrored,
     const log = fakeLog();
     const client = fakeClient();
     const other = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn(), ledger: throwing });
-    const id = other.submit(ask('web')).task.id;
+    const id = other.submit(ask('scout')).task.id;
     await other.idle();
     assert.equal(stores.get('g1').get(id).state, 'done');
     assert.ok(log.calls.some((call) => call.msg === 'errands: ledger mirror failed' && call.fields.id === id));
@@ -359,7 +359,7 @@ test('errands service: without agents.ledger the default mirror is disabled and 
   try {
     assert.equal(errands.ledger.enabled(), false);
     await withCapturedLogs(async () => {
-      errands.submit(ask('web'));
+      errands.submit(ask('scout'));
       await errands.idle();
     });
     assert.equal(client.runs.length, 1);
@@ -384,7 +384,7 @@ async function pongRunner(sock) {
       while ((nl = buffer.indexOf('\n')) !== -1) {
         const request = JSON.parse(buffer.slice(0, nl));
         buffer = buffer.slice(nl + 1);
-        if (request.op === 'ping') conn.write(encodeLine({ event: 'pong', profile: 'web', busy: false, queued: 0 }));
+        if (request.op === 'ping') conn.write(encodeLine({ event: 'pong', profile: 'scout', busy: false, queued: 0 }));
       }
     });
     conn.on('error', () => {});
@@ -402,7 +402,7 @@ async function pongRunner(sock) {
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
   const rootDir = tempDir('nep-errands-service-');
   const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
-  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } } } };
+  const hot = { config: { agents: { maxOpen: 3, scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } } } };
   let clock = 1_000_000;
   const log = fakeLog();
   const client = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
@@ -410,29 +410,29 @@ test('errands service: with the runner socket absent the flag goes down, submit 
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, now: () => clock });
   let runner = null;
   try {
-    assert.equal(errands.runnerUp('web'), null, 'unknown before anything is known');
-    assert.equal(await errands.check('web'), false);
-    assert.equal(errands.runnerUp('web'), false);
-    const refused = errands.submit(ask('web'));
+    assert.equal(errands.runnerUp('scout'), null, 'unknown before anything is known');
+    assert.equal(await errands.check('scout'), false);
+    assert.equal(errands.runnerUp('scout'), false);
+    const refused = errands.submit(ask('scout'));
     assert.deepEqual(refused, { ok: false, code: 'runner-down' }, 'refused synchronously');
     assert.deepEqual(errands.store('g1').recent(10), [], 'no task row');
     const downs = log.calls.filter((c) => c.msg === 'errands: runner down');
     assert.equal(downs.length, 1, 'logged once per change');
-    assert.equal(downs[0].fields.agent, 'web');
+    assert.equal(downs[0].fields.agent, 'scout');
 
     // Another refusal within RUNNER_RECHECK_MS sends no recheck and logs nothing new.
-    errands.submit(ask('web'));
+    errands.submit(ask('scout'));
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner down').length, 1);
 
     // The runner is back; past RUNNER_RECHECK_MS the next refusal rechecks it and the flag flips up.
     runner = await pongRunner(sock);
     clock += RUNNER_RECHECK_MS;
-    assert.equal(errands.submit(ask('web')).code, 'runner-down', 'the asking refusal itself still falls back');
-    for (let i = 0; i < 100 && errands.runnerUp('web') !== true; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(errands.runnerUp('web'), true);
+    assert.equal(errands.submit(ask('scout')).code, 'runner-down', 'the asking refusal itself still falls back');
+    for (let i = 0; i < 100 && errands.runnerUp('scout') !== true; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(errands.runnerUp('scout'), true);
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1);
-    const queued = errands.submit(ask('web'));
+    const queued = errands.submit(ask('scout'));
     assert.equal(queued.ok, true);
     assert.equal(errands.store('g1').recent(10).length, 1);
     errands.cancel({ guildId: 'g1', id: queued.task.id, by: 'owner' });
@@ -449,33 +449,33 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
   const pinged = [];
   const log = fakeLog();
   const client = {
-    configured: (agent) => agent === 'web',
+    configured: (agent) => agent === 'scout',
     onLink: (fn) => { linkListener = fn; },
     ping: async (agent) => (pinged.push(agent), { ok: false, error: 'disconnected' }),
     run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
   };
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   try {
     errands.start('g1');
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(pinged, ['web'], 'only the enabled agent');
-    assert.equal(errands.runnerUp('web'), false);
-    linkListener({ agent: 'web', up: true });
-    linkListener({ agent: 'web', up: true });
-    assert.equal(errands.runnerUp('web'), true);
+    assert.deepEqual(pinged, ['scout'], 'only the enabled agent');
+    assert.equal(errands.runnerUp('scout'), false);
+    linkListener({ agent: 'scout', up: true });
+    linkListener({ agent: 'scout', up: true });
+    assert.equal(errands.runnerUp('scout'), true);
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1, 'once per change');
-    assert.equal(errands.submit(ask('web')).ok, true);
-    linkListener({ agent: 'web', up: false, code: 'ENOENT' });
-    assert.equal(errands.submit(ask('web')).code, 'runner-down');
+    assert.equal(errands.submit(ask('scout')).ok, true);
+    linkListener({ agent: 'scout', up: false, code: 'ENOENT' });
+    assert.equal(errands.submit(ask('scout')).code, 'runner-down');
     assert.equal(log.calls.find((c) => c.msg === 'errands: runner down').fields.code, 'disconnected', 'the first down came from the ping');
     await errands.idle();
 
     const plain = makeService(ENV);
     try {
-      assert.equal(plain.errands.submit(ask('web')).ok, true);
+      assert.equal(plain.errands.submit(ask('scout')).ok, true);
       await plain.errands.idle();
     } finally {
       plain.cleanup();
@@ -487,7 +487,7 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
 
 /** A store with one finished task of `agent` (done), asked in `scope`. */
 function finishedTask(store, { scope = 'group', channelId = 'c1', result = { text: 'found it' } } = {}) {
-  const id = store.add({ ...ask('web'), scope, origin: { channelId, messageId: 'm1' } }).task.id;
+  const id = store.add({ ...ask('scout'), scope, origin: { channelId, messageId: 'm1' } }).task.id;
   store.start(id);
   store.finish(id, { status: 'done', result, usage: { usd: 0.01 } });
   return id;
@@ -495,14 +495,14 @@ function finishedTask(store, { scope = 'group', channelId = 'c1', result = { tex
 
 test('errands service: view lists the open tasks, then the unread finished ones; reading or resolving takes one out; a seen result stays until it is read', () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
     const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
     const store = stores.get('g1');
     const a = finishedTask(store);
     const b = finishedTask(store);
-    const open = store.add(ask('web')).task.id;
+    const open = store.add(ask('scout')).task.id;
     assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b]);
     errands.markSeen({ guildId: 'g1', ids: [a, b] });
     assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b], 'the result turn having run hides nothing');
@@ -519,7 +519,7 @@ test('errands service: view lists the open tasks, then the unread finished ones;
 
 test('errands service: a private chat\'s unread result is in the view only in that chat; the unread list survives a restart of the store', () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     const stores = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() });
@@ -549,14 +549,14 @@ test('errands service: a private chat\'s unread result is in the view only in th
 
 test('errands service: at start the finished errands whose result turn never ran get it again; the seen ones do not', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     const before = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
     const unseen = finishedTask(before);
     const seen = finishedTask(before);
     before.markSeen(seen);
-    const running = before.add(ask('web')).task.id;
+    const running = before.add(ask('scout')).task.id;
     before.start(running);
     const reopened = [];
     const stores = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() });
@@ -574,7 +574,7 @@ test('errands service: the file of an expired task is a marker, not a path; a pr
   const rootDir = tempDir('nep-errands-service-');
   const out = path.join(rootDir, 'out');
   fs.mkdirSync(out, { recursive: true });
-  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, out, daily: { tasks: 10 } } } } };
+  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, out, daily: { tasks: 10 } } } } };
   try {
     const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });

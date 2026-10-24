@@ -3797,7 +3797,7 @@ async function seedErrands(dir) {
   let n = 0;
   const stores = createTaskStores({ dataDir: dir, config: () => ({ agents: { maxOpen: 5 } }), log: { info() {}, warn() {} } });
   const tasks = stores.get('g1');
-  const ask = (userId) => tasks.add({ agent: 'web', goal: `errand ${(n += 1)}`, requester: { userId, kind: 'member' }, origin: { channelId: 'c1', messageId: null }, scope: 'group' }).task.id;
+  const ask = (userId) => tasks.add({ agent: 'scout', goal: `errand ${(n += 1)}`, requester: { userId, kind: 'member' }, origin: { channelId: 'c1', messageId: null }, scope: 'group' }).task.id;
   const a = ask('u1');
   const b = ask('u2');
   const c = ask('u1');

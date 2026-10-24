@@ -9,9 +9,9 @@
 // without one. At start the tasks a restart left open are failed (`restarted`): the runner sends
 // a task's end on the connection that brought it, which is gone. Every run carries the task's
 // secrets (`secrets` of src/agent-runner/protocol.js), since every key lives in the core's .env
-// and the runner cannot read it: the key of the agent's model role (`web`, `server`)
+// and the runner cannot read it: the key of the agent's model role (`scout`, `server`)
 // as the bot resolves a role's key (src/llm/openrouter.js#roleApiKey over `llm.keyByRole`; never
-// the persona's main key), and for `web` the residential proxy of the video fetches
+// the persona's main key), and for `scout` the residential proxy of the video fetches
 // (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http
 // form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
 // are sent (the runner falls back to its own environment). Settings are read at the moment of
@@ -182,7 +182,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const openrouterKey = profile?.modelRole ? roleApiKey(hot.config, env, profile.modelRole, null) : null;
     if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
     const secrets = { openrouterKey };
-    if (profile.name === 'web') {
+    if (profile.name === 'scout') {
       const proxy = httpProxyForm(env?.MEDIA_VIDEO_PROXY);
       if (proxy) secrets.proxy = proxy;
       const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';

@@ -3,7 +3,7 @@
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
 // `task.run` with `agent: server` reads this machine, so only an owner may ask for it
-// (`owner-only`); `agent: web` is any member's. A task asked in a private chat is `dm`-scoped,
+// (`owner-only`); `agent: scout` is any member's. A task asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `task.run` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.js) and its
 // end opens her own turn where it was asked. `task.cancel` is for the requester of the task or an

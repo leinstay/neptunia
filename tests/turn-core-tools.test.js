@@ -235,7 +235,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   const brief = 'Βρες στο pixiv το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.';
   const { journal } = journalOverMemory();
   const run = await coreTurn({
-    answers: [toolAnswer('', [call('web.search', { query: 'pixiv serial_experiments_lain' })]), toolAnswer(`<msg>το στέλνω να ψάξει</msg>`, [call('task.run', { agent: `web`, goal: `${brief}` })]), '<skip/>'],
+    answers: [toolAnswer('', [call('web.search', { query: 'pixiv serial_experiments_lain' })]), toolAnswer(`<msg>το στέλνω να ψάξει</msg>`, [call('task.run', { agent: `scout`, goal: `${brief}` })]), '<skip/>'],
     allowed: ['web.search', 'task.run'],
     features: { webLookup: true },
     config: { ...WEB_CONFIG, ...AGENTS },
@@ -255,7 +255,7 @@ test('task.run in the loop: after a search she hands off the errand, it is queue
   assert.equal(run.llm.calls.length, 2, 'an accepted errand covers her speech: the turn ends with it, no request to read it');
   assert.deepEqual(run.sends.map((send) => send.text), ['το στέλνω να ψάξει']);
   // The same call made again (a retry): the same errand, nothing new queued or run.
-  const again = await run.admin.runCommand('task.run', { agent: 'web', goal: brief }, { guildId: 'g1', channelId: 'c1', userId: 'u1', roleIds: [], actor: 'persona', turnId: task.origin.turnId, idempotencyKey: task.idempotencyKey });
+  const again = await run.admin.runCommand('task.run', { agent: 'scout', goal: brief }, { guildId: 'g1', channelId: 'c1', userId: 'u1', roleIds: [], actor: 'persona', turnId: task.origin.turnId, idempotencyKey: task.idempotencyKey });
   assert.equal(again.status, 'ok');
   assert.equal(again.data.task.id, task.id);
   assert.deepEqual([service.store('g1').recent(10).length, runs.length], [1, 1]);
@@ -265,7 +265,7 @@ test('task.run not granted: refused before it runs, no errand; nothing but her a
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
-    answers: [toolAnswer('', [call('task.run', { agent: 'web', goal: 'βρες κάτι' })]), '<msg>δεν μπορώ</msg>'],
+    answers: [toolAnswer('', [call('task.run', { agent: 'scout', goal: 'βρες κάτι' })]), '<msg>δεν μπορώ</msg>'],
     allowed: [],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },

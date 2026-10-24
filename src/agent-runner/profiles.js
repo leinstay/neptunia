@@ -7,7 +7,7 @@
 // on OpenCode; or `tool`, an agent with no model loop and no process, whose
 // one tool the core runs in its own process (`drawing`: the Images pipeline,
 // src/errands/tools.js): the runner skips the last three), its model role
-// (`web`, `server`, `thinker`, `dev`, `writer`, `drawing`: the key of its model under `models.agents`), its prompt and the deployment's override
+// (`scout`, `server`, `thinker`, `dev`, `writer`, `drawing`: the key of its model under `models.<group>`), its prompt and the deployment's override
 // name under `prompts.local/`, the OpenCode tools it asks for, the name of
 // its shell class, its default limits, daily caps, socket and out dir, and
 // the environment variable names its run may fall back on (the core sends
@@ -31,8 +31,8 @@
 // workdir outside it, or a path argument of `cd`, `rm`, `cp`, `mv`, `mkdir`,
 // `touch`, `chmod`, `chown` and `cat`, with a `<dir>/*` resource): the
 // read-only server class gets it under the same value as its path tools (the
-// withheld denies in a filtered scope), the web class only for its private
-// temporary directory (WEB_TMP_DIR, where OpenCode saves the files it
+// withheld denies in a filtered scope), the scout class only for its private
+// temporary directory (SCOUT_TMP_DIR, where OpenCode saves the files it
 // fetches), in every scope.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
@@ -46,7 +46,7 @@
 // `todowrite`, `lsp`, `plan_exit`, `execute`, `external_directory`; every
 // tool no class asks for is denied (ALWAYS_DENIED). v1.19.3 shows `websearch`
 // only with Exa or Parallel switched on directly, which this engine never
-// does (Exa only through OpenRouter): the web agent searches with the
+// does (Exa only through OpenRouter): the scout agent searches with the
 // `web-search` command of its shell instead (src/web/web-search.js). The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
 // after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
@@ -58,7 +58,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.js';
-import { AGENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.js';
+import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.js';
 import { resolvePaths } from '../paths.js';
 
 /** The engine root (two levels up from this file). */
@@ -132,7 +132,7 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'cp *',
 ]);
 
-/** The curl/wget/yt-dlp/ffmpeg shell the web agent's `bash` may run (its download step). yt-dlp
+/** The curl/wget/yt-dlp/ffmpeg shell the scout agent's `bash` may run (its download step). yt-dlp
  * (a video page) reaches the network through the HTTPS_PROXY / HTTP_PROXY the runner gives the
  * child (src/agent-runner/opencode.js). It runs only as `yt-dlp --ignore-config ...`: yt-dlp
  * otherwise loads a yt-dlp.conf from its working directory, HOME and XDG_CONFIG_HOME, all inside
@@ -141,10 +141,10 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
  * program, or name a config file again, are denied in YT_DLP_DENIES. Beside the download tools it
  * has the everyday commands that sort out what it fetched: text filters (sed only as
  * `sed -n --sandbox`, where sed refuses its `e`, `r` and `w` commands), `jq`, and `cp`, `mv`, `rm`
- * within its folder and WEB_TMP_DIR (WEB_FILE_RULES). */
-export const WEB_SHELL_ALLOW = Object.freeze([
+ * within its folder and SCOUT_TMP_DIR (SCOUT_FILE_RULES). */
+export const SCOUT_SHELL_ALLOW = Object.freeze([
   'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
-  // The web search (src/web/web-search.js): the wrapper in WEB_TOOLS_DIR, found on the child's
+  // The web search (src/web/web-search.js): the wrapper in SCOUT_TOOLS_DIR, found on the child's
   // PATH; never `node` itself, so no other script runs.
   'web-search *',
   'tail *', 'wc *', 'sort *', 'uniq *', 'cut *', 'tr *', 'grep *', 'egrep *', 'fgrep *', 'sed -n --sandbox *', 'sed --sandbox -n *', 'jq *',
@@ -152,17 +152,17 @@ export const WEB_SHELL_ALLOW = Object.freeze([
   'cp *', 'mv *', 'rm *',
 ]);
 
-/** The folder of the web agent's own commands (`web-search`), put first on its child's PATH. */
-export const WEB_TOOLS_DIR = path.join(ROOT_DIR, AGENTS_DIRNAME, 'web', 'bin');
+/** The folder of the scout agent's own commands (`web-search`), put first on its child's PATH. */
+export const SCOUT_TOOLS_DIR = path.join(ROOT_DIR, AGENTS_DIRNAME, 'scout', 'bin');
 
 /**
- * The private temporary directory of the web agent's OpenCode: it saves the files `webfetch`
- * fetches under `<tmp>/opencode`, and the web unit runs with PrivateTmp=yes and no TMPDIR, so this
+ * The private temporary directory of the scout agent's OpenCode: it saves the files `webfetch`
+ * fetches under `<tmp>/opencode`, and the scout unit runs with PrivateTmp=yes and no TMPDIR, so this
  * one is the agent's own. Its path tools, `external_directory` and `cp`/`mv`/`rm` may reach it.
  */
-export const WEB_TMP_DIR = '/tmp/opencode';
+export const SCOUT_TMP_DIR = '/tmp/opencode';
 
-/** The commands of WEB_FILE_RULES and the only options each may start with (none recursive, none naming a target elsewhere). */
+/** The commands of SCOUT_FILE_RULES and the only options each may start with (none recursive, none naming a target elsewhere). */
 const FILE_COMMAND_OPTIONS = Object.freeze({
   cp: Object.freeze(['-f', '-v', '-n', '-p', '-fv', '-vf']),
   mv: Object.freeze(['-f', '-v', '-n', '-fv', '-vf']),
@@ -178,17 +178,17 @@ const FILE_DENIED_ROOTS = Object.freeze([
 ]);
 
 /**
- * The staged `bash` rules of the web agent's `cp`, `mv` and `rm` (`[pattern, action]`, in order,
+ * The staged `bash` rules of the scout agent's `cp`, `mv` and `rm` (`[pattern, action]`, in order,
  * after its allow list; the last match wins), so each works only on its own folder and
- * WEB_TMP_DIR, never recursively. OpenCode's `*` matches any text, spaces included, so a rule
+ * SCOUT_TMP_DIR, never recursively. OpenCode's `*` matches any text, spaces included, so a rule
  * cannot say "an option word without r": instead any leading option is denied, the plain ones of
  * FILE_COMMAND_OPTIONS allowed again, and then any later option word (` -...`), any text OpenCode
  * cannot resolve (FILE_BYPASS_PARTS), any top-level directory but /tmp (FILE_DENIED_ROOTS), `/`
  * and `/tmp` themselves denied. The main guard of the paths is OpenCode's own: these commands ask
- * `external_directory` for every path argument outside the folder, which the web class allows only
- * for WEB_TMP_DIR; these rules refuse what that check cannot see.
+ * `external_directory` for every path argument outside the folder, which the scout class allows only
+ * for SCOUT_TMP_DIR; these rules refuse what that check cannot see.
  */
-export const WEB_FILE_RULES = Object.freeze(
+export const SCOUT_FILE_RULES = Object.freeze(
   Object.entries(FILE_COMMAND_OPTIONS).flatMap(([command, options]) => [
     [`${command} -*`, 'deny'],
     ...options.map((option) => [`${command} ${option} *`, 'allow']),
@@ -365,7 +365,7 @@ export const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'q
 /**
  * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
  * Each class has `allow`, the patterns its `bash` may run (SHELL_DENY_AFTER always after them);
- * `rules`, staged `[pattern, action]` pairs its `bash` takes in order after `allow` (WEB_FILE_RULES);
+ * `rules`, staged `[pattern, action]` pairs its `bash` takes in order after `allow` (SCOUT_FILE_RULES);
  * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
  * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
  * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
@@ -388,15 +388,15 @@ export const SHELL_CLASSES = Object.freeze({
     env: SERVER_CHILD_ENV,
     path: Object.freeze([]),
   }),
-  'web-download': Object.freeze({
-    allow: WEB_SHELL_ALLOW,
-    rules: WEB_FILE_RULES,
+  'scout-download': Object.freeze({
+    allow: SCOUT_SHELL_ALLOW,
+    rules: SCOUT_FILE_RULES,
     withheldDenies: false,
-    externalDirectory: Object.freeze([WEB_TMP_DIR]),
+    externalDirectory: Object.freeze([SCOUT_TMP_DIR]),
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
     env: Object.freeze({}),
-    path: Object.freeze([WEB_TOOLS_DIR]),
+    path: Object.freeze([SCOUT_TOOLS_DIR]),
   }),
 });
 
@@ -448,8 +448,11 @@ const TOOL_KEYS = Object.freeze(['tool', 'limits', 'daily']);
 /** The tools a `tool` profile may name: the core's own pipelines (src/errands/tools.js). */
 export const TOOL_NAMES = Object.freeze(['draw']);
 
-/** The model roles a `tool` profile may name: the tool agents of src/llm/roles.js (AGENT_ROLES without the OpenCode ones). */
-export const TOOL_ROLES = Object.freeze(AGENT_ROLES.filter((role) => !OPENCODE_ROLES.includes(role)));
+/** The model roles a `tool` profile may name: drawing, a base role of src/llm/roles.js run by the core's own pipeline. */
+export const TOOL_ROLES = Object.freeze(['drawing']);
+
+/** Every role an agent profile may name. */
+const AGENT_ROLES = Object.freeze([...OPENCODE_ROLES, ...TOOL_ROLES]);
 
 /** The keys of each kind, all required. */
 const KEYS_BY_KIND = Object.freeze({
@@ -458,12 +461,6 @@ const KEYS_BY_KIND = Object.freeze({
   development: Object.freeze([...COMMON_KEYS, ...DEVELOPMENT_KEYS]),
   tool: Object.freeze([...COMMON_KEYS, ...TOOL_KEYS]),
 });
-
-/**
- * The model roles a development profile may name: the development agents of src/llm/roles.js
- * (OPENCODE_ROLES), whose models sit under `models.agents` and run on the development key.
- */
-export const DEVELOPMENT_ROLES = Object.freeze(OPENCODE_ROLES.filter((role) => ['thinker', 'dev', 'writer'].includes(role)));
 
 /**
  * The OpenCode (v1.19.3) tool and permission keys a development profile may ask for. A
@@ -663,7 +660,7 @@ function makeProfile(definition, { rootDir, env }) {
     agentId,
     promptFiles: promptFilesOf(name, { rootDir, env, override: definition.override, prompt: definition.prompt }),
     envNames: definition.env,
-    // The model role (src/llm/roles.js) whose model the agent runs on: `models.agents.<modelRole>`,
+    // The model role (src/llm/roles.js) whose model the agent runs on: `models.<group>.<modelRole>`,
     // else its default, which is `defaultModel`.
     modelRole,
     defaultModel,
@@ -751,8 +748,8 @@ export const PROFILES = loadProfiles();
 /** The tool profiles of this engine's `agents/` folder, by name, loaded once at import. */
 export const TOOL_PROFILES = loadToolProfiles();
 
-/** The `web` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
-export const WEB = PROFILES.web ?? null;
+/** The `scout` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
+export const SCOUT = PROFILES.scout ?? null;
 
 /** The `server` profile: read-only shell and file reads on the server, no network. */
 export const SERVER = PROFILES.server ?? null;

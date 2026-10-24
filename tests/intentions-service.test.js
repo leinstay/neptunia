@@ -53,7 +53,7 @@ function makeEnv({ features = { intentions: true }, agents = {}, intentions: set
     config: {
       bot: { owners: [OWNER], access: {} },
       features,
-      agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, ...agents },
+      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
       intentions: { expiresDays: 14, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, ...settings },
     },
     prompts: { labels: {} },
@@ -139,7 +139,7 @@ test('reliable waiting: a wait asked before a launch that fails leaves no waitin
   await withCapturedLogs(async () => {
     const set = await runOp('intent.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
     assert.equal(set.status, 'ok', set.summary);
-    const launched = await runOp('task.run', { agent: 'web', goal: 'find the news' }, hers(env, 'T1'));
+    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
     assert.equal(launched.code, 'cap-open', 'the launch failed explicitly');
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
@@ -155,7 +155,7 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
   const { env, intentions, client, errands, door, turnSaw } = makeEnv();
   await withCapturedLogs(async () => {
     await runOp('intent.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
-    const launched = await runOp('task.run', { agent: 'web', goal: 'find the news' }, hers(env, 'T1', { idempotencyKey: 'T1.1:1' }));
+    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1', { idempotencyKey: 'T1.1:1' }));
     const taskId = launched.data.task.id;
     let record = onlyIntention(intentions);
     assert.equal(record.status, 'waiting');
@@ -182,7 +182,7 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
 test('reliable waiting: the errand queued first in the turn is linked when the intention asks for the wait', async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
-    const launched = await runOp('task.run', { agent: 'web', goal: 'find the news' }, hers(env, 'T2'));
+    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T2'));
     const set = await runOp('intent.set', { text: 'πες τι βρήκες', deadline: '2h' }, hers(env, 'T2'));
     assert.equal(set.status, 'ok', set.summary);
     const record = onlyIntention(intentions);
@@ -194,8 +194,8 @@ test('reliable waiting: the errand queued first in the turn is linked when the i
 test('reconciliation: an end that never arrived, a gone errand and a passed deadline are each found', async () => {
   const { env, intentions, stores, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const a = (await runOp('task.run', { agent: 'web', goal: 'a' }, owner(env))).data.task.id;
-    const b = (await runOp('task.run', { agent: 'web', goal: 'b' }, owner(env))).data.task.id;
+    const a = (await runOp('task.run', { agent: 'scout', goal: 'a' }, owner(env))).data.task.id;
+    const b = (await runOp('task.run', { agent: 'scout', goal: 'b' }, owner(env))).data.task.id;
     const ia = (await runOp('intent.set', { text: 'περιμένω το a', task: a, deadline: '5h' }, owner(env))).data.intention.id;
     const ib = (await runOp('intent.set', { text: 'περιμένω το b', task: b, deadline: '1h' }, owner(env))).data.intention.id;
     assert.equal(intentions.list('g1').filter((r) => r.status === 'waiting').length, 2);
@@ -209,7 +209,7 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
     assert.equal(byId[ia].outcome.state, 'done');
     assert.equal(byId[ib].note, 'wait-deadline');
     // A wait whose errand the store no longer holds.
-    const c = (await runOp('task.run', { agent: 'web', goal: 'c' }, owner(env))).data.task.id;
+    const c = (await runOp('task.run', { agent: 'scout', goal: 'c' }, owner(env))).data.task.id;
     const ic = (await runOp('intent.update', { id: ib, task: c, deadline: '1h' }, owner(env))).data.intention.id;
     stores.get('g1').wipe();
     assert.equal(intentions.reconcile('g1').missing, 1);
@@ -475,7 +475,7 @@ test('intentions: a recurring wait ends per occurrence -- the errand\'s end retu
   const { env, intentions, client, errands, clock } = makeEnv();
   await withCapturedLogs(async () => {
     const id = (await runOp('intent.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data.intention.id;
-    const launched = await runOp('task.run', { agent: 'web', goal: 'find the news' }, hers(env, 'T1'));
+    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
     const taskId = launched.data.task.id;
     const waited = await runOp('intent.update', { id, task: taskId, deadline: '2h' }, hers(env, 'T1'));
     assert.equal(waited.status, 'ok', waited.summary);

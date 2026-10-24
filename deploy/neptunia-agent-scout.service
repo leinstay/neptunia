@@ -1,4 +1,4 @@
-# systemd unit for the persona's web errand agent (src/agent-runner/, profile web).
+# systemd unit for the persona's scout errand agent (src/agent-runner/, profile scout).
 #
 # A separate, unprivileged process that runs internet errands for the bot
 # through OpenCode. It reaches the internet (through the residential proxy)
@@ -14,30 +14,30 @@
 # OPENCODE_WEBSEARCH_KEY=, PROXY_URL=) is used only when a task brings none.
 #
 # Install:
-#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-web
-#   sudo install -d -o root -g root -m 0750 /etc/neptunia
-#   # optional overrides: sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-web.env
-#   sudo cp deploy/neptunia-agent-web.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-web
-# Logs:    journalctl -u neptunia-agent-web -f
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-scout
+#   sudo install -d -o root -g root -m 0750 /opt/neptunia/etc
+#   # optional overrides: sudo install -o root -g root -m 0600 /dev/null /opt/neptunia/etc/agent-scout.env
+#   sudo cp deploy/neptunia-agent-scout.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-scout
+# Logs:    journalctl -u neptunia-agent-scout -f
 #
 # The service group is the bot's (neptunia-discord-interface) so the runtime
 # socket dir and the result files the agent writes are reachable by the core.
 
 [Unit]
-Description=neptunia web errand agent (OpenCode worker)
+Description=neptunia scout errand agent (OpenCode worker)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=neptunia-agent-web
+User=neptunia-agent-scout
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile web
+ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile scout
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
-# runner reads the override prompts.local/agent-web.md from
-# NEPTUNIA_PRIVATE_DIR (the tracked agents/web/prompt.md stays in the
+# runner reads the override prompts.local/agent-scout.md from
+# NEPTUNIA_PRIVATE_DIR (the tracked agents/scout/prompt.md stays in the
 # checkout; an override this user cannot read is skipped with one warning and
 # the tracked prompt is used), and in a filtered scope withholds NEPTUNIA_DATA_DIR
 # and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR
@@ -46,7 +46,7 @@ ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile web
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # Optional overrides (the leading '-': the file may be absent); the keys come from the core.
-EnvironmentFile=-/etc/neptunia/agent-web.env
+EnvironmentFile=-/opt/neptunia/etc/agent-scout.env
 Restart=on-failure
 RestartSec=5
 
@@ -59,8 +59,8 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 InaccessiblePaths=/srv /opt/neptunia/data /opt/neptunia/etc/.env /var/www /etc/nginx /etc/letsencrypt /srv/neptunia-dev/.secrets
-StateDirectory=neptunia-agent-web
-RuntimeDirectory=neptunia-agent-web
+StateDirectory=neptunia-agent-scout
+RuntimeDirectory=neptunia-agent-scout
 RuntimeDirectoryMode=0750
 
 # Network: the agent reaches the public internet only. Localhost, link-local
@@ -82,7 +82,7 @@ IPAddressDeny=fe80::/10
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=neptunia-agent-web
+SyslogIdentifier=neptunia-agent-scout
 
 [Install]
 WantedBy=multi-user.target

@@ -8,7 +8,7 @@
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
 // `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks per UTC day (`cap-tasks`; a task counts on
 // the day it was queued). That daily number
-// and the owner card's `costs.agents` come from one place: src/errands/costs.js#agentCosts over
+// and the owner card's `costs.errands` come from one place: src/errands/costs.js#agentCosts over
 // the store's spend records, one per task of the last KEEP_DAYS days (read from tasks.jsonl at
 // load, then kept with every transition; a forget and a wipe drop theirs with their lines).
 // Every transition is also an `action` line of the

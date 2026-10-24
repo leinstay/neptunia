@@ -304,8 +304,8 @@
       "roleKeyLead": "dedicated {roles} key",
       "roleSeparator": ", ",
       "roleNames": {
-        "web": "agents",
-        "server": "agents",
+        "scout": "errands",
+        "server": "errands",
         "thinker": "development",
         "dev": "development",
         "writer": "development"

@@ -11,7 +11,7 @@
 // real one, and temporary trees with a valid worker, an unknown tool, an
 // unknown shell class, a missing key, a consultation and development
 // profiles the runner skips (and a bad development key refused);
-// the tools every agent is denied (skill, todowrite, ...) and the web
+// the tools every agent is denied (skill, todowrite, ...) and the scout
 // agent's `web-search` command with its wrapper.
 // Pure but for reading config.json, agents/ and a temporary directory.
 import { test } from 'node:test';
@@ -22,9 +22,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, DEVELOPMENT_ROLES, DEVELOPMENT_TOOLS, SHELL_CLASSES, TOOL_NAMES, TOOL_ROLES, WEB_TOOLS_DIR, listAgents, loadProfiles, loadToolProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, WEB_FILE_RULES, WEB_SHELL_ALLOW, WEB_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { SCOUT, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, DEVELOPMENT_TOOLS, SHELL_CLASSES, TOOL_NAMES, TOOL_ROLES, SCOUT_TOOLS_DIR, listAgents, loadProfiles, loadToolProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, SCOUT_FILE_RULES, SCOUT_SHELL_ALLOW, SCOUT_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
-import { OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -32,16 +32,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** This checkout's data directory as the policy resolves it (NEPTUNIA_DATA_DIR, else <root>/data). */
 const DATA_DIR = resolvePaths({ rootDir: ROOT }).dataDir;
 
-test('profileOf: web, server, and nothing else', () => {
-  assert.equal(profileOf('web'), WEB);
+test('profileOf: scout, server, and nothing else', () => {
+  assert.equal(profileOf('scout'), SCOUT);
   assert.equal(profileOf('server'), SERVER);
   assert.equal(profileOf('nope'), null);
 });
 
-test('web config: agent prompt, model, cost, step cap, search absent from config', () => {
-  const cfg = WEB.buildConfig({ systemPrompt: 'be careful', providerModel: 'openrouter/x-ai/grok-4.7', steps: 25, scope: 'core', cost: { input: 2, output: 6 }, toolResultChars: 6000 });
+test('scout config: agent prompt, model, cost, step cap, search absent from config', () => {
+  const cfg = SCOUT.buildConfig({ systemPrompt: 'be careful', providerModel: 'openrouter/x-ai/grok-4.7', steps: 25, scope: 'core', cost: { input: 2, output: 6 }, toolResultChars: 6000 });
   assert.equal(cfg.model, 'openrouter/x-ai/grok-4.7');
-  const agent = cfg.agent['errand-web'];
+  const agent = cfg.agent['errand-scout'];
   assert.equal(agent.prompt, 'be careful');
   assert.equal(agent.steps, 25);
   assert.equal(agent.mode, 'primary');
@@ -50,8 +50,8 @@ test('web config: agent prompt, model, cost, step cap, search absent from config
   assert.equal(cfg.websearch, undefined, 'v1.19.3 has no websearch config key');
 });
 
-test('web permission: web tools allowed, edit/write/task/question denied, bash allow-list', () => {
-  const p = WEB.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-web'].permission;
+test('scout permission: web tools allowed, edit/write/task/question denied, bash allow-list', () => {
+  const p = SCOUT.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-scout'].permission;
   assert.equal(p.websearch, 'allow');
   assert.equal(p.webfetch, 'allow');
   assert.equal(p.read, 'allow');
@@ -59,8 +59,8 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(p.write, 'deny');
   assert.equal(p.task, 'deny');
   assert.equal(p.question, 'deny');
-  assert.deepEqual(p.external_directory, { '*': 'deny', [WEB_TMP_DIR]: 'allow', [`${WEB_TMP_DIR}/*`]: 'allow' }, 'outside its folder, only its private /tmp/opencode');
-  const dm = WEB.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-web'].permission;
+  assert.deepEqual(p.external_directory, { '*': 'deny', [SCOUT_TMP_DIR]: 'allow', [`${SCOUT_TMP_DIR}/*`]: 'allow' }, 'outside its folder, only its private /tmp/opencode');
+  const dm = SCOUT.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-scout'].permission;
   assert.deepEqual(dm.external_directory, p.external_directory, 'the same in every scope');
   // bash: the catch-all deny is first so a specific allow (last match) wins
   const keys = Object.keys(p.bash);
@@ -75,7 +75,7 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
 
 test('every agent: skill, todowrite and the other tools no profile asks for are denied, in every scope', () => {
   for (const tool of ['skill', 'todowrite', 'lsp', 'plan_exit', 'execute', 'edit', 'write', 'patch', 'task', 'question']) assert.ok(ALWAYS_DENIED.includes(tool), tool);
-  for (const profile of [WEB, SERVER]) {
+  for (const profile of [SCOUT, SERVER]) {
     for (const scope of ['core', 'dm', 'group']) {
       const p = profile.buildConfig({ systemPrompt: 'x', scope }).agent[profile.agentId].permission;
       for (const tool of ALWAYS_DENIED) assert.equal(p[tool], 'deny', `${profile.name} ${scope} ${tool}`);
@@ -85,28 +85,28 @@ test('every agent: skill, todowrite and the other tools no profile asks for are 
   }
 });
 
-test('web shell: the web-search command runs, through the wrapper on the child\'s PATH; node itself never does', () => {
-  const p = WEB.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-web'].permission;
+test('scout shell: the web-search command runs, through the wrapper on the child\'s PATH; node itself never does', () => {
+  const p = SCOUT.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-scout'].permission;
   assert.equal(p.bash['web-search *'], 'allow');
   for (const command of ['node *', 'node', 'web-search']) assert.equal(p.bash[command], undefined, command);
   assert.equal(actionOf(p.bash, 'web-search olé meme --count 4'), 'allow');
-  assert.equal(actionOf(p.bash, 'node bin/agent-runner.mjs --profile web'), 'deny');
+  assert.equal(actionOf(p.bash, 'node bin/agent-runner.mjs --profile scout'), 'deny');
   assert.equal(actionOf(p.bash, 'NODE_OPTIONS=--import=./x.mjs web-search q'), 'deny', 'OpenCode matches the whole command text, assignments included');
-  assert.deepEqual([...WEB.pathDirs], [WEB_TOOLS_DIR]);
-  assert.equal(WEB_TOOLS_DIR, path.join(ROOT, 'agents', 'web', 'bin'));
-  const wrapper = path.join(WEB_TOOLS_DIR, 'web-search');
+  assert.deepEqual([...SCOUT.pathDirs], [SCOUT_TOOLS_DIR]);
+  assert.equal(SCOUT_TOOLS_DIR, path.join(ROOT, 'agents', 'scout', 'bin'));
+  const wrapper = path.join(SCOUT_TOOLS_DIR, 'web-search');
   assert.ok(fs.statSync(wrapper).mode & 0o111, 'the wrapper is executable');
   assert.match(fs.readFileSync(wrapper, 'utf8'), /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/\.\.\/\.\.\/bin\/web-search\.mjs" "\$@"\n$/);
   assert.ok(fs.existsSync(path.join(ROOT, 'bin', 'web-search.mjs')));
   assert.deepEqual([...SERVER.pathDirs], [], 'the server agent gets no command of its own');
 });
 
-test('web shell: yt-dlp runs only with --ignore-config; no option that runs another program passes, abbreviated or in = form', () => {
-  assert.ok(WEB_SHELL_ALLOW.includes('yt-dlp --ignore-config *'));
-  assert.ok(!WEB_SHELL_ALLOW.includes('yt-dlp *'));
+test('scout shell: yt-dlp runs only with --ignore-config; no option that runs another program passes, abbreviated or in = form', () => {
+  assert.ok(SCOUT_SHELL_ALLOW.includes('yt-dlp --ignore-config *'));
+  assert.ok(!SCOUT_SHELL_ALLOW.includes('yt-dlp *'));
   for (const pattern of YT_DLP_DENIES) assert.ok(SHELL_DENY_AFTER.includes(pattern), pattern);
   for (const scope of ['core', 'dm']) {
-    const bash = WEB.buildConfig({ systemPrompt: 'x', scope }).agent['errand-web'].permission.bash;
+    const bash = SCOUT.buildConfig({ systemPrompt: 'x', scope }).agent['errand-scout'].permission.bash;
     assert.equal(bash['yt-dlp --ignore-config *'], 'allow');
     for (const command of [
       'yt-dlp --ignore-config -f "bv*[height<=720]+ba" -o x.mp4 https://www.youtube.com/watch?v=abc',
@@ -161,9 +161,9 @@ test('filtered scope: path tools gain withheld denies, core does not', () => {
   assert.equal(dm.read['**/.env'], 'deny');
 });
 
-test('server external_directory: allowed in core, the path tools\' withheld denies in a filtered scope; web only its /tmp/opencode', () => {
+test('server external_directory: allowed in core, the path tools\' withheld denies in a filtered scope; scout only its /tmp/opencode', () => {
   assert.equal(SHELL_CLASSES['server-read-only'].externalDirectory, true);
-  assert.deepEqual([...SHELL_CLASSES['web-download'].externalDirectory], [WEB_TMP_DIR]);
+  assert.deepEqual([...SHELL_CLASSES['scout-download'].externalDirectory], [SCOUT_TMP_DIR]);
   const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission;
   assert.equal(core.external_directory, 'allow');
   for (const tool of ['edit', 'write', 'patch', 'task', 'question']) assert.equal(core[tool], 'deny', tool);
@@ -188,23 +188,23 @@ test('server external_directory: allowed in core, the path tools\' withheld deni
 });
 
 test('defaults: limits, daily, model, env names', () => {
-  assert.deepEqual(WEB.defaultLimits, { steps: 25, seconds: 300 });
+  assert.deepEqual(SCOUT.defaultLimits, { steps: 25, seconds: 300 });
   assert.deepEqual(SERVER.defaultLimits, { steps: 20, seconds: 120 });
-  assert.deepEqual(WEB.defaultDaily, { tasks: 40 });
-  assert.ok(WEB.envNames.includes('OPENROUTER_ERRAND_KEY'));
-  assert.ok(WEB.envNames.includes('PROXY_URL'));
+  assert.deepEqual(SCOUT.defaultDaily, { tasks: 40 });
+  assert.ok(SCOUT.envNames.includes('OPENROUTER_ERRAND_KEY'));
+  assert.ok(SCOUT.envNames.includes('PROXY_URL'));
   assert.deepEqual([...SERVER.envNames], ['OPENROUTER_ERRAND_KEY']);
-  assert.equal(WEB.defaultSearchProvider, 'exa');
+  assert.equal(SCOUT.defaultSearchProvider, 'exa');
 });
 
 test('model: each profile runs on its model role, whose default is its default model; config.json carries no agents.<profile>.model', () => {
-  assert.equal(WEB.modelRole, 'web');
+  assert.equal(SCOUT.modelRole, 'scout');
   assert.equal(SERVER.modelRole, 'server');
-  assert.equal(WEB.defaultModel, ROLE_DEFAULTS.web);
+  assert.equal(SCOUT.defaultModel, ROLE_DEFAULTS.scout);
   assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.server);
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
-  for (const name of ['web', 'server']) {
-    assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is models.agents.${profileOf(name).modelRole}`);
+  for (const name of ['scout', 'server']) {
+    assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is models.errands.${profileOf(name).modelRole}`);
     assert.deepEqual(shipped[name].cost, { input: 2, output: 6 }, `${name}: the cost stays (OpenCode's price table is off)`);
   }
 });
@@ -218,18 +218,18 @@ test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, text);
     };
-    write(path.join(rootDir, 'agents', 'web', 'prompt.md'), 'tracked');
-    write(path.join(rootDir, 'prompts.local', 'agent-web.md'), 'checkout override');
-    write(path.join(privateDir, 'prompts.local', 'agent-web.md'), 'private override');
+    write(path.join(rootDir, 'agents', 'scout', 'prompt.md'), 'tracked');
+    write(path.join(rootDir, 'prompts.local', 'agent-scout.md'), 'checkout override');
+    write(path.join(privateDir, 'prompts.local', 'agent-scout.md'), 'private override');
 
-    const apart = promptFilesOf('web', { rootDir, env: { NEPTUNIA_PRIVATE_DIR: privateDir } });
-    assert.deepEqual(apart, [path.join(privateDir, 'prompts.local', 'agent-web.md'), path.join(rootDir, 'agents', 'web', 'prompt.md')]);
+    const apart = promptFilesOf('scout', { rootDir, env: { NEPTUNIA_PRIVATE_DIR: privateDir } });
+    assert.deepEqual(apart, [path.join(privateDir, 'prompts.local', 'agent-scout.md'), path.join(rootDir, 'agents', 'scout', 'prompt.md')]);
     assert.equal(readPromptFile(apart), 'private override', 'the checkout prompts.local/ is not read');
-    assert.equal(readPromptFile(promptFilesOf('web', { rootDir, env: {} })), 'checkout override', 'unset: the root is the private directory');
-    fs.rmSync(path.join(privateDir, 'prompts.local', 'agent-web.md'));
+    assert.equal(readPromptFile(promptFilesOf('scout', { rootDir, env: {} })), 'checkout override', 'unset: the root is the private directory');
+    fs.rmSync(path.join(privateDir, 'prompts.local', 'agent-scout.md'));
     assert.equal(readPromptFile(apart), 'tracked', 'no override: the tracked prompt under the root');
 
-    assert.deepEqual(WEB.promptFiles, promptFilesOf('web'));
+    assert.deepEqual(SCOUT.promptFiles, promptFilesOf('scout'));
     assert.deepEqual(SERVER.promptFiles, promptFilesOf('server'));
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
@@ -237,7 +237,7 @@ test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked
 });
 
 test('readPromptFile: an override that exists but cannot be read falls back to the tracked prompt, warned once; other errors still throw', () => {
-  const [override, tracked] = promptFilesOf('web', { rootDir: '/checkout', env: { NEPTUNIA_PRIVATE_DIR: '/private-unreadable' } });
+  const [override, tracked] = promptFilesOf('scout', { rootDir: '/checkout', env: { NEPTUNIA_PRIVATE_DIR: '/private-unreadable' } });
   const failing = (code) => (file) => {
     if (file === override) throw Object.assign(new Error(`${code}: ${file}`), { code });
     if (file === tracked) return 'tracked';
@@ -307,7 +307,7 @@ test('withheldShellDenies: the deployment\'s data directory and a private direct
   assert.equal(together.length, SHELL_CONTENT_COMMANDS.length * patternsPerCommand(roots));
 });
 
-test('filtered scope: the server shell denies a content read of a withheld path after the allows and before SHELL_DENY_AFTER; core and web get none', () => {
+test('filtered scope: the server shell denies a content read of a withheld path after the allows and before SHELL_DENY_AFTER; core and scout get none', () => {
   const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
   const keys = Object.keys(dm);
   const denies = withheldShellDenies();
@@ -320,8 +320,8 @@ test('filtered scope: the server shell denies a content read of a withheld path 
   assert.deepEqual(group, dm);
   const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
   assert.equal(Object.hasOwn(core, 'cat */var/www*'), false, 'core reads everything');
-  const web = WEB.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-web'].permission.bash;
-  assert.equal(Object.hasOwn(web, 'cat */var/www*'), false, 'the web agent has its own shell');
+  const scout = SCOUT.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-scout'].permission.bash;
+  assert.equal(Object.hasOwn(scout, 'cat */var/www*'), false, 'the scout agent has its own shell');
 });
 
 test('filtered scope: under OpenCode\'s last-match rule a read of a withheld path is refused, a listing of it and any other read pass', () => {
@@ -388,9 +388,9 @@ test('server shell: cp hands a file back into the task folder; in a filtered sco
   for (const command of ['mv /srv/app/docs/north-star.md x', 'rm x']) assert.equal(actionOf(core, command), 'deny', `only copy: ${command}`);
 });
 
-test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) and GIT_PAGER=cat; the web profile none', () => {
+test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) and GIT_PAGER=cat; the scout profile none', () => {
   assert.deepEqual({ ...SERVER.childEnv }, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*', GIT_PAGER: 'cat' });
-  assert.deepEqual({ ...WEB.childEnv }, {});
+  assert.deepEqual({ ...SCOUT.childEnv }, {});
   assert.ok(Object.isFrozen(SERVER.childEnv));
 });
 
@@ -399,7 +399,7 @@ test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) 
 /** The commands OpenCode v1.19.3 resolves path arguments of, asking external_directory for one outside the folder. */
 const PATH_CHECKED = new Set(['cd', 'rm', 'cp', 'mv', 'mkdir', 'touch', 'chmod', 'chown', 'cat']);
 /** A task folder as the runner makes it (the agent's working directory and HOME). */
-const WEB_DIR = '/var/lib/neptunia-agent-web/out/t1';
+const SCOUT_DIR = '/var/lib/neptunia-agent-scout/out/t1';
 const SERVER_DIR = '/var/lib/neptunia-agent-server/out/t1';
 
 /** The simple commands of a command line, as OpenCode checks each one (no separator inside the quotes of these tests). */
@@ -444,12 +444,12 @@ function shellCall(permission, command, where) {
   return asked.every((part) => actionOf(permission.bash, part) === 'allow') ? 'allow' : 'deny';
 }
 
-const webPermission = (scope) => WEB.buildConfig({ systemPrompt: 'x', scope }).agent['errand-web'].permission;
+const webPermission = (scope) => SCOUT.buildConfig({ systemPrompt: 'x', scope }).agent['errand-scout'].permission;
 const serverPermission = (scope) => SERVER.buildConfig({ systemPrompt: 'x', scope }).agent['errand-server'].permission;
-const webCall = (scope, command, workdir = WEB_DIR) => shellCall(webPermission(scope), command, { cwd: WEB_DIR, workdir, dirs: [WEB_TMP_DIR] });
+const webCall = (scope, command, workdir = SCOUT_DIR) => shellCall(webPermission(scope), command, { cwd: SCOUT_DIR, workdir, dirs: [SCOUT_TMP_DIR] });
 const serverCall = (scope, command, workdir = SERVER_DIR) => shellCall(serverPermission(scope), command, { cwd: SERVER_DIR, workdir });
 
-test('web shell: the commands its errands were refused now pass, in every scope', () => {
+test('scout shell: the commands its errands were refused now pass, in every scope', () => {
   const page = '.local/share/opencode/tool-output/tool_19a2b3c4d5e6';
   const passes = [
     // cp: rename the chosen candidate, copy what webfetch saved under /tmp/opencode; mv/rm its own candidates
@@ -470,37 +470,37 @@ test('web shell: the commands its errands were refused now pass, in every scope'
   ];
   for (const scope of ['core', 'dm', 'group']) {
     for (const command of passes) assert.equal(webCall(scope, command), 'allow', `${scope}: ${command}`);
-    assert.equal(webCall(scope, 'curl -sLO https://example.org/a.jpg', WEB_TMP_DIR), 'allow', `${scope}: a workdir in /tmp/opencode`);
-    assert.equal(webCall(scope, 'ls', `${WEB_TMP_DIR}/sub`), 'allow', `${scope}: a workdir under /tmp/opencode`);
+    assert.equal(webCall(scope, 'curl -sLO https://example.org/a.jpg', SCOUT_TMP_DIR), 'allow', `${scope}: a workdir in /tmp/opencode`);
+    assert.equal(webCall(scope, 'ls', `${SCOUT_TMP_DIR}/sub`), 'allow', `${scope}: a workdir under /tmp/opencode`);
   }
   for (const command of ['cp *', 'mv *', 'rm *', 'grep *', 'sed -n --sandbox *', 'pwd', 'which *', 'command -v *', 'echo', 'echo *', 'jq *', 'tail *', 'wc *', 'sort *', 'uniq *', 'cut *', 'tr *']) {
-    assert.ok(WEB_SHELL_ALLOW.includes(command), command);
+    assert.ok(SCOUT_SHELL_ALLOW.includes(command), command);
   }
 });
 
-test('web shell: cp, mv and rm stay in its folder and /tmp/opencode and are never recursive', () => {
+test('scout shell: cp, mv and rm stay in its folder and /tmp/opencode and are never recursive', () => {
   const refused = [
     'rm -r frames', 'rm -rf frames', 'rm -fr frames', 'rm -R frames', 'rm -Rf frames', 'rm -vr frames', 'rm --recursive frames', 'rm --r frames', 'rm -f x.jpg -r frames',
     'rm -d frames', 'cp -r frames copy', 'cp -R frames copy', 'cp -a frames copy', 'cp -rf frames copy', 'cp --recursive frames copy', 'cp a.jpg b.jpg -r', 'cp -t /etc a.jpg',
-    'cp --target-directory=/var/lib/neptunia-agent-web/out/t2 a.jpg', 'mv -t /var/lib/neptunia-agent-web/out/t2 a.jpg', 'cp -s a.jpg b.jpg', 'cp -l a.jpg b.jpg',
-    'rm /etc/hostname', 'rm -f /var/lib/neptunia-agent-web/out/t2/a.jpg', 'rm /var/lib/neptunia-agent-web/.profile', 'cp /etc/passwd passwd', 'cp a.jpg /home/x/a.jpg',
+    'cp --target-directory=/var/lib/neptunia-agent-scout/out/t2 a.jpg', 'mv -t /var/lib/neptunia-agent-scout/out/t2 a.jpg', 'cp -s a.jpg b.jpg', 'cp -l a.jpg b.jpg',
+    'rm /etc/hostname', 'rm -f /var/lib/neptunia-agent-scout/out/t2/a.jpg', 'rm /var/lib/neptunia-agent-scout/.profile', 'cp /etc/passwd passwd', 'cp a.jpg /home/x/a.jpg',
     'mv a.jpg /srv/a.jpg', 'cp /tmp/opencode/a.jpg /opt/a.jpg', 'rm /', 'rm -f /', 'rm /tmp', 'rm /tmp/x.jpg', 'cp /tmp/opencode/a.jpg /tmp/a.jpg', 'mv /tmp/other/a.jpg a.jpg',
-    'rm /tmp/opencodex/a.jpg', 'rm ../t2/a.jpg', 'cp a.jpg ../t2/', 'mv */../../t2/a.jpg .', 'rm ~neptunia-agent-web/out/t2/a.jpg', 'rm $HOME/../t2/a.jpg',
+    'rm /tmp/opencodex/a.jpg', 'rm ../t2/a.jpg', 'cp a.jpg ../t2/', 'mv */../../t2/a.jpg .', 'rm ~neptunia-agent-scout/out/t2/a.jpg', 'rm $HOME/../t2/a.jpg',
     'rm "$(echo /etc)"', 'rm `echo /etc`', 'cp ${HOME}/../t2/a.jpg .', 'rm /proc/self/fd/1', 'cp a.jpg /dev/shm/a.jpg',
-    'curl -sL -o a.jpg https://example.org/a.jpg && rm -rf .', 'curl -s https://example.org/ && rm /var/lib/neptunia-agent-web/out/t2/a.jpg',
+    'curl -sL -o a.jpg https://example.org/a.jpg && rm -rf .', 'curl -s https://example.org/ && rm /var/lib/neptunia-agent-scout/out/t2/a.jpg',
   ];
   for (const scope of ['core', 'dm', 'group']) {
     for (const command of refused) assert.equal(webCall(scope, command), 'deny', `${scope}: ${command}`);
-    for (const workdir of ['/tmp', '/etc', '/var/lib/neptunia-agent-web/out/t2', '/tmp/opencodex']) assert.equal(webCall(scope, 'ls', workdir), 'deny', `${scope}: workdir ${workdir}`);
+    for (const workdir of ['/tmp', '/etc', '/var/lib/neptunia-agent-scout/out/t2', '/tmp/opencodex']) assert.equal(webCall(scope, 'ls', workdir), 'deny', `${scope}: workdir ${workdir}`);
   }
   // the bash rules alone refuse what OpenCode's path check cannot resolve (a variable, a substitution, a leading glob)
   const bash = webPermission('core').bash;
-  for (const command of ['rm $HOME/../t2/a.jpg', 'rm `echo /etc`', 'mv */../../t2/a.jpg .', 'rm ~neptunia-agent-web/out/t2/a.jpg', 'rm -rf x', 'cp -a x y', 'rm /etc/x', 'cp x /var/y']) {
+  for (const command of ['rm $HOME/../t2/a.jpg', 'rm `echo /etc`', 'mv */../../t2/a.jpg .', 'rm ~neptunia-agent-scout/out/t2/a.jpg', 'rm -rf x', 'cp -a x y', 'rm /etc/x', 'cp x /var/y']) {
     assert.equal(actionOf(bash, command), 'deny', `bash rules: ${command}`);
   }
 });
 
-test('web shell: still no interpreter; sed only sandboxed, sort without a compress program', () => {
+test('scout shell: still no interpreter; sed only sandboxed, sort without a compress program', () => {
   for (const scope of ['core', 'dm']) {
     for (const command of [
       'python3 -c "print(1)"', 'python x.py', 'node -e 1', 'perl -e 1', 'sh -c id', 'bash -c id', 'sh x.sh', 'bash x.sh', 'eval id', 'xargs rm', 'env', 'env sh',
@@ -511,28 +511,28 @@ test('web shell: still no interpreter; sed only sandboxed, sort without a compre
   }
 });
 
-test('web path tools and external_directory: /tmp/opencode in every scope, nothing else outside its folder', () => {
+test('scout path tools and external_directory: /tmp/opencode in every scope, nothing else outside its folder', () => {
   for (const scope of ['core', 'dm', 'group']) {
     const p = webPermission(scope);
     const ext = p.external_directory;
-    for (const resource of [`${WEB_TMP_DIR}/*`, `${WEB_TMP_DIR}/sub/*`, `${WEB_TMP_DIR}/a/b/*`]) assert.equal(actionOf(ext, resource), 'allow', `${scope}: ${resource}`);
-    for (const resource of ['/tmp/*', '/tmp/opencodex/*', '/etc/*', '/var/lib/neptunia-agent-web/*', '/var/lib/neptunia-agent-web/out/t2/*', '/*', '/home/u/*']) {
+    for (const resource of [`${SCOUT_TMP_DIR}/*`, `${SCOUT_TMP_DIR}/sub/*`, `${SCOUT_TMP_DIR}/a/b/*`]) assert.equal(actionOf(ext, resource), 'allow', `${scope}: ${resource}`);
+    for (const resource of ['/tmp/*', '/tmp/opencodex/*', '/etc/*', '/var/lib/neptunia-agent-scout/*', '/var/lib/neptunia-agent-scout/out/t2/*', '/*', '/home/u/*']) {
       assert.equal(actionOf(ext, resource), 'deny', `${scope}: ${resource}`);
     }
     for (const tool of ['read', 'glob', 'list']) {
       const value = p[tool];
-      for (const target of [`${WEB_TMP_DIR}/a.jpg`, `${WEB_TMP_DIR}/page.html`, `${WEB_DIR}/poster.jpg`]) {
+      for (const target of [`${SCOUT_TMP_DIR}/a.jpg`, `${SCOUT_TMP_DIR}/page.html`, `${SCOUT_DIR}/poster.jpg`]) {
         assert.equal(typeof value === 'string' ? value : actionOf(value, target), 'allow', `${scope} ${tool}: ${target}`);
       }
     }
-    assert.equal(p.grep, 'deny', 'the web class has no grep tool, only the shell grep');
+    assert.equal(p.grep, 'deny', 'the scout class has no grep tool, only the shell grep');
   }
 });
 
-test('web rules: staged after the allow list and before SHELL_DENY_AFTER, each pattern once', () => {
+test('scout rules: staged after the allow list and before SHELL_DENY_AFTER, each pattern once', () => {
   const bash = webPermission('core').bash;
   const keys = Object.keys(bash);
-  assert.equal(keys.length, 1 + WEB_SHELL_ALLOW.length + WEB_FILE_RULES.length + SHELL_DENY_AFTER.length, 'no pattern twice');
+  assert.equal(keys.length, 1 + SCOUT_SHELL_ALLOW.length + SCOUT_FILE_RULES.length + SHELL_DENY_AFTER.length, 'no pattern twice');
   for (const command of ['cp', 'mv', 'rm']) {
     const at = (pattern) => keys.indexOf(pattern);
     assert.ok(at(`${command} *`) < at(`${command} -*`) && at(`${command} -*`) < at(`${command} -f *`) && at(`${command} -f *`) < at(`${command} * -*`), command);
@@ -541,7 +541,7 @@ test('web rules: staged after the allow list and before SHELL_DENY_AFTER, each p
     assert.equal(bash[`${command} -f *`], 'allow');
     assert.equal(bash[`${command} * -*`], 'deny');
   }
-  for (const [pattern, action] of WEB_FILE_RULES) assert.equal(bash[pattern], action, pattern);
+  for (const [pattern, action] of SCOUT_FILE_RULES) assert.equal(bash[pattern], action, pattern);
   assert.deepEqual(keys.slice(-SHELL_DENY_AFTER.length), [...SHELL_DENY_AFTER]);
   assert.deepEqual([...SHELL_CLASSES['server-read-only'].rules], [], 'the server class has no staged rules');
 });
@@ -607,7 +607,7 @@ test('server shell: the new content commands refuse a withheld path in dm and gr
   const reads = [
     'rg token /srv/app/.env', 'rg -n x /var/www/site', 'tree /var/www', 'jq . /opt/neptunia/etc/config.local.json', 'diff /srv/app/.env /tmp/x', 'sha256sum /etc/shadow',
     'md5sum /home/u/.ssh/id_ed25519', 'zcat /srv/neptunia-backups/x.gz', 'zgrep x /srv/neptunia-backups/x.gz', 'xxd /etc/letsencrypt/live/x/privkey.pem',
-    'strings /srv/app/.git/index', 'column -t /etc/neptunia/agent-web.env', 'nl /srv/neptunia-dev/.secrets/proxy', 'tar -tf /srv/neptunia-backups/x.tgz', `rg x ${DATA_DIR}/guilds`,
+    'strings /srv/app/.git/index', 'column -t /etc/neptunia/agent-scout.env', 'nl /srv/neptunia-dev/.secrets/proxy', 'tar -tf /srv/neptunia-backups/x.tgz', `rg x ${DATA_DIR}/guilds`,
   ];
   for (const command of reads) {
     assert.equal(serverCall('dm', command), 'deny', `dm: ${command}`);
@@ -717,7 +717,7 @@ test('loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
 test('loadProfiles: a tool outside the shell class is refused at load, naming the agent and the key', () => {
   withAgentsTree({ probe: workerProfile('probe', { tools: ['read', 'edit'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
   withAgentsTree({ probe: workerProfile('probe', { tools: ['read', 'websearch'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
-  withAgentsTree({ probe: workerProfile('probe', { shell: 'web-download', tools: ['grep'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
+  withAgentsTree({ probe: workerProfile('probe', { shell: 'scout-download', tools: ['grep'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
 });
 
 test('loadProfiles: an unknown shell class is refused', () => {
@@ -732,7 +732,7 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   withAgentsTree({ probe: workerProfile('probe', { id: 'other' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'id'));
   withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'prompt'));
   withAgentsTree({ probe: workerProfile('probe', { role: 'core' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
-  for (const role of ['agent.server', 'agent.web', 'drawing']) {
+  for (const role of ['web', 'drawing']) {
     withAgentsTree({ probe: workerProfile('probe', { role }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
   }
 });
@@ -782,7 +782,7 @@ test('development profiles: listed by listAgents, skipped by loadProfiles; roles
 
 test('development profiles: a bad key is refused with AgentProfileError naming the agent and the key', () => {
   const cases = [
-    [{ role: 'web' }, 'role'],
+    [{ role: 'scout' }, 'role'],
     [{ role: 'drawing' }, 'role'],
     [{ tools: ['bash', 'task'] }, 'tools'],
     [{ tools: [] }, 'tools'],
@@ -812,27 +812,27 @@ test('the development agents\' folders hold no absolute server path and no Cyril
   }
 });
 
-test('the real agents/ folder: web and server workers, three development agents, the drawing tool agent, no advice consultation, each prompt tracked beside its profile', () => {
+test('the real agents/ folder: scout and server workers, three development agents, the drawing tool agent, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
   assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [
     ['dev', 'development', 'dev'],
     ['drawing', 'tool', 'drawing'],
+    ['scout', 'worker', 'scout'],
     ['server', 'worker', 'server'],
     ['thinker', 'development', 'thinker'],
-    ['web', 'worker', 'web'],
     ['writer', 'development', 'writer'],
   ]);
   for (const agent of agents.filter((one) => one.kind !== 'tool')) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
-  assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
+  assert.deepEqual(Object.keys(PROFILES).sort(), ['scout', 'server']);
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
-  for (const profile of [WEB, SERVER]) {
+  for (const profile of [SCOUT, SERVER]) {
     assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
     assert.equal(path.basename(profile.promptFiles[0]), `agent-${profile.name}.md`, 'the override keeps its name');
     assert.ok(SHELL_CLASSES[profile.shell].tools.length >= profile.tools.length);
   }
-  assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-web.md')), false, 'the agent prompts left prompts/');
+  assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-scout.md')), false, 'the agent prompts left prompts/');
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
-  for (const name of ['web', 'server']) {
+  for (const name of ['scout', 'server']) {
     assert.equal(shipped[name].socket, profileOf(name).defaultSocket, `${name}: config.json and the profile agree on the socket`);
     assert.equal(shipped[name].out, profileOf(name).defaultOut, `${name}: and on the out dir`);
   }
@@ -878,7 +878,7 @@ test('tool profiles: listed by listAgents and loadToolProfiles, skipped by loadP
 
 test('tool profiles: a bad key is refused with AgentProfileError naming the agent and the key', () => {
   const cases = [
-    [{ role: 'web' }, 'role'],
+    [{ role: 'scout' }, 'role'],
     [{ role: 'dev' }, 'role'],
     [{ tool: 'shell' }, 'tool'],
     [{ tool: undefined }, 'tool'],
@@ -907,4 +907,18 @@ test('the real drawing profile: a tool agent with no prompt and no override, who
   const run = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'agent-runner.mjs'), '--profile', 'drawing'], { encoding: 'utf8', timeout: 20000 });
   assert.equal(run.status, 1);
   assert.match(run.stdout + run.stderr, /tool agent/);
+});
+
+test('the scout unit: runs the scout profile as its own user with the state and runtime dirs the profile and config.json name', () => {
+  const unit = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-scout.service'), 'utf8');
+  const line = (key) => unit.split('\n').find((text) => text.startsWith(`${key}=`));
+  assert.equal(line('User'), 'User=neptunia-agent-scout');
+  assert.ok(line('ExecStart').endsWith('bin/agent-runner.mjs --profile scout'));
+  assert.equal(line('StateDirectory'), 'StateDirectory=neptunia-agent-scout');
+  assert.equal(line('RuntimeDirectory'), 'RuntimeDirectory=neptunia-agent-scout');
+  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/etc/agent-scout.env');
+  assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
+  assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
+  assert.equal(fs.existsSync(path.join(ROOT, 'deploy', 'neptunia-agent-web.service')), false);
+  assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'web')), false);
 });

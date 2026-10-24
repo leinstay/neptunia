@@ -294,7 +294,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
   for (const item of intentions) events.push({ kind: 'intend', at: item.at ?? startMs, intention: item, order: -1 });
   const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task, i) => {
     need(isObject(task) && typeof task.id === 'string' && task.id, id, `tasks[${i}] needs an id`);
-    return { id: task.id, agent: typeof task.agent === 'string' ? task.agent : 'web', state: task.state === 'queued' ? 'queued' : 'running' };
+    return { id: task.id, agent: typeof task.agent === 'string' ? task.agent : 'scout', state: task.state === 'queued' ? 'queued' : 'running' };
   });
 
   (Array.isArray(data.events) ? data.events : []).forEach((event, i) => {
@@ -775,7 +775,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     if (call.skill === 'task.run') {
       world.taskSeq += 1;
       const id = `task-${world.taskSeq}`;
-      world.tasks.set(id, { id, agent: String(args.agent ?? 'web'), state: 'running', origin: { turnId }, ...(key ? { idempotencyKey: key } : {}), createdAt: at });
+      world.tasks.set(id, { id, agent: String(args.agent ?? 'scout'), state: 'running', origin: { turnId }, ...(key ? { idempotencyKey: key } : {}), createdAt: at });
       if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
         const waited = intentions.update(guildId, args.id, { taskId: id, deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS), by: 'persona', turnId });
         if (!waited.ok) return { ok: true, code: `wait-${waited.code}`, taskId: id };
@@ -830,7 +830,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     // Her scripted line that made it: the latest line of hers with the span's text, in any channel.
     const line = item.span ? [...world.chat.values()].flat().filter((l) => l.self && l.content === item.span && l.ts <= at).sort((a, b) => b.ts - a.ts)[0] ?? null : null;
     if (item.wait) {
-      if (!world.tasks.has(item.wait.task)) world.tasks.set(item.wait.task, { id: item.wait.task, agent: 'web', state: 'running', origin: {}, createdAt: at });
+      if (!world.tasks.has(item.wait.task)) world.tasks.set(item.wait.task, { id: item.wait.task, agent: 'scout', state: 'running', origin: {}, createdAt: at });
       taskId = item.wait.task;
       deadline = item.wait.deadline;
     }
@@ -879,7 +879,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     } else if (event.kind === 'intend') {
       setIntention(event.intention, at);
     } else if (event.kind === 'errand_end') {
-      const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'web', origin: {}, createdAt: at };
+      const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'scout', origin: {}, createdAt: at };
       const ended = { ...task, state: event.state, endedAt: at, usage: { usd: event.usd } };
       world.tasks.set(event.task, ended);
       intentions.onTaskFinished(ended, guildId);

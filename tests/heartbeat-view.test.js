@@ -68,9 +68,9 @@ test('life: her executed actions, errands and diary posts of the last day, open 
     turn(NOW - 2 * DAY_MS, [{ skill: 'message.create', status: 'executed', result: 'ok' }]),
   ]);
   const tasks = [
-    { id: 't1', agent: 'web', state: 'done', createdAt: NOW - 2 * HOUR_MS, requester: { kind: 'persona' } },
-    { id: 't2', agent: 'web', state: 'done', createdAt: NOW - 2 * DAY_MS, requester: { kind: 'persona' } },
-    { id: 't3', agent: 'web', state: 'done', createdAt: NOW - HOUR_MS, requester: { kind: 'member' } },
+    { id: 't1', agent: 'scout', state: 'done', createdAt: NOW - 2 * HOUR_MS, requester: { kind: 'persona' } },
+    { id: 't2', agent: 'scout', state: 'done', createdAt: NOW - 2 * DAY_MS, requester: { kind: 'persona' } },
+    { id: 't3', agent: 'scout', state: 'done', createdAt: NOW - HOUR_MS, requester: { kind: 'member' } },
   ];
   const intentions = [
     { id: 'i1', status: 'pending', purpose: 'later', dueAt: NOW + HOUR_MS },
@@ -114,9 +114,9 @@ test('closed: the latest closed ones of any state, newest first, each with its o
 });
 
 test('skills are grouped by family and the agents listed', async () => {
-  const facts = await buildHeartbeatFacts(base({ skills: ['web.search', 'web.read', 'intent.set', 'solo'], agents: ['web', 'server'] }));
+  const facts = await buildHeartbeatFacts(base({ skills: ['web.search', 'web.read', 'intent.set', 'solo'], agents: ['scout', 'server'] }));
   assert.deepEqual(facts.skills, [{ family: 'web', names: ['search', 'read'] }, { family: 'intent', names: ['set'] }, { family: 'solo', names: ['solo'] }]);
-  assert.deepEqual(facts.agents, ['web', 'server']);
+  assert.deepEqual(facts.agents, ['scout', 'server']);
 });
 
 test('since: done counts, what was not done or counted on, the told facts as one count', async () => {
@@ -127,7 +127,7 @@ test('since: done counts, what was not done or counted on, the told facts as one
     { kind: 'action', phase: 'unknown', name: 'message.create', occurredAt: iso(NOW - 6 * HOUR_MS), scope: { channel: 'c5' } },
   ]);
   const tasks = [
-    { id: 'e1', agent: 'web', state: 'done', endedAt: NOW - HOUR_MS, createdAt: NOW - 2 * HOUR_MS, requester: { kind: 'persona' } },
+    { id: 'e1', agent: 'scout', state: 'done', endedAt: NOW - HOUR_MS, createdAt: NOW - 2 * HOUR_MS, requester: { kind: 'persona' } },
     { id: 'e2', agent: 'server', state: 'failed', endedAt: NOW - HOUR_MS, createdAt: NOW - 2 * HOUR_MS, requester: { kind: 'persona' }, error: { code: 'timeout' } },
     { id: 'e3', agent: 'server', state: 'failed', endedAt: NOW - 5 * HOUR_MS, createdAt: NOW - 6 * HOUR_MS, requester: { kind: 'persona' } },
   ];
@@ -193,11 +193,11 @@ test('wake: the heartbeat kind line, people, places, her life, skills and what h
     activePlaces: () => ['general'],
     places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 2, people: 1, writable: true }] },
     skills: ['web.search'],
-    agents: ['web'],
+    agents: ['scout'],
     intentions: [{ id: 'x1', status: 'expired', purpose: 'old plan', history: [{ at: NOW - HOUR_MS }] }, { id: 'd1', status: 'dropped', purpose: 'learn a song', reason: 'no time', history: [{ at: NOW - HOUR_MS }] }],
   }));
   const text = wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', places: facts.places, heartbeat: facts, here: null }, labels);
-  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'last talked', '#n-c1: 1 lines from name-b', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: web', 'intention x1 expired: old plan', l.notDone]) {
+  for (const needle of [labels.wake.kinds.heartbeat, l.people, 'name-b: ', 'cares about tea', 'writes lately in general', 'last talked', '#n-c1: 1 lines from name-b', l.closed, 'learn a song', 'no time', 'web: search', 'Errand agents: scout', 'intention x1 expired: old plan', l.notDone]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.ok(!text.includes(l.filtered), 'no filtered list without filtered lines');
@@ -347,7 +347,7 @@ test('filtered: each line with its author, a preview cut to about 100 characters
 test('life: her own posts with place and preview, errands with their goal, a diary post once', async () => {
   const diary = [{ at: NOW - 2 * HOUR_MS, kind: 'note', gist: 'g'.repeat(200), messageIds: ['d-msg'] }];
   const lines = [ownLine('p1', NOW - HOUR_MS, 'c1', 'p'.repeat(200)), ownLine('d-msg', NOW - 2 * HOUR_MS, 'diary', 'the diary text'), ownLine('p-old', NOW - 2 * DAY_MS, 'c1', 'yesterday')];
-  const tasks = [{ id: 't1', agent: 'web', state: 'done', createdAt: NOW - HOUR_MS, goal: 'find the song '.repeat(20), requester: { kind: 'persona' } }];
+  const tasks = [{ id: 't1', agent: 'scout', state: 'done', createdAt: NOW - HOUR_MS, goal: 'find the song '.repeat(20), requester: { kind: 'persona' } }];
   const journal = fakeJournal([{ kind: 'inner', event: 'turn', occurredAt: iso(NOW - HOUR_MS), actions: [{ skill: 'diary.post', status: 'executed', result: 'ok' }, { skill: 'message.create', status: 'executed', result: 'ok' }] }]);
   const facts = await buildHeartbeatFacts(base({ record: record(lines), tasks, diary, journal }));
   assert.equal(facts.life.posts.items.length, 1);
@@ -360,29 +360,29 @@ test('life: her own posts with place and preview, errands with their goal, a dia
   const text = wakeOf(facts, { handleBase: 1 });
   assert.equal(text.split('a diary post').length, 2);
   assert.ok(text.includes('you wrote in #n-c1: ppp'));
-  assert.ok(text.includes('errand to web (done): find the song'));
+  assert.ok(text.includes('errand to scout (done): find the song'));
 });
 
 test('budget: over heartbeat.maxTokens the lists shed their last items in order -- filtered, her life, places beyond 3, people beyond 5 -- and the shed ones are counted', async () => {
   const profiles = Array.from({ length: 8 }, (_, i) => profile(`p${i}`, 100 - i));
   const lines = Array.from({ length: 6 }, (_, i) => line(`m${i}`, `p${i}`, NOW - (i + 1) * MINUTE_MS, `ch${i}`, `says ${i} `.repeat(10)));
   const rows = Array.from({ length: 6 }, (_, i) => ({ kind: 'answer', event: 'verdict', verdict: 'stale', messageId: `x${i}`, authorId: 'u1', occurredAt: iso(NOW - (i + 1) * MINUTE_MS), scope: { channel: 'c1' } }));
-  const tasks = Array.from({ length: 4 }, (_, i) => ({ id: `t${i}`, agent: 'web', state: 'done', createdAt: NOW - (i + 1) * MINUTE_MS, goal: 'goal', requester: { kind: 'persona' } }));
+  const tasks = Array.from({ length: 4 }, (_, i) => ({ id: `t${i}`, agent: 'scout', state: 'done', createdAt: NOW - (i + 1) * MINUTE_MS, goal: 'goal', requester: { kind: 'persona' } }));
   const input = { profiles, record: record(lines), journal: fakeJournal(rows), tasks };
   const full = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: 0 } }));
   const fullText = wakeOf(full, { handleBase: 1 });
-  assert.ok(fullText.includes('ch5') && fullText.includes('name-p7') && fullText.includes('errand to web'));
+  assert.ok(fullText.includes('ch5') && fullText.includes('name-p7') && fullText.includes('errand to scout'));
   const tokens = (value) => Math.ceil(value.length / 3.5);
   // A cap just under the full block: the filtered lines go first.
   const first = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: tokens(fullText) - 30 } }));
   const firstText = wakeOf(first, { handleBase: 1 });
-  assert.ok(firstText.includes('errand to web') && firstText.includes('name-p7') && firstText.includes('ch5'));
+  assert.ok(firstText.includes('errand to scout') && firstText.includes('name-p7') && firstText.includes('ch5'));
   assert.ok((firstText.match(/judged not owed/g) ?? []).length < 6);
   assert.ok(tokens(firstText.split('\n').slice(1).join('\n')) < tokens(fullText));
   // A tight cap: filtered and her life gone, places cut to 3, people to 5, and the counts say so.
   const tight = await buildHeartbeatFacts(base({ ...input, settings: { maxTokens: 1 } }));
   const tightText = wakeOf(tight, { handleBase: 1 });
-  assert.ok(!tightText.includes('judged not owed') && !tightText.includes('errand to web'));
+  assert.ok(!tightText.includes('judged not owed') && !tightText.includes('errand to scout'));
   const rowsOf = (value, pattern) => value.split('\n').filter((row) => pattern.test(row)).length;
   assert.equal(rowsOf(fullText, / lines from /), 6);
   assert.equal(rowsOf(tightText, / lines from /), 3, 'places beyond 3 are shed');

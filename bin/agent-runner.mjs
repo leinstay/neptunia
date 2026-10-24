@@ -1,22 +1,22 @@
 #!/usr/bin/env node
-// The agent runner process: one per profile (`web` or `server`), started by
+// The agent runner process: one per profile (`scout` or `server`), started by
 // its systemd unit (deploy/neptunia-agent-<profile>.service). It reads the
 // engine config (never the bot's .env), opens the Unix socket the core connects to
 // (src/agent-runner/server.js), and works each task it receives by spawning
 // one `opencode run` child (src/agent-runner/opencode.js). It never imports
 // discord.js or the bot; it shares only config/log/web helpers.
 //
-//   node bin/agent-runner.mjs --profile web|server [--socket PATH] [--out DIR]
+//   node bin/agent-runner.mjs --profile scout|server [--socket PATH] [--out DIR]
 //                             [--journal FILE] [--opencode PATH]
 //
 // Keys come from the core with each task (`secrets` of the `run` message: the
-// agents' OpenRouter key, never the persona's, and for the web profile the
+// agents' OpenRouter key, never the persona's, and for the scout profile the
 // proxy and the search key), since every key lives in the bot's .env, which
 // this process cannot read. Its own environment (the unit's optional
 // EnvironmentFile: OPENROUTER_ERRAND_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
 // used only for what a task does not bring. Caps and the model's
 // cost come from `agents.<profile>` in config; the model from the profile's
-// model role (`models.agents.web`, `models.agents.server`), read again at each task
+// model role (`models.errands.scout`, `models.errands.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
 // exits. At start and then hourly it deletes the task directories under its
@@ -25,7 +25,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../src/config.js';
+import { readConfig } from '../src/config.js';
 import { log } from '../src/log.js';
 import { createRunnerServer } from '../src/agent-runner/server.js';
 import { createOpencodeRunner, DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.js';
@@ -64,14 +64,12 @@ async function main() {
   const name = args.profile;
   const profile = profileOf(name);
   if (!profile && toolProfileOf(name)) fail(`profile ${name} is a tool agent: the core runs it, there is no runner`);
-  if (!profile) fail(`unknown profile: ${name ?? '(none)'} (expected web or server)`);
+  if (!profile) fail(`unknown profile: ${name ?? '(none)'} (expected scout or server)`);
 
   // The runner never reads the bot's .env: the bot's secrets file is inaccessible to it by design, and
   // the keys come with each task. Config `${env:NAME}` references it cannot resolve become empty
   // strings with one warning each.
-  // A config still holding the flat `roles` map throws here (src/config.js#assertModelsShape): the
-  // runner does not start on a config it would misread.
-  const { config } = loadConfig();
+  const config = readConfig();
   const agents = config.agents ?? {};
   const settings = agents[name] ?? {};
 
@@ -85,7 +83,7 @@ async function main() {
   // No key of its own is needed: the core sends one with each task. A task that brings none
   // while this environment has none either fails `no-key`, with one warning
   // (src/agent-runner/opencode.js).
-  if (!process.env.OPENROUTER_ERRAND_KEY && !process.env.OPENROUTER_AGENT_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
+  if (!process.env.OPENROUTER_ERRAND_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
 
   try {
     fs.mkdirSync(outDir, { recursive: true });
@@ -97,7 +95,7 @@ async function main() {
   let lastConfig = config;
   const currentConfig = () => {
     try {
-      lastConfig = loadConfig().config;
+      lastConfig = readConfig();
     } catch (err) {
       log.warn('agent-runner: config reload failed', { profile: name, reason: err?.name ?? 'read' });
     }
