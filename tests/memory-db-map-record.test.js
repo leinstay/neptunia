@@ -103,7 +103,7 @@ test('a deleted line has no revision, text or author and still round trips', () 
     recordedAt: '2026-10-20T11:00:00.000Z', guildId: GUILD, scope: { channel: CHANNEL }, participants: [], sourceMessageIds: ['400000000000000002'], origin: 'live',
   };
   const { rows, back } = roundTrip(mapper, REL, line);
-  assert.equal(rows.sources[0].id, 'src:discord:400000000000000002:0:deleted');
+  assert.equal(rows.sources[0].id, 'src:discord:400000000000000002:deleted:rec-3');
   assert.equal(rows.sources[0].revision, null);
   assert.deepEqual(back, line);
 });
@@ -115,7 +115,7 @@ test('a felt line has its own id, no message, and a user scope', () => {
     feltId: 'felt-1', itemId: 'ep-1', revisionId: 'rev-1',
   };
   const { rows, back } = roundTrip(mapper, REL, line);
-  assert.equal(rows.sources[0].id, 'src:felt:felt-1');
+  assert.equal(rows.sources[0].id, 'src:discord:none:felt:rec-4');
   assert.deepEqual([rows.sources[0].scope_kind, rows.sources[0].scope_dm], ['dm', 'person:discord:100000000000000001']);
   assert.equal(rows.sources[0].place_id, null);
   assert.deepEqual(back, line);

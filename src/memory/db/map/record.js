@@ -5,11 +5,13 @@
 // toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, guildId? }
 // fromRows(rows, ctx) -> the line
 
-import { IFACE, accountId, messageSourceId, nativeOf, otherSourceId } from '../ids.js';
+import { IFACE, accountId, messageSourceId, nativeOf } from '../ids.js';
 import { extraText, join, parseExtra, split } from './common.js';
 import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.js';
 
-const MESSAGE_KINDS = new Set(['seen', 'said', 'deleted']);
+// Kinds whose source id carries the message revision. A deleted or felt line, and any line without a revision, has no
+// revision to tell it apart, so its id carries the line's own id (ids never collide).
+const REVISIONED_KINDS = new Set(['seen', 'said']);
 
 const SPEC = [
   { col: 'kind', key: 'kind', type: 'text' },
@@ -30,11 +32,9 @@ const SPEC = [
 
 function sourceIdOf(line) {
   const kind = typeof line.kind === 'string' ? line.kind : 'unknown';
-  if (MESSAGE_KINDS.has(kind) && typeof line.messageId === 'string') {
-    return messageSourceId(line.messageId, Number.isFinite(line.revision) ? line.revision : 0, kind);
-  }
-  if (kind === 'felt' && typeof line.feltId === 'string') return otherSourceId('felt', line.feltId);
-  return otherSourceId(kind, line.id ?? 'unknown');
+  const messageId = typeof line.messageId === 'string' ? line.messageId : null;
+  if (REVISIONED_KINDS.has(kind) && messageId && Number.isFinite(line.revision)) return messageSourceId(messageId, line.revision, kind);
+  return `src:${IFACE}:${messageId ?? 'none'}:${kind}:${line.id ?? 'unknown'}`;
 }
 
 export function toRows(rel, line, ctx = {}) {
