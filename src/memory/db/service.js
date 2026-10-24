@@ -75,7 +75,7 @@ const silent = { info: noop, warn: noop, error: noop, debug: noop };
  * Besides the kinds her turns name, a read may name a row by its database id (her memory session's request does):
  * `source_id`, `description`, `place`, `intention`.
  */
-export function turnReadRows(db, reads, { guildId = null } = {}) {
+export function turnReadRows(db, reads, { guildId = null, authority = 'discord/global' } = {}) {
   const rows = new Map();
   const claimVersion = db.prepare(NEWEST_CLAIM_VERSION_SQL);
   const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
@@ -93,7 +93,8 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
     rows.set(key, { row_kind: rowKind, row_id: rowId, block: typeof read.block === 'string' ? read.block : null, ord: Number.isInteger(read.ord) ? read.ord : at, version_id: versionId, revision });
   };
   const hasRow = (table, id) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE id = ? LIMIT 1`).get(id) !== undefined;
-  const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
+  // A message id is native to one authority: the turn's (Discord's global snowflakes today), never matched alone.
+  const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
   for (const read of Array.isArray(reads) ? reads : []) {
     at += 1;
     const id = read?.id === undefined || read?.id === null ? '' : String(read.id);
@@ -111,7 +112,7 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
         else if (hasRow('episodes', id)) put('episodes', id, read);
         break;
       case 'source': {
-        const found = latestMessage.get(id);
+        const found = latestMessage.get(id, authority);
         if (found) put('sources', found.id, read);
         break;
       }
