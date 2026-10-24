@@ -2,11 +2,12 @@
 // items 1, 3, 8 override them). An interface adapter says what it saw as one plain object, versioned
 // (`OBSERVATION_VERSION`); the core resolves everything else itself, so a new interface is an adapter, not a schema.
 //
-//   { v, iface, authority, connection?, native: { kind, key, generation?, revision, subtype? },
+//   { v, iface, authority, connection?, native: { kind, key, generation?, revision, subtype? }, edited?,
 //     place: { authority, key, kind, conversation: 'dm' | 'group' | undefined, parent?, title?, partner? },
-//     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation? },
-//     occurredAt, observedAt, text, media?, relations?: [{ predicate, target }], capture?: { bundle?, role, reason?, coverage? },
-//     extra? }
+//     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation?, account_kind? },
+//     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
+//     capture?: { bundle?, role, reason?, coverage? }, extra? }
+//   (`native.revision` may be absent only with `edited: true`: observe takes it from the database.)
 //
 // observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
 // the account or participant (never a person: promotion is her session's `people:add`), writes the source with its
@@ -32,10 +33,27 @@
 // Schema v9: every account, place, participant and source an observation writes is projected into the graph in the same
 // transaction (graph.js#projectRow).
 //
-// Not wired to a live adapter yet: the Discord sync keeps its mappers. Logs carry codes only (`log.debug?.()`).
+// Stage 8a (the live observation path): the core maps an interface's normalised `message.received` event to an envelope
+// (observe-event.js#observationOf) and, behind `memoryDb.observeLive`, the pipeline sends it to the writer while the
+// JSON files are still the writer. Both must land on the same rows:
+//   - an account, place or source whose native tuple is already stored (authority, native key, generation; a source
+//     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
+//     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
+//   - a tuple the legacy importer writes (Discord, generation 1) is created under the importer's spelling
+//     (ids.js#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so the sync adopts the row when its file brings it
+//     (sync.js#writeRow) instead of writing a second one;
+//   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
+//     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
+//     the database, so it survives a restart;
+//   - `author.account_kind` (`user`, `bot`, `shared`, `self`) is the account's kind, updated on a stored account;
+//     `mentions` (native user ids) and `direct` are the line's columns;
+//   - a DM place observed with a partner (`place.partner`) names the partner's person when the partner's account is
+//     linked (a verified link), else none (the DM stays its own audience, fail-closed); a stored DM place without a
+//     partner gets it filled in.
+// Logs carry codes only (`log.debug?.()`).
 
 import { log as engineLog } from '../../log.js';
-import { canonicalKey, nodeId, resolveAlias } from './ids.js';
+import { LEGACY_AUTHORITY, canonicalKey, legacyAccountIdOf, legacyPlaceOf, legacySourceIdOf, nodeId, resolveAlias } from './ids.js';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.js';
 import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.js';
 import {
@@ -54,6 +72,10 @@ export const PLACE_KINDS = Object.freeze([
   'mailbox', 'local_console', 'guild',
 ]);
 const AUTHOR_KINDS = ['account', 'participant', 'self'];
+/** The kinds of an account (schema v7 `accounts.kind`). */
+export const ACCOUNT_KINDS = Object.freeze(['user', 'bot', 'shared', 'self']);
+/** Source subtypes that are the line's own kind (the legacy record's `seen` / `said`). */
+const LINE_KINDS = new Set(['seen', 'said']);
 const TOKENED = new Set(['thread_token', 'site_token', 'post_number']);
 
 const CAPTURE_DEFAULTS = Object.freeze({ ancestors: 2, before: 3, after: 3, pageLines: 60, watch: Object.freeze([15, 120, 1440]), watchSameAuthor: 20 });
@@ -140,7 +162,9 @@ export function checkEnvelope(envelope) {
   if (!authorityOk(e.iface, e.authority)) return C.BAD_AUTHORITY;
   if (e.connection !== undefined && e.connection !== null && !filled(e.connection)) return C.BAD_CONNECTION;
   const n = e.native;
-  if (!isObject(n) || !filled(n.kind) || !filled(n.key) || !optInt(n.generation, 1) || !Number.isInteger(n.revision) || n.revision < 0
+  if (e.edited !== undefined && e.edited !== null && typeof e.edited !== 'boolean') return C.BAD_NATIVE;
+  const revisionOk = isObject(n) && (Number.isInteger(n.revision) ? n.revision >= 0 : (e.edited === true && (n.revision === undefined || n.revision === null)));
+  if (!isObject(n) || !filled(n.kind) || !filled(n.key) || !optInt(n.generation, 1) || !revisionOk
     || (n.subtype !== undefined && n.subtype !== null && !filled(n.subtype))) return C.BAD_NATIVE;
   const p = e.place;
   if (!isObject(p) || !authorityOk(e.iface, p.authority) || !filled(p.key) || !PLACE_KINDS.includes(p.kind)) return C.BAD_PLACE;
@@ -152,6 +176,7 @@ export function checkEnvelope(envelope) {
   if (a.authority !== undefined && a.authority !== null && !authorityOk(e.iface, a.authority)) return C.BAD_AUTHOR;
   if (a.display !== undefined && a.display !== null && typeof a.display !== 'string') return C.BAD_AUTHOR;
   if (!optInt(a.generation, 1)) return C.BAD_AUTHOR;
+  if (a.account_kind !== undefined && a.account_kind !== null && (!ACCOUNT_KINDS.includes(a.account_kind) || a.kind === 'participant')) return C.BAD_AUTHOR;
   if (a.kind === 'account' && !filled(a.key)) return C.BAD_AUTHOR;
   if (a.kind === 'self' && a.key !== undefined && a.key !== null && !filled(a.key)) return C.BAD_AUTHOR;
   if (a.kind === 'participant') {
@@ -162,6 +187,8 @@ export function checkEnvelope(envelope) {
   if (!isoOk(e.occurredAt) || !isoOk(e.observedAt)) return C.BAD_TIME;
   if (typeof e.text !== 'string') return C.BAD_TEXT;
   if (e.media !== undefined && e.media !== null && !Array.isArray(e.media)) return C.BAD_MEDIA;
+  if (e.mentions !== undefined && e.mentions !== null && (!Array.isArray(e.mentions) || !e.mentions.every(filled))) return C.BAD_RELATION;
+  if (e.direct !== undefined && e.direct !== null && typeof e.direct !== 'boolean') return C.BAD_ENVELOPE;
   if (e.relations !== undefined && e.relations !== null) {
     if (!Array.isArray(e.relations)) return C.BAD_RELATION;
     for (const relation of e.relations) {
@@ -185,18 +212,29 @@ export function checkEnvelope(envelope) {
 
 // ---------- resolution ----------
 
+/** The table of a node kind whose rows carry their native tuple in columns (schema v7). */
+const TUPLE_TABLES = { account: 'accounts', place: 'places' };
+
 /**
  * The node a native key names: the exact generation when one is given, else the alias that holds at the event time
- * (ids.js#resolveAlias). Null when the key was never registered; an ambiguous alias is a refusal, never "the latest".
+ * (ids.js#resolveAlias). An account or place stored with that tuple in its columns but missing from `external_keys` is
+ * found there and registered. Null when the key was never stored; an ambiguous alias is a refusal, never "the latest".
  */
-function nodeOf(db, authority, kind, key, generation, atIso) {
+function nodeOf(db, authority, kind, key, generation, atIso, at) {
+  let found;
   if (Number.isInteger(generation)) {
-    return db.prepare('SELECT node_id FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? AND generation = ?')
+    found = db.prepare('SELECT node_id FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? AND generation = ?')
       .get(authority, kind, key, generation)?.node_id ?? null;
+  } else {
+    found = resolveAlias(db, authority, kind, key, atIso);
+    if (found !== null && typeof found === 'object') throw refusal(OBSERVE_CODES.AMBIGUOUS_ALIAS);
   }
-  const found = resolveAlias(db, authority, kind, key, atIso);
-  if (found !== null && typeof found === 'object') throw refusal(OBSERVE_CODES.AMBIGUOUS_ALIAS);
-  return found;
+  if (found || !TUPLE_TABLES[kind]) return found;
+  const gen = Number.isInteger(generation) ? generation : 1;
+  const row = db.prepare(`SELECT id FROM "${TUPLE_TABLES[kind]}" WHERE authority_id = ? AND native_key = ? AND generation = ?`).get(authority, key, gen);
+  if (!row) return null;
+  addKey(db, authority, kind, key, row.id, { generation: gen, at });
+  return row.id;
 }
 
 function insertRow(db, table, row) {
@@ -205,57 +243,94 @@ function insertRow(db, table, row) {
     .run(...cols.map((col) => (row[col] === undefined ? null : row[col])));
 }
 
-/** The account of a native key, created (with no person) when missing. Returns `{ id, person_id }`. */
-function accountOf(db, iface, { authority, key, display = null, generation = null, kind = 'user' }, atIso, at) {
-  const found = nodeOf(db, authority, 'account', String(key), generation, atIso);
+/**
+ * The person an account is linked to: its current verified link (`account_person_links`), else the compatibility
+ * column when the account says `verified`; null for an account nobody linked.
+ */
+function linkedPersonOf(db, accountId) {
+  const link = db.prepare("SELECT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified' AND valid_to_at IS NULL ORDER BY recorded_at DESC, id LIMIT 1").get(accountId);
+  if (link?.person_id) return link.person_id;
+  const row = db.prepare('SELECT person_id, link FROM accounts WHERE id = ?').get(accountId);
+  return row?.link === 'verified' && filled(row.person_id) ? row.person_id : null;
+}
+
+/**
+ * The account of a native key, created (with no person) when missing. `kind` (an envelope's `account_kind`) is the
+ * account's kind: a new account takes it (`user` when none is given), a stored one is updated to it. Returns
+ * `{ id, person_id }`.
+ */
+function accountOf(db, iface, { authority, key, display = null, generation = null, kind = null }, atIso, at) {
+  const found = nodeOf(db, authority, 'account', String(key), generation, atIso, at);
   if (found) {
-    const row = db.prepare('SELECT id, person_id FROM accounts WHERE id = ?').get(found);
-    if (row) return { id: row.id, person_id: row.person_id ?? null };
+    const row = db.prepare('SELECT id, person_id, kind FROM accounts WHERE id = ?').get(found);
+    if (row) {
+      if (filled(kind) && row.kind !== kind) {
+        db.prepare('UPDATE accounts SET kind = ? WHERE id = ?').run(kind, row.id);
+        projectRow(db, 'accounts', { id: row.id }, { at });
+      }
+      return { id: row.id, person_id: row.person_id ?? null };
+    }
   }
   const gen = Number.isInteger(generation) ? generation : 1;
-  const id = found ?? nodeId('account', [authority, String(key), gen]);
+  const legacy = found ? null : legacyAccountIdOf(authority, String(key), gen);
+  const id = found ?? legacy ?? nodeId('account', [authority, String(key), gen]);
   const row = deriveRow(db, 'accounts', {
     id, iface, native_id: String(key), person_id: null, link: null, names: filled(display) ? json([display]) : null,
-    authority_id: authority, native_key: String(key), generation: gen, kind, owner_file: null,
+    authority_id: authority, native_key: String(key), generation: gen, kind: filled(kind) ? kind : 'user', owner_file: null,
   }, { at });
   insertRow(db, 'accounts', row);
   addKey(db, authority, 'account', String(key), id, { generation: gen, at });
+  if (legacy) addKey(db, LEGACY_AUTHORITY, 'account', id, id, { at });
   projectRow(db, 'accounts', { id }, { at });
   return { id, person_id: null };
+}
+
+/** The partner account of a DM envelope (created when missing) and the person it is linked to. */
+function partnerOf(db, envelope, at) {
+  const p = envelope.place;
+  if (p.conversation !== 'dm' || !isObject(p.partner)) return null;
+  const account = accountOf(db, envelope.iface, { authority: p.partner.authority ?? envelope.authority, key: p.partner.key, display: p.partner.display ?? null }, envelope.occurredAt, at);
+  return { account: account.id, person: linkedPersonOf(db, account.id) };
 }
 
 /** The place of an envelope, created when missing; its conversation filled or checked. Returns its row. */
 function placeOf(db, envelope, at) {
   const p = envelope.place;
   const declared = p.conversation === 'dm' || p.conversation === 'group' ? p.conversation : null;
-  const id = nodeOf(db, p.authority, 'place', p.key, null, envelope.occurredAt);
-  const existing = id ? db.prepare('SELECT id, conversation, partner_person, name, seen_from_at, seen_to_at FROM places WHERE id = ?').get(id) : null;
+  const id = nodeOf(db, p.authority, 'place', p.key, null, envelope.occurredAt, at);
+  const existing = id ? db.prepare('SELECT id, conversation, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?').get(id) : null;
+  const parent = filled(p.parent) ? nodeOf(db, p.authority, 'place', p.parent, null, envelope.occurredAt, at) : null;
   if (existing) {
     if (declared && existing.conversation && existing.conversation !== declared) throw refusal(OBSERVE_CODES.CONVERSATION_CONFLICT);
     const conversation = existing.conversation ?? declared;
     const from = existing.seen_from_at && existing.seen_from_at <= envelope.occurredAt ? existing.seen_from_at : envelope.occurredAt;
     const to = existing.seen_to_at && existing.seen_to_at >= envelope.occurredAt ? existing.seen_to_at : envelope.occurredAt;
-    if (conversation !== existing.conversation || from !== existing.seen_from_at || to !== existing.seen_to_at) {
-      db.prepare('UPDATE places SET conversation = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ? WHERE id = ?').run(conversation, conversation, from, to, existing.id);
+    // A stored DM place without its partner gets it; a partner already stored is never replaced.
+    const partner = conversation === 'dm' && (!existing.partner_person || !existing.partner_account) ? partnerOf(db, envelope, at) : null;
+    const partnerPerson = existing.partner_person ?? partner?.person ?? null;
+    const partnerAccount = existing.partner_account ?? partner?.account ?? null;
+    const parentId = existing.parent_id ?? parent ?? null;
+    if (conversation !== existing.conversation || from !== existing.seen_from_at || to !== existing.seen_to_at
+      || partnerPerson !== (existing.partner_person ?? null) || partnerAccount !== (existing.partner_account ?? null) || parentId !== (existing.parent_id ?? null)) {
+      db.prepare('UPDATE places SET conversation = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ?, partner_person = ?, partner_account = ?, parent_id = ? WHERE id = ?')
+        .run(conversation, conversation, from, to, partnerPerson, partnerAccount, parentId, existing.id);
       projectRow(db, 'places', { id: existing.id }, { at });
     }
-    return { id: existing.id, conversation, partner_person: existing.partner_person ?? null };
+    return { id: existing.id, conversation, partner_person: partnerPerson };
   }
-  let partner = null;
-  if (declared === 'dm' && isObject(p.partner)) {
-    partner = accountOf(db, envelope.iface, { authority: p.partner.authority ?? envelope.authority, key: p.partner.key, display: p.partner.display ?? null }, envelope.occurredAt, at);
-  }
-  const parent = filled(p.parent) ? nodeOf(db, p.authority, 'place', p.parent, null, envelope.occurredAt) : null;
-  const placeId = nodeId('place', [p.authority, p.key, 1]);
+  const partner = declared === 'dm' ? partnerOf(db, envelope, at) : null;
+  const legacy = legacyPlaceOf(p.authority, p.key, 1);
+  const placeId = legacy?.id ?? nodeId('place', [p.authority, p.key, 1]);
   const row = deriveRow(db, 'places', {
-    id: placeId, iface: envelope.iface, kind: p.kind, native_id: p.key, parent_id: parent, scope_kind: declared, name: filled(p.title) ? p.title : null,
+    id: placeId, iface: envelope.iface, kind: p.kind, native_id: legacy ? legacy.native_id : p.key, parent_id: parent, scope_kind: declared, name: filled(p.title) ? p.title : null,
     authority_id: p.authority, native_key: p.key, generation: 1, conversation: declared,
-    partner_person: partner?.person_id ?? null, partner_account: partner?.id ?? null,
+    partner_person: partner?.person ?? null, partner_account: partner?.account ?? null,
     seen_from_at: envelope.occurredAt, seen_to_at: envelope.occurredAt,
     extra: filled(p.parent) && !parent ? json({ parent: p.parent }) : null, owner_file: null,
   }, { at });
   insertRow(db, 'places', row);
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
+  if (legacy) addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
   projectRow(db, 'places', { id: placeId }, { at });
   return { id: placeId, conversation: declared, partner_person: row.partner_person };
 }
@@ -270,7 +345,7 @@ function participantOf(db, envelope, place, at) {
   let scope = place.id;
   if (a.token_kind === 'site_token') scope = null;
   else if (filled(a.scope_place)) {
-    scope = nodeOf(db, envelope.place.authority, 'place', a.scope_place, null, envelope.occurredAt);
+    scope = nodeOf(db, envelope.place.authority, 'place', a.scope_place, null, envelope.occurredAt, at);
     if (!scope) throw refusal(OBSERVE_CODES.UNKNOWN_SCOPE_PLACE);
   }
   const token = TOKENED.has(a.token_kind) ? String(a.key) : null;
@@ -301,10 +376,10 @@ function authorOf(db, envelope, place, at) {
   const authority = a.authority ?? envelope.authority;
   const generation = Number.isInteger(a.generation) ? a.generation : null;
   if (a.kind === 'account') {
-    return { kind: 'account', account: accountOf(db, envelope.iface, { authority, key: a.key, display: a.display ?? null, generation }, envelope.occurredAt, at).id, participant: null };
+    return { kind: 'account', account: accountOf(db, envelope.iface, { authority, key: a.key, display: a.display ?? null, generation, kind: a.account_kind ?? null }, envelope.occurredAt, at).id, participant: null };
   }
   if (a.kind === 'participant') return { kind: 'participant', account: null, participant: participantOf(db, envelope, place, at) };
-  const account = filled(a.key) ? accountOf(db, envelope.iface, { authority, key: a.key, display: a.display ?? null, generation, kind: 'self' }, envelope.occurredAt, at).id : null;
+  const account = filled(a.key) ? accountOf(db, envelope.iface, { authority, key: a.key, display: a.display ?? null, generation, kind: a.account_kind ?? 'self' }, envelope.occurredAt, at).id : null;
   return { kind: 'self', account, participant: null };
 }
 
@@ -315,25 +390,82 @@ function audienceOfPlace(iface, place) {
   return { scope: { ...SCOPE_INTERNAL }, audience: AUD_INTERNAL };
 }
 
-/** The source id of an envelope's native tuple. */
+/** The `sources.kind` of an envelope: its subtype when that is a line kind (`seen`, `said`), else by its author. */
+const lineKindOf = (envelope) => (LINE_KINDS.has(envelope.native.subtype) ? envelope.native.subtype : envelope.author.kind === 'self' ? 'said' : 'seen');
+
+/**
+ * The source id of an envelope's native tuple (its revision given): the legacy importer's spelling when the tuple is
+ * one it writes (ids.js#legacySourceIdOf), else the hash of the tuple.
+ */
 export function observedSourceId(envelope) {
   const n = envelope.native;
-  return nodeId('source', [envelope.authority, n.kind, n.key, n.generation ?? 1, n.revision, n.subtype ?? null]);
+  return legacySourceIdOf({ authority: envelope.authority, kind: n.kind, key: n.key, generation: n.generation ?? 1, revision: n.revision, subtype: n.subtype ?? null })
+    ?? nodeId('source', [envelope.authority, n.kind, n.key, n.generation ?? 1, n.revision, n.subtype ?? null]);
 }
 
-function writeObservation(db, envelope, at, log) {
+/** The stored line of a native tuple (any id spelling): its columns, the kind included. */
+function storedLineOf(db, envelope, revision) {
+  const n = envelope.native;
+  return db.prepare(`SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ? AND revision = ? AND kind = ?
+    ORDER BY rowid LIMIT 1`).get(envelope.authority, n.kind, n.key, n.generation ?? 1, revision, lineKindOf(envelope))?.id ?? null;
+}
+
+/**
+ * The revision of an edit with none given (see the head of this file): `{ revision, sourceId }`, `sourceId` the stored
+ * line when its newest revision already holds this text.
+ */
+function editRevisionOf(db, envelope) {
+  const n = envelope.native;
+  const newest = db.prepare(`SELECT id, revision, text FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+    AND kind IN ('seen', 'said') AND revision IS NOT NULL AND retired_at IS NULL ORDER BY revision DESC, rowid LIMIT 1`).get(envelope.authority, n.kind, n.key, n.generation ?? 1);
+  if (!newest) return { revision: 2, sourceId: null };
+  if (newest.text === envelope.text) return { revision: newest.revision, sourceId: newest.id };
+  return { revision: newest.revision + 1, sourceId: null };
+}
+
+/** The source key of an envelope in `external_keys` (the native key, revision and subtype under its authority). */
+const sourceKeyOf = (n) => canonicalKey(n.kind, [n.key, n.revision, n.subtype ?? null]);
+
+/**
+ * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
+ * yet, gets the connection it came by when it has none, and the relations it lacks. Nothing else of it changes.
+ */
+function replayOf(db, envelope, sourceId, at) {
   const e = envelope;
+  ensureAuthority(db, e.authority, e.iface, e.authority.slice(e.iface.length + 1));
+  addKey(db, e.authority, 'source', sourceKeyOf(e.native), sourceId, { generation: e.native.generation ?? 1, at });
+  if (filled(e.connection) && db.prepare('SELECT iface FROM connections WHERE id = ?').get(e.connection)?.iface === e.iface) {
+    db.prepare('UPDATE sources SET connection_id = ? WHERE id = ? AND connection_id IS NULL').run(e.connection, sourceId);
+  }
+  let relations = 0;
+  for (const relation of e.relations ?? []) {
+    const target = relation.target.source !== undefined ? { source: relation.target.source } : { authority: e.authority, ...relation.target };
+    relations += addRelation(db, sourceId, relation.predicate, target, { at });
+  }
+  if (relations > 0) projectRow(db, 'sources', { id: sourceId }, { at });
+  return { ok: true, replayed: true, sourceId, written: 0 };
+}
+
+function writeObservation(db, given, at, log) {
+  // An edit with no revision: the database's count says which revision it is.
+  let e = given;
+  let known = null;
+  if (!Number.isInteger(given.native.revision)) {
+    const edit = editRevisionOf(db, given);
+    e = { ...given, native: { ...given.native, revision: edit.revision } };
+    known = edit.sourceId;
+  }
   const n = e.native;
-  const sourceId = observedSourceId(e);
-  if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return { ok: true, replayed: true, sourceId, written: 0 };
+  const sourceId = known ?? storedLineOf(db, e, n.revision) ?? observedSourceId(e);
+  if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at);
   ensureInterface(db, e.iface);
   const authorities = new Set([e.authority, e.place.authority, e.author.authority, e.place.partner?.authority, ...(e.relations ?? []).map((r) => r.target?.authority)]);
   for (const authority of authorities) if (filled(authority)) ensureAuthority(db, authority, e.iface, authority.slice(e.iface.length + 1));
   const connection = filled(e.connection) ? e.connection : null;
   if (connection) {
-    const known = db.prepare('SELECT iface FROM connections WHERE id = ?').get(connection);
-    if (known && known.iface !== e.iface) throw refusal(OBSERVE_CODES.BAD_CONNECTION);
-    if (!known) db.prepare('INSERT INTO connections (id, iface, authority_id) VALUES (?, ?, ?)').run(connection, e.iface, e.authority);
+    const stored = db.prepare('SELECT iface FROM connections WHERE id = ?').get(connection);
+    if (stored && stored.iface !== e.iface) throw refusal(OBSERVE_CODES.BAD_CONNECTION);
+    if (!stored) db.prepare('INSERT INTO connections (id, iface, authority_id) VALUES (?, ?, ?)').run(connection, e.iface, e.authority);
   }
   const place = placeOf(db, e, at);
   const author = authorOf(db, e, place, at);
@@ -342,17 +474,22 @@ function writeObservation(db, envelope, at, log) {
   if (n.subtype) extra.subtype = n.subtype;
   if (e.author.kind === 'participant' && filled(e.author.display)) extra.display = e.author.display;
   if (isObject(e.extra) && Object.keys(e.extra).length > 0) extra.extra = e.extra;
+  const kind = lineKindOf(e);
+  // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).
+  const reply = (e.relations ?? []).find((r) => r.predicate === 'replies_to' && r.target.source === undefined && r.target.kind === n.kind
+    && (r.target.authority === undefined || r.target.authority === e.authority));
   const row = deriveRow(db, 'sources', {
-    id: sourceId, kind: author.kind === 'self' ? 'said' : 'seen', iface: e.iface, native_id: n.key, native_kind: n.kind, generation: n.generation ?? 1,
+    id: sourceId, kind, iface: e.iface, native_id: n.key, native_kind: n.kind, generation: n.generation ?? 1,
     revision: n.revision, place_id: place.id, author_account: author.account, author_participant: author.participant, author_kind: author.kind,
-    reply_to: null, occurred_at: e.occurredAt, recorded_at: e.observedAt, seen_at: author.kind === 'self' ? null : e.observedAt, observed_at: e.observedAt,
-    text: e.text, media: Array.isArray(e.media) && e.media.length > 0 ? json(e.media) : null, mentions: null, direct: 0, connection_id: connection,
+    reply_to: reply ? String(reply.target.key) : null, occurred_at: e.occurredAt, recorded_at: e.observedAt, seen_at: author.kind === 'self' ? null : e.observedAt, observed_at: e.observedAt,
+    text: e.text, media: Array.isArray(e.media) && e.media.length > 0 ? json(e.media) : null, mentions: Array.isArray(e.mentions) ? json(e.mentions) : null,
+    direct: e.direct === true ? 1 : 0, connection_id: connection,
     authority_id: e.authority, ...scope, audience_id: audience, origin: 'observation',
     extra: Object.keys(extra).length > 0 ? json(extra) : null, owner_file: null, position: null,
   }, { at, log });
   if (row.audience_id !== audience) throw refusal(OBSERVE_CODES.AUDIENCE_CONFLICT);
   insertRow(db, 'sources', row);
-  addKey(db, e.authority, 'source', canonicalKey(n.kind, [n.key, n.revision, n.subtype ?? null]), sourceId, { generation: n.generation ?? 1, at });
+  addKey(db, e.authority, 'source', sourceKeyOf(n), sourceId, { generation: n.generation ?? 1, at });
   let relations = 0;
   for (const relation of e.relations ?? []) {
     const target = relation.target.source !== undefined ? { source: relation.target.source } : { authority: e.authority, ...relation.target };

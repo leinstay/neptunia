@@ -54,6 +54,12 @@
 //        Checks every file of the backup against its manifest, then restores the database to --db (which must not
 //        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
 //        checks the schema version and the row counts of the restored file.
+//   node tools/memory-db.mjs observe-check --db <file> --since <iso>
+//        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the lines (`seen`, `said`) that
+//        happened since --since and that only one side wrote: observed and never brought by a record file (an
+//        observation the sync did not adopt), and brought by a record file and never observed (no source key in
+//        `external_keys`). Lines of a DM are counted apart. Prints counts and at most five source ids per list, no
+//        text; exit 1 when a list outside DMs is not empty. Opens the database read-only.
 //
 // import, sync, reproject, rebuild, ledger-import, index-policy --apply and media-check --apply take the database's
 // writer lock and refuse while the bot (or another tool) holds it.
@@ -652,6 +658,39 @@ function runRestore(io, options) {
   return 0;
 }
 
+// ---------- observe-check ----------
+
+/** A DM line: its audience or its scope says so. */
+const DM_LINE_SQL = "(s.audience_id LIKE 'aud:dm:%' OR s.scope_kind = 'dm')";
+
+function runObserveCheck(io, options) {
+  need(options, 'db', 'since');
+  const sinceMs = Date.parse(options.since);
+  if (!Number.isFinite(sinceMs)) throw new Error('--since needs an ISO time');
+  const since = new Date(sinceMs).toISOString();
+  const handle = openMemoryDb(options.db, { readOnly: true });
+  try {
+    const { db } = handle;
+    const observedOnly = db.prepare(`SELECT s.id AS id, ${DM_LINE_SQL} AS dm FROM sources s
+      WHERE s.origin = 'observation' AND s.owner_file IS NULL AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL ORDER BY s.occurred_at, s.id`).all(since);
+    const syncOnly = db.prepare(`SELECT s.id AS id, ${DM_LINE_SQL} AS dm FROM sources s
+      WHERE s.owner_file GLOB '*record/*' AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM external_keys k WHERE k.object_kind = 'source' AND k.node_id = s.id) ORDER BY s.occurred_at, s.id`).all(since);
+    const report = (name, rows) => {
+      const outside = rows.filter((row) => !row.dm);
+      const dm = rows.length - outside.length;
+      io.out(`${name}: ${outside.length}${dm ? ` (and ${dm} DM lines)` : ''}`);
+      if (outside.length > 0) io.out(`  first: ${outside.slice(0, 5).map((row) => row.id).join(', ')}`);
+      return outside.length;
+    };
+    const differ = report('observed, not in the record', observedOnly) + report('in the record, not observed', syncOnly);
+    io.out(differ === 0 ? `observe-check ok since ${since}` : `observe-check FAILED: ${differ} lines differ since ${since}`);
+    return differ === 0 ? 0 : 1;
+  } finally {
+    handle.close();
+  }
+}
+
 // ---------- entry ----------
 
 const COMMANDS = {
@@ -667,6 +706,7 @@ const COMMANDS = {
   'ledger-import': runLedgerImport,
   'index-policy': runIndexPolicy,
   'media-check': runMediaCheck,
+  'observe-check': runObserveCheck,
   backup: runBackup,
   restore: runRestore,
 };

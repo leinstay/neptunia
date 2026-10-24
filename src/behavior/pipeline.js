@@ -51,6 +51,7 @@ import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPa
 import { isVideoVisionOn, slimMessage, appendRevision, toRecordLine, gifOpts, participationSettings, recordFollowing } from '../memory/index.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
+import { observationOf } from '../memory/db/observe-event.js';
 
 /** @typedef {import('./turn.js').TurnOutcome} TurnOutcome */
 /** @typedef {import('./turn.js').TriggerKind} TriggerKind */
@@ -239,6 +240,12 @@ function bufferedMediaIds(buffered) {
  *   optional: with features.record exactly true (read at each event), a deleted message of the
  *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (recordEdit). Absent: nothing is recorded here.
+ * @param {{ observe: (envelope: object) => (Promise<object>|null) }|null} [deps.memoryDb]  From
+ *   src/memory/db/service.js#createMemoryDb, optional: with `memoryDb.observeLive` exactly true (read
+ *   at each message), every message memory observes and every edit the record writes is also sent to
+ *   the memory database as an observation (src/memory/db/observe-event.js#observationOf), through
+ *   its writer; never awaited, never a message's failure (a refusal is logged with its code at
+ *   debug). Absent or off: nothing is sent.
  * @param {{ noteFact: Function, noteActivity: Function }|null} [deps.missed]  From
  *   src/behavior/missed.js#createMissed, optional: a failed address classifier
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
@@ -285,6 +292,7 @@ export function createMessageHandler({
   activity = null,
   record = null,
   missed = null,
+  memoryDb = null,
 }) {
   const { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } = discord;
 
@@ -294,6 +302,23 @@ export function createMessageHandler({
   // past the record's newest (src/memory/record.js#appendRevision) and the count continues there.
   const revisions = new Map();
   let revisionsDay = null;
+
+  /**
+   * The shadow write of the live observation path: `event` as an observation of the memory
+   * database (see deps.memoryDb), with `direct` as memory gets it. Fire-and-forget; codes only.
+   */
+  function observeShadow(event, direct = false) {
+    if (!memoryDb || typeof memoryDb.observe !== 'function' || hot.config?.memoryDb?.observeLive !== true) return;
+    try {
+      const envelope = observationOf(event, { selfId: client.user?.id ?? null, direct });
+      if (!envelope) return;
+      Promise.resolve(memoryDb.observe(envelope))
+        .then((done) => { if (done && done.ok === false) log.debug?.('events: observe refused', { code: done.code }); })
+        .catch((err) => log.warn('events: observe failed', { code: err?.code ?? null }));
+    } catch (err) {
+      log.warn('events: observe failed', { code: err?.code ?? null });
+    }
+  }
 
   /**
    * Whether the message `replyToId` (normalizeMessage's: a forward has none)
@@ -2317,10 +2342,14 @@ export function createMessageHandler({
     // the persona's speech), only the post is noted.
     if (normalized.self) {
       turns.notePost(normalized.channelId, normalized.ts);
-      const partnerId = channel.recipientId ?? channel.recipient?.id;
+      // The partner of the private chat, as the event's conversation names it.
+      const partnerId = event.conversation?.partnerId ?? null;
       if (!partnerId || String(partnerId) === String(selfId)) return;
       if (isLimitNotice(hot.prompts?.labels, normalized.content)) return;
-      if (memoryOn) memory.observe(guildId, normalized, { private: partnerId });
+      if (memoryOn) {
+        memory.observe(guildId, normalized, { private: partnerId });
+        observeShadow(event);
+      }
       return;
     }
 
@@ -2332,7 +2361,10 @@ export function createMessageHandler({
     }
 
     // Observed like a direct call; during a memory warmup run, never answered.
-    if (memoryOn) memory.observe(guildId, normalized, { direct: true, private: authorId });
+    if (memoryOn) {
+      memory.observe(guildId, normalized, { direct: true, private: authorId });
+      observeShadow(event, true);
+    }
     if (isWarmingUp()) return;
 
     // One attention: busy anywhere (or, with oneAtATime off, in this very
@@ -2564,7 +2596,10 @@ export function createMessageHandler({
         turns.notePost(normalized.channelId, normalized.ts);
         if (isLimitNotice(hot.prompts?.labels, normalized.content)) return 'ignored';
         noteFollowUpSend(normalized.channelId, normalized.ts);
-        if (memoryOn) memory.observe(guildId, normalized);
+        if (memoryOn) {
+          memory.observe(guildId, normalized);
+          observeShadow(event);
+        }
         return 'observed';
       }
 
@@ -2579,7 +2614,10 @@ export function createMessageHandler({
       // memory buffer like any other observed message.
       if (isWarmingUp()) {
         warmMediaCache(guildId, normalized);
-        if (memoryOn) memory.observe(guildId, normalized, { direct: false });
+        if (memoryOn) {
+          memory.observe(guildId, normalized, { direct: false });
+          observeShadow(event);
+        }
         return 'observed';
       }
 
@@ -2601,7 +2639,10 @@ export function createMessageHandler({
       // 9. Everyone else feeds memory; a message addressed to the persona is
       // marked `direct` so the analyzer can weigh it separately.
       const ownPrefill = warmMediaCache(guildId, normalized);
-      if (memoryOn) memory.observe(guildId, normalized, { direct: Boolean(kind) });
+      if (memoryOn) {
+        memory.observe(guildId, normalized, { direct: Boolean(kind) });
+        observeShadow(event, Boolean(kind));
+      }
 
       // 9b. A channel whose call waits to be answered elsewhere is still
       // talking: its settle wait moves (touchSettle).
@@ -2758,6 +2799,8 @@ export function createMessageHandler({
       revisions.set(normalized.id, revision);
       const slim = slimMessage(normalized, buffered?.direct === true);
       // A revision the record already holds (a tool appended one) moves the edit past it; later edits continue from there.
+      // The database counts its own revisions (observe.js): the edit goes there without one.
+      observeShadow(event, buffered?.direct === true);
       const landed = await appendRevision(record, guildId, (next) => toRecordLine(slim, { revision: next, now }), revision);
       if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
     } catch (err) {

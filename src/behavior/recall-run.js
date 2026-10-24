@@ -106,7 +106,7 @@ import { fitExcerpts, focusHits, indexedPlan, indexRows, lanePlan, lexicalKeep, 
 import { indexQuery, indexWords, nameAlternates, querySupport, recordIndexOf, searchRecordIndex } from '../memory/record-index.js';
 import { CODE } from '../skills/codes.js';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
-import { channelPlaceId, personId } from '../memory/db/ids.js';
+import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.js';
 import { issueContext } from '../memory/db/scope.js';
 
 /** The state.json fields of the daily recall counter. */
@@ -821,10 +821,15 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * What a db read needs of a turn: the read context, the pull rail for places, the names. `asker` is the user id of
    * the person who asked (the trigger's author): the context carries their person id, and the hidden-DM marker is set
    * only for a private chat of that person. `model` is the embedding model the question's vector comes from.
-   * The context is issued by the core (memoryDb.issueContext records it; without the service it is the pure object):
-   * it has an id, names the DM place of a private chat, and reads through `audience_id` when `memoryDb.audienceColumn`.
+   * The context is the turn's own (`memoryContext`: the one context the turn runner issued for the turn, taken when it
+   * is the context this read would be issued, a DM of the same partner or a group read) or, without one, issued by the
+   * core (memoryDb.issueContext records it; without the service it is the pure object): it has an id, names the DM
+   * place of a private chat, and reads through `audience_id` when `memoryDb.audienceColumn`.
+   * `allowPlace` reads the place's row of the database `db`: a DM place of the context's interface is the private
+   * chat's own (the context decides whose); a group place is shown only where the pull rail lets this turn read its
+   * channel; a place the database does not hold, or of another authority, is refused.
    */
-  function dbReader({ config, guild, guildId, channel, partner, asker = null }) {
+  function dbReader({ db = null, config, guild, guildId, channel, partner, asker = null, memoryContext = null }) {
     const { sourceOf, privateUserId } = scopeOf({ config, guild, channel, partner });
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile]));
@@ -832,25 +837,60 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       const name = stored.get(String(id))?.names?.[0];
       return (typeof name === 'string' && name ? name : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
     };
+    const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
     return {
       sourceOf,
       nameOf,
-      ctx: readContext({ config, channel, privateUserId, asker }),
+      ctx,
       model: roleModel(config, 'embedding', 'recall-query') ?? null,
       channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
-      // A private chat's own place is the partner's; a channel is shown only where the pull rail lets this turn read it.
-      allowPlace: (placeId) => String(placeId).startsWith('discord:dm:') || sourceOf(String(placeId).replace(/^discord:channel:/, '')) !== null,
+      allowPlace: placeRule(db, ctx, sourceOf),
     };
   }
 
-  /** The read context of a db read, issued for this turn (see dbReader). */
-  function readContext({ config, channel, privateUserId, asker }) {
+  /** The place rule of a db read (see dbReader): one lookup per place, kept for the read. */
+  function placeRule(db, ctx, sourceOf) {
+    const authority = nativeAuthorityOf(ctx?.iface ?? null);
+    const judged = new Map();
+    let statement = null;
+    return (placeId) => {
+      const id = String(placeId ?? '');
+      if (judged.has(id)) return judged.get(id);
+      let allowed = false;
+      try {
+        statement ??= db?.prepare('SELECT kind, native_id, native_key, conversation, authority_id FROM places WHERE id = ?') ?? null;
+        const row = id ? statement?.get(id) : null;
+        if (row && row.authority_id === authority) {
+          if (row.conversation === 'dm') allowed = true;
+          else if (row.conversation === 'group') {
+            // The channel of the place, as its native key names it (`<kind>:<channel id>`).
+            const native = typeof row.native_key === 'string' && row.native_key.includes(':') ? row.native_key.slice(row.native_key.indexOf(':') + 1) : row.native_id;
+            allowed = typeof native === 'string' && native !== '' && sourceOf(native) !== null;
+          }
+        }
+      } catch {
+        allowed = false;
+      }
+      judged.set(id, allowed);
+      return allowed;
+    };
+  }
+
+  /**
+   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read.
+   * The turn's context fits a private chat when it is a DM of the same partner, a server read when it is a group read.
+   */
+  function readContext({ config, channel, privateUserId, asker, memoryContext = null }) {
     const spec = privateUserId
       ? { kind: 'dm', person: personId(privateUserId) }
       : { kind: 'group', destination: channel?.id ? channelPlaceId(channel.id) : null };
-    const issued = typeof memoryDb?.issueContext === 'function'
-      ? memoryDb.issueContext(spec)
-      : issueContext({ ...spec, now, audienceColumn: config?.memoryDb?.audienceColumn === true });
+    const fits = memoryContext && typeof memoryContext === 'object' && typeof memoryContext.id === 'string'
+      && (privateUserId ? memoryContext.kind === 'dm' && memoryContext.person === spec.person : memoryContext.kind === 'group');
+    const issued = fits
+      ? memoryContext
+      : typeof memoryDb?.issueContext === 'function'
+        ? memoryDb.issueContext(spec)
+        : issueContext({ ...spec, now, audienceColumn: config?.memoryDb?.audienceColumn === true });
     return privateUserId || !asker ? issued : { ...issued, asker: [personId(String(asker))] };
   }
 
@@ -876,9 +916,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * the meaning search is on (a failure leaves words only, `degraded`), then src/memory/db/recall.js#search inside the
    * turn's read context, the turn's own chat left out. Resolves the same result a `quotes` run does, plus `hidden`.
    */
-  async function runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started }) {
+  async function runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started, memoryContext = null }) {
     const stats = emptyStats();
-    const reader = dbReader({ config, guild, guildId, channel, partner, asker: candidate?.authorId ?? null });
+    const reader = dbReader({ db, config, guild, guildId, channel, partner, asker: candidate?.authorId ?? null, memoryContext });
     if (server?.channelId && reader.sourceOf(server.channelId) === null) return { text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, outcome: { kind: 'not-visible' } };
     let vector = null;
     let degraded = false;
@@ -919,9 +959,10 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * anchor's place up or down in time order, inside the turn's read context (src/memory/db/recall.js#window). The
    * `anchor` is a message id (a `#N` the executor already resolved). Resolves `{ quotes, outcome, stopped }`; `outcome`
    * `not-configured` while the db backend is not on, `unknown-anchor` for an anchor the turn cannot open or that does
-   * not exist, `error` for a throw. Counts no daily run: it reads the local database only.
+   * not exist, `error` for a throw. Counts no daily run: it reads the local database only. `asker` is the user id of
+   * whoever asked and `memoryContext` the turn's execution context, as for `run`.
    */
-  async function window({ guild, guildId = guild?.id ?? null, channel, partner = null, selfName = '', history = [], anchor, move = 'up', messages = null, minutes = null, decorate = null } = {}) {
+  async function window({ guild, guildId = guild?.id ?? null, channel, partner = null, selfName = '', history = [], anchor, move = 'up', messages = null, minutes = null, decorate = null, asker = null, memoryContext = null } = {}) {
     const started = now();
     const stats = emptyStats();
     const out = (extra) => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, ...extra });
@@ -931,7 +972,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       const db = dbOf(config);
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
       if (!guild || (!channel?.guild && !partner)) return out({ outcome: { kind: 'not-configured' } });
-      const reader = dbReader({ config, guild, guildId, channel, partner });
+      const reader = dbReader({ db, config, guild, guildId, channel, partner, asker, memoryContext });
       const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
       const found = dbWindow(db, { ctx: reader.ctx, anchor, move, messages, minutes, settings: dbSettings(config), nameOf: reader.nameOf, selfName, channelNameOf: reader.channelNameOf, exclude: new Set(own), allowPlace: reader.allowPlace });
       if (found.unknown) return out({ outcome: { kind: 'unknown-anchor' } });
@@ -953,7 +994,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * (the run's trace record, or null with `features.recallTrace` off) gets
    * the clusters and the summary's answer as they are known.
    */
-  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null, quotes = false }) {
+  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null, quotes = false, memoryContext = null }) {
     const channelId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     let counted = false;
@@ -1379,9 +1420,11 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * failed or were cut by the time share, out of all planned).
    * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
    * window's messages once they are read and gives the ones rendered, so the persona's lines
-   * there show what she called like her chat lines do.
+   * there show what she called like her chat lines do. `memoryContext` (optional) is the turn's
+   * execution context (src/memory/db/service.js#issueContext): the database reads use it when it
+   * fits the read (see dbReader), so the reads of one turn carry one context id.
    */
-  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null, decorate = null, quotes = false } = {}) {
+  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null, decorate = null, quotes = false, memoryContext = null } = {}) {
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
@@ -1429,7 +1472,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       // The persona's own search over the memory database (recall.backend db): no Discord request, no summary.
       const db = quotes ? dbOf(config) : null;
       if (db) {
-        const found = await runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started });
+        const found = await runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started, memoryContext });
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
         if (op) await op.succeeded(opResult(found, 'ok'));
         return finish(found);
@@ -1468,6 +1511,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         trace,
         decorate,
         quotes,
+        memoryContext,
       });
       work.catch(() => {});
       const outcome = await Promise.race([work, deadline]);
@@ -1749,7 +1793,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         // One search of the database per lane: words, letters, meaning and people fused, the stretches built around the
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
-        const reader = dbReader({ config, guild, guildId, channel, partner });
+        const reader = dbReader({ db, config, guild, guildId, channel, partner, asker: candidate?.authorId ?? null, memoryContext });
         list.forEach((lane, i) => {
           const plan = plans[i];
           const forms = plan ? [...plan.phrases, ...plan.forms] : [];

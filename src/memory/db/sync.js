@@ -37,6 +37,8 @@
 // (graph.js#projectRow), and a full pass (no `filter`) finishes the projection the v9 migration left pending
 // (graph.js#projectPending, in slices) in its closing step. Lines are matched to a message by their native tuple (the
 // authority, the native kind and generation, and the native id), never by the native id alone.
+// Stage 8a: a row an observation wrote live (observe.js: a line, an account, a place under the importer's own id) is
+// adopted when its file brings it (`observedRow`): the file's row wins while the files are the writer.
 // From schema v10 every diary mirror a pass writes or retires derives its `publications` row in the same transaction
 // (publish.js#deriveMirrorPublication: inserted once by its key, then following the mirror); the other publications,
 // the grants and the focus tables are the database's own and no pass touches them.
@@ -124,12 +126,22 @@ function upsert(db, table, row, { ignore = false } = {}) {
 
 const keyOf = (table, row) => OWNED[table].map((col) => row[col]).join('\u0000');
 
-/** The existing row of a mapped row's primary key: { owner_file, retired_at } or undefined. */
+/** The existing row of a mapped row's primary key: { owner_file, retired_at, origin? } or undefined. */
 function existingOf(db, table, row) {
   const key = OWNED[table];
-  return prepared(db, `SELECT owner_file, retired_at FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`)
+  const origin = table === 'sources' ? ', origin' : '';
+  return prepared(db, `SELECT owner_file, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`)
     .get(...key.map((col) => bind(row[col])));
 }
+
+/**
+ * Whether a row the database wrote is an observation's (observe.js, stage 8a) that a file now brings: a line observed
+ * live (`origin` `observation`), or an account or a non-DM place (only an observation writes those without a file;
+ * the DM places the resolver creates are never in a file). While the files are the writer the file's row wins: the
+ * sync adopts it (its `owner_file`, every column the mapping names) instead of skipping it or writing a second row.
+ */
+const observedRow = (table, found, row) => (table === 'sources' ? found.origin === 'observation'
+  : table === 'accounts' || (table === 'places' && row.kind !== 'dm'));
 
 /**
  * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;
@@ -139,7 +151,7 @@ function existingOf(db, table, row) {
 function writeRow(db, table, row, opts) {
   const found = existingOf(db, table, row);
   if (found) {
-    if (found.owner_file === null || found.owner_file === undefined) return false;
+    if ((found.owner_file === null || found.owner_file === undefined) && !observedRow(table, found, row)) return false;
     const mine = row.owner_file;
     if (found.owner_file !== mine && found.retired_at === null) {
       const theirs = guildOf(found.owner_file);

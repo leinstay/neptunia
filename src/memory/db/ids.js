@@ -9,6 +9,7 @@
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
+// Stage 8a adds the legacy spelling of an observed tuple (`legacyAccountIdOf`, `legacyPlaceOf`, `legacySourceIdOf`).
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -166,6 +167,42 @@ export function externalTargetKey({ authority, kind, key, generation = 1, revisi
 }
 /** The key of a relation's target named by our own source id: `source:<id>`. */
 export const sourceTargetKey = (sourceId) => `source:${text(sourceId)}`;
+
+// ---------- the legacy spelling of an observed tuple (stage 8a) ----------
+// An observation of the interface the legacy importer reads (Discord) names the same accounts, places and lines the
+// JSON files do. While the files are the writer, both must land on ONE row: the observed node takes the importer's
+// spelling of its tuple, and the sync adopts the row when its file brings it (sync.js#writeRow). Only the tuples the
+// importer itself writes have a legacy spelling; anything else (a thread, a later generation, another interface) is a
+// new id (`nodeId`).
+
+const LEGACY_AUTHORITY_OF_IFACE = `${IFACE}/global`;
+/** Place kinds the importer writes under their own id spelling, and the spelling. */
+const LEGACY_PLACE_IDS = { guild: guildPlaceId, channel: channelPlaceId, dm: dmPlaceId };
+
+/** The importer's account id of a native key (`discord:<user id>`), or null when the tuple is not one it writes. */
+export function legacyAccountIdOf(authority, key, generation = 1) {
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1 || typeof key !== 'string' || key === '') return null;
+  return accountId(key);
+}
+
+/**
+ * The importer's place of a native place key (`channel:<id>`, `dm:<user id>`, `guild:<id>`): `{ id, native_id }` as
+ * the importer writes them (a DM place has no native id of its own), or null.
+ */
+export function legacyPlaceOf(authority, key, generation = 1) {
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1) return null;
+  const match = /^([a-z_]+):(.+)$/.exec(String(key ?? ''));
+  const spell = match ? LEGACY_PLACE_IDS[match[1]] : null;
+  if (!spell) return null;
+  return { id: spell(match[2]), native_id: match[1] === 'dm' ? null : match[2] };
+}
+
+/** The importer's source id of an observed line (`src:discord:<message id>:<revision>:<seen|said>`), or null. */
+export function legacySourceIdOf({ authority, kind, key, generation = 1, revision, subtype }) {
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(IFACE) || (generation ?? 1) !== 1) return null;
+  if (!Number.isInteger(revision) || revision < 1 || (subtype !== 'seen' && subtype !== 'said') || typeof key !== 'string' || key === '') return null;
+  return messageSourceId(key, revision, subtype);
+}
 
 /** A message source: `src:discord:<messageId>:<revision>:<kind>`. */
 export const messageSourceId = (messageId, revision, kind) => `src:${IFACE}:${text(messageId)}:${text(revision)}:${kind}`;

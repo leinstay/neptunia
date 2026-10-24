@@ -26,7 +26,7 @@ import {
   isWritableChannel,
   audienceOf,
 } from '../src/interface/discord.js';
-import { Embed, MessageReferenceType, OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
+import { ChannelType, Embed, MessageReferenceType, OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { collectPictures, collectVideos } from '../src/media/classify.js';
 import { audienceCovers } from '../src/behavior/elsewhere.js';
@@ -1537,7 +1537,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.equal(event.iface, 'discord');
   assert.equal(event.id, 'discord:message:m1');
   assert.equal(event.at, 1000);
-  assert.deepEqual(event.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: 'γενικά', topic: 'κουβέντα', category: 'κοινότητα' });
+  assert.deepEqual(event.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: 'γενικά', topic: 'κουβέντα', category: 'κοινότητα', chatType: 'channel' });
   assert.deepEqual(event.message.author, { id: 'u1', name: 'Alice', self: false, bot: false });
   assert.equal(event.message.content, 'hello @Bot #news');
   assert.equal(event.message.at, 1000);
@@ -1562,10 +1562,23 @@ test('normalizeOptions: the three normaliser settings from the config, absent on
 
 test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
-  assert.deepEqual(dm.conversation, { id: 'd1', kind: 'dm', guildId: null, name: null, topic: null, category: null });
+  assert.deepEqual(dm.conversation, { id: 'd1', kind: 'dm', guildId: null, name: null, topic: null, category: null, chatType: 'dm', partnerId: null });
   assert.deepEqual(validateEvent(dm), { ok: true });
   const thread = toEvent(guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true } , channelId: 't1' }), 'self');
   assert.equal(thread.conversation.kind, 'thread');
+});
+
+test('toEvent: a one-to-one chat names its partner, a group chat is group_dm, a thread names its channel', () => {
+  const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1', type: ChannelType.DM, recipientId: 'u1' }, channelId: 'd1' }), 'self');
+  assert.deepEqual([dm.conversation.chatType, dm.conversation.partnerId], ['dm', 'u1']);
+  assert.equal(toEvent(rawMessage({ guild: null, channel: { id: 'd2', recipient: { id: 'u2' } }, channelId: 'd2' }), 'self').conversation.partnerId, 'u2');
+  const group = toEvent(rawMessage({ guild: null, channel: { id: 'g9', name: 'φίλοι', type: ChannelType.GroupDM }, channelId: 'g9' }), 'self');
+  assert.deepEqual([group.conversation.kind, group.conversation.chatType, 'partnerId' in group.conversation], ['dm', 'group_dm', false]);
+  const thread = toEvent(guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true, parentId: 'c1' }, channelId: 't1' }), 'self');
+  assert.deepEqual([thread.conversation.chatType, thread.conversation.parentId], ['thread', 'c1']);
+  for (const event of [dm, group, thread]) assert.deepEqual(validateEvent(event), { ok: true });
+  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, chatType: 'room' } }), { ok: false, reason: 'conversation.chatType:unknown' });
+  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, partnerId: 7 } }), { ok: false, reason: 'conversation.partnerId:type' });
 });
 
 test('toEvent: replyToSelf is the cached answer only; a forward replies to nothing', () => {
@@ -1613,7 +1626,7 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
   const deleted = toEvent(partial, 'self', { deleted: true, now: () => 8000 });
   assert.deepEqual(validateEvent(deleted), { ok: true });
   assert.deepEqual([deleted.message, deleted.deleted, deleted.at, deleted.id], [{ id: 'm1' }, true, 8000, 'discord:delete:m1']);
-  assert.deepEqual(deleted.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: null, topic: null, category: null });
+  assert.deepEqual(deleted.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: null, topic: null, category: null, chatType: 'channel' });
 });
 
 test('reactionEvent: a reaction becomes a valid reaction.changed event, its parts kept for the reactor store', () => {
