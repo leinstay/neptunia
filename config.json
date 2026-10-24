@@ -131,6 +131,7 @@
     "read": false,
     "authority": "json",
     "turnReads": true,
+    "audienceColumn": false,
     "diaryMedia": false,
     "diaryAudioMaxBytes": 8388608,
     "session": {

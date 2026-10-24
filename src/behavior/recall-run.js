@@ -106,8 +106,8 @@ import { fitExcerpts, focusHits, indexedPlan, indexRows, lanePlan, lexicalKeep, 
 import { indexQuery, indexWords, nameAlternates, querySupport, recordIndexOf, searchRecordIndex } from '../memory/record-index.js';
 import { CODE } from '../skills/codes.js';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
-import { personId } from '../memory/db/ids.js';
-import { dmContext, groupContext } from '../memory/db/scope.js';
+import { channelPlaceId, personId } from '../memory/db/ids.js';
+import { issueContext } from '../memory/db/scope.js';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -821,6 +821,8 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * What a db read needs of a turn: the read context, the pull rail for places, the names. `asker` is the user id of
    * the person who asked (the trigger's author): the context carries their person id, and the hidden-DM marker is set
    * only for a private chat of that person. `model` is the embedding model the question's vector comes from.
+   * The context is issued by the core (memoryDb.issueContext records it; without the service it is the pure object):
+   * it has an id, names the DM place of a private chat, and reads through `audience_id` when `memoryDb.audienceColumn`.
    */
   function dbReader({ config, guild, guildId, channel, partner, asker = null }) {
     const { sourceOf, privateUserId } = scopeOf({ config, guild, channel, partner });
@@ -833,12 +835,23 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     return {
       sourceOf,
       nameOf,
-      ctx: privateUserId ? dmContext(personId(privateUserId)) : { ...groupContext(), ...(asker ? { asker: [personId(String(asker))] } : {}) },
+      ctx: readContext({ config, channel, privateUserId, asker }),
       model: roleModel(config, 'embedding', 'recall-query') ?? null,
       channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
       // A private chat's own place is the partner's; a channel is shown only where the pull rail lets this turn read it.
       allowPlace: (placeId) => String(placeId).startsWith('discord:dm:') || sourceOf(String(placeId).replace(/^discord:channel:/, '')) !== null,
     };
+  }
+
+  /** The read context of a db read, issued for this turn (see dbReader). */
+  function readContext({ config, channel, privateUserId, asker }) {
+    const spec = privateUserId
+      ? { kind: 'dm', person: personId(privateUserId) }
+      : { kind: 'group', destination: channel?.id ? channelPlaceId(channel.id) : null };
+    const issued = typeof memoryDb?.issueContext === 'function'
+      ? memoryDb.issueContext(spec)
+      : issueContext({ ...spec, now, audienceColumn: config?.memoryDb?.audienceColumn === true });
+    return privateUserId || !asker ? issued : { ...issued, asker: [personId(String(asker))] };
   }
 
   /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */

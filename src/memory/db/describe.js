@@ -23,11 +23,12 @@
 // reviewDescription(db, subject, field, { ctx }) -> { status, code?, draft?, final?, reason?, row? }
 //   subject: { kind: 'person' | 'place' | 'self', id, name? }
 //   ctx:     { llm, hot ({ config, prompts }), env, now, write, log, selfName, readCtx (a scope context, group by default) }
+//   With `memoryDb.audienceColumn` the review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { voiceLimits } from '../voice.js';
 import { shortHash } from './ids.js';
-import { dmScope, groupContext, groupScope, whereFor } from './scope.js';
+import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.js';
 import { CODES, DESCRIPTION_FIELDS, authorityOf, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
 import { block } from '../../behavior/prompt.js';
 
@@ -83,11 +84,17 @@ export function scopeOfContext(readCtx) {
   return readCtx?.kind === 'dm' ? dmScope(readCtx.person, readCtx.iface) : groupScope(readCtx?.iface);
 }
 
-/** The id of the description of `subject` and `field` in `scope`: the stored row's, else the scoped id of a new one. */
-export function descriptionIdFor(db, subject, field, scope) {
-  const found = db.prepare(
-    `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`,
-  ).get(subject.id, field, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+/**
+ * The id of the description of `subject` and `field` in `scope`: the stored row's, else the scoped id of a new one.
+ * `audienceColumn`: the stored row is found by its `audience_id` (the scope's audience), else by the triple.
+ */
+export function descriptionIdFor(db, subject, field, scope, { audienceColumn = false } = {}) {
+  const found = audienceColumn === true
+    ? db.prepare('SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND audience_id = ? AND retired_at IS NULL ORDER BY id LIMIT 1')
+      .get(subject.id, field, audienceOf(scope).audience_id)
+    : db.prepare(
+      `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`,
+    ).get(subject.id, field, scope.scope_kind, scope.scope_iface, scope.scope_dm);
   if (found) return found.id;
   const tag = scope.scope_kind === 'dm' ? `dm.${scope.scope_iface}.${scope.scope_dm}` : `${scope.scope_kind}.${scope.scope_iface}`;
   return `desc:${tag}:${subject.id}:${field}`;
@@ -106,10 +113,10 @@ function sourceLines(db, claimId, timezone, seen) {
 /** What the first call is given, from the database. */
 export function gatherReview(db, subject, field, { config, readCtx }) {
   const scopeColumns = scopeOfContext(readCtx);
-  const descriptionId = descriptionIdFor(db, subject, field, scopeColumns);
+  const descriptionId = descriptionIdFor(db, subject, field, scopeColumns, { audienceColumn: readCtx?.audienceColumn === true });
   const sourceIds = new Set();
   const timezone = config?.bot?.timezone ?? 'UTC';
-  const scope = whereFor(readCtx, 'c');
+  const scope = scopeWhere(readCtx, 'c');
   const claims = db.prepare(
     `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
       WHERE c.subject_kind = ? AND c.subject_id = ? AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`,
@@ -213,7 +220,9 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   const refused = reviewRefusal(config, ctx.env, prompts);
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
   if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind)) return { status: 'refused', code: 'bad_subject' };
-  const readCtx = ctx.readCtx ?? groupContext('discord');
+  // Read through `audience_id` when the live config says so (`memoryDb.audienceColumn`) or the caller's context does.
+  const given = ctx.readCtx ?? groupContext('discord');
+  const readCtx = config?.memoryDb?.audienceColumn === true ? { ...given, audienceColumn: true } : given;
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);
   const selfName = ctx.selfName ?? '';

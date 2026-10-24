@@ -26,6 +26,12 @@
 // longer holds (`retired_at`) and un-retires the ones that return, it never deletes. A forgotten member (`forgotten.json`,
 // `forgetting/*`) is never imported: the member's files and lines are skipped and rows already imported are retired.
 //
+// From schema v7 every row is written with its derived columns filled from the row itself (rows.js#deriveRow: the
+// audience, an account's or a place's authority and native key, a source's author kind), so a remap re-derives them
+// and never nulls them; the DM place a DM row names and its audience are created when missing; people, accounts and
+// places are registered in `external_keys`; an account with a person gets its `account_person_links` row once. Those
+// rows have no `owner_file`: no remap and no retirement of a file ever touches them.
+//
 // Order inside a pass: ordinary files first, then archive segments, participation and vectors (an archived item that is not in hot
 // memory becomes a retired `historical` claim, which needs the hot claims to be in), then request dumps (a dump's
 // step source is kept only when the turn's own answer row exists; otherwise the dump stays pending and is tried
@@ -43,6 +49,7 @@ import { classify } from './map/index.js';
 import { stepSourceBelongsTo } from './map/requests.js';
 import { personId } from './ids.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
+import { deriveRow, ensureLinks, ensureNodeKeys } from './rows.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -131,7 +138,10 @@ function writeRow(db, table, row, opts) {
       }
     }
   }
-  upsert(db, table, row, opts);
+  // The v7 derived columns (audience, authority, native key, ...) come from the row itself, so a remap re-derives them.
+  const derived = deriveRow(db, table, row, { at: opts.at });
+  upsert(db, table, derived, opts);
+  if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, derived, { at: opts.at });
   if (found && found.owner_file !== row.owner_file) {
     prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, row), row.owner_file);
   }
@@ -216,16 +226,18 @@ function writeChildren(db, mapping, owner, skippedParents) {
 }
 
 /** Writes a mapping (table -> rows) of the unit `owner`. */
-function writeMapping(db, mapping, owner, { ignoreClaims = false } = {}) {
+function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
   let count = 0;
   const skippedParents = new Set();
   for (const [table, rows] of Object.entries(mapping)) {
     if (CHILDREN[table] || !rows.length) continue;
     for (const row of rows) {
-      if (writeRow(db, table, row, { ignore: table === 'claims' && ignoreClaims })) count += 1;
+      if (writeRow(db, table, row, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
       else if (Object.values(CHILDREN).some(([parent]) => parent === table)) skippedParents.add(`${table}\u0000${row.id}`);
     }
   }
+  // An account with a person gets its link row once; an existing link is the database's and is never rewritten.
+  ensureLinks(db, mapping.accounts, { at });
   return count + writeChildren(db, mapping, owner, skippedParents);
 }
 
@@ -465,7 +477,7 @@ function syncWhole(db, unit, prior, at) {
     if (rows) {
       for (const row of rows.vectors ?? []) row.owner_file = unit.rel;
       linkVectors(db, rows.vectors ?? []);
-      const upserted = writeMapping(db, qualify(rows, unit), unit.full);
+      const upserted = writeMapping(db, qualify(rows, unit), unit.full, { at });
       upsertFile(db, unit, { size: unit.size, mtimeMs: unit.mtimeMs, sha1: null, offset: generation.gen, lines: generation.rows, at });
       return { upserted, retired: 0 };
     }
@@ -488,7 +500,7 @@ function syncWhole(db, unit, prior, at) {
     linkVectors(db, mapping.vectors ?? []);
   }
   qualify(mapping, unit);
-  const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive' });
+  const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive', at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   upsertFile(db, unit, { size: unit.size, mtimeMs: pending ? null : unit.mtimeMs, sha1: pending ? 'pending' : null, offset: generation?.gen ?? null, lines: generation?.rows ?? null, at });
   return { upserted, retired };
@@ -574,7 +586,7 @@ function syncLines(db, unit, prior, at, forgotten, errors) {
     for (const [position2] of bad) if (!known.has(position2)) errors.push('BAD_LINE');
     const stillBad = bad.filter(([position2]) => known.has(position2)).length;
     qualify(mapping, unit);
-    const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive' });
+    const upserted = writeMapping(db, mapping, unit.full, { ignoreClaims: unit.kind === 'archive', at });
     const retired = whole ? retireAbsent(db, unit.full, mapping, at) : 0;
     const keepHead = offset === start && !whole;
     upsertFile(db, unit, {

@@ -418,3 +418,29 @@ test('a logger without debug (the engine logger has none): passes succeed and wa
     await env.done();
   }
 });
+
+test('issued contexts: recorded while the database is open, a pure object when it is not; turn reads carry the context id', async () => {
+  const closed = setup({ features: { memoryDb: false } });
+  try {
+    const ctx = closed.service.issueContext({ kind: 'group' });
+    assert.match(ctx.id, /^ctx:/);
+    assert.deepEqual([ctx.kind, ctx.iface, ctx.mode, ctx.audienceColumn], ['group', 'discord', 'outward', undefined]);
+  } finally { await closed.done(); }
+  const env = setup({ manual: true, memoryDb: { audienceColumn: true } });
+  try {
+    const first = env.service.tick();
+    await env.flushQueue();
+    await first;
+    const ctx = env.service.issueContext({ kind: 'dm', person: `person:discord:${MEMBER}` });
+    assert.deepEqual([ctx.place, ctx.audienceColumn, ctx.issuedAt], [`discord:dm:${MEMBER}`, true, new Date(Date.UTC(2026, 9, 24, 12, 0, 0)).toISOString()]);
+    env.service.recordTurnReads({ turnId: 'turn-C', contextId: ctx.id, reads: [{ kind: 'claim', id: HOT_ITEM, block: 'people', ord: 1 }] });
+    await env.flushQueue();
+    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
+    try {
+      const row = { ...reader.db.prepare('SELECT * FROM execution_contexts WHERE id = ?').get(ctx.id) };
+      assert.deepEqual([row.mode, row.iface, row.destination_place_id, row.partner_person_id], ['outward', 'discord', `discord:dm:${MEMBER}`, `person:discord:${MEMBER}`]);
+      const read = { ...reader.db.prepare("SELECT context_id, reader_kind FROM turn_reads WHERE turn_id = 'turn-C'").get() };
+      assert.deepEqual(read, { context_id: ctx.id, reader_kind: 'turn' });
+    } finally { reader.close(); }
+  } finally { await env.done(); }
+});
