@@ -21,6 +21,7 @@ import { checkInvariants, concernsMember, isOpen } from './model.js';
 import { CODE } from '../skills/codes.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
+import { createUnitOutbox } from '../memory/db/unit-outbox.js';
 
 /** The closed intentions the file keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
@@ -28,7 +29,12 @@ export const KEEP_CLOSED = 50;
 /**
  * `memoryDb` (the memory database service) and `authorityOf`: under the authority `db` the list is loaded from the
  * database and `archived` reads it there (src/memory/db/readers/intentions.js), with no file fallback (a failed read
- * throws, with a code); under `json` (the default) the files are read as always. The writers are unchanged.
+ * throws, with a code); under `json` (the default) the files are read as always. Stage W2b, under `db`: no file is
+ * written; each change hands the whole list (`intentions.json`, op `value`) and the records it moved out
+ * (`intentions-archive.jsonl`, op `lines`) to an outbox (src/memory/db/unit-outbox.js) that sends them through the
+ * database's writer. The list in memory stays the truth meanwhile, so `add` and `update` answer at once; a write that
+ * failed waits in the outbox and goes again at the next change or `flush`, and `flush({ final: true })` (the
+ * shutdown) keeps what still fails in `memory-pending/`, replayed by the service at its next start.
  * @param {{ dataDir: string, guildId: string, now?: () => number, log?: object, memoryDb?: object|null,
  *   authorityOf?: (() => string)|null }} options
  */
@@ -38,6 +44,9 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
   const archiveFile = path.join(dir, 'intentions-archive.jsonl');
   const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'intentions' });
   const state = { list: load() };
+  const outbox = seam.authority() === 'db' && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'intentions' }) : null;
+  const owner = `guilds/${String(guildId)}/intentions.json`;
+  const archiveOwner = `guilds/${String(guildId)}/intentions-archive.jsonl`;
 
   /** intentions.json read once; a missing file is empty, a broken one copied aside first (from the database under `db`). */
   function load() {
@@ -84,6 +93,13 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
    * (the caller's change is then not made).
    */
   function persist(list, moved = []) {
+    if (seam.authority() === 'db') {
+      if (!outbox) throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+      if (moved.length > 0) outbox.lines(archiveOwner, JSON.parse(JSON.stringify(moved)));
+      outbox.value(owner, JSON.parse(JSON.stringify({ intentions: list })));
+      outbox.push();
+      return;
+    }
     if (moved.length > 0) {
       fs.mkdirSync(dir, { recursive: true });
       fs.appendFileSync(archiveFile, moved.map((record) => `${JSON.stringify(record)}\n`).join(''));
@@ -241,7 +257,18 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { files };
   }
 
-  return { list, get, add, update, archived, forgetUser, wipe, guildId: String(guildId), file, archiveFile };
+  /**
+   * Authority `db`: the writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is
+   * kept in `memory-pending/`. Nothing under `json`.
+   * @returns {Promise<{ waiting: number, pending: number }>}
+   */
+  async function flush({ final = false } = {}) {
+    if (!outbox) return { waiting: 0, pending: 0 };
+    const waiting = await outbox.flush();
+    return { waiting, pending: final ? outbox.keep() : 0 };
+  }
+
+  return { list, get, add, update, archived, forgetUser, wipe, flush, guildId: String(guildId), file, archiveFile };
 }
 
 /**
@@ -270,6 +297,17 @@ export function createIntentionStores({ dataDir, now = Date.now, log = defaultLo
     wipe(guildId) {
       const store = api.get(guildId);
       return store ? store.wipe() : { files: 0 };
+    },
+    /** Every store's `flush` (stage W2b: the writes waiting for the database; `final` at the shutdown). */
+    async flush(options = {}) {
+      let waiting = 0;
+      let pending = 0;
+      for (const store of stores.values()) {
+        const done = await store.flush(options);
+        waiting += done.waiting;
+        pending += done.pending;
+      }
+      return { waiting, pending };
     },
   };
   return api;

@@ -68,6 +68,15 @@
 //     resolves once the worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Under `db`
 //     each tick also finishes the graph projection and the stems a sync pass would have finished (one slice a tick).
 //     The opener's migration context is the live `diary.channelId`'s place (schema v12's data step).
+//   - stage W2b, under `db`: `writeUnit` op `value` takes every JSON unit of the store's cache and of the module
+//     stores, op `lines` the archive months and the module stores' JSONL units (unit-write.js); `reader.value` answers
+//     from the database alone (no disk check, a closed database throws `DB_CLOSED`). The durable intent of a write
+//     that failed (spec section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.js#keep) writes it to
+//     `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one owner are
+//     appended to what its file holds), and every open under `db` replays each pending file through the writer before
+//     anything reads the database (`readHandle()` and `reader` answer nothing meanwhile), deleting a file only after
+//     its write resolved. A replay that fails keeps its file, logs `memory db: pending replay failed` (an error, with
+//     the count) and fails the open (`PENDING_REPLAY`): the database is not used behind a write it has not taken.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -104,6 +113,10 @@ import { observe as observeEnvelope } from './observe.js';
 import { authorityRefusal } from './authority.js';
 import { graphPending } from './graph.js';
 import { stemsPending } from './stems.js';
+import { createHash } from 'node:crypto';
+
+/** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
+export const PENDING_DIR = 'memory-pending';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -350,6 +363,10 @@ export function createMemoryDb({
   const meta = (key) => handle.db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
   const setMeta = (key, value) => handle.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 
+  // Under `db`, while the pending unit writes of the last shutdown are replayed at an open, nothing reads the database.
+  let replaying = false;
+  const pendingDir = path.join(dataDir, PENDING_DIR);
+
   // Why the memory may not start under the fixed authority (authority.js), as of the last open attempt; null when it may.
   let refused = null;
   const refusedLogged = new Set();
@@ -385,6 +402,11 @@ export function createMemoryDb({
         handle = open(dbPath, { context: openContext() });
         importDone = meta(IMPORT_DONE) === '1';
       }
+      // Authority `db`: the writes a shutdown left pending go in before anything reads (synchronous without a worker).
+      if (pinnedAuthority === 'db') {
+        const replay = replayPending();
+        if (replay) await replay;
+      }
       // Authority `db`: no sync will ever run, and the database is the memory, so it counts as in step from the start.
       lastSyncAt = settings().authority === 'db' ? now() : null;
       dirty = true;
@@ -393,6 +415,9 @@ export function createMemoryDb({
       drainObservations();
       startupJobs();
     } catch (error) {
+      replaying = false;
+      // A replay that failed leaves the database opened: closed again (its lock released), tried at the next tick.
+      if (handle) { try { handle.close(); } catch { /* already closed */ } }
       handle = null;
       engine = null;
       if (started) await started.stop(0);
@@ -514,6 +539,98 @@ export function createMemoryDb({
     if (hot.config?.memoryDb?.diaryMedia !== true || engine?.dead) return;
     if (!diaryJob.hasWork()) return;
     diaryJob.run().catch((error) => log.warn('diary media: run failed', { code: codeOf(error) }));
+  }
+
+  /** The stamped unit write as `writeUnit` sends it (the fixed authority, the time, a diary's destination). */
+  function stampUnit(update) {
+    const stamped = { ...update, kind: 'unit', authority: pinnedAuthority, now: Number.isFinite(update?.now) ? update.now : now() };
+    // A diary post's destination is the deployment's diary channel (the live `diary.channelId`, as its place).
+    if ((stamped.op === 'diary' || (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(String(stamped.owner ?? '')))) && stamped.destination === undefined) {
+      stamped.destination = openContext().diaryPlaceId;
+    }
+    return stamped;
+  }
+
+  const pendingFileOf = (owner) => path.join(pendingDir, `${createHash('sha1').update(String(owner)).digest('hex')}.json`);
+
+  /**
+   * Keeps a unit write that could not be made (unit-outbox.js#keep, at shutdown) in `memory-pending/`, replayed at the
+   * next open under `db`. A value replaces the one kept for its owner; lines are appended to the kept ones. Throws on an
+   * I/O failure (the caller logs it). Returns the file's path.
+   * @param {{ owner: string, op: 'value'|'lines', value?: any, lines?: object[] }} update
+   */
+  function keepPending(update) {
+    const owner = String(update?.owner ?? '');
+    if (!owner || (update.op !== 'value' && update.op !== 'lines')) throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
+    const file = pendingFileOf(owner);
+    let lines = update.op === 'lines' ? (Array.isArray(update.lines) ? update.lines : []) : null;
+    if (lines) {
+      try {
+        const held = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (held?.owner === owner && held.op === 'lines' && Array.isArray(held.lines)) lines = [...held.lines, ...lines];
+      } catch { /* nothing kept yet */ }
+    }
+    const kept = { owner, op: update.op, ...(lines ? { lines } : { value: update.value ?? null }), at: new Date(now()).toISOString() };
+    fs.mkdirSync(pendingDir, { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(kept));
+    fs.renameSync(tmp, file);
+    return file;
+  }
+
+  /** The pending files: [{ file, update }] (a file that does not parse is skipped and counted). */
+  function pendingWrites() {
+    let names = [];
+    try { names = fs.readdirSync(pendingDir).filter((name) => /^[0-9a-f]{40}\.json$/.test(name)).sort(); } catch { return []; }
+    const out = [];
+    let bad = 0;
+    for (const name of names) {
+      const file = path.join(pendingDir, name);
+      try {
+        const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (typeof kept?.owner !== 'string' || (kept.op !== 'value' && kept.op !== 'lines')) { bad += 1; continue; }
+        out.push({ file, update: kept.op === 'value' ? { op: 'value', owner: kept.owner, value: kept.value } : { op: 'lines', mode: 'db', owner: kept.owner, lines: Array.isArray(kept.lines) ? kept.lines : [] } });
+      } catch {
+        bad += 1;
+      }
+    }
+    if (bad > 0) log.error('memory db: pending unreadable', { count: bad });
+    return out;
+  }
+
+  /**
+   * Replays the pending writes through the writer (open, under `db`), each file deleted once its write resolved.
+   * Without a worker it runs synchronously and returns nothing; with one it returns the promise. Throws (rejects) with
+   * `PENDING_REPLAY` when a write failed: its file stays.
+   */
+  function replayPending() {
+    const writes = pendingWrites();
+    if (writes.length === 0) return null;
+    replaying = true;
+    let failed = 0;
+    let code = null;
+    const done = (file) => { try { fs.rmSync(file, { force: true }); } catch { /* removed at the next replay */ } };
+    const fail = (error) => { failed += 1; code = codeOf(error); };
+    const finish = () => {
+      replaying = false;
+      if (failed > 0) {
+        log.error('memory db: pending replay failed', { count: failed, code });
+        throw Object.assign(new Error('memory db: pending writes not replayed'), { code: 'PENDING_REPLAY' });
+      }
+      log.info('memory db: pending replayed', { count: writes.length });
+    };
+    if (!engine) {
+      for (const { file, update } of writes) {
+        try { applyMemoryWrite(handle, stampUnit(update)); done(file); } catch (error) { fail(error); }
+      }
+      return finish();
+    }
+    return (async () => {
+      for (const { file, update } of writes) {
+        try { await engine.call('memoryWrite', { update: stampUnit(update) }); done(file); } catch (error) { fail(error); }
+      }
+      finish();
+    })();
   }
 
   /** One write on the writer connection: a message to the worker, or this thread's own connection. */
@@ -652,9 +769,7 @@ export function createMemoryDb({
     // A shadow of a record line (authority `json`) belongs to the live observation path: nothing without its switch.
     if (update?.op === 'lines' && update?.mode === 'shadow' && hot.config?.memoryDb?.observeLive !== true) return null;
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    const stamped = { ...update, kind: 'unit', authority: pinnedAuthority, now: Number.isFinite(update?.now) ? update.now : now() };
-    // A diary post's destination is the deployment's diary channel (the live `diary.channelId`, as its place).
-    if (stamped.op === 'diary' && stamped.destination === undefined) stamped.destination = openContext().diaryPlaceId;
+    const stamped = stampUnit(update);
     if (engine) return engine.call('memoryWrite', { update: stamped });
     return applyMemoryWrite(handle, stamped);
   }
@@ -787,7 +902,7 @@ export function createMemoryDb({
   }
 
   /** The read-only connection (`{ db }`) while the switch is on and the database is open, else null. */
-  const readHandle = () => (on() && handle !== null && !closed ? handle : null);
+  const readHandle = () => (on() && handle !== null && !closed && !replaying ? handle : null);
 
   /** The tick: follows the switch, runs a pass when one is due. Safe to call at any rate. */
   async function tick() {
@@ -823,7 +938,7 @@ export function createMemoryDb({
     defer(() => { tick().catch((error) => log.warn('memory db: tick failed', { code: codeOf(error) })); });
   }
 
-  const readActive = () => on() && settings().read && handle !== null && importDone && lastSyncAt !== null;
+  const readActive = () => on() && settings().read && handle !== null && importDone && lastSyncAt !== null && !replaying;
   const count = (key) => { reads[key] += 1; return null; };
 
   /**
@@ -835,6 +950,20 @@ export function createMemoryDb({
   /** What the store reads through (store.js `memoryRead`). */
   const reader = {
     value(file) {
+      // Authority `db`: the database alone answers (stage W2b); a unit it does not hold is absent, never the disk's.
+      if (pinnedAuthority === 'db') {
+        if (!on() || handle === null || replaying || closed) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
+        try {
+          const found = exportOne(handle, root.relative(file));
+          if (found.found) reads.db += 1;
+          else count(found.reason in reads ? found.reason : 'missing');
+          return found;
+        } catch (error) {
+          reads.errors += 1;
+          log.warn('memory db: read failed', { code: codeOf(error) });
+          throw error;
+        }
+      }
       if (!readActive()) return null;
       try {
         const found = exportOne(handle, root.relative(file), { dataDir });
@@ -1002,5 +1131,5 @@ export function createMemoryDb({
     closed = true;
   }
 
-  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, recordWake, issueContext, observe, focusPeople, status, close };
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close };
 }

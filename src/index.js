@@ -395,7 +395,9 @@ const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal
 const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
 // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
 // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
-const intentions = createIntentionService({ stores: createIntentionStores({ dataDir, log, memoryDb }), hot, tasks: errands, journal, getGuildId, log });
+// Under memoryDb.authority `db` both stores send their writes to the database; `flush` is their retry and shutdown step.
+const intentionStores = createIntentionStores({ dataDir, log, memoryDb });
+const intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId, log });
 const turns = createTurnRunner({
   hot,
   store,
@@ -849,6 +851,8 @@ client.once(Events.ClientReady, async () => {
   // flush, the spontaneous, diary, memory and portrait ticks, the hourly affinity decay.
   every(30_000, () => store.flush(), 'store.flush');
   every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
+  // Under memoryDb.authority `db`: the intention and task writes that failed go again (nothing to do under json).
+  every(30_000, () => Promise.all([intentionStores.flush(), taskStores.flush()]), 'module stores flush');
   // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the scheduler's clock becomes a
   // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
   every(30_000, () => spontaneous.tick(), 'spontaneous.tick');
@@ -894,6 +898,10 @@ client.once(Events.ClientReady, async () => {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
+
+  // Under memoryDb.authority `db` the database is the memory: opened first (its pending writes of the last
+  // shutdown replayed) and awaited, before anything below reads it.
+  if (memoryDb.authority() === 'db') await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
 
   // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
   // reconciliation below reads a journal that hides every member being forgotten.
@@ -1121,7 +1129,8 @@ async function shutdown(signal) {
   // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
   const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();
-  await store.flushSettled({ holdMaxMs });
+  // `final`: under memoryDb.authority `db`, the unit writes that still fail are kept in data/memory-pending/.
+  await store.flushSettled({ holdMaxMs, final: true });
   await metrics.save({ force: true });
   await usage.save({ force: true });
   // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
@@ -1132,6 +1141,9 @@ async function shutdown(signal) {
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  // Under memoryDb.authority `db`: the intention and task writes still waiting, then those still failing kept pending.
+  await intentionStores.flush({ final: true }).catch((err) => log.warn('index: intentions flush failed', { error: err }));
+  await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
   // The last sync after the last flush of every store, then the database closes and releases its lock.
   await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
   await client.destroy();

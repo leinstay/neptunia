@@ -121,8 +121,10 @@ import { journalDrops, requestMentions } from './journal.js';
 import { redactUser } from './mentions.js';
 import { normalizeAvatar } from './avatars.js';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.js';
-import { createReadSeam, ledgerEntries, unitValue } from './db/readers/common.js';
+import { createReadSeam, hiddenIds, ledgerEntries, unitValue } from './db/readers/common.js';
 import { idsUnderDir } from './db/export.js';
+import { classify } from './db/map/index.js';
+import { createUnitOutbox } from './db/unit-outbox.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -367,8 +369,10 @@ function findInvalidJsonFiles(dataDir, { only = null } = {}) {
 
 /**
  * The JSON files still written while the memory database is the authority (spec 2026-10-24-memory-authority,
- * sections 0 and 6 item 8): the process's operational state, the request dumps and tool lists, the backfill folder,
- * the vault and the snapshots, the GIF library and the vision cache, the participation file. Paths relative to the
+ * sections 0 and 6 item 8, as stage W2b lists them): the process's operational state, the request dumps and tool
+ * lists, the backfill folder, the vault and the snapshots, the GIF library and the vision cache, the participation
+ * file, and the unit writes a shutdown could not make (`memory-pending/`). The voice queue and the buffer are not
+ * among them: under `db` they are units of the database like the rest of the store's cache. Paths relative to the
  * data directory. Under authority `db` `/nep resume` checks only these (`validate`); the memory files are not written
  * and not read then.
  * @param {string} rel
@@ -378,9 +382,11 @@ export function operationalJsonPath(rel) {
   const name = String(rel).replace(/\\/g, '/');
   if (/^(?:state|usage|metrics)\.json$/.test(name)) return true;
   if (/^(?:vault|snapshots)\//.test(name)) return true;
+  // The unit writes a shutdown could not make (stage W2b, src/memory/db/service.js#keepPending).
+  if (/^memory-pending\//.test(name)) return true;
   const inGuild = /^guilds\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inGuild) return false;
-  return /^(?:state|usage|metrics|inner|missed|voice|participation|gifs|media)\.json$/.test(inGuild)
+  return /^(?:state|usage|metrics|inner|missed|participation|gifs|media)\.json$/.test(inGuild)
     || /^journal\/requests\//.test(inGuild)
     || /^backfill\//.test(inGuild)
     || inGuild === 'record/backfill.json';
@@ -1136,17 +1142,27 @@ function normalizeChannel(channel) {
  *   a flush that wrote files (the database sync follows it); a throw there is swallowed.
  *   `memoryDb` (the memory database service, optional): under its authority `db` a directory's ids come from the
  *   database only (no `readdir`; a closed database or a failed read throws, with a code) and `validate` checks only
- *   the operational JSON files (`operationalJsonPath`); under `json` both are as before. Stage W2a, under `db`:
- *   `diary.json` is never written: its first load is the database's (`unitValue`, no file fallback), each post of
- *   `appendDiaryPost` goes to the database (`memoryDb.writeUnit`, op `diary`: the diary row and its mirror's `sent`
- *   publication) and a flush of the entry writes nothing; `participation.json` is still written (an operational file)
- *   and each flush of it also sends the whole value to the database (op `value`: its episodes), a failed send leaving
- *   the entry dirty for the next flush. A failed diary write is logged with its code (`store: diary write failed`).
+ *   the operational JSON files (`operationalJsonPath`); under `json` both are as before.
+ *   Stages W2a and W2b, under `db`, for every cache entry: a memory unit the sync maps (users, private layers,
+ *   channels, the guild, lore, recent, versions, the diary, the voice queue, the buffer) is never read from nor
+ *   written to its file.
+ *   Its first load is the database's value (`unitValue`; a unit the database does not hold is new and starts as a
+ *   missing file does; a closed database throws, with a code), whether it exists is the database's `files` row
+ *   (`known`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.js, op `value`): the entry
+ *   stays the truth and counts as written only when the outbox no longer holds it (the write resolved); a failed write
+ *   waits there and goes again at the next flush. The operational files (`operationalJsonPath`: state, gifs, media,
+ *   participation, ...) are read and written as files; `media.json` and `participation.json` also send their value.
+ *   A diary post is sent at once (`appendDiaryPost` flushes the diary: its row and its mirror's `sent` publication). `flushSettled({ final: true })` (the
+ *   shutdown) waits for the outbox and keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed
+ *   by the service at its next open); `dropCaches` keeps the entries the outbox holds. The forget markers are the
+ *   database's (`hiddenIds`); `resumeForgets` and `applyLedger` do nothing (no forget path under `db`).
  */
 export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null, memoryRead = null, afterFlush = null, memoryDb = null }) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'store' });
   const entries = new Map(); // file path -> { value, dirty }
+  // Stage W2b: under authority `db` the units a flush hands over, until their write resolved.
+  const outbox = typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'store' }) : null;
 
   // ---- The archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
   //
@@ -1479,11 +1495,49 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   function entry(file, fallback) {
     let item = entries.get(file);
     if (!item) {
-      const fromDb = memoryRead?.value(file) ?? null;
-      item = { value: fromDb?.found === true ? fromDb.value : readJson(file, fallback()), dirty: false };
+      const place = dbPlace(file);
+      let value;
+      if (place && !place.file) {
+        // Authority `db`: the database's value, never the file's; a unit it does not hold is new.
+        const db = seam.db();
+        const found = seam.run(() => unitValue(db, place.rel));
+        value = found.found ? found.value : fallback();
+      } else if (place) {
+        value = readJson(file, fallback());
+      } else {
+        const fromDb = memoryRead?.value(file) ?? null;
+        value = fromDb?.found === true ? fromDb.value : readJson(file, fallback());
+      }
+      item = { value, dirty: false };
       entries.set(file, item);
     }
     return item;
+  }
+
+  /**
+   * Where a cache entry lands under authority `db` (stage W2b), null under `json`: `{ rel, file, send }`. An
+   * operational file (`operationalJsonPath`) or a path the sync does not map as a JSON memory unit is written as a
+   * file (`file`), media.json and participation.json also sent (`send`, their memory rows); every other unit is sent
+   * only.
+   */
+  function dbPlace(file) {
+    if (seam.authority() !== 'db') return null;
+    const rel = root.relative(file);
+    if (operationalJsonPath(rel)) return { rel, file: true, send: /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel) };
+    const info = classify(rel);
+    if (!info || info.skipped || info.format !== 'json' || info.guildId === undefined) return { rel, file: true, send: false };
+    return { rel, file: false, send: true };
+  }
+
+  /** Whether a file has a value, cached or stored (under `db` a memory unit's `files` row, never the disk). */
+  function known(file) {
+    if (entries.has(file)) return true;
+    const place = dbPlace(file);
+    if (place && !place.file) {
+      const db = seam.db();
+      return seam.run(() => db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(place.rel) !== undefined);
+    }
+    return fs.existsSync(file);
   }
 
   /** Every id found under `dir`'s `.json` files, on disk or only cached (no side effects on the cache). */
@@ -1518,16 +1572,16 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   function flushEntry(file, item, { force = false } = {}) {
     if (!item.dirty) return 'clean';
     if (!force && item.holdFlush > 0) return 'held';
-    const dbUnit = seam.authority() === 'db' ? dbWrittenUnit(file) : null;
-    // Authority `db`: the diary is the database's (appendDiaryPost wrote the post there); its file is not written.
-    if (dbUnit === 'diary') {
-      item.dirty = false;
+    const place = dbPlace(file);
+    // Authority `db`: a memory unit goes to the database (the outbox), never to its file.
+    if (place && !place.file) {
+      sendUnit(place.rel, item);
       return 'written';
     }
     try {
       writeJsonAtomic(file, item.value);
       item.dirty = false;
-      if (dbUnit === 'participation') sendParticipation(file, item);
+      if (place?.send) sendUnit(place.rel, item);
       return 'written';
     } catch (err) {
       log.error('store: flush failed', { file, error: err });
@@ -1535,24 +1589,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     }
   }
 
-  /** Which store file under authority `db` the database writes (stage W2a): 'diary', 'participation' or null. */
-  function dbWrittenUnit(file) {
-    const name = path.basename(file);
-    if (name !== 'diary.json' && name !== 'participation.json') return null;
-    if (!/^guilds\/[^/]+\/(?:diary|participation)\.json$/.test(root.relative(file))) return null;
-    return name === 'diary.json' ? 'diary' : 'participation';
-  }
-
-  /** Authority `db`: the participation file just written, sent whole to the database; a failure leaves it dirty. */
-  function sendParticipation(file, item) {
-    if (typeof memoryDb?.writeUnit !== 'function') return;
-    const value = structuredClone(item.value);
-    Promise.resolve()
-      .then(() => memoryDb.writeUnit({ op: 'value', owner: root.relative(file), value }))
-      .catch((error) => {
-        item.dirty = true;
-        log.warn('store: participation write failed', { code: error?.code ?? null });
-      });
+  /**
+   * Authority `db`: the entry's whole value handed to the outbox (as its file would hold it: a JSON copy), which keeps
+   * it until the write resolved and sends it again after a failure. Without a writer the entry stays dirty.
+   */
+  function sendUnit(rel, item) {
+    if (!outbox) {
+      log.warn('store: unit write failed', { code: 'DB_CLOSED' });
+      return;
+    }
+    outbox.value(rel, JSON.parse(JSON.stringify(item.value)));
+    item.dirty = false;
   }
 
   /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
@@ -1562,6 +1609,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const outcome = flushEntry(file, item, { force });
       if (outcome !== 'clean') counts[outcome] += 1;
     }
+    // Authority `db`: what the flush handed over, and what failed before, goes to the database now (not awaited).
+    if (outbox && outbox.size() > 0) outbox.push();
     if (counts.written > 0 && afterFlush) {
       try { afterFlush(counts); } catch { /* the hook never fails a flush */ }
     }
@@ -1757,7 +1806,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   /** Whether a channel has an entry, cached or on disk (no side effects on the cache). */
   function hasChannel(guildId, channelId) {
     const file = channelFile(guildId, channelId);
-    return entries.has(file) || fs.existsSync(file);
+    return known(file);
   }
 
   /** The cache entry of a guild's GIF library, created empty when missing, normalised in place of
@@ -1771,7 +1820,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   /** Whether a member has a private file, cached or on disk (no side effects on the cache). */
   function hasPrivate(guildId, userId) {
     const file = privateFile(guildId, userId);
-    return entries.has(file) || fs.existsSync(file);
+    return known(file);
   }
 
   /** The cache entry a voice text about one member lands in: their public profile (`layer`
@@ -1821,7 +1870,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * created. Returns how many items were removed. */
   function forgetQueued(guildId, userId, opts) {
     const file = voiceFile(guildId);
-    if (!entries.has(file) && !fs.existsSync(file)) return 0;
+    if (!known(file)) return 0;
     const item = voiceEntry(guildId);
     const { queue, removed } = forgetMember(item.value, userId, opts);
     if (removed === 0) return 0;
@@ -1878,7 +1927,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * nothing, no file created. Returns how many messages were removed. */
   function forgetParticipation(guildId, userId) {
     const file = participationFile(guildId);
-    if (!entries.has(file) && !fs.existsSync(file)) return 0;
+    if (!known(file)) return 0;
     const item = participationEntry(guildId);
     const before = item.value.episodes.length;
     const { value, removed } = purgeParticipationFor(item.value, userId);
@@ -1893,14 +1942,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * a diary (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
    * the disk copy is only rewritten by the next change. */
   function diaryEntry(guildId) {
-    const file = diaryFile(guildId);
-    // Authority `db`: the diary's first load is the database's, never the file (a closed database throws, with a code).
-    if (!entries.has(file) && seam.authority() === 'db') {
-      const db = seam.db();
-      const found = seam.run(() => unitValue(db, root.relative(file)));
-      entries.set(file, { value: found.found ? found.value : emptyDiary(), dirty: false });
-    }
-    const item = entry(file, emptyDiary);
+    const item = entry(diaryFile(guildId), emptyDiary);
     if (!isPlainObject(item.value) || !Array.isArray(item.value.posts)) item.value = emptyDiary();
     return item;
   }
@@ -1927,7 +1969,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * created. Returns how many lines were removed. */
   function forgetRecent(guildId, userId, names) {
     const file = recentFile(guildId);
-    if (!entries.has(file) && !fs.existsSync(file)) return 0;
+    if (!known(file)) return 0;
     const item = recentEntry(guildId);
     const { value, removed } = purgeRecentFor(item.value, userId, names);
     if (removed === 0) return 0;
@@ -1955,14 +1997,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   const ledgerFile = root.forgottenFile;
   const memberDir = (guildId, userId) => root.privateDir(guildId, String(userId));
   const snapshotsRoot = root.snapshotsRoot;
-  /** guildId -> the member ids under a forget marker, read from disk once per guild. */
+  /** guildId -> the member ids under a forget marker, read once per guild (from the database under `db`). */
   const forgettingIds = new Map();
 
   function forgettingSet(guildId) {
     const key = String(guildId);
     let set = forgettingIds.get(key);
     if (!set) {
-      set = new Set(namesIn(forgettingDir(guildId)).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length)));
+      const db = seam.db();
+      set = db
+        ? seam.run(() => hiddenIds(db, key))
+        : new Set(namesIn(forgettingDir(guildId)).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length)));
       forgettingIds.set(key, set);
     }
     return set;
@@ -2164,7 +2209,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    */
   function diaryRedaction(guildId, userId, names, token, before = null) {
     const file = diaryFile(guildId);
-    if (!entries.has(file) && !fs.existsSync(file)) return null;
+    if (!known(file)) return null;
     const item = diaryEntry(guildId);
     let redacted = 0;
     const posts = item.value.posts.map((post) => {
@@ -2219,7 +2264,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     keep(versionsFile(guildId, 'users', userId));
     // The voice items about the member.
     const voice = voiceFile(guildId);
-    if (entries.has(voice) || fs.existsSync(voice)) {
+    if (known(voice)) {
       const queue = voiceEntry(guildId).value;
       const kept = forgetMember(queue, userId).queue;
       const extract = queue.filter((item) => !kept.includes(item));
@@ -2227,9 +2272,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     }
     // The recent and participation stores, whole, when the forget rewrites them.
     const recent = recentFile(guildId);
-    if ((entries.has(recent) || fs.existsSync(recent)) && purgeRecentFor(recentEntry(guildId).value, userId, names).removed > 0) keep(recent);
+    if (known(recent) && purgeRecentFor(recentEntry(guildId).value, userId, names).removed > 0) keep(recent);
     const participation = participationFile(guildId);
-    if ((entries.has(participation) || fs.existsSync(participation)) && purgeParticipationFor(participationEntry(guildId).value, userId).removed > 0) keep(participation);
+    if (known(participation) && purgeParticipationFor(participationEntry(guildId).value, userId).removed > 0) keep(participation);
     // The archive's, record's and journal's lines the forget drops, by their modules' rule.
     for (const { file, drops } of memberLineFiles(guildId)) {
       const dropped = jsonlOf(file).lines.filter((line) => {
@@ -2265,11 +2310,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     const recent = forgetRecent(guildId, userId, names);
     const participation = forgetParticipation(guildId, userId);
     const file = userFile(guildId, userId);
-    const profile = entries.has(file) || fs.existsSync(file) ? 1 : 0;
+    const profile = known(file) ? 1 : 0;
     entries.delete(file);
     fs.rmSync(file, { force: true });
     const versionsPath = versionsFile(guildId, 'users', userId);
-    const versions = entries.has(versionsPath) || fs.existsSync(versionsPath) ? 1 : 0;
+    const versions = known(versionsPath) ? 1 : 0;
     entries.delete(versionsPath);
     fs.rmSync(versionsPath, { force: true });
     const voice = forgetQueued(guildId, userId);
@@ -2422,7 +2467,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     getUser(guildId, userId) {
       if (isForgetting(guildId, userId)) return null;
       const file = userFile(guildId, userId);
-      if (!entries.has(file) && !fs.existsSync(file)) return null;
+      if (!known(file)) return null;
       const item = entry(file, () => emptyProfile(String(userId)));
       normalizeProfile(item.value);
       return item.value;
@@ -2623,7 +2668,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     setAvatar(guildId, userId, avatar) {
       if (isForgetting(guildId, userId)) return null;
       const file = userFile(guildId, userId);
-      if (!entries.has(file) && !fs.existsSync(file)) return null;
+      if (!known(file)) return null;
       const value = normalizeAvatar(avatar);
       if (!value) return null;
       const item = entry(file, () => emptyProfile(String(userId)));
@@ -2792,6 +2837,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @returns {Promise<{ finished: number }>}
      */
     async resumeForgets(guildId, deps = {}) {
+      // Authority `db`: there is no forget path (spec 2026-10-24-memory-authority, section 1); nothing to finish.
+      if (seam.authority() === 'db') return { finished: 0 };
       const now = typeof deps?.now === 'function' ? deps.now : Date.now;
       let finished = 0;
       for (const name of namesIn(forgettingDir(guildId))) {
@@ -2829,6 +2876,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   record: number, journal: number, diary: number, requests: number }>}
      */
     async applyLedger(guildId, deps = {}) {
+      // Authority `db`: no forget path, and no sync brings a forgotten member back from a file; nothing to re-apply.
+      if (seam.authority() === 'db') return { users: 0, profiles: 0, private: 0, archive: 0, record: 0, journal: 0, diary: 0, requests: 0 };
       const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, redaction = null, entries: extra = [] } = deps ?? {};
       const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
       const latest = new Map();
@@ -4036,16 +4085,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     appendDiaryPost(guildId, post, opts = {}) {
       const done = writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
+      // Authority `db`: the post goes to the database at once (the diary unit, its mirror's publication); a failed
+      // write waits in the outbox like any unit, and in `memory-pending/` past a shutdown.
       if (seam.authority() === 'db') {
-        const item = diaryEntry(guildId);
-        const written = structuredClone(item.value.posts[item.value.posts.length - 1]);
-        const max = Number.isFinite(opts.max) && opts.max > 0 ? Math.floor(opts.max) : DIARY_HISTORY_POSTS;
-        const failed = (error) => log.warn('store: diary write failed', { code: error?.code ?? null });
-        try {
-          Promise.resolve(memoryDb.writeUnit({ op: 'diary', owner: root.relative(diaryFile(guildId)), post: written, max, updatedAt: item.value.updatedAt })).catch(failed);
-        } catch (error) {
-          failed(error);
-        }
+        flushEntry(diaryFile(guildId), diaryEntry(guildId));
+        if (outbox) outbox.push();
       }
       return done;
     },
@@ -4425,11 +4469,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     /**
      * The flush before a shutdown or a pause: waits up to `holdMaxMs` (`archive.holdMaxMs`,
      * config.json's 5000 when missing) for the archive to take what holds files back, then writes
-     * everything, held or not; files written while still held are logged as `store: flushed held`.
-     * @param {{ holdMaxMs?: number }} [opts]
-     * @returns {Promise<{ written: number, failed: number, held: number }>}
+     * everything, held or not; files written while still held are logged as `store: flushed held`. Under authority
+     * `db` it then waits for the database to take what the flush handed over (unit-outbox.js#flush) and, with `final`
+     * (the shutdown), keeps what still fails in `memory-pending/` (`pending` counts them; an error is logged).
+     * @param {{ holdMaxMs?: number, final?: boolean }} [opts]
+     * @returns {Promise<{ written: number, failed: number, held: number, waiting?: number, pending?: number }>}
      */
-    async flushSettled({ holdMaxMs } = {}) {
+    async flushSettled({ holdMaxMs, final = false } = {}) {
       const heldFiles = () => [...entries.values()].filter((item) => item.dirty && item.holdFlush > 0).length;
       if (heldFiles() > 0) {
         const waitMs = Number.isFinite(holdMaxMs) && holdMaxMs >= 0 ? holdMaxMs : DEFAULT_HOLD_MAX_MS;
@@ -4452,6 +4498,10 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const held = heldFiles();
       const counts = flushAll({ force: true });
       if (held > 0) log.warn('store: flushed held', { files: held });
+      if (outbox && seam.authority() === 'db') {
+        counts.waiting = await outbox.flush();
+        if (final) counts.pending = outbox.keep();
+      }
       return counts;
     },
 
@@ -4590,6 +4640,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       }
       for (const file of [...entries.keys()]) {
         if (file === stateFile) continue;
+        // Authority `db`: an entry whose write has not resolved stays, so no later read takes the older value.
+        const place = dbPlace(file);
+        if (place && outbox?.holds(place.rel)) continue;
         entries.delete(file);
         dropped += 1;
       }

@@ -20,15 +20,17 @@ directory's path, sorted as bytes (the order of a sorted listing of ASCII names)
 - **Authority.** Fixed for the process: the service reads `memoryDb.authority` once at start and the modules ask it
   (`memoryDb.authority()`), never the config. A later change is logged as `memory db: authority change needs a
   restart` and ignored by the readers, the writers, the sync and the status alike. Under `db` the service opens the
-  database only when `memoryDb.read`, `recall.backend: db` and `memoryDb.observeLive` are on (otherwise
-  `memory db: start refused` with a code, and every read is `DB_CLOSED`).
+  database only when `memoryDb.read`, `recall.backend: db` and `memoryDb.observeLive` are on and her memory
+  session is `apply` or `off` (otherwise `memory db: start refused` with a code, and every read is `DB_CLOSED`).
+  While it replays the unit writes a shutdown left in `memory-pending/`, nothing reads it.
 - **No fallback under `db`.** A closed database (`DB_CLOSED`) or a failed query is an error to the caller, logged
   once as `memory db: read failed` with the reader's name and the code. No function reads a file then.
 - **Read-after-write.** Database writes go through the service's writer thread. A write is visible to the next read
   of the same process once its promise resolved (the read connection sees every committed transaction). Under `db`
   the record's, the journal's and the meaning index's writers write the database only (`memoryDb.writeUnit`, see
-  "The writers under `db`" below), so a read after an awaited write finds it; the intention and task stores and the
-  store's other files still write their files in this stage.
+  "The writers under `db`" below), so a read after an awaited write finds it. The store's cache and the intention
+  and task stores keep their values in memory and hand their writes to an outbox: what they read back is their own
+  value, never an older one from the database or a file.
 - **Forgets.** Members under a forget marker (`forgetting/<id>.json`) are hidden by the same rule on both sides;
   under `db` the markers and the deletion ledger are read from their operational rows.
 - **Logs.** Codes and counts only, never a path, a name or a text.
@@ -84,12 +86,22 @@ which is then read with a manifest counting the rows left.
 
 Under `db` a store whose load failed is not kept: `get(guildId)` throws the coded error and tries again next time.
 
+## The store's cache (`src/memory/store.js`)
+
+Under `db` a cache entry of a memory unit (a profile, a private layer, a channel, the guild, lore, recent, a version
+file, the diary, the voice queue, the buffer) is loaded from the database (`unitValue`): a unit the database does not
+hold starts as a missing file does, a closed database throws `DB_CLOSED`. Whether a profile, a channel or a private
+layer exists is the database's `files` row, and the forget markers are the database's. The operational files (the
+process state, the GIF library, the vision cache, participation) are read as files. `memoryRead.value` (the read
+switch) answers from the database alone under `db`: no disk check, a closed database throws.
+
 ## Other direct reads
 
 - The store's directory ids (`listPrivate`, `countUsers`, `listUserProfiles`, `listChannels`): under `db` from the
   database only, no directory listing.
 - `/nep resume`'s check of broken JSON files: under `db` only the operational files still written (process state,
-  request dumps, the backfill folder, the vault and snapshots, the GIF library, the vision cache, participation).
+  request dumps, the backfill folder, the vault and snapshots, the GIF library, the vision cache, participation,
+  `memory-pending/`). The voice queue and the buffer are database units under `db` and are not checked.
 - The embedder's catch-up: its forgets, private layers and day checks come from the database under `db`; its lines
   always come through `record.iterate`.
 
@@ -106,7 +118,19 @@ Every row the writers make is the row their unit's mapper derives, through the s
 | `journal.write` (every journal writer) | `day`, `decisions`, her answers' `sources` and `affinity_events` as the journal maps the line | the day file; the sync mirrors it |
 | `vectors.append`, `rewrite`, `replace` | the month's rows (appended to the stored month, or a new generation whole) | the month's files |
 | `store.setParticipation` | the file as always, and its episodes from each flush | the file |
-| `store.appendDiaryPost` | the post appended to the diary the database holds, with its mirror's `sent` publication (destination: the diary channel); `diary.json` is not written and its first load is the database's | the file |
+| `store.appendDiaryPost` | the diary flushed at once: the whole diary the store holds, with its mirror's `sent` publication (destination: the diary channel); `diary.json` is not written and its first load is the database's | the file |
+| every other cache entry of the store (its mutators unchanged) | a flush hands the entry's whole value to the outbox (op `value`), mapped as a sync maps the file, the rows it no longer holds retired; `media.json` is written as a file and also sent (the `media` rows) | the files; the sync mirrors them |
+| the archive (`archive.append`, the store's queued appends) | the month's lines (op `lines`), with the retired `historical` claim of an item hot memory does not hold; the month's keys come from the database's lines; no segment and no id index is written; a failed write goes to the pending queue (`archive/pending.jsonl`, still a file) | the segments and id indexes |
+| the intention store | `intentions.json` whole (op `value`) and the records moved out (`intentions-archive.jsonl`, op `lines`), through the outbox | the files |
+| the task store | `tasks.json` whole (op `value`) and each transition line (`tasks.jsonl`, op `lines`), through the outbox | the files |
+
+The outbox (`src/memory/db/unit-outbox.js`) keeps a unit until its write resolved: a newer value replaces the one
+waiting, lines keep their order, a failed write goes again at the next flush (the store's 30 s flush, the module
+stores' `flush`). At shutdown (`store.flushSettled({ final: true })`, the module stores' `flush({ final: true })`)
+what still fails is written to `data/memory-pending/<sha1 of the unit's path>.json` (`{ owner, op, value | lines, at }`,
+logged as an error with the count), and the next start replays each file through the writer before anything reads
+the database, deleting it once its write resolved. A replay that fails keeps its file and the database is not opened
+(`PENDING_REPLAY`).
 
 ## Known differences on the same snapshot
 

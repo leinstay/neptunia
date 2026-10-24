@@ -50,6 +50,7 @@ import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
+import { createUnitOutbox } from '../memory/db/unit-outbox.js';
 import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../skills/codes.js';
 
@@ -103,7 +104,11 @@ export function isToolTask(task) {
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {object|null} [options.memoryDb]  the memory database service: under its authority `db` the list and the
  *   spend records are loaded from the database (src/memory/db/readers/tasks.js), with no file fallback (a failed
- *   read throws, with a code); under `json` (the default) from the files as always. The writers are unchanged.
+ *   read throws, with a code); under `json` (the default) from the files as always. Stage W2b, under `db`: no file is
+ *   written; each change hands the whole list (`tasks.json`, op `value`) and the transition line (`tasks.jsonl`, op
+ *   `lines`) to an outbox (src/memory/db/unit-outbox.js) that sends them through the database's writer; the list in
+ *   memory stays the truth, a failed write goes again at the next change or `flush`, and `flush({ final: true })`
+ *   (the shutdown) keeps what still fails in `memory-pending/`.
  * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  */
 export function createTaskStore({ dataDir, guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog, memoryDb = null, authorityOf = null }) {
@@ -113,6 +118,9 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'tasks' });
   const db = seam.db();
   const state = load();
+  const outbox = db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
+  const listOwner = `guilds/${String(guildId)}/tasks.json`;
+  const logOwner = `guilds/${String(guildId)}/tasks.jsonl`;
   // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
   const spend = loadSpend();
 
@@ -211,6 +219,19 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** tasks.json written whole, and the transition of `task` appended to tasks.jsonl. */
   function persist(task) {
     state.tasks = pruned(state.tasks);
+    if (seam.authority() === 'db') {
+      if (!outbox) {
+        log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
+        return;
+      }
+      outbox.value(listOwner, JSON.parse(JSON.stringify({ tasks: state.tasks })));
+      if (task) {
+        noteSpend(task);
+        outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...task }))]);
+      }
+      outbox.push();
+      return;
+    }
     try {
       writeJsonAtomic(listFile, { tasks: state.tasks });
     } catch (err) {
@@ -676,7 +697,18 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
+  /**
+   * Authority `db`: the writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is
+   * kept in `memory-pending/`. Nothing under `json`.
+   * @returns {Promise<{ waiting: number, pending: number }>}
+   */
+  async function flush({ final = false } = {}) {
+    if (!outbox) return { waiting: 0, pending: 0 };
+    const waiting = await outbox.flush();
+    return { waiting, pending: final ? outbox.keep() : 0 };
+  }
+
+  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, forgetUser, wipe, flush, guildId: String(guildId) };
 }
 
 /**
@@ -708,6 +740,17 @@ export function createTaskStores({ dataDir, config = () => ({}), journal = null,
     wipe(guildId) {
       const store = tasks.get(guildId);
       return store ? store.wipe() : { files: 0 };
+    },
+    /** Every store's `flush` (stage W2b: the writes waiting for the database; `final` at the shutdown). */
+    async flush(options = {}) {
+      let waiting = 0;
+      let pending = 0;
+      for (const store of stores.values()) {
+        const done = await store.flush(options);
+        waiting += done.waiting;
+        pending += done.pending;
+      }
+      return { waiting, pending };
     },
   };
   return tasks;

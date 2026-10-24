@@ -474,7 +474,8 @@ function vectorsAppend(db, unit, prior, manifest) {
   return unit.mapper.appendRows(unit.rel, delta, { previous, keys });
 }
 
-function hotClaimIds(db) {
+/** The ids of the hot claims and episodes (what an archive line must not stub over, map/archive.js). */
+export function hotClaimIds(db) {
   const ids = new Set();
   for (const row of db.prepare("SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'").all()) ids.add(row.id);
   for (const row of db.prepare('SELECT id FROM episodes WHERE retired_at IS NULL').all()) ids.add(row.id);
