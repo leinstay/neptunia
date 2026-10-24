@@ -1,7 +1,14 @@
 // Deterministic ids for the memory database (spec section 2): the same input gives the same id, so a re-import
-// writes the same rows. Pure, no I/O.
+// writes the same rows. Pure, no I/O except `resolveAlias`, which reads `external_keys` on a connection it is given.
+//
+// Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
+//   - the legacy Discord-shaped ids (`person:discord:<id>`, `discord:<id>`, `discord:channel:<id>`, `src:discord:...`):
+//     the importer's and the aliases' only; `nativeOf` and the helpers below that read them are the one place an id
+//     is taken apart, and only for those legacy spellings;
+//   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
+//     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export const IFACE = 'discord';
 export const SELF_PERSON = 'person:self';
@@ -18,6 +25,109 @@ export const dmPlaceId = (userId) => `${IFACE}:dm:${text(userId)}`;
 export function nativeOf(id) {
   const match = /^(?:person:discord:|discord:(?:guild:|channel:|dm:)?)(.+)$/.exec(String(id));
   return match ? match[1] : null;
+}
+
+/** The native authority of an interface: `discord/global` (snowflakes are one namespace), `<iface>/local` for the
+ * command line and the core, `<iface>/global` for any other interface until it declares its own. */
+export function nativeAuthorityOf(iface) {
+  if (typeof iface !== 'string' || !iface) return CORE_AUTHORITY;
+  if (iface === 'cli' || iface === 'core') return `${iface}/local`;
+  return `${iface}/global`;
+}
+/** The core's own namespace (`person:self`, rows with no interface). */
+export const CORE_AUTHORITY = 'core/local';
+/** The namespace of the full legacy id spellings (every row id from before schema v7 is an alias here too). */
+export const LEGACY_AUTHORITY = 'legacy/local';
+/** The guild-local namespace of a Discord server (nicks, roles). */
+export const guildAuthorityOf = (guildId, iface = IFACE) => `${iface}/guild:${text(guildId)}`;
+
+/**
+ * The DM place of a DM partner on an interface, from the legacy person spelling `person:<iface>:<native>`
+ * (`discord:dm:<native>` today, the same id `dmPlaceId` gives); null for a person id of another shape (a new
+ * `person:<uuid>` names its DM place explicitly).
+ */
+export function dmPlaceOfPerson(person, iface = IFACE) {
+  const prefix = `person:${iface}:`;
+  const value = String(person ?? '');
+  if (!iface || !value.startsWith(prefix) || value.length <= prefix.length) return null;
+  return `${iface}:dm:${value.slice(prefix.length)}`;
+}
+
+/** The interface and partner of a legacy DM place id (`<iface>:dm:<native>`): `{ iface, person, account }`, or null. */
+export function dmPartnerOfPlace(placeId) {
+  const match = /^([^:]+):dm:(.+)$/.exec(String(placeId ?? ''));
+  return match ? { iface: match[1], person: `person:${match[1]}:${match[2]}`, account: `${match[1]}:${match[2]}` } : null;
+}
+
+/** The native key of a legacy person id (`person:<iface>:<native>`) on its interface: `{ iface, native }`, or null. */
+export function legacyPersonNative(person) {
+  const match = /^person:([^:]+):(.+)$/.exec(String(person ?? ''));
+  return match ? { iface: match[1], native: match[2] } : null;
+}
+
+/** The native key of a legacy account id (`<iface>:<native>`), or null. */
+export function legacyAccountNative(account, iface = IFACE) {
+  const prefix = `${iface}:`;
+  const value = String(account ?? '');
+  return iface && value.startsWith(prefix) && value.length > prefix.length ? value.slice(prefix.length) : null;
+}
+
+/**
+ * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `guild:<id>`,
+ * `dm:<partner native>`), so a guild and a channel that share a snowflake never collide.
+ */
+export function placeNativeKey(place) {
+  const kind = typeof place?.kind === 'string' && place.kind ? place.kind : 'place';
+  if (kind === 'dm') {
+    const partner = dmPartnerOfPlace(place?.id);
+    const native = place?.native_id ?? (partner ? legacyAccountNative(partner.account, partner.iface) : null);
+    return native === null || native === undefined ? null : `dm:${native}`;
+  }
+  return place?.native_id === null || place?.native_id === undefined ? null : `${kind}:${place.native_id}`;
+}
+
+/** The deterministic id of an account's link to a person (one per pair; a later generation gets its own stage). */
+export const linkId = (account, person) => `link:${text(account)}:${text(person)}`;
+
+/**
+ * The canonical key of a node tuple: JSON of the ordered array `[kind, ...parts]` (an absent part is null, an empty
+ * one ""). A NUL anywhere is refused: it is never part of a native id.
+ */
+export function canonicalKey(kind, parts = []) {
+  const values = [kind, ...(Array.isArray(parts) ? parts : [parts])].map((part) => (part === undefined ? null : part));
+  for (const value of values) {
+    if (typeof value === 'string' && value.includes('\u0000')) throw Object.assign(new Error('memory db: a NUL in a node key'), { code: 'NUL_IN_KEY' });
+    if (value !== null && typeof value === 'object') throw Object.assign(new Error('memory db: a node key part must be a scalar'), { code: 'BAD_KEY_PART' });
+  }
+  return JSON.stringify(values);
+}
+
+/** A new node id: `<kind>:<first 32 hex of SHA-256 over canonicalKey(kind, parts)>`. Never parsed. */
+export function nodeId(kind, parts = []) {
+  return `${kind}:${createHash('sha256').update(canonicalKey(kind, parts)).digest('hex').slice(0, 32)}`;
+}
+
+/** A new person: `person:<uuid v4>` (`uuid` is injected by tests). */
+export const newPersonId = (uuid = randomUUID) => `person:${uuid()}`;
+
+/**
+ * The node a native key of an authority named at `atIso` (an ISO time; null: the open rows, the current aliases).
+ * A row's window is [valid_from_at, valid_to_at), an open end unbounded. Returns the node id when exactly one node's
+ * window holds the time; `{ unresolved: true, candidates }` (the rows' `{ node_id, generation, valid_from_at,
+ * valid_to_at }`) when several do or none does; null when the key was never registered. Never "the latest".
+ */
+export function resolveAlias(db, authority, kind, nativeKey, atIso = null) {
+  const rows = db.prepare(
+    'SELECT node_id, generation, valid_from_at, valid_to_at FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? ORDER BY generation',
+  ).all(String(authority), String(kind), String(nativeKey)).map((row) => ({ ...row }));
+  if (rows.length === 0) return null;
+  const holds = (row) => (atIso === null || atIso === undefined
+    ? row.valid_to_at === null
+    : (row.valid_from_at === null || row.valid_from_at <= atIso) && (row.valid_to_at === null || atIso < row.valid_to_at));
+  const matching = rows.filter(holds);
+  const nodes = [...new Set(matching.map((row) => row.node_id))];
+  if (nodes.length === 1) return nodes[0];
+  return { unresolved: true, candidates: matching.length > 0 ? matching : rows };
 }
 
 /** A message source: `src:discord:<messageId>:<revision>:<kind>`. */

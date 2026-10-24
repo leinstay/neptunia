@@ -24,6 +24,13 @@
 //   { kind: 'description', mode, authority, row, subject, scope, expectCurrent, answers, now }
 //       One `description_versions` row. `shadow`: origin `shadow`, never current. `apply` (authority `db`): origin
 //       `review`, and in the same transaction the `descriptions` row is created or moved to this version.
+//   { kind: 'context', context }
+//       One `execution_contexts` row (scope.js#contextRow of a context the core issued); a context already recorded is
+//       left as it is. Not a memory write: no mode and no authority.
+//
+// Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
+// rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
+// by the service from `memoryDb.audienceColumn`) makes the scope check of a target claim read `audience_id`.
 //
 // A plan is the validated, resolved form of the answer: ids are database ids, never the request's `#n` / `cN`.
 //   claims:       { op: 'add', subjectKind, subjectId, kind, text, how, sources, when }
@@ -34,8 +41,9 @@
 //   descriptions: { subjectKind, subjectId, field, why }
 // Counts and codes only, never a text.
 
-import { otherSourceId, shortHash } from './ids.js';
-import { allowed, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
+import { CORE_AUTHORITY, otherSourceId, shortHash } from './ids.js';
+import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
+import { ensureAudience, ensureInterface } from './rows.js';
 
 const iso = (ms) => new Date(ms).toISOString();
 const json = (value) => JSON.stringify(value);
@@ -60,22 +68,30 @@ const reasonOf = (op) => (typeof op.reason === 'string' && op.reason ? op.reason
 
 const scopeOfRow = (row) => ({ scope_kind: row.scope_kind ?? null, scope_iface: row.scope_iface ?? null, scope_dm: row.scope_dm ?? null });
 const sameScope = (a, b) => (a.scope_kind ?? null) === (b.scope_kind ?? null) && (a.scope_iface ?? null) === (b.scope_iface ?? null) && (a.scope_dm ?? null) === (b.scope_dm ?? null);
-function contextOf(scope) {
-  if (scope?.scope_kind === 'group' && scope.scope_iface) return groupContext(scope.scope_iface);
-  if (scope?.scope_kind === 'dm' && scope.scope_iface && scope.scope_dm) return dmContext(scope.scope_dm, scope.scope_iface);
-  return internalContext();
+function contextOf(scope, audienceColumn = false) {
+  let ctx = internalContext();
+  if (scope?.scope_kind === 'group' && scope.scope_iface) ctx = groupContext(scope.scope_iface);
+  else if (scope?.scope_kind === 'dm' && scope.scope_iface && scope.scope_dm) ctx = dmContext(scope.scope_dm, scope.scope_iface);
+  return audienceColumn === true ? { ...ctx, audienceColumn: true } : ctx;
 }
 
-function insertRun(db, run, mode, { applied, answerSource }) {
+/** The audience id of a scope (the one resolver), its audience row created when missing. */
+function audienceIdOf(db, scope, at) {
+  const resolved = audienceOf(scope);
+  ensureAudience(db, resolved, { at });
+  return resolved.audience_id;
+}
+
+function insertRun(db, run, mode, { applied, answerSource, at }) {
   db.prepare(
     `INSERT OR REPLACE INTO session_runs (id, sweep_id, scope_key, scope_kind, scope_iface, scope_dm, mode, started_at, finished_at,
-       cursor_from, cursor_to, sources_n, tokens_prompt, tokens_completion, model, outcome, counts, errors, batch_key, applied, result, answer_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+       cursor_from, cursor_to, sources_n, tokens_prompt, tokens_completion, model, outcome, counts, errors, batch_key, applied, result, answer_source, audience_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
   ).run(
     run.id, run.sweepId ?? null, run.scopeKey, run.scope?.scope_kind ?? null, run.scope?.scope_iface ?? null, run.scope?.scope_dm ?? null, mode,
     run.startedAt, run.finishedAt, run.cursorFrom ?? null, run.cursorTo ?? null, run.sourcesN ?? 0,
     run.tokensPrompt ?? null, run.tokensCompletion ?? null, run.model ?? null, run.outcome, json(run.counts ?? {}), json(run.errors ?? []),
-    run.batchKey ?? null, applied ? 1 : 0, answerSource ?? null,
+    run.batchKey ?? null, applied ? 1 : 0, answerSource ?? null, audienceIdOf(db, run.scope ?? null, at),
   );
 }
 
@@ -92,9 +108,11 @@ function insertAnswer(db, { id, kind, text, at, extra }) {
   const thought = [...String(text).matchAll(/<think>([\s\S]*?)<\/think>/gi)].map((match) => match[1].trim()).filter(Boolean).join('\n\n');
   db.prepare(
     `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
-       media, mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_file, position)
-     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL)`,
-  ).run(id, kind, id, at, at, String(text), thought || null, extra ? json(extra) : null, SCOPE_INTERNAL.scope_kind, SCOPE_INTERNAL.scope_iface, SCOPE_INTERNAL.scope_dm);
+       media, mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_file, position,
+       audience_id, authority_id, author_kind, observed_at)
+     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`,
+  ).run(id, kind, id, at, at, String(text), thought || null, extra ? json(extra) : null, SCOPE_INTERNAL.scope_kind, SCOPE_INTERNAL.scope_iface, SCOPE_INTERNAL.scope_dm,
+    audienceIdOf(db, SCOPE_INTERNAL, at), CORE_AUTHORITY, at);
   return id;
 }
 
@@ -150,10 +168,10 @@ function deriveClaim(db, claim, scope, { at, runId, index, text, how, truth, sho
   try { extra = claim.extra ? JSON.parse(claim.extra) : {}; } catch { extra = {}; }
   db.prepare(
     `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
-       how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_file, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+       how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_file, position, audience_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
   ).run(id, claim.subject_kind, claim.subject_id, claim.kind, text ?? claim.text, json({ ...extra, derivedFrom: claim.id }), claim.weight ?? null, at, at,
-    how ?? claim.how, truth ?? claim.truth, shown ?? claim.shown, scope.scope_kind, scope.scope_iface, scope.scope_dm, at);
+    how ?? claim.how, truth ?? claim.truth, shown ?? claim.shown, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
   return id;
 }
 
@@ -167,9 +185,9 @@ function applyClaim(db, op, state) {
     const id = `clm:${shortHash(runId, index, op.subjectId, op.text)}`;
     db.prepare(
       `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
-         how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_file, position)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
-    ).run(id, op.subjectKind, op.subjectId, op.kind, op.text, op.when ? json({ when: op.when }) : null, at, at, op.how, scope.scope_kind, scope.scope_iface, scope.scope_dm, at);
+         how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_file, position, audience_id)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
+    ).run(id, op.subjectKind, op.subjectId, op.kind, op.text, op.when ? json({ when: op.when }) : null, at, at, op.how, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
     addSources(db, 'claim_sources', 'claim_id', id, op.sources);
     version(db, { claimId: id, at, text: op.text, event: 'add', runId, index });
     insertDecisionFor(db, { runId, index, at, op, action: 'add', target: id });
@@ -178,7 +196,7 @@ function applyClaim(db, op, state) {
   }
   const claim = db.prepare('SELECT * FROM claims WHERE id = ? AND retired_at IS NULL').get(op.id);
   if (!claim) { counts.missing += 1; return; }
-  if (!allowed(claim, contextOf(state.scope))) return reject(db, state, 'claims', op, 'out_of_scope');
+  if (!canRead(claim, contextOf(state.scope, state.audienceColumn))) return reject(db, state, 'claims', op, 'out_of_scope');
   if ((op.op === 'revise' || op.op === 'retire') && !present(op.reason)) return reject(db, state, 'claims', op, 'no_reason');
   const derived = !sameScope(scope, scopeOfRow(claim));
   let target = op.id;
@@ -220,9 +238,9 @@ function applyEpisode(db, op, state) {
   const id = `ep:${shortHash(runId, index, op.subjectId, op.what)}`;
   db.prepare(
     `INSERT OR REPLACE INTO episodes (id, kind, subject_id, place_id, date, what, quote, feeling, feeling_at, reread, weight, world, status, perspective,
-       start_ms, last_ms, extra, scope_kind, scope_iface, scope_dm, created_at, retired_at, owner_file, position)
-     VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL)`,
-  ).run(id, op.subjectId, at.slice(0, 10), op.what, op.feeling || null, op.feeling ? at : null, scope.scope_kind, scope.scope_iface, scope.scope_dm, at);
+       start_ms, last_ms, extra, scope_kind, scope_iface, scope_dm, created_at, retired_at, owner_file, position, audience_id)
+     VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?)`,
+  ).run(id, op.subjectId, at.slice(0, 10), op.what, op.feeling || null, op.feeling ? at : null, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
   addSources(db, 'episode_sources', 'episode_id', id, op.sources);
   insertDecisionFor(db, { runId, index, at, op, action: 'episode', target: id });
   counts.episodes += 1;
@@ -244,9 +262,9 @@ function applyAffinity(db, op, state) {
   const applied = clamp(op.delta, -cap, cap);
   const score = Math.round(clamp(before + applied, -100, 100) * 100) / 100;
   db.prepare(
-    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, owner_file, position, retired_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
-  ).run(eventId, op.personId, at, op.delta, applied, score, op.reason, scope.scope_kind, scope.scope_iface, scope.scope_dm, json({ run: runId, sources: op.sources }));
+    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, owner_file, position, retired_at, audience_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)`,
+  ).run(eventId, op.personId, at, op.delta, applied, score, op.reason, scope.scope_kind, scope.scope_iface, scope.scope_dm, json({ run: runId, sources: op.sources }), audienceIdOf(db, scope, at));
   db.prepare('UPDATE people SET affinity = ?, affinity_reason = ? WHERE id = ?').run(score, op.reason, op.personId);
   insertDecisionFor(db, { runId, index, at, op, action: 'affinity', target: op.personId });
   counts.affinity += 1;
@@ -262,6 +280,7 @@ function guard(update) {
 
 /** Applies one write on the writer connection; returns counts. */
 export function applyMemoryWrite(handle, update) {
+  if (update?.kind === 'context') return writeContext(handle, update);
   if (update?.kind === 'description') return writeDescription(handle, update);
   if (update?.kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
@@ -282,9 +301,9 @@ export function applyMemoryWrite(handle, update) {
       ? insertAnswer(db, { id: otherSourceId('memory_session', run.id), kind: 'memory_session', text: update.answer.text, at, extra: { run: run.id } })
       : null;
     const applied = run != null && mode === 'apply' && plan != null && run.outcome === 'ok';
-    if (run) insertRun(db, run, mode, { applied, answerSource });
+    if (run) insertRun(db, run, mode, { applied, answerSource, at });
     if (plan && run) {
-      const state = { at, runId: run.id, run, scope: run.scope, maxDelta: update.maxDelta, counts, index: 0 };
+      const state = { at, runId: run.id, run, scope: run.scope, maxDelta: update.maxDelta, counts, index: 0, audienceColumn: update.audienceColumn === true };
       for (const group of ['claims', 'episodes', 'affinity', 'descriptions']) {
         for (const op of plan[group] ?? []) {
           state.index += 1;
@@ -356,11 +375,27 @@ function writeDescription(handle, update) {
     ).run(row.id, row.descriptionId, row.text, row.writtenAt, [...row.text].length, row.kept ?? null, row.removed ?? null, row.added ?? null, row.reason ?? null, applying ? 'review' : 'shadow', json(extra));
     if (applying) {
       db.prepare(
-        `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, owner_file)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, owner_file, audience_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
          ON CONFLICT(id) DO UPDATE SET current_version = excluded.current_version`,
-      ).run(row.descriptionId, subject.kind, subject.id, subject.field, scope.scope_kind, scope.scope_iface, scope.scope_dm, row.id);
+      ).run(row.descriptionId, subject.kind, subject.id, subject.field, scope.scope_kind, scope.scope_iface, scope.scope_dm, row.id, audienceIdOf(db, scope, at));
     }
   });
   return { written: 1 };
+}
+
+/** One issued context as an `execution_contexts` row (scope.js#contextRow); one already recorded is left alone. */
+function writeContext(handle, update) {
+  const row = update.context;
+  if (!row || typeof row.id !== 'string' || !row.id || typeof row.issued_at !== 'string') throw coded('BAD_CONTEXT');
+  let written = 0;
+  handle.transaction(() => {
+    const { db } = handle;
+    if (row.iface) ensureInterface(db, row.iface);
+    written = Number(db.prepare(
+      `INSERT OR IGNORE INTO execution_contexts (id, mode, iface, destination_place_id, partner_person_id, policy_version, issued_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(row.id, row.mode, row.iface ?? null, row.destination_place_id ?? null, row.partner_person_id ?? null, row.policy_version ?? 1, row.issued_at).changes);
+  });
+  return { written };
 }

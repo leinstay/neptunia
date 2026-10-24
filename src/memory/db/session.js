@@ -33,7 +33,7 @@ import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { exportOne } from './export.js';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.js';
-import { dmContext, groupContext, whereFor } from './scope.js';
+import { audienceOf, dmContext, groupContext, scopeWhere, wellFormed } from './scope.js';
 
 export const SESSION_PURPOSE = 'memory-session';
 export const CLAIM_KINDS = Object.freeze(['detail', 'interest', 'alias', 'injoke', 'self_fact', 'lesson', 'pattern']);
@@ -130,22 +130,30 @@ const CURRENT = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
   AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE t.native_id = s.native_id AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
   AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id = s.native_id AND d.kind = 'deleted' AND d.retired_at IS NULL)`;
 
-/** A scope as the sweep walks it: `{ key, scope: { scope_kind, scope_iface, scope_dm }, ctx }`. */
-function scopeOf(row) {
-  if (row.scope_kind === 'group') {
-    return { key: `group:${row.scope_iface}`, scope: { scope_kind: 'group', scope_iface: row.scope_iface, scope_dm: null }, ctx: groupContext(row.scope_iface) };
-  }
-  return { key: `dm:${row.scope_iface}:${row.scope_dm}`, scope: { scope_kind: 'dm', scope_iface: row.scope_iface, scope_dm: row.scope_dm }, ctx: dmContext(row.scope_dm, row.scope_iface) };
+/**
+ * A scope as the sweep walks it: `{ key, scope: { scope_kind, scope_iface, scope_dm }, ctx }`; read through `audience_id`
+ * (`audienceColumn`: the entry also carries `audienceId`, and its context reads that column), else through the triple.
+ */
+function scopeOf(row, audienceColumn = false) {
+  const entry = row.scope_kind === 'group'
+    ? { key: `group:${row.scope_iface}`, scope: { scope_kind: 'group', scope_iface: row.scope_iface, scope_dm: null }, ctx: groupContext(row.scope_iface) }
+    : { key: `dm:${row.scope_iface}:${row.scope_dm}`, scope: { scope_kind: 'dm', scope_iface: row.scope_iface, scope_dm: row.scope_dm }, ctx: dmContext(row.scope_dm, row.scope_iface) };
+  if (audienceColumn !== true) return entry;
+  return { ...entry, audienceId: audienceOf(entry.scope).audience_id, ctx: { ...entry.ctx, audienceColumn: true } };
 }
 
-/** The scopes that have chat lines, group first, in a stable order. */
-export function scopesOf(db) {
+/**
+ * The scopes that have chat lines, group first, in a stable order. `audienceColumn`: read them through `audience_id`.
+ * A triple that names no valid audience (a DM whose partner is not a person id of its interface) is not a scope of its
+ * own: its lines are internal (scope.js#audienceOf), never read as a conversation.
+ */
+export function scopesOf(db, { audienceColumn = false } = {}) {
   const rows = db.prepare(
     `SELECT DISTINCT scope_kind, scope_iface, scope_dm FROM sources
       WHERE kind IN ('seen', 'said') AND retired_at IS NULL AND scope_kind IN ('group', 'dm') AND scope_iface IS NOT NULL
       ORDER BY scope_kind, scope_iface, scope_dm`,
   ).all();
-  return rows.map(scopeOf);
+  return rows.filter((row) => wellFormed(row)).map((row) => scopeOf(row, audienceColumn));
 }
 
 export const cursorKey = (mode, scopeKey) => `memory_session.cursor.${mode}.${scopeKey}`;
@@ -154,12 +162,21 @@ const metaOf = (db, key) => db.prepare('SELECT value FROM meta WHERE key = ?').g
 
 /**
  * The lines of a scope after its cursor (the next `maxMessages` by arrival, so none is skipped), cut at the first line
- * newer than `settleBefore` (ms), then put in event time: `occurred_at`, then `rowid`.
+ * newer than `settleBefore` (ms), then put in event time: `occurred_at`, then `rowid`. With `audienceId` the scope is
+ * read through `audience_id`, else through the triple.
  */
-export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore }) {
-  const where = ['s.rowid > ?', 's.scope_kind = ?', 's.scope_iface = ?', CURRENT];
-  const params = [cursor, scope.scope_kind, scope.scope_iface];
-  if (scope.scope_kind === 'dm') { where.push('s.scope_dm = ?'); params.push(scope.scope_dm); }
+export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, audienceId = null }) {
+  const where = ['s.rowid > ?'];
+  const params = [cursor];
+  if (typeof audienceId === 'string' && audienceId) {
+    where.push('s.audience_id = ?');
+    params.push(audienceId);
+  } else {
+    where.push('s.scope_kind = ?', 's.scope_iface = ?');
+    params.push(scope.scope_kind, scope.scope_iface);
+    if (scope.scope_kind === 'dm') { where.push('s.scope_dm = ?'); params.push(scope.scope_dm); }
+  }
+  where.push(CURRENT);
   if (since) { where.push('s.occurred_at >= ?'); params.push(since); }
   const rows = db.prepare(
     `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, s.occurred_at, s.text, s.direct
@@ -216,7 +233,7 @@ function claimLine(label, row) {
 
 function currentDescriptions(db, subjectIds, ctx) {
   if (subjectIds.length === 0) return [];
-  const scope = whereFor(ctx, 'd');
+  const scope = scopeWhere(ctx, 'd');
   return db.prepare(
     `SELECT d.subject_id AS subject_id, d.field AS field, v.text AS text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
       WHERE d.retired_at IS NULL AND d.subject_id IN (${subjectIds.map(() => '?').join(', ')}) AND ${scope.sql} ORDER BY d.subject_id, d.field`,
@@ -280,7 +297,8 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
 
   // The places of the batch get a handle each (`p1`, ...), in order of their first line; the guilds they sit in follow.
   const placeIds = [...new Set(batch.map((line) => line.place_id).filter(Boolean))];
-  const placeRows = placeIds.map((id) => db.prepare('SELECT id, kind, name, topic, parent_id FROM places WHERE id = ?').get(id)).filter(Boolean);
+  // A DM place row the database made (schema v7) is not shown: the block stays as it was until its wording is written.
+  const placeRows = placeIds.map((id) => db.prepare("SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_file IS NOT NULL)").get(id)).filter(Boolean);
   const guilds = [...new Set(placeRows.map((row) => row.parent_id).filter(Boolean))];
   const handleOf = new Map();
   for (const id of [...placeRows.map((row) => row.id), ...guilds]) {
@@ -301,7 +319,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 
   // <self>
-  const selfScope = whereFor(ctx, 'c');
+  const selfScope = scopeWhere(ctx, 'c');
   const selfClaims = db.prepare(
     `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'self' AND c.retired_at IS NULL AND c.shown = 1 AND c.truth IN ('current', 'disputed')
        AND ${selfScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
@@ -319,7 +337,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     placeLines.push(`[${handleOf.get(id)}] guild: ${row?.name || id}`);
   }
   for (const description of currentDescriptions(db, [...guilds, ...placeIds], ctx)) placeLines.push(`${description.field}: ${description.text}`);
-  const placeScope = whereFor(ctx, 'c');
+  const placeScope = scopeWhere(ctx, 'c');
   const placeSubjects = [...guilds, ...placeIds];
   const placeClaims = placeSubjects.length === 0 ? [] : db.prepare(
     `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'place' AND c.subject_id IN (${placeSubjects.map(() => '?').join(', ')}) AND c.retired_at IS NULL
@@ -351,7 +369,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     nameOf,
   };
   const peopleBodies = [];
-  const personScope = whereFor(ctx, 'c');
+  const personScope = scopeWhere(ctx, 'c');
   for (const person of shown) {
     const file = db.prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' AND gone_at IS NULL ORDER BY path LIMIT 1").get(`guilds/%/users/${person.native}.json`);
     let profile = null;
@@ -383,7 +401,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   // <episodes>
   const episodeLines = [];
   if (shown.length > 0) {
-    const episodeScope = whereFor(ctx, 'e');
+    const episodeScope = scopeWhere(ctx, 'e');
     const ids = shown.map((person) => person.id);
     const rows = db.prepare(
       `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
@@ -400,7 +418,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
 
   // <intentions>
   const intentionLines = [];
-  const intentionScope = whereFor(ctx, 'i');
+  const intentionScope = scopeWhere(ctx, 'i');
   const records = db.prepare(`SELECT i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`).all(...intentionScope.params);
   for (const row of records) {
     const record = parseJson(row.record);
@@ -638,11 +656,11 @@ export async function sweep(ctx, options = {}) {
   const maxMessages = options.limit ? Math.min(options.limit, settings.maxMessages) : settings.maxMessages;
   const runs = [];
 
-  for (const scope of scopesOf(db)) {
+  for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
     if (options.scope && options.scope !== scope.key) continue;
     const key = cursorKey(settings.mode, scope.key);
     const cursor = Number(metaOf(db, key) ?? 0);
-    const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages, settleBefore: now() - settings.settleMinutes * MINUTE });
+    const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages, settleBefore: now() - settings.settleMinutes * MINUTE, audienceId: scope.audienceId ?? null });
     if (batch.length < Math.min(settings.minMessages, maxMessages)) { runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length }); continue; }
     runs.push(...await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }));
   }

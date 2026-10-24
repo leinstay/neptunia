@@ -23,6 +23,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { audienceOf } from './scope.js';
+import { ensureAudience } from './rows.js';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
@@ -84,7 +86,7 @@ export function pendingDiaryRows(db) {
 
 /**
  * Writes one row's result on the writer connection: `{ id, text, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
- * The media rows take the diary row's scope. One transaction.
+ * The media rows take the diary row's scope and its audience (scope.js#audienceOf, the one resolver). One transaction.
  */
 export function applyDiaryUpdate(handle, update) {
   handle.transaction(() => {
@@ -94,14 +96,16 @@ export function applyDiaryUpdate(handle, update) {
     // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
     db.prepare("UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?").run(update.text ?? '', update.id);
     const insert = db.prepare(
-      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at)
-       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
+       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
          bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
-         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL`,
+         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`,
     );
+    const audience = audienceOf(diary);
+    if ((update.media ?? []).length > 0) ensureAudience(db, audience);
     for (const item of update.media ?? []) {
-      insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm, item.extra ?? null);
+      insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm, item.extra ?? null, audience.audience_id);
     }
   });
 }

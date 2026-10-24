@@ -23,6 +23,9 @@
 // A group context that has a better match only in a DM it may not open gets `hidden: true` and nothing else about it:
 // no text, no count (the owner, 2026-10-20).
 //
+// A context with `audienceColumn: true` (`memoryDb.audienceColumn`) is read through `audience_id` (scope.js#scopeWhere,
+// #canRead) instead of the three scope columns; both give the same rows on a database the resolver filled.
+//
 // window(db, { ctx, anchor, move, messages, minutes }) reads the lines of a place up (earlier) or down (later) from a
 // message, in time order, inside the context; the read stops at the first line the context may not open and never
 // counts one.
@@ -37,7 +40,7 @@ import { log } from '../../log.js';
 import { foldText } from '../recent.js';
 import { indexWords } from '../record-index.js';
 import { channelPlaceId, nativeOf } from './ids.js';
-import { allowed, whereFor } from './scope.js';
+import { audienceOf, canRead, dmScope, scopeWhere, whereFor } from './scope.js';
 import { loadStemmer } from './stems.js';
 
 /** How many reply parents a hit's chain follows at most (as the record recall does). */
@@ -208,14 +211,14 @@ function holds(terms, row) {
  */
 function placesAllowed(db, ctx, allowPlace) {
   if (typeof allowPlace !== 'function') return null;
-  const scope = whereFor(ctx, 's');
+  const scope = scopeWhere(ctx, 's');
   const found = db.prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE s.place_id IS NOT NULL AND ${scope.sql}`).all(...scope.params);
   return JSON.stringify(found.map((row) => row.place_id).filter((placeId) => allowPlace(placeId)));
 }
 
 /** The shared filters of a stream: scope, range, place, the caller's allowed places. Returns { sql, params } (without a leading AND). */
 function filters(ctx, { from, to, placeId, places = null }, alias = 's') {
-  const scope = whereFor(ctx, alias);
+  const scope = scopeWhere(ctx, alias);
   const parts = [scope.sql];
   const params = [...scope.params];
   if (Number.isFinite(from)) { parts.push(`${alias}.occurred_at >= ?`); params.push(iso(from)); }
@@ -330,7 +333,7 @@ function accountsOf(db, ctx, forms) {
       if (wanted.has(key)) { ids.add(row.id); named.add(key); }
     }
   }
-  const scope = whereFor(ctx, 'c');
+  const scope = scopeWhere(ctx, 'c');
   const aliases = db.prepare(`SELECT c.text AS text, a.id AS account FROM claims c JOIN accounts a ON a.person_id = c.subject_id
     WHERE c.kind = 'alias' AND c.retired_at IS NULL AND a.retired_at IS NULL AND a.link = 'verified' AND ${scope.sql}`).all(...scope.params);
   for (const row of aliases) {
@@ -361,13 +364,13 @@ function neighbours(db, ctx, row, direction, { count, minutes = null }) {
   const limitMs = Number.isFinite(minutes) ? Date.parse(row.occurred_at) + (earlier ? -1 : 1) * minutes * MINUTE_MS : null;
   const bound = limitMs === null ? '' : ` AND s.occurred_at ${earlier ? '>=' : '<='} ?`;
   // The boundary is read as ids and scope columns only; the text is fetched for the lines the context may open.
-  const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.place_id = ? AND ${CURRENT}
+  const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.place_id = ? AND ${CURRENT}
     AND (s.occurred_at, s.rowid) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY s.occurred_at ${earlier ? 'DESC' : 'ASC'}, s.rowid ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
   const found = db.prepare(sql).all(row.place_id, row.occurred_at, row.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
   const open = [];
   let stopped = null;
   for (const next of found) {
-    if (!allowed(next, ctx)) { stopped = 'hidden'; break; }
+    if (!canRead(next, ctx)) { stopped = 'hidden'; break; }
     open.push(next.rowid);
   }
   const rows = rowsByRowid(db, open);
@@ -386,8 +389,8 @@ function rowsByRowid(db, rowids) {
  * of a line the context may not open is never loaded.
  */
 function sourceByNative(db, ctx, nativeId) {
-  const light = db.prepare(`SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.native_id = ? AND ${CURRENT}`).get(String(nativeId));
-  return light && allowed(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
+  const light = db.prepare(`SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.native_id = ? AND ${CURRENT}`).get(String(nativeId));
+  return light && canRead(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
 }
 
 /** The stretch around a hit: reply chain, `around` lines each side, the followed conversation. Rows, oldest first. */
@@ -601,18 +604,23 @@ const askersOf = (ctx) => (Array.isArray(ctx?.asker) ? ctx.asker : [ctx?.asker])
  */
 function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
   if (askers.length === 0) return false;
+  // The asker's own DM on this interface: by the triple, or by its audience (the DM place of the asker) on `audience_id`.
+  const askerAudiences = new Set(askers.map((person) => audienceOf(dmScope(person, ctx.iface)).audience_id));
+  const askedIn = ctx.audienceColumn === true
+    ? (row) => askerAudiences.has(row.audience_id)
+    : (row) => row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm);
   const parts = [];
   const params = [];
   if (Number.isFinite(scopeArgs.from)) { parts.push('s.occurred_at >= ?'); params.push(iso(scopeArgs.from)); }
   if (Number.isFinite(scopeArgs.to)) { parts.push('s.occurred_at <= ?'); params.push(iso(scopeArgs.to)); }
   if (scopeArgs.placeId) { parts.push('s.place_id = ?'); params.push(scopeArgs.placeId); }
-  const rows = db.prepare(`SELECT s.native_id AS native_id, s.place_id AS place_id, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm
+  const rows = db.prepare(`SELECT s.native_id AS native_id, s.place_id AS place_id, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id
     FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
     WHERE sources_fts MATCH ? AND ${CURRENT} ${parts.map((part) => `AND ${part}`).join(' ')} ORDER BY bm25(sources_fts, 0.0, 1.0)`).iterate(matchOf(terms), ...params);
   for (const row of rows) {
-    if (allowed(row, ctx)) {
+    if (canRead(row, ctx)) {
       if (shown(row)) return false;
-    } else if (row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm)) {
+    } else if (askedIn(row)) {
       return true;
     }
     // Another person's DM, another interface's line, an internal row: skipped, never a hint, never a stop.
@@ -637,8 +645,8 @@ export function window(db, { ctx, anchor, move = 'up', messages = null, minutes 
   if (!id) return gone;
   let row = null;
   if (id.startsWith('src:')) {
-    const light = db.prepare('SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.id = ? AND s.retired_at IS NULL').get(id);
-    row = light && allowed(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
+    const light = db.prepare('SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.id = ? AND s.retired_at IS NULL').get(id);
+    row = light && canRead(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
   } else {
     row = sourceByNative(db, ctx, id);
   }

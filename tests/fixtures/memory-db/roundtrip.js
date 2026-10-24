@@ -22,6 +22,8 @@ export function roundTrip(mapper, rel, value, ctx = {}) {
   try {
     insertRows(db, rows);
     const stored = readRows(db, Object.keys(rows));
+    // Schema v7 seeds her own `people` row (`person:self`, no file owns it): it is not part of any mapping.
+    if (stored.people) stored.people = stored.people.filter((row) => !(row.id === 'person:self' && row.owner_file === null));
     return { rows, stored, back: mapper.fromRows(stored, ctx) };
   } finally {
     db.exec('ROLLBACK');

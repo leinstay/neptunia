@@ -20,8 +20,13 @@
 //     and writes the turn_reads rows deferred, one transaction (`memoryDb.turnReads`). The persistence is deferred; the
 //     resolution is not, so a later sync cannot change which version a turn is said to have read.
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
-//     the worker, so the bot's loop never holds a write transaction. The service stamps `memoryDb.authority` into
-//     every write; `apply` is refused unless it is `db`.
+//     the worker, so the bot's loop never holds a write transaction. The service stamps `memoryDb.authority` (and
+//     `memoryDb.audienceColumn`, the read predicate of the target check) into every write; `apply` is refused unless
+//     authority is `db`.
+//   - `issueContext(spec)` issues an execution context (scope.js#issueContext: an id, the mode, the destination) read
+//     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
+//     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.
+//     `recordTurnReads` stores the context id (`contextId`, '' without one) and the reader kind (`turn` by default).
 //   - `memoryDb.authority` (`json` by default, `db`) says who writes the memory. While `json`, the JSON-to-database sync
 //     runs as above. While `db`, the sync is off (no tick pass, no `requestSync`, no shutdown pass), the database is
 //     taken as in step from the moment it is opened, and the status says so (`authority`, `syncOff`). The read switch
@@ -47,6 +52,7 @@ import { syncOnce, walk, unitsOf } from './sync.js';
 import { fillStems } from './stems.js';
 import { exportOne, idsUnderDir } from './export.js';
 import { channelPlaceId, guildPlaceId } from './ids.js';
+import { contextRow, issueContext as issuePureContext } from './scope.js';
 import { memoryRootOf } from '../root.js';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 import { applyMemoryWrite } from './session-write.js';
@@ -112,11 +118,22 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
   return [...rows.values()];
 }
 
-/** Writes resolved turn_reads rows (`turnReadRows`) of one step in one transaction. */
+/** The reader kinds of `turn_reads`. */
+export const READER_KINDS = Object.freeze(['turn', 'session', 'wake']);
+
+/**
+ * Writes resolved turn_reads rows (`turnReadRows`) of one step in one transaction. A row's `context_id` is the
+ * execution context it was read in ('' when none was issued) and `reader_kind` who read it (`turn` by default).
+ */
 export function insertTurnReads(handle, turnId, step, rows) {
   handle.transaction(() => {
-    const insert = handle.db.prepare('INSERT OR IGNORE INTO turn_reads (turn_id, step, row_kind, row_id, block, ord, version_id, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const row of rows) insert.run(String(turnId), String(step), row.row_kind, row.row_id, row.block ?? null, row.ord ?? null, row.version_id ?? null, row.revision ?? null);
+    const insert = handle.db.prepare(`INSERT OR IGNORE INTO turn_reads (turn_id, step, context_id, row_kind, row_id, block, ord, version_id, revision, reader_kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const row of rows) {
+      const contextId = typeof row.context_id === 'string' ? row.context_id : '';
+      const readerKind = READER_KINDS.includes(row.reader_kind) ? row.reader_kind : 'turn';
+      insert.run(String(turnId), String(step), contextId, row.row_kind, row.row_id, row.block ?? null, row.ord ?? null, row.version_id ?? null, row.revision ?? null, readerKind);
+    }
   });
 }
 
@@ -459,9 +476,10 @@ export function createMemoryDb({
 
   /**
    * The memory a turn's request carried (prompt.js `memoryReads`), written as turn_reads rows of its step, deferred.
-   * @param {{ turnId: string, step?: string, guildId?: string|null, reads: { kind: string, id: string }[] }} args
+   * `contextId` is the execution context of the read (`issueContext`), `readerKind` `turn` (default), `session` or `wake`.
+   * @param {{ turnId: string, step?: string, guildId?: string|null, reads: { kind: string, id: string }[], contextId?: string|null, readerKind?: string }} args
    */
-  function recordTurnReads({ turnId, step = 's0', guildId = null, reads: carried }) {
+  function recordTurnReads({ turnId, step = 's0', guildId = null, reads: carried, contextId = null, readerKind = 'turn' }) {
     if (!handle || !on() || !settings().turnReads || !turnId || !Array.isArray(carried) || carried.length === 0) return;
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows;
@@ -472,6 +490,9 @@ export function createMemoryDb({
       return;
     }
     if (rows.length === 0) return;
+    const context = typeof contextId === 'string' ? contextId : '';
+    const reader = READER_KINDS.includes(readerKind) ? readerKind : 'turn';
+    rows = rows.map((row) => ({ ...row, context_id: context, reader_kind: reader }));
     if (engine) {
       defer(() => {
         if (!engine || engine.dead) return;
@@ -498,10 +519,28 @@ export function createMemoryDb({
    */
   async function memoryWrite(update) {
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // Who writes is the live config's word, never the caller's.
-    const stamped = { ...update, authority: settings().authority };
+    // Who writes is the live config's word, never the caller's; so is the read predicate of the target check.
+    const stamped = { ...update, authority: settings().authority, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
     if (engine) return engine.call('memoryWrite', { update: stamped });
     return applyMemoryWrite(handle, stamped);
+  }
+
+  /**
+   * Issues an execution context for one turn, session or wake (scope.js#issueContext), read through `audience_id` when
+   * `memoryDb.audienceColumn` is on. While the database is open the context is recorded in `execution_contexts`,
+   * deferred through the writer (a failure is logged with a code); otherwise it is only the object.
+   * @param {{ kind: 'group'|'dm'|'internal', iface?: string, person?: string, place?: string|null, destination?: string|null }} spec
+   */
+  function issueContext(spec = {}) {
+    const ctx = issuePureContext({ ...spec, now, audienceColumn: hot.config?.memoryDb?.audienceColumn === true });
+    if (!handle || !on() || closing) return ctx;
+    const update = { kind: 'context', context: contextRow(ctx) };
+    defer(() => {
+      if (!handle || closing) return;
+      const done = engine ? (engine.dead ? null : engine.call('memoryWrite', { update })) : Promise.resolve().then(() => applyMemoryWrite(handle, update));
+      done?.catch((error) => log.warn('memory db: context record failed', { code: codeOf(error) }));
+    });
+    return ctx;
   }
 
   /** The state for the status card: on/off, rows, the last pass, how far behind it is, the read switch. */
@@ -548,5 +587,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, issueContext, status, close };
 }

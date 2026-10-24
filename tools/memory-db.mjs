@@ -18,7 +18,8 @@
 //        `memoryDb.read`), and compares them deep. Exit 1 on any difference. Run `sync` first; a file that changed on
 //        disk since the last sync is read from the disk and counted as stale. Opens the database read-only.
 //   node tools/memory-db.mjs stats --db <file>
-//        Row counts per table, and per scope kind where a table has scopes.
+//        Row counts per table, per scope kind where a table has scopes, and per audience where it has `audience_id`
+//        (none, internal, each interface's group, DM rows with the number of DM places; no ids printed).
 //   node tools/memory-db.mjs ledger-import --ledger <ledger.db> --db <file>
 //        Copies the task ledger's rows into the reserved ledger_* tables as JSON records (the source is opened
 //        read-only).
@@ -38,7 +39,7 @@ import { createStore } from '../src/memory/store.js';
 import { isDeepStrictEqual } from 'node:util';
 import { classify } from '../src/memory/db/map/index.js';
 import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
-import { V1_TABLES } from '../src/memory/db/schema.js';
+import { V1_TABLES, V7_TABLES } from '../src/memory/db/schema.js';
 
 const FLAGS = new Set(['resume']);
 
@@ -321,8 +322,9 @@ function runStats(io, options) {
   const handle = openMemoryDb(options.db, { readOnly: true });
   try {
     const db = handle.db;
-    for (const table of V1_TABLES) {
-      if (table.endsWith('_fts') || table.endsWith('_tri')) continue;
+    const exists = (table) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
+    for (const table of [...V1_TABLES, ...V7_TABLES]) {
+      if (table.endsWith('_fts') || table.endsWith('_tri') || !exists(table)) continue;
       const columns = new Set(db.prepare(`PRAGMA table_info("${table}")`).all().map((column) => column.name));
       const total = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get().n;
       let line = `${table.padEnd(22)} ${String(total).padStart(8)}`;
@@ -330,6 +332,11 @@ function runStats(io, options) {
       if (columns.has('scope_kind') && total) {
         const scopes = db.prepare(`SELECT scope_kind AS k, COUNT(*) AS n FROM "${table}" GROUP BY scope_kind ORDER BY k`).all();
         line += `  scope ${scopes.map((scope) => `${scope.k ?? 'null'}=${scope.n}`).join(' ')}`;
+      }
+      if (columns.has('audience_id') && total) {
+        const kinds = db.prepare(`SELECT CASE WHEN audience_id IS NULL THEN 'null' WHEN audience_id LIKE 'aud:dm:%' THEN 'dm' ELSE substr(audience_id, 5) END AS k,
+          COUNT(*) AS n, COUNT(DISTINCT CASE WHEN audience_id LIKE 'aud:dm:%' THEN audience_id END) AS places FROM "${table}" GROUP BY 1 ORDER BY 1`).all();
+        line += `  audience ${kinds.map((kind) => `${kind.k}=${kind.n}${kind.k === 'dm' ? ` (${kind.places} places)` : ''}`).join(' ')}`;
       }
       io.out(line);
     }

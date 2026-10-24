@@ -241,8 +241,205 @@ const V6 = [
   'ALTER TABLE turn_reads ADD COLUMN revision INTEGER;',
 ].join('\n');
 
+// Version 7 (spec 2026-10-24-memory-schema-v7, stage 1; section 11 overrides the rest): identity namespaces, audiences,
+// DM places, account links, execution contexts and the turn_reads rebuild. Additive: no JSON field moves, the triple
+// stays the compatibility projection, every new column is filled from today's columns by statements SQLite runs in one
+// pass each.
+//  - `interfaces` (`discord`, `cli`, `core`, and any interface a row names), `authorities` (the native namespace of each
+//    interface: `discord/global`, `cli/local`, `core/local`; `legacy/local` for the full legacy id spellings; one
+//    `discord/guild:<id>` per guild place), `connections` (empty until an adapter logs in), `external_keys` (every
+//    person, account and place under its native authority and, for the legacy spelling, under `legacy/local`; her own
+//    `person:self` under `core/local` as `self`);
+//  - `people.status`, her `people` row (`person:self`, kind `self`); accounts and places get their authority, native
+//    key and generation (a reused native key is a new generation, never the same node), accounts a `kind`, places a
+//    `conversation` (`dm` | `group` | NULL for a container) and their DM partner; sources their authority, author kind
+//    (`self` for her own kinds), `observed_at` (= `recorded_at`, a legacy approximation) and connection;
+//  - `audiences` and `audience_id` on every table with the scope triple: `aud:none`, `aud:internal`, `aud:group:<iface>`,
+//    `aud:dm:<DM place id>`; the DM place of every DM partner a row names is created (`<iface>:dm:<native>`); a
+//    malformed triple gets `aud:internal` and one `decisions` row `migration:scope_quarantined` per table and triple;
+//  - `account_person_links`: one row per account with a person, `verified` where `accounts.link` is `verified`, else
+//    `proposed`; `execution_contexts`: the contexts the core issues;
+//  - `turn_reads` is rebuilt with `context_id` (a read without one stores '') in its primary key and `reader_kind`;
+//  - the `sources` update trigger now fires on `text` and `stems` only (the only columns the FTS tables hold), so a
+//    one-pass update of another column does not re-index the whole table.
+// The SQL here and src/memory/db/scope.js#audienceOf are the same rule; tests/memory-db-v7.test.js checks they agree.
+
+/** Every table that carries the scope triple (and from v7 its `audience_id`). */
+export const SCOPED_TABLES = [
+  'sources', 'vectors', 'claims', 'descriptions', 'episodes', 'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'session_runs',
+];
+/** Her own source kinds (`author_kind = 'self'`). */
+export const SELF_SOURCE_KINDS = ['said', 'answer', 'felt', 'memory_session', 'description_review'];
+
+// The rows the migration writes are stamped with the time the legacy data is as of: the last sync before the
+// migration (an empty database has none: the epoch). Deterministic, so two databases migrated from the same rows agree.
+const NOW_SQL = "COALESCE((SELECT value FROM meta WHERE key = 'last_sync_at'), '1970-01-01T00:00:00.000Z')";
+/** The native authority of an interface column (src/memory/db/ids.js#nativeAuthorityOf). */
+const AUTHORITY_SQL = (col) => `(CASE WHEN ${col} IS NULL OR ${col} = '' THEN 'core/local' WHEN ${col} IN ('cli', 'core') THEN ${col} || '/local' ELSE ${col} || '/global' END)`;
+const DM_PREFIX = "('person:' || scope_iface || ':')";
+const DM_OK = `(scope_iface IS NOT NULL AND scope_iface <> '' AND scope_dm IS NOT NULL AND substr(scope_dm, 1, length(${DM_PREFIX})) = ${DM_PREFIX} AND length(scope_dm) > length(${DM_PREFIX}))`;
+/** The audience of a triple (src/memory/db/scope.js#audienceOf). */
+const AUDIENCE_SQL = `(CASE
+  WHEN scope_kind = 'none' THEN 'aud:none'
+  WHEN scope_kind = 'group' AND scope_iface IS NOT NULL AND scope_iface <> '' THEN 'aud:group:' || scope_iface
+  WHEN scope_kind = 'dm' AND ${DM_OK} THEN 'aud:dm:' || scope_iface || ':dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1)
+  ELSE 'aud:internal' END)`;
+const MALFORMED_SQL = `(${AUDIENCE_SQL} = 'aud:internal' AND scope_kind IS NOT 'internal')`;
+const SELF_KINDS_SQL = SELF_SOURCE_KINDS.map((kind) => `'${kind}'`).join(', ');
+const PLACE_KEY_SQL = `(CASE
+  WHEN kind = 'dm' THEN (CASE WHEN native_id IS NOT NULL THEN 'dm:' || native_id
+    WHEN iface IS NOT NULL AND substr(id, 1, length(iface || ':dm:')) = iface || ':dm:' AND length(id) > length(iface || ':dm:') THEN 'dm:' || substr(id, length(iface || ':dm:') + 1)
+    ELSE NULL END)
+  WHEN native_id IS NULL THEN NULL
+  ELSE COALESCE(NULLIF(kind, ''), 'place') || ':' || native_id END)`;
+const CONVERSATION_SQL = "(CASE WHEN kind = 'dm' OR scope_kind = 'dm' THEN 'dm' WHEN kind IN ('guild', 'server', 'workspace', 'category') THEN NULL ELSE 'group' END)";
+const ACCOUNT_KEY_SQL = "COALESCE(native_id, CASE WHEN iface IS NOT NULL AND substr(id, 1, length(iface) + 1) = iface || ':' AND length(id) > length(iface) + 1 THEN substr(id, length(iface) + 2) END)";
+
+const V7 = [
+  `CREATE TABLE interfaces (id TEXT PRIMARY KEY, name TEXT, contract INTEGER NOT NULL DEFAULT 1, extra JSON);`,
+  `CREATE TABLE authorities (
+    id TEXT PRIMARY KEY, iface TEXT NOT NULL REFERENCES interfaces(id), namespace TEXT NOT NULL, name TEXT, extra JSON, UNIQUE (iface, namespace)
+  );`,
+  `CREATE TABLE connections (
+    id TEXT PRIMARY KEY, iface TEXT NOT NULL REFERENCES interfaces(id), authority_id TEXT REFERENCES authorities(id),
+    self_account TEXT, capabilities JSON, status TEXT, extra JSON
+  );`,
+  `CREATE TABLE external_keys (
+    authority_id TEXT NOT NULL REFERENCES authorities(id),
+    object_kind TEXT NOT NULL CHECK (object_kind IN ('person', 'account', 'place', 'source', 'participant')),
+    native_key TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 1, node_id TEXT NOT NULL,
+    valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL,
+    PRIMARY KEY (authority_id, object_kind, native_key, generation)
+  );`,
+  'CREATE INDEX external_keys_node ON external_keys(node_id);',
+  `CREATE TABLE audiences (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('none', 'internal', 'group', 'dm')),
+    iface TEXT REFERENCES interfaces(id), place_id TEXT REFERENCES places(id),
+    CHECK ((kind IN ('none', 'internal') AND iface IS NULL AND place_id IS NULL)
+        OR (kind = 'group' AND iface IS NOT NULL AND place_id IS NULL)
+        OR (kind = 'dm' AND iface IS NOT NULL AND place_id IS NOT NULL)),
+    CHECK (id = CASE kind WHEN 'none' THEN 'aud:none' WHEN 'internal' THEN 'aud:internal' WHEN 'group' THEN 'aud:group:' || iface ELSE 'aud:dm:' || place_id END)
+  );`,
+  "CREATE UNIQUE INDEX audiences_single ON audiences(kind) WHERE kind IN ('none', 'internal');",
+  "CREATE UNIQUE INDEX audiences_group ON audiences(iface) WHERE kind = 'group';",
+  "CREATE UNIQUE INDEX audiences_dm ON audiences(place_id) WHERE kind = 'dm';",
+  `CREATE TABLE account_person_links (
+    id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), person_id TEXT NOT NULL REFERENCES people(id),
+    state TEXT NOT NULL CHECK (state IN ('proposed', 'verified', 'revoked')),
+    by TEXT, reason TEXT, evidence_id TEXT, valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL
+  );`,
+  'CREATE INDEX account_person_links_account ON account_person_links(account_id, valid_to_at);',
+  'CREATE INDEX account_person_links_person ON account_person_links(person_id);',
+  `CREATE TABLE execution_contexts (
+    id TEXT PRIMARY KEY, mode TEXT NOT NULL CHECK (mode IN ('outward', 'internal')), iface TEXT REFERENCES interfaces(id),
+    destination_place_id TEXT, partner_person_id TEXT, policy_version INTEGER NOT NULL DEFAULT 1, issued_at TEXT NOT NULL
+  );`,
+
+  // Columns.
+  "ALTER TABLE people ADD COLUMN status TEXT DEFAULT 'active';",
+  'ALTER TABLE accounts ADD COLUMN authority_id TEXT REFERENCES authorities(id);',
+  'ALTER TABLE accounts ADD COLUMN native_key TEXT;',
+  'ALTER TABLE accounts ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;',
+  "ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'bot', 'shared', 'self'));",
+  'ALTER TABLE accounts ADD COLUMN gone_at TEXT;',
+  'ALTER TABLE places ADD COLUMN authority_id TEXT REFERENCES authorities(id);',
+  'ALTER TABLE places ADD COLUMN native_key TEXT;',
+  'ALTER TABLE places ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;',
+  "ALTER TABLE places ADD COLUMN conversation TEXT CHECK (conversation IN ('dm', 'group'));",
+  'ALTER TABLE places ADD COLUMN partner_person TEXT;',
+  'ALTER TABLE places ADD COLUMN partner_account TEXT;',
+  'ALTER TABLE places ADD COLUMN gone_at TEXT;',
+  'ALTER TABLE places ADD COLUMN seen_from_at TEXT;',
+  'ALTER TABLE places ADD COLUMN seen_to_at TEXT;',
+  'ALTER TABLE sources ADD COLUMN authority_id TEXT;',
+  "ALTER TABLE sources ADD COLUMN author_kind TEXT CHECK (author_kind IN ('account', 'participant', 'self'));",
+  'ALTER TABLE sources ADD COLUMN observed_at TEXT;',
+  'ALTER TABLE sources ADD COLUMN connection_id TEXT;',
+  ...SCOPED_TABLES.map((table) => `ALTER TABLE ${table} ADD COLUMN audience_id TEXT REFERENCES audiences(id);`),
+  'CREATE UNIQUE INDEX accounts_native ON accounts(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;',
+  'CREATE UNIQUE INDEX places_native ON places(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;',
+
+  // Interfaces and authorities.
+  "INSERT INTO interfaces (id) VALUES ('discord'), ('cli'), ('core');",
+  `INSERT OR IGNORE INTO interfaces (id) SELECT DISTINCT v FROM (
+    ${[...SCOPED_TABLES.map((table) => `SELECT scope_iface AS v FROM ${table}`), 'SELECT iface FROM places', 'SELECT iface FROM accounts', 'SELECT iface FROM sources'].join(' UNION ')}
+  ) WHERE v IS NOT NULL AND v <> '';`,
+  "INSERT INTO authorities (id, iface, namespace) SELECT id || CASE WHEN id IN ('cli', 'core') THEN '/local' ELSE '/global' END, id, CASE WHEN id IN ('cli', 'core') THEN 'local' ELSE 'global' END FROM interfaces;",
+  "INSERT INTO authorities (id, iface, namespace, name) VALUES ('legacy/local', 'core', 'legacy', 'legacy ids');",
+  "INSERT OR IGNORE INTO authorities (id, iface, namespace) SELECT DISTINCT iface || '/guild:' || native_id, iface, 'guild:' || native_id FROM places WHERE kind = 'guild' AND native_id IS NOT NULL AND iface IS NOT NULL AND iface <> '';",
+
+  // Her own person row.
+  "INSERT OR IGNORE INTO people (id, kind, status) VALUES ('person:self', 'self', 'active');",
+
+  // Accounts and places: authority, native key, conversation.
+  `UPDATE accounts SET authority_id = ${AUTHORITY_SQL('iface')}, native_key = ${ACCOUNT_KEY_SQL};`,
+  `UPDATE places SET authority_id = ${AUTHORITY_SQL('iface')}, native_key = ${PLACE_KEY_SQL}, conversation = ${CONVERSATION_SQL};`,
+
+  // The scope triples in use, the DM places they name, the audiences.
+  `CREATE TEMP TABLE _v7_scopes AS ${SCOPED_TABLES.map((table) => `SELECT '${table}' AS tbl, scope_kind, scope_iface, scope_dm, COUNT(*) AS n FROM ${table} GROUP BY scope_kind, scope_iface, scope_dm`).join(' UNION ALL ')};`,
+  `INSERT OR IGNORE INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, conversation, partner_person, partner_account)
+    SELECT DISTINCT scope_iface || ':dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1), scope_iface, 'dm', NULL, NULL, 'dm', ${AUTHORITY_SQL('scope_iface')},
+      'dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1), 1, 'dm', scope_dm, scope_iface || ':' || substr(scope_dm, length(${DM_PREFIX}) + 1)
+    FROM _v7_scopes WHERE scope_kind = 'dm' AND ${DM_OK};`,
+  "INSERT INTO audiences (id, kind) VALUES ('aud:none', 'none'), ('aud:internal', 'internal');",
+  "INSERT OR IGNORE INTO audiences (id, kind, iface) SELECT DISTINCT 'aud:group:' || scope_iface, 'group', scope_iface FROM _v7_scopes WHERE scope_kind = 'group' AND scope_iface IS NOT NULL AND scope_iface <> '';",
+  `INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) SELECT DISTINCT ${AUDIENCE_SQL}, 'dm', scope_iface, scope_iface || ':dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1)
+    FROM _v7_scopes WHERE scope_kind = 'dm' AND ${DM_OK};`,
+  `INSERT OR IGNORE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
+    SELECT 'migration:v7:scope_quarantined:' || tbl || ':' || COALESCE(scope_kind, '') || ':' || COALESCE(scope_iface, '') || ':' || COALESCE(scope_dm, ''),
+      ${NOW_SQL}, 'migration', 'table', tbl, 'migration:scope_quarantined', 'malformed scope triple',
+      json_object('scope_kind', scope_kind, 'scope_iface', scope_iface, 'scope_dm', scope_dm, 'rows', n), NULL, NULL, NULL
+    FROM _v7_scopes WHERE ${MALFORMED_SQL};`,
+
+  // audience_id everywhere; sources in one pass with the trigger narrowed first.
+  'DROP TRIGGER sources_au;',
+  `CREATE TRIGGER sources_au AFTER UPDATE OF text, stems ON sources BEGIN
+  INSERT INTO sources_fts(sources_fts, rowid, text, stems) VALUES ('delete', old.rowid, old.text, old.stems);
+  INSERT INTO sources_tri(sources_tri, rowid, text) VALUES ('delete', old.rowid, old.text);
+  INSERT INTO sources_fts(rowid, text, stems) VALUES (new.rowid, new.text, new.stems);
+  INSERT INTO sources_tri(rowid, text) VALUES (new.rowid, new.text);
+END;`,
+  `UPDATE sources SET audience_id = ${AUDIENCE_SQL}, authority_id = ${AUTHORITY_SQL('iface')},
+    author_kind = CASE WHEN kind IN (${SELF_KINDS_SQL}) THEN 'self' WHEN author_account IS NOT NULL THEN 'account' ELSE NULL END,
+    observed_at = recorded_at;`,
+  ...SCOPED_TABLES.filter((table) => table !== 'sources').map((table) => `UPDATE ${table} SET audience_id = ${AUDIENCE_SQL};`),
+
+  // External keys and links.
+  `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at)
+    SELECT ${AUTHORITY_SQL('i.id')}, 'person', substr(p.id, length('person:' || i.id || ':') + 1), 1, p.id, ${NOW_SQL}
+    FROM people p JOIN interfaces i ON substr(p.id, 1, length('person:' || i.id || ':')) = 'person:' || i.id || ':' AND length(p.id) > length('person:' || i.id || ':');`,
+  `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at) VALUES ('core/local', 'person', 'self', 1, 'person:self', ${NOW_SQL});`,
+  `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at)
+    SELECT authority_id, 'account', native_key, generation, id, ${NOW_SQL} FROM accounts WHERE authority_id IS NOT NULL AND native_key IS NOT NULL;`,
+  `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at)
+    SELECT authority_id, 'place', native_key, generation, id, ${NOW_SQL} FROM places WHERE authority_id IS NOT NULL AND native_key IS NOT NULL;`,
+  `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at)
+    SELECT 'legacy/local', 'person', id, 1, id, ${NOW_SQL} FROM people WHERE id <> 'person:self'
+    UNION ALL SELECT 'legacy/local', 'account', id, 1, id, ${NOW_SQL} FROM accounts
+    UNION ALL SELECT 'legacy/local', 'place', id, 1, id, ${NOW_SQL} FROM places;`,
+  `INSERT OR IGNORE INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
+    SELECT 'link:' || a.id || ':' || a.person_id, a.id, a.person_id, CASE WHEN a.link = 'verified' THEN 'verified' ELSE 'proposed' END, 'migration', NULL, NULL,
+      a.linked_at, a.retired_at, ${NOW_SQL}
+    FROM accounts a WHERE a.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM people p WHERE p.id = a.person_id);`,
+
+  // turn_reads with the context in its key.
+  `CREATE TABLE turn_reads_v7 (
+    turn_id TEXT, step TEXT, context_id TEXT NOT NULL DEFAULT '', row_kind TEXT, row_id TEXT, block TEXT, ord INTEGER, version_id TEXT, revision INTEGER,
+    reader_kind TEXT NOT NULL DEFAULT 'turn' CHECK (reader_kind IN ('turn', 'session', 'wake')),
+    PRIMARY KEY (turn_id, step, context_id, row_kind, row_id)
+  );`,
+  `INSERT INTO turn_reads_v7 (turn_id, step, context_id, row_kind, row_id, block, ord, version_id, revision, reader_kind)
+    SELECT turn_id, step, '', row_kind, row_id, block, ord, version_id, revision, 'turn' FROM turn_reads;`,
+  'DROP TABLE turn_reads;',
+  'ALTER TABLE turn_reads_v7 RENAME TO turn_reads;',
+  'DROP TABLE temp._v7_scopes;',
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7];
+
+/** Every table schema v7 adds. */
+export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [
