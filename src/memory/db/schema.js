@@ -143,8 +143,27 @@ CREATE TABLE ledger_outbox (id TEXT PRIMARY KEY, record JSON);
 CREATE TABLE operational (kind TEXT, owner TEXT, value JSON, owner_file TEXT, PRIMARY KEY (kind, owner));
 `;
 
+// Version 2 (sync): every table a sync writes can retire a row that left its file, and a vectors row knows the
+// month directory it came from; `files.lines` counts the lines of a JSONL file already read.
+const RETIRABLE = [
+  'accounts', 'memberships', 'sources', 'vectors', 'claim_versions', 'descriptions', 'description_versions',
+  'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events', 'decisions', 'operational',
+];
+const V2 = [
+  ...RETIRABLE.map((table) => `ALTER TABLE ${table} ADD COLUMN retired_at TEXT;`),
+  'ALTER TABLE vectors ADD COLUMN owner_file TEXT;',
+  'ALTER TABLE files ADD COLUMN lines INTEGER;',
+  'CREATE INDEX vectors_file ON vectors(owner_file);',
+  ...['people', 'accounts', 'places', 'memberships', 'claim_versions', 'descriptions', 'description_versions', 'episodes',
+    'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events', 'decisions', 'operational']
+    .map((table) => `CREATE INDEX ${table}_owner ON ${table}(owner_file);`),
+  'CREATE INDEX episode_sources_episode ON episode_sources(episode_id);',
+  'CREATE INDEX claim_sources_claim ON claim_sources(claim_id);',
+  'CREATE INDEX diary_mirrors_diary ON diary_mirrors(diary_id);',
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1];
+export const MIGRATIONS = [V1, V2];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [
