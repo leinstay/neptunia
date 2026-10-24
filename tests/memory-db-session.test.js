@@ -6,7 +6,7 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import {
   CODES, batchOf, buildSessionRequest, cursorKey, memoryKeyState, memorySessionStatusLine, parseSessionAnswer, refusalOf, scopesOf,
-  sessionSettings, sessionStatus, sweep, validateAnswer,
+  resolveSessionReads, sessionSettings, sessionStatus, sweep, validateAnswer,
 } from '../src/memory/db/session.js';
 import { channelPlaceId, dmPlaceId, guildPlaceId, messageSourceId, personId, SELF_PERSON } from '../src/memory/db/ids.js';
 import { groupContext, whereFor } from '../src/memory/db/scope.js';
@@ -632,6 +632,7 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
   assert.equal(calls, 1);
 
   assert.equal(opKinds({ claims: [{ op: 'add', subjectKind: 'person' }, { op: 'add', subjectKind: 'person' }, { op: 'confirm' }], episodes: [{}], affinity: [], descriptions: [] }), 'claims:add(person) 2, claims:confirm 1, episodes 1');
+  assert.equal(opKinds({ claims: [], people: [{ op: 'add' }, { op: 'add' }] }), 'people:add 2', 'people ops are counted too');
   assert.equal(opKinds(null), 'none');
   assert.deepEqual(parseSubject('person:person:discord:u-ada:character'), { subject: { kind: 'person', id: 'person:discord:u-ada' }, field: 'character' });
   assert.throws(() => parseSubject('character'), /--review wants/);
@@ -1022,6 +1023,77 @@ test('a batch retried from the same cursor keeps its lines: lines that settled s
     assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 7, 'the first page was not applied again');
     assert.equal(count(env.db, 'claims', "author = 'her'"), 2);
     assert.ok(env.db.prepare("SELECT rowid FROM sources WHERE native_id = 'm6'").get().rowid > firstTo, 'the new line waits for the next batch');
+  } finally {
+    env.done();
+  }
+});
+
+// ---------- schema v9: the run's read-set, the base of a claim edit, lines matched by their native tuple ----------
+
+test('a run records what its request rendered: turn_reads of reader kind session, in the run\'s context, with the versions shown', async () => {
+  const env = fixture();
+  try {
+    const ids = chat(env);
+    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.db.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('cv-ada-1', 'cl-ada', 'likes café', '2026-10-02T00:00:00.000Z', 'add')").run();
+    const result = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
+    assert.equal(result.runs[0].outcome, 'ok');
+    const runId = env.db.prepare('SELECT id FROM session_runs').get().id;
+    const rows = env.db.prepare('SELECT * FROM turn_reads WHERE turn_id = ? ORDER BY ord').all(runId).map((row) => ({ ...row }));
+    assert.ok(rows.length > 5);
+    assert.ok(rows.every((row) => row.reader_kind === 'session' && row.step === '0' && row.context_id === `ctx:session:${runId}`));
+    const claim = rows.find((row) => row.row_kind === 'claims' && row.row_id === 'cl-ada');
+    assert.deepEqual([claim.block, claim.version_id], ['people', 'cv-ada-1'], 'the exact version the request showed');
+    const lines = rows.filter((row) => row.block === 'batch').map((row) => row.row_id);
+    assert.deepEqual(lines, [ids.a, ids.b, ids.c, ids.d, ids.e], 'the batch lines, in the order the request shows them');
+    assert.ok(rows.filter((row) => row.block === 'batch').every((row) => row.row_kind === 'sources' && row.revision === 1));
+    assert.ok(rows.some((row) => row.row_kind === 'places' && row.row_id === CHANNEL && row.block === 'place'));
+    assert.deepEqual({ ...env.db.prepare('SELECT mode, iface FROM execution_contexts WHERE id = ?').get(`ctx:session:${runId}`) }, { mode: 'outward', iface: 'discord' });
+  } finally {
+    env.done();
+  }
+});
+
+test('a claim edit carries the version its request showed: a claim that moved on meanwhile is refused as stale_base; her own base is never read', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.db.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('cv-ada-1', 'cl-ada', 'likes café', '2026-10-02T00:00:00.000Z', 'add')").run();
+    const labelOf = (id) => [...request(env).maps.claims.entries()].find(([, value]) => value === id)[0];
+    const label = labelOf('cl-ada');
+    // While she answers, another writer gives the claim a newer version.
+    const llm = fakeLlm(() => {
+      env.db.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('cv-ada-2', 'cl-ada', 'likes tea', '2026-10-24T11:59:00.000Z', 'revise')").run();
+      return memoryBlock({ claims: [{ op: 'revise', id: label, text: 'likes tea mornings', how: 'said', sources: ['#1'], reason: 'said so', base: 'cv-ada-2' }] });
+    });
+    const result = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }) }));
+    assert.equal(result.runs[0].outcome, 'ok');
+    assert.equal(result.runs[0].plan.claims[0].base, 'cv-ada-1', 'the base is the request\'s, not the answer\'s');
+    assert.equal(env.db.prepare("SELECT text FROM claims WHERE id = 'cl-ada'").get().text, 'likes café mornings', 'nothing written');
+    assert.equal(count(env.db, 'decisions', "action = 'rejected:stale_base'"), 1);
+
+    // validateAnswer alone: the base comes from the request's versions, and only when the request resolved them.
+    const built = request(env);
+    const ask = { claims: [{ op: 'confirm', id: label, sources: ['#1'], base: 'whatever' }] };
+    assert.equal(Object.hasOwn(validateAnswer(ask, { maps: built.maps, people: built.people }).plan.claims[0], 'base'), false);
+    resolveSessionReads(env.db, built);
+    assert.equal(validateAnswer(ask, { maps: built.maps, people: built.people }).plan.claims[0].base, 'cv-ada-2');
+  } finally {
+    env.done();
+  }
+});
+
+test('the batch keeps a line\'s revisions apart from another interface\'s line with the same native id', () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'm1', minutesAgo: 50, text: 'Καλημέρα' });
+    // Another interface's line with the same native id and a higher revision: not a revision of the Discord line.
+    env.db.prepare(`INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, occurred_at, recorded_at, text, scope_kind, scope_iface, authority_id, native_kind)
+      VALUES ('src:other:m1', 'seen', 'other', 'm1', 5, NULL, 'other:x', ?, ?, 'elsewhere', 'group', 'other', 'other/global', 'message')`).run(new Date(NOW - 40 * MINUTE).toISOString(), new Date(NOW - 40 * MINUTE).toISOString());
+    const scope = scopesOf(env.db).find((entry) => entry.key === 'group:discord');
+    const batch = batchOf(env.db, scope.scope, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
+    assert.deepEqual(batch.map((line) => line.text), ['Καλημέρα']);
   } finally {
     env.done();
   }

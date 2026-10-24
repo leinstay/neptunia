@@ -281,6 +281,15 @@ Foreign capture (`src/memory/db/observe.js`, schema v8): when the persona writes
 | `watch` | `[15, 120, 1440]` | Minutes after the anchor line at which a watch looks again for new direct replies and mentions; a watch that cannot run records `unavailable` |
 | `watchSameAuthor` | `20` | The most later lines of authors already in the bundle that one watch asks for, where the site allows it |
 
+## `graph`
+
+The memory graph (`src/memory/db/graph.js`, schema v9): the typed memory rows projected into nodes and edges, each edge with the audience of the row it came from, and the walks over it (everything a person said anywhere, what happened in a place and the places it contains, who replied to a line, the places that continue a place). A walk only follows edges and reaches nodes the reading context may see. These are the defaults of a walk; a caller may ask for less. Read at the moment of use.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `maxDepth` | `6` | How many edges a walk follows from where it starts. A walk that stopped there with further edges says so (`reason: depth`) |
+| `maxRows` | `2000` | How many paths a walk visits before it stops and says so (`reason: rows`), with the position the next page starts from |
+
 ## `embed`
 
 | Key | Default | Meaning |

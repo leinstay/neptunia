@@ -33,6 +33,10 @@
 // rows have no `owner_file`: no remap and no retirement of a file ever touches them. From schema v8 a line's `reply_to`
 // also gives it a `source_relations` row (rows.js#ensureRelations), inserted once and resolved when the replied line is
 // stored; the tables the database owns (participants, links, merges, capture, relations) are never remapped or retired.
+// From schema v9 every row a pass writes or retires is projected into the graph in the same transaction
+// (graph.js#projectRow), and a full pass (no `filter`) finishes the projection the v9 migration left pending
+// (graph.js#projectPending, in slices) in its closing step. Lines are matched to a message by their native tuple (the
+// authority, the native kind and generation, and the native id), never by the native id alone.
 //
 // Order inside a pass: ordinary files first, then archive segments, participation and vectors (an archived item that is not in hot
 // memory becomes a retired `historical` claim, which needs the hot claims to be in), then request dumps (a dump's
@@ -52,6 +56,7 @@ import { stepSourceBelongsTo } from './map/requests.js';
 import { personId } from './ids.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.js';
+import { projectPending, projectRow } from './graph.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -144,8 +149,10 @@ function writeRow(db, table, row, opts) {
   const derived = deriveRow(db, table, row, { at: opts.at });
   upsert(db, table, derived, opts);
   if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, derived, { at: opts.at });
-  // Schema v8: a line's `reply_to` is a `replies_to` relation, and relations waiting for this line are resolved.
+  // Schema v8: a line's `reply_to` is a `replies_to` relation, and relations waiting for this line are resolved. Schema
+  // v9: the row's unit is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
+  else projectRow(db, table, derived, { at: opts.at });
   if (found && found.owner_file !== row.owner_file) {
     prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, row), row.owner_file);
   }
@@ -182,6 +189,7 @@ function retireAbsent(db, owner, mapping, at) {
       if (keep.has(keyOf(table, row))) continue;
       if (handOver(db, table, row, owner)) continue;
       update.run(at, ...key.map((col) => row[col]));
+      projectRow(db, table, row, { at });
       count += 1;
     }
     // This unit no longer maps the rows it shared with another guild.
@@ -197,6 +205,7 @@ function retireAbsent(db, owner, mapping, at) {
     for (const row of existing) {
       if (keep.has(childKey(child, row))) continue;
       prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
+      projectRow(db, child, row, { at });
       count += 1;
     }
   }
@@ -207,7 +216,7 @@ function retireAbsent(db, owner, mapping, at) {
 const retireUnit = (db, owner, at) => retireAbsent(db, owner, {}, at);
 
 /** Writes the child links of a mapping for one unit: a link that is already there is updated and un-retired, a new one is inserted. */
-function writeChildren(db, mapping, owner, skippedParents) {
+function writeChildren(db, mapping, owner, skippedParents, touched) {
   let count = 0;
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     for (const row of mapping[child] ?? []) {
@@ -223,6 +232,7 @@ function writeChildren(db, mapping, owner, skippedParents) {
       } else {
         prepared(db, `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((col) => bind(out[col])));
       }
+      touched.push([child, row]);
       count += 1;
     }
   }
@@ -242,7 +252,13 @@ function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
   }
   // An account with a person gets its link row once; an existing link is the database's and is never rewritten.
   ensureLinks(db, mapping.accounts, { at });
-  return count + writeChildren(db, mapping, owner, skippedParents);
+  const touched = [];
+  count += writeChildren(db, mapping, owner, skippedParents, touched);
+  // A participation file names lines by their message (`src:discord:<id>`): they are pointed at the stored revision
+  // before the episodes are projected, so a remap never projects the bare reference for a moment.
+  if ((mapping.episode_sources ?? []).length > 0) relinkParticipation(db, at);
+  for (const [child, row] of touched) projectRow(db, child, row, { at });
+  return count;
 }
 
 /** Makes a unit's mapping use the full unit path: `owner_file` of every row, and the `owner` of an operational row built from the path. */
@@ -358,15 +374,22 @@ function retireMember(db, userId, at) {
   const person = personId(userId);
   const account = `discord:${userId}`;
   let count = 0;
-  const run = (sql, ...params) => { count += Number(prepared(db, sql).run(...params).changes); };
-  run('UPDATE people SET retired_at = ? WHERE id = ? AND retired_at IS NULL', at, person);
-  run('UPDATE accounts SET retired_at = ? WHERE id = ? AND retired_at IS NULL', at, account);
-  run('UPDATE memberships SET retired_at = ? WHERE account_id = ? AND retired_at IS NULL', at, account);
-  run('UPDATE sources SET retired_at = ? WHERE author_account = ? AND retired_at IS NULL', at, account);
-  run('UPDATE affinity_events SET retired_at = ? WHERE person_id = ? AND retired_at IS NULL', at, person);
-  run('UPDATE claims SET retired_at = ? WHERE (subject_id = ? OR from_person = ?) AND retired_at IS NULL', at, person, person);
+  // A table the graph projects returns the ids it retired, and each is projected again (its edges retire with it).
+  const run = (table, sql, ...params) => {
+    if (table === null) { count += Number(prepared(db, sql).run(...params).changes); return; }
+    const done = prepared(db, `${sql} RETURNING id`).all(...params);
+    count += done.length;
+    for (const row of done) projectRow(db, table, { id: row.id }, { at });
+  };
+  run('people', 'UPDATE people SET retired_at = ? WHERE id = ? AND retired_at IS NULL', at, person);
+  run('accounts', 'UPDATE accounts SET retired_at = ? WHERE id = ? AND retired_at IS NULL', at, account);
+  run('memberships', 'UPDATE memberships SET retired_at = ? WHERE account_id = ? AND retired_at IS NULL', at, account);
+  run('sources', 'UPDATE sources SET retired_at = ? WHERE author_account = ? AND retired_at IS NULL', at, account);
+  run(null, 'UPDATE affinity_events SET retired_at = ? WHERE person_id = ? AND retired_at IS NULL', at, person);
+  run('claims', 'UPDATE claims SET retired_at = ? WHERE (subject_id = ? OR from_person = ?) AND retired_at IS NULL', at, person, person);
   for (const table of ['claims', 'episodes', 'sources', 'day', 'diary', 'media', 'intentions', 'work', 'vectors', 'descriptions', 'affinity_events']) {
-    run(`UPDATE ${quote(table)} SET retired_at = ? WHERE scope_kind = 'dm' AND scope_dm = ? AND retired_at IS NULL`, at, person);
+    const projected = ['day', 'vectors', 'affinity_events'].includes(table) ? null : table;
+    run(projected, `UPDATE ${quote(table)} SET retired_at = ? WHERE scope_kind = 'dm' AND scope_dm = ? AND retired_at IS NULL`, at, person);
   }
   return count;
 }
@@ -438,8 +461,13 @@ function hotClaimIds(db) {
  * Points every participation message ref (`src:discord:<messageId>`) at the newest revision of that message in the
  * record, when the record has it; a ref the record does not hold is kept as it is. Returns how many were changed.
  */
-function relinkParticipation(db) {
-  const find = prepared(db, "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
+function relinkParticipation(db, at) {
+  // The ref names a Discord message: the line is looked up by its native tuple (schema v8), so another interface's id
+  // that happens to be the same string is never taken for it. A database before v8 has only the native id.
+  const tuple = columnsOf(db, 'sources').has('native_kind');
+  const find = tuple
+    ? prepared(db, "SELECT id FROM sources WHERE authority_id = 'discord/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1")
+    : prepared(db, "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
   const update = prepared(db, 'UPDATE episode_sources SET source_id = ? WHERE episode_id = ? AND position = ? AND source_id = ?');
   let count = 0;
   for (const row of db.prepare("SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%' AND retired_at IS NULL").all()) {
@@ -447,6 +475,7 @@ function relinkParticipation(db) {
     const found = messageId ? find.get(messageId) : null;
     if (!found || found.id === row.source_id) continue;
     update.run(found.id, row.episode_id, row.position, row.source_id);
+    projectRow(db, 'episode_sources', { episode_id: row.episode_id }, { at });
     count += 1;
   }
   return count;
@@ -712,6 +741,16 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
     result.errors += 1;
     log.warn('memory sync: stems failed', { kind: 'sources', code: error?.code ?? error?.name ?? 'ERROR' });
   }
+  // The projection the v9 migration left pending (a pass limited to some files leaves it, as it leaves the stems).
+  if (!filter) {
+    try {
+      const done = projectPending({ db, transaction }, { at });
+      if (done.units > 0) log.debug?.('memory sync: graph projected', { units: done.units, ms: done.ms, done: done.done });
+    } catch (error) {
+      result.errors += 1;
+      log.warn('memory sync: graph projection failed', { kind: 'graph', code: error?.code ?? error?.name ?? 'ERROR' });
+    }
+  }
   // Rows of forgotten members that an earlier pass imported.
   try {
     transaction(() => {
@@ -724,7 +763,7 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
           now.add(userId);
         }
       }
-      if (result.byKind.record?.changed || result.byKind.participation?.changed) relinkParticipation(db);
+      if (result.byKind.record?.changed || result.byKind.participation?.changed) relinkParticipation(db, at);
       db.prepare("INSERT INTO meta (key, value) VALUES ('forgotten', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify([...now].sort()));
       db.prepare("INSERT INTO meta (key, value) VALUES ('last_sync_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(at);
       db.prepare("INSERT INTO meta (key, value) VALUES ('importer_version', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();

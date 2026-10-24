@@ -26,6 +26,15 @@
 // Context (`ctx`): { db (a connection that can read), write (session-write.js through the writer: the service's
 // `memoryWrite`), llm (`complete`), hot ({ config, prompts }), env, now, log, selfName, rng? }.
 // The sweep reads hot.config at the moment of use. No provider reasoning is ever sent. Logs carry counts and codes.
+//
+// Schema v9 (stage 3): the request lists what it rendered (`reads`: the batch lines, the claims shown as `sN` / `cN`, the
+// place descriptions, the places, the episodes and the intentions, each with its block and its order). When the request
+// is assembled the run resolves them through service.js#turnReadRows (the resolution her turns use) and writes them with
+// its own write, in its context (`ctx:session:<run id>`), as `turn_reads` rows of `reader_kind` `session`, `turn_id` the
+// run id, `step` the page. The claim version each `cN` / `sN` showed is the `base` of a confirm, revise or retire op on it
+// (filled here, never by her answer); the writer refuses an op whose claim moved on since (`stale_base`). The profile
+// text of a person is rendered whole by the turn renderer and its items are not listed one by one.
+// A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.js';
 import { concernsMember, isOpen } from '../../intentions/model.js';
@@ -33,10 +42,13 @@ import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { exportOne } from './export.js';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.js';
-import { audienceOf, dmContext, groupContext, scopeWhere, wellFormed } from './scope.js';
+import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.js';
 import { columnsOf } from './rows.js';
+import { turnReadRows } from './service.js';
 
 export const SESSION_PURPOSE = 'memory-session';
+/** The blocks of a session request's user content, in their order. */
+const SESSION_BLOCKS = Object.freeze(['self', 'place', 'people', 'episodes', 'intentions', 'batch']);
 export const CLAIM_KINDS = Object.freeze(['detail', 'interest', 'alias', 'injoke', 'self_fact', 'lesson', 'pattern']);
 export const HOW = Object.freeze(['said', 'saw', 'claimed', 'inferred', 'taught']);
 export const TRUTHS = Object.freeze(['historical', 'disputed', 'retired']);
@@ -125,11 +137,20 @@ export function stamp(ms, timezone = 'UTC') {
 
 // ---------- scopes and batches ----------
 
-/** `current`: the newest revision of a chat line, not retired, not deleted (alias `s`). */
-const CURRENT = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
-  AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE t.native_id = s.native_id AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
-  AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE t.native_id = s.native_id AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
-  AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id = s.native_id AND d.kind = 'deleted' AND d.retired_at IS NULL)`;
+/**
+ * `current`: the newest revision of a chat line, not retired, not deleted (alias `s`). The line's revisions are the rows
+ * of the same native tuple: the authority, the native kind and generation (schema v8) and the native id, so two
+ * interfaces' ids that are the same string never meet; a database before v8 has only the native id.
+ */
+function currentSql(db) {
+  const same = (t) => (columnsOf(db, 'sources').has('native_kind')
+    ? `${t}.native_id = s.native_id AND ${t}.authority_id IS s.authority_id AND ${t}.native_kind IS s.native_kind AND ${t}.generation IS s.generation`
+    : `${t}.native_id = s.native_id`);
+  return `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
+  AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE ${same('t')} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
+  AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE ${same('t')} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
+  AND NOT EXISTS (SELECT 1 FROM sources d WHERE ${same('d')} AND d.kind = 'deleted' AND d.retired_at IS NULL)`;
+}
 
 /**
  * A scope as the sweep walks it: `{ key, scope: { scope_kind, scope_iface, scope_dm }, ctx }`; read through `audience_id`
@@ -177,7 +198,7 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, a
     params.push(scope.scope_kind, scope.scope_iface);
     if (scope.scope_kind === 'dm') { where.push('s.scope_dm = ?'); params.push(scope.scope_dm); }
   }
-  where.push(CURRENT);
+  where.push(currentSql(db));
   if (since) { where.push('s.occurred_at >= ?'); params.push(since); }
   // Schema v8: a line by a thread-local poster names its participant.
   const participant = columnsOf(db, 'sources').has('author_participant') ? 's.author_participant' : 'NULL';
@@ -260,7 +281,7 @@ function currentDescriptions(db, subjectIds, ctx) {
   if (subjectIds.length === 0) return [];
   const scope = scopeWhere(ctx, 'd');
   return db.prepare(
-    `SELECT d.subject_id AS subject_id, d.field AS field, v.text AS text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
+    `SELECT d.id AS id, d.subject_id AS subject_id, d.field AS field, v.text AS text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
       WHERE d.retired_at IS NULL AND d.subject_id IN (${subjectIds.map(() => '?').join(', ')}) AND ${scope.sql} ORDER BY d.subject_id, d.field`,
   ).all(...subjectIds, ...scope.params);
 }
@@ -311,6 +332,9 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const timezone = config?.bot?.timezone ?? 'UTC';
   const { ctx } = scope;
   const touched = peopleOf(db, batch, selfName);
+  // What the request renders, in its order (turnReadRows resolves it to versions and revisions).
+  const reads = [];
+  const read = (kind, id, blockName) => { if (typeof id === 'string' && id) reads.push({ kind, id, block: blockName }); };
   const maps = { sources: new Map(), claims: new Map(), episodes: new Map(), places: new Map(), authors: touched.authors };
   const nameOf = (id) => {
     for (const account of touched.accounts.values()) if (account.native === String(id)) return account.name;
@@ -340,6 +364,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     if (typeof line.text !== 'string' || line.text.trim() === '') continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id);
+    read('source_id', line.id, 'batch');
     rendered.push(lineText(line, n, { accounts: touched.accounts, participants: touched.participants, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null }));
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
@@ -352,17 +377,25 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   ).all(...selfScope.params, cutoffIso, cutoffIso, settings.selfMax);
   const selfLines = selfClaims.map((row, index) => {
     maps.claims.set(`s${index + 1}`, row.id);
+    read('claim', row.id, 'self');
     return claimLine(`s${index + 1}`, row);
   });
 
   // <place>
   const placeLines = [`scope: ${scope.scope.scope_kind}`];
-  for (const row of placeRows) placeLines.push(`[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`);
+  for (const row of placeRows) {
+    placeLines.push(`[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`);
+    read('place', row.id, 'place');
+  }
   for (const id of guilds) {
     const row = db.prepare('SELECT name FROM places WHERE id = ?').get(id);
     placeLines.push(`[${handleOf.get(id)}] guild: ${row?.name || id}`);
+    read('place', id, 'place');
   }
-  for (const description of currentDescriptions(db, [...guilds, ...placeIds], ctx)) placeLines.push(`${description.field}: ${description.text}`);
+  for (const description of currentDescriptions(db, [...guilds, ...placeIds], ctx)) {
+    placeLines.push(`${description.field}: ${description.text}`);
+    read('description', description.id, 'place');
+  }
   const placeScope = scopeWhere(ctx, 'c');
   const placeSubjects = [...guilds, ...placeIds];
   const placeClaims = placeSubjects.length === 0 ? [] : db.prepare(
@@ -373,6 +406,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   for (const row of placeClaims) {
     claimNumber += 1;
     maps.claims.set(`c${claimNumber}`, row.id);
+    read('claim', row.id, 'place');
     placeLines.push(claimLine(`c${claimNumber}`, row));
   }
 
@@ -419,6 +453,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     for (const claim of claims) {
       claimNumber += 1;
       maps.claims.set(`c${claimNumber}`, claim.id);
+      read('claim', claim.id, 'people');
       lines.push(claimLine(`c${claimNumber}`, claim));
     }
     peopleBodies.push(lines.join('\n'));
@@ -437,6 +472,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     ).all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
     rows.forEach((row, index) => {
       maps.episodes.set(`e${index + 1}`, row.id);
+      read('episode', row.id, 'episodes');
       const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
       episodeLines.push(`[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${row.what}${row.feeling ? ` (${row.feeling})` : ''}`);
     });
@@ -445,13 +481,16 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   // <intentions>
   const intentionLines = [];
   const intentionScope = scopeWhere(ctx, 'i');
-  const records = db.prepare(`SELECT i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`).all(...intentionScope.params);
+  const records = db.prepare(`SELECT i.id, i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`).all(...intentionScope.params);
   for (const row of records) {
     const record = parseJson(row.record);
     if (!record || !isOpen(record.status)) continue;
     const concerns = shown.some((person) => concernsMember(record, { userId: person.native, names: [person.name] }))
       || placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
-    if (concerns && typeof record.purpose === 'string') intentionLines.push(`${record.status}: ${record.purpose}`);
+    if (concerns && typeof record.purpose === 'string') {
+      intentionLines.push(`${record.status}: ${record.purpose}`);
+      read('intention', row.id, 'intentions');
+    }
   }
 
   const system = systemTextOf(prompts, selfName, prompts?.['memory-session']);
@@ -463,7 +502,23 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     block('intentions', intentionLines.join('\n')),
     block('batch', batchBody),
   ].filter(Boolean).join('\n\n');
-  return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maps, lines: rendered.length, people: shown, places: placeIds, pages, cutoff };
+  // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
+  const rank = (name) => SESSION_BLOCKS.indexOf(name);
+  const ordered = reads.map((entry, at) => ({ entry, at })).sort((a, b) => rank(a.entry.block) - rank(b.entry.block) || a.at - b.at)
+    .map(({ entry }, ord) => ({ ...entry, ord: ord + 1 }));
+  return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maps, lines: rendered.length, people: shown, places: placeIds, pages, cutoff, reads: ordered };
+}
+
+/**
+ * The read-set of an assembled request, resolved now (service.js#turnReadRows: the claim version, the description version
+ * and the source revision each read showed), and `maps.versions`: the version each `cN` / `sN` showed (null for a claim
+ * with no version), the `base` of an op on it. Mutates `request.maps`; returns the rows.
+ */
+export function resolveSessionReads(db, request) {
+  const rows = turnReadRows(db, request.reads ?? []);
+  const versionOf = new Map(rows.filter((row) => row.row_kind === 'claims').map((row) => [row.row_id, row.version_id ?? null]));
+  request.maps.versions = new Map([...request.maps.claims].map(([handle, id]) => [handle, versionOf.has(id) ? versionOf.get(id) : null]));
+  return rows;
 }
 
 // ---------- the answer ----------
@@ -569,17 +624,19 @@ export function validateAnswer(value, { maps, people }) {
       if (!id) { drop('unknown_id'); continue; }
       const sources = sourcesOf(item.sources);
       if (!sources) continue;
-      if (op === 'confirm') { keep('claims', { op, id, sources }); continue; }
+      // The version the request showed (resolveSessionReads), never a value from the answer.
+      const base = maps.versions instanceof Map && maps.versions.has(text(item.id)) ? { base: maps.versions.get(text(item.id)) } : {};
+      if (op === 'confirm') { keep('claims', { op, id, sources, ...base }); continue; }
       if (op === 'revise') {
         if (!text(item.text)) { drop('no_text'); continue; }
         if (!HOW.includes(item.how)) { drop('bad_how'); continue; }
         if (!text(item.reason)) { drop('no_reason'); continue; }
-        keep('claims', { op, id, text: text(item.text), how: item.how, sources, reason: text(item.reason) });
+        keep('claims', { op, id, text: text(item.text), how: item.how, sources, reason: text(item.reason), ...base });
         continue;
       }
       if (!TRUTHS.includes(item.truth)) { drop('bad_truth'); continue; }
       if (!text(item.reason)) { drop('no_reason'); continue; }
-      keep('claims', { op, id, truth: item.truth, reason: text(item.reason), sources });
+      keep('claims', { op, id, truth: item.truth, reason: text(item.reason), sources, ...base });
     } else {
       drop('bad_op');
     }
@@ -815,6 +872,8 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
     cursorFrom: cursor, cursorTo, sourcesN: batch.length, tokensPrompt: null, tokensCompletion: null,
     model: roleModel(config, MEMORY_ROLE), outcome: 'error', counts: {}, errors: [],
   };
+  // The read-set of the request, resolved when it is assembled (below), and the run's context.
+  let readSet = null;
   const finish = async (outcome, extra = {}) => {
     run.outcome = outcome;
     run.finishedAt = new Date(now()).toISOString();
@@ -837,6 +896,7 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
       written = await write({
         kind: 'session', mode: settings.mode, run, plan: extra.plan ?? null, advance, pending, answer: extra.answer ? { text: extra.answer } : null,
         maxDelta: config?.relationships?.maxDeltaPerUpdate, now: now(),
+        ...(readSet ? { reads: readSet.rows, readStep: String(page), context: readSet.context } : {}),
       });
     } catch (error) {
       // A failed write is never an ok run, and the cursor did not move (it rides in the same transaction).
@@ -860,6 +920,17 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
     return finish('build_error');
+  }
+  try {
+    const issued = issueContext({
+      kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group', iface: scope.scope.scope_iface, person: scope.scope.scope_dm,
+      now: () => startedAt, newId: () => `ctx:session:${runId}`,
+    });
+    readSet = { rows: resolveSessionReads(db, request), context: contextRow(issued) };
+  } catch (error) {
+    // The run goes on without its read-set (and without bases): logged with a code, counted in its errors.
+    run.errors.push(`reads:${codeOf(error)}`);
+    log.warn?.('memory session: read-set failed', { code: codeOf(error) });
   }
 
   let completion;

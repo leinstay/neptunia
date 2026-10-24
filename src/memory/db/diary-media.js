@@ -19,12 +19,15 @@
 // (the image fetcher takes pictures only). Its `media` row carries `extra` `{ voice: true, text?, durationSec? }`: the
 // text and duration come from the post's `voice` field when its `messageId` is this message, else the attachment's own
 // duration. A post that already has its text is fetched again only when it has a `voice` field and no audio row.
+//
+// Schema v9: each `media` row written is projected into the graph in the same transaction (graph.js#projectRow).
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.js';
 import { ensureAudience } from './rows.js';
+import { projectRow } from './graph.js';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
@@ -106,6 +109,7 @@ export function applyDiaryUpdate(handle, update) {
     if ((update.media ?? []).length > 0) ensureAudience(db, audience);
     for (const item of update.media ?? []) {
       insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm, item.extra ?? null, audience.audience_id);
+      projectRow(db, 'media', { id: item.id });
     }
   });
 }

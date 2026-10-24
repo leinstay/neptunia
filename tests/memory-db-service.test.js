@@ -378,7 +378,9 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
     // the exact version of a description or a claim, the revision of a source, resolved now
     handle.db.prepare("INSERT INTO descriptions (id, subject_kind, subject_id, field, current_version) VALUES ('desc:discord:guild:5:starters', 'place', 'discord:guild:5', 'starters', 'dv-1')").run();
     handle.db.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv-1', 'c1', 'a', '2026-10-01'), ('cv-2', 'c1', 'b', '2026-10-02')").run();
-    handle.db.prepare("INSERT INTO sources (id, kind, native_id, revision) VALUES ('src:discord:m1:3:seen', 'seen', 'm1', 3)").run();
+    handle.db.prepare("INSERT INTO sources (id, kind, iface, native_id, revision, authority_id) VALUES ('src:discord:m1:3:seen', 'seen', 'discord', 'm1', 3, 'discord/global')").run();
+    // the same native id on another interface is another message: never the one a Discord turn read
+    handle.db.prepare("INSERT INTO sources (id, kind, iface, native_id, revision, authority_id) VALUES ('src:telegram:m1:9:seen', 'seen', 'telegram', 'm1', 9, 'telegram/global')").run();
     const rows = turnReadRows(handle.db, [{ kind: 'guild_note', id: 'starters' }, { kind: 'claim', id: 'c1' }, { kind: 'source', id: 'm1' }], { guildId: '5' });
     assert.deepEqual(rows.map((row) => [row.row_kind, row.version_id, row.revision, row.ord]), [['descriptions', 'dv-1', null, 1], ['claims', 'cv-2', null, 2], ['sources', null, 3, 3]]);
   } finally { handle.close(); }

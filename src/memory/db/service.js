@@ -55,7 +55,8 @@ import { channelPlaceId, guildPlaceId } from './ids.js';
 import { contextRow, issueContext as issuePureContext } from './scope.js';
 import { memoryRootOf } from '../root.js';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
-import { applyMemoryWrite } from './session-write.js';
+import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.js';
+import { projectPending } from './graph.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -71,10 +72,12 @@ const silent = { info: noop, warn: noop, error: noop, debug: noop };
  * The turn_reads rows of one `memoryReads` list (prompt.js#buildRequest), resolved against the database now:
  * `{ row_kind, row_id, block, ord, version_id, revision }`. `block` and `ord` are the block the read sat in and its place
  * in the request; `version_id` is the newest claim version or the current description version; `revision` a source's.
+ * Besides the kinds her turns name, a read may name a row by its database id (her memory session's request does):
+ * `source_id`, `description`, `place`, `intention`.
  */
-export function turnReadRows(db, reads, { guildId = null } = {}) {
+export function turnReadRows(db, reads, { guildId = null, authority = 'discord/global' } = {}) {
   const rows = new Map();
-  const claimVersion = db.prepare("SELECT id FROM claim_versions WHERE claim_id = ? AND retired_at IS NULL ORDER BY COALESCE(recorded_at, '') DESC, rowid DESC LIMIT 1");
+  const claimVersion = db.prepare(NEWEST_CLAIM_VERSION_SQL);
   const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
   const sourceRevision = db.prepare('SELECT revision FROM sources WHERE id = ?');
   let at = 0;
@@ -90,7 +93,8 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
     rows.set(key, { row_kind: rowKind, row_id: rowId, block: typeof read.block === 'string' ? read.block : null, ord: Number.isInteger(read.ord) ? read.ord : at, version_id: versionId, revision });
   };
   const hasRow = (table, id) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE id = ? LIMIT 1`).get(id) !== undefined;
-  const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
+  // A message id is native to one authority: the turn's (Discord's global snowflakes today), never matched alone.
+  const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
   for (const read of Array.isArray(reads) ? reads : []) {
     at += 1;
     const id = read?.id === undefined || read?.id === null ? '' : String(read.id);
@@ -108,10 +112,14 @@ export function turnReadRows(db, reads, { guildId = null } = {}) {
         else if (hasRow('episodes', id)) put('episodes', id, read);
         break;
       case 'source': {
-        const found = latestMessage.get(id);
+        const found = latestMessage.get(id, authority);
         if (found) put('sources', found.id, read);
         break;
       }
+      case 'source_id': put('sources', id, read); break;
+      case 'description': put('descriptions', id, read); break;
+      case 'place': put('places', id, read); break;
+      case 'intention': put('intentions', id, read); break;
       default: break;
     }
   }
@@ -126,15 +134,7 @@ export const READER_KINDS = Object.freeze(['turn', 'session', 'wake']);
  * execution context it was read in ('' when none was issued) and `reader_kind` who read it (`turn` by default).
  */
 export function insertTurnReads(handle, turnId, step, rows) {
-  handle.transaction(() => {
-    const insert = handle.db.prepare(`INSERT OR IGNORE INTO turn_reads (turn_id, step, context_id, row_kind, row_id, block, ord, version_id, revision, reader_kind)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    for (const row of rows) {
-      const contextId = typeof row.context_id === 'string' ? row.context_id : '';
-      const readerKind = READER_KINDS.includes(row.reader_kind) ? row.reader_kind : 'turn';
-      insert.run(String(turnId), String(step), contextId, row.row_kind, row.row_id, row.block ?? null, row.ord ?? null, row.version_id ?? null, row.revision ?? null, readerKind);
-    }
-  });
+  handle.transaction(() => writeTurnReadRows(handle.db, turnId, step, rows));
 }
 
 /** Waits for a promise (if any) for at most `ms`; a rejection of it is the caller's own business. */
@@ -348,9 +348,10 @@ export function createMemoryDb({
       await yieldLoop();
     }
     if (handle && !closing && total.errors === 0) {
-      // The slices left the stems (sync.js): stemmed once now, from all the text the import brought.
+      // The slices left the stems and the pending graph projection (sync.js): done once now, over all the import brought.
       try {
         fillStems(handle.db);
+        projectPending(handle, { at: new Date(now()).toISOString() });
       } catch (error) {
         total.errors += 1;
         log.warn('memory db: stems failed', { code: codeOf(error) });

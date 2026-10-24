@@ -18,7 +18,12 @@
 // account line names no participant, a participant line names no account); `ensureRelations` gives a source its
 // `source_relations` rows (a Discord line's `reply_to`, derived here so a remap keeps it) and resolves the relations
 // that were waiting for it. Relations are the database's own: inserted once, a target filled in once, never rewritten.
-// Every helper checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation.
+// Schema v9 (stage 3): every row these helpers write is projected into the graph in the same transaction
+// (graph.js#projectRow: the row's unit, again from the database as it is now): `insertRows`, the DM place, the interface
+// and authority rows, the links `ensureLinks` adds, and the sources whose relations `ensureRelations` and
+// `resolveRelationsTo` wrote or resolved.
+// Every helper checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
+// v9 no projection.
 
 import { log as engineLog } from '../../log.js';
 import {
@@ -27,6 +32,7 @@ import {
 } from './ids.js';
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.js';
 import { SELF_SOURCE_KINDS } from './schema.js';
+import { projectRow } from './graph.js';
 
 const quote = (name) => `"${String(name).replace(/"/g, '""')}"`;
 const bind = (value) => (value === undefined ? null : value);
@@ -57,15 +63,19 @@ const coded = (code) => Object.assign(new Error(`memory db: ${code}`), { code })
 /** The interface row and its native authority, when missing. */
 export function ensureInterface(db, iface) {
   if (!hasV7(db) || typeof iface !== 'string' || !iface) return;
-  prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(iface);
+  if (Number(prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(iface).changes) > 0) projectRow(db, 'interfaces', { id: iface });
   const authority = nativeAuthorityOf(iface);
-  prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, authority.slice(iface.length + 1));
+  if (Number(prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, authority.slice(iface.length + 1)).changes) > 0) {
+    projectRow(db, 'authorities', { id: authority });
+  }
 }
 
 /** An authority row (and its interface), when missing. */
 export function ensureAuthority(db, authority, iface, namespace) {
   ensureInterface(db, iface);
-  prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, namespace);
+  if (Number(prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, namespace).changes) > 0) {
+    projectRow(db, 'authorities', { id: authority });
+  }
 }
 
 /** The time a derived row is recorded at: the writer's (`at`, an ISO time), else the clock of this moment. */
@@ -100,6 +110,7 @@ export function ensureDmPlace(db, placeId, iface, person, { at } = {}) {
     VALUES (?, ?, 'dm', NULL, NULL, 'dm', ?, ?, 1, 'dm', ?, ?)`).run(placeId, iface, cols.authority_id, cols.native_key, person ?? null, account);
   addKey(db, cols.authority_id, 'place', cols.native_key, placeId, { at });
   addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
+  projectRow(db, 'places', { id: placeId }, { at });
 }
 
 /** The audience row of a resolved scope (and its interface, and the DM place), when missing. */
@@ -248,10 +259,15 @@ export function resolveRelationsTo(db, row, { at } = {}) {
   }
   const stamp = stampOf(at);
   let count = 0;
+  const waiting = new Set();
   for (const key of keys) {
-    count += Number(prepared(db, 'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE target_key = ? AND target_source_id IS NULL')
-      .run(row.id, stamp, key).changes);
+    const done = prepared(db, 'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE target_key = ? AND target_source_id IS NULL RETURNING source_id')
+      .all(row.id, stamp, key);
+    count += done.length;
+    for (const relation of done) waiting.add(relation.source_id);
   }
+  // The lines whose relations now have a target project their new edges.
+  for (const source of waiting) projectRow(db, 'sources', { id: source }, { at });
   return count;
 }
 
@@ -266,6 +282,7 @@ export function ensureRelations(db, row, { at } = {}) {
     addRelation(db, row.id, 'replies_to', { authority: row.authority_id, kind, key: row.reply_to, generation: 1, revision: null }, { at });
   }
   resolveRelationsTo(db, row, { at });
+  projectRow(db, 'sources', { id: row.id }, { at });
 }
 
 /**
@@ -306,11 +323,13 @@ export function ensureLinks(db, accounts, { by = 'import', at } = {}) {
     const done = prepared(db, `INSERT OR IGNORE INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
       VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)`).run(linkId(row.id, row.person_id), row.id, row.person_id, row.link === 'verified' ? 'verified' : 'proposed', by, bind(row.linked_at), stampOf(at));
     count += Number(done.changes);
+    if (Number(done.changes) > 0) projectRow(db, 'account_person_links', { account_id: row.id }, { at });
   }
   return count;
 }
 
 /** Inserts (or replaces, by primary key) every row of a mapping, with the v7 derived columns filled from each row. */
+// Tests only: REPLACE does not fire the FTS delete trigger without recursive_triggers, so no live writer may use it for sources.
 export function insertRows(db, mapping, { log = engineLog, at } = {}) {
   for (const [table, rows] of Object.entries(mapping)) {
     for (const given of rows) {
@@ -320,6 +339,7 @@ export function insertRows(db, mapping, { log = engineLog, at } = {}) {
       db.prepare(sql).run(...cols.map((col) => bind(row[col])));
       if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, row, { at });
       if (table === 'sources') ensureRelations(db, row, { at });
+      else projectRow(db, table, row, { at });
     }
   }
   ensureLinks(db, mapping.accounts, { at });
