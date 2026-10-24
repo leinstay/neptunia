@@ -29,6 +29,9 @@
 // says `pending_expansion`; no function here declares a bundle sufficient because of a number. Watches (15 min, 2 h,
 // 24 h after the anchor by default) are rows the caller runs and closes.
 //
+// Schema v9: every account, place, participant and source an observation writes is projected into the graph in the same
+// transaction (graph.js#projectRow).
+//
 // Not wired to a live adapter yet: the Discord sync keeps its mappers. Logs carry codes only (`log.debug?.()`).
 
 import { log as engineLog } from '../../log.js';
@@ -39,6 +42,7 @@ import {
   CAPTURE_REASONS, CAPTURE_ROLES, COVERAGE_STATES, PARTICIPANT_TOKEN_KINDS, RELATION_PREDICATES, WATCH_OUTCOMES,
 } from './schema.js';
 import { markStemsPending } from './stems.js';
+import { projectRow } from './graph.js';
 
 /** The version of the envelope this module reads. */
 export const OBSERVATION_VERSION = 1;
@@ -216,6 +220,7 @@ function accountOf(db, iface, { authority, key, display = null, generation = nul
   }, { at });
   insertRow(db, 'accounts', row);
   addKey(db, authority, 'account', String(key), id, { generation: gen, at });
+  projectRow(db, 'accounts', { id }, { at });
   return { id, person_id: null };
 }
 
@@ -232,6 +237,7 @@ function placeOf(db, envelope, at) {
     const to = existing.seen_to_at && existing.seen_to_at >= envelope.occurredAt ? existing.seen_to_at : envelope.occurredAt;
     if (conversation !== existing.conversation || from !== existing.seen_from_at || to !== existing.seen_to_at) {
       db.prepare('UPDATE places SET conversation = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ? WHERE id = ?').run(conversation, conversation, from, to, existing.id);
+      projectRow(db, 'places', { id: existing.id }, { at });
     }
     return { id: existing.id, conversation, partner_person: existing.partner_person ?? null };
   }
@@ -250,6 +256,7 @@ function placeOf(db, envelope, at) {
   }, { at });
   insertRow(db, 'places', row);
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
+  projectRow(db, 'places', { id: placeId }, { at });
   return { id: placeId, conversation: declared, partner_person: row.partner_person };
 }
 
@@ -284,6 +291,7 @@ function participantOf(db, envelope, place, at) {
     display: filled(a.display) ? a.display : null, first_seen_at: envelope.occurredAt, last_seen_at: envelope.occurredAt, extra: null, recorded_at: at,
   });
   addKey(db, authority, 'participant', canonicalKey(a.token_kind, [scope, token ?? observation]), id, { generation, at });
+  projectRow(db, 'participants', { id }, { at });
   return id;
 }
 
@@ -351,6 +359,7 @@ function writeObservation(db, envelope, at, log) {
     relations += addRelation(db, sourceId, relation.predicate, target, { at });
   }
   const resolved = resolveRelationsTo(db, row, { at });
+  projectRow(db, 'sources', { id: sourceId }, { at });
   let bundleId = null;
   if (isObject(e.capture)) {
     const c = e.capture;

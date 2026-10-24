@@ -18,13 +18,28 @@
 //        `memoryDb.read`), and compares them deep. Exit 1 on any difference. Run `sync` first; a file that changed on
 //        disk since the last sync is read from the disk and counted as stale. Opens the database read-only.
 //   node tools/memory-db.mjs stats --db <file>
-//        Row counts per table, per scope kind where a table has scopes, and per audience where it has `audience_id`
-//        (none, internal, each interface's group, DM rows with the number of DM places; no ids printed).
+//        Row counts of every table of the schema (sqlite_master), per scope kind where a table has scopes, and per
+//        audience where it has `audience_id` (none, internal, each interface's group, DM rows with the number of DM
+//        places; no ids printed).
+//   node tools/memory-db.mjs hash --db <file> [--tables a,b]
+//        One content hash per table (SHA-256 of every row in primary-key order, every column, retired rows included; a
+//        table without a primary key in the order of all its columns; a full-text table by its index content, so two
+//        files holding the same rows and the same index hash the same whatever their page layout). The round-trip
+//        contract: a `VACUUM INTO` copy hashes like its source. Opens the database read-only.
+//   node tools/memory-db.mjs reproject --db <file>
+//        Projects every typed row into the graph again (src/memory/db/graph.js#reproject; idempotent), and finishes a
+//        projection the v9 migration left pending.
+//   node tools/memory-db.mjs rebuild --db <file>
+//        The rebuildability contract: drops the derived rows (the graph projection and its `node_access`) and builds
+//        them again from the typed tables, then rebuilds the full-text indexes. Prints the hashes of the derived tables
+//        before and after. An edge the graph had retired because its row no longer produces it is history the typed
+//        tables do not hold: a rebuild does not bring it back (it says how many such edges there were).
 //   node tools/memory-db.mjs ledger-import --ledger <ledger.db> --db <file>
 //        Copies the task ledger's rows into the reserved ledger_* tables as JSON records (the source is opened
 //        read-only).
 //
-// import, sync and ledger-import take the database's writer lock and refuse while the bot (or another tool) holds it.
+// import, sync, reproject, rebuild and ledger-import take the database's writer lock and refuse while the bot (or another
+// tool) holds it.
 // The database is never added to git. Nothing here starts the bot or calls a model.
 
 import fs from 'node:fs';
@@ -39,7 +54,8 @@ import { createStore } from '../src/memory/store.js';
 import { isDeepStrictEqual } from 'node:util';
 import { classify } from '../src/memory/db/map/index.js';
 import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
-import { V1_TABLES, V7_TABLES } from '../src/memory/db/schema.js';
+import { createHash } from 'node:crypto';
+import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
 
 const FLAGS = new Set(['resume']);
 
@@ -322,9 +338,7 @@ function runStats(io, options) {
   const handle = openMemoryDb(options.db, { readOnly: true });
   try {
     const db = handle.db;
-    const exists = (table) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
-    for (const table of [...V1_TABLES, ...V7_TABLES]) {
-      if (table.endsWith('_fts') || table.endsWith('_tri') || !exists(table)) continue;
+    for (const { name: table } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()) {
       const columns = new Set(db.prepare(`PRAGMA table_info("${table}")`).all().map((column) => column.name));
       const total = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get().n;
       let line = `${table.padEnd(22)} ${String(total).padStart(8)}`;
@@ -340,6 +354,112 @@ function runStats(io, options) {
       }
       io.out(line);
     }
+    return 0;
+  } finally {
+    handle.close();
+  }
+}
+
+// ---------- hash, reproject, rebuild ----------
+
+/** The tables of a database (no SQLite internals), with the virtual ones marked and their shadow tables left out. */
+function tablesOf(db) {
+  const rows = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  const virtual = new Set(rows.filter((row) => /^CREATE VIRTUAL TABLE/i.test(row.sql ?? '')).map((row) => row.name));
+  return rows.map((row) => row.name).filter((name) => ![...virtual].some((v) => name.startsWith(`${v}_`))).map((name) => ({ name, virtual: virtual.has(name) }));
+}
+
+const valueOf = (value) => {
+  if (value instanceof Uint8Array) return ['blob', Buffer.from(value).toString('hex')];
+  if (typeof value === 'bigint') return ['int', String(value)];
+  return [value === null ? 'null' : typeof value, value];
+};
+
+/**
+ * The content hash of every table (or of `only`): `[{ table, rows, hash }]`. Rows in primary-key order, every column;
+ * a table without a primary key in the order of all its columns; a full-text table by its index content (fts5vocab
+ * `instance`: every term, row, column and offset).
+ */
+export function tableHashes(db, only = null) {
+  const out = [];
+  for (const { name, virtual } of tablesOf(db)) {
+    if (only && !only.includes(name)) continue;
+    const hash = createHash('sha256');
+    let rows = 0;
+    let statement;
+    if (virtual) {
+      const vocab = `_hash_${name}`;
+      db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS temp."${vocab}" USING fts5vocab(main, "${name}", 'instance')`);
+      statement = db.prepare(`SELECT term, doc, col, offset FROM temp."${vocab}" ORDER BY term, doc, col, offset`);
+    } else {
+      const columns = db.prepare(`PRAGMA table_info("${name}")`).all();
+      const keys = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk).map((column) => column.name);
+      const order = (keys.length ? keys : columns.map((column) => column.name)).map((column) => `"${column}"`).join(', ');
+      statement = db.prepare(`SELECT ${columns.map((column) => `"${column.name}"`).join(', ')} FROM "${name}" ORDER BY ${order}`);
+    }
+    for (const row of statement.iterate()) {
+      hash.update(JSON.stringify(Object.values(row).map(valueOf)));
+      hash.update('\n');
+      rows += 1;
+    }
+    out.push({ table: name, rows, hash: hash.digest('hex') });
+  }
+  return out;
+}
+
+function runHash(io, options) {
+  need(options, 'db');
+  const handle = openMemoryDb(options.db, { readOnly: true });
+  try {
+    const only = options.tables ? String(options.tables).split(',').map((name) => name.trim()).filter(Boolean) : null;
+    const hashes = tableHashes(handle.db, only);
+    for (const { table, rows, hash } of hashes) io.out(`${table.padEnd(26)} ${String(rows).padStart(8)}  ${hash}`);
+    const missing = (only ?? []).filter((name) => !hashes.some((entry) => entry.table === name));
+    for (const name of missing) io.out(`${name.padEnd(26)} no such table`);
+    return missing.length ? 1 : 0;
+  } finally {
+    handle.close();
+  }
+}
+
+function runReproject(io, options) {
+  need(options, 'db');
+  const handle = openMemoryDb(options.db);
+  try {
+    const at = new Date().toISOString();
+    const pending = projectPending(handle, { at });
+    const done = reproject(handle, { at });
+    io.out(`graph: ${done.units} units projected, ${done.edges} edges, ${done.retired} retired as stale, ${done.ms} ms${pending.units ? ` (the pending projection took ${pending.ms} ms)` : ''}`);
+    return 0;
+  } finally {
+    handle.close();
+  }
+}
+
+/** The derived tables the rebuild drops and builds again. */
+export const DERIVED_TABLES = ['graph_nodes', 'graph_edges', 'node_access', 'sources_fts', 'sources_tri'];
+
+function runRebuild(io, options) {
+  need(options, 'db');
+  const handle = openMemoryDb(options.db);
+  try {
+    const before = tableHashes(handle.db, DERIVED_TABLES);
+    const stale = handle.db.prepare("SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL").get().n;
+    const done = rebuildGraph(handle, { at: new Date().toISOString() });
+    handle.transaction(() => {
+      handle.db.exec("INSERT INTO sources_fts(sources_fts) VALUES ('rebuild'); INSERT INTO sources_tri(sources_tri) VALUES ('rebuild');");
+    });
+    const after = tableHashes(handle.db, DERIVED_TABLES);
+    const keptRetired = handle.db.prepare("SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL").get().n;
+    io.out(`graph rebuilt: ${done.units} units, ${done.edges} edges in ${done.ms} ms; retired edges ${stale} before, ${keptRetired} after (the rest were stale: their rows no longer produce them)`);
+    let differ = 0;
+    for (const entry of after) {
+      const was = before.find((row) => row.table === entry.table);
+      const same = was?.hash === entry.hash;
+      if (!same) differ += 1;
+      io.out(`${entry.table.padEnd(26)} ${String(was?.rows ?? 0).padStart(8)} -> ${String(entry.rows).padStart(8)}  ${same ? 'equal' : 'differs'}`);
+    }
+    io.out(differ ? `rebuild: ${differ} derived tables differ from before` : 'rebuild: every derived table equal to before');
     return 0;
   } finally {
     handle.close();
@@ -385,6 +505,9 @@ const COMMANDS = {
   verify: runVerify,
   parity: runParity,
   stats: runStats,
+  hash: runHash,
+  reproject: runReproject,
+  rebuild: runRebuild,
   'ledger-import': runLedgerImport,
 };
 

@@ -566,8 +566,92 @@ const V8 = [
     ORDER BY id;`,
 ].join('\n');
 
+// Version 9 (spec 2026-10-24-memory-schema-v7, stage 3; section 11 items 5 and 6 and the smaller resolutions): the
+// graph projection, version-level evidence, durable ids of the child links, the continuation of a place.
+//  - `graph_nodes` (one per typed row of a node kind, `<kind>:<row id>`, the row id kept in `row_id`), `graph_edges`
+//    (semantic `projection_key` `<predicate>:<src>:<dst>[:<evidence>]`, the unit that produced it in `owner_key`, the
+//    audience it is read with) and `node_access` (one witness per node, audience and evidence). All three are derived:
+//    the manifest (graph-manifest.js) maps the typed rows to them, graph.js writes them in the writers' transactions,
+//    and `tools/memory-db.mjs rebuild` drops and rebuilds them. The migration writes the nodes of the rows every database
+//    has from the earlier migrations (interfaces, authorities, people: nodes with no edge, the manifest's rule spelt in
+//    SQL) and, when the database holds anything else, marks the whole projection pending (`meta.graph_pending`): the next
+//    full sync pass (in the worker) or the last slice of the first import projects every unit, in slices
+//    (graph.js#projectPending), so the migration itself stays one quick transaction;
+//  - `claim_version_sources`: the sources of each claim version, `supports` or `conflicts`. Existing claim-level
+//    links (`claim_sources`) are copied to their claim's newest live version with `legacy = 1` (claim-level provenance,
+//    not invented history); a link whose source is not stored is left to `claim_sources` alone;
+//  - `claim_sources`, `episode_sources` and `diary_mirrors` get a durable `id`, deterministic from their natural key
+//    (a file's link: its parent and position; a link the database wrote: its parent and source; a mirror: its entry,
+//    interface and place), a repeat of a key suffixed `#dup<rowid>`; a trigger gives every new row its id the same way;
+//  - `places.continues_place_id`: the place a place continues (the typed home of the `continues` predicate; no writer
+//    fills it yet);
+//  - `claim_versions(claim_id)` is indexed (the newest version of a claim is read by every claim read and write).
+
+/** Every table schema v9 adds. */
+export const V9_TABLES = ['graph_nodes', 'graph_edges', 'node_access', 'claim_version_sources'];
+/** The roles of a version's source. */
+export const EVIDENCE_ROLES = ['supports', 'conflicts'];
+
+const LINK_KEY = {
+  claim_sources: (x) => `'cs:' || COALESCE(${x}.claim_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
+  episode_sources: (x) => `'es:' || COALESCE(${x}.episode_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
+  diary_mirrors: (x) => `'mirror:' || COALESCE(${x}.diary_id, '') || ':' || COALESCE(${x}.iface, '') || ':' || COALESCE(${x}.place_id, '')`,
+};
+const LINK_PARENT = { claim_sources: 'claim_id', episode_sources: 'episode_id', diary_mirrors: 'diary_id' };
+const DURABLE_IDS = Object.keys(LINK_KEY).flatMap((table) => [
+  `ALTER TABLE ${table} ADD COLUMN id TEXT;`,
+  `UPDATE ${table} SET id = ${LINK_KEY[table](table)} || CASE WHEN EXISTS (SELECT 1 FROM ${table} o WHERE o.${LINK_PARENT[table]} IS ${table}.${LINK_PARENT[table]}
+     AND o.rowid < ${table}.rowid AND ${LINK_KEY[table]('o')} = ${LINK_KEY[table](table)}) THEN '#dup' || ${table}.rowid ELSE '' END;`,
+  `CREATE UNIQUE INDEX ${table}_id ON ${table}(id);`,
+  `CREATE TRIGGER ${table}_id_fill AFTER INSERT ON ${table} WHEN new.id IS NULL BEGIN
+    UPDATE ${table} SET id = ${LINK_KEY[table]('new')} || CASE WHEN EXISTS (SELECT 1 FROM ${table} o WHERE o.id = ${LINK_KEY[table]('new')}) THEN '#dup' || new.rowid ELSE '' END
+    WHERE rowid = new.rowid;
+  END;`,
+]);
+/** Tables whose rows the v9 migration leaves to the pending projection (anything beyond the node-only kinds). */
+const PENDING_TABLES = ['accounts', 'participants', 'places', 'memberships', 'sources', 'claims', 'claim_versions', 'claim_sources', 'descriptions',
+  'description_versions', 'episodes', 'episode_sources', 'diary', 'diary_mirrors', 'media', 'intentions', 'work', 'decisions'];
+/** The newest live version of the claim `cs.claim_id` (the same order service.js#turnReadRows reads a claim's version in). */
+const NEWEST_VERSION_SQL = `(SELECT v.id FROM claim_versions v WHERE v.claim_id = cs.claim_id AND v.retired_at IS NULL ORDER BY COALESCE(v.recorded_at, '') DESC, v.rowid DESC LIMIT 1)`;
+
+const V9 = [
+  'CREATE TABLE graph_nodes (id TEXT PRIMARY KEY, kind TEXT NOT NULL, row_id TEXT NOT NULL, created_at TEXT NOT NULL);',
+  'CREATE INDEX graph_nodes_row ON graph_nodes(kind, row_id);',
+  `CREATE TABLE graph_edges (
+    id TEXT PRIMARY KEY, src TEXT NOT NULL REFERENCES graph_nodes(id), predicate TEXT NOT NULL, dst TEXT NOT NULL REFERENCES graph_nodes(id),
+    audience_id TEXT NOT NULL REFERENCES audiences(id), evidence_id TEXT, valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL,
+    retired_at TEXT, projection_key TEXT NOT NULL UNIQUE, owner_key TEXT NOT NULL
+  );`,
+  'CREATE INDEX graph_edges_out ON graph_edges(src, predicate, dst);',
+  'CREATE INDEX graph_edges_in ON graph_edges(dst, predicate, src);',
+  'CREATE INDEX graph_edges_owner ON graph_edges(owner_key);',
+  `CREATE TABLE node_access (
+    node_id TEXT NOT NULL REFERENCES graph_nodes(id), audience_id TEXT NOT NULL REFERENCES audiences(id), evidence_id TEXT NOT NULL,
+    PRIMARY KEY (node_id, audience_id, evidence_id)
+  );`,
+  'CREATE INDEX node_access_evidence ON node_access(evidence_id);',
+  `CREATE TABLE claim_version_sources (
+    version_id TEXT NOT NULL REFERENCES claim_versions(id), source_id TEXT NOT NULL REFERENCES sources(id),
+    role TEXT NOT NULL CHECK (role IN (${IN(EVIDENCE_ROLES)})), legacy INTEGER NOT NULL DEFAULT 0 CHECK (legacy IN (0, 1)),
+    PRIMARY KEY (version_id, source_id)
+  );`,
+  'CREATE INDEX claim_version_sources_source ON claim_version_sources(source_id);',
+  'CREATE INDEX claim_versions_claim ON claim_versions(claim_id);',
+  'ALTER TABLE places ADD COLUMN continues_place_id TEXT REFERENCES places(id);',
+  ...DURABLE_IDS,
+  `INSERT OR IGNORE INTO claim_version_sources (version_id, source_id, role, legacy)
+    SELECT version_id, source_id, 'supports', 1 FROM (
+      SELECT ${NEWEST_VERSION_SQL} AS version_id, cs.source_id AS source_id FROM claim_sources cs
+       WHERE cs.retired_at IS NULL AND cs.source_id IS NOT NULL AND EXISTS (SELECT 1 FROM sources s WHERE s.id = cs.source_id)
+    ) WHERE version_id IS NOT NULL ORDER BY version_id, source_id;`,
+  "INSERT OR IGNORE INTO graph_nodes (id, kind, row_id, created_at) SELECT 'interface:' || id, 'interface', id, '1970-01-01T00:00:00.000Z' FROM interfaces;",
+  "INSERT OR IGNORE INTO graph_nodes (id, kind, row_id, created_at) SELECT 'authority:' || id, 'authority', id, '1970-01-01T00:00:00.000Z' FROM authorities;",
+  "INSERT OR IGNORE INTO graph_nodes (id, kind, row_id, created_at) SELECT 'person:' || id, 'person', id, COALESCE(NULLIF(first_seen_at, ''), '1970-01-01T00:00:00.000Z') FROM people;",
+  `INSERT OR REPLACE INTO meta (key, value) SELECT 'graph_pending', '{"unit":0,"after":null}' WHERE ${PENDING_TABLES.map((table) => `EXISTS (SELECT 1 FROM ${table})`).join(' OR ')};`,
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];

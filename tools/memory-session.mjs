@@ -88,6 +88,7 @@ export function opKinds(plan) {
   const bump = (key) => counts.set(key, (counts.get(key) ?? 0) + 1);
   for (const claim of plan?.claims ?? []) bump(`claims:${claim.op}${claim.op === 'add' ? `(${claim.subjectKind})` : ''}`);
   for (const group of ['episodes', 'affinity', 'descriptions']) for (let i = 0; i < (plan?.[group]?.length ?? 0); i += 1) bump(group);
+  for (const person of plan?.people ?? []) bump(`people:${person.op}`);
   return [...counts].map(([key, n]) => `${key} ${n}`).join(', ') || 'none';
 }
 

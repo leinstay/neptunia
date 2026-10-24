@@ -159,6 +159,10 @@
     "watch": [15, 120, 1440],
     "watchSameAuthor": 20
   },
+  "graph": {
+    "maxDepth": 6,
+    "maxRows": 2000
+  },
   "embed": {
     "dimensions": 1024,
     "batch": 64,

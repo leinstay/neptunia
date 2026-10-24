@@ -48,12 +48,35 @@
 // mergePeople(handle, from, into, { by, reason, evidence, now }) is the writer of `people_merges` (no session op yet):
 // one row, the merged person's `status` `merged_into:<into>`; nothing else is rewritten (claims keep their subject,
 // links keep their rows); a merge into a person that resolves back to `from` is refused (`MERGE_CYCLE`).
+//
+// Schema v9 (stage 3):
+//   - every new claim version writes its sources into `claim_version_sources` (`supports` for add, confirm and revise,
+//     `conflicts` for retire: the lines that speak against the claim);
+//   - a confirm, revise or retire op may carry `base`, the claim version the session read (session.js fills it from the
+//     request, never from her answer); when the claim's newest version is no longer `base`, the op is rejected whole as
+//     `rejected:stale_base` (a `decisions` row). An op without `base` is not checked (a caller that read no version);
+//     `base: null` says the session read the claim with no version, and a version written since makes it stale;
+//   - `update.reads` (the rows `service.js#turnReadRows` resolved when the request was assembled) are written to
+//     `turn_reads` in the same transaction, `reader_kind` `session`, `turn_id` the run id, `step` `update.readStep` (the
+//     page), `context_id` the run's context (`update.context`, an issued context's row, recorded in
+//     `execution_contexts` the same way);
+//   - every row written here is projected into the graph in the same transaction (graph.js#projectRow).
 // Counts and codes only, never a text.
 
 import { randomUUID } from 'node:crypto';
 import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.js';
 import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
 import { ensureAudience, ensureInterface } from './rows.js';
+import { projectRow } from './graph.js';
+
+/**
+ * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
+ * read (service.js#turnReadRows) and the one a `base` is checked against. Its one spelling.
+ */
+export const NEWEST_CLAIM_VERSION_SQL = "SELECT id FROM claim_versions WHERE claim_id = ? AND retired_at IS NULL ORDER BY COALESCE(recorded_at, '') DESC, rowid DESC LIMIT 1";
+/** The id of the newest live version of a claim, or null. */
+export const newestClaimVersion = (db, claimId) => db.prepare(NEWEST_CLAIM_VERSION_SQL).get(claimId)?.id ?? null;
+const hasTable = (db, name) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
 
 const iso = (ms) => new Date(ms).toISOString();
 const json = (value) => JSON.stringify(value);
@@ -112,6 +135,7 @@ function insertDecision(db, { id, at, group, op, action, run }) {
     `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
      VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
   ).run(id, at, target.kind, target.id, action, reasonOf(op), json({ run: run.id, scope: run.scope ?? null, op }));
+  projectRow(db, 'decisions', { id }, { at });
 }
 
 /** Her whole answer as a `sources` row of kind `kind`, scope internal; the thinking is kept in `think` as well. */
@@ -124,6 +148,7 @@ function insertAnswer(db, { id, kind, text, at, extra }) {
      VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`,
   ).run(id, kind, id, at, at, String(text), thought || null, extra ? json(extra) : null, SCOPE_INTERNAL.scope_kind, SCOPE_INTERNAL.scope_iface, SCOPE_INTERNAL.scope_dm,
     audienceIdOf(db, SCOPE_INTERNAL, at), CORE_AUTHORITY, at);
+  projectRow(db, 'sources', { id }, { at });
   return id;
 }
 
@@ -153,11 +178,18 @@ function evidenceOf(db, ids) {
   return rows;
 }
 
-function version(db, { claimId, at, text, event, runId, index, extra = null }) {
+/** A new version of a claim, with its sources (`role`: `supports` or `conflicts`) in `claim_version_sources` (v9). */
+function version(db, { claimId, at, text, event, runId, index, extra = null, sources = [], role = 'supports' }) {
+  const id = `cv:${claimId}:${shortHash(runId, index, event)}`;
   db.prepare(
     `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, owner_file, position, retired_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'her', 'session', NULL, NULL, NULL)`,
-  ).run(`cv:${claimId}:${shortHash(runId, index, event)}`, claimId, `rv:${shortHash(runId, index)}`, text, extra ? json(extra) : null, at, event);
+  ).run(id, claimId, `rv:${shortHash(runId, index)}`, text, extra ? json(extra) : null, at, event);
+  if (hasTable(db, 'claim_version_sources')) {
+    const insert = db.prepare('INSERT OR IGNORE INTO claim_version_sources (version_id, source_id, role, legacy) VALUES (?, ?, ?, 0)');
+    for (const source of new Set(sources ?? [])) insert.run(id, source, role);
+  }
+  projectRow(db, 'claims', { id: claimId }, { at });
 }
 
 function insertDecisionFor(db, { runId, index, at, op, action, target }) {
@@ -165,6 +197,7 @@ function insertDecisionFor(db, { runId, index, at, op, action, target }) {
     `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
      VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
   ).run(`dec:${runId}:${index}`, at, action === 'episode' ? 'episode' : action === 'affinity' ? 'person' : 'claim', target, action, reasonOf(op), json({ run: runId, op }));
+  projectRow(db, 'decisions', { id: `dec:${runId}:${index}` }, { at });
 }
 
 function reject(db, state, group, op, why) {
@@ -183,6 +216,7 @@ function deriveClaim(db, claim, scope, { at, runId, index, text, how, truth, sho
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
   ).run(id, claim.subject_kind, claim.subject_id, claim.kind, text ?? claim.text, json({ ...extra, derivedFrom: claim.id }), claim.weight ?? null, at, at,
     how ?? claim.how, truth ?? claim.truth, shown ?? claim.shown, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
+  projectRow(db, 'claims', { id }, { at });
   return id;
 }
 
@@ -200,7 +234,7 @@ function applyClaim(db, op, state) {
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
     ).run(id, op.subjectKind, op.subjectId, op.kind, op.text, op.when ? json({ when: op.when }) : null, at, at, op.how, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
     addSources(db, 'claim_sources', 'claim_id', id, op.sources);
-    version(db, { claimId: id, at, text: op.text, event: 'add', runId, index });
+    version(db, { claimId: id, at, text: op.text, event: 'add', runId, index, sources: op.sources });
     insertDecisionFor(db, { runId, index, at, op, action: 'add', target: id });
     counts.added += 1;
     return;
@@ -209,19 +243,21 @@ function applyClaim(db, op, state) {
   if (!claim) { counts.missing += 1; return; }
   if (!canRead(claim, contextOf(state.scope, state.audienceColumn))) return reject(db, state, 'claims', op, 'out_of_scope');
   if ((op.op === 'revise' || op.op === 'retire') && !present(op.reason)) return reject(db, state, 'claims', op, 'no_reason');
+  // Compare-and-set on the claim: the version the session read must still be its newest (schema v9).
+  if (Object.hasOwn(op, 'base') && (op.base ?? null) !== newestClaimVersion(db, op.id)) return reject(db, state, 'claims', op, 'stale_base');
   const derived = !sameScope(scope, scopeOfRow(claim));
   let target = op.id;
   if (op.op === 'confirm') {
     if (derived) target = deriveClaim(db, claim, scope, { at, runId, index });
     else db.prepare('UPDATE claims SET last_seen_at = ? WHERE id = ?').run(at, op.id);
     addSources(db, 'claim_sources', 'claim_id', target, op.sources);
-    version(db, { claimId: target, at, text: claim.text, event: 'confirm', runId, index });
+    version(db, { claimId: target, at, text: claim.text, event: 'confirm', runId, index, sources: op.sources });
     counts.confirmed += 1;
   } else if (op.op === 'revise') {
     if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, text: op.text, how: op.how });
     else db.prepare('UPDATE claims SET text = ?, how = ?, last_seen_at = ? WHERE id = ?').run(op.text, op.how, at, op.id);
     addSources(db, 'claim_sources', 'claim_id', target, op.sources);
-    version(db, { claimId: target, at, text: op.text, event: 'revise', runId, index, extra: { before: claim.text, reason: op.reason } });
+    version(db, { claimId: target, at, text: op.text, event: 'revise', runId, index, extra: { before: claim.text, reason: op.reason }, sources: op.sources });
     counts.revised += 1;
   } else {
     // Disputed stays shown beside the claim it contradicts; historical and retired leave the shown set (still findable).
@@ -234,7 +270,7 @@ function applyClaim(db, op, state) {
       db.prepare('UPDATE claims SET truth = ?, shown = ?, valid_to = COALESCE(?, valid_to) WHERE id = ?').run(op.truth, shown, validTo, op.id);
     }
     addSources(db, 'claim_sources', 'claim_id', target, op.sources);
-    version(db, { claimId: target, at, text: claim.text, event: 'retire', runId, index, extra: { truth: op.truth, reason: op.reason } });
+    version(db, { claimId: target, at, text: claim.text, event: 'retire', runId, index, extra: { truth: op.truth, reason: op.reason }, sources: op.sources, role: 'conflicts' });
     counts.retired += 1;
   }
   if (derived) counts.derived += 1;
@@ -253,6 +289,7 @@ function applyEpisode(db, op, state) {
      VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?)`,
   ).run(id, op.subjectId, at.slice(0, 10), op.what, op.feeling || null, op.feeling ? at : null, scope.scope_kind, scope.scope_iface, scope.scope_dm, at, audienceIdOf(db, scope, at));
   addSources(db, 'episode_sources', 'episode_id', id, op.sources);
+  projectRow(db, 'episodes', { id }, { at });
   insertDecisionFor(db, { runId, index, at, op, action: 'episode', target: id });
   counts.episodes += 1;
 }
@@ -303,20 +340,24 @@ function applyPeopleAdd(db, op, state) {
   if (subject.person_id || liveLinkOf(db, op.subjectKind, op.subjectId)) return reject(db, state, 'people', op, 'has_person');
   const person = newPersonId(state.uuid);
   db.prepare("INSERT INTO people (id, kind, first_seen_at, last_seen_at, status, owner_file) VALUES (?, 'person', ?, ?, 'active', NULL)").run(person, at, at);
+  projectRow(db, 'people', { id: person }, { at });
   let link;
   if (op.subjectKind === 'account') {
     link = linkId(op.subjectId, person);
     db.prepare(`INSERT INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
       VALUES (?, ?, ?, 'proposed', 'her', ?, ?, ?, NULL, ?)`).run(link, op.subjectId, person, op.reason, op.sources[0], at, at);
+    projectRow(db, 'account_person_links', { account_id: op.subjectId }, { at });
   } else {
     link = `plink:${op.subjectId}:${person}`;
     db.prepare(`INSERT INTO participant_links (id, participant_id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
       VALUES (?, ?, NULL, ?, 'proposed', 'her', ?, ?, ?, NULL, ?)`).run(link, op.subjectId, person, op.reason, op.sources[0], at, at);
+    projectRow(db, 'participant_links', { participant_id: op.subjectId }, { at });
   }
   db.prepare(
     `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
      VALUES (?, ?, 'her', 'person', ?, 'people_add', ?, ?, NULL, NULL, NULL)`,
   ).run(`dec:${runId}:${index}`, at, person, op.reason, json({ run: runId, op, link }));
+  projectRow(db, 'decisions', { id: `dec:${runId}:${index}` }, { at });
   counts.people += 1;
 }
 
@@ -352,6 +393,12 @@ export function applyMemoryWrite(handle, update) {
       : null;
     const applied = run != null && mode === 'apply' && plan != null && run.outcome === 'ok';
     if (run) insertRun(db, run, mode, { applied, answerSource, at });
+    // What the request rendered (the read-set of the run), in the run's context.
+    let contextId = '';
+    if (run && update.context) contextId = insertContext(db, update.context) ?? '';
+    if (run && Array.isArray(update.reads) && update.reads.length > 0) {
+      writeTurnReadRows(db, run.id, String(update.readStep ?? 0), update.reads.map((row) => ({ ...row, context_id: contextId, reader_kind: 'session' })));
+    }
     if (plan && run) {
       const state = {
         at, runId: run.id, run, scope: run.scope, maxDelta: update.maxDelta, counts, index: 0, audienceColumn: update.audienceColumn === true,
@@ -385,6 +432,7 @@ export function applyMemoryWrite(handle, update) {
         `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
          VALUES (?, ?, 'engine', 'session_scope', ?, ?, ?, ?, NULL, NULL, NULL)`,
       ).run(`dec:${id}`, at, target ?? run?.scopeKey ?? null, action, reason ?? null, json(extra ?? {}));
+      projectRow(db, 'decisions', { id: `dec:${id}` }, { at });
     }
     if (advance) {
       // Compare-and-set: the cursor moves from the value the batch was read at, or nothing is written.
@@ -436,22 +484,49 @@ function writeDescription(handle, update) {
          ON CONFLICT(id) DO UPDATE SET current_version = excluded.current_version`,
       ).run(row.descriptionId, subject.kind, subject.id, subject.field, scope.scope_kind, scope.scope_iface, scope.scope_dm, row.id, audienceIdOf(db, scope, at));
     }
+    projectRow(db, 'description_versions', { description_id: row.descriptionId }, { at });
   });
   return { written: 1 };
+}
+
+const contextOk = (row) => row && typeof row.id === 'string' && row.id && typeof row.issued_at === 'string';
+
+/** Records one issued context's row, inside the caller's transaction; returns its id (null for a malformed row). */
+function insertContext(db, row) {
+  if (!contextOk(row)) return null;
+  if (row.iface) ensureInterface(db, row.iface);
+  db.prepare(
+    `INSERT OR IGNORE INTO execution_contexts (id, mode, iface, destination_place_id, partner_person_id, policy_version, issued_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(row.id, row.mode, row.iface ?? null, row.destination_place_id ?? null, row.partner_person_id ?? null, row.policy_version ?? 1, row.issued_at);
+  return row.id;
+}
+
+/**
+ * Writes resolved read rows (service.js#turnReadRows) of one step, inside the caller's transaction: the one writer of
+ * `turn_reads` (service.js#insertTurnReads wraps it in a transaction). A row's `context_id` is '' when no context was
+ * issued, its `reader_kind` `turn` unless it says `session` or `wake`.
+ */
+export function writeTurnReadRows(db, turnId, step, rows) {
+  const insert = db.prepare(`INSERT OR IGNORE INTO turn_reads (turn_id, step, context_id, row_kind, row_id, block, ord, version_id, revision, reader_kind)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const row of rows) {
+    const contextId = typeof row.context_id === 'string' ? row.context_id : '';
+    const readerKind = ['turn', 'session', 'wake'].includes(row.reader_kind) ? row.reader_kind : 'turn';
+    insert.run(String(turnId), String(step), contextId, row.row_kind, row.row_id, row.block ?? null, row.ord ?? null, row.version_id ?? null, row.revision ?? null, readerKind);
+  }
 }
 
 /** One issued context as an `execution_contexts` row (scope.js#contextRow); one already recorded is left alone. */
 function writeContext(handle, update) {
   const row = update.context;
-  if (!row || typeof row.id !== 'string' || !row.id || typeof row.issued_at !== 'string') throw coded('BAD_CONTEXT');
+  if (!contextOk(row)) throw coded('BAD_CONTEXT');
   let written = 0;
   handle.transaction(() => {
     const { db } = handle;
-    if (row.iface) ensureInterface(db, row.iface);
-    written = Number(db.prepare(
-      `INSERT OR IGNORE INTO execution_contexts (id, mode, iface, destination_place_id, partner_person_id, policy_version, issued_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(row.id, row.mode, row.iface ?? null, row.destination_place_id ?? null, row.partner_person_id ?? null, row.policy_version ?? 1, row.issued_at).changes);
+    const before = db.prepare('SELECT 1 AS ok FROM execution_contexts WHERE id = ?').get(row.id);
+    insertContext(db, row);
+    written = before ? 0 : 1;
   });
   return { written };
 }

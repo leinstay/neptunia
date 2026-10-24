@@ -1999,8 +1999,16 @@ part was dropped (`all_dropped`) leaves the cursor too: the batch stays pending,
 (`memoryDb.session.retryLimit`), and is skipped with a recorded decision after that many tries. Her whole answer,
 `<think>` included, is stored as a `sources` row of kind `memory_session`, scope internal.
 
+A `confirm`, `revise` or `retire` op is written against the claim version the request showed for its `cN` / `sN`: the
+engine sets that version as the op's `base` itself, from the request (a `base` in her answer is never read). In `apply`
+an op whose claim has gained a newer version by the time it is written is rejected whole as `stale_base` (a `decisions`
+row `rejected:stale_base`). What the request rendered (the batch lines, the claims, the place descriptions, the places,
+the episodes and the intentions, each with its block and order; not the items inside a profile text) is recorded with
+the run as `turn_reads` rows of reader kind `session`, with the claim version, description version and line revision
+each showed.
+
 In `shadow` every kept op is a `decisions` row (`by` `her`, `action` `proposed:<op>`, the op in `extra`); in `apply`
-the changes land in `claims`, `claim_versions`, `claim_sources`, `episodes`, `affinity_events` and `people.affinity`
+the changes land in `claims`, `claim_versions` (with each version's lines in `claim_version_sources`), `claim_sources`, `episodes`, `affinity_events` and `people.affinity`
 (the delta is capped by `relationships.maxDeltaPerUpdate`), each with a `decisions` row whose `action` is the op; a
 description flag is a `decisions` row only. `apply` is refused (`APPLY_JSON_WRITER`) unless `memoryDb.authority` is
 `db` (the read switch does not count). In `apply` a run is written once (a retried batch returns the first result), an

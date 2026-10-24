@@ -29,6 +29,7 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `claims` | audience-scoped | what she holds true about a person, a place or herself |
 | `claim_versions` | inherits from claims | the history of a claim |
 | `claim_sources` | inherits from claims | the lines a claim rests on (each line keeps its own audience) |
+| `claim_version_sources` | inherits from claim_versions | the lines each version of a claim rests on, or that speak against it; rows copied from `claim_sources` by the migration to schema 9 are marked `legacy` |
 | `descriptions` | audience-scoped | her account of a subject in one field |
 | `description_versions` | inherits from descriptions | the texts of a description |
 | `episodes` | audience-scoped | remembered moments |
@@ -72,6 +73,9 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `files` | structural | the signature of every memory file the sync read |
 | `co_owners` | structural | rows two servers' files both map |
 | `schema_version` | structural | the migrations applied |
+| `graph_nodes` | structural | one node per typed row of a node kind (derived, rebuildable); whether a context may see a node is `node_access`'s answer |
+| `graph_edges` | audience-scoped | the edges between nodes, each with the audience of the typed row it came from (derived, rebuildable); a walk follows only edges the context may read |
+| `node_access` | internal-only | which audiences may see each node, one witness row per node, audience and evidence (derived, rebuildable); the walks read it, nothing shows it |
 
 ## Columns filled by the migration to schema 7
 
@@ -100,3 +104,14 @@ The migration fills the new columns from the columns that were there; most are e
 A DM observed on an interface where the partner is no known person yet carries the audience of its DM place
 (`aud:dm:<place>`) and a scope triple with an empty partner, which the triple reader shows in no context: it fails
 closed until the partner becomes a person.
+
+## Columns and rows filled by the migration to schema 9
+
+- `claim_version_sources`: every live `claim_sources` row whose line is stored is copied to its claim's newest live
+  version (by recorded time, then row order) with role `supports` and `legacy` 1: the claim rested on that line, which
+  version first did is not known. A claim with no version keeps its lines in `claim_sources` only.
+- `claim_sources.id`, `episode_sources.id`, `diary_mirrors.id`: a durable id from the link's natural key (a link a file
+  holds: its parent and position; a link the database wrote: its parent and line; a mirror: its entry, interface and
+  place), a repeated key suffixed with `#dup` and the row number. Every later row gets its id the same way.
+- `graph_nodes`, `graph_edges`, `node_access`: created empty; the projection of the existing rows is left pending and
+  done by the next full sync pass, in slices. Until then a walk sees only what was written since.
