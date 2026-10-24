@@ -270,13 +270,15 @@ function peopleOf(db, batch, selfName) {
 }
 
 /** One line of the batch: `#n [time] [pN] name: text`, a line addressed to her led by `→ `, her own under her self label. */
-function lineText(line, n, { accounts, participants, selfName, labels, timezone, handle }) {
+function lineText(line, n, { accounts, participants, selfName, labels, timezone, handle, authorHandle = null }) {
   const own = line.kind === 'said';
   const author = own ? String(labels?.self ?? '{name}').replace('{name}', selfName)
     : (accounts.get(line.author_account)?.name ?? participants?.get(line.author_participant)?.name ?? line.author_account ?? '?');
   const lead = !own && line.direct ? '→ ' : '';
   const place = handle ? `[${handle}] ` : '';
-  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${author}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
+  // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
+  const who = !own && authorHandle ? `[${authorHandle}] ` : '';
+  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${author}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
 }
 
 function claimLine(label, row) {
@@ -367,12 +369,14 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   // <batch>
   const rendered = [];
   let n = 0;
+  // The handle of every author of the batch who is not a person yet, by account or participant id.
+  const authorHandleOf = new Map([...touched.authors].filter(([, entry]) => !entry.hasPerson).map(([handle, entry]) => [entry.id, handle]));
   for (const line of batch) {
     if (typeof line.text !== 'string' || line.text.trim() === '') continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id);
     read('source_id', line.id, 'batch');
-    rendered.push(lineText(line, n, { accounts: touched.accounts, participants: touched.participants, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null }));
+    rendered.push(lineText(line, n, { accounts: touched.accounts, participants: touched.participants, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null, authorHandle: authorHandleOf.get(line.author_participant ?? line.author_account) ?? null }));
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 

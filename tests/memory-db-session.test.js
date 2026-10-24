@@ -1101,6 +1101,26 @@ test('the batch keeps a line\'s revisions apart from another interface\'s line w
   }
 });
 
+test('a batch line names an author who is not a person yet by the handle people:add takes; a person carries none', () => {
+  const env = fixture();
+  try {
+    chat(env);
+    // An account with no person writes one line.
+    env.db.prepare("INSERT INTO accounts (id, iface, native_id, names, authority_id, native_key, kind) VALUES ('discord:555', 'discord', '555', '[\"Stranger\"]', 'discord/global', '555', 'user')").run();
+    env.say({ native: 'm-stranger', minutesAgo: 50, text: 'hello there', author: '555' });
+    const scope = scopesOf(env.db).find((entry) => entry.key === 'group:discord');
+    const batch = batchOf(env.db, GROUP, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
+    const request = buildSessionRequest({ db: env.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
+    const handle = [...request.maps.authors].find(([, entry]) => entry.id === 'discord:555')?.[0];
+    assert.ok(handle, 'the stranger has a handle');
+    const user = request.messages[1].content;
+    assert.match(user, new RegExp(`\\[${handle}\\] Stranger: hello there`));
+    assert.ok(![...request.maps.authors].some(([h, entry]) => entry.hasPerson && user.includes(`[${h}]`)), 'a person carries no handle');
+  } finally {
+    env.done();
+  }
+});
+
 test('a batch whose request would pass the request cap is cut to its first lines by arrival until it fits; the rest waits for the next batch', async () => {
   const env = fixture();
   try {

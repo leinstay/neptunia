@@ -142,6 +142,8 @@ export function memoryDbStatusLine(s, labels, nowMs = Date.now()) {
   const L = labels?.status?.memoryDb;
   if (!isPlainObject(L) || !isPlainObject(s)) return null;
   if (!s.on) return labelLine(L.off, {});
+  // Under the database as the writer, a refused start says why (memoryDb.status().refused, a code).
+  if (s.refused) return labelLine(L.refused, { code: s.refused }) ?? labelLine(L.unavailable, {});
   if (!s.open) return labelLine(L.unavailable, {});
   // The database is the writer (`memoryDb.authority` `db`): the sync is off, and the line says so (when its label is filled).
   const syncOff = s.syncOff === true ? labelLine(L.syncOff, { rows: s.rows ?? 0, files: s.files ?? 0 }) : null;
