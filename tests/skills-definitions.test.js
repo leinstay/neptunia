@@ -55,7 +55,7 @@ function samplesOf(definition) {
 }
 
 test('the table holds every operation, in the operations registry order', () => {
-  assert.equal(SKILL_DEFINITIONS.length, 73);
+  assert.equal(SKILL_DEFINITIONS.length, 74);
   assert.deepEqual(SKILL_DEFINITIONS.map((definition) => definition.name), listOps().map((op) => op.name));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));
@@ -133,11 +133,11 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 73, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 74, well-formed, unique, a round trip, no longer than 64', () => {
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
-  assert.equal(apis.length, 73);
-  assert.equal(new Set(apis).size, 73);
-  assert.equal(Object.keys(API_NAMES).length, 73);
+  assert.equal(apis.length, 74);
+  assert.equal(new Set(apis).size, 74);
+  assert.equal(Object.keys(API_NAMES).length, 74);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
@@ -179,4 +179,14 @@ test('validateDefinitions accepts the table and throws on bad input', () => {
   assert.throws(() => validateDefinitions([copy(first, { params: null })]), /params/);
   assert.throws(() => validateDefinitions([copy(first, { toArgs: null })]), /toArgs/);
   assert.throws(() => validateDefinitions([copy(first, { feature: 3 })]), /feature/);
+});
+
+test('voice.say: a paid skill of hers only behind features.speech, text required, no owner command', () => {
+  const definition = BY_NAME.get('voice.say');
+  assert.equal(definition.effects, 'paid');
+  assert.equal(definition.feature, 'speech');
+  assert.equal(definition.body, 'text');
+  assert.deepEqual(definition.params.required, ['text']);
+  assert.deepEqual(Object.keys(definition.params.properties), ['text', 'channel', 'reply']);
+  assert.deepStrictEqual(definition.toArgs({ text: 't', reply: 'm' }), { text: 't', replyTo: 'm' });
 });

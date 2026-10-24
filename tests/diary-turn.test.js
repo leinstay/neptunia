@@ -515,6 +515,35 @@ test('diary turn: records the post with gists and message ids', async () => {
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1);
 });
 
+test('diary turn: a voice message is kept in the post: its id among messageIds and a voice field with the text as voiced', async () => {
+  const llm = fakeLlm(
+    { kind: 'status', brief: 'a quiet evening', search: '', picture: false },
+    toolAnswer('<msg>soir calme</msg>', [call('voice.say', { text: '[tired] soir calme' })]),
+  );
+  const store = fakeStore();
+  const voiced = '[sighs] soir calme';
+  const runOwnOp = async (op) => ({ status: 'ok', code: 'ok', summary: 'voice message posted', data: { text: 'voice message posted', ref: { conversationId: 'd1', messageId: 'voice-1' }, voice: { text: voiced, durationSecs: 2.5 } } });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ features: { speech: true } }),
+    store,
+    llm,
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    client: client(),
+    images: fakeImages(),
+    speech: { quota: () => ({ used: 0, cap: 10, spent: false }) },
+    runOwnOp,
+    rng: () => 0.5,
+    now: () => NOW,
+  });
+  const result = await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  assert.equal(result.outcome, 'spoke');
+  const { post } = store.appended[0];
+  assert.ok(post.messageIds.includes('voice-1'), JSON.stringify(post.messageIds));
+  assert.deepEqual(post.voice, { messageId: 'voice-1', text: voiced, durationSec: 2.5 });
+});
+
 test('diary turn: the gist is cut to diary.gistChars', async () => {
   const long = 'mot '.repeat(40).trim();
   const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, `<msg>${long}</msg>`);

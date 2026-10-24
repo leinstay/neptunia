@@ -83,7 +83,9 @@ function requesterRefusal(skill, requester, context, carriedOver = false) {
 const drawBudget = (context, requester) => (typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null);
 /** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
 const taskBudget = (context, requester, args) => (typeof context?.tasks?.budget === 'function' ? context.tasks.budget(args?.agent) : null);
-const BUDGETS = Object.freeze({ 'draw.create': drawBudget, 'task.run': taskBudget });
+/** A voice message's budget: today's count against `speech.maxPerDay`, `context.speech`. */
+const speechBudget = (context) => (typeof context?.speech?.quota === 'function' ? context.speech.quota() : null);
+const BUDGETS = Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`skills.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -122,7 +124,7 @@ function budgetRefusal(skill, requester, context, args) {
  * the operation's own rule (src/ops/message.js), checked when it runs. Never throws.
  * @param {{ skill: string, args: object, principal: { kind: string }, requester: { id: string, roleIds?: string[] } | null,
  *   audience: { conversationId: string, memberIds?: string[] }, context: { config: object, selfId?: string,
- *   images?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean, ownInitiative?: boolean,
+ *   images?: object, speech?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean, ownInitiative?: boolean,
  *   lastRunAt?: number|null, now?: number } }} call
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */

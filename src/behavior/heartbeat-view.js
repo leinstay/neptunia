@@ -39,7 +39,7 @@ export const PERSON_PLACES_SHOWN = 3;
 /** The entries shown per list of her life and of what was not done; the rest is counted. */
 export const LIST_SHOWN = 8;
 /** The calls of an inner turn that post where people read (the diary is counted from its own store). */
-const POSTED_SKILLS = Object.freeze(['message.create', 'draw.create']);
+const POSTED_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say']);
 /** The missed helper's verdicts that mean "left alone without her". */
 export const DISMISSED_VERDICTS = Object.freeze(['intentional-skip', 'stale', 'uncertain']);
 /** The defaults of the settings (`innerLife.heartbeat`; config.json carries the same). */
@@ -49,7 +49,7 @@ export const PREVIEW_CHARS = Object.freeze({ place: 140, person: 120, filtered: 
 /** The names listed per place. */
 const PLACE_PEOPLE_SHOWN = 6;
 /** The calls that are her own sends (an unknown outcome of these is worth telling; an engine or helper action never is). */
-const SEND_SKILLS = Object.freeze(['message.create', 'draw.create', 'diary.post']);
+const SEND_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'diary.post']);
 /** The journal operations of the persona's own output that are sends (src/behavior/turn.js#journalOp names). */
 const SEND_OPS = Object.freeze(['post', 'draw', 'gif']);
 

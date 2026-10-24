@@ -152,6 +152,11 @@ export const CATALOGUE = Object.freeze({
   'image-error': skill('failed'),
   'image-empty': skill('failed'),
   'unsupported-model': skill('failed'),
+  'speech-cap-daily': skill('failed'),
+  'speech-prepare-failed': skill('partial'),
+  'speech-synth-failed': skill('failed'),
+  'speech-convert-failed': skill('failed'),
+  'speech-not-configured': skill('not_configured'),
 
   // Why a wake did not run (labels.wake.feedback.codes).
   done: wake('ok'),

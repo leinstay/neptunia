@@ -30,6 +30,7 @@ import path from 'node:path';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
 import { keyHashOf, llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
+import { SPEECH_ROLE } from '../speech/synth.js';
 import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../time.js';
 import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../memory/index.js';
 import { WEB_DAILY } from '../web/lookup.js';
@@ -91,6 +92,7 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'vision', roles: ['vision'] },
   { name: 'video', roles: ['video'] },
   { name: 'embedding', roles: [EMBED_ROLE] },
+  { name: 'speech', roles: [SPEECH_ROLE] },
 ]);
 
 /** The time of `ts` for the inner field (UTC, minutes). */
@@ -490,6 +492,8 @@ const handlers = perEnv((env) => {
       for (const role of MODEL_ROLES) {
         const model = modelOf.get(role);
         if (role === EMBED_ROLE && !canEmbed) continue;
+        // The speech role has no chat completion behind it: its model is shown, never probed.
+        if (role === SPEECH_ROLE) continue;
         if (model && !targets.has(targetOf(role))) targets.set(targetOf(role), { model, role });
       }
       await Promise.all(
@@ -529,6 +533,7 @@ const handlers = perEnv((env) => {
       const head = roleHead(role, model);
       if (!promptText) return `${head} · skipped: label missing`;
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
+      if (role === SPEECH_ROLE) return `${head} · not checked (speech)`;
       return probeLine(head, results.get(targetOf(role)));
     };
     return groupedModels(cfg, lineOf);

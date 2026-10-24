@@ -18,7 +18,7 @@ import { CODE } from './codes.js';
 import { SKILL_DEFINITIONS } from './definitions.js';
 
 /** The skills behind the persona's current reply tags, allowed in the current conversation without a grant. */
-export const CARRIED_OVER = Object.freeze(['message.create', 'message.react.add', 'draw.create']);
+export const CARRIED_OVER = Object.freeze(['message.create', 'message.react.add', 'draw.create', 'voice.say']);
 
 /**
  * The operations no grant opens for the persona yet (the owner's decision, 2026-10-14): the

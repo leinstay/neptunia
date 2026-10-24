@@ -112,8 +112,9 @@ function choicesOf(values) {
 }
 
 /** The choices of `/nep route`: the `/nep model set` roles but the OpenCode ones (`web`,
- * `server`, `thinker`, `dev`, `writer`), whose workers never read `llm.providerByModel`. */
-export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role));
+ * `server`, `thinker`, `dev`, `writer`), whose workers never read `llm.providerByModel`, and `speech`,
+ * whose one model is routed by its own prefix (the command tree is at Discord's size limit). */
+export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);

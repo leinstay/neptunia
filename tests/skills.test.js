@@ -98,7 +98,7 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   const of = (effect) => Object.keys(OP_EFFECTS).filter((name) => OP_EFFECTS[name] === effect).sort();
   assert.deepEqual(of('destructive'), ['alias.remove', 'learning.remove', 'lore.remove', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'message.delete', 'rule.remove']);
   for (const name of ['config.set', 'config.unset', 'model.set', 'route.set', 'route.remove', 'access.grant', 'access.revoke', 'bot.pause', 'bot.resume']) assert.equal(OP_EFFECTS[name], 'administrative', name);
-  assert.deepEqual(of('paid'), ['draw.create', 'task.run']);
+  assert.deepEqual(of('paid'), ['draw.create', 'task.run', 'voice.say']);
   for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(OP_EFFECTS[op.name], 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.wipe').effects, 'destructive');
@@ -225,7 +225,7 @@ test('skills access: the irreversible and administrative operations are never op
 });
 
 test('skills access: her reply tags are carried over in the current conversation, without a grant, even in safe mode', () => {
-  assert.deepEqual([...CARRIED_OVER].sort(), ['draw.create', 'message.create', 'message.react.add']);
+  assert.deepEqual([...CARRIED_OVER].sort(), ['draw.create', 'message.create', 'message.react.add', 'voice.say']);
   for (const skill of CARRIED_OVER) {
     assert.deepEqual(checkReplyEffect({ skill, principal: persona, config: config() }), { ok: true }, skill);
     assert.deepEqual(checkReplyEffect({ skill, principal: persona, config: config({ skills: { safeMode: true } }) }), { ok: true }, skill);
@@ -240,7 +240,7 @@ test('skills access: her reply tags are carried over in the current conversation
 });
 
 test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
-  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['draw.create', 'intent.cancel', 'intent.list', 'intent.set', 'intent.update', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
+  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['draw.create', 'intent.cancel', 'intent.list', 'intent.set', 'intent.update', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove', 'voice.say']);
   for (const name of SELF_OWNED_OPS) assert.ok(skillRegistry().has(name), name);
   const member = { id: MEMBER };
   // a member with no right of their own on them: hers alone decides

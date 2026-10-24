@@ -37,6 +37,7 @@
     "embedIndex": false,
     "memoryDb": false,
     "imageGeneration": false,
+    "speech": true,
     "privateMessages": false,
     "privateLikeServer": true,
     "gifPicker": true,
@@ -93,7 +94,8 @@
       "extractor": "openai/gpt-6.1-sol",
       "vision": "google/gemini-3.8-flash",
       "video": "google/gemini-3.8-flash",
-      "embedding": "openai/text-embedding-3-large"
+      "embedding": "openai/text-embedding-3-large",
+      "speech": "elevenlabs/eleven-v4"
     },
     "byPurpose": {},
     "agents": {
@@ -425,6 +427,7 @@
     "openai": { "quality": "medium", "background": "auto", "moderation": "low" },
     "google": { "resolution": "1K" }
   },
+  "speech": { "voice": "jessica", "maxPerDay": 100, "maxChars": 1500, "usdPerMillionChars": 40, "timeoutMs": 60000, "prepareMaxOutputTokens": 1500 },
   "skills": {
     "safeMode": false,
     "resultMaxChars": 4500,

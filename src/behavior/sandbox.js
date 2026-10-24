@@ -1054,6 +1054,9 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
   return proposedRows(proposalVerdicts(Array.isArray(discovery) ? discovery : [], rows), rows);
 }
 
+/** The voice budget a sandbox hands the gateway: open, the synthesis itself being canned. */
+const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: false }) });
+
 /**
  * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
  * before the operation runs (src/behavior/turn.js#planCall and #runCall): resolved on the
@@ -1100,6 +1103,8 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
       lastRunAt: null,
       now,
       ...(images ? { images } : {}),
+      // A voice message is canned in a sandbox, so its day's budget is never spent here.
+      speech: SANDBOX_SPEECH,
       // An errand's caps are its budget, as a live turn hands them in (src/behavior/turn.js#checkCall).
       ...(tasks ? { tasks } : {}),
       ...(getOp ? { getOp } : {}),

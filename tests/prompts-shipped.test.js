@@ -91,6 +91,8 @@ function tempStore(name) {
 
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
+  // The voice-message preparation pass (src/speech/prepare.js) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
+  'speech-prepare': 'built by the speech pipeline (src/speech/prepare.js), checked in tests/speech-prepare.test.js',
   // Built inside the createMessageHandler closure of src/behavior/pipeline.js (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.js closure (O-9)',

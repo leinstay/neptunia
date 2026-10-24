@@ -481,7 +481,7 @@ export async function executeCall(resolved, deps) {
     const status = callStatus(result);
     const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
     const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}), ...(status === 'ok' && typeof result?.data?.intention?.id === 'string' ? { intentionId: result.data.intention.id } : {}) };
+    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(result?.data?.voice ? { voice: result.data.voice } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}), ...(status === 'ok' && typeof result?.data?.intention?.id === 'string' ? { intentionId: result.data.intention.id } : {}) };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
     const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));

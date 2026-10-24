@@ -137,9 +137,9 @@ const HELD = new Set(['busy', 'paused']);
 /** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
 const TURN_OUTCOMES = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 /** The skills that post where people read. */
-export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create']);
+export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say']);
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
-export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'task.run']);
+export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'task.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
 export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'memoryFailed', 'interrupted', 'diagnostic']);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */

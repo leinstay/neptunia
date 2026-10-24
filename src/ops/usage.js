@@ -192,7 +192,8 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
  * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, prompt,
  * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
  * and from every `images: generated` line (src/llm/images.js, which logs no `llm: usage`): one
- * request of the `drawing` role with its `cost` and no tokens.
+ * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line
+ * (src/speech/synth.js): one request of the `speech` role, its estimated `cost`.
  * Never throws on an odd entry.
  * @param {{ record: Function }} usage
  * @returns {(entry: object) => void}
@@ -202,6 +203,11 @@ export function usageTap(usage) {
     if (!entry || typeof entry !== 'object') return;
     if (entry.msg === 'images: generated') {
       usage.record({ role: DRAWING_ROLE, cost: entry.cost });
+      return;
+    }
+    // A voice synthesis (src/speech/synth.js): one request of the `speech` role with its estimated cost and no tokens.
+    if (entry.msg === 'speech: synthesized') {
+      usage.record({ role: entry.role, cost: entry.cost });
       return;
     }
     if (entry.msg !== 'llm: usage') return;

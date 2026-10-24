@@ -40,6 +40,8 @@ import { createCalibrator } from './llm/tokens.js';
 import { createLlm, roleApiKey } from './llm/openrouter.js';
 import { createEmbedder } from './llm/embed.js';
 import { createImageGen } from './llm/images.js';
+import { createSpeech } from './speech/index.js';
+import { ffmpegAvailable } from './speech/convert.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
 import { createMissed } from './behavior/missed.js';
@@ -269,6 +271,14 @@ embedQueue = createEmbedQueue({
 // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
 // each request; the main key when the role names none.
 const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawing', openrouterKey), getConfig: () => hot.config, state: store.state });
+// The persona's voice messages (features.speech): the preparation pass on the analyzer, the synthesis on the
+// voice role's key and model, the conversion with the system ffmpeg. Without ffmpeg there is no `speech` at
+// all (the skill answers `speech-not-configured`), reported once.
+const speechReady = ffmpegAvailable();
+if (!speechReady) log.warn('speech: ffmpeg not found, voice messages are off', {});
+const speech = speechReady
+  ? createSpeech({ getConfig: () => hot.config, getPrompts: () => hot.prompts, env, apiKey: openrouterKey, llm, state: store.state })
+  : null;
 
 // Direct messages are received regardless of features.privateMessages (the
 // switch is hot, intents are not); a DM channel arrives uncached, hence the
@@ -391,6 +401,7 @@ const turns = createTurnRunner({
   lookup,
   recall,
   images,
+  speech,
   emoji,
   around,
   reactors,
@@ -607,6 +618,8 @@ const admin = createAdmin({
   warmup,
   // The image client's quota and model family, for the owner commands; /nep draw generates through it.
   images,
+  // The voice messages' quota and pipeline, for the skill `voice.say`.
+  speech,
   // /nep draw self: the avatar reference, fetched the same way a turn fetches it.
   imageFetcher,
   // /nep emoji status|rescan: the emoji ranking and its history backfill.

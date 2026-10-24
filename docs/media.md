@@ -94,6 +94,10 @@ A failed picture is a result of the `draw.create` call, with its code (`image-ca
 
 Settings live under `image`. See [Configuration](configuration.md#image) for every key and [Configuration: Pictures out](configuration.md#pictures-out-imagemodel) for the supported models.
 
+## Voice messages
+
+`features.speech` (on by default; needs the system `ffmpeg`) lets the persona say a thing aloud instead of typing it. When the model calls the `voice.say` tool (usable in the current conversation like `draw.create`, granted for other channels), the text goes through a preparation pass on the analyzer (dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short English audio tags), then through OpenRouter's speech endpoint with the `speech` model and `speech.voice`, then to OGG/Opus, and is posted as a Discord voice message with no text. The pass may add marks and rewrite what sits in brackets and nothing else: when its answer differs by a single word, the text is spoken as she wrote it and the result says `prepared: no` (code `speech-prepare-failed`, status `partial`). The result tells her the duration, the characters, the estimated cost and the text as voiced. At most `speech.maxPerDay` (default 100) messages a day. A diary turn may send one; the diary post then keeps its message id among `messageIds` and a `voice` field with the id, the text as voiced and the length in seconds. Settings: [`speech`](configuration.md#speech).
+
 ## Blind spots
 
 Voice messages show only duration. Audio files show a name and duration. The persona cannot hear either. How they handle a blind spot is the character card's call.
