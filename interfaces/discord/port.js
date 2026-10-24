@@ -264,6 +264,8 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
               name: file.name,
               contentType: file.contentType ?? undefined,
               size: Number.isFinite(file.size) ? file.size : undefined,
+              ...(Number.isFinite(file.duration) ? { durationSec: file.duration } : {}),
+              ...(typeof file.waveform === 'string' ? { waveform: file.waveform } : {}),
             })),
           });
         } catch (err) {
