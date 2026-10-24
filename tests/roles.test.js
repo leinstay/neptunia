@@ -148,8 +148,8 @@ test('roles: the built-in defaults equal config.json\'s models.core, models.help
 
 test('roles: the agents\' roles follow the core and the helpers, the OpenCode ones with OpenCode model ids, resolved like any role, no purpose on them', () => {
   assert.equal(CORE_ROLE, 'core');
-  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'extractor', 'vision', 'video', 'embedding']);
-  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
+  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
+  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
   assert.deepEqual([...AGENT_ROLES], ['web', 'server', 'thinker', 'dev', 'writer', 'drawing']);
   assert.deepEqual([...OPENCODE_ROLES], ['web', 'server', 'thinker', 'dev', 'writer']);
   assert.equal(Object.hasOwn(ROLE_DEFAULTS, 'agent.advice') || Object.hasOwn(ROLE_DEFAULTS, 'advice'), false, 'no advice role');
@@ -323,12 +323,12 @@ test('loadConfig: a config.json that still holds roles is refused too; the migra
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   const { models, ...rest } = shipped;
   const { web, server, dev, drawing } = models.agents;
-  const old = { ...rest, roles: { voice: models.core, ...models.helpers, byPurpose: models.byPurpose, drawing, 'agent.web': web, 'agent.server': server, 'agent.dev': dev, 'agent.advice': 'x/advice' } };
+  const old = { ...rest, roles: { voice: models.core, ...Object.fromEntries(Object.entries(models.helpers).filter(([role]) => role !== 'speech')), byPurpose: models.byPurpose, drawing, 'agent.web': web, 'agent.server': server, 'agent.dev': dev, 'agent.advice': 'x/advice' } };
   assert.throws(() => loadWith(undefined, old), (err) => err instanceof ConfigShapeError && /^config\.json: /.test(err.message));
   const migrated = migrateModelsKeys(old);
   assert.deepEqual(migrated.unknown, []);
   assert.deepEqual(migrated.conflicts, []);
-  assert.deepEqual(migrated.config.models, { core: models.core, helpers: models.helpers, byPurpose: models.byPurpose, agents: { drawing, web, server, dev } });
+  assert.deepEqual(migrated.config.models, { core: models.core, helpers: Object.fromEntries(Object.entries(models.helpers).filter(([role]) => role !== 'speech')), byPurpose: models.byPurpose, agents: { drawing, web, server, dev } });
   assert.deepEqual(loadWith({ models: { core: 'x/v', agents: { web: 'openrouter/x/w' } } }).config.models.agents.web, 'openrouter/x/w');
   assert.equal(roleModel(loadWith(undefined, migrated.config).config, 'drawing'), ROLE_DEFAULTS.drawing);
 });

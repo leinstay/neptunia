@@ -37,6 +37,16 @@
       "reply": "#N or link to reply to."
     }
   },
+  "voice.say": {
+    "title": "Send a voice message",
+    "whenToUse": "Say something aloud instead of typing it: your words are spoken in your voice and posted as a voice message. Write the text as you would say it. Directions in square brackets shape the delivery and are not spoken: a tone ([tired], [playful], [whispers]), a reaction ([sighs], [laughs], [gasps]), a [pause]. Any short direction in brackets works.",
+    "whenNotToUse": "Long texts: a voice message over a minute is rarely listened to.",
+    "args": {
+      "text": "What you say, with directions in brackets.",
+      "channel": "Target #handle.",
+      "reply": "#N or link to reply to."
+    }
+  },
   "pings.get": {
     "title": "Notification setting",
     "whenToUse": "The caller's ping setting."

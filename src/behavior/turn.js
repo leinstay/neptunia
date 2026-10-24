@@ -1830,6 +1830,7 @@ export function createTurnRunner({
   lookup,
   recall = null,
   images,
+  speech = null,
   emoji,
   getSelfName = (guildId) => client.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client.user?.username ?? 'bot',
   routeChannels,
@@ -2051,6 +2052,7 @@ export function createTurnRunner({
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
+        ...(speech ? { speech } : {}),
         // An errand's caps are its budget (src/errands/service.js#budget), in the turn's guild.
         ...(errands ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.guild?.id ?? null, agent }) } } : {}),
       },
@@ -2092,7 +2094,7 @@ export function createTurnRunner({
       return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
     }
     // An inner turn's picture lands in its current channel, as its speech does; with none, there is nowhere to post it.
-    if (draft?.inner && call.skill === 'draw.create' && typeof call.args?.channel !== 'string') {
+    if (draft?.inner && (call.skill === 'draw.create' || call.skill === 'voice.say') && typeof call.args?.channel !== 'string') {
       const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
       if (!current) {
         log.info('skill: refused', { skill: call.skill, code: DESTINATION_REQUIRED.code, reason: DESTINATION_REQUIRED.reason, channel: channel.id });
@@ -2233,7 +2235,7 @@ export function createTurnRunner({
     }
     const args = plan.resolved?.args ?? {};
     // A text that went out with its GIF failing (`partial`) was said all the same.
-    const posted = (result.status === 'ok' || (result.status === 'partial' && result.code === CODE.GIF_FAILED)) && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
+    const posted = (result.status === 'ok' || (result.status === 'partial' && (result.code === CODE.GIF_FAILED || result.code === CODE.SPEECH_PREPARE_FAILED))) && (skill === 'message.create' || skill === 'draw.create' || skill === 'voice.say') && result.ref ? postedOf(result) : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
@@ -2243,6 +2245,8 @@ export function createTurnRunner({
       if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
       if (draft) (draft.deliveredIn ??= new Set()).add(where);
       if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
+      // A voice message in a diary turn: the diary post keeps its id, text as voiced and length (recordDiaryPost).
+      if (skill === 'voice.say' && draft?.diary && result.voice) draft.diaryVoice = { messageId: posted.id, text: result.voice.text, durationSec: result.voice.durationSecs };
       if (skill === 'message.create') {
         noteLineSources(draft, posted.id, args.text);
         recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: rendered?.userIds ?? [] });
@@ -2951,8 +2955,8 @@ export function createTurnRunner({
    */
   function preRefusalOf(record, { isFinal, terminalAt, room, maxCallsPerStep, finalReason, diary = false }) {
     if (record.problem) return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
-    // A diary post makes pictures and nothing else.
-    if (diary && record.name !== 'draw.create') return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
+    // A diary post makes pictures, and may say one thing aloud; nothing else.
+    if (diary && record.name !== 'draw.create' && record.name !== 'voice.say') return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
     const capped = (what) => ({ code: CODE.LOOP_CAP, reason: what });
     if (isFinal) return record.index === terminalAt ? null : capped(finalReason);
     if (!room.run) return capped(room.capReason ?? LOOP_WHY.time);
@@ -5275,14 +5279,14 @@ export function createTurnRunner({
    * A diary post's last step, once it reached the chat: the post recorded in
    * diary.json (store.appendDiaryPost, the newest `diary.historyPosts` (150)
    * kept) with its gist and its picture's scene cut to `diary.gistChars` (200),
-   * its message ids and its search query; the day's diary post counted and,
+   * its message ids (a voice message's included, with a `voice` field: its id, the text as voiced and its length) and its search query; the day's diary post counted and,
    * when the picture was posted, the day's diary picture. A set post (`set`)
    * records the scene of its first picture posted with `pictures`, the count
    * posted. Every picture was counted against the day's diary pictures when it was generated. Settings come
    * from `config`, the turn's live config. Returns the outcome's `diary` field
    * (`pictures`: the pictures posted).
    */
-  function recordDiaryPost({ config, guildId, now, plan, acted, set = false }) {
+  function recordDiaryPost({ config, guildId, now, plan, acted, set = false, voice = null }) {
     const diaryCfg = config.diary ?? {};
     const gistChars = diaryCfg.gistChars ?? 200;
     const texts = Array.isArray(acted.texts) ? acted.texts : [];
@@ -5298,8 +5302,9 @@ export function createTurnRunner({
           gist: gistOf(texts.join(' '), gistChars),
           picture: drew && typeof scene === 'string' ? gistOf(scene, gistChars) : null,
           ...(set ? { pictures } : {}),
-          messageIds: Array.isArray(acted.messageIds) ? acted.messageIds : [],
+          messageIds: [...(Array.isArray(acted.messageIds) ? acted.messageIds : []), ...(voice ? [voice.messageId] : [])],
           search: plan.search || null,
+          ...(voice ? { voice: { messageId: voice.messageId, text: voice.text, durationSec: voice.durationSec } } : {}),
         },
         { max: diaryCfg.historyPosts ?? 150 },
       );
@@ -7418,7 +7423,7 @@ export function createTurnRunner({
       const acted = acts.find((one) => one.delivered === true) ?? null;
       const recorded =
         diaryPrep && acted?.delivered === true
-          ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, acted, set: Boolean(draft.diary?.set) }) }
+          ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, acted, set: Boolean(draft.diary?.set), voice: draft.diaryVoice ?? null }) }
           : {};
       // An inner turn in shadow mode delivers nothing, whatever it proposed.
       const delivered = stepped.delivered && draft.inner?.shadow !== true;

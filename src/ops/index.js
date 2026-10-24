@@ -15,6 +15,7 @@ import './status.js';
 import './config.js';
 import './pause.js';
 import './draw.js';
+import './voice.js';
 import './pings.js';
 import './media.js';
 import './model.js';

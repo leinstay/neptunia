@@ -22,6 +22,7 @@ const SHOWN = Object.freeze({
   'lore.list': ['query'],
   'lore.show': ['id'],
   'draw.create': ['text'],
+  'voice.say': ['text'],
   'task.run': ['agent', 'goal'],
   'task.read': ['id', 'from'],
   'task.status': ['id', 'from'],

@@ -22,6 +22,8 @@
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
+// - `speech`    speaks her text aloud (src/speech/, OpenRouter's speech endpoint: no chat completion
+//                behind it, so nothing probes it with one);
 // models.agents
 // - `web`, `server`  run the persona's errand agents (src/agent-runner/, profiles `web` and
 //                `server`);
@@ -53,7 +55,7 @@ export const MEMORY_ROLE = 'memory';
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /** The helper roles, in display order: their models under `models.helpers`. */
-export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding']);
+export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
 
 /** The core's own roles (the core, then the helpers), in display order: the roles the bot's own requests go out on besides drawing. */
 export const CORE_ROLES = Object.freeze([CORE_ROLE, ...HELPER_ROLES]);
@@ -75,6 +77,7 @@ export const ROLE_DEFAULTS = Object.freeze({
   vision: 'google/gemini-3.8-flash',
   video: 'google/gemini-3.8-flash',
   embedding: 'openai/text-embedding-3-large',
+  speech: 'elevenlabs/eleven-v4',
   web: 'openrouter/openai/gpt-6.1-sol',
   server: 'openrouter/openai/gpt-6.1-sol',
   thinker: 'openrouter/anthropic/claude-opus-5.5',
@@ -132,6 +135,7 @@ export const PURPOSE_ROLES = Object.freeze({
   'search-summary': 'analyzer',
   'read-link': 'analyzer',
   'diary-plan': 'analyzer',
+  speech: 'analyzer',
   'web-search': 'analyzer',
   backfill: 'extractor',
   describe: 'vision',

@@ -22,6 +22,7 @@ const AGREED = new Set([
   'config.set', 'config.unset',
   'bot.pause', 'bot.resume',
   'draw.create',
+  'voice.say',
   'pings.get', 'pings.set',
   'media.status', 'media.rescan', 'media.recache',
   'model.show', 'model.set',

@@ -22,7 +22,7 @@ assert.throws(() => resolveCommand('lore.list', {}), /resolveCommand called/);
 
 // 2. the registry is whole
 const registry = skillRegistry();
-assert.equal(registry.size, 73);
+assert.equal(registry.size, 74);
 assert.equal(registry.size, SKILL_DEFINITIONS.length);
 
 // 3. the gateway lets her 53 live grants through with valid samples

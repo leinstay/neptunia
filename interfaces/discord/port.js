@@ -9,6 +9,7 @@
 // effect, so the caller never sends it again blindly. A failure while looking the target up is
 // always `failed`: nothing was sent.
 
+import { AttachmentBuilder, MessageFlags } from 'discord.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from '../../src/interface/port.js';
 import { CODE, httpCode } from '../../src/skills/codes.js';
 
@@ -101,12 +102,23 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
     }
   }
 
-  /** The discord.js payload of `content`: text, files, reply and the allowed mentions. */
+  /**
+   * The discord.js payload of `content`: text, files, reply and the allowed mentions. An attachment
+   * carrying `voice` (`{ durationSecs, waveform }`) is a voice message: the file gets its duration
+   * and waveform, the message the voice flag and no text (Discord refuses text on a voice message).
+   */
   function payloadOf(content) {
     const payload = {};
-    if (typeof content.text === 'string' && content.text !== '') payload.content = content.text;
-    if (Array.isArray(content.attachments) && content.attachments.length > 0) {
-      payload.files = content.attachments.map((attachment) => ({ attachment: attachment.data ?? attachment.url, name: attachment.name }));
+    const attachments = Array.isArray(content.attachments) ? content.attachments : [];
+    const isVoice = attachments.some((attachment) => attachment?.voice);
+    if (typeof content.text === 'string' && content.text !== '' && !isVoice) payload.content = content.text;
+    if (attachments.length > 0) {
+      payload.files = attachments.map((attachment) => {
+        const file = attachment.data ?? attachment.url;
+        if (!attachment.voice) return { attachment: file, name: attachment.name };
+        return new AttachmentBuilder(file, { name: attachment.name }).setDuration(attachment.voice.durationSecs).setWaveform(attachment.voice.waveform);
+      });
+      if (isVoice) payload.flags = MessageFlags.IsVoiceMessage;
     }
     // The key is always there, undefined without a target: the payload the engine always sent.
     payload.reply = content.replyTo ? { messageReference: content.replyTo.messageId, failIfNotExists: false } : undefined;

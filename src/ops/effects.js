@@ -17,6 +17,7 @@ export const OP_EFFECTS = Object.freeze({
   'bot.pause': 'administrative',
   'bot.resume': 'administrative',
   'draw.create': 'paid',
+  'voice.say': 'paid',
   'pings.get': 'read',
   'pings.set': 'write',
   'media.status': 'read',
@@ -101,6 +102,7 @@ export const SELF_OWNED_OPS = Object.freeze([
   'message.react.add',
   'message.react.remove',
   'draw.create',
+  'voice.say',
   // Her intentions are her own state (src/ops/intent.js).
   'intent.set',
   'intent.update',

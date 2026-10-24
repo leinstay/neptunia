@@ -594,10 +594,10 @@ test('run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
   assert.ok(!lines.some((line) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
-  assert.deepEqual(lines.slice(0, 8).map((line) => line.split(':')[0]), ['core', 'helpers', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'agents'], 'the core first, then the helpers and the agents each under their group line');
+  assert.deepEqual(lines.slice(0, 9).map((line) => line.split(':')[0]), ['core', 'helpers', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'agents'], 'the core first, then the helpers and the agents each under their group line');
   assert.equal(lines[1], 'helpers:');
-  assert.equal(lines[7], 'agents:');
-  assert.deepEqual(lines.slice(8, 14), [
+  assert.equal(lines[8], 'agents:');
+  assert.deepEqual(lines.slice(9, 15), [
     `web: ${ROLE_DEFAULTS.web}`,
     `server: ${ROLE_DEFAULTS.server}`,
     `thinker: ${ROLE_DEFAULTS.thinker}`,
@@ -701,7 +701,7 @@ test('run: model.set rejects an unknown role and the old role names, and writes 
   for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'reasoner', 'agentWeb', 'agentDev', 'agent.web', 'agent.advice', 'advice', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, web, server, thinker, dev, writer, drawing\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, speech, web, server, thinker, dev, writer, drawing\\)`),
       role,
     );
   }
@@ -736,6 +736,7 @@ test('model show: the core role is models.core, never the extractor or a stale m
   assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
   assert.ok(lines.includes('extractor: openai/extractor-model'));
   assert.ok(!lines.some((l) => l.startsWith('talk:') || l.startsWith('voice:')), 'no talk or voice role');
+  assert.ok(lines.includes(`speech: ${ROLE_DEFAULTS.speech}`), 'speech is the voice model, a helper role');
   assert.ok(!lines.some((l) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
@@ -1989,6 +1990,7 @@ test('status: the card carries the fields in order and the member variant drops 
       `vision · ${ROLE_DEFAULTS.vision}`,
       `video · ${ROLE_DEFAULTS.video}`,
       `embedding · ${ROLE_DEFAULTS.embedding}`,
+      `speech · ${ROLE_DEFAULTS.speech}`,
     ].join('\n'),
     'no llm client: one line per base role with its own model, unprobed',
   );
@@ -2375,6 +2377,7 @@ test('status: the card lists one item per line in every field, the models one li
     'vision · x/media',
     'video · x/video',
     'embedding · x/embed',
+    `speech · ${ROLE_DEFAULTS.speech}`,
   ], 'each line starts with its role and its model');
   assert.deepEqual(lines('models.agents').map(head), [
     `web · ${ROLE_DEFAULTS.web}`,
@@ -2475,6 +2478,7 @@ test('status: the member card shows the models one line per role without probing
       'vision · x/media',
       'video · x/video',
       'embedding · x/embed',
+      `speech · ${ROLE_DEFAULTS.speech}`,
     ].join('\n'),
   );
   assert.equal(
@@ -3761,6 +3765,7 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
+    `  speech: ${ROLE_DEFAULTS.speech} -> llm.provider (ignore some-provider, fallbacks: on)`,
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
     `  web: ${ROLE_DEFAULTS.web} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  server: ${ROLE_DEFAULTS.server} -> OpenCode's own routing (llm.providerByModel not read)`,

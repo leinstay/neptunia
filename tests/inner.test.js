@@ -971,7 +971,7 @@ function lostTurn(turnId = 't-1') {
 
 test('feedbackFacts: a call that did not go ok, an intention closed with nothing delivered, the loop cut; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
-  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'task.run']);
+  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'voice.say', 'task.run']);
   const facts = feedbackFacts(lostTurn(), { named: ['i1'], intentions: [intention('i1', { purpose: 'send a cat meme' })] });
   assert.deepEqual(facts, [
     { kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' },

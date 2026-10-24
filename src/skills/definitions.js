@@ -112,6 +112,7 @@ export const API_NAMES = Object.freeze({
   'bot.pause': 'bot_pause',
   'bot.resume': 'bot_resume',
   'draw.create': 'draw_create',
+  'voice.say': 'voice_say',
   'pings.get': 'pings_get',
   'pings.set': 'pings_set',
   'media.status': 'media_status',
@@ -183,7 +184,7 @@ export const API_NAMES = Object.freeze({
 
 const NO_REFS = Object.freeze({});
 const JOBS = Object.freeze(['task.run', 'media.recache']);
-const ROUTE_ROLES = ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'drawing'];
+const ROUTE_ROLES = ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const MEDIA_PARAMS = (kinds) => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), channel: ref() }, ['message', 'emoji']);
@@ -251,6 +252,18 @@ const ENTRIES = [
       return { text: val(a, 'text'), self: flag(val(a, 'self')) ?? false, ...(channelId ? { channelId } : {}), ...(replyTo === undefined ? {} : { replyTo }) };
     },
   }),
+  def('voice.say', {
+    params: obj({ text: str(1500), channel: ref(), reply: str() }, ['text']),
+    refs: { channel: 'channel' },
+    body: 'text',
+    effects: 'paid',
+    feature: 'speech',
+    toArgs: (a) => {
+      const channelId = idOf(a, 'channel');
+      const replyTo = opt(a, 'reply');
+      return { text: val(a, 'text'), ...(channelId ? { channelId } : {}), ...(replyTo === undefined ? {} : { replyTo }) };
+    },
+  }),
   def('pings.get', { params: EMPTY(), effects: 'read', toArgs: () => ({ mode: undefined }) }),
   def('pings.set', {
     params: obj({ mode: oneOf(['on', 'off']) }, ['mode']),
@@ -262,7 +275,7 @@ const ENTRIES = [
   def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
-    params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']), id: str() }, ['role', 'id']),
+    params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']), id: str() }, ['role', 'id']),
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),

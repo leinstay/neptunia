@@ -147,7 +147,7 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(values(role), [...MODEL_ROLES, 'drawing'], `${sub}: no agent role (the bot routes none)`);
+    assert.deepEqual(values(role), [...MODEL_ROLES.filter((r) => r !== 'speech'), 'drawing'], `${sub}: no agent role (the bot routes none), no speech (routed by its prefix)`);
     assert.deepEqual(names(role), values(role), sub);
   }
 });
