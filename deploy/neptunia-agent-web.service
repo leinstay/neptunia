@@ -7,10 +7,10 @@
 # persona's.
 #
 # Keys: every key lives in the bot's .env, which this process cannot read. The
-# core sends them with each task (the agents' key OPENROUTER_AGENT_KEY, the
+# core sends them with each task (the agents' key OPENROUTER_ERRAND_KEY, the
 # proxy MEDIA_VIDEO_PROXY in its http form -- the residential proxy serves the
 # video fetches and this agent alike -- and OPENCODE_WEBSEARCH_KEY when set).
-# The EnvironmentFile is optional: what it sets (OPENROUTER_AGENT_KEY=,
+# The EnvironmentFile is optional: what it sets (OPENROUTER_ERRAND_KEY=,
 # OPENCODE_WEBSEARCH_KEY=, PROXY_URL=) is used only when a task brings none.
 #
 # Install:

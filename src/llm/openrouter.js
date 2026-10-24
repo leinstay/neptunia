@@ -86,10 +86,11 @@ export const ROLE_KEY_NAME = /^OPENROUTER_[A-Z0-9_]+$/;
 /**
  * A key variable read in place of another while the named one is unset: `OPENROUTER_CORE_KEY`
  * (the core's key, the role's name since 2026-10) falls back to `OPENROUTER_VOICE_KEY` (its name
- * while the role was `voice`), so a deployment whose `.env` still holds the old variable keeps
- * its key. One step, never chained.
+ * while the role was `voice`), and `OPENROUTER_ERRAND_KEY` (the errand agents' key) to
+ * `OPENROUTER_AGENT_KEY` (its earlier name), so a deployment whose `.env` still holds the old
+ * variable keeps its key. One step, never chained.
  */
-export const ROLE_KEY_FALLBACKS = Object.freeze({ OPENROUTER_CORE_KEY: 'OPENROUTER_VOICE_KEY' });
+export const ROLE_KEY_FALLBACKS = Object.freeze({ OPENROUTER_CORE_KEY: 'OPENROUTER_VOICE_KEY', OPENROUTER_ERRAND_KEY: 'OPENROUTER_AGENT_KEY' });
 
 /**
  * The roles that never go out on the main key: an unset or blank variable gives an empty key (`roleApiKey`), and a

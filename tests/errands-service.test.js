@@ -48,7 +48,7 @@ function makeService(env, { keyByRole } = {}) {
   const hot = {
     config: {
       features: { journal: true },
-      llm: { keyByRole: keyByRole ?? { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY' } },
+      llm: { keyByRole: keyByRole ?? { web: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY', dev: 'OPENROUTER_DEV_KEY' } },
       agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
   };
@@ -74,7 +74,7 @@ function filesText(dir) {
 
 const ENV = {
   OPENROUTER_API_KEY: 'sk-persona-SECRET',
-  OPENROUTER_AGENT_KEY: 'sk-agent-SECRET',
+  OPENROUTER_ERRAND_KEY: 'sk-agent-SECRET',
   OPENROUTER_DEV_KEY: 'sk-dev-SECRET',
   MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
   OPENCODE_WEBSEARCH_KEY: 'search-SECRET',

@@ -11,8 +11,8 @@
 # engine per scope (src/agent-runner/policy.js), not by the OS here.
 #
 # Keys: every key lives in the bot's .env, which this process cannot read. The
-# core sends the agents' key (OPENROUTER_AGENT_KEY) with each task. The
-# EnvironmentFile is optional: an OPENROUTER_AGENT_KEY= there is used only when
+# core sends the agents' key (OPENROUTER_ERRAND_KEY) with each task. The
+# EnvironmentFile is optional: an OPENROUTER_ERRAND_KEY= there is used only when
 # a task brings none.
 #
 # Install:

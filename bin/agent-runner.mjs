@@ -13,7 +13,7 @@
 // agents' OpenRouter key, never the persona's, and for the web profile the
 // proxy and the search key), since every key lives in the bot's .env, which
 // this process cannot read. Its own environment (the unit's optional
-// EnvironmentFile: OPENROUTER_AGENT_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
+// EnvironmentFile: OPENROUTER_ERRAND_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
 // used only for what a task does not bring. Caps and the model's
 // cost come from `agents.<profile>` in config; the model from the profile's
 // model role (`models.agents.web`, `models.agents.server`), read again at each task
@@ -85,7 +85,7 @@ async function main() {
   // No key of its own is needed: the core sends one with each task. A task that brings none
   // while this environment has none either fails `no-key`, with one warning
   // (src/agent-runner/opencode.js).
-  if (!process.env.OPENROUTER_AGENT_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
+  if (!process.env.OPENROUTER_ERRAND_KEY && !process.env.OPENROUTER_AGENT_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
 
   try {
     fs.mkdirSync(outDir, { recursive: true });

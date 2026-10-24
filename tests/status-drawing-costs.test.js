@@ -37,7 +37,7 @@ const COSTS = {
 function setup() {
   const config = {
     bot: { owners: ['42'] },
-    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { web: 'OPENROUTER_AGENT_KEY', drawing: 'OPENROUTER_AGENT_KEY' } },
+    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { web: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' } },
     agents: { maxOpen: 3, drawing: { daily: { tasks: 100 } } },
   };
   const hot = { config, prompts: { labels: { status: { costs: COSTS } } }, promptSources: {}, rootDir: tempDir('nep-status-drawing-') };
