@@ -12,6 +12,12 @@
 // deterministic names, so a repeat overwrites with the same bytes. The row writes (`applyDiaryUpdate`) run on the
 // writer connection: in the sync worker thread, or on the calling thread when there is none. The export ignores
 // `text` and `lost` (the old JSON has no such fields). Logs carry counts and codes only.
+//
+// Audio: an `audio/*` attachment (a voice message, or mp3 / m4a / wav) is saved next to the pictures, in the same
+// numbering, under the cap `memoryDb.diaryAudioMaxBytes` (default 8 MB) and the same timeout, with a plain fetch
+// (the image fetcher takes pictures only). Its `media` row carries `extra` `{ voice: true, text?, durationSec? }`: the
+// text and duration come from the post's `voice` field when its `messageId` is this message, else the attachment's own
+// duration. A post that already has its text is fetched again only when it has a `voice` field and no audio row.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +26,8 @@ import { createHash } from 'node:crypto';
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
 const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+const AUDIO_EXTENSIONS = { ogg: 'ogg', oga: 'ogg', opus: 'ogg', mp3: 'mp3', m4a: 'm4a', wav: 'wav' };
+export const DEFAULT_AUDIO_MAX_BYTES = 8 * 1024 * 1024;
 const noop = () => {};
 const silent = { info: noop, warn: noop, error: noop, debug: noop };
 
@@ -29,25 +37,52 @@ const safeName = (id) => String(id).replace(/[^A-Za-z0-9._-]/g, '_');
 const isImage = (attachment) => /^image\//i.test(attachment?.contentType ?? '')
   || /\.(png|jpe?g|gif|webp)$/i.test(attachment?.name ?? '');
 
-/** The diary rows still to fill: live, mirrored, no text yet, not lost. */
+const isAudio = (attachment) => /^audio\//i.test(attachment?.contentType ?? '')
+  || (!attachment?.contentType && /\.(ogg|oga|opus|mp3|m4a|wav)$/i.test(attachment?.name ?? ''));
+
+/** The file extension of an audio attachment: from its mime type, else from its name. */
+function audioExtension(mime, name) {
+  const type = String(mime ?? '').toLowerCase();
+  if (/ogg|opus/.test(type)) return 'ogg';
+  if (/mpeg|mp3/.test(type)) return 'mp3';
+  if (/mp4|m4a|aac/.test(type)) return 'm4a';
+  if (/wav|wave/.test(type)) return 'wav';
+  const ext = /\.([A-Za-z0-9]+)$/.exec(name ?? '')?.[1]?.toLowerCase();
+  return AUDIO_EXTENSIONS[ext] ?? 'bin';
+}
+
+/**
+ * The diary rows still to fill: live, mirrored, not lost, and either no text yet or (a post saved before audio was
+ * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any.
+ */
 export function pendingDiaryRows(db) {
   const rows = db.prepare(
-    `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids
+    `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
-      WHERE d.retired_at IS NULL AND d.text IS NULL AND (d.lost IS NULL OR d.lost = 0)
+      WHERE d.retired_at IS NULL AND (d.lost IS NULL OR d.lost = 0)
+        AND (d.text IS NULL
+          OR (json_type(d.extra, '$.voice') = 'object'
+            AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`,
   ).all();
   const out = [];
   for (const row of rows) {
     let ids;
     try { ids = JSON.parse(row.native_ids); } catch { continue; }
-    if (Array.isArray(ids) && ids.length > 0 && ids.every((id) => typeof id === 'string')) out.push({ ...row, messageIds: ids });
+    if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) continue;
+    let voice = null;
+    try {
+      const parsed = JSON.parse(row.extra ?? 'null')?.voice;
+      if (parsed && typeof parsed === 'object') voice = parsed;
+    } catch { /* an unreadable extra means no voice field */ }
+    const { extra: _extra, ...rest } = row;
+    out.push({ ...rest, messageIds: ids, voice });
   }
   return out;
 }
 
 /**
- * Writes one row's result on the writer connection: `{ id, text, lost, media: [{ id, path, nativeRef, sha1, bytes, mime }] }`.
+ * Writes one row's result on the writer connection: `{ id, text, lost, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
  * The media rows take the diary row's scope. One transaction.
  */
 export function applyDiaryUpdate(handle, update) {
@@ -58,14 +93,14 @@ export function applyDiaryUpdate(handle, update) {
     if (update.lost) db.prepare('UPDATE diary SET lost = 1 WHERE id = ?').run(update.id);
     else db.prepare('UPDATE diary SET text = ?, lost = NULL WHERE id = ?').run(update.text ?? '', update.id);
     const insert = db.prepare(
-      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, retired_at)
-       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at)
+       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
          bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
-         scope_dm = excluded.scope_dm, retired_at = NULL`,
+         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL`,
     );
     for (const item of update.media ?? []) {
-      insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm);
+      insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm, item.extra ?? null);
     }
   });
 }
@@ -83,6 +118,27 @@ function writeAtomic(abs, buffer) {
   }
 }
 
+/** Downloads `url` with a plain fetch under a byte cap and a timeout; `{ buffer, contentType }` or null. */
+async function downloadPlain(fetchImpl, url, { maxBytes, timeoutMs }) {
+  let response;
+  try {
+    response = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(Number.isFinite(timeoutMs) ? timeoutMs : 15000) });
+  } catch {
+    return null;
+  }
+  if (!response?.ok) return null;
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && Number.isFinite(maxBytes) && declared > maxBytes) return null;
+  let buffer;
+  try {
+    buffer = Buffer.from(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+  if (Number.isFinite(maxBytes) && buffer.byteLength > maxBytes) return null;
+  return { buffer, contentType: String(response.headers?.get?.('content-type') ?? '').split(';')[0].trim().toLowerCase() };
+}
+
 /**
  * @param {{ db: () => object|null, apply: (update: object) => Promise<void>|void, port: () => object|null,
  *   imageFetcher: () => { fetchAsDataUrl: Function }|null, config: () => object, dataDir: string, log?: object,
@@ -90,7 +146,7 @@ function writeAtomic(abs, buffer) {
  *   Everything that changes is a getter (read at the moment of use). `db` is a connection that can read the diary;
  *   `apply` writes one update (applyDiaryUpdate on the writer); `sleep` is injected by the tests.
  */
-export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDir, log = silent, sleep, setTimer = setTimeout }) {
+export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDir, log = silent, sleep, setTimer = setTimeout, fetchImpl = fetch }) {
   let stopped = false;
   let running = null;
   let wake = null;
@@ -109,11 +165,12 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
       channelId: typeof cfg.diary?.channelId === 'string' ? cfg.diary.channelId : '',
       maxBytes: cfg.image?.referenceMaxBytes,
       timeoutMs: cfg.context?.vision?.fetchTimeoutMs,
+      audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes) ? cfg.memoryDb.diaryAudioMaxBytes : DEFAULT_AUDIO_MAX_BYTES,
     };
   }
 
   /** One row: fetch, download, write. Returns 'done', 'lost' or 'failed'. */
-  async function handleRow(row, { channelId, maxBytes, timeoutMs }, adapter, fetcher) {
+  async function handleRow(row, { channelId, maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
     const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId: channelId }, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
       log.warn('diary media: fetch failed', { code: result?.error?.code ?? result?.status ?? 'ERROR' });
@@ -131,6 +188,37 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
     let n = 0;
     for (const message of present) {
       for (const attachment of message.attachments ?? []) {
+        if (attachment.url && isAudio(attachment)) {
+          if (Number.isFinite(attachment.size) && attachment.size > audioMaxBytes) {
+            log.warn('diary media: audio over the cap', { bytes: attachment.size });
+            continue;
+          }
+          const got = await downloadPlain(fetchImpl, attachment.url, { maxBytes: audioMaxBytes, timeoutMs });
+          if (!got) {
+            log.warn('diary media: download failed', { code: 'DOWNLOAD' });
+            return 'failed';
+          }
+          n += 1;
+          const mime = attachment.contentType || got.contentType || 'audio/ogg';
+          const rel = path.join(MEDIA_DIR, `${base}-${n}.${audioExtension(mime, attachment.name)}`);
+          writeAtomic(path.join(dataDir, rel), got.buffer);
+          const matched = row.voice && row.voice.messageId === message.messageId;
+          const extra = { voice: true };
+          if (matched && typeof row.voice.text === 'string') extra.text = row.voice.text;
+          const duration = matched && Number.isFinite(row.voice.durationSec) ? row.voice.durationSec
+            : (Number.isFinite(attachment.durationSec) ? attachment.durationSec : null);
+          if (duration !== null) extra.durationSec = duration;
+          media.push({
+            id: `media:diary:${base}-${n}`,
+            path: rel.split(path.sep).join('/'),
+            nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId }),
+            sha1: createHash('sha1').update(got.buffer).digest('hex'),
+            bytes: got.buffer.byteLength,
+            mime,
+            extra: JSON.stringify(extra),
+          });
+          continue;
+        }
         if (!isImage(attachment) || !attachment.url) continue;
         if (Number.isFinite(attachment.size) && Number.isFinite(maxBytes) && attachment.size > maxBytes) {
           log.warn('diary media: picture over the cap', { bytes: attachment.size });

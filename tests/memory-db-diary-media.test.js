@@ -32,6 +32,8 @@ function setup({ posts, config = {} } = {}) {
   const port = createFakeAdapter({ iface: 'discord', selfId: 'self' });
   const downloads = [];
   const files = new Map();
+  const audioFiles = new Map();
+  const audioFetches = [];
   const fetcher = {
     async fetchAsDataUrl(url, options) {
       downloads.push({ url, ...options });
@@ -47,6 +49,12 @@ function setup({ posts, config = {} } = {}) {
     apply: (update) => applyDiaryUpdate(handle, update),
     port: () => port,
     imageFetcher: () => fetcher,
+    fetchImpl: async (url) => {
+      audioFetches.push(url);
+      const served = audioFiles.get(url);
+      if (!served) return { ok: false, status: 404 };
+      return { ok: true, headers: { get: (name) => (name.toLowerCase() === 'content-type' ? served.type : null) }, arrayBuffer: async () => served.bytes };
+    },
     config: () => hot.config,
     dataDir: data,
     log,
@@ -62,7 +70,16 @@ function setup({ posts, config = {} } = {}) {
     });
     return ref.messageId;
   };
+  /** A message of hers carrying one audio attachment (served by the fake fetch). */
+  const sayVoice = (text, { bytes, type = 'audio/ogg', name = 'voice-message.ogg', durationSec, size } = {}) => {
+    const ref = port.seed(CHANNEL, { authorId: 'self', text });
+    const url = `https://cdn.example/${name}?sig=1`;
+    audioFiles.set(url, { bytes, type });
+    port.messages.get(`${CHANNEL}/${ref.messageId}`).attachments = [{ url, name, contentType: type, size: size ?? bytes.byteLength, ...(durationSec === undefined ? {} : { durationSec }) }];
+    return ref.messageId;
+  };
   return {
+    sayVoice, audioFetches,
     root, data, g, handle, port, job, say, writePosts, downloads, sleeps, logs, hot, dbFile,
     row: (id) => handle.db.prepare('SELECT * FROM diary WHERE id = ?').get(id),
     media: () => handle.db.prepare("SELECT * FROM media WHERE kind = 'diary' ORDER BY id").all(),
@@ -281,4 +298,91 @@ test('the service runs the job once the import is done, only with memoryDb.diary
       } finally { reader.close(); }
     } finally { fs.rmSync(env.root, { recursive: true, force: true }); }
   }
+});
+
+test('an audio attachment is saved in the picture numbering with a row whose extra carries the matching voice metadata', async () => {
+  const env = setup({ posts: [post('d-1', ['x'])] });
+  try {
+    const a = env.say('look', [{ name: 'a.png', bytes: png('a') }]);
+    const bytes = Buffer.from('ogg-bytes');
+    const v = env.sayVoice('', { bytes, durationSec: 3.5 });
+    env.writePosts([post('d-1', [a, v], { voice: { messageId: v, text: 'sp+oken', durationSec: 4.25 } })]);
+    env.sync();
+    assert.deepEqual(await env.job().run(), { done: 1, lost: 0, failed: 0 });
+    const media = env.media();
+    assert.deepEqual(media.map((m) => [m.path, m.mime]), [['media/diary/d-1-1.png', 'image/png'], ['media/diary/d-1-2.ogg', 'audio/ogg']]);
+    assert.deepEqual(fs.readFileSync(path.join(env.data, media[1].path)), bytes);
+    assert.equal(media[1].sha1, createHash('sha1').update(bytes).digest('hex'));
+    assert.deepEqual(JSON.parse(media[1].extra), { voice: true, text: 'sp+oken', durationSec: 4.25 });
+    assert.equal(media[0].extra, null);
+  } finally { env.done(); }
+});
+
+test('an audio attachment without a matching voice field keeps its own duration only', async () => {
+  const env = setup({ posts: [post('d-1', ['x'])] });
+  try {
+    const v = env.sayVoice('', { bytes: Buffer.from('m'), type: 'audio/mpeg', name: 'clip.mp3', durationSec: 7 });
+    env.writePosts([post('d-1', [v], { voice: { messageId: 'other', text: 'no', durationSec: 1 } })]);
+    env.sync();
+    await env.job().run();
+    const [item] = env.media();
+    assert.equal(item.path, 'media/diary/d-1-1.mp3');
+    assert.deepEqual(JSON.parse(item.extra), { voice: true, durationSec: 7 });
+  } finally { env.done(); }
+});
+
+test('audio over the cap is skipped without a download; a failed audio download leaves the post', async () => {
+  const env = setup({ posts: [post('d-1', ['x'])], config: { memoryDb: { diaryAudioMaxBytes: 10 } } });
+  try {
+    const big = env.sayVoice('big', { bytes: Buffer.alloc(50), name: 'big.ogg' });
+    const missing = env.sayVoice('gone', { bytes: Buffer.alloc(5), name: 'gone.ogg' });
+    env.writePosts([post('d-1', [big]), post('d-2', [missing])]);
+    env.sync();
+    // Serve nothing for the second one.
+    for (const m of env.port.messages.values()) if (m.text === 'gone') m.attachments[0].url = 'https://cdn.example/unserved.ogg';
+    assert.deepEqual(await env.job().run(), { done: 1, lost: 0, failed: 1 });
+    assert.equal(env.media().length, 0);
+    assert.equal(env.row('d-1').text, 'big');
+    assert.equal(env.audioFetches.some((u) => u.includes('big.ogg')), false);
+    assert.equal(env.row('d-2').text, null);
+  } finally { env.done(); }
+});
+
+test('a completed old post is fetched again only with a voice field and no audio row', async () => {
+  const env = setup({ posts: [post('d-1', ['x'])] });
+  try {
+    const a = env.say('plain old', [{ name: 'a.png', bytes: png('a') }]);
+    const v = env.sayVoice('spoken', { bytes: Buffer.from('o') });
+    env.writePosts([post('d-1', [a]), post('d-2', [v])]);
+    env.sync();
+    await env.job().run();
+    assert.equal(env.row('d-2').text, 'spoken');
+    const audioBefore = env.media().filter((m) => m.mime.startsWith('audio/')).length;
+    assert.equal(audioBefore, 1);
+    // Both texts are set. A post with a voice field and no audio row appears when the file gains the field.
+    env.writePosts([post('d-1', [a]), post('d-2', [v], { gist: 'touched' })]);
+    env.sync();
+    assert.equal(env.job().hasWork(), false);
+    // Add a voice field to the old picture-only post: fetched once more, picture numbering unchanged.
+    const voiceId = env.sayVoice('', { bytes: Buffer.from('late') });
+    env.writePosts([post('d-1', [a, voiceId], { voice: { messageId: voiceId, text: 'late', durationSec: 2 } }), post('d-2', [v])]);
+    env.sync();
+    assert.equal(env.row('d-1').text, 'plain old');
+    const job = env.job();
+    assert.equal(job.hasWork(), true);
+    const calls = env.port.calls.length;
+    assert.deepEqual(await job.run(), { done: 1, lost: 0, failed: 0 });
+    assert.equal(env.port.calls.length, calls + 1);
+    const paths = env.media().filter((m) => m.owner === 'd-1').map((m) => m.path);
+    assert.deepEqual(paths, ['media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);
+    assert.equal(env.job().hasWork(), false);
+  } finally { env.done(); }
+});
+
+test('the Discord adapter passes an attachment duration and waveform when Discord gives them', async () => {
+  const messages = new Map([['m1', { id: 'm1', content: '', attachments: new Map([['a1', { url: 'https://cdn.example/v.ogg', name: 'v.ogg', contentType: 'audio/ogg', size: 9, duration: 2.5, waveform: 'AAEC' }]]) }]]);
+  const channel = { messages: { fetch: async (id) => messages.get(id) } };
+  const port = createDiscordAdapter({ client: { channels: { cache: new Map([['c1', channel]]) }, user: { id: 'me' } } });
+  const found = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1']);
+  assert.deepEqual(found.messages[0].attachments[0], { url: 'https://cdn.example/v.ogg', name: 'v.ogg', contentType: 'audio/ogg', size: 9, durationSec: 2.5, waveform: 'AAEC' });
 });

@@ -129,6 +129,7 @@
     "read": false,
     "turnReads": true,
     "diaryMedia": false,
+    "diaryAudioMaxBytes": 8388608,
     "session": {
       "mode": "off",
       "maxMessages": 200,
