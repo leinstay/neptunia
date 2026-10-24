@@ -593,10 +593,10 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
 const askersOf = (ctx) => (Array.isArray(ctx?.asker) ? ctx.asker : [ctx?.asker]).filter((id) => typeof id === 'string' && id);
 
 /**
- * Whether the best word match of the whole database that this context may not open is a DM line of the person who
- * asked: the matches are walked best first; a line the context may show means no (a visible match is at least as
- * good), a line it may not open means yes only when it is a DM of this interface whose partner is one of the
- * `askers`. Another person's DM, another interface's line, an internal row: no hint. A boolean: nothing of the line
+ * Whether a DM of the person who asked holds a word match better than anything this context may show: the matches
+ * are walked best first; a line the context may show means no (a visible match is at least as good); a DM line of this
+ * interface whose partner is one of the `askers` means yes; any other line the context may not open (another person's
+ * DM, another interface's line, an internal row) is skipped: it neither gives a hint nor hides the asker's own DM. A boolean: nothing of the line
  * leaves this function (only ids and scope columns are read).
  */
 function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
@@ -612,9 +612,10 @@ function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
   for (const row of rows) {
     if (allowed(row, ctx)) {
       if (shown(row)) return false;
-    } else {
-      return row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm);
+    } else if (row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm)) {
+      return true;
     }
+    // Another person's DM, another interface's line, an internal row: skipped, never a hint, never a stop.
   }
   return false;
 }

@@ -745,6 +745,9 @@ test('hidden marker: only the asker\'s own DM of this interface; another person\
     assert.equal(asked(['παιδι νερου'], [personId(ALICE)]), false, 'another interface\'s DM');
     assert.equal(asked(['δρομος καιρου'], [personId(ALICE)]), false, 'an internal row');
     assert.equal(asked(['σπιτι δασκαλου'], []), false);
+    // Another person's DM ranking above the asker's own does not hide it: the shared word is in both.
+    assert.equal(asked(['μυστικο'], [personId(ALICE)]), true, 'the asker\'s DM found past a better-ranked foreign DM');
+    assert.equal(asked(['μυστικο'], [personId('100000000000000999')]), false, 'nobody\'s DM of theirs');
   } finally {
     env.done();
   }
