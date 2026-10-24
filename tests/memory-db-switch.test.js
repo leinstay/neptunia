@@ -420,6 +420,40 @@ test('handoff: a buffered line behind a consumed one is counted, a cursor alread
   }
 });
 
+test('handoff: a private layer\'s buffer counts, and every buffered line without a record unit is written into its layer\'s', () => {
+  const handle = openMemoryDb(':memory:');
+  const { db } = handle;
+  try {
+    seed(db);
+    const owned = (id, owner, position) => db.prepare('UPDATE sources SET owner_file = ?, position = ? WHERE id = ?').run(owner, position, id);
+    const dayUnit = `guilds/${GUILD}/record/2026-10/2026-10-25.jsonl`;
+    const dmUnit = `guilds/${GUILD}/private/${ADA}/record/2026-10/2026-10-25.jsonl`;
+    // Consumed lines the record holds, then lines the live observation wrote while they waited in the buffers.
+    owned(say(db, { native: 'm1', at: NOW - 60 * MINUTE, text: 'uno' }), dayUnit, 0);
+    const waiting = say(db, { native: 'm2', at: NOW - 59 * MINUTE, text: 'dos' });
+    owned(say(db, { native: 'd1', at: NOW - 50 * MINUTE, text: 'privé un', scope: ADA_DM, place: dmPlaceId(ADA) }), dmUnit, 0);
+    const privateWaiting = say(db, { native: 'd2', at: NOW - 49 * MINUTE, text: 'privé deux', scope: ADA_DM, place: dmPlaceId(ADA) });
+    db.prepare("INSERT INTO files (path, kind, lines) VALUES (?, 'record', 1), (?, 'record', 1)").run(dayUnit, dmUnit);
+    buffer(db, `guilds/${GUILD}/buffer.json`, ['m2']);
+    // A private layer keeps its buffer in its own value (the `private` operational row of private/<id>.json).
+    db.prepare("INSERT INTO operational (kind, owner, value, owner_file) VALUES ('private', ?, ?, ?)")
+      .run(personId(ADA), JSON.stringify({ buffer: [{ id: 'd2', content: 'x' }], $has: [] }), `guilds/${GUILD}/private/${ADA}.json`);
+    const done = handoff(handle, { now: NOW });
+    assert.deepEqual([done.buffered, done.adopted, done.behind], [2, 2, 0]);
+    const unitOf = (id) => db.prepare('SELECT owner_file, position FROM sources WHERE id = ?').get(id);
+    assert.deepEqual({ ...unitOf(waiting) }, { owner_file: dayUnit, position: 1 });
+    assert.deepEqual({ ...unitOf(privateWaiting) }, { owner_file: dmUnit, position: 1 });
+    assert.equal(db.prepare('SELECT lines FROM files WHERE path = ?').get(dmUnit).lines, 2);
+    // The private buffered line is not taken for consumed: the DM cursor stays before it.
+    const dmCursor = Number(meta(db, applyCursorKey('dm:discord:person:discord:u-ada')));
+    assert.ok(dmCursor < rowidOf(db, privateWaiting), 'her session reads the private buffered line');
+    // Run once: a second call adopts nothing more.
+    assert.equal(handoff(handle, { now: NOW + MINUTE }).already, true);
+  } finally {
+    handle.close();
+  }
+});
+
 // ---------- the analyzer's memory path and the extractor off under db ----------
 
 const analyzerHot = () => ({

@@ -432,3 +432,114 @@ test('a pending write the writer refuses keeps its file and the database closed'
     assert.ok(log.out.some((entry) => entry.message === 'memory db: open failed' && entry.code === 'PENDING_REPLAY'));
   } finally { await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('a task transition or an intention whose write committed and whose answer was lost is retried as a no-op', async () => {
+  const { root, data } = prepared();
+  retireFiles(data);
+  const hot = { config: configOf('db') };
+  const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW, defer: (fn) => setImmediate(fn) });
+  try {
+    fs.chmodSync(data, 0o755);
+    await service.tick();
+    // The writer commits every unit write, then the first `lost` answers of the kind asked for are lost (a dead worker).
+    let lost = 0;
+    let lostOp = null;
+    const flaky = {
+      ...service,
+      writeUnit: async (update) => {
+        const done = await service.writeUnit(update);
+        if (lost > 0 && (lostOp === null || lostOp(update))) {
+          lost -= 1;
+          throw Object.assign(new Error('the answer was lost'), { code: 'WORKER_EXIT' });
+        }
+        return done;
+      },
+    };
+    const m = modules(data, 'db', { memoryDb: flaky });
+    const db = () => service.readHandle().db;
+    const transitions = (id) => db().prepare('SELECT COUNT(*) AS n FROM work_events WHERE work_id = ? AND retired_at IS NULL').get(id).n;
+    const run = async (lose) => {
+      lost = lose;
+      lostOp = (update) => update.op === 'lines';
+      const tasks = m.tasks();
+      const added = tasks.add({ agent: 'scout', goal: 'the pier', requester: { userId: MEMBER, kind: 'member' }, origin: { channelId: CHANNEL, messageId: null }, scope: 'group' });
+      await settle();
+      tasks.start(added.task.id);
+      await settle();
+      tasks.finish(added.task.id, { status: 'done', result: { text: 'found', sources: [], files: [] }, usage: { input: 0, output: 0, usd: 0, steps: 1, seconds: 1 } });
+      // Retried until nothing waits (each retry sends the same lines again).
+      for (let round = 0; round < 6 && (await tasks.flush()).waiting > 0; round += 1) await settle();
+      return added.task.id;
+    };
+    const control = await run(0);
+    const faulted = await run(3);
+    assert.equal(lost, 0, 'every lost answer was hit');
+    assert.equal(transitions(control), 3, 'added, started, done');
+    assert.equal(transitions(faulted), 3, 'the retried transitions are not written twice');
+    assert.equal(m.tasks().get(faulted).state, 'done');
+    // The same check for an intention: its value and its archive line retried after a lost answer stay one row each.
+    lost = 2;
+    lostOp = null;
+    const intentions = m.intentions();
+    const record = { id: 'intent-retry', purpose: 'ask about the pier', status: 'pending', createdAt: NOW, updatedAt: NOW, expiresAt: NOW + DAY_MS, dueAt: null, provenance: { kind: 'self', turnId: 't-1', channelId: null, scope: 'group' }, history: [] };
+    assert.equal(intentions.add(record).ok, true);
+    await settle();
+    for (let round = 0; round < 6 && (await intentions.flush()).waiting > 0; round += 1) await settle();
+    assert.equal(lost, 0);
+    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM intentions WHERE id = 'intent-retry' AND retired_at IS NULL").get().n, 1);
+    assert.equal(intentions.list().filter((entry) => entry.id === 'intent-retry').length, 1);
+    await m.close();
+  } finally {
+    await service.close();
+    setDirs(data, 0o755);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('under db her session\'s attitude move reaches the store\'s cached profile: a later flush never writes the older score over it', async () => {
+  const { root, data } = prepared();
+  retireFiles(data);
+  const hot = { config: configOf('db') };
+  const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW, defer: (fn) => setImmediate(fn) });
+  try {
+    fs.chmodSync(data, 0o755);
+    await service.tick();
+    await service.tick();
+    const m = modules(data, 'db', { memoryDb: service });
+    const db = () => service.readHandle().db;
+    const person = `person:discord:${MEMBER}`;
+    const stored = () => db().prepare('SELECT affinity FROM people WHERE id = ?').get(person).affinity;
+    const source = db().prepare("SELECT id FROM sources WHERE kind = 'seen' AND retired_at IS NULL ORDER BY rowid LIMIT 1").get().id;
+    let runs = 0;
+    const move = (delta) => {
+      runs += 1;
+      const id = `run-move-${runs}`;
+      return service.memoryWrite({
+        kind: 'session', mode: 'apply', now: NOW,
+        run: { id, sweepId: `sweep-${id}`, scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: `apply|${id}`, startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), outcome: 'ok', counts: {}, errors: [] },
+        plan: { claims: [], episodes: [], affinity: [{ personId: person, delta, reason: 'una charla amable', sources: [source] }], descriptions: [], people: [] },
+      });
+    };
+    // A clean cached profile: the store reads the moved score.
+    const start = m.store.getUser(GUILD, MEMBER).affinity.score;
+    await move(2);
+    assert.equal(stored(), Math.round((start + 2) * 100) / 100);
+    assert.equal(m.store.getUser(GUILD, MEMBER).affinity.score, stored(), 'the cached profile took the move');
+    // A profile changed in the cache at the same time (a decay tick stamps it): both count after the flush.
+    const decayed = m.store.decayAffinities(GUILD, NOW, { decayPerDay: 0.5, decayPower: 1 });
+    assert.ok(decayed.profiles > 0);
+    const cached = m.store.getUser(GUILD, MEMBER).affinity;
+    await move(3);
+    m.store.flush();
+    await m.store.flushSettled({});
+    const expected = Math.round(Math.max(-100, Math.min(100, cached.score + 3)) * 100) / 100;
+    assert.equal(stored(), expected, 'the move survives the flush of the decayed profile');
+    assert.equal(m.store.getUser(GUILD, MEMBER).affinity.score, expected);
+    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM affinity_events WHERE person_id = ? AND reason = 'una charla amable'").get(person).n, 2);
+    await m.close();
+  } finally {
+    await service.close();
+    setDirs(data, 0o755);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -78,9 +78,10 @@
 //        The exact-restore rehearsal: `restore` of the backup into a new temporary data directory, a memory service
 //        opened there with authority `db` (no worker, no network, no interface, every job off), the memory modules'
 //        reads of `reader-parity` (over the last N days, default 30) through that service compared with the same reads
-//        over the backup's own database (opened read-only), and an `export` of the restored database compared file by
-//        file (as `verify`) with an `export` of the backup's. Exit 1 on any difference. The temporary directory is
-//        removed in every case.
+//        through a second such service over a plain copy of the backup's database (both get the same first start: the
+//        handoff of a backup taken before the switch writes the analyzer's buffered lines into their record units), and
+//        an `export` of the restored database compared file by file (as `verify`) with an `export` of that copy. Exit 1
+//        on any difference. The temporary directory is removed in every case.
 //   node tools/memory-db.mjs observe-check --db <file> --since <iso> [--data <dir>]   (--data: lines still in the analyzer buffer are pending)
 //        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the record lines of every kind
 //        (`seen`, `said`, `deleted`, `felt`) that happened since --since and that only one side wrote: observed and
@@ -902,8 +903,9 @@ const RESTORE_TEST_CONFIG = Object.freeze({
 
 /**
  * Restores a backup into a temporary data directory, opens a service there under authority `db` (no worker, no
- * network, no interface), and compares: the memory modules' reads through the service against the same reads over the
- * backup's own database, and an export of the restored database against an export of the backup's. The temporary
+ * network, no interface), and compares: the memory modules' reads through the service against the same reads through
+ * a second service over a plain copy of the backup's database (the same first start, its handoff included), and an
+ * export of the restored database against an export of that copy. The backup itself is only read. The temporary
  * directory is removed in every case.
  * @returns {Promise<number>} the exit code
  */
@@ -915,20 +917,34 @@ async function runRestoreTest(io, options) {
   const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'restore-test-'));
   const data = path.join(scratch, 'data');
   let service = null;
-  let backup = null;
+  let source = null;
   try {
     const manifest = restoreDatabase({ from: options.from, db: path.join(data, 'memory.db'), data });
     io.out(`restored: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked`);
     const warnings = [];
     const log = { info() {}, debug() {}, error: (message, fields) => warnings.push({ message, code: fields?.code ?? null }), warn: (message, fields) => warnings.push({ message, code: fields?.code ?? null }) };
-    service = createMemoryDb({ hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} }, dataDir: data, log, worker: false });
-    await service.tick();
+    const open = async (dir) => {
+      const opened = createMemoryDb({ hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} }, dataDir: dir, log, worker: false });
+      await opened.tick();
+      await opened.tick();
+      return opened;
+    };
+    service = await open(data);
     const state = service.status();
     if (!state.open || !service.readHandle()) {
       io.out(`restore-test FAILED: the service did not open the restored database (${state.refused ?? (warnings.map((entry) => entry.code).filter(Boolean).join(', ') || 'unknown')})`);
       return 1;
     }
-    backup = openMemoryDb(path.join(options.from, 'memory.db'), { readOnly: true });
+    // The backup's database as it is (a plain copy, the backup only read), opened by the same first start.
+    const sourceDir = path.join(scratch, 'source');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.copyFileSync(path.join(options.from, 'memory.db'), path.join(sourceDir, 'memory.db'));
+    source = await open(sourceDir);
+    if (!source.readHandle()) {
+      io.out(`restore-test FAILED: the service did not open the copy of the backup (${source.status().refused ?? 'unknown'})`);
+      return 1;
+    }
+    const backup = source.readHandle();
     const backupSeam = { authority: () => 'db', readHandle: () => backup };
     // The layout the reads are listed from: the backup's database exported (the restored data directory holds no file).
     const layout = path.join(scratch, 'backup-export');
@@ -949,7 +965,7 @@ async function runRestoreTest(io, options) {
       : `restore-test FAILED: ${differ} reads differ, ${different} exported files differ (${seconds(start)})`);
     return ok ? 0 : 1;
   } finally {
-    backup?.close();
+    if (source) await source.close();
     if (service) await service.close();
     fs.rmSync(scratch, { recursive: true, force: true });
   }
