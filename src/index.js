@@ -194,10 +194,15 @@ const appendStore = createAppendStore({
 // their reads go to the database (src/memory/db/readers/); under `json` they read their files.
 // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
 // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
+// Under memoryDb.authority `db` her memory session is the memory writer (stage W3): it runs on the chat client (role
+// `memory`, its own key from `env`), and a run that fails is told to her as a `memoryFailed` fact (inner, defined below).
 const memoryDb = createMemoryDb({
   hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
   embed: (texts, options) => embedder.embed(texts, options),
   selfName: () => getSelfName(getGuildId()),
+  sessionLlm: () => llm,
+  sessionEnv: () => env,
+  onSessionFailure: (failure) => tellSessionFailure(failure),
 });
 // The record (src/memory/record.js): every observed message, the persona's own lines and her
 // feelings, written while features.record is exactly true (read at each write). Its own append
@@ -442,7 +447,8 @@ const turns = createTurnRunner({
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
-const warmup = createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, getGuildId });
+// Under memoryDb.authority `db` (fixed for the process) the extractor role is retired: every warmup entry refuses.
+const warmup = createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, getGuildId, authority: () => memoryDb.authority() });
 const isWarmingUp = warmup.isWarmingUp;
 const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId, isWarmingUp });
 // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
@@ -470,6 +476,8 @@ const memory = createMemoryUpdater({
   onIntentionCandidates: (guildId, raw, messages) => intentions.addCandidates(guildId, raw, messages),
   // Where her lines came from (src/intentions/sources.js), kept with them in the buffer.
   lineSourcesOf: (messageId) => intentions.lineSources(messageId),
+  // Under memoryDb.authority `db` (fixed for the process) the analyzer's memory path is off: her session writes.
+  authority: () => memoryDb.authority(),
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
 const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
@@ -541,6 +549,24 @@ const inner = createInnerLife({
 turns.setFactsSource(inner.facts);
 // A memory batch that cannot be applied is told to her through the same ledger (a `memoryFailed` fact).
 memory.setFactsSource(inner.facts);
+/**
+ * A memory session run that failed under memoryDb.authority `db` (src/memory/db/service.js, once per failing scope),
+ * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private conversation's only in that
+ * private chat (its DM channel, when the client knows it). Never throws.
+ */
+function tellSessionFailure({ scopeKind, partner, code, lines, at }) {
+  try {
+    if (inner.facts?.enabled?.() !== true) return;
+    const guildId = getGuildId();
+    if (!guildId) return;
+    const privateChat = scopeKind === 'dm';
+    const userId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
+    const channelId = privateChat ? (client.users?.cache?.get(userId)?.dmChannel?.id ?? null) : null;
+    inner.facts.add(guildId, { kind: 'memoryFailed', code, waiting: lines, channelId, privateChat, at });
+  } catch (err) {
+    log.warn('index: memory session failure not told', { code: err?.code ?? null });
+  }
+}
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a

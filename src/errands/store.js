@@ -51,6 +51,7 @@ import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { forgetRefusal } from '../memory/db/authority.js';
 import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../skills/codes.js';
 
@@ -298,6 +299,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    * @returns {{ removed: number, lines: number }}
    */
   function forgetUser(userId, { vault = null } = {}) {
+    // Authority `db`: there is no forget (stage W3).
+    if (seam.authority() === 'db') throw forgetRefusal('tasks.forgetUser');
     const id = String(userId ?? '');
     if (!id) return { removed: 0, lines: 0 };
     const victims = state.tasks.filter((task) => askedBy(task, id));
@@ -354,6 +357,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    * @returns {{ files: number }}
    */
   function wipe() {
+    // Authority `db`: no wipe of the memory (stage W3).
+    if (seam.authority() === 'db') throw forgetRefusal('tasks.wipe');
     let files = 0;
     for (const file of [listFile, logFile]) {
       if (fs.existsSync(file)) files += 1;

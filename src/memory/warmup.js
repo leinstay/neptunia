@@ -1071,8 +1071,22 @@ function healProgress(progress) {
  * @param {() => number} [deps.now]
  * @param {(ms: number) => Promise<void>} [deps.sleep]  Used only for a sustained-rate-limit wait
  *   (`warmup.rateLimitWaitMinutes`) -- injectable so tests never actually sleep.
+ * @param {() => 'json'|'db'} [deps.authority]  Who writes the memory (src/memory/db/service.js#authority; default
+ *   `json`): under `db` every entry refuses with `authority-db`.
  */
-export function createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export function createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), authority = () => 'json' }) {
+  // The memory writer switch (spec 2026-10-24-memory-authority, stage W3): under `memoryDb.authority` `db` (the memory
+  // database service's fixed value) the extractor role is retired, and with it every request of this module (the warmup
+  // run and its one-off targets, the portrait refresh, the channel and server notes refresh): each entry refuses with
+  // the reason `authority-db` before it reads history or sends anything. Under `json` all of it runs as before.
+  const extractorOff = () => {
+    try {
+      return authority() === 'db';
+    } catch {
+      return false;
+    }
+  };
+  const AUTHORITY_DB_MESSAGE = 'memoryDb.authority is db: the warmup family (the extractor role) does not run';
   const { readableChannels, fetchHistoryWindow } = discord;
   const cache = new Map(); // guildId -> { fetchedAt, windows }
   const fetching = new Map(); // guildId -> the fetchGuildWindows promise in flight, see getWindows
@@ -1933,6 +1947,7 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    * sustained rate limit, or three consecutive other failures -- all resumable by calling `run`
    * again. Refuses while another run/one-off target is already in flight. */
   async function run(guildId) {
+    if (extractorOff()) return { ok: false, reason: 'authority-db', message: AUTHORITY_DB_MESSAGE };
     if (running) return { ok: false, message: 'a warmup run is already in flight' };
     const guild = resolvedGuild(guildId);
     if (!guild) return { ok: false, message: 'no guild resolved yet' };
@@ -2015,6 +2030,7 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    * Refused while a run (full, another one-off, or a `users`/`channels` bulk redo) is already in
    * flight, or while paused. */
   async function runOneTarget(guildId, kind, id) {
+    if (extractorOff()) return { ok: false, reason: 'authority-db', message: AUTHORITY_DB_MESSAGE };
     if (running) return { ok: false, message: 'a warmup run is already in flight' };
     if (store.state.data.paused) return { ok: false, message: 'paused -- run /nep resume first' };
     const guild = resolvedGuild(guildId);
@@ -2065,6 +2081,7 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    * @param {'people'|'channels'} kind
    */
   async function startBulk(guildId, kind) {
+    if (extractorOff()) return { ok: false, reason: 'authority-db', message: AUTHORITY_DB_MESSAGE };
     if (running) return { ok: false, message: 'a warmup run is already in flight' };
     if (store.state.data.paused) return { ok: false, message: 'paused -- run /nep resume first' };
     const guild = resolvedGuild(guildId);
@@ -2159,6 +2176,8 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
       log.info('warmup: notes refresh failed', { ...logFields, reason, ...over });
       return detail === undefined ? { ok: false, reason, ...over } : { ok: false, reason, detail, ...over };
     };
+    // Authority `db`: no request, no stamp, no log line (the scheduler asks every cycle).
+    if (extractorOff()) return { ok: false, reason: 'authority-db' };
     if (running || notesRefreshing) return fail('running');
     if (store.state.data.paused) return fail('paused');
     if (!hot.prompts?.[promptKey]) return fail('no-prompt');
@@ -2494,6 +2513,8 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    */
   async function refreshPortrait(guildId, userId, reason, { force = false, windows: givenWindows, crawl } = {}) {
     const id = String(userId);
+    // Authority `db`: no request, no stamp, no log line (the scheduler asks every cycle).
+    if (extractorOff()) return { ok: false, reason: 'authority-db' };
     if (running) return portraitNotDone(id, 'warming-up');
     if (store.state.data.paused) return portraitNotDone(id, 'paused');
     if (refreshingUsers.has(id)) return portraitNotDone(id, 'busy');

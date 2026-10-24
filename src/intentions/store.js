@@ -22,6 +22,7 @@ import { CODE } from '../skills/codes.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { forgetRefusal } from '../memory/db/authority.js';
 
 /** The closed intentions the file keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
@@ -208,6 +209,8 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
    * @returns {{ removed: number, copies: number }}
    */
   function forgetUser(userId, { names = [], vault = null } = {}) {
+    // Authority `db`: there is no forget (stage W3).
+    if (seam.authority() === 'db') throw forgetRefusal('intentions.forgetUser');
     const id = String(userId ?? '');
     if (!id) return { removed: 0, copies: 0 };
     const victims = state.list.filter((record) => concernsMember(record, { userId: id, names }));
@@ -247,6 +250,8 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
 
   /** The guild's intentions gone: the list emptied, the file and its unreadable copies deleted. How many files. */
   function wipe() {
+    // Authority `db`: no wipe of the memory (stage W3).
+    if (seam.authority() === 'db') throw forgetRefusal('intentions.wipe');
     let files = 0;
     for (const target of [file, archiveFile, ...unreadableCopies()]) {
       if (!fs.existsSync(target)) continue;

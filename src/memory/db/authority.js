@@ -16,6 +16,11 @@
 //   toolRefusal(config, tool)     the message an offline tool that mutates `data/` prints and exits with under `db`
 //                                 (it would write files nobody reads), or null under `json`. `export`, `backup` and
 //                                 `restore` of tools/memory-db.mjs never ask.
+//   forgetRefusal(what)           stage W3: the coded error (`NO_FORGET`) every forget, purge and wipe of the memory
+//                                 throws under `db` (the owner: no forget at all; the `/nep` commands go at the split):
+//                                 store.forgetUser / wipeGuild / forgetPrivate, the intention and task stores'
+//                                 forgetUser / wipe, the `/nep memory forget|wipe` and `/nep private forget|purge`
+//                                 operations. Under `json` they run as before. `what` names the refused operation.
 
 /** The authorities. */
 export const AUTHORITIES = Object.freeze(['json', 'db']);
@@ -56,4 +61,16 @@ export function authorityRefusal(config) {
 export function toolRefusal(config, tool) {
   if (configAuthority(config) !== 'db') return null;
   return `${tool}: memoryDb.authority is db, the memory files are no longer read; this command would write them, so it does not run`;
+}
+
+/** The code of a forget, purge or wipe refused under `db`. */
+export const FORGET_REFUSED = 'NO_FORGET';
+
+/**
+ * The error a forget, purge or wipe throws under authority `db` (see the head of this file).
+ * @param {string} what  the refused operation, for the message
+ * @returns {Error & { code: string }}
+ */
+export function forgetRefusal(what) {
+  return Object.assign(new Error(`${what}: memoryDb.authority is db, there is no forget`), { code: FORGET_REFUSED });
 }

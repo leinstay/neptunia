@@ -125,6 +125,7 @@ import { createReadSeam, hiddenIds, ledgerEntries, unitValue } from './db/reader
 import { idsUnderDir } from './db/export.js';
 import { classify } from './db/map/index.js';
 import { createUnitOutbox } from './db/unit-outbox.js';
+import { forgetRefusal } from './db/authority.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -2812,6 +2813,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   absolute path of the vault directory.
      */
     forgetUser(guildId, userId, deps = {}) {
+      // Authority `db`: there is no forget (stage W3, the owner); refused with a code, nothing touched.
+      if (seam.authority() === 'db') return Promise.reject(forgetRefusal('store.forgetUser'));
       let id;
       try {
         id = checkUserId(userId);
@@ -3219,6 +3222,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {string} userId
      */
     forgetPrivate(guildId, userId) {
+      // Authority `db`: there is no forget (stage W3).
+      if (seam.authority() === 'db') throw forgetRefusal('store.forgetPrivate');
       forgetArchived(guildId, userId, { privateOnly: true });
       const file = privateFile(guildId, userId);
       entries.delete(file);
@@ -4247,6 +4252,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   the vault copy's path.
      */
     wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, errands = null, intentions = null, now = Date.now } = {}) {
+      // Authority `db`: no wipe of the memory (stage W3); `tools/memory-db.mjs wipe` works on a database copy.
+      if (seam.authority() === 'db') throw forgetRefusal('store.wipeGuild');
       const vaultPath = typeof vault === 'string' && vault ? vault : store.vaultGuild(guildId, { vaultDir, now });
       // What waits for the archive goes with the memory it came from.
       const waiting = archiveGuilds.get(String(guildId));

@@ -147,6 +147,40 @@ export const PURPOSE_ROLES = Object.freeze({
 });
 
 /**
+ * What the memory writer switch (`memoryDb.authority` `db`, spec 2026-10-24-memory-authority, stage W3) does to each
+ * request purpose; the table of docs/prompt-contract.md, "The purposes at the writer switch". `stays`: the purpose runs
+ * on its role as it does today, whatever the authority (every analyzer purpose, the vision, embedding and core ones).
+ * `removed`: the analyzer's memory path, never sent under `db` (`memory-voice`, the two-stage wording on the core;
+ * `backfill`, the extractor's); the stream analyzer's batches and the warmup family have no purpose of their own and go
+ * with the role `extractor` (EXTRACTOR_RETIRED_ROLE). `memory`: her memory session and description review, on the role
+ * `memory` (not one of PURPOSE_ROLES: that role is not in ROLES). Nothing is deleted here: under `json` every purpose
+ * runs as before (the fallback week); the removed ones are deleted in the cleanup after it.
+ */
+export const PURPOSE_AT_SWITCH = Object.freeze({
+  ...Object.fromEntries(Object.keys(PURPOSE_ROLES).map((purpose) => [purpose, 'stays'])),
+  'memory-voice': 'removed',
+  backfill: 'removed',
+  'memory-session': 'memory',
+  'description-draft': 'memory',
+  'description-check': 'memory',
+});
+
+/** The role whose every request goes with the switch (the stream analyzer's batches, the warmup family, the backfill). */
+export const EXTRACTOR_RETIRED_ROLE = 'extractor';
+
+/**
+ * Whether a request of `role` and `purpose` belongs to the analyzer's memory path the switch turns off: the role
+ * `extractor`, or a purpose PURPOSE_AT_SWITCH marks `removed`.
+ * @param {unknown} role
+ * @param {unknown} [purpose]
+ * @returns {boolean}
+ */
+export function retiredAtSwitch(role, purpose) {
+  if (role === EXTRACTOR_RETIRED_ROLE) return true;
+  return typeof purpose === 'string' && PURPOSE_AT_SWITCH[purpose] === 'removed';
+}
+
+/**
  * Whether `role` is one of ROLES.
  * @param {unknown} role
  * @returns {boolean}

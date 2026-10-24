@@ -1930,6 +1930,35 @@ memory blocks, as in her turns. The requests go out on the role `memory` (`model
 `llm.keyByRole.memory`, no fallback to another key), purposes `memory-session`, `description-draft` and
 `description-check`. Provider reasoning is never sent: she thinks in `<think>`, then answers.
 
+### The purposes at the writer switch
+
+With `memoryDb.authority` `db` her memory session is the memory writer (spec stage W3). What happens to each request
+purpose (`src/llm/roles.js#PURPOSE_AT_SWITCH`; under `json` every row runs as before):
+
+| Purpose | Role | At the switch |
+|---|---|---|
+| `address`, `room`, `merge`, `route-channel`, `participation-pick`, `rewatch`, `split`, `gif-pick`, `missed`, `lookup`, `planner`, `recall-summary`, `search-summary`, `read-link`, `diary-plan`, `speech`, `web-search` | `analyzer` | stays on the analyzer, unchanged |
+| `reply` | `core` | stays |
+| `describe`, `relook`, `avatar` | `vision` | stays |
+| `recall-query`, `probe` | `embedding` | stays |
+| `memory-voice` | `core` | removed with the switch: never sent under `db` (the analyzer's two-stage wording and the single-stage batch on her voice) |
+| `backfill` | `extractor` | removed with the switch (`tools/backfill.mjs` refuses under `db`) |
+| the stream analyzer's batches (`memory.md`, `memory-decide.md`), the warmup family and the portrait and notes refreshes (no purpose of their own) | `extractor` | removed with the switch: the role `extractor` sends nothing under `db` |
+| `memory-session`, `description-draft`, `description-check` | `memory` | her memory session and description review: the memory writer |
+
+The removed rows, their prompts, the role `extractor` and `features.memoryTwoStage` stay runnable under `json` for the
+fallback week and are deleted in the cleanup after it.
+
+### The live schedule (authority `db`)
+
+With `memoryDb.session.mode` `apply` the memory database's tick looks at most once a minute for due scopes: at least
+`minMessages` settled lines after the scope's cursor, and either `everyMinutes` since the scope's last run or
+`maxMessages` lines waiting, under `sweepsPerScopePerDay`. One sweep runs over the due scopes (one request per scope and
+page of people, as below), then the description reviews her runs flagged (a `descriptions` entry of an answer), at most
+`reviewsPerDay` a day: the people of her focus close set first when `memoryDb.focus.enabled`, then by the flag's age.
+Never two at once. At the first start under `db` the handoff sets each scope's cursor at the analyzer's boundary: the
+lines its buffer still held are read by the session, the ones it had consumed are not.
+
 ### Memory session request
 
 System: the same system text her turns get (`system-prompt`, `character-card`, `rules`, `format`, `{{name}}` filled),

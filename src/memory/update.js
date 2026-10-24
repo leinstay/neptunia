@@ -3029,9 +3029,33 @@ function namedIds(ids, texts) {
  *   persona's came from (src/intentions/sources.js, the intention service's `lineSources`): taken
  *   with her line into the buffer as its `sources`, so her intention candidates are judged by it
  *   after a restart too.
+ * @param {() => 'json'|'db'} [deps.authority]  Who writes the memory (src/memory/db/service.js#authority, fixed for
+ *   the process; default `json`). Under `db` the analyzer's memory path is off (see the head of the function).
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null, onIntentionCandidates = null, lineSourcesOf = null }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null, onIntentionCandidates = null, lineSourcesOf = null, authority = () => 'json' }) {
   const running = new Set();
+  // The memory writer switch (spec 2026-10-24-memory-authority, stage W3): under `memoryDb.authority` `db` (the
+  // service's fixed value, `authority()`) her memory session writes the memory, so the analyzer's memory path is off:
+  // no buffer push or shift, no batch (`run`, `runPrivate`, `analyze`, `analyzePrivate`, so no `recordBatch`, no
+  // `applyMemoryUpdate`, no `memory-decide` / `memory-voice` request), no voice run. `touchMemory`, the GIF library, the
+  // emoji usage and the address counts stay as code (counted per observed line instead of per consumed batch).
+  const memoryPathOff = () => {
+    try {
+      return authority() === 'db';
+    } catch {
+      return false;
+    }
+  };
+  let offLogged = false;
+  /** True under `db`; the first time, a debug line says so. */
+  function analyzerOff() {
+    if (!memoryPathOff()) return false;
+    if (!offLogged) {
+      offLogged = true;
+      log.debug?.('memory: analyzer memory path off', { authority: 'db' });
+    }
+    return true;
+  }
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
   // Per-guild in-memory factor on the live batch size (1 = normal). Halved on
@@ -3251,6 +3275,19 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     }
 
     const slim = slimMessage(normalized, direct);
+    // Authority `db`: no buffer (her memory session reads the line from the database); the code-only counts a consumed
+    // batch would have made are made for this line now.
+    if (analyzerOff()) {
+      if (!privateUserId) {
+        try {
+          store.recordEmojiUsage(guildId, [slim], emojiUsageOpts(hot.config));
+        } catch (err) {
+          log.warn('memory: emoji count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
+        }
+        recordAddressingSafely(guildId, [slim]);
+      }
+      return;
+    }
     // Her own line keeps where it came from (src/intentions/sources.js): her intention candidates
     // are judged by it. Never on a private line (no candidates come from a private chat).
     if (normalized.self === true && !privateUserId && typeof lineSourcesOf === 'function') {
@@ -3286,6 +3323,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   function observeInner(guildId, episode) {
     try {
       if (store.state.data.paused || !guildId || !episode) return 0;
+      // Authority `db`: no analyzer buffer to put the lines in.
+      if (analyzerOff()) return 0;
       const lines = innerEpisodeLines(episode, { labels: hot.prompts?.labels ?? {}, settings: innerMemorySettings(hot.config), maxChars: hot.config.context?.maxMessageChars ?? 0 });
       if (lines.length === 0) return 0;
       const batch = hot.config.memory?.batchMessages;
@@ -3364,6 +3403,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    *   error?: Error, stage?: 'single'|'two' }>}
    */
   async function analyze(guildId, messages) {
+    if (analyzerOff()) return { ok: false, reason: 'authority-db' };
     return analyzeBatch(
       guildId,
       messages,
@@ -3475,6 +3515,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    *   `staleRelationships` is 0 or 1: the partner's private text went with a marker or not.
    */
   async function analyzePrivate(guildId, userId, messages) {
+    if (analyzerOff()) return { ok: false, reason: 'authority-db' };
     const id = String(userId);
     return analyzeBatch(
       guildId,
@@ -3886,6 +3927,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * under the guild's own `running` key, so the tick never starts a second one beside it.
    */
   async function run(guildId) {
+    if (analyzerOff()) return;
     running.add(guildId);
     try {
       // The journal cannot take a record, or the archive is too far behind: the batch waits in the
@@ -4002,6 +4044,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * @param {string} userId
    */
   async function runPrivate(guildId, userId) {
+    if (analyzerOff()) return;
     const key = privateKey(guildId, userId);
     if (running.has(key)) return;
     running.add(key);
@@ -4437,6 +4480,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    *   `daily-cap`, `token-limit`, `llm-error`, `bad-json`, `truncated`, `apply-error`.
    */
   async function runVoice(guildId) {
+    if (analyzerOff()) return { reason: 'off', sent: 0, applied: 0 };
     const key = voiceKey(guildId);
     if (running.has(key)) return { reason: 'busy', sent: 0, applied: 0 };
     running.add(key);
@@ -4476,6 +4520,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   async function tick() {
     // /nep pause: the live analyzer never runs while paused.
     if (store.state.data.paused) return;
+    // Authority `db`: the analyzer's memory path is off (her memory session runs from the memory database's tick).
+    if (analyzerOff()) return;
     const nowMs = now();
     const cfg = hot.config.memory;
     const relationshipsCfg = hot.config.features?.relationships !== false ? hot.config.relationships : undefined;

@@ -27,10 +27,17 @@ import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
-import { defineOp, perEnv, invalid } from './registry.js';
+import { OpError, defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
+  /**
+   * Under memoryDb.authority `db` (the memory database service's fixed value) there is no forget, purge or wipe of the
+   * memory (stage W3, the owner; the commands go at the split): refused with the code `refused` before anything runs.
+   */
+  function refuseUnderDb(what) {
+    if (env.memoryDb?.authority?.() === 'db') throw new OpError('denied', CODE.REFUSED, `${what}: memoryDb.authority is db, there is no forget`);
+  }
   const { hot, store, client, discord, isWarmingUp, warmup, archive, journal, dataDir, slash, warmupBusyText, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, journalSystem, waitForAnalyzer, requireProfile } = env;
 
   /**
@@ -300,6 +307,7 @@ const handlers = perEnv((env) => {
    * has landed, under the journal's writer lock. The reply names the vault and the counts per
    * store. A job cut short keeps its marker and finishes at the next start. Refused while paused. */
   async function cmdMemoryForget(args, context) {
+    refuseUnderDb('memory forget');
     assertNotPaused();
     const userId = args?.userId;
     if (!userId) throw invalid('a user is required');
@@ -480,6 +488,7 @@ const handlers = perEnv((env) => {
    * live-analyzer run in flight has landed; the public profile stays. Refused while paused, like
    * `memory forget`. */
   async function cmdPrivateForget(args, context) {
+    refuseUnderDb('private forget');
     assertNotPaused();
     const userId = args?.userId;
     if (!userId) throw invalid('a user is required');
@@ -501,6 +510,7 @@ const handlers = perEnv((env) => {
    * had. Refused while paused; a pause that lands mid-run keeps the private layer.
    */
   async function cmdPrivatePurge(args, context) {
+    refuseUnderDb('private purge');
     assertNotPaused();
     const userId = args?.userId;
     if (!userId) throw invalid('a user is required');
@@ -575,6 +585,7 @@ const handlers = perEnv((env) => {
    * what it deletes and what to type.
    */
   async function cmdMemoryWipe(args, context) {
+    refuseUnderDb('memory wipe');
     assertNotPaused();
     const guildId = requireGuildId(context);
     if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: CODE.WARMUP_RUNNING });
