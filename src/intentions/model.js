@@ -35,7 +35,7 @@
 // (src/behavior/inner.js). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
 // `innerLife.attention.*` through attentionSettings); validAttend checks the shape.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.js';
@@ -100,6 +100,40 @@ export function heartbeatLimits(config) {
   const set = config?.innerLife?.heartbeat ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? Math.floor(set[key]) : HEARTBEAT_LIMITS[key]);
   return { maxOpen: pick('maxOpen'), maxRecurring: pick('maxRecurring') };
+}
+
+/** `innerLife.heartbeat.dueJitterMinutes` (minutes, 0 disables), read from the live config now. */
+export const DUE_JITTER_MINUTES = 20;
+export function dueJitterMinutes(config) {
+  const value = config?.innerLife?.heartbeat?.dueJitterMinutes;
+  return Number.isFinite(value) && value >= 0 ? value : DUE_JITTER_MINUTES;
+}
+
+/**
+ * The moment a record's due wake fires. An intention a heartbeat made (`origin: heartbeat`) is
+ * shifted off its round clock time by an offset uniform in +-`jitterMinutes`, derived from a hash
+ * of `id` and `dueAt` (the same item and due time always give the same offset, nothing stored).
+ * The magnitude is at most a quarter of the lead time (`dueAt` minus the later of `createdAt` and
+ * `updatedAt`, the last moment the record was seen as not yet due), so the wake is never before
+ * that moment and a due of "right away" does not move; it never reaches `expiresAt` (clamped to
+ * before it). Every other record, and a record with no due time, is exact. What she sees keeps
+ * `dueAt`; only the wake moves.
+ * @param {object} record
+ * @param {number} jitterMinutes
+ * @returns {number} `dueAt` for an exact record; NaN with no due time.
+ */
+export function wakeTimeOf(record, jitterMinutes = 0) {
+  const dueAt = record?.dueAt;
+  if (!Number.isFinite(dueAt)) return NaN;
+  if (record.origin !== HEARTBEAT_ORIGIN || !(jitterMinutes > 0)) return dueAt;
+  const base = Math.max(Number.isFinite(record.createdAt) ? record.createdAt : -Infinity, Number.isFinite(record.updatedAt) ? record.updatedAt : -Infinity);
+  const lead = Number.isFinite(base) ? dueAt - base : 0;
+  const cap = Math.min(jitterMinutes * 60 * 1000, Math.max(0, lead) / 4);
+  if (!(cap > 0)) return dueAt;
+  const unit = createHash('sha256').update(`${record.id}:${dueAt}`).digest().readUInt32BE(0) / 2 ** 32;
+  let at = Math.round(dueAt + (unit * 2 - 1) * cap);
+  if (Number.isFinite(record.expiresAt) && at >= record.expiresAt) at = dueAt < record.expiresAt ? record.expiresAt - 1 : dueAt;
+  return at;
 }
 
 /** The open (pending or waiting) intentions a heartbeat created, among `records`. */
@@ -751,12 +785,12 @@ export function reconcileWait(record, { taskOf, now }) {
  * @param {number} now
  * @returns {{ intention: object, reason: 'due'|'wait-deadline', at: number }[]}
  */
-export function dueList(records, now) {
+export function dueList(records, now, jitterMinutes = 0) {
   const out = [];
   for (const record of Array.isArray(records) ? records : []) {
     if (record?.status !== 'pending' && record?.status !== 'waiting') continue;
     if (record.status === 'waiting' && Number.isFinite(record.waitDeadline) && record.waitDeadline <= now) out.push({ intention: record, reason: 'wait-deadline', at: record.waitDeadline });
-    else if (Number.isFinite(record.dueAt) && record.dueAt <= now) out.push({ intention: record, reason: 'due', at: record.dueAt });
+    else if (Number.isFinite(record.dueAt) && wakeTimeOf(record, jitterMinutes) <= now) out.push({ intention: record, reason: 'due', at: record.dueAt });
   }
   return out.sort((a, b) => a.at - b.at);
 }

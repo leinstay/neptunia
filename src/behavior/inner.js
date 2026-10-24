@@ -89,7 +89,7 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, openFromHeartbeat, HEARTBEAT_ORIGIN } from '../intentions/model.js';
+import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, openFromHeartbeat, wakeTimeOf, HEARTBEAT_ORIGIN } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../skills/codes.js';
@@ -106,7 +106,7 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
-  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500, intentionsOnly: true, maxOpen: 3, maxRecurring: 1 }),
+  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500, intentionsOnly: true, maxOpen: 3, maxRecurring: 1, dueJitterMinutes: 20 }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -300,6 +300,7 @@ export function innerSettings(config) {
       enabled: heartbeat.enabled !== false,
       everyMinutes: Math.max(1, count(heartbeat.everyMinutes, d.heartbeat.everyMinutes)),
       jitterMinutes: count(heartbeat.jitterMinutes, d.heartbeat.jitterMinutes),
+      dueJitterMinutes: count(heartbeat.dueJitterMinutes, d.heartbeat.dueJitterMinutes),
       people: Math.floor(count(heartbeat.people, d.heartbeat.people)),
       filteredShown: Math.floor(count(heartbeat.filteredShown, d.heartbeat.filteredShown)),
       closedShown: Math.floor(count(heartbeat.closedShown, d.heartbeat.closedShown)),
@@ -1872,14 +1873,15 @@ export function createInnerLife({
   }
 
   /** The earliest moment something will wake her (null when nothing is known), and what: `queue`, `intention` or `review`. */
-  function nextWakeOf(state, open, at) {
+  function nextWakeOf(state, open, at, settings) {
     const found = [];
     for (const wake of state.queue) if (Number.isFinite(wake.notBefore ?? wake.dueAt)) found.push({ at: wake.notBefore ?? wake.dueAt, kind: 'queue' });
     // A time already past that she handled counts no more; one not yet handled wakes her at the next tick.
-    const upcoming = (record, reason, when) => Number.isFinite(when) && (when > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
+    const upcoming = (record, reason, when, wakeAt = when) => Number.isFinite(when) && (wakeAt > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
     for (const record of open) {
       if (record.status !== 'pending' && record.status !== 'waiting') continue;
-      if (upcoming(record, 'due', record.dueAt)) found.push({ at: record.dueAt, kind: 'intention' });
+      const wakeAt = wakeTimeOf(record, settings.heartbeat.dueJitterMinutes);
+      if (upcoming(record, 'due', record.dueAt, wakeAt)) found.push({ at: wakeAt, kind: 'intention' });
       if (record.status === 'waiting' && upcoming(record, 'wait-deadline', record.waitDeadline)) found.push({ at: record.waitDeadline, kind: 'intention' });
     }
     const review = state.review;
@@ -1937,7 +1939,7 @@ export function createInnerLife({
       spentUsd: Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) / 10000,
       intentions: { pending: countOf('pending'), waiting: countOf('waiting'), proposed: countOf('proposed') },
       attention,
-      next: nextWakeOf(state, open, at),
+      next: nextWakeOf(state, open, at, settings),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
       lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR } : null,
     };
