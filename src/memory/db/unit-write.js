@@ -18,8 +18,17 @@
 //       file has (said, deleted, felt): its mapper row as an observation's (`origin` `observation`, no owner, no
 //       position) and its id registered as a legacy key, so the sync adopts it when the file brings it
 //       (sync.js#observedRow) and `observe-check` counts it as observed. A row already stored is left alone.
-//   { kind: 'unit', op: 'value', owner, value }                    (authority db) a whole JSON unit (participation.json,
-//       whose file stays written): mapped whole, the unit's rows it no longer holds retired.
+//   { kind: 'unit', op: 'lines', owner, lines, mode: 'db' }        (stage W2b) the same for the lines of an archive
+//       month (`archive/<YYYY-MM>.jsonl`, a private layer's alike: `claim_versions`, with the retired `historical`
+//       claim of an item hot memory does not hold, as the sync's archive pass makes it), of `intentions-archive.jsonl`
+//       and of `tasks.jsonl`; the module refuses its own duplicates (the archive's month index), so every line given
+//       is written.
+//   { kind: 'unit', op: 'value', owner, value, destination? }      (authority db) a whole JSON unit, mapped whole as a
+//       sync pass maps the file (sync.js#syncWhole), the unit's rows it no longer holds retired and its `files` row
+//       kept: participation.json and media.json (whose files stay written) and, from stage W2b, every unit of the
+//       store's cache (users, private layers, channels, guild, lore, recent, versions, the diary, voice, buffer) and
+//       of the module stores (intentions.json, tasks.json). A diary's mirrors that name no destination get
+//       `destination` as in op `diary`. Request dumps (`journal/requests/`) are not written this way.
 //   { kind: 'unit', op: 'diary', owner, post, max, updatedAt, destination }   (authority db) one diary post appended
 //       to the diary the database holds (the newest `max` kept, `updatedAt` stamped, as store.js#writeDiary does), the
 //       unit mapped whole; its mirrors' publications are derived on the sync's path (publish.js) and, where they name
@@ -35,7 +44,7 @@
 // owner with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a text.
 
 import { classify } from './map/index.js';
-import { linkVectors, qualify, retireAbsent, writeMapping } from './sync.js';
+import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './sync.js';
 import { unitRows } from './export.js';
 import { addKey } from './rows.js';
 import { LEGACY_AUTHORITY } from './ids.js';
@@ -45,6 +54,8 @@ import { fillStems, markStemsPending, stemsPending } from './stems.js';
 
 /** Tables of an owned unit whose rows carry a `position`. */
 const POSITIONED = ['sources', 'day', 'decisions', 'claims', 'claim_versions', 'description_versions', 'episodes', 'affinity_events', 'diary', 'intentions', 'work', 'work_events'];
+/** The kinds of JSONL unit op `lines` writes under `db`. */
+const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'tasks']);
 /** The record kinds a shadow write may carry (seen lines and edits come through the live observation). */
 const SHADOW_KINDS = new Set(['said', 'deleted', 'felt']);
 
@@ -114,12 +125,15 @@ function recordDuplicate(db, owner, line) {
 
 function writeLines(db, update, at) {
   const unit = unitOf(update.owner);
-  if (unit.format !== 'jsonl' || (unit.kind !== 'record' && unit.kind !== 'journal')) throw coded('UNIT_UNMAPPED');
+  if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? update.lines : []).filter((line) => line !== null && typeof line === 'object' && !Array.isArray(line));
   const result = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextPosition(db, unit.full);
+  // An archive line of an item hot memory does not hold brings its retired claim (map/archive.js), as the sync's pass.
+  const archive = unit.kind === 'archive';
+  const ctx = archive ? { guildId: unit.guildId, hotClaimIds: hotClaimIds(db) } : { guildId: unit.guildId };
   for (const line of lines) {
-    const mapping = unit.mapper.toRows(unit.rel, line, { guildId: unit.guildId, position });
+    const mapping = unit.mapper.toRows(unit.rel, line, { ...ctx, position });
     const source = unit.kind === 'record' ? mapping.sources?.[0] : null;
     const found = source ? db.prepare('SELECT owner_file, position, origin, retired_at FROM sources WHERE id = ?').get(source.id) : undefined;
     if (unit.kind === 'record' && recordDuplicate(db, unit.full, line)) { result.duplicates += 1; continue; }
@@ -127,7 +141,7 @@ function writeLines(db, update, at) {
     // The live observation wrote the line first: the line takes the row over, its place in the unit stays.
     const keep = found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
     if (keep) source.position = found.position;
-    writeMapping(db, qualify(mapping, unit), unit.full, { at });
+    writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
     if (found && found.origin === 'observation') result.adopted += 1;
     result.written += 1;
     if (!keep) position += 1;
@@ -156,14 +170,18 @@ function writeShadow(db, update, at) {
   return result;
 }
 
+/** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer, sync.js). */
+const NOT_VALUE_KINDS = new Set(['requests']);
+
 function writeValue(db, update, at) {
   const unit = unitOf(update.owner);
-  if (unit.format !== 'json' || unit.kind !== 'participation') throw coded('UNIT_UNMAPPED');
+  if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { guildId: unit.guildId }), unit);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
-  return { upserted, retired };
+  const destinations = unit.kind === 'diary' && filled(update.destination) ? assignDiaryDestination(db, update.destination, { owner: unit.full, at }) : 0;
+  return { upserted, retired, ...(unit.kind === 'diary' ? { destinations } : {}) };
 }
 
 function writeDiary(db, update, at) {

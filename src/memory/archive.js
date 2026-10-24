@@ -304,7 +304,12 @@ export function archiveDrops(entry, userId, before = null) {
  *   (src/memory/journal.js#withWriterLock) holds the archive's writers too
  * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
  *   authority `db`, `iterate` and `find` are answered from the database (src/memory/db/readers/archive.js), with no
- *   file fallback (a failed read rejects with a code); under `json` (the default) the files are read as always
+ *   file fallback (a failed read rejects with a code); under `json` (the default) the files are read as always. Stage
+ *   W2b, under `db`: `append` writes no segment and no month index: the month's keys come from the lines the
+ *   database holds (read once per month, then kept), the entries it does not refuse go to the database as lines of
+ *   the month's unit (`memoryDb.writeUnit`, op `lines`), and a failed write rejects as a failed append does (the
+ *   store then queues the entries in the pending file, an operational file that stays written, and the drain writes
+ *   them through `append` again)
  * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
  * @returns {{
  *   append(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
@@ -462,7 +467,55 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return iso.slice(0, 7);
   }
 
+  /** Authority `db`: a month's keys, from the database's lines of the month's unit, read once and then kept. */
+  function dbIndex(db, guildId, privateUserId, month, owner) {
+    const cached = indexes.get(`db:${owner}`);
+    if (cached) return cached;
+    const keys = new Set();
+    for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) {
+      const key = keyOf(parse(line));
+      if (key) keys.add(key);
+    }
+    indexes.set(`db:${owner}`, keys);
+    return keys;
+  }
+
+  /** `appendNow` under authority `db`: the month units' lines written through the database's writer. */
+  async function appendDb(guildId, entries, privateUserId) {
+    const db = seam.db();
+    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    const base = baseDir(guildId, privateUserId);
+    const isPrivate = typeof privateUserId === 'string' && privateUserId;
+    const months = new Map(); // owner -> { keys, lines, added }
+    let duplicates = 0;
+    for (const raw of Array.isArray(entries) ? entries : []) {
+      if (!isPlainObject(raw)) continue;
+      const entry = { ...raw, guildId: String(guildId) };
+      if (isPrivate) entry.scope = { user: privateUserId, private: true };
+      const month = monthOf(entry);
+      const owner = root.relative(segmentFile(base, month));
+      let unit = months.get(owner);
+      if (!unit) months.set(owner, (unit = { keys: dbIndex(db, guildId, privateUserId, month, owner), lines: [], added: new Set() }));
+      const key = keyOf(entry);
+      if (key && (unit.keys.has(key) || unit.added.has(key))) {
+        duplicates += 1;
+        continue;
+      }
+      unit.lines.push(entry);
+      if (key) unit.added.add(key);
+    }
+    let written = 0;
+    for (const [owner, unit] of months) {
+      if (unit.lines.length === 0) continue;
+      await memoryDb.writeUnit({ op: 'lines', mode: 'db', owner, lines: unit.lines });
+      for (const key of unit.added) unit.keys.add(key);
+      written += unit.lines.length;
+    }
+    return { written, duplicates };
+  }
+
   async function appendNow(guildId, entries, privateUserId = null) {
+    if (seam.authority() === 'db') return appendDb(guildId, entries, privateUserId);
     const base = baseDir(guildId, privateUserId);
     const isPrivate = typeof privateUserId === 'string' && privateUserId;
     const touched = new Map(); // ids.json path -> keys
