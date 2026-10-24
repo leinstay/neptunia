@@ -261,7 +261,7 @@ Her memory session (`src/memory/db/session.js`): she reads the new chat lines of
 | `claimsPerPerson` | `30` | The most claims listed with their ids for each person |
 | `selfMax` | `40` | The most of her own claims listed |
 | `episodesMax` | `20` | The most episodes listed |
-| `maxOutputTokens` | `4000` | The answer's token limit for a session request |
+| `maxOutputTokens` | `8000` | The answer's token limit for a session request (her thinking and the memory block: 4000 cut a busy batch's answer before its block) |
 | `timeoutMs` | `300000` | The timeout of a session request |
 | `descriptionMaxOutputTokens` | `1500` | The answer's token limit for each call of a description review |
 

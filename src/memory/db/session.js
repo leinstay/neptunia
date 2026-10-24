@@ -43,6 +43,7 @@ import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.
 import { concernsMember, isOpen } from '../../intentions/model.js';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
+import { estimateMessages } from '../../llm/tokens.js';
 import { exportOne } from './export.js';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.js';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.js';
@@ -62,7 +63,7 @@ export const pendingKey = (mode, scopeKey) => `memory_session.pending.${mode}.${
 
 const DEFAULTS = Object.freeze({
   mode: 'off', maxMessages: 200, minMessages: 5, sweepsPerScopePerDay: 24, everyMinutes: 60, reviewsPerDay: 6, settleMinutes: 10, since: null, maxPeople: 12,
-  claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 4000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500, retryLimit: 3,
+  claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 8000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500, retryLimit: 3,
 });
 const MODES = ['off', 'shadow', 'apply'];
 const MINUTE = 60_000;
@@ -787,6 +788,39 @@ export async function sweep(ctx, options = {}) {
   return { status: 'ok', runs };
 }
 
+/** The share of `llm.maxRequestTokens` a session request may take (the estimate is not the provider's count). */
+const CAP_SHARE = 0.85;
+
+/**
+ * `batch` cut to the first lines by arrival (rowid) until the largest page of its request fits CAP_SHARE of the request
+ * cap, halving each time, never below `min` lines (a batch that still does not fit is returned as it is and fails as
+ * before). The lines stay in event time.
+ */
+export function fitBatch(db, scope, batch, { config, prompts, selfName, now, min = 1 }) {
+  const cap = Number(config?.llm?.maxRequestTokens);
+  if (!Number.isFinite(cap) || cap <= 0) return batch;
+  const budget = Math.floor(cap * CAP_SHARE);
+  const tokensPerImage = config?.llm?.vision?.tokensPerImage ?? null;
+  const largest = (lines) => {
+    const pages = pagesOf(db, lines, config, selfName);
+    let most = 0;
+    for (let page = 0; page < pages; page += 1) {
+      const request = buildSessionRequest({ db, scope, batch: lines, config, prompts, selfName, now, page });
+      most = Math.max(most, estimateMessages(request.messages, tokensPerImage));
+    }
+    return most;
+  };
+  let lines = batch;
+  while (lines.length > Math.max(1, min) && largest(lines) > budget) {
+    const byArrival = [...lines].sort((a, b) => a.rowid - b.rowid);
+    const keep = new Set(byArrival.slice(0, Math.max(Math.max(1, min), Math.ceil(byArrival.length / 2))).map((line) => line.rowid));
+    const next = lines.filter((line) => keep.has(line.rowid));
+    if (next.length === lines.length) break;
+    lines = next;
+  }
+  return lines;
+}
+
 /**
  * One batch: one request per page of its people, serial. The cursor moves, in the write of the last page, only when every
  * page was written (or had been applied before); an `all_dropped` page keeps the batch pending, and after `retryLimit`
@@ -798,11 +832,13 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
   let batch = read;
   let cursorTo = Math.max(...batch.map((line) => line.rowid));
   const holdKey = pendingKey(settings.mode, scope.key);
+  let pinned = false;
   // A batch read from this cursor before, with a page applied and another not, keeps the lines it had: the settle cut
   // may have let more lines in since, and a wider batch would carry another key and apply its first pages again. The
   // lines after it wait for the next batch.
   if (settings.mode === 'apply') {
     const earlier = db.prepare('SELECT MIN(cursor_to) AS last FROM session_runs WHERE mode = ? AND scope_key = ? AND cursor_from = ? AND applied = 1').get(settings.mode, scope.key, cursor)?.last;
+    if (Number.isFinite(earlier)) pinned = true;
     if (Number.isFinite(earlier) && earlier !== cursorTo) {
       batch = batch.filter((line) => line.rowid <= earlier);
       cursorTo = earlier;
@@ -816,6 +852,17 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
           return [{ scope: scope.key, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] }];
         }
       }
+    }
+  }
+  // The request must fit the request cap (`llm.maxRequestTokens`): a batch whose largest page would not is cut to its
+  // first lines by arrival, halving until it fits or `minMessages` is reached; the lines after it wait for the next
+  // batch (none is skipped: the cursor follows the cut). A batch pinned by an applied page above keeps its lines.
+  if (!pinned) {
+    const fitted = fitBatch(db, scope, batch, { config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: (ctx.now ?? Date.now)(), min: settings.minMessages });
+    if (fitted.length < batch.length) {
+      ctx.log?.info?.('memory session: batch cut to fit the request cap', { scope: scope.scope.scope_kind, from: batch.length, to: fitted.length });
+      batch = fitted;
+      cursorTo = Math.max(...batch.map((line) => line.rowid));
     }
   }
   const held = parseJson(metaOf(db, holdKey));
