@@ -98,10 +98,9 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     env.writePosts([post('d-1', [a, b])]);
     env.sync();
     const counts = await env.job().run();
-    assert.deepEqual(counts, { done: 1, lost: 0, failed: 0 });
+    assert.deepEqual(counts, { done: 1, failed: 0 });
     const row = env.row('d-1');
     assert.equal(row.text, 'first part\nsecond part');
-    assert.equal(row.lost, null);
     const media = env.media();
     assert.equal(media.length, 2);
     assert.deepEqual(media.map((m) => m.path), ['media/diary/d-1-1.png', 'media/diary/d-1-2.png']);
@@ -125,19 +124,19 @@ test('a post gets its messages joined in order, its pictures saved and a media r
   } finally { env.done(); }
 });
 
-test('a post whose messages are all gone is marked lost; one with some left keeps what is there', async () => {
+test('a post whose messages are all gone keeps what the database holds and is not asked for again; one with some left keeps them', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
     const kept = env.say('still here');
     env.writePosts([post('d-1', ['gone-1', 'gone-2']), post('d-2', ['gone-3', kept])]);
     env.sync();
     const counts = await env.job().run();
-    assert.deepEqual(counts, { done: 1, lost: 1, failed: 0 });
-    assert.equal(env.row('d-1').lost, 1);
-    assert.equal(env.row('d-1').text, null);
+    assert.deepEqual(counts, { done: 2, failed: 0 });
+    assert.equal(env.row('d-1').text, '');
+    assert.ok(env.row('d-1').gist, 'the gist the database had stays');
+    assert.equal('lost' in env.row('d-1'), false, 'the diary has no lost mark');
     assert.equal(env.row('d-2').text, 'still here');
-    assert.equal(env.row('d-2').lost, null);
-    // A lost post is not asked for again.
+    // A post with nothing left is not asked for again.
     const calls = env.port.calls.length;
     await env.job().run();
     assert.equal(env.port.calls.length, calls);
@@ -160,7 +159,7 @@ test('it is idempotent: a second start asks for nothing, and a sync of the same 
     assert.equal(env.row('d-1').text, 'hello');
     const again = env.job();
     assert.equal(again.hasWork(), false);
-    assert.deepEqual(await again.run(), { done: 0, lost: 0, failed: 0 });
+    assert.deepEqual(await again.run(), { done: 0, failed: 0 });
     assert.equal(env.port.calls.length, calls);
     assert.equal(env.downloads.length, downloads);
     assert.equal(env.media().length, 1);
@@ -175,13 +174,13 @@ test('a picture over the cap is skipped without a download; a failed download le
     env.writePosts([post('d-1', [big]), post('d-2', [flaky])]);
     env.sync();
     const first = env.job();
-    assert.deepEqual(await first.run(), { done: 1, lost: 0, failed: 1 });
+    assert.deepEqual(await first.run(), { done: 1, failed: 1 });
     assert.equal(env.row('d-1').text, 'big one');
     assert.equal(env.media().length, 0);
     assert.equal(env.downloads.some((d) => d.url.includes('big.png')), false);
     assert.equal(env.row('d-2').text, null);
     // The same start does not hammer it; the next start does, and now the picture arrives.
-    assert.deepEqual(await first.run(), { done: 0, lost: 0, failed: 0 });
+    assert.deepEqual(await first.run(), { done: 0, failed: 0 });
     const url = [...env.port.messages.values()].find((m) => m.text === 'flaky one').attachments[0].url;
     const served = png('flaky');
     const second = createDiaryMedia({
@@ -190,7 +189,7 @@ test('a picture over the cap is skipped without a download; a failed download le
       config: () => env.hot.config, dataDir: env.data, sleep: async () => {},
     });
     assert.equal(second.hasWork(), true);
-    assert.deepEqual(await second.run(), { done: 1, lost: 0, failed: 0 });
+    assert.deepEqual(await second.run(), { done: 1, failed: 0 });
     assert.equal(env.row('d-2').text, 'flaky one');
     assert.equal(env.media().length, 1);
   } finally { env.done(); }
@@ -206,16 +205,16 @@ test('rows are fetched at most one a second, only with a diary channel, and a ne
     env.hot.config.diary.channelId = '';
     const job = env.job();
     assert.equal(job.hasWork(), true);
-    assert.deepEqual(await job.run(), { done: 0, lost: 0, failed: 0 });
+    assert.deepEqual(await job.run(), { done: 0, failed: 0 });
     assert.equal(env.port.calls.length, 0);
     env.hot.config.diary.channelId = CHANNEL;
-    assert.deepEqual(await job.run(), { done: 2, lost: 0, failed: 0 });
+    assert.deepEqual(await job.run(), { done: 2, failed: 0 });
     assert.deepEqual(env.sleeps, [GAP_MS]);
     const c = env.say('three');
     env.writePosts([post('d-1', [a]), post('d-2', [b]), post('d-3', [c])]);
     env.sync();
     assert.equal(job.hasWork(), true);
-    assert.deepEqual(await job.run(), { done: 1, lost: 0, failed: 0 });
+    assert.deepEqual(await job.run(), { done: 1, failed: 0 });
     assert.equal(env.row('d-3').text, 'three');
   } finally { env.done(); }
 });
@@ -225,9 +224,8 @@ test('a port failure leaves the post and logs a code only', async () => {
   try {
     env.port.failNext('fetchMessages', { status: 'failed', error: { code: 'http-503', retryable: true } });
     env.sync();
-    assert.deepEqual(await env.job().run(), { done: 0, lost: 0, failed: 1 });
+    assert.deepEqual(await env.job().run(), { done: 0, failed: 1 });
     assert.equal(env.row('d-1').text, null);
-    assert.equal(env.row('d-1').lost, null);
     assert.ok(env.logs.some((entry) => entry.code === 'http-503'));
   } finally { env.done(); }
 });
@@ -308,7 +306,7 @@ test('an audio attachment is saved in the picture numbering with a row whose ext
     const v = env.sayVoice('', { bytes, durationSec: 3.5 });
     env.writePosts([post('d-1', [a, v], { voice: { messageId: v, text: 'sp+oken', durationSec: 4.25 } })]);
     env.sync();
-    assert.deepEqual(await env.job().run(), { done: 1, lost: 0, failed: 0 });
+    assert.deepEqual(await env.job().run(), { done: 1, failed: 0 });
     const media = env.media();
     assert.deepEqual(media.map((m) => [m.path, m.mime]), [['media/diary/d-1-1.png', 'image/png'], ['media/diary/d-1-2.ogg', 'audio/ogg']]);
     assert.deepEqual(fs.readFileSync(path.join(env.data, media[1].path)), bytes);
@@ -340,7 +338,7 @@ test('audio over the cap is skipped without a download; a failed audio download 
     env.sync();
     // Serve nothing for the second one.
     for (const m of env.port.messages.values()) if (m.text === 'gone') m.attachments[0].url = 'https://cdn.example/unserved.ogg';
-    assert.deepEqual(await env.job().run(), { done: 1, lost: 0, failed: 1 });
+    assert.deepEqual(await env.job().run(), { done: 1, failed: 1 });
     assert.equal(env.media().length, 0);
     assert.equal(env.row('d-1').text, 'big');
     assert.equal(env.audioFetches.some((u) => u.includes('big.ogg')), false);
@@ -371,7 +369,7 @@ test('a completed old post is fetched again only with a voice field and no audio
     const job = env.job();
     assert.equal(job.hasWork(), true);
     const calls = env.port.calls.length;
-    assert.deepEqual(await job.run(), { done: 1, lost: 0, failed: 0 });
+    assert.deepEqual(await job.run(), { done: 1, failed: 0 });
     assert.equal(env.port.calls.length, calls + 1);
     const paths = env.media().filter((m) => m.owner === 'd-1').map((m) => m.path);
     assert.deepEqual(paths, ['media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);

@@ -172,8 +172,15 @@ CREATE TABLE session_runs (
 CREATE INDEX session_runs_sweep ON session_runs(sweep_id);
 `;
 
+// Version 4: the diary has no `lost` mark (owner 2026-10-24: the diary in the database is the one truth; what it
+// does not hold never existed). A post that was marked lost keeps its row with an empty text (fetched, nothing left).
+const V4 = `
+UPDATE diary SET text = '' WHERE lost = 1 AND text IS NULL;
+ALTER TABLE diary DROP COLUMN lost;
+`;
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3];
+export const MIGRATIONS = [V1, V2, V3, V4];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [
