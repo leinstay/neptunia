@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { adaptLegacyModelKeys, isPlainObject } from '../config.js';
+import { isPlainObject } from '../config.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { matchRoute } from '../llm/openrouter.js';
 import { OPENCODE_ROLES } from '../llm/roles.js';
@@ -30,14 +30,12 @@ const handlers = perEnv((env) => {
   }
 
   /** config.local.json with `llm.providerByModel` replaced by `edit(copyOfTheLocalMap)`'s result;
-   * an emptied map, then an emptied `llm`, are pruned. The local map is read, and so written
-   * back, under the current role names (src/config.js#adaptLegacyModelKeys), so a route kept
-   * under an old role name is edited, not shadowed. Reloads the config; the reload's outcome. */
+   * an emptied map, then an emptied `llm`, are pruned. Reloads the config; the reload's outcome. */
   function writeRoutes(edit) {
     return editLocalConfig((local) => {
       const next = structuredClone(local);
       const llmCfg = isPlainObject(next.llm) ? next.llm : {};
-      const current = adaptLegacyModelKeys(local).config?.llm?.providerByModel;
+      const current = local?.llm?.providerByModel;
       const map = edit(isPlainObject(current) ? { ...current } : {});
       if (Object.keys(map).length > 0) llmCfg.providerByModel = map;
       else delete llmCfg.providerByModel;
@@ -64,7 +62,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
    * then each role with the model it uses now and the routing that applies to it; the OpenCode
-   * agents' roles (`web`, `server`, `thinker`, `dev`, `writer`) last, which the bot never routes: their workers never
+   * agents' roles (`scout`, `server`, `thinker`, `dev`, `writer`) last, which the bot never routes: their workers never
    * read `llm.providerByModel` (no route resolved). */
   function cmdRouteList() {
     const cfg = hot.config;
@@ -104,13 +102,12 @@ const handlers = perEnv((env) => {
     return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)}, byok: ${onOff(byok)} ${reloadNote(ok)}`;
   }
 
-  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json
-   * (a key kept under an old role name counts as its new one, see `writeRoutes`). */
+  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json */
   function cmdRouteRemove(args) {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);
     const key = role ? `${prefix}@${role}` : prefix;
-    const local = adaptLegacyModelKeys(readLocalConfig(localConfigFile())).config;
+    const local = readLocalConfig(localConfigFile());
     const localMap = isPlainObject(local?.llm?.providerByModel) ? local.llm.providerByModel : {};
     if (!Object.hasOwn(localMap, key)) {
       const live = hot.config?.llm?.providerByModel;

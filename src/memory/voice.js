@@ -1,7 +1,7 @@
 // The pure core of the two-stage analyzer (`features.memoryTwoStage`). Stage A, a reasoning model
-// on `models.helpers.extractor`, returns neutral decisions; every text that must read in the persona's own
+// on `models.base.extractor`, returns neutral decisions; every text that must read in the persona's own
 // voice comes back from it as a short factual BRIEF instead. Stage B, the voice model
-// (`models.core`, the role `core`), words those briefs later, many per request. This module is everything
+// (`models.base.core`, the role `core`), words those briefs later, many per request. This module is everything
 // between the two that needs no I/O:
 //
 //   splitDecision     a stage A answer -> its neutral part, stored at once (the attitude delta and

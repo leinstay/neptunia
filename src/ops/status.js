@@ -3,10 +3,13 @@
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
-// with the gateway and the uptime. The core's side comes first (`models.base`, `keys.base`, `costs.base`: the field names keep `base` for the core and its helpers together),
-// then the agents (`models.agents`, `costs.agents`). The models sit in two fields, one line per role, `<role> · <model> ...`:
-// `models.base` (core, then the helpers analyzer, extractor, vision, video, embedding) and `models.agents` (web, server,
-// thinker, dev, writer, which an OpenCode worker runs, so they are never probed; then drawing). The owner's card probes on every call: one minimal chat completion per
+// with the gateway and the uptime. The card keeps three groups, matching the model config: the base
+// (`models.base`, `keys.base`, `costs.base`: her core and organs), the errands (`models.errands`,
+// `costs.errands`: the delegated agents) and the development agents (`models.development`,
+// `costs.development`: outside her). The models sit in three fields, one line per role, `<role> · <model> ...`:
+// `models.base` (core, memory, then the helpers analyzer, extractor, vision, video, embedding, speech, then drawing),
+// `models.errands` (scout, server) and `models.development` (thinker, dev, writer), which an OpenCode worker runs,
+// so they are never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
@@ -16,9 +19,9 @@
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The `keys.base`
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
-// is left out: their spend is `costs.agents`) and the rolling 7/30-day sums per key; `costs.base`
-// reads today's per-role accumulator (src/ops/usage.js); `costs.agents` the errand records' spend
-// per agent (src/errands/costs.js through the guild's task store) and the development agents'
+// is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
+// reads today's per-role accumulator (src/ops/usage.js, drawing's row included); `costs.errands` the errand records' spend
+// per agent (src/errands/costs.js through the guild's task store); `costs.development` the development agents'
 // (thinker, dev, writer) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
 // context), those three shown with no runs when the ledger does not answer. The owner's `inner`
 // field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.js#status,
@@ -37,14 +40,13 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.js';
-import { AGENT_ROLES, CORE_ROLE, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
+import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
 import { PROFILES, TOOL_PROFILES } from '../agent-runner/profiles.js';
-import { LEDGER_AGENTS } from '../errands/ledger.js';
 import { isPlainObject } from '../config.js';
 import { fill } from '../format.js';
 import { innerOn } from '../behavior/inner.js';
@@ -62,31 +64,29 @@ export { STATUS_FIELDS };
 export const PART_FIELDS = Object.freeze({
   overview: ['state', 'limits'],
   limits: ['limits', 'costs.base'],
-  models: ['models.base', 'models.agents'],
+  models: ['models.base', 'models.errands', 'models.development'],
   memory: ['memory'],
   inner: ['inner'],
-  errands: ['tasks', 'costs.agents'],
+  errands: ['tasks', 'costs.errands', 'costs.development'],
   features: ['features'],
   all: null,
 });
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.agents', 'inner', 'memory', 'speed']);
+const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'costs.development', 'inner', 'memory', 'speed']);
 
 /** The model roles of the errand agents and the tool agents (src/agent-runner/profiles.js): a key
- * only they use is the agents' key, which `keys.base` leaves out. */
-const ERRAND_ROLES = new Set([...Object.values(PROFILES), ...Object.values(TOOL_PROFILES)].map((profile) => profile.modelRole));
-
-/** The role of the drawing agent, whose pictures `costs.agents` counts from the task records: `costs.base` has no row for it. */
-const TOOL_ROLES = new Set(Object.values(TOOL_PROFILES).map((profile) => profile.modelRole));
+ * only they use is the errands' key, which `keys.base` leaves out. */
+const ERRAND_KEY_ROLES = new Set([...Object.values(PROFILES), ...Object.values(TOOL_PROFILES)].map((profile) => profile.modelRole));
 
 /**
- * The `models.base` field's groups, in order: one line per role, then the
+ * The `models.base` field's groups before drawing, in order: one line per role, then the
  * `models.byPurpose` overrides of the purposes that go out on those roles
  * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
  */
 const MODEL_GROUPS = Object.freeze([
   { name: 'core', roles: [CORE_ROLE] },
+  { name: 'memory', roles: [MEMORY_ROLE] },
   { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
   { name: 'extractor', roles: ['extractor'] },
   { name: 'vision', roles: ['vision'] },
@@ -167,6 +167,11 @@ function agentLine(role, cfg) {
   return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
 }
 
+/** The `models.errands` or `models.development` field: each role's `agentLine`. */
+function agentModels(cfg, roles) {
+  return roles.map((role) => agentLine(role, cfg)).join('\n');
+}
+
 /** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
  * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
  * `byPurpose <purpose> · <model>` line each. */
@@ -186,14 +191,6 @@ function groupedModels(cfg, lineOf) {
     for (const role of group.roles) lines.push(lineOf(role));
     lines.push(...byPurposeLines(cfg, group.roles, group.unlistedPurposes));
   }
-  return lines.join('\n');
-}
-
-/** The `models.agents` field: each OpenCode role's `agentLine`,
- * then the drawing role's line `imageLine` (left out when null). */
-function agentModels(cfg, imageLine) {
-  const lines = OPENCODE_ROLES.map((role) => agentLine(role, cfg));
-  if (imageLine) lines.push(imageLine);
   return lines.join('\n');
 }
 
@@ -409,22 +406,10 @@ const handlers = perEnv((env) => {
     return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
   }
 
-  /** The `models.base` field unprobed (a member's card): every role's own model. */
+  /** The `models.base` field unprobed (a member's card): every role's own model, the drawing model last. */
   function modelsValue(cfg) {
-    return groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured'));
-  }
-
-  /** The `models.agents` field unprobed (a member's card): every agent role's own model, the drawing model last. */
-  function agentsValue(cfg) {
     const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
-    return agentModels(cfg, image);
-  }
-
-  /** The owner's `models.agents` field: the OpenCode roles unprobed, the drawing model's listing
-   * read (one free GET). */
-  async function probedAgentsValue(cfg) {
-    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
-    return agentModels(cfg, await imageProbeLine(cfg, timeoutMs));
+    return [groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured')), image].join('\n');
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
@@ -471,8 +456,8 @@ const handlers = perEnv((env) => {
   /**
    * The owner's `models.base` field: every base role's model, as resolved now, probed in parallel -- the chat
    * roles with one minimal chat completion, the embedding role with one embedding request of one
-   * input -- one line per role in MODEL_GROUPS order, the per-purpose overrides (unprobed)
-   * after their role. Roles
+   * input, the drawing model with one free listing read -- one line per role in MODEL_GROUPS order, the
+   * per-purpose overrides (unprobed) after their role, the drawing line last. The memory role is named, never probed. Roles
    * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
    * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
@@ -532,15 +517,16 @@ const handlers = perEnv((env) => {
       reason: promptText ? null : 'no-label',
     });
     const lineOf = (role) => {
-      const model = modelOf.get(role);
+      const model = modelOf.has(role) ? modelOf.get(role) : modelForRole(role, cfg);
       if (!model) return roleHead(role, 'no model configured');
       const head = roleHead(role, model);
       if (!promptText) return `${head} · skipped: label missing`;
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
       if (role === SPEECH_ROLE) return `${head} · not checked (speech)`;
+      if (role === MEMORY_ROLE) return `${head} · not checked (memory)`;
       return probeLine(head, results.get(targetOf(role)));
     };
-    return groupedModels(cfg, lineOf);
+    return [groupedModels(cfg, lineOf), await imageProbeLine(cfg, timeoutMs)].join('\n');
   }
 
   /** The limits field: every daily rail's used/cap, the web search engine, then when they reset. */
@@ -569,7 +555,7 @@ const handlers = perEnv((env) => {
    * The owner's `keys.base` field (src/ops/usage.js#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
    * each extra key `llm.keyByRole` puts in use (`llm.roleKeys`, read by role, never holding a key
-   * here) but the errand agents' (a key whose roles are all ERRAND_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
+   * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
    * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
@@ -585,8 +571,8 @@ const handlers = perEnv((env) => {
     // The simulator key is used for this one read only, never for a model request.
     const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
     const allGroups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
-    // The errand agents' key is not the core's: their spend is the costs.agents field.
-    const agentsOnly = (group) => group.roles.length > 0 && group.roles.every((role) => ERRAND_ROLES.has(role));
+    // The errand agents' key is not the core's: their spend is the costs.errands field.
+    const agentsOnly = (group) => group.roles.length > 0 && group.roles.every((role) => ERRAND_KEY_ROLES.has(role));
     const agentRoles = allGroups.filter(agentsOnly).flatMap((group) => group.roles);
     const keyGroups = allGroups.filter((group) => !agentsOnly(group));
     // A role on the simulator key is shown on the simulator line, never on a line of its own.
@@ -637,35 +623,35 @@ const handlers = perEnv((env) => {
   /** The owner's `costs.base` field (src/ops/usage.js#roleCostsLines): today's requests
    * per role from the usage accumulator; `-` when the labels give no line. */
   function roleCostsValue() {
-    // A tool agent's spend (the pictures) is in costs.agents from its task records: no row here, so nothing counts twice.
-    const rows = (typeof usage?.byRole === 'function' ? usage.byRole() : []).filter((row) => !TOOL_ROLES.has(row.role));
+    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
     const lines = roleCostsLines({ rows, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.agents` field (src/ops/usage.js#agentCostsLines): each OpenCode agent's
-   * runs, tokens and estimated dollars today and over the last 7 and 30 days, the errand agents
-   * from the guild's task store (src/errands/store.js#costs; none without the errands or a guild),
-   * thinker, dev and writer from the ledger (src/errands/ledger.js#costs, which replaces the
-   * records' figures for those three; the thinker's last wave adds its context line). An agent
-   * with no figures shows no runs: a ledger that is not configured, refuses, fails or does not
-   * answer in time never fails the field. `-` when the labels give no line. */
-  async function agentCostsValue(guildId) {
+  /** The owner's `costs.errands` field (src/ops/usage.js#agentCostsLines): each errand agent's
+   * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the guild's
+   * task store (src/errands/store.js#costs; none without the errands or a guild). An agent with
+   * no figures shows no runs. `-` when the labels give no line. */
+  function errandCostsValue(guildId) {
     const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
-    const totals = { ...(typeof tasks?.costs === 'function' ? tasks.costs(AGENT_ROLES) : {}) };
+    const totals = typeof tasks?.costs === 'function' ? tasks.costs(ERRAND_ROLES) : {};
+    const lines = agentCostsLines({ agents: ERRAND_ROLES, totals, labels: hot.prompts?.labels });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
+  /** The owner's `costs.development` field (src/ops/usage.js#agentCostsLines): thinker, dev and
+   * writer from the ledger (src/errands/ledger.js#costs; the thinker's last wave adds its context
+   * line). An agent with no figures shows no runs: a ledger that is not configured, refuses, fails
+   * or does not answer in time never fails the field. `-` when the labels give no line. */
+  async function developmentCostsValue() {
     let ledgerTotals = null;
     try {
       ledgerTotals = typeof errands?.ledger?.costs === 'function' ? await errands.ledger.costs() : null;
     } catch (err) {
       log.warn('status: ledger costs failed', { error: err });
     }
-    for (const agent of LEDGER_AGENTS) {
-      if (ledgerTotals?.[agent]) totals[agent] = ledgerTotals[agent];
-      else delete totals[agent];
-    }
-    // The OpenCode agents in order, then any other agent the records name.
-    const agents = [...new Set([...AGENT_ROLES, ...Object.keys(totals)])];
-    const lines = agentCostsLines({ agents, totals, labels: hot.prompts?.labels });
+    const totals = Object.fromEntries(DEVELOPMENT_ROLES.filter((agent) => ledgerTotals?.[agent]).map((agent) => [agent, ledgerTotals[agent]]));
+    const lines = agentCostsLines({ agents: DEVELOPMENT_ROLES, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
@@ -921,8 +907,10 @@ const handlers = perEnv((env) => {
       'models.base': () => (owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
       'keys.base': () => keyCostsValue(cfg),
       'costs.base': () => roleCostsValue(),
-      'models.agents': () => (owner && probe && typeof llm?.complete === 'function' ? probedAgentsValue(cfg) : agentsValue(cfg)),
-      'costs.agents': () => agentCostsValue(guildId),
+      'models.errands': () => agentModels(cfg, ERRAND_ROLES),
+      'costs.errands': () => errandCostsValue(guildId),
+      'models.development': () => agentModels(cfg, DEVELOPMENT_ROLES),
+      'costs.development': () => developmentCostsValue(),
       inner: () => innerValue(guildId),
       limits: () => limitsValue(cfg, data),
       memory: () => (guildId ? memoryValue(guildId) : unresolved),

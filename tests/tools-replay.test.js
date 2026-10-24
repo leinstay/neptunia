@@ -249,7 +249,7 @@ test('replay: --diary-day records every generate() call at the image client and 
   const state = { data: {}, markDirty() {} };
   const config = {
     llm: { baseUrl: 'https://openrouter.invalid/api/v1' },
-    models: { agents: { drawing: 'openai/image-model' } },
+    models: { base: { drawing: 'openai/image-model' } },
     image: { maxPerDay: 5, maxPerUserPerDay: 2, retries: 0 },
   };
   const real = createImageGen({ apiKey: 'unused', getConfig: () => config, state, fetchImpl: fixtureImagesFetch(), now: () => Date.UTC(2026, 9, 6, 9, 0) });
@@ -281,8 +281,8 @@ test('replay: --diary-day records every generate() call at the image client and 
 });
 
 test('replay: --diary-day --draw live spends OPENROUTER_SIM_KEY only; hot acts to the end without typing waits', () => {
-  assert.throws(() => diaryDayKey('live', { OPENROUTER_API_KEY: 'bot' }), /OPENROUTER_SIM_KEY/);
-  assert.equal(diaryDayKey('live', { OPENROUTER_SIM_KEY: 'sim', OPENROUTER_API_KEY: 'bot' }), 'sim');
+  assert.throws(() => diaryDayKey('live', { OPENROUTER_CORE_KEY: 'bot' }), /OPENROUTER_SIM_KEY/);
+  assert.equal(diaryDayKey('live', { OPENROUTER_SIM_KEY: 'sim', OPENROUTER_CORE_KEY: 'bot' }), 'sim');
   assert.equal(diaryDayKey('fake', { OPENROUTER_SIM_KEY: 'sim' }), 'sim');
 
   const hot = { config: { features: { dryRun: true, typingSimulation: true, diary: true }, bot: { dryRunChannelId: '42', timezone: 'UTC' } } };

@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { loadConfig, deepMerge, isPlainObject } from './config.js';
+import { readConfig, deepMerge, isPlainObject } from './config.js';
 import { log } from './log.js';
 
 const DEBOUNCE_MS = 250;
@@ -50,7 +50,7 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
- * instead: `memory.voiceModel` (the memory wording runs on `models.core`, the persona's one model);
+ * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request any more: she sees through the describer's captions, `features.mediaDescriptions`, and
  * her second look, `features.imageRelook`, both on the `vision` helper model); `innerLife.loop.strayFollowUps`
@@ -60,7 +60,7 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
  * not read (the provider keys' own limits are the money bounds; costs are only reported).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
-  { key: 'memory.voiceModel', use: 'models.core', read: (config) => config?.memory?.voiceModel },
+  { key: 'memory.voiceModel', use: 'models.base.core', read: (config) => config?.memory?.voiceModel },
   { key: 'features.vision', use: 'features.mediaDescriptions', read: (config) => config?.features?.vision },
   { key: 'features.attachedDescriptions', use: 'features.mediaDescriptions', read: (config) => config?.features?.attachedDescriptions },
   { key: 'innerLife.loop.strayFollowUps', use: 'innerLife.loop.maxSteps', read: (config) => config?.innerLife?.loop?.strayFollowUps },
@@ -73,7 +73,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'intentions.droppedDays', use: null, read: (config) => config?.intentions?.droppedDays },
   { key: 'innerLife.heartbeat.droppedDays', use: null, read: (config) => config?.innerLife?.heartbeat?.droppedDays },
   { key: 'innerLife.heartbeat.droppedShown', use: 'innerLife.heartbeat.closedShown', read: (config) => config?.innerLife?.heartbeat?.droppedShown },
-  ...['web', 'server', 'drawing', 'thinker', 'dev', 'writer'].flatMap((agent) => [
+  ...['scout', 'server', 'drawing', 'thinker', 'dev', 'writer'].flatMap((agent) => [
     { key: `agents.${agent}.daily.usd`, use: null, read: (config) => config?.agents?.[agent]?.daily?.usd },
     { key: `agents.${agent}.limits.usd`, use: null, read: (config) => config?.agents?.[agent]?.limits?.usd },
   ]),
@@ -221,21 +221,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   let localWatcher = null;
   let preamblesWatcher = null;
 
-  let loaded = loadConfig(rootDir, { privateDir });
-  hot.config = loaded.config;
-  // The old model keys and role names config.local.json still carries (src/config.js#adaptLegacyModelKeys,
-  // read under their new names): one warning listing them, key names only, at startup and again
-  // at a reload that changes the list. A layer still holding the flat `roles` map throws instead
-  // (src/config.js#assertModelsShape): at startup the bot does not start, on a reload the
-  // previous config stays live.
-  let reportedLegacy = '';
-  const reportLegacyKeys = (renamed) => {
-    const listed = JSON.stringify(renamed);
-    if (listed === reportedLegacy) return;
-    reportedLegacy = listed;
-    if (renamed.length > 0) log.warn('config: old model keys read under their new names', { keys: renamed });
-  };
-  reportLegacyKeys(loaded.renamed);
+  hot.config = readConfig(rootDir, { privateDir });
   // The retired keys reported for the config now live: one warning when a key appears (at
   // startup or on a reload), none while it stays, another once it was removed and set again.
   const reportedRetired = new Set();
@@ -275,11 +261,9 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
 
   hot.reloadConfig = () => {
     try {
-      loaded = loadConfig(rootDir, { privateDir });
-      hot.config = loaded.config;
+      hot.config = readConfig(rootDir, { privateDir });
       hot.hashes = { ...hot.hashes, configHash: shortHash(hot.config) };
       log.info('hot: config reloaded');
-      reportLegacyKeys(loaded.renamed);
       reportRetiredKeys();
       hot.emit('change', { what: 'config' });
       return true;

@@ -12,7 +12,7 @@
 // DEFERRED_OPS entry when its operation may outlast the reply window.
 
 import { isPlainObject } from '../config.js';
-import { AGENT_ROLES, CORE_ROLES, OPENCODE_ROLES, roleConfigKeys } from '../llm/roles.js';
+import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../llm/roles.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -52,7 +52,7 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 
 /**
  * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the helpers), each with the
- * config path of its model (src/ops/model.js): the roles the status card probes; with the agents'
+ * config path of its model (src/ops/model.js): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
  * the one model that speaks as the persona: its replies and every memory text worded in its voice
  * (src/memory/update.js#runVoice). `embedding` serves the embeddings (src/llm/embed.js), which
@@ -65,15 +65,11 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
- * `set` writes: the core and the helper roles (`models.core`, `models.helpers`), then the agents' roles
- * (`models.agents`, src/llm/roles.js#AGENT_ROLES): `web`, `server`, `thinker`, `dev` and `writer`, which take no
- * request of the bot (OpenCode workers run them), then the drawing model (`drawing`,
- * src/llm/images.js#IMAGE_ROLE), which takes no chat completion.
+ * `set` writes (`models.<group>.<role>`, src/llm/roles.js#ROLES): the base roles (the core, the
+ * helpers, drawing), then the errand and development roles, which take no request of the bot
+ * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
  */
-export const MODEL_SET_PATHS = Object.freeze({
-  ...MODEL_ROLE_PATHS,
-  ...Object.fromEntries(AGENT_ROLES.map((role) => [role, `models.agents.${role}`])),
-});
+export const MODEL_SET_PATHS = Object.freeze(Object.fromEntries(ROLES.map((role) => [role, roleConfigKeys(role).join('.')])));
 
 /** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set`. */
 export const MODEL_SET_ROLES = Object.freeze(Object.keys(MODEL_SET_PATHS));
@@ -97,7 +93,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
  * in src/ops/status.js, which imports this module.
  */
-export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed']);
+export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed']);
 
 /**
  * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
@@ -111,7 +107,7 @@ function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
 }
 
-/** The choices of `/nep route`: the `/nep model set` roles but the OpenCode ones (`web`,
+/** The choices of `/nep route`: the `/nep model set` roles but the OpenCode ones (`scout`,
  * `server`, `thinker`, `dev`, `writer`), whose workers never read `llm.providerByModel`, and `speech`,
  * whose one model is routed by its own prefix (the command tree is at Discord's size limit). */
 export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
@@ -126,7 +122,7 @@ export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server'])
 export const PINGS_MODES = Object.freeze(['on', 'off']);
 
 /** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/ops/task.js reads the same list). */
-export const TASK_AGENTS = Object.freeze(['web', 'server']);
+export const TASK_AGENTS = Object.freeze(['scout', 'server']);
 
 /** `task status`'s persona-only `action` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
 const RESULT_ACTIONS = Object.freeze(['read', 'resolve']);
@@ -184,7 +180,7 @@ export const COMMAND_TABLE = Object.freeze([
     name: 'status',
     description: 'What the bot is doing now: one card.',
     options: [
-      { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, choices: choicesOf(STATUS_FIELDS) },
+      { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, autocomplete: true },
     ],
     // Her own call may ask for a part instead (an argument only she has, never shown to Discord).
     personaOptions: [{ type: STRING, name: 'part', description: 'A part of the card.', required: false, choices: choicesOf(STATUS_PARTS) }],
@@ -393,7 +389,7 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'run',
         description: 'Hand an errand to an agent (server: owners only).',
         options: [
-          { type: STRING, name: 'agent', description: 'web or server.', required: true, choices: choicesOf(TASK_AGENTS) },
+          { type: STRING, name: 'agent', description: 'scout or server.', required: true, choices: choicesOf(TASK_AGENTS) },
           { type: STRING, name: 'goal', description: 'What to find out or fetch.', required: true, max_length: 2000 },
         ],
         args: (options) => ({ agent: options.getString('agent', true), goal: options.getString('goal', true) }),

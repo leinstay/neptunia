@@ -70,7 +70,7 @@ export class ImageCapError extends Error {
   }
 }
 
-/** `models.agents.drawing` belongs to no supported family; refused before any request or count. */
+/** `models.base.drawing` belongs to no supported family; refused before any request or count. */
 export class UnsupportedImageModelError extends Error {
   constructor(model) {
     super(`unsupported image model: ${model}`);

@@ -4,7 +4,7 @@
 
 import { MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.js';
 import { IMAGE_ROLE } from '../llm/images.js';
-import { CORE_ROLE, HELPER_ROLES, OPENCODE_ROLES, roleConfigKeys, roleModel } from '../llm/roles.js';
+import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, HELPER_ROLES, roleConfigKeys, roleModel } from '../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -14,17 +14,19 @@ const MEDIA_ROLES = new Set(['vision', 'video']);
 const handlers = perEnv((env) => {
   const { hot, writeLocalPath, editLocalConfig, imageModelLabel, now } = env;
 
-  /** One `<role>: <model>` line per role: the core first, then the helpers and the agents each under a group line (`helpers:`, `agents:`). */
+  /** One `<role>: <model>` line per role: the base roles (the core, the helpers, drawing), then the errand and development roles each under a group line (`errands:`, `development:`). */
   function cmdModelShow() {
     const cfg = hot.config;
     const lineOf = (role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
     const lines = [
+      'base:',
       lineOf(CORE_ROLE),
-      'helpers:',
       ...HELPER_ROLES.map(lineOf),
-      'agents:',
-      ...OPENCODE_ROLES.map(lineOf),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
+      'errands:',
+      ...ERRAND_ROLES.map(lineOf),
+      'development:',
+      ...DEVELOPMENT_ROLES.map(lineOf),
       `mediaDescriptions: ${onOff(cfg?.features?.mediaDescriptions === true)}`,
     ];
     return lines.join('\n');
@@ -34,7 +36,7 @@ const handlers = perEnv((env) => {
     const role = String(args?.role ?? '');
     const dottedPath = Object.hasOwn(MODEL_SET_PATHS, role) ? MODEL_SET_PATHS[role] : null;
     if (!dottedPath) throw invalid(`unknown role: ${role} (${MODEL_SET_ROLES.join(', ')})`);
-    // `models.core`, `models.helpers.<role>` or `models.agents.<role>`.
+    // `models.<group>.<role>`.
     const keys = roleConfigKeys(role);
 
     const id = String(args?.id ?? '').trim();

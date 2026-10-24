@@ -87,24 +87,26 @@
     "access": {}
   },
   "models": {
-    "core": "anthropic/claude-opus-4.6",
-    "memory": "anthropic/claude-opus-4.6",
-    "helpers": {
+    "base": {
+      "core": "anthropic/claude-opus-4.6",
+      "memory": "anthropic/claude-opus-4.6",
       "analyzer": "openai/gpt-6.1-sol",
       "extractor": "openai/gpt-6.1-sol",
       "vision": "google/gemini-3.8-flash",
       "video": "google/gemini-3.8-flash",
       "embedding": "openai/text-embedding-3-large",
-      "speech": "elevenlabs/eleven-v4"
+      "speech": "elevenlabs/eleven-v4",
+      "drawing": "openai/gpt-image-2.5-flare"
     },
     "byPurpose": {},
-    "agents": {
-      "web": "openrouter/openai/gpt-6.1-sol",
-      "server": "openrouter/openai/gpt-6.1-sol",
+    "errands": {
+      "scout": "openrouter/openai/gpt-6.1-sol",
+      "server": "openrouter/openai/gpt-6.1-sol"
+    },
+    "development": {
       "thinker": "openrouter/anthropic/claude-opus-5.5",
       "dev": "openrouter/anthropic/claude-sonnet-5.5",
-      "writer": "openrouter/anthropic/claude-opus-4.6",
-      "drawing": "openai/gpt-image-2.5-flare"
+      "writer": "openrouter/anthropic/claude-opus-4.6"
     }
   },
   "llm": {
@@ -120,7 +122,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "keyByRole": { "web": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" },
+    "keyByRole": { "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["core"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
@@ -536,11 +538,11 @@
     "ledger": {
       "socket": null
     },
-    "web": {
+    "scout": {
       "enabled": false,
       "cost": { "input": 2, "output": 6 },
-      "socket": "/run/neptunia-agent-web/sock",
-      "out": "/var/lib/neptunia-agent-web/out",
+      "socket": "/run/neptunia-agent-scout/sock",
+      "out": "/var/lib/neptunia-agent-scout/out",
       "limits": { "steps": 25, "seconds": 300 },
       "daily": { "tasks": 40 },
       "search": { "provider": "exa" }

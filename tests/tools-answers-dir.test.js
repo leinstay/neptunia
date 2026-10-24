@@ -151,7 +151,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
     },
   });
   const llm = { complete: (messages, options) => answers.answer('anthropic/claude-x', messages, options) };
-  const config = personaGrantsConfig({ bot: { timezone: 'UTC' }, context: { channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 }, vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } }, models: { core: 'x/chat' }, llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 }, features: {} }, '900000000000000001', ['web.search']);
+  const config = personaGrantsConfig({ bot: { timezone: 'UTC' }, context: { channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 }, vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } }, models: { base: { core: 'x/chat' } }, llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 }, features: {} }, '900000000000000001', ['web.search']);
   const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels: (await import('./fixtures/labels.js')).labels } };
   const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
   const view = liveView({ hot, store, guildId: 'g1' });

@@ -28,6 +28,7 @@ import {
   DEFER_AFTER_MS,
   DEFERRED_OPS,
   ROUTE_ROLES,
+  STATUS_FIELDS,
   commandSize,
   isValidCommandName,
   leafPaths,
@@ -365,6 +366,15 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
         .filter((p) => p.toLowerCase().includes(typed))
         .slice(0, MAX_AUTOCOMPLETE_CHOICES)
         .map((p) => ({ name: p, value: p }));
+      await interaction.respond(choices).catch(() => {});
+      return;
+    }
+
+    // `/nep status field:` offers the card's field names (too many to list as fixed choices within Discord's size limit).
+    if (commandKey === 'status' && focused.name === 'field') {
+      const choices = STATUS_FIELDS
+        .filter((name) => name.includes(typed))
+        .map((name) => ({ name, value: name }));
       await interaction.respond(choices).catch(() => {});
       return;
     }

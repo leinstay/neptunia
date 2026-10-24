@@ -102,7 +102,7 @@ test('an accepted background job covers the speech: task.run ok, the speech goes
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
-    answers: [toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [call('task.run', { agent: 'web', goal: 'βρες κάτι' })]), '<msg>ποτέ</msg>'],
+    answers: [toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [call('task.run', { agent: 'scout', goal: 'βρες κάτι' })]), '<msg>ποτέ</msg>'],
     allowed: ['task.run'],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },

@@ -70,7 +70,7 @@ function hot() {
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-      models: { agents: { drawing: 'openai/image-model' } },
+      models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       features: { ...SWITCHES },
       media: { maxPerTurn: 6, filePreviewChars: 500 },

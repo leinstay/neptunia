@@ -342,7 +342,7 @@ test('code fallbacks: every setting the module defaults when it is missing equal
   assert.equal(clamped.patterns.length, 2 * shipped.memory.fieldChars);
   assert.equal(clamped.lore[0].text.length, shipped.lore.textChars);
 
-  const twoStage = { features: { memoryTwoStage: true }, models: { core: 'talk/model' }, memory: {} };
+  const twoStage = { features: { memoryTwoStage: true }, models: { base: { core: 'talk/model' } }, memory: {} };
   assert.equal(warmupRoute(twoStage).maxOutputTokens, shipped.memory.maxOutputTokens);
 });
 
@@ -612,7 +612,7 @@ function fakeHot(overrides = {}) {
     config: {
       bot: { timezone: 'UTC' },
       context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-      models: { core: 'talk/model', helpers: { extractor: 'talk/model' } },
+      models: { base: { core: 'talk/model', extractor: 'talk/model' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       memory: {
         mainChannelIds: [],
@@ -2965,19 +2965,19 @@ test('writePersonAnswer: a person run with no portrait keeps the own messages si
 });
 
 // ---------------------------------------------------------------------------
-// Two-stage mode (features.memoryTwoStage): the portrait refresh's stage A on models.helpers.extractor, its
+// Two-stage mode (features.memoryTwoStage): the portrait refresh's stage A on models.base.extractor, its
 // character worded later by the voice run, and every warmup text in the persona's voice on
-// models.core.
+// models.base.core.
 // ---------------------------------------------------------------------------
 
 const BRANOS = '222222222222222222';
 
-/** A live view with the two-stage switch on: neutral requests on `models.helpers.extractor`, the persona's
- * voice on `models.core` (`talk/model`); `prompts` overrides (undefined removes a prompt). */
+/** A live view with the two-stage switch on: neutral requests on `models.base.extractor`, the persona's
+ * voice on `models.base.core` (`talk/model`); `prompts` overrides (undefined removes a prompt). */
 function twoStageHot({ prompts = {}, memory = {} } = {}) {
   const hot = fakeHot({ prompts: { portrait: 'PORTRAIT {{name}} {{fieldChars}}', 'memory-voice': 'VOICE {{name}}', ...prompts } });
   hot.config.features = { memoryTwoStage: true };
-  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models?.helpers, extractor: 'gpt/decider' } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models?.base, extractor: 'gpt/decider' } };
   Object.assign(hot.config.memory, { voice: { maxPerDay: 100 }, ...memory });
   return hot;
 }
@@ -3013,19 +3013,19 @@ function stagedLlm({ decision, word = () => null }) {
 
 const itemsOf = (call) => JSON.parse(/<items>\n([\s\S]*?)\n<\/items>/.exec(call.messages[1].content)[1]);
 
-test('warmupRoute: with memoryTwoStage off every request goes out on models.helpers.extractor as the extractor role, as before', () => {
-  const config = { models: { core: 'talk/model', helpers: { extractor: 'gpt/decider' } }, memory: { reasoning: { effort: 'low' } } };
+test('warmupRoute: with memoryTwoStage off every request goes out on models.base.extractor as the extractor role, as before', () => {
+  const config = { models: { base: { core: 'talk/model', extractor: 'gpt/decider' } }, memory: { reasoning: { effort: 'low' } } };
   assert.deepEqual(warmupRoute(config), { model: 'gpt/decider', role: 'extractor' });
   assert.deepEqual(warmupRoute(config, { voice: true }), { model: 'gpt/decider', role: 'extractor' }, 'the voice model is two-stage mode only');
-  config.models.helpers.extractor = null;
+  config.models.base.extractor = null;
   config.features = { memoryTwoStage: 'yes' }; // read === true
   assert.deepEqual(warmupRoute(config, { voice: true }), { model: ROLE_DEFAULTS.extractor, role: 'extractor' }, 'unset: its own default, never the voice model');
 });
 
-test('warmupRoute: in two-stage mode a voice text goes to models.core as a memory-wording request, a neutral one stays on models.helpers.extractor with stage A\'s memory.reasoning and memory.maxOutputTokens; calibration only on the voice model', () => {
+test('warmupRoute: in two-stage mode a voice text goes to models.base.core as a memory-wording request, a neutral one stays on models.base.extractor with stage A\'s memory.reasoning and memory.maxOutputTokens; calibration only on the voice model', () => {
   const config = {
     features: { memoryTwoStage: true },
-    models: { core: 'talk/model', helpers: { extractor: 'gpt/decider' } },
+    models: { base: { core: 'talk/model', extractor: 'gpt/decider' } },
     // A deployment that still carries the removed memory.voiceModel: never read.
     memory: { voiceModel: 'opus/voice', reasoning: { effort: 'low' }, maxOutputTokens: 18000 },
   };
@@ -3036,7 +3036,7 @@ test('warmupRoute: in two-stage mode a voice text goes to models.core as a memor
   );
   assert.deepEqual(warmupRoute(config), { model: 'gpt/decider', role: 'extractor', skipCalibration: true, maxOutputTokens: 18000, reasoning: { effort: 'low' } });
 
-  config.models.helpers.extractor = 'talk/model'; // the extractor on the voice model: it feeds the calibration
+  config.models.base.extractor = 'talk/model'; // the extractor on the voice model: it feeds the calibration
   config.memory.reasoning = 'low'; // not a plain object: not sent
   config.memory.maxOutputTokens = 7000;
   assert.deepEqual(warmupRoute(config), { model: 'talk/model', role: 'extractor', skipCalibration: false, maxOutputTokens: 7000 });
@@ -3081,7 +3081,7 @@ test('clampPortraitDecision: the lists are tokenized and clamped, empty entries 
   assert.deepEqual([empty.style, empty.brief, empty.changed], ['', {}, false]);
 });
 
-test('refreshPortrait (two-stage): stage A on models.helpers.extractor stores style and queues one character item with the brief; the portrait stamps wait for the voice run', async () => {
+test('refreshPortrait (two-stage): stage A on models.base.extractor stores style and queues one character item with the brief; the portrait stamps wait for the voice run', async () => {
   const now = T0 + 30 * 3_600_000;
   const hot = twoStageHot({ memory: { reasoning: { effort: 'low' }, maxOutputTokens: 18000 } });
   const llm = scriptedLlm([portraitAnswer('μακριές προτάσεις', { keep: ['μιλάει πολύ'], add: [`ρωτάει πάντα τον Βράνος (id:${BRANOS})`] })]);
@@ -3125,7 +3125,7 @@ test('refreshPortrait (two-stage): stage A on models.helpers.extractor stores st
   assert.equal(JSON.stringify(logs).includes('μακριές'), false, 'logs carry counts, never the text');
 });
 
-test('refreshPortrait (two-stage): the voice run words the queued character on models.core from the old text and the brief, rewrites character only and stamps the portrait when it is applied', async () => {
+test('refreshPortrait (two-stage): the voice run words the queued character on models.base.core from the old text and the brief, rewrites character only and stamps the portrait when it is applied', async () => {
   let nowMs = T0 + 30 * 3_600_000;
   const readAt = nowMs;
   const hot = twoStageHot();
@@ -3145,7 +3145,7 @@ test('refreshPortrait (two-stage): the voice run words the queued character on m
 
   assert.equal(llm.calls.length, 2);
   const voice = llm.calls[1];
-  assert.deepEqual([voice.opts.model, voice.opts.role, voice.opts.purpose], [undefined, 'core', 'memory-voice'], 'models.core, never models.helpers.extractor');
+  assert.deepEqual([voice.opts.model, voice.opts.role, voice.opts.purpose], [undefined, 'core', 'memory-voice'], 'models.base.core, never models.base.extractor');
   const [item] = itemsOf(voice);
   assert.equal(item.kind, 'character');
   assert.equal(item.old, 'μιλάει πολύ', 'the stored portrait goes in as the base');
@@ -3238,7 +3238,7 @@ test('refreshPortrait (two-stage): a missing portrait prompt falls back to the s
       ['PORTRAIT', 'gpt/decider', 'extractor', null, true, 18000],
       ['SYSTEM', 'talk/model', 'core', 'memory-voice', false, 6000],
     ],
-    'the fallback words the character itself, on the voice model, never on models.helpers.extractor, without stage A\'s settings',
+    'the fallback words the character itself, on the voice model, never on models.base.extractor, without stage A\'s settings',
   );
   const profile = store.getUser('g1', 'a');
   assert.equal(profile.character, 'χαρακτήρας 3', 'the fallback stores the portrait at once');
@@ -3310,7 +3310,7 @@ test('refreshPortrait (two-stage): an answer that lands while paused, after a fo
   }
 });
 
-test('createWarmup (two-stage): the person and server runs word on models.core as memory-wording requests, the channel run stays on models.helpers.extractor; a stale memory.voiceModel is never read', async () => {
+test('createWarmup (two-stage): the person and server runs word on models.base.core as memory-wording requests, the channel run stays on models.base.extractor; a stale memory.voiceModel is never read', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
   const history = [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' }), rawMessage(3000, { authorId: 'a' })];
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history)]));
@@ -3331,7 +3331,7 @@ test('createWarmup (two-stage): the person and server runs word on models.core a
       ['SYSTEM', 'talk/model', 'core', 'memory-voice', false, false],
       ['SERVER', 'talk/model', 'core', 'memory-voice', false, false],
     ],
-    'no voice text on models.helpers.extractor',
+    'no voice text on models.base.extractor',
   );
   assert.deepEqual(
     llm.calls.map((call) => [call.opts.reasoning ?? null, call.opts.maxOutputTokens]),
@@ -3357,7 +3357,7 @@ test('createWarmup: with memoryTwoStage off no warmup or portrait request carrie
   const history = [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' }), rawMessage(3000, { authorId: 'a' })];
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history)]));
   const hot = fakeHot({ prompts: { portrait: 'PORTRAIT', 'memory-voice': 'VOICE' } });
-  hot.config.models.helpers.extractor = 'gpt/decider';
+  hot.config.models.base.extractor = 'gpt/decider';
   hot.config.memory.reasoning = { effort: 'low' };
   const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's' }, { patterns: 'x' }, { character: 'c2', style: 's2' }]);
   const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });

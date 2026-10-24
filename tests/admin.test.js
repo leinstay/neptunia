@@ -204,7 +204,7 @@ function makeHot(rootDir) {
   return {
     config: {
       bot: { owners: ['42'] },
-      models: { core: 'anthropic/claude-opus-4.6' },
+      models: { base: { core: 'anthropic/claude-opus-4.6' } },
       llm: { maxRequestsPerDay: 300 },
     },
     prompts: { persona: 'who she is', labels: { locale: 'en-US' } },
@@ -470,19 +470,19 @@ test('run: set writes an override to config.local.json and reloads config', asyn
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  const result = await admin.run('set', { path: 'models.core', value: '"openrouter/test-model"' }, {});
+  const result = await admin.run('set', { path: 'models.base.core', value: '"openrouter/test-model"' }, {});
 
-  assert.deepEqual(readLocal(rootDir), { models: { core: 'openrouter/test-model' } });
+  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'openrouter/test-model' } } });
   assert.equal(hot.reloadConfigCalls, 1);
-  assert.ok(result.includes('Set models.core'));
+  assert.ok(result.includes('Set models.base.core'));
 });
 
 test('run: set falls back to the raw string when the value is not valid JSON', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.core', value: 'plain-text-model' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { core: 'plain-text-model' } });
+  await admin.run('set', { path: 'models.base.core', value: 'plain-text-model' }, {});
+  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'plain-text-model' } } });
 });
 
 test('run: set rejects an unknown config path and writes nothing', async () => {
@@ -500,8 +500,8 @@ test('run: unset removes a previously set override', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.core', value: '"temp-model"' }, {});
-  await admin.run('unset', { path: 'models.core' }, {});
+  await admin.run('set', { path: 'models.base.core', value: '"temp-model"' }, {});
+  await admin.run('unset', { path: 'models.base.core' }, {});
 
   assert.deepEqual(readLocal(rootDir), {});
   assert.equal(hot.reloadConfigCalls, 2);
@@ -510,15 +510,15 @@ test('run: unset removes a previously set override', async () => {
 test('run: set and unset read a key with a dot as one key, never a path', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
-  hot.config.models = { ...hot.config.models, agents: { web: 'openrouter/a/b', dev: 'openrouter/c/d' } };
+  hot.config.models = { ...hot.config.models, errands: { scout: 'openrouter/a/b' }, development: { dev: 'openrouter/c/d' } };
   hot.config.names = { 'x.web': 'old' };
 
-  const result = await admin.run('set', { path: 'models.agents.web', value: 'openrouter/x-ai/web-model' }, {});
-  assert.ok(result.startsWith('Set models.agents.web = "openrouter/x-ai/web-model"'), result);
+  const result = await admin.run('set', { path: 'models.errands.scout', value: 'openrouter/x-ai/web-model' }, {});
+  assert.ok(result.startsWith('Set models.errands.scout = "openrouter/x-ai/web-model"'), result);
   await admin.run('set', { path: 'names.x.web', value: 'new' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { agents: { web: 'openrouter/x-ai/web-model' } }, names: { 'x.web': 'new' } });
+  assert.deepEqual(readLocal(rootDir), { models: { errands: { scout: 'openrouter/x-ai/web-model' } }, names: { 'x.web': 'new' } });
 
-  await admin.run('unset', { path: 'models.agents.web' }, {});
+  await admin.run('unset', { path: 'models.errands.scout' }, {});
   assert.deepEqual(readLocal(rootDir), { names: { 'x.web': 'new' } });
   await assert.rejects(() => admin.run('set', { path: 'names.x', value: '"x/y"' }, {}), /unknown config path: names\.x/);
 });
@@ -548,7 +548,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, extractor: null } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: null } };
   hot.config.features = { dryRun: false };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { userId: '42' };
@@ -563,11 +563,11 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
   await admin.run('set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('set', { path: 'features.dryRun', value: 'true' }, owner);
-  await admin.run('set', { path: 'models.helpers.extractor', value: '"x/y"' }, owner); // the current value is null: any type
-  await admin.run('set', { path: 'models.core', value: '123' }, owner); // a string setting keeps the text as typed
+  await admin.run('set', { path: 'models.base.extractor', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
     llm: { maxRequestsPerDay: 250 },
-    models: { core: '123', helpers: { extractor: 'x/y' } },
+    models: { base: { core: '123', extractor: 'x/y' } },
     features: { dryRun: true },
   });
 });
@@ -580,7 +580,7 @@ function makeHotWithMedia(rootDir) {
   const hot = makeHot(rootDir);
   hot.config.memory = {};
   hot.config.media = {};
-  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, vision: 'anthropic/claude-haiku-4.5' } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, vision: 'anthropic/claude-haiku-4.5' } };
   hot.config.features = { mediaDescriptions: false };
   return hot;
 }
@@ -594,23 +594,25 @@ test('run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
   assert.ok(!lines.some((line) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
-  assert.deepEqual(lines.slice(0, 9).map((line) => line.split(':')[0]), ['core', 'helpers', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'agents'], 'the core first, then the helpers and the agents each under their group line');
-  assert.equal(lines[1], 'helpers:');
-  assert.equal(lines[8], 'agents:');
-  assert.deepEqual(lines.slice(9, 15), [
-    `web: ${ROLE_DEFAULTS.web}`,
+  assert.deepEqual(lines.slice(0, 13).map((line) => line.split(':')[0]), ['base', 'core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing', 'errands', 'scout', 'server', 'development'], 'the base roles, then the errand and development roles each under their group line');
+  assert.equal(lines[0], 'base:');
+  assert.equal(lines[9], 'errands:');
+  assert.equal(lines[12], 'development:');
+  assert.deepEqual(lines.slice(10, 12), [
+    `scout: ${ROLE_DEFAULTS.scout}`,
     `server: ${ROLE_DEFAULTS.server}`,
+  ]);
+  assert.deepEqual(lines.slice(13, 16), [
     `thinker: ${ROLE_DEFAULTS.thinker}`,
     `dev: ${ROLE_DEFAULTS.dev}`,
     `writer: ${ROLE_DEFAULTS.writer}`,
-    `drawing: ${ROLE_DEFAULTS.drawing}`,
-  ], 'the agents\' roles after the base roles, each with its model id, drawing last');
+  ]);
 });
 
 test('run: model.show ignores the deprecated keys of an old config.local.json', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models = { core: 'anthropic/claude-opus-4.6' };
+  hot.config.models = { base: { core: 'anthropic/claude-opus-4.6' } };
   hot.config.llm.classifierModel = 'openrouter/old-classifier';
   hot.config.mention = { followUpModel: 'openrouter/older-classifier' };
   hot.config.media = { model: 'openrouter/old-media', video: { model: 'openrouter/old-video' } };
@@ -624,14 +626,14 @@ test('run: model.show ignores the deprecated keys of an old config.local.json', 
   assert.ok(!lines.some((l) => /^(followup|media|classifier[.a-z]*|image):/.test(l)), 'the old role names are gone from the listing');
 });
 
-test('run: model.set writes the models.base or models.agents path of each role', async () => {
+test('run: model.set writes the models.<group> path of each role', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   const changedAt = Date.UTC(2026, 9, 15, 9, 30);
   const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
 
   await admin.run('model.set', { role: 'core', id: 'anthropic/claude-opus-4.6' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { core: 'anthropic/claude-opus-4.6' } });
+  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'anthropic/claude-opus-4.6' } } });
 
   await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
   await admin.run('model.set', { role: 'extractor', id: 'openrouter/cheap-model' }, {});
@@ -639,23 +641,25 @@ test('run: model.set writes the models.base or models.agents path of each role',
   await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
   await admin.run('model.set', { role: 'embedding', id: 'openai/text-embedding-3-small' }, {});
   await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
-  await admin.run('model.set', { role: 'web', id: 'openrouter/x-ai/web-model' }, {});
+  await admin.run('model.set', { role: 'scout', id: 'openrouter/x-ai/web-model' }, {});
   await admin.run('model.set', { role: 'server', id: 'openrouter/x-ai/server-model' }, {});
   await admin.run('model.set', { role: 'dev', id: 'openrouter/anthropic/dev-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: {
-      core: 'anthropic/claude-opus-4.6',
-      helpers: {
+      base: {
+        core: 'anthropic/claude-opus-4.6',
         analyzer: 'openrouter/text-model',
         extractor: 'openrouter/cheap-model',
         vision: 'anthropic/claude-haiku-4.5',
         video: 'openrouter/video-model',
         embedding: 'openai/text-embedding-3-small',
-      },
-      agents: {
         drawing: 'openai/gpt-image-x',
-        web: 'openrouter/x-ai/web-model',
+      },
+      errands: {
+        scout: 'openrouter/x-ai/web-model',
         server: 'openrouter/x-ai/server-model',
+      },
+      development: {
         dev: 'openrouter/anthropic/dev-model',
       },
     },
@@ -673,12 +677,12 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     const hot = makeHotWithMedia(rootDir);
     const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
-    assert.deepEqual(readLocal(rootDir), { models: { helpers: { [role]: 'google/a-new-model' } }, media: { recacheBefore: iso } }, role);
+    assert.deepEqual(readLocal(rootDir), { models: { base: { [role]: 'google/a-new-model' } }, media: { recacheBefore: iso } }, role);
     assert.equal(hot.reloadConfigCalls, 1, `${role}: one write, one reload`);
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['core', 'analyzer', 'extractor', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
+  for (const role of ['core', 'analyzer', 'extractor', 'embedding', 'scout', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -691,17 +695,17 @@ test('run: model.set vision to the model it already has leaves media.recacheBefo
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { helpers: { vision: 'anthropic/claude-haiku-4.5' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5' } } });
 });
 
-test('run: model.set rejects an unknown role and the old role names, and writes nothing', async () => {
+test('run: model.set rejects an unknown role and a role name that is no longer one, and writes nothing', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'reasoner', 'agentWeb', 'agentDev', 'agent.web', 'agent.advice', 'advice', 'byPurpose']) {
+  for (const role of ['bogus', 'web', 'voice', 'memory', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, speech, web, server, thinker, dev, writer, drawing\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, speech, drawing, scout, server, thinker, dev, writer\\)`),
       role,
     );
   }
@@ -722,30 +726,30 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => 0 });
 
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5:beta' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { helpers: { vision: 'anthropic/claude-haiku-4.5:beta' } }, media: { recacheBefore: new Date(0).toISOString() } });
+  assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5:beta' } }, media: { recacheBefore: new Date(0).toISOString() } });
 });
 
-test('model show: the core role is models.core, never the extractor or a stale memory.voiceModel; no voice or talk line', async () => {
+test('model show: the core role is models.base.core, never the extractor or a stale memory.voiceModel; no voice line', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models.helpers.extractor = 'openai/extractor-model';
+  hot.config.models.base.extractor = 'openai/extractor-model';
   hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
   assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
   assert.ok(lines.includes('extractor: openai/extractor-model'));
-  assert.ok(!lines.some((l) => l.startsWith('talk:') || l.startsWith('voice:')), 'no talk or voice role');
+  assert.ok(!lines.some((l) => l.startsWith('voice:')), 'no voice role');
   assert.ok(lines.includes(`speech: ${ROLE_DEFAULTS.speech}`), 'speech is the voice model, a helper role');
   assert.ok(!lines.some((l) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
-test('model set drawing: writes models.agents.drawing to config.local.json, reloads, and model show lists it', async () => {
+test('model set drawing: writes models.base.drawing to config.local.json, reloads, and model show lists it', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   hot.reloadConfig = function reloadConfig() {
     this.reloadConfigCalls += 1;
-    this.config.models = { ...this.config.models, agents: { ...this.config.models?.agents, ...readLocal(rootDir).models.agents } };
+    this.config.models = { ...this.config.models, base: { ...this.config.models?.base, ...readLocal(rootDir).models.base } };
     return true;
   };
   const { admin } = makeAdmin(rootDir, { hot });
@@ -753,7 +757,7 @@ test('model set drawing: writes models.agents.drawing to config.local.json, relo
   assert.ok((await admin.run('model.show', {}, {})).split('\n').includes(`drawing: ${ROLE_DEFAULTS.drawing}`));
   const reply = await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
   assert.match(reply, /^Set drawing model to openai\/gpt-image-x /);
-  assert.deepEqual(readLocal(rootDir), { models: { agents: { drawing: 'openai/gpt-image-x' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { base: { drawing: 'openai/gpt-image-x' } } });
   assert.equal(hot.reloadConfigCalls, 1);
   assert.ok((await admin.run('model.show', {}, {})).split('\n').includes('drawing: openai/gpt-image-x'));
 });
@@ -1956,7 +1960,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
-  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, extractor: 'x/extractor' } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: 'x/extractor' } };
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
@@ -1969,7 +1973,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(owner.text, '', 'the card alone, no long form');
   assert.equal(owner.embeds.length, 1);
   const fields = owner.embeds[0].fields;
-  assert.deepEqual(fields.map((f) => f.name), ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'limits', 'memory', 'speed']);
+  assert.deepEqual(fields.map((f) => f.name), ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'limits', 'memory', 'speed']);
   const value = (name) => fields.find((f) => f.name === name).value;
   const stateLines = value('state').split('\n');
   assert.deepEqual(stateLines.slice(0, 4), [
@@ -1985,26 +1989,26 @@ test('status: the card carries the fields in order and the member variant drops 
     value('models.base'),
     [
       'core · anthropic/claude-opus-4.6',
+      `memory · ${ROLE_DEFAULTS.core}`,
       `analyzer · ${ROLE_DEFAULTS.analyzer}`,
       'extractor · x/extractor',
       `vision · ${ROLE_DEFAULTS.vision}`,
       `video · ${ROLE_DEFAULTS.video}`,
       `embedding · ${ROLE_DEFAULTS.embedding}`,
       `speech · ${ROLE_DEFAULTS.speech}`,
-    ].join('\n'),
-    'no llm client: one line per base role with its own model, unprobed',
-  );
-  assert.equal(
-    value('models.agents'),
-    [
-      `web · ${ROLE_DEFAULTS.web}`,
-      `server · ${ROLE_DEFAULTS.server}`,
-      `thinker · ${ROLE_DEFAULTS.thinker}`,
-      `dev · ${ROLE_DEFAULTS.dev}`,
-      `writer · ${ROLE_DEFAULTS.writer}`,
       `drawing · ${ROLE_DEFAULTS.drawing}`,
     ].join('\n'),
-    'one line per agent role with its own model, drawing last',
+    'no llm client: one line per base role with its own model, unprobed, drawing last',
+  );
+  assert.equal(
+    value('models.errands'),
+    [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n'),
+    'one line per errand role with its own model',
+  );
+  assert.equal(
+    value('models.development'),
+    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`].join('\n'),
+    'one line per development role with its own model',
   );
   assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
   assert.deepEqual(
@@ -2018,7 +2022,7 @@ test('status: the card carries the fields in order and the member variant drops 
 
   const member = await admin.run('status', {}, { userId: '999' });
   const memberFields = member.embeds[0].fields;
-  assert.deepEqual(memberFields.map((f) => f.name), ['state', 'tasks', 'models.base', 'models.agents', 'limits']);
+  assert.deepEqual(memberFields.map((f) => f.name), ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']);
   assert.deepEqual(memberFields[0].value.split('\n').slice(0, 2), ['paused since 2026-10-13 08:30 UTC by <@42>', 'gateway 42 ms'], 'no storage line for a member');
   assert.equal(member.text, '', 'a member never gets the long form');
 });
@@ -2106,16 +2110,17 @@ test('status: the field option renders that field alone and runs only its work',
   assert.deepEqual(reads.sort(), ['activity', 'key'], 'the key and its activity read once each');
   assert.equal(llm.calls.length, 0, 'no model probe for the key field');
 
-  assert.deepEqual((await only('models.agents')).map((f) => f.name), ['models.agents']);
-  assert.deepEqual([llm.calls.length, llm.listings.length], [0, 1], 'the agents field reads the drawing listing, probes no chat model');
+  assert.deepEqual((await only('models.errands')).map((f) => f.name), ['models.errands']);
+  assert.deepEqual((await only('models.development')).map((f) => f.name), ['models.development']);
+  assert.deepEqual([llm.calls.length, llm.listings.length], [0, 0], 'the errand and development fields probe nothing');
   assert.deepEqual((await only('models.base')).map((f) => f.name), ['models.base']);
   assert.ok(llm.calls.length > 0, 'the models.base field probes');
-  assert.equal(llm.listings.length, 1, 'the models.base field reads no drawing listing');
+  assert.equal(llm.listings.length, 1, 'the models.base field reads the drawing listing');
 
   // An owner-only field asked by a member, or an unknown one: the whole card the caller may see.
   hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
-  assert.deepEqual((await only('memory', '999')).map((f) => f.name), ['state', 'tasks', 'models.base', 'models.agents', 'limits']);
-  assert.equal((await only('nonsense')).length, 10);
+  assert.deepEqual((await only('memory', '999')).map((f) => f.name), ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']);
+  assert.equal((await only('nonsense')).length, 12);
 });
 
 /** A clock the test moves by hand. */
@@ -2320,15 +2325,15 @@ function fakeProbeLlm(answer, listing = { ok: true, status: 200, json: { data: {
 /** The probe tests' config: a model per role (the drawing model included), the probe timeout and label. */
 function probeConfig(hot) {
   hot.config.models = {
-    core: 'anthropic/claude-opus-4.6',
-    helpers: {
+    base: {
+      core: 'anthropic/claude-opus-4.6',
       analyzer: 'x/text',
       extractor: 'x/extractor',
       vision: 'x/media',
       video: 'x/video',
       embedding: 'x/embed',
+      drawing: 'openai/gpt-image-1',
     },
-    agents: { drawing: 'openai/gpt-image-1' },
   };
   hot.config.llm.probeTimeoutMs = 1234;
   hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
@@ -2353,7 +2358,7 @@ test('status: the card lists one item per line in every field, the models one li
 
   const { embeds } = await admin.run('status', {}, { userId: '42' });
   const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
-  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'limits', 'memory', 'speed']);
+  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'limits', 'memory', 'speed']);
   assert.deepEqual(lines('state').slice(0, 4), ['running', 'storage: 2 archive copies pending', 'gateway 12 ms', 'last reconnect none']);
   assert.match(lines('state')[4], /^uptime /);
   assert.deepEqual(lines('tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
@@ -2366,27 +2371,23 @@ test('status: the card lists one item per line in every field, the models one li
     'resets 00:00 UTC',
   ]);
   const head = (line) => line.split(' · ').slice(0, 2).join(' · ');
-  for (const name of ['models.base', 'models.agents']) {
+  for (const name of ['models.base', 'models.errands', 'models.development']) {
     assert.ok(!lines(name).some((line) => line.startsWith('**')), `${name}: no bold heading`);
     assert.ok(!lines(name).some((line) => line.startsWith(' ')), `${name}: no detail line under a role`);
   }
   assert.deepEqual(lines('models.base').map(head), [
     'core · anthropic/claude-opus-4.6',
+    `memory · ${ROLE_DEFAULTS.core}`,
     'analyzer · x/text',
     'extractor · x/extractor',
     'vision · x/media',
     'video · x/video',
     'embedding · x/embed',
     `speech · ${ROLE_DEFAULTS.speech}`,
-  ], 'each line starts with its role and its model');
-  assert.deepEqual(lines('models.agents').map(head), [
-    `web · ${ROLE_DEFAULTS.web}`,
-    `server · ${ROLE_DEFAULTS.server}`,
-    `thinker · ${ROLE_DEFAULTS.thinker}`,
-    `dev · ${ROLE_DEFAULTS.dev}`,
-    `writer · ${ROLE_DEFAULTS.writer}`,
     'drawing · openai/gpt-image-1',
-  ], 'the agents\' roles, drawing last');
+  ], 'each line starts with its role and its model, drawing last');
+  assert.deepEqual(lines('models.errands').map(head), [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`]);
+  assert.deepEqual(lines('models.development').map(head), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`]);
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
 
@@ -2427,7 +2428,8 @@ test('status: the owner card probes every role\'s model and shows its provider a
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
-  const agents = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.agents').value);
+  const errands = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.errands').value);
+  const development = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.development').value);
 
   assert.deepEqual(llm.calls.map((call) => call.options.role).sort(), Object.keys(modelOf).sort(), 'one probe per role model');
   for (const { messages, options } of llm.calls) {
@@ -2441,18 +2443,13 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
   assert.match(lines[0], /^core · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
+  assert.equal(lines[1], `memory · ${ROLE_DEFAULTS.core} · not checked (memory)`);
+  assert.match(lines[2], /^analyzer · x\/text · Prov · ok \d+ ms$/);
   assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
-  assert.deepEqual(agents.slice(0, 5), [
-    `web · ${ROLE_DEFAULTS.web}`,
-    `server · ${ROLE_DEFAULTS.server}`,
-    `thinker · ${ROLE_DEFAULTS.thinker}`,
-    `dev · ${ROLE_DEFAULTS.dev}`,
-    `writer · ${ROLE_DEFAULTS.writer}`,
-  ], 'the OpenCode roles first, just role and model');
-  assert.match(agents[5], /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
-  assert.equal(agents.length, 6);
-  assert.ok(!llm.calls.some((call) => ['web', 'server', 'thinker', 'dev', 'writer'].includes(call.options.role)), 'no request goes out on an OpenCode role');
+  assert.deepEqual(errands, [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`], 'just role and model');
+  assert.deepEqual(development, [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`], 'just role and model');
+  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  assert.ok(!llm.calls.some((call) => ['scout', 'server', 'thinker', 'dev', 'writer'].includes(call.options.role)), 'no request goes out on an OpenCode role');
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
@@ -2473,25 +2470,18 @@ test('status: the member card shows the models one line per role without probing
     valueOf('models.base'),
     [
       'core · anthropic/claude-opus-4.6',
+      `memory · ${ROLE_DEFAULTS.core}`,
       'analyzer · x/text',
       'extractor · x/extractor',
       'vision · x/media',
       'video · x/video',
       'embedding · x/embed',
       `speech · ${ROLE_DEFAULTS.speech}`,
-    ].join('\n'),
-  );
-  assert.equal(
-    valueOf('models.agents'),
-    [
-      `web · ${ROLE_DEFAULTS.web}`,
-      `server · ${ROLE_DEFAULTS.server}`,
-      `thinker · ${ROLE_DEFAULTS.thinker}`,
-      `dev · ${ROLE_DEFAULTS.dev}`,
-      `writer · ${ROLE_DEFAULTS.writer}`,
       'drawing · openai/gpt-image-1',
     ].join('\n'),
   );
+  assert.equal(valueOf('models.errands'), [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n'));
+  assert.equal(valueOf('models.development'), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`].join('\n'));
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
@@ -2509,7 +2499,7 @@ test('status: identical probes are sent once, each role shows its own model, the
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
   // The extractor on the core's model: one probe for the pair.
-  Object.assign(hot.config.models.helpers, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media' });
+  Object.assign(hot.config.models.base, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media' });
   hot.config.models.byPurpose = { lookup: 'x/pinned', describe: 'x/seen' };
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
@@ -2530,10 +2520,10 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.equal(lines[2], 'byPurpose lookup · x/pinned', 'an override of a former reasoner purpose follows the analyzer');
-  assert.match(lines[3], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
-  assert.equal(lines[5], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
-  assert.match(lines[7], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'an override of a lookup purpose follows the analyzer');
+  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
+  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
+  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -2819,7 +2809,7 @@ test('run: pause waits for a portrait refresh in flight and nothing is written a
       config: {
         bot: { timezone: 'UTC' },
         context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-        models: { core: 'x/y', helpers: { extractor: 'x/y' } },
+        models: { base: { core: 'x/y', extractor: 'x/y' } },
         llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
         memory: { fieldChars: 400, mainChannelIds: [] },
         warmup: { minMessages: 2, contextBefore: 1, maxChannelShare: 1 },
@@ -2895,7 +2885,7 @@ test('run: pause waits for a voice run in flight and nothing is written after it
       },
     };
     const hot = minimalMemoryHot();
-    hot.config.models = { core: 'x/y' };
+    hot.config.models = { base: { core: 'x/y' } };
     hot.config.features.memoryTwoStage = true;
     hot.config.memory.voice = { maxPerDay: 100 };
     hot.prompts['memory-voice'] = 'VOICE {{name}}';
@@ -3067,8 +3057,8 @@ test('run: read-only and config commands keep working while paused', async () =>
   await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('set', { path: 'models.core', value: '"x/y"' }, {}));
-  await assert.doesNotReject(() => admin.run('unset', { path: 'models.core' }, {}));
+  await assert.doesNotReject(() => admin.run('set', { path: 'models.base.core', value: '"x/y"' }, {}));
+  await assert.doesNotReject(() => admin.run('unset', { path: 'models.base.core' }, {}));
   await assert.doesNotReject(() => admin.run('model.set', { role: 'core', id: 'x/y' }, {}));
 });
 
@@ -3268,7 +3258,7 @@ function fakeImageFetcher(result = { dataUrl: 'data:image/png;base64,QUFB' }) {
 
 function hotForDraw(rootDir, { model = 'openai/image-model', ...image } = {}) {
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, agents: { ...hot.config.models?.agents, drawing: model } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models?.base, drawing: model } };
   hot.config.image = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4000000, ...image };
   hot.config.context = { vision: { fetchTimeoutMs: 7000 } };
   hot.prompts = {
@@ -3638,7 +3628,7 @@ test('run: route.set validates the prefix, the providers and the role, writing n
   const bad = [
     [{ model: '', providers: 'google-vertex' }, /model/],
     [{ model: '   ', providers: 'google-vertex' }, /model/],
-    [{ model: 'google/@voice', providers: 'google-vertex' }, /@/],
+    [{ model: 'google/@core', providers: 'google-vertex' }, /@/],
     [{ model: 'google /x', providers: 'google-vertex' }, /space/],
     [{ model: '__proto__', providers: 'google-vertex' }, /model/],
     [{ model: 'google/', providers: '' }, /provider/],
@@ -3646,14 +3636,12 @@ test('run: route.set validates the prefix, the providers and the role, writing n
     [{ model: 'google/', providers: 'Google-Vertex' }, /provider/],
     [{ model: 'google/', providers: 'google_vertex' }, /provider/],
     [{ model: 'google/', providers: 'google-vertex', role: 'bogus' }, /unknown role: bogus/],
-    [{ model: 'google/', providers: 'google-vertex', role: 'classifier' }, /unknown role/],
-    [{ model: 'google/', providers: 'google-vertex', role: 'talk' }, /unknown role: talk/],
+    [{ model: 'google/', providers: 'google-vertex', role: 'web' }, /unknown role: web/],
     // An agent role's OpenCode worker never reads llm.providerByModel: no route may name it.
-    [{ model: 'openrouter/', providers: 'openai', role: 'web' }, /unknown role: web/],
+    [{ model: 'openrouter/', providers: 'openai', role: 'scout' }, /unknown role: scout/],
     [{ model: 'openrouter/', providers: 'openai', role: 'dev' }, /unknown role: dev/],
     [{ model: 'openrouter/', providers: 'openai', role: 'thinker' }, /unknown role: thinker/],
     [{ model: 'openrouter/', providers: 'openai', role: 'writer' }, /unknown role: writer/],
-    [{ model: 'openrouter/', providers: 'openai', role: 'agent.web' }, /unknown role: agent\.web/],
     [{ model: 'google/', providers: 'google-vertex', byok: 'yes' }, /byok must be true or false/],
     [{ model: 'google/', providers: 'google-vertex', byok: 'TRUE' }, /byok must be true or false/],
     [{ model: 'google/', providers: 'google-vertex', byok: 1 }, /byok must be true or false/],
@@ -3707,35 +3695,19 @@ test('run: route.remove deletes only the named key; an unknown route is an error
   assert.deepEqual(readLocal(rootDir), {}, 'the emptied map and llm object are pruned');
 });
 
-test('run: route.remove edits a route config.local.json still keeps under an old role name, written back under the new one', async () => {
-  const rootDir = makeRoot();
-  fs.writeFileSync(path.join(rootDir, 'config.local.json'), JSON.stringify({
-    classifier: { media: 'x/kept' },
-    llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@classifier.video': { only: ['google-ai-studio'] }, 'openai/@analyzer': { only: ['openai'] } } },
-  }));
-  const { admin } = makeAdmin(rootDir);
-
-  const result = await admin.run('route.remove', { model: 'google/', role: 'video' }, {});
-  assert.match(result, /google\/@video/);
-  assert.deepEqual(readLocal(rootDir), {
-    classifier: { media: 'x/kept' },
-    llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'openai/@extractor': { only: ['openai'] } } },
-  }, 'the old memory analyzer route is the extractor one while the file still uses the old model keys');
-});
-
 function hotForRoutes(rootDir) {
   const hot = makeHotWithMedia(rootDir);
   hot.config.llm.provider = null;
   hot.config.models = {
-    core: 'anthropic/claude-opus-4.6',
-    helpers: {
+    base: {
+      core: 'anthropic/claude-opus-4.6',
       analyzer: 'google/gemini-3.8-flash',
       extractor: 'anthropic/claude-opus-4.6',
       vision: 'google/gemini-3.8-flash',
       video: 'google/gemini-3.8-flash',
       embedding: 'openai/text-embedding-x',
+      drawing: 'openai/gpt-image-x',
     },
-    agents: { drawing: 'openai/gpt-image-x' },
   };
   hot.config.image = { provider: { only: ['openai'] } };
   hot.config.media = { video: { provider: { order: ['google-ai-studio'], allow_fallbacks: false } } };
@@ -3767,25 +3739,12 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
     `  speech: ${ROLE_DEFAULTS.speech} -> llm.provider (ignore some-provider, fallbacks: on)`,
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
-    `  web: ${ROLE_DEFAULTS.web} -> OpenCode's own routing (llm.providerByModel not read)`,
+    `  scout: ${ROLE_DEFAULTS.scout} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  server: ${ROLE_DEFAULTS.server} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  thinker: ${ROLE_DEFAULTS.thinker} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  dev: ${ROLE_DEFAULTS.dev} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  writer: ${ROLE_DEFAULTS.writer} -> OpenCode's own routing (llm.providerByModel not read)`,
   ]);
-});
-
-test('run: route.list shows a route key still written with an old role name (talk, voice) as the route of the core role', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForRoutes(rootDir);
-  hot.config.llm.providerByModel = { 'anthropic/@talk': { only: ['amazon-bedrock'], allow_fallbacks: false } };
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  const lines = (await admin.run('route.list', {}, {})).split('\n');
-  assert.ok(lines.includes('  core: anthropic/claude-opus-4.6 -> anthropic/@talk (only amazon-bedrock, fallbacks: off)'));
-  assert.ok(lines.includes('  extractor: anthropic/claude-opus-4.6 -> none'), 'the old name is the core role only');
-  hot.config.llm.providerByModel = { 'anthropic/@voice': { only: ['amazon-bedrock'], allow_fallbacks: false } };
-  assert.ok((await admin.run('route.list', {}, {})).split('\n').includes('  core: anthropic/claude-opus-4.6 -> anthropic/@voice (only amazon-bedrock, fallbacks: off)'));
 });
 
 test('access: route.list is read-only, route.set and route.remove open a write; none is open to a non-owner by default', async () => {

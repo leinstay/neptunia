@@ -46,7 +46,7 @@ test('intentions: an archive line is an archived row, and odd files survive', ()
 });
 
 const task = (id, extra = {}) => ({
-  id, agent: 'web', goal: 'look something up', requester: { userId: '100000000000000001', kind: 'member' },
+  id, agent: 'scout', goal: 'look something up', requester: { userId: '100000000000000001', kind: 'member' },
   origin: { channelId: '200000000000000001', messageId: null }, scope: 'group', state: 'done', createdAt: 1792000000000, startedAt: 1792000001000,
   endedAt: 1792000009000, usage: { input: 1, output: 2, usd: 0.1, steps: 3, seconds: 4 }, result: { text: 'found', sources: ['https://example.test'], files: [] },
   error: null, seen: true, opId: 'op-1', readAt: null, resolvedAt: null, ...extra,

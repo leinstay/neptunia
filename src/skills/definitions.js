@@ -223,7 +223,7 @@ const none = () => ({});
 const ENTRIES = [
   def('status.show', {
     params: obj({
-      field: oneOf(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed']),
+      field: oneOf(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed']),
       part: oneOf(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']),
     }),
     effects: 'read',
@@ -275,7 +275,7 @@ const ENTRIES = [
   def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
-    params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']), id: str() }, ['role', 'id']),
+    params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev', 'writer']), id: str() }, ['role', 'id']),
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),
@@ -460,7 +460,7 @@ const ENTRIES = [
   def('message.react.add', { params: REACT_PARAMS(), refs: { channel: 'channel' }, effects: 'write', toArgs: reactArgs('add') }),
   def('message.react.remove', { params: REACT_PARAMS(), refs: { channel: 'channel' }, effects: 'write', toArgs: reactArgs('remove') }),
   def('task.run', {
-    params: obj({ agent: oneOf(['web', 'server']), goal: str(2000) }, ['agent', 'goal']),
+    params: obj({ agent: oneOf(['scout', 'server']), goal: str(2000) }, ['agent', 'goal']),
     body: 'goal',
     effects: 'paid',
     toArgs: (a) => ({ agent: val(a, 'agent'), goal: val(a, 'goal') }),
