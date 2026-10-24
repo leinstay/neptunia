@@ -308,7 +308,7 @@ export function createMemoryDb({
       lastSyncAt = now();
       lastPass = { at: lastSyncAt, first, ms: Math.round(clock() - started), errors: result.errors, changed: result.changed, ...(first ? { slices: result.slices, maxSliceMs: Math.round(result.maxSliceMs * 10) / 10 } : {}) };
       if (result.errors > 0) dirty = true;
-      log.debug('memory db: pass', { reason, first, seen: result.seen, changed: result.changed, upserted: result.upserted, retired: result.retired, errors: result.errors, ms: lastPass.ms, ...(first ? { slices: result.slices, maxSliceMs: lastPass.maxSliceMs } : {}) });
+      log.debug?.('memory db: pass', { reason, first, seen: result.seen, changed: result.changed, upserted: result.upserted, retired: result.retired, errors: result.errors, ms: lastPass.ms, ...(first ? { slices: result.slices, maxSliceMs: lastPass.maxSliceMs } : {}) });
     } catch (error) {
       dirty = true;
       lastPass = { at: now(), first, failed: true };
@@ -388,7 +388,7 @@ export function createMemoryDb({
       defer(() => {
         if (!engine || engine.dead) return;
         engine.call('turnReads', { turnId: String(turnId), step: String(step), guildId, reads: carried })
-          .then((done) => { if (done.rows > 0) log.debug('memory db: turn reads', { rows: done.rows }); })
+          .then((done) => { if (done.rows > 0) log.debug?.('memory db: turn reads', { rows: done.rows }); })
           .catch((error) => log.warn('memory db: turn reads failed', { code: codeOf(error) }));
       });
       return;
@@ -402,7 +402,7 @@ export function createMemoryDb({
           const insert = handle.db.prepare('INSERT OR IGNORE INTO turn_reads (turn_id, step, row_kind, row_id) VALUES (?, ?, ?, ?)');
           for (const row of rows) insert.run(String(turnId), String(step), row.row_kind, row.row_id);
         });
-        log.debug('memory db: turn reads', { rows: rows.length });
+        log.debug?.('memory db: turn reads', { rows: rows.length });
       } catch (error) {
         log.warn('memory db: turn reads failed', { code: codeOf(error) });
       }

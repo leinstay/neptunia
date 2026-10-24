@@ -299,3 +299,17 @@ test('status: the state of the database for the card, and its line from the labe
     assert.equal(memoryDbStatusLine(status, {}), null);
   } finally { await env.done(); }
 });
+
+test('a logger without debug (the engine logger has none): passes succeed and warn about nothing', async () => {
+  const env = setup();
+  delete env.log.debug;
+  try {
+    await env.service.tick();
+    env.advance(61_000);
+    await env.service.tick();
+    assert.deepEqual(env.log.out.filter((line) => line.level === 'warn'), []);
+    assert.notEqual(env.service.status().lastPass?.failed, true);
+  } finally {
+    await env.done();
+  }
+});
