@@ -14,7 +14,8 @@
 //   people   the lines of the members the plan's `who` forms name.
 // The streams are fused by reciprocal rank (k 60, src/behavior/recall.js#fuseRanks); every hit keeps the streams that
 // found it. A relevance gate drops hits far below the best, the rest is ranked by closeness to the plan's date range
-// (its middle; the nearest end of an open range), else to now. Stretches are built around the best hits as recall
+// (its middle; the nearest end of an open range); with no date, by what a hit holds first (terms, phrases) and
+// the nearness to now only among equals. Stretches are built around the best hits as recall
 // builds them from the record: the reply chain, `recordContext` lines each side, then the conversation followed on
 // (`followMessages` while no silence longer than `followGapMinutes`), merged where they share a line.
 //
@@ -401,6 +402,7 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   whereFor(ctx); // a read without a valid context throws
   const opts = settings ?? dbSettings({});
   const { gateShare, candidates, minMeaning } = opts;
+  const pool = Math.max(candidates, Number.isInteger(opts.wordPool) ? opts.wordPool : candidates);
   const { stem } = loadStemmer(db);
   const scopeArgs = {
     from: Number.isFinite(plan?.from) ? plan.from : null,
@@ -413,11 +415,17 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const rowsOf = new Map();
   const remember = (row) => { if (!rowsOf.has(row.rowid)) rowsOf.set(row.rowid, row); };
 
-  const words = wordRows(db, ctx, terms, scopeArgs, candidates);
+  // A wider pool is ranked by what a row holds (distinct terms, phrases, then bm25); the best `candidates` go on.
+  const covered = (rows) => rows
+    .map((row, at) => ({ row, at, held: holds(terms, row) }))
+    .sort((a, b) => b.held.terms - a.held.terms || b.held.phrases - a.held.phrases || a.at - b.at)
+    .slice(0, candidates)
+    .map((entry) => entry.row);
+  const words = covered(wordRows(db, ctx, terms, scopeArgs, pool));
   words.forEach(remember);
   stats.words = words.length;
   const missed = terms.filter((term) => !wordFinds(db, ctx, term, scopeArgs));
-  const trigram = trigramRows(db, ctx, missed, scopeArgs, candidates).filter((row) => !words.some((w) => w.rowid === row.rowid));
+  const trigram = covered(trigramRows(db, ctx, missed, scopeArgs, pool)).filter((row) => !words.some((w) => w.rowid === row.rowid));
   trigram.forEach(remember);
   stats.trigram = trigram.length;
 
@@ -454,6 +462,7 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id)));
   const best = visible[0]?.score ?? 0;
   const target = targetOf(scopeArgs, now);
+  const dated = scopeArgs.from !== null || scopeArgs.to !== null;
   const hits = visible
     .filter((entry) => entry.score >= best * gateShare)
     .map((entry) => {
@@ -472,7 +481,10 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
         cosine: cosine.get(row.rowid) ?? null,
       };
     })
-    .sort((a, b) => Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score);
+    .sort(dated
+      // A named date: nearness to it first. Else relevance first (coverage), the date only breaks a tie of coverage.
+      ? (a, b) => Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score
+      : (a, b) => b.terms - a.terms || b.phrases - a.phrases || Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score);
 
   const read = readerOf(db, { nameOf, selfName, channelNameOf, exclude: skip });
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);

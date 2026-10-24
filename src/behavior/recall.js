@@ -115,7 +115,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
   backend: 'discord',
-  db: Object.freeze({ gateShare: 0.5, candidates: 40, minMeaning: 0.35 }),
+  db: Object.freeze({ gateShare: 0.5, candidates: 40, wordPool: 400, minMeaning: 0.35 }),
   prefetch: PREFETCH_DEFAULTS,
 });
 
@@ -257,6 +257,7 @@ export function recallSettings(config) {
     db: {
       gateShare: shareOf(r.db?.gateShare, d.db.gateShare),
       candidates: intAtLeast(r.db?.candidates, d.db.candidates, 1),
+      wordPool: intAtLeast(r.db?.wordPool, d.db.wordPool, 1),
       minMeaning: Number.isFinite(r.db?.minMeaning) && r.db.minMeaning >= -1 && r.db.minMeaning <= 1 ? r.db.minMeaning : d.db.minMeaning,
     },
     prefetch: prefetchSettingsOf(r.prefetch),

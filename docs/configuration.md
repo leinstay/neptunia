@@ -464,8 +464,9 @@ The settings of the database backend (`recall.backend: "db"`); the window and fo
 
 | Key | Default | What it does |
 |---|---|---|
-| `gateShare` | `0.5` | From `0` to `1`. After the word, letter, meaning and people lists are fused (reciprocal rank, k 60), a hit needs at least this share of the best fused score to stay; the ones that stay are ranked by closeness to the question's date (the middle of its range, else now). `0` keeps every hit |
+| `gateShare` | `0.5` | From `0` to `1`. After the word, letter, meaning and people lists are fused (reciprocal rank, k 60), a hit needs at least this share of the best fused score to stay; the ones that stay are ranked by closeness to the question's date (the middle of its range) when it names one; with no date, by how many distinct terms and phrases a hit holds, and by closeness to now only among hits holding the same. `0` keeps every hit |
 | `candidates` | `40` | Rows taken from each list (words, letters, meaning, people) before they are fused. At least 1 |
+| `wordPool` | `400` | Rows fetched from the word and letter lists before they are ranked by how many distinct terms (then phrases, then bm25) each holds; the best `candidates` of that order go on to the fusion. At least 1; a value under `candidates` counts as `candidates` |
 | `minMeaning` | `0.35` | The least cosine a meaning hit needs to join the fusion, from `-1` to `1` |
 
 A `memory.search` call that names an `anchor` (a `#N` of a quoted line) with `move` (`up` earlier, `down` later) and `messages` or `minutes` reads the lines next to it instead of searching. The `hidden` marker (a better match exists only in a private conversation a channel turn may not open) carries no text and no count.

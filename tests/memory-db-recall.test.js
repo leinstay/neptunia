@@ -622,3 +622,21 @@ test('recall-eval: --backend db goes with --db <file> and only with it, and the 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('words: a wide pool is ranked by the distinct terms a line holds; relevance beats recency unless the plan names a date', () => {
+  const env = fixture();
+  try {
+    for (let i = 0; i < 12; i += 1) env.say({ native: `w-new-${i}`, at: NOW - (1 + i / 100) * DAY, text: 'σπιτι σπιτι σπιτι', place: channelPlaceId(`n${i}`) });
+    env.say({ native: 'w-old', at: NOW - 60 * DAY, text: 'το σπιτι, ο δασκαλος και το αυτοκινητο', place: channelPlaceId('old') });
+    env.stem();
+    const settings = { ...dbSettings({}), gateShare: 0, candidates: 3, wordPool: 100 };
+    const forms = ['σπιτι', 'δασκαλος', 'αυτοκινητο'];
+    const found = run(env, forms, { settings });
+    assert.equal(ids(found)[0], 'w-old', 'three distinct terms beat a recent line of one');
+    assert.equal(found.hits[0].terms, 3);
+    const aimed = run(env, forms, { settings, plan: { from: NOW - 3 * DAY, to: NOW } });
+    assert.ok(ids(aimed).every((id) => id.startsWith('w-new-')), 'a named date ranks toward it');
+  } finally {
+    env.done();
+  }
+});
