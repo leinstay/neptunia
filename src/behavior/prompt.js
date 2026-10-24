@@ -195,6 +195,29 @@ function fitEpisodeLines(lines, remaining, cost) {
 }
 
 /**
+ * The memory-read collector (spec 2026-10-24-memory-store, section 10): what a request carried from memory, as
+ * `{ kind, id }` in the memory's own identity (an item's `itemId`, a channel id, a lore entry's id, a message id).
+ * The builders below fill it; no rendered text depends on it. Kinds: claim, episode, item, channel, guild_note,
+ * lore, recent_line, participation, source. Items without an `itemId` are not recorded.
+ */
+function noteItems(reads, kind, items) {
+  if (!Array.isArray(reads)) return;
+  for (const item of items) if (typeof item?.itemId === 'string' && item.itemId) reads.push({ kind, id: item.itemId });
+}
+
+/** The ids of the offered items whose texts the budget kept (`keptTexts` is a subsequence of `items`, in order). */
+function keptIdsOf(items, ids, keptTexts) {
+  const out = [];
+  let next = 0;
+  for (let i = 0; i < items.length && next < keptTexts.length; i += 1) {
+    if (items[i] !== keptTexts[next]) continue;
+    next += 1;
+    if (ids[i] !== undefined && ids[i] !== null) out.push(ids[i]);
+  }
+  return out;
+}
+
+/**
  * Append `labels.profile.unsureMark`/`staleMark` to `text` per
  * docs/prompt-contract.md, "Confirmation"/"Dates come from the
  * messages": the unsure mark when `item` is below `marks.confirmAfter`, then
@@ -317,6 +340,7 @@ function interestsText(interests, labels, maxInterests, marks) {
   if (!Array.isArray(interests) || interests.length === 0) return '';
   const open = interests.filter(isOpen);
   const ordered = topByRank(open, maxInterests, marks?.interestHalfLifeDays);
+  noteItems(marks?.reads, 'claim', ordered);
   return validityTexts(ordered, open, (item) => renderInterestItem(item, labels.profile, marks), labels.profile, {
     ...marks?.validity,
     kind: 'interest',
@@ -340,6 +364,7 @@ function detailsText(details, labels, maxDetails, marks) {
   const p = labels.profile;
   const open = details.filter(isOpen);
   const ordered = topByRank(open, maxDetails, marks?.detailHalfLifeDays);
+  noteItems(marks?.reads, 'claim', ordered);
   return validityTexts(ordered, open, (item) => markConfirmation(resolveChatText(item.text, marks?.nameOf) ?? '', item, p, { ...marks, stale: false }), p, {
     ...marks?.validity,
     kind: 'detail',
@@ -355,11 +380,11 @@ function detailsText(details, labels, maxDetails, marks) {
  * cost a fraction of a full one regardless of how many interests are
  * configured to show for the interlocutor.
  */
-function compactInterestsText(interests, labels, halfLifeDays) {
+function compactInterestsText(interests, labels, halfLifeDays, reads = null) {
   if (!Array.isArray(interests) || interests.length === 0) return '';
-  return topByRank(interests.filter(isOpen), 5, halfLifeDays)
-    .map((item) => item.topic)
-    .join('; ');
+  const top = topByRank(interests.filter(isOpen), 5, halfLifeDays);
+  noteItems(reads, 'claim', top);
+  return top.map((item) => item.topic).join('; ');
 }
 
 /**
@@ -373,12 +398,14 @@ function compactInterestsText(interests, labels, halfLifeDays) {
  * claims and conflict sets of `validity` (see `validityTexts`). `listed` (folded names,
  * src/memory/recent.js#foldText) leaves out the aliases another line already shows.
  */
-function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed = null) {
+function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed = null, reads = null) {
   if (!labels.profile?.aliases) return '';
   if (!Array.isArray(aliases) || aliases.length === 0) return '';
   const open = aliases.filter(isOpen);
   const shown = listed ? open.filter((item) => !listed.has(foldText(item.name))) : open;
-  return validityTexts(topByRank(shown, maxAliases, aliasHalfLifeDays), open, (item) => item.name, labels.profile, {
+  const ordered = topByRank(shown, maxAliases, aliasHalfLifeDays);
+  noteItems(reads, 'claim', ordered);
+  return validityTexts(ordered, open, (item) => item.name, labels.profile, {
     ...validity,
     kind: 'alias',
     renderClosed: (item) => item.name,
@@ -397,13 +424,13 @@ const ADDRESSED_SHOWN = 5;
  * (`labels.profile.before`) while fresh, as a closed alias does. A missing label leaves its line out.
  * @returns {string[]}
  */
-function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now }) {
+function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now, reads = null }) {
   const p = labels.profile;
   const lines = [];
   const addressed = p.addressed ? rankAddressed(profile.addressedAs, Number.isFinite(now) ? now : Date.now(), addressHalfLifeDays).slice(0, ADDRESSED_SHOWN) : [];
   if (addressed.length > 0) lines.push(fill(p.addressed, { text: addressed.join(', ') }));
   const listed = addressed.length > 0 ? new Set(addressed.map((name) => foldText(name))) : null;
-  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed);
+  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed, reads);
   if (aliasesLine) lines.push(fill(p.aliases, { text: aliasesLine }));
   const realName = profile.realName;
   if (p.realName && typeof realName?.name === 'string' && realName.name) {
@@ -577,7 +604,8 @@ function roundedMessageCount(count) {
  * lightest. 0 when none renders -- none stored, none fits, or an older labels
  * file without the episode labels -- so a block that must not repeat them
  * knows exactly which ones the request shows.
- * @returns {{ text: string, episodes: number }}
+ * @returns {{ text: string, episodes: number, reads: { kind: string, id: string }[] }}  `reads`: the items the text carries
+ *   from memory (the collector, see `noteItems`).
  */
 function renderProfileShown(
   profile,
@@ -603,23 +631,25 @@ function renderProfileShown(
     avatars = false,
   } = {},
 ) {
-  if (!profile) return { text: '', episodes: 0 };
+  if (!profile) return { text: '', episodes: 0, reads: [] };
   const p = labels.profile;
   const name = profile.names?.[0] ?? profile.id;
   // The clock by the day only: the profile text must not change within a day.
   const day = profileDay(now);
   const validity = { closed: profile.closed, now: day, shownDays: supersededShownDays };
-  const marks = { confirmAfter, staleDays, now: day, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity };
+  // What this rendering carried from memory (the collector, see noteItems).
+  const reads = [];
+  const marks = { confirmAfter, staleDays, now: day, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity, reads };
 
   const restLines = [];
   if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
-  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day }));
+  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day, reads }));
   // What their avatar looks like (`features.avatars`): shown, but not something learned about them.
   const avatarText = avatars ? avatarLine(profile.avatar, p) : '';
   if (avatarText) restLines.push(avatarText);
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));
   const interestsLine = compact
-    ? compactInterestsText(profile.interests, labels, interestHalfLifeDays)
+    ? compactInterestsText(profile.interests, labels, interestHalfLifeDays, reads)
     : interestsText(profile.interests, labels, maxInterests, marks);
   if (interestsLine) restLines.push(fill(p.interests, { text: interestsLine }));
   if (!compact && profile.style) restLines.push(fill(p.style, { text: resolveChatText(profile.style, nameOf) }));
@@ -629,9 +659,8 @@ function renderProfileShown(
   const hasContent = restLines.length > (avatarText ? 1 : 0);
   // Every episode for the interlocutor; the top `episodes.max` for a member asked about.
   const showEpisodes = !compact && episodes?.enabled && (interlocutor || (Number.isInteger(episodes.max) && episodes.max > 0));
-  let renderedEpisodes = showEpisodes
-    ? episodeLines(interlocutor ? profile.episodes : topEpisodes(profile.episodes, episodes.max), labels, nameOf)
-    : [];
+  const episodeSource = showEpisodes ? (interlocutor ? profile.episodes : topEpisodes(profile.episodes, episodes.max)) : [];
+  let renderedEpisodes = showEpisodes ? episodeLines(episodeSource, labels, nameOf) : [];
   if (!hasContent && interlocutor) restLines.push(p.unknown);
 
   // The mention handle joins the profile with its `<directory>` line and `<people_now>` entry.
@@ -645,10 +674,12 @@ function renderProfileShown(
   }
   // Anyone but the interlocutor with nothing learned, no attitude and no moment shown (none, or
   // none fit): nothing to show. With an attitude alone the heading stands for the entry.
-  if (!hasContent && !interlocutor && renderedEpisodes.length === 0 && !hasAttitude(profile, relationships)) return { text: '', episodes: 0 };
+  if (!hasContent && !interlocutor && renderedEpisodes.length === 0 && !hasAttitude(profile, relationships)) return { text: '', episodes: 0, reads: [] };
 
   // The episodes heading, then one line per episode.
-  return { text: [heading, ...renderedEpisodes, ...restLines].join('\n'), episodes: Math.max(0, renderedEpisodes.length - 1) };
+  const shownEpisodes = Math.max(0, renderedEpisodes.length - 1);
+  if (shownEpisodes > 0) noteItems(reads, 'episode', sortEpisodesForDisplay(episodeSource).slice(0, shownEpisodes));
+  return { text: [heading, ...renderedEpisodes, ...restLines].join('\n'), episodes: shownEpisodes, reads };
 }
 
 /**
@@ -758,7 +789,7 @@ function currentChannelFallback(currentChannelId, history) {
  * carries `labels.server.readOnly` (src/memory/channels.js#renderChannel,
  * never on the current channel).
  */
-function serverItems(channels, currentChannelId, neighborChannelIds, history, now, activityCfg, labels, nameOf, readOnlyIds = new Set(), diaryChannelId = null) {
+function serverItems(channels, currentChannelId, neighborChannelIds, history, now, activityCfg, labels, nameOf, readOnlyIds = new Set(), diaryChannelId = null, ids = null) {
   const byId = new Map(channels.map((channel) => [channel.id, channel]));
   const current = byId.get(currentChannelId) ?? currentChannelFallback(currentChannelId, history);
   const neighborEntries = [...new Set(neighborChannelIds)]
@@ -766,6 +797,8 @@ function serverItems(channels, currentChannelId, neighborChannelIds, history, no
     .map((id) => byId.get(id))
     .filter(Boolean);
   const ordered = current ? [current, ...neighborEntries] : neighborEntries;
+  // The collector: a channel of the map that has a stored entry (the current channel's fallback has none).
+  if (Array.isArray(ids)) for (const channel of ordered) ids.push(byId.has(channel.id) ? channel.id : null);
   return ordered.map((channel) =>
     renderChannel(
       {
@@ -853,17 +886,22 @@ export function learnedText(learned, a, learnedCfg, nameOf) {
  * caller from `memory.maxLearned`/`memory.learnedHalfLifeDays`/
  * `memory.confirmAfter` at the moment of use.
  */
-function aboutChatItems(guildMemory, labels, nameOf, learnedCfg = {}) {
+function aboutChatItems(guildMemory, labels, nameOf, learnedCfg = {}, ids = null) {
   const a = labels.aboutChat;
   const items = [];
-  if (guildMemory?.patterns) items.push(fill(a.patterns, { text: resolveChatText(guildMemory.patterns, nameOf) }));
-  if (guildMemory?.starters) items.push(fill(a.starters, { text: resolveChatText(guildMemory.starters, nameOf) }));
+  // The collector: the two prose notes of the guild are rows of their own; the lists have no stable item ids.
+  const push = (text, id = null) => {
+    items.push(text);
+    if (Array.isArray(ids)) ids.push(id);
+  };
+  if (guildMemory?.patterns) push(fill(a.patterns, { text: resolveChatText(guildMemory.patterns, nameOf) }), 'patterns');
+  if (guildMemory?.starters) push(fill(a.starters, { text: resolveChatText(guildMemory.starters, nameOf) }), 'starters');
   if (guildMemory?.injokes?.length) {
-    items.push(fill(a.injokes, { text: guildMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
+    push(fill(a.injokes, { text: guildMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
   }
   if (a?.learned) {
     const text = learnedText(guildMemory?.learned, a, learnedCfg, nameOf);
-    if (text) items.push(fill(a.learned, { text }));
+    if (text) push(fill(a.learned, { text }));
   }
   return items;
 }
@@ -876,7 +914,7 @@ function aboutChatItems(guildMemory, labels, nameOf, learnedCfg = {}) {
  * breaks -- the block is simply omitted). `text` is token-resolved via
  * `nameOf`; `title` never is (it is the lorebook's identity, not a mention).
  */
-function loreItems(loreEntries, history, trigger, labels, loreCfg, nameOf) {
+function loreItems(loreEntries, history, trigger, labels, loreCfg, nameOf, ids = null) {
   const entry = labels.lore?.entry;
   if (!entry) return [];
   const entries = Array.isArray(loreEntries) ? loreEntries : [];
@@ -887,6 +925,7 @@ function loreItems(loreEntries, history, trigger, labels, loreCfg, nameOf) {
   if (trigger?.content) recentTexts.push(trigger.content);
 
   const matched = matchLore(entries, recentTexts, { maxMatches: loreCfg?.maxMatches ?? 8 });
+  if (Array.isArray(ids)) for (const lore of matched) ids.push(typeof lore.id === 'string' && lore.id ? lore.id : null);
   return matched.map((lore) => fill(entry, { title: lore.title, text: resolveChatText(lore.text, nameOf) }));
 }
 
@@ -2073,7 +2112,7 @@ function recentEntries(items, { labels, timezone, currentChannelId, channels, na
       const time = formatClock(item.at, timezone, labels.locale);
       const channel = item.line.channelId !== currentChannelId ? channelNames.get(item.line.channelId) : undefined;
       const rendered = channel && r.lineIn ? fill(r.lineIn, { date, time, channel, text }) : fill(r.line, { date, time, text });
-      entries.push({ kind: 'line', at: item.at, text: rendered });
+      entries.push({ kind: 'line', at: item.at, text: rendered, read: typeof item.line.itemId === 'string' && item.line.itemId ? { kind: 'recent_line', id: item.line.itemId } : null });
       continue;
     }
     if (!r.episode) continue;
@@ -2083,7 +2122,12 @@ function recentEntries(items, { labels, timezone, currentChannelId, channels, na
       continue;
     }
     const date = calendarDate(item.episode.date, labels.locale);
-    entries.push({ kind: 'episode', at: item.at, text: fill(r.episode, { date, name, what: resolveChatText(item.episode.what, nameOf) }) });
+    entries.push({
+      kind: 'episode',
+      at: item.at,
+      text: fill(r.episode, { date, name, what: resolveChatText(item.episode.what, nameOf) }),
+      read: typeof item.episode.itemId === 'string' && item.episode.itemId ? { kind: 'episode', id: item.episode.itemId } : null,
+    });
   }
   return { entries, unnamed };
 }
@@ -2186,6 +2230,7 @@ function participationView(participation, { config, labels, privateChat, current
       const text = [fill(p.episode, { when: formatDuration(Math.max(0, now - episode.lastOwnAt), labels.units) }), ...lines.filter(Boolean)].join('\n');
       episodes.push({
         id: episode.id,
+        itemId: typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null,
         channelId: group.channelId,
         channelLine,
         text,
@@ -3018,6 +3063,10 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   adds to the budget line `offered` (episodes selected), `shown`, `cut` (offered and not
  *   shown: a channel without a name, an episode left without an own line by the dedup, the
  *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
+ *   `memoryReads` lists what the request carried from memory, `{ kind, id }` each once, in the memory's own identity
+ *   (an item's `itemId`, a channel id, a lore entry's id, a message id; see `noteItems`): the profile items shown,
+ *   the channels, guild notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
+ *   what the prefetch offered. The per-turn record (src/memory/db/service.js) writes it; no text depends on it.
  *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
  *   parents among them and the messages whose text attachments were previewed -- for the
  *   journal's turn record.
@@ -3432,6 +3481,29 @@ export function buildRequest(input) {
     const room = limit - fitSections([fixedSection, interlocutorSection], limit, cost).used;
     lookupItem = lookupOptions.find((text) => cost(text) <= room) ?? lookupItem;
   }
+  // The memory-read collector: the offered items of three sections with the ids they carry (kept ones read at the end).
+  const aboutIds = [];
+  const aboutOffered = aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config), aboutIds);
+  const loreIds = [];
+  const loreOffered = loreOn ? loreItems(input.loreEntries, history, trigger, labels, config.lore, nameOf, loreIds) : [];
+  const serverIds = [];
+  const serverOffered = privateChat
+    ? []
+    : serverItems(
+        channels,
+        currentChannelId,
+        // A pulled channel's note right after the current channel's, then the neighbours'
+        // (each once). Fitted ahead of the pulled block, so it cannot hang on its cut.
+        [...pulledChannelIds, ...offeredNeighbors.map((n) => n.channelId).filter(Boolean)],
+        history,
+        now,
+        config.context.channelActivity,
+        labels,
+        nameOf,
+        readOnlyIds,
+        config.diary?.channelId || null,
+        serverIds,
+      );
   // The sections fitted ahead of the chat, in priority order.
   const head = [
     fixedSection,
@@ -3449,7 +3521,7 @@ export function buildRequest(input) {
     {
       name: 'aboutChat',
       cap: caps.aboutChat,
-      items: aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config)),
+      items: aboutOffered,
     },
     {
       name: 'self',
@@ -3461,28 +3533,13 @@ export function buildRequest(input) {
       name: 'lore',
       cap: caps.lore,
       keep: 'first',
-      items: loreOn ? loreItems(input.loreEntries, history, trigger, labels, config.lore, nameOf) : [],
+      items: loreOffered,
     },
     {
       name: 'server',
       cap: caps.server ?? 4000,
       keep: 'first',
-      items: privateChat
-        ? []
-        : serverItems(
-            channels,
-            currentChannelId,
-            // A pulled channel's note right after the current channel's, then the neighbours'
-            // (each once). Fitted ahead of the pulled block, so it cannot hang on its cut.
-            [...pulledChannelIds, ...offeredNeighbors.map((n) => n.channelId).filter(Boolean)],
-            history,
-            now,
-            config.context.channelActivity,
-            labels,
-            nameOf,
-            readOnlyIds,
-            config.diary?.channelId || null,
-          ),
+      items: serverOffered,
     },
   ];
   const chatSection = { name: 'chat', keep: 'newest', items: chatItems.map((item) => item.text) };
@@ -3684,7 +3741,10 @@ export function buildRequest(input) {
     });
     return { ...shown, text: withRow(shown.text, askedRows.get(profile) ?? '') };
   };
-  const askedAboutBare = askedAbout.map((profile) => renderAsked(profile, undefined).text);
+  const askedBareShown = askedAbout.map((profile) => renderAsked(profile, undefined));
+  const askedAboutBare = askedBareShown.map((shown) => shown.text);
+  // What each asked-about rendering carried from memory (the collector), the same index as the items.
+  const askedAboutReads = askedBareShown.map((shown) => shown.reads);
   let askedAboutItems = askedAboutBare;
   // Members asked about the second placement below leaves out (see there): offered, not shown.
   let askedLeftOut = 0;
@@ -3713,6 +3773,7 @@ export function buildRequest(input) {
         if (extra <= spare) {
           spare -= extra;
           shownCounts[i] = shown.episodes;
+          askedAboutReads[i] = shown.reads;
           return shown.text;
         }
       }
@@ -3755,10 +3816,10 @@ export function buildRequest(input) {
   // `<people>`'s items, each with the member it renders and their `<people_now>` entry (an empty
   // rendering is no item): the item's text is the profile with the entry under it.
   const peopleOffered = [
-    ...askedAbout.map((profile, i) => ({ profile, row: askedRows.get(profile) ?? '', text: askedAboutItems[i] })),
+    ...askedAbout.map((profile, i) => ({ profile, row: askedRows.get(profile) ?? '', text: askedAboutItems[i], reads: askedAboutReads[i] })),
     ...participants.map((profile) => {
       const row = tailRowOf(profile, true);
-      const text = renderProfile(profile, labels, {
+      const { text, reads } = renderProfileShown(profile, labels, {
         compact: true,
         handle: handleFor(memberIdOf(profile?.id)),
         relationships,
@@ -3772,7 +3833,7 @@ export function buildRequest(input) {
         nameOf,
         avatars: avatarsOn,
       });
-      return { profile, row, text: withRow(text, row) };
+      return { profile, row, text: withRow(text, row), reads };
     }),
   ].filter((entry) => entry.text);
   /** An offered item's profile alone, its row taken off. */
@@ -3896,6 +3957,8 @@ export function buildRequest(input) {
   }
   // A blank line between the people: each entry is a heading and its field lines.
   kept.peopleNow = peopleNowRows.length > 0 ? [[peopleNowHead, ...peopleNowRows].filter(Boolean).join('\n\n')] : [];
+  // The memory-read collector, filled from what the request kept (see noteItems; `memoryReads` in the result).
+  const memoryReads = [];
   // `<recent>` as one piece: the header, then the entries kept (a subsequence of the offered
   // ones, in their order) oldest first. The header alone, or entries without it, make no block.
   let recent = null;
@@ -3912,6 +3975,7 @@ export function buildRequest(input) {
       }
     }
     shown.sort((a, b) => a.at - b.at);
+    for (const entry of shown) if (entry.read) memoryReads.push(entry.read);
     kept.recent = shown.length > 0 ? [[recentBuilt.header, ...shown.map((entry) => entry.text)].join('\n')] : [];
     if (stats.recent) stats.recent = { ...stats.recent, kept: shown.length, dropped: recentBuilt.entries.length - shown.length };
     // Counted only when the view held something: an item, or one hidden, repeated or unnamed.
@@ -3943,6 +4007,7 @@ export function buildRequest(input) {
       }
     }
     const text = participationText(participationBuilt, shown);
+    if (text) for (const episode of shown) if (episode.itemId) memoryReads.push({ kind: 'participation', id: episode.itemId });
     kept.participation = text ? [text] : [];
     stats.participation = {
       ...(stats.participation ?? { used: 0, kept: 0, dropped: 0 }),
@@ -3977,6 +4042,22 @@ export function buildRequest(input) {
   };
   if ((kept.interlocutor ?? []).length > 0) showPerson(interlocutor);
   for (const entry of keptPeopleEntries) showPerson(entry.profile);
+  // The rest of the collector: the profiles shown, the sections kept, what the prefetch offered.
+  if ((kept.interlocutor ?? []).length > 0) memoryReads.push(...interlocutorShown.reads);
+  for (const entry of keptPeopleEntries) memoryReads.push(...(entry.reads ?? []));
+  for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? [])) memoryReads.push({ kind: 'channel', id });
+  for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? [])) memoryReads.push({ kind: 'guild_note', id });
+  for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? [])) memoryReads.push({ kind: 'lore', id });
+  if ((kept.prefetch ?? []).length > 0) {
+    for (const excerpt of Array.isArray(input.prefetch?.excerpts) ? input.prefetch.excerpts : []) {
+      if (typeof excerpt?.lines !== 'string' || !excerpt.lines.trim()) continue;
+      if (excerpt.source === 'memory') {
+        if (typeof excerpt.id === 'string' && excerpt.id) memoryReads.push({ kind: 'item', id: excerpt.id });
+      } else {
+        for (const id of Array.isArray(excerpt.hitIds) ? excerpt.hitIds : []) if (typeof id === 'string' && id) memoryReads.push({ kind: 'source', id });
+      }
+    }
+  }
   // The pulled channels whose block survived, with what of them was shown.
   const keptPulled = new Set(kept.pulled);
   const pulledKept = pulledFits
@@ -4032,6 +4113,8 @@ export function buildRequest(input) {
     peopleShown,
     recent,
     seen,
+    // What the request carried from memory, `{ kind, id }` in the memory's own identity, each once (the per-turn record).
+    memoryReads: [...new Map(memoryReads.map((read) => [`${read.kind}\u0000${read.id}`, read])).values()],
     // Handle -> member id, for the persona's `@handle` (null with features.mentionHandles off).
     handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
     // Channel handle -> channel id, for the persona's `#handle` (null with features.mentionHandles

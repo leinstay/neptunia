@@ -1852,6 +1852,8 @@ export function createTurnRunner({
   intentions = null,
   // The places view of the inner life (src/behavior/inner.js#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
+  // The per-turn record of the memory rows a request carried (src/memory/db/service.js#recordTurnReads); null: none.
+  memoryReads = null,
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
@@ -7078,6 +7080,10 @@ export function createTurnRunner({
       }
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
+      // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
+      if (memoryReads && draft.started?.turnId && request.memoryReads?.length) {
+        try { memoryReads({ turnId: draft.started.turnId, step: 's0', guildId, reads: request.memoryReads }); } catch { /* a record, never a turn's failure */ }
+      }
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
       if (draft.started && request.seen) {
         // The lines of the pulled channels whose block the request kept count as seen too, by channel.

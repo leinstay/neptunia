@@ -376,6 +376,14 @@
       "intentionsLine": "intentions · {pending} pending · {waiting} waiting · {proposed} proposed",
       "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
       "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
+    },
+    "memoryDb": {
+      "off": "",
+      "unavailable": "",
+      "notSynced": "",
+      "line": "",
+      "readOn": "",
+      "readOff": ""
     }
   },
   "warmup": {

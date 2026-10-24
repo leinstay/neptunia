@@ -7437,6 +7437,36 @@ function usageLlm(text, defaultMax = () => Infinity) {
   };
 }
 
+test('turn: the memory rows the request carried go to the memoryReads hook with the journal turn id', async () => {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const profile = { id: 'u1', names: ['Alice'], details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }] };
+  const run = async ({ journal = true, memoryReads }) => {
+    const hot = fakeHot({ journal, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+    const { journal: journalOver } = journalOverMemory();
+    const turns = createTurnRunner({
+      discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore({ userProfiles: { u1: profile } }), llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
+      calibrator: identityCalibrator(), client: fakeClient(), journal: journalOver, memoryReads,
+    });
+    return turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  };
+
+  const calls = [];
+  const result = await run({ memoryReads: (args) => calls.push(args) });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].turnId, result.turnId);
+  assert.equal(calls[0].step, 's0');
+  assert.ok(calls[0].guildId);
+  assert.ok(calls[0].reads.some((read) => read.kind === 'claim' && read.id === 'de-1'));
+
+  // A hook that throws never fails the turn; no hook, or no journal turn id, records nothing.
+  const throwing = await run({ memoryReads: () => { throw new Error('boom'); } });
+  assert.equal(throwing.outcome, 'spoke');
+  assert.equal((await run({ memoryReads: null })).outcome, 'spoke');
+  const quiet = [];
+  await run({ journal: false, memoryReads: (args) => quiet.push(args) });
+  assert.deepEqual(quiet, []);
+});
+
 test('turn: writes turn.start and turn records when the journal is on', async () => {
   const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });

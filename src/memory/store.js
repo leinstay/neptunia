@@ -1105,8 +1105,14 @@ function normalizeChannel(channel) {
  *   `vectors` (src/memory/vectors.js#createVectors, optional): the meaning index a forget and the
  *   ledger take the member's rows out of (`forgetUser`, `applyLedger`); without it they leave the
  *   index alone (its search hides the ledger's members anyway).
+ *   `memoryRead` (src/memory/db/service.js#createMemoryDb's `reader`, optional): the read switch of the memory
+ *   database (spec 2026-10-24-memory-store, section 7). `value(file)` returns `{ found: true, value }` when the
+ *   database holds the file's value (the first load of a cache entry takes it instead of `readJson`) and
+ *   `ids(dir)` the ids under a directory; either returns null while the switch is off or the database has
+ *   nothing, and the store reads the disk as before. Writes are unchanged. `afterFlush` (optional) is called after
+ *   a flush that wrote files (the database sync follows it); a throw there is swallowed.
  */
-export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null }) {
+export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null, memoryRead = null, afterFlush = null }) {
   const root = memoryRootOf(dataDir);
   const entries = new Map(); // file path -> { value, dirty }
 
@@ -1441,7 +1447,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   function entry(file, fallback) {
     let item = entries.get(file);
     if (!item) {
-      item = { value: readJson(file, fallback()), dirty: false };
+      const fromDb = memoryRead?.value(file) ?? null;
+      item = { value: fromDb?.found === true ? fromDb.value : readJson(file, fallback()), dirty: false };
       entries.set(file, item);
     }
     return item;
@@ -1450,12 +1457,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   /** Every id found under `dir`'s `.json` files, on disk or only cached (no side effects on the cache). */
   function idsUnder(dir) {
     const ids = new Set();
-    try {
-      for (const name of fs.readdirSync(dir)) {
-        if (name.endsWith('.json')) ids.add(name.slice(0, -5));
+    const fromDb = memoryRead?.ids(dir) ?? null;
+    if (Array.isArray(fromDb)) {
+      for (const id of fromDb) ids.add(id);
+    } else {
+      try {
+        for (const name of fs.readdirSync(dir)) {
+          if (name.endsWith('.json')) ids.add(name.slice(0, -5));
+        }
+      } catch {
+        // the directory does not exist yet
       }
-    } catch {
-      // the directory does not exist yet
     }
     const prefix = dir + path.sep;
     for (const file of entries.keys()) {
@@ -1489,6 +1501,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     for (const [file, item] of entries) {
       const outcome = flushEntry(file, item, { force });
       if (outcome !== 'clean') counts[outcome] += 1;
+    }
+    if (counts.written > 0 && afterFlush) {
+      try { afterFlush(counts); } catch { /* the hook never fails a flush */ }
     }
     return counts;
   }

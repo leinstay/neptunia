@@ -1,0 +1,188 @@
+[
+ {
+  "patterns": "patterns",
+  "starters": "starters",
+  "injokes": [
+   "injokes[]"
+  ],
+  "self": [
+   "self[]"
+  ],
+  "updatedAt": "updatedAt",
+  "learnedNextId": 1,
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text",
+    "weight": 1,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text",
+    "weight": 2,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text",
+    "weight": 3,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   }
+  ],
+  "emojiUsage": {
+   "111111111111111111": {
+    "name": "emojiUsage.k.name",
+    "count": 1,
+    "last": 1
+   }
+  },
+  "emojiBackfill": {
+   "at": "emojiBackfill.at",
+   "channels": 1,
+   "messages": 1
+  },
+  "notesUpdatedAt": "notesUpdatedAt",
+  "notesCheckedAt": "notesCheckedAt",
+  "notesFlaggedAt": "notesFlaggedAt",
+  "notesSampleReviewedAt": "notesSampleReviewedAt",
+  "notesAttemptAt": null,
+  "pingsOff": [
+   "pingsOff[]"
+  ],
+  "accessMigrated": 1
+ },
+ {
+  "patterns": "patterns",
+  "starters": "starters",
+  "injokes": [
+   "injokes[]"
+  ],
+  "self": [
+   "self[]"
+  ],
+  "updatedAt": "updatedAt",
+  "learnedNextId": 2,
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text",
+    "weight": 1,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text",
+    "weight": 2,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text",
+    "weight": 3,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   }
+  ],
+  "emojiUsage": {
+   "111111111111111111": {
+    "name": "emojiUsage.k.name",
+    "count": 2,
+    "last": 2
+   }
+  },
+  "emojiBackfill": {
+   "at": "emojiBackfill.at",
+   "channels": 2,
+   "messages": 2
+  },
+  "notesUpdatedAt": "notesUpdatedAt",
+  "notesCheckedAt": "notesCheckedAt",
+  "notesFlaggedAt": "notesFlaggedAt",
+  "notesSampleReviewedAt": "notesSampleReviewedAt",
+  "notesAttemptAt": null,
+  "pingsOff": [
+   "pingsOff[]"
+  ],
+  "accessMigrated": 2
+ },
+ {
+  "patterns": "patterns",
+  "starters": "starters",
+  "injokes": [
+   "injokes[]"
+  ],
+  "self": [
+   "self[]"
+  ],
+  "updatedAt": "updatedAt",
+  "learnedNextId": 3,
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text",
+    "weight": 1,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text",
+    "weight": 2,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text",
+    "weight": 3,
+    "firstSeen": "learned[].firstSeen",
+    "lastSeen": "learned[].lastSeen",
+    "from": "learned[].from",
+    "itemId": "learned[].itemId"
+   }
+  ],
+  "emojiUsage": {
+   "111111111111111111": {
+    "name": "emojiUsage.k.name",
+    "count": 3,
+    "last": 3
+   }
+  },
+  "emojiBackfill": {
+   "at": "emojiBackfill.at",
+   "channels": 3,
+   "messages": 3
+  },
+  "notesUpdatedAt": "notesUpdatedAt",
+  "notesCheckedAt": "notesCheckedAt",
+  "notesFlaggedAt": "notesFlaggedAt",
+  "notesSampleReviewedAt": "notesSampleReviewedAt",
+  "notesAttemptAt": null,
+  "pingsOff": [
+   "pingsOff[]"
+  ],
+  "accessMigrated": 3
+ }
+]

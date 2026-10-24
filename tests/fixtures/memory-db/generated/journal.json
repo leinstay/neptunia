@@ -1,0 +1,3254 @@
+[
+ {
+  "v": 1,
+  "id": "id",
+  "kind": "turn",
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "guild": true
+  },
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "turnId": "turnId",
+  "attemptId": 1,
+  "startedAt": "startedAt",
+  "mode": "mode",
+  "outcome": "outcome",
+  "reason": null,
+  "posted": [
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": "posted[].replyTo",
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   }
+  ],
+  "reactions": [
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   }
+  ],
+  "actions": [
+   "actions[]",
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": false,
+    "presented": false,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   }
+  ],
+  "sourceGenerationId": "sourceGenerationId",
+  "importMatch": {
+   "scores": [
+    1
+   ],
+   "unmatched": true
+  },
+  "think": "think",
+  "thinkTruncated": true,
+  "event": "event",
+  "by": "by",
+  "trigger": null,
+  "name": "name",
+  "input": {
+   "candidates": 1,
+   "self": true,
+   "to": "input.to",
+   "emoji": "input.emoji",
+   "hosts": [
+    "input.hosts[]"
+   ],
+   "query": "input.query",
+   "forms": [
+    "input.forms[]"
+   ],
+   "who": [
+    "input.who[]"
+   ],
+   "from": null,
+   "gif": "input.gif",
+   "skill": "input.skill",
+   "invocationId": "input.invocationId",
+   "args": [
+    "input.args[]"
+   ],
+   "body": true,
+   "set": true,
+   "pictures": 1,
+   "taskId": "input.taskId",
+   "agent": "input.agent",
+   "goalChars": 1,
+   "requester": "input.requester",
+   "lanes": [
+    "input.lanes[]"
+   ],
+   "toolCallId": "input.toolCallId"
+  },
+  "opId": "opId",
+  "phase": "phase",
+  "result": {
+   "count": 1,
+   "delivered": true,
+   "messageId": "result.messageId",
+   "bytes": 1,
+   "seconds": 1,
+   "watched": 1,
+   "to": "result.to",
+   "emoji": "result.emoji",
+   "hosts": [
+    "result.hosts[]"
+   ],
+   "chars": 1,
+   "results": 1,
+   "status": "result.status",
+   "hits": 1,
+   "kept": 1,
+   "summaryChars": 1,
+   "stretch": true,
+   "code": "result.code",
+   "taskId": "result.taskId",
+   "state": "result.state",
+   "usage": {
+    "usd": 1,
+    "steps": 1,
+    "seconds": 1
+   },
+   "sources": 1,
+   "files": 1,
+   "reason": "result.reason",
+   "excerpts": 1,
+   "ms": 1
+  },
+  "intent": {
+   "replyTo": null,
+   "text": "intent.text"
+  },
+  "seen": {
+   "messageIds": [
+    "seen.messageIds[]"
+   ],
+   "parents": [
+    "seen.parents[]"
+   ],
+   "parts": {
+    "images": [
+     "seen.parts.images[]"
+    ],
+    "filePreviews": [
+     "seen.parts.filePreviews[]"
+    ]
+   },
+   "pulled": [
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    }
+   ]
+  },
+  "usage": {
+   "prompt": 1,
+   "cached": 1,
+   "completion": 1,
+   "cacheWrite": 1
+  },
+  "budget": {
+   "dropped": {
+    "emoji": 1,
+    "recent": 1,
+    "people": 1,
+    "gifs": 1,
+    "neighbors": 1,
+    "attitudes": 1,
+    "aboutChat": 1,
+    "around": 1,
+    "earlier": 1,
+    "chat": 1,
+    "participation": 1,
+    "diary": 1
+   }
+  },
+  "limits": [
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": 1,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   }
+  ],
+  "batchId": "batchId",
+  "stage": "stage",
+  "appliedRevision": "appliedRevision",
+  "batch": {
+   "messageIds": [
+    "batch.messageIds[]"
+   ],
+   "consumed": 1
+  },
+  "changed": {
+   "users": [
+    "changed.users[]"
+   ],
+   "guild": true,
+   "channels": [
+    "changed.channels[]"
+   ],
+   "lore": 1
+  },
+  "episodes": [
+   {
+    "userId": "episodes[].userId",
+    "itemId": null,
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 1
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 2
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 3
+   }
+  ],
+  "attitude": [
+   {
+    "userId": "attitude[].userId",
+    "delta": 1,
+    "applied": 1,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 2,
+    "applied": 2,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 3,
+    "applied": 3,
+    "reason": "attitude[].reason"
+   }
+  ],
+  "self": [
+   "self[]"
+  ],
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text"
+   }
+  ],
+  "consolidation": [],
+  "archived": [
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": false
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   }
+  ],
+  "promptsHash": "promptsHash",
+  "configHash": "configHash",
+  "note": "note",
+  "announced": true,
+  "skillsProposed": [
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": false
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   }
+  ],
+  "messageId": "messageId",
+  "authorId": "authorId",
+  "at": "at",
+  "question": true,
+  "replacedBy": "replacedBy",
+  "failure": "failure",
+  "verdict": "verdict",
+  "shadow": true,
+  "messageIds": [
+   "messageIds[]"
+  ],
+  "triggerId": "triggerId",
+  "target": {
+   "channel": "target.channel",
+   "message": "target.message",
+   "taskId": "target.taskId",
+   "reply": "target.reply"
+  },
+  "channels": [
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 1,
+    "observed": 1,
+    "triggered": 1,
+    "duplicate": 1,
+    "ignored": 1
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 2,
+    "observed": 2,
+    "triggered": 2,
+    "duplicate": 2,
+    "ignored": 2
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 3,
+    "observed": 3,
+    "triggered": 3,
+    "duplicate": 3,
+    "ignored": 3
+   }
+  ],
+  "failed": 1,
+  "day": "day",
+  "lines": 1,
+  "reconciled": true,
+  "wake": {
+   "id": "wake.id",
+   "kind": "wake.kind",
+   "reason": "wake.reason",
+   "dueAt": 1,
+   "intentionIds": [
+    "wake.intentionIds[]"
+   ],
+   "chainId": "wake.chainId",
+   "turnId": "wake.turnId",
+   "facts": [
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ]
+  },
+  "wakes": [
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 1,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 2,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 3,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   }
+  ],
+  "coalesced": [
+   "coalesced[]"
+  ],
+  "stray": {
+   "messages": 1,
+   "reactions": 1,
+   "gif": 1,
+   "draw": 1,
+   "lines": [
+    "stray.lines[]"
+   ],
+   "beforeAction": 1
+  },
+  "cost": {
+   "usd": 1,
+   "requests": 1,
+   "voice": 1,
+   "reservedUsd": 1
+  },
+  "loop": {
+   "steps": 1,
+   "cut": null,
+   "droppedCalls": 1
+  },
+  "feedback": {
+   "facts": [
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 1,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 2,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 3,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ],
+   "wake": "feedback.wake"
+  },
+  "cap": "cap",
+  "holdId": "holdId",
+  "agent": "agent",
+  "usd": 1,
+  "taskId": "taskId",
+  "heldUsd": 1,
+  "op": "op",
+  "invocationId": "invocationId",
+  "format": {
+   "thinkMissing": 1,
+   "coerced": 1,
+   "malformed": 1,
+   "truncated": 1,
+   "capped": 1,
+   "held": 1
+  },
+  "steps": 1
+ },
+ {
+  "v": 2,
+  "id": "id",
+  "kind": "memory",
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "guild": false
+  },
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "turnId": "turnId",
+  "attemptId": 2,
+  "startedAt": "startedAt",
+  "mode": "mode",
+  "outcome": "outcome",
+  "reason": "reason",
+  "posted": [
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": "posted[].replyTo",
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   }
+  ],
+  "reactions": [
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   }
+  ],
+  "actions": [
+   "actions[]",
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": false,
+    "presented": false,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   }
+  ],
+  "sourceGenerationId": "sourceGenerationId",
+  "importMatch": {
+   "scores": [
+    2
+   ],
+   "unmatched": false
+  },
+  "think": null,
+  "thinkTruncated": false,
+  "event": "event",
+  "by": "by",
+  "trigger": {
+   "kind": "trigger.kind",
+   "messageId": null,
+   "authorId": null,
+   "wake": "trigger.wake"
+  },
+  "name": "name",
+  "input": {
+   "candidates": 2,
+   "self": false,
+   "to": null,
+   "emoji": "input.emoji",
+   "hosts": [
+    "input.hosts[]"
+   ],
+   "query": "input.query",
+   "forms": [
+    "input.forms[]"
+   ],
+   "who": [
+    "input.who[]"
+   ],
+   "from": 2,
+   "gif": "input.gif",
+   "skill": "input.skill",
+   "invocationId": "input.invocationId",
+   "args": [
+    "input.args[]"
+   ],
+   "body": false,
+   "set": false,
+   "pictures": 2,
+   "taskId": "input.taskId",
+   "agent": "input.agent",
+   "goalChars": 2,
+   "requester": "input.requester",
+   "lanes": [
+    "input.lanes[]"
+   ],
+   "toolCallId": "input.toolCallId"
+  },
+  "opId": "opId",
+  "phase": "phase",
+  "result": {
+   "count": 2,
+   "delivered": false,
+   "messageId": "result.messageId",
+   "bytes": 2,
+   "seconds": 2,
+   "watched": 2,
+   "to": "result.to",
+   "emoji": "result.emoji",
+   "hosts": [
+    "result.hosts[]"
+   ],
+   "chars": 2,
+   "results": 2,
+   "status": "result.status",
+   "hits": 2,
+   "kept": 2,
+   "summaryChars": 2,
+   "stretch": false,
+   "code": "result.code",
+   "taskId": "result.taskId",
+   "state": "result.state",
+   "usage": {
+    "usd": 2,
+    "steps": 2,
+    "seconds": 2
+   },
+   "sources": 2,
+   "files": 2,
+   "reason": "result.reason",
+   "excerpts": 2,
+   "ms": 2
+  },
+  "intent": {
+   "replyTo": "intent.replyTo",
+   "text": "intent.text"
+  },
+  "seen": {
+   "messageIds": [
+    "seen.messageIds[]"
+   ],
+   "parents": [
+    "seen.parents[]"
+   ],
+   "parts": {
+    "images": [
+     "seen.parts.images[]"
+    ],
+    "filePreviews": [
+     "seen.parts.filePreviews[]"
+    ]
+   },
+   "pulled": [
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    }
+   ]
+  },
+  "usage": null,
+  "budget": {
+   "dropped": {
+    "emoji": 2,
+    "recent": 2,
+    "people": 2,
+    "gifs": 2,
+    "neighbors": 2,
+    "attitudes": 2,
+    "aboutChat": 2,
+    "around": 2,
+    "earlier": 2,
+    "chat": 2,
+    "participation": 2,
+    "diary": 2
+   }
+  },
+  "limits": [
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": 1,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   }
+  ],
+  "batchId": "batchId",
+  "stage": "stage",
+  "appliedRevision": "appliedRevision",
+  "batch": {
+   "messageIds": [
+    "batch.messageIds[]"
+   ],
+   "consumed": 2
+  },
+  "changed": {
+   "users": [
+    "changed.users[]"
+   ],
+   "guild": false,
+   "channels": [
+    "changed.channels[]"
+   ],
+   "lore": 2
+  },
+  "episodes": [
+   {
+    "userId": "episodes[].userId",
+    "itemId": null,
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 1
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 2
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 3
+   }
+  ],
+  "attitude": [
+   {
+    "userId": "attitude[].userId",
+    "delta": 1,
+    "applied": 1,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 2,
+    "applied": 2,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 3,
+    "applied": 3,
+    "reason": "attitude[].reason"
+   }
+  ],
+  "self": [
+   "self[]"
+  ],
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text"
+   }
+  ],
+  "consolidation": [],
+  "archived": [
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": false
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   }
+  ],
+  "promptsHash": "promptsHash",
+  "configHash": "configHash",
+  "note": "note",
+  "announced": false,
+  "skillsProposed": [
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": false
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   }
+  ],
+  "messageId": "messageId",
+  "authorId": "authorId",
+  "at": 2,
+  "question": false,
+  "replacedBy": "replacedBy",
+  "failure": "failure",
+  "verdict": "verdict",
+  "shadow": false,
+  "messageIds": [
+   "messageIds[]"
+  ],
+  "triggerId": "triggerId",
+  "target": {
+   "channel": "target.channel",
+   "message": "target.message",
+   "taskId": "target.taskId",
+   "reply": "target.reply"
+  },
+  "channels": [
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 1,
+    "observed": 1,
+    "triggered": 1,
+    "duplicate": 1,
+    "ignored": 1
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 2,
+    "observed": 2,
+    "triggered": 2,
+    "duplicate": 2,
+    "ignored": 2
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 3,
+    "observed": 3,
+    "triggered": 3,
+    "duplicate": 3,
+    "ignored": 3
+   }
+  ],
+  "failed": 2,
+  "day": "day",
+  "lines": 2,
+  "reconciled": false,
+  "wake": {
+   "id": "wake.id",
+   "kind": "wake.kind",
+   "reason": "wake.reason",
+   "dueAt": 2,
+   "intentionIds": [
+    "wake.intentionIds[]"
+   ],
+   "chainId": "wake.chainId",
+   "turnId": "wake.turnId",
+   "facts": [
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ]
+  },
+  "wakes": [
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 1,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 2,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 3,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   }
+  ],
+  "coalesced": [
+   "coalesced[]"
+  ],
+  "stray": {
+   "messages": 2,
+   "reactions": 2,
+   "gif": 2,
+   "draw": 2,
+   "lines": [
+    "stray.lines[]"
+   ],
+   "beforeAction": 2
+  },
+  "cost": {
+   "usd": 2,
+   "requests": 2,
+   "voice": 2,
+   "reservedUsd": 2
+  },
+  "loop": {
+   "steps": 2,
+   "cut": "loop.cut",
+   "droppedCalls": 2
+  },
+  "feedback": {
+   "facts": [
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 1,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 2,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 3,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ],
+   "wake": null
+  },
+  "cap": "cap",
+  "holdId": "holdId",
+  "agent": "agent",
+  "usd": 2,
+  "taskId": "taskId",
+  "heldUsd": 2,
+  "op": "op",
+  "invocationId": "invocationId",
+  "format": {
+   "thinkMissing": 2,
+   "coerced": 2,
+   "malformed": 2,
+   "truncated": 2,
+   "capped": 2,
+   "held": 2
+  },
+  "steps": 2
+ },
+ {
+  "v": 3,
+  "id": "id",
+  "kind": "action",
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "guild": true
+  },
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "turnId": "turnId",
+  "attemptId": 3,
+  "startedAt": "startedAt",
+  "mode": "mode",
+  "outcome": "outcome",
+  "reason": "reason",
+  "posted": [
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": "posted[].replyTo",
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   }
+  ],
+  "reactions": [
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   }
+  ],
+  "actions": [
+   "actions[]",
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": false,
+    "presented": false,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   }
+  ],
+  "sourceGenerationId": "sourceGenerationId",
+  "importMatch": {
+   "scores": [
+    3
+   ],
+   "unmatched": true
+  },
+  "think": null,
+  "thinkTruncated": true,
+  "event": "event",
+  "by": "by",
+  "trigger": {
+   "kind": "trigger.kind",
+   "messageId": null,
+   "authorId": null,
+   "wake": "trigger.wake"
+  },
+  "name": "name",
+  "input": {
+   "candidates": 3,
+   "self": true,
+   "to": 3,
+   "emoji": "input.emoji",
+   "hosts": [
+    "input.hosts[]"
+   ],
+   "query": "input.query",
+   "forms": [
+    "input.forms[]"
+   ],
+   "who": [
+    "input.who[]"
+   ],
+   "from": 3,
+   "gif": "input.gif",
+   "skill": "input.skill",
+   "invocationId": "input.invocationId",
+   "args": [
+    "input.args[]"
+   ],
+   "body": true,
+   "set": true,
+   "pictures": 3,
+   "taskId": "input.taskId",
+   "agent": "input.agent",
+   "goalChars": 3,
+   "requester": "input.requester",
+   "lanes": [
+    "input.lanes[]"
+   ],
+   "toolCallId": "input.toolCallId"
+  },
+  "opId": "opId",
+  "phase": "phase",
+  "result": {
+   "count": 3,
+   "delivered": true,
+   "messageId": "result.messageId",
+   "bytes": 3,
+   "seconds": 3,
+   "watched": 3,
+   "to": "result.to",
+   "emoji": "result.emoji",
+   "hosts": [
+    "result.hosts[]"
+   ],
+   "chars": 3,
+   "results": 3,
+   "status": "result.status",
+   "hits": 3,
+   "kept": 3,
+   "summaryChars": 3,
+   "stretch": true,
+   "code": "result.code",
+   "taskId": "result.taskId",
+   "state": "result.state",
+   "usage": {
+    "usd": 3,
+    "steps": 3,
+    "seconds": 3
+   },
+   "sources": 3,
+   "files": 3,
+   "reason": "result.reason",
+   "excerpts": 3,
+   "ms": 3
+  },
+  "intent": {
+   "replyTo": "intent.replyTo",
+   "text": "intent.text"
+  },
+  "seen": {
+   "messageIds": [
+    "seen.messageIds[]"
+   ],
+   "parents": [
+    "seen.parents[]"
+   ],
+   "parts": {
+    "images": [
+     "seen.parts.images[]"
+    ],
+    "filePreviews": [
+     "seen.parts.filePreviews[]"
+    ]
+   },
+   "pulled": [
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    }
+   ]
+  },
+  "usage": null,
+  "budget": {
+   "dropped": {
+    "emoji": 3,
+    "recent": 3,
+    "people": 3,
+    "gifs": 3,
+    "neighbors": 3,
+    "attitudes": 3,
+    "aboutChat": 3,
+    "around": 3,
+    "earlier": 3,
+    "chat": 3,
+    "participation": 3,
+    "diary": 3
+   }
+  },
+  "limits": [
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": 1,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   }
+  ],
+  "batchId": "batchId",
+  "stage": "stage",
+  "appliedRevision": "appliedRevision",
+  "batch": {
+   "messageIds": [
+    "batch.messageIds[]"
+   ],
+   "consumed": 3
+  },
+  "changed": {
+   "users": [
+    "changed.users[]"
+   ],
+   "guild": true,
+   "channels": [
+    "changed.channels[]"
+   ],
+   "lore": 3
+  },
+  "episodes": [
+   {
+    "userId": "episodes[].userId",
+    "itemId": null,
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 1
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 2
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 3
+   }
+  ],
+  "attitude": [
+   {
+    "userId": "attitude[].userId",
+    "delta": 1,
+    "applied": 1,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 2,
+    "applied": 2,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 3,
+    "applied": 3,
+    "reason": "attitude[].reason"
+   }
+  ],
+  "self": [
+   "self[]"
+  ],
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text"
+   }
+  ],
+  "consolidation": [],
+  "archived": [
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": false
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   }
+  ],
+  "promptsHash": "promptsHash",
+  "configHash": "configHash",
+  "note": "note",
+  "announced": true,
+  "skillsProposed": [
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": false
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   }
+  ],
+  "messageId": "messageId",
+  "authorId": "authorId",
+  "at": 3,
+  "question": true,
+  "replacedBy": "replacedBy",
+  "failure": "failure",
+  "verdict": "verdict",
+  "shadow": true,
+  "messageIds": [
+   "messageIds[]"
+  ],
+  "triggerId": "triggerId",
+  "target": {
+   "channel": "target.channel",
+   "message": "target.message",
+   "taskId": "target.taskId",
+   "reply": "target.reply"
+  },
+  "channels": [
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 1,
+    "observed": 1,
+    "triggered": 1,
+    "duplicate": 1,
+    "ignored": 1
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 2,
+    "observed": 2,
+    "triggered": 2,
+    "duplicate": 2,
+    "ignored": 2
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 3,
+    "observed": 3,
+    "triggered": 3,
+    "duplicate": 3,
+    "ignored": 3
+   }
+  ],
+  "failed": 3,
+  "day": "day",
+  "lines": 3,
+  "reconciled": true,
+  "wake": {
+   "id": "wake.id",
+   "kind": "wake.kind",
+   "reason": "wake.reason",
+   "dueAt": 3,
+   "intentionIds": [
+    "wake.intentionIds[]"
+   ],
+   "chainId": "wake.chainId",
+   "turnId": "wake.turnId",
+   "facts": [
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ]
+  },
+  "wakes": [
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 1,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 2,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 3,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   }
+  ],
+  "coalesced": [
+   "coalesced[]"
+  ],
+  "stray": {
+   "messages": 3,
+   "reactions": 3,
+   "gif": 3,
+   "draw": 3,
+   "lines": [
+    "stray.lines[]"
+   ],
+   "beforeAction": 3
+  },
+  "cost": {
+   "usd": 3,
+   "requests": 3,
+   "voice": 3,
+   "reservedUsd": 3
+  },
+  "loop": {
+   "steps": 3,
+   "cut": "loop.cut",
+   "droppedCalls": 3
+  },
+  "feedback": {
+   "facts": [
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 1,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 2,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 3,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ],
+   "wake": null
+  },
+  "cap": "cap",
+  "holdId": "holdId",
+  "agent": "agent",
+  "usd": 3,
+  "taskId": "taskId",
+  "heldUsd": 3,
+  "op": "op",
+  "invocationId": "invocationId",
+  "format": {
+   "thinkMissing": 3,
+   "coerced": 3,
+   "malformed": 3,
+   "truncated": 3,
+   "capped": 3,
+   "held": 3
+  },
+  "steps": 3
+ },
+ {
+  "v": 2,
+  "id": "id",
+  "kind": "kind",
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "guild": false
+  },
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "turnId": "turnId",
+  "attemptId": 2,
+  "startedAt": "startedAt",
+  "mode": "mode",
+  "outcome": "outcome",
+  "reason": "reason",
+  "posted": [
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": "posted[].replyTo",
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   },
+   {
+    "messageId": "posted[].messageId",
+    "replyTo": null,
+    "opId": "posted[].opId"
+   }
+  ],
+  "reactions": [
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   },
+   {
+    "opId": "reactions[].opId",
+    "to": "reactions[].to",
+    "emoji": "reactions[].emoji"
+   }
+  ],
+  "actions": [
+   "actions[]",
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": false,
+    "presented": false,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   },
+   {
+    "skill": "actions[].skill",
+    "status": "actions[].status",
+    "result": "actions[].result",
+    "target": {
+     "channel": "actions[].target.channel",
+     "reply": "actions[].target.reply"
+    },
+    "code": "actions[].code",
+    "intentionId": "actions[].intentionId",
+    "state": "actions[].state",
+    "delivery": true,
+    "presented": true,
+    "createdId": "actions[].createdId",
+    "text": "actions[].text"
+   }
+  ],
+  "sourceGenerationId": "sourceGenerationId",
+  "importMatch": {
+   "scores": [
+    2
+   ],
+   "unmatched": false
+  },
+  "think": null,
+  "thinkTruncated": false,
+  "event": "event",
+  "by": "by",
+  "trigger": {
+   "kind": "trigger.kind",
+   "messageId": "trigger.messageId",
+   "authorId": "trigger.authorId",
+   "wake": "trigger.wake"
+  },
+  "name": "name",
+  "input": {
+   "candidates": 2,
+   "self": false,
+   "to": null,
+   "emoji": "input.emoji",
+   "hosts": [
+    "input.hosts[]"
+   ],
+   "query": "input.query",
+   "forms": [
+    "input.forms[]"
+   ],
+   "who": [
+    "input.who[]"
+   ],
+   "from": 2,
+   "gif": "input.gif",
+   "skill": "input.skill",
+   "invocationId": "input.invocationId",
+   "args": [
+    "input.args[]"
+   ],
+   "body": false,
+   "set": false,
+   "pictures": 2,
+   "taskId": "input.taskId",
+   "agent": "input.agent",
+   "goalChars": 2,
+   "requester": "input.requester",
+   "lanes": [
+    "input.lanes[]"
+   ],
+   "toolCallId": "input.toolCallId"
+  },
+  "opId": "opId",
+  "phase": "phase",
+  "result": {
+   "count": 2,
+   "delivered": false,
+   "messageId": "result.messageId",
+   "bytes": 2,
+   "seconds": 2,
+   "watched": 2,
+   "to": "result.to",
+   "emoji": "result.emoji",
+   "hosts": [
+    "result.hosts[]"
+   ],
+   "chars": 2,
+   "results": 2,
+   "status": "result.status",
+   "hits": 2,
+   "kept": 2,
+   "summaryChars": 2,
+   "stretch": false,
+   "code": "result.code",
+   "taskId": "result.taskId",
+   "state": "result.state",
+   "usage": {
+    "usd": 2,
+    "steps": 2,
+    "seconds": 2
+   },
+   "sources": 2,
+   "files": 2,
+   "reason": "result.reason",
+   "excerpts": 2,
+   "ms": 2
+  },
+  "intent": {
+   "replyTo": "intent.replyTo",
+   "text": "intent.text"
+  },
+  "seen": {
+   "messageIds": [
+    "seen.messageIds[]"
+   ],
+   "parents": [
+    "seen.parents[]"
+   ],
+   "parts": {
+    "images": [
+     "seen.parts.images[]"
+    ],
+    "filePreviews": [
+     "seen.parts.filePreviews[]"
+    ]
+   },
+   "pulled": [
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    },
+    {
+     "channelId": "seen.pulled[].channelId",
+     "messageIds": [
+      "seen.pulled[].messageIds[]"
+     ]
+    }
+   ]
+  },
+  "usage": null,
+  "budget": {
+   "dropped": {
+    "emoji": 2,
+    "recent": 2,
+    "people": 2,
+    "gifs": 2,
+    "neighbors": 2,
+    "attitudes": 2,
+    "aboutChat": 2,
+    "around": 2,
+    "earlier": 2,
+    "chat": 2,
+    "participation": 2,
+    "diary": 2
+   }
+  },
+  "limits": [
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": 1,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   },
+   {
+    "kind": "limits[].kind",
+    "where": "limits[].where",
+    "lost": null,
+    "detail": "limits[].detail"
+   }
+  ],
+  "batchId": "batchId",
+  "stage": "stage",
+  "appliedRevision": "appliedRevision",
+  "batch": {
+   "messageIds": [
+    "batch.messageIds[]"
+   ],
+   "consumed": 2
+  },
+  "changed": {
+   "users": [
+    "changed.users[]"
+   ],
+   "guild": false,
+   "channels": [
+    "changed.channels[]"
+   ],
+   "lore": 2
+  },
+  "episodes": [
+   {
+    "userId": "episodes[].userId",
+    "itemId": null,
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 1
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 2
+   },
+   {
+    "userId": "episodes[].userId",
+    "itemId": "episodes[].itemId",
+    "key": "episodes[].key",
+    "what": "episodes[].what",
+    "weight": 3
+   }
+  ],
+  "attitude": [
+   {
+    "userId": "attitude[].userId",
+    "delta": 1,
+    "applied": 1,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 2,
+    "applied": 2,
+    "reason": "attitude[].reason"
+   },
+   {
+    "userId": "attitude[].userId",
+    "delta": 3,
+    "applied": 3,
+    "reason": "attitude[].reason"
+   }
+  ],
+  "self": [
+   "self[]"
+  ],
+  "learned": [
+   {
+    "id": 1,
+    "text": "learned[].text"
+   },
+   {
+    "id": 2,
+    "text": "learned[].text"
+   },
+   {
+    "id": 3,
+    "text": "learned[].text"
+   }
+  ],
+  "consolidation": [],
+  "archived": [
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": false
+   },
+   {
+    "itemId": "archived[].itemId",
+    "revisionId": "archived[].revisionId",
+    "confirmed": true
+   }
+  ],
+  "promptsHash": "promptsHash",
+  "configHash": "configHash",
+  "note": "note",
+  "announced": false,
+  "skillsProposed": [
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": false
+   },
+   {
+    "name": "skillsProposed[].name",
+    "allowed": true
+   }
+  ],
+  "messageId": "messageId",
+  "authorId": "authorId",
+  "at": 2,
+  "question": false,
+  "replacedBy": "replacedBy",
+  "failure": "failure",
+  "verdict": "verdict",
+  "shadow": false,
+  "messageIds": [
+   "messageIds[]"
+  ],
+  "triggerId": "triggerId",
+  "target": {
+   "channel": "target.channel",
+   "message": "target.message",
+   "taskId": "target.taskId",
+   "reply": "target.reply"
+  },
+  "channels": [
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 1,
+    "observed": 1,
+    "triggered": 1,
+    "duplicate": 1,
+    "ignored": 1
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 2,
+    "observed": 2,
+    "triggered": 2,
+    "duplicate": 2,
+    "ignored": 2
+   },
+   {
+    "channelId": "channels[].channelId",
+    "fetched": 3,
+    "observed": 3,
+    "triggered": 3,
+    "duplicate": 3,
+    "ignored": 3
+   }
+  ],
+  "failed": 2,
+  "day": "day",
+  "lines": 2,
+  "reconciled": false,
+  "wake": {
+   "id": "wake.id",
+   "kind": "wake.kind",
+   "reason": "wake.reason",
+   "dueAt": 2,
+   "intentionIds": [
+    "wake.intentionIds[]"
+   ],
+   "chainId": "wake.chainId",
+   "turnId": "wake.turnId",
+   "facts": [
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "wake.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "wake.facts[].lines[]"
+     ],
+     "skill": "wake.facts[].skill",
+     "status": "wake.facts[].status",
+     "code": "wake.facts[].code",
+     "intentionId": "wake.facts[].intentionId",
+     "purpose": "wake.facts[].purpose",
+     "cut": "wake.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ]
+  },
+  "wakes": [
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 1,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 2,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   },
+   {
+    "id": "wakes[].id",
+    "kind": "wakes[].kind",
+    "reason": "wakes[].reason",
+    "dueAt": 3,
+    "intentionIds": [
+     "wakes[].intentionIds[]"
+    ],
+    "chainId": "wakes[].chainId",
+    "turnId": "wakes[].turnId",
+    "facts": [
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 1,
+      "reactions": 1,
+      "gif": 1,
+      "draw": 1,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 1,
+      "steps": 1
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 2,
+      "reactions": 2,
+      "gif": 2,
+      "draw": 2,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 2,
+      "steps": 2
+     },
+     {
+      "kind": "wakes[].facts[].kind",
+      "messages": 3,
+      "reactions": 3,
+      "gif": 3,
+      "draw": 3,
+      "lines": [
+       "wakes[].facts[].lines[]"
+      ],
+      "skill": "wakes[].facts[].skill",
+      "status": "wakes[].facts[].status",
+      "code": "wakes[].facts[].code",
+      "intentionId": "wakes[].facts[].intentionId",
+      "purpose": "wakes[].facts[].purpose",
+      "cut": "wakes[].facts[].cut",
+      "droppedCalls": 3,
+      "steps": 3
+     }
+    ]
+   }
+  ],
+  "coalesced": [
+   "coalesced[]"
+  ],
+  "stray": {
+   "messages": 2,
+   "reactions": 2,
+   "gif": 2,
+   "draw": 2,
+   "lines": [
+    "stray.lines[]"
+   ],
+   "beforeAction": 2
+  },
+  "cost": {
+   "usd": 2,
+   "requests": 2,
+   "voice": 2,
+   "reservedUsd": 2
+  },
+  "loop": {
+   "steps": 2,
+   "cut": "loop.cut",
+   "droppedCalls": 2
+  },
+  "feedback": {
+   "facts": [
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 1,
+     "reactions": 1,
+     "gif": 1,
+     "draw": 1,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 1,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 1,
+     "steps": 1
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 2,
+     "reactions": 2,
+     "gif": 2,
+     "draw": 2,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 2,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 2,
+     "steps": 2
+    },
+    {
+     "kind": "feedback.facts[].kind",
+     "messages": 3,
+     "reactions": 3,
+     "gif": 3,
+     "draw": 3,
+     "lines": [
+      "feedback.facts[].lines[]"
+     ],
+     "skill": "feedback.facts[].skill",
+     "status": "feedback.facts[].status",
+     "code": "feedback.facts[].code",
+     "intentionId": "feedback.facts[].intentionId",
+     "purpose": "feedback.facts[].purpose",
+     "diagnostic": "feedback.facts[].diagnostic",
+     "count": 3,
+     "cut": "feedback.facts[].cut",
+     "droppedCalls": 3,
+     "steps": 3
+    }
+   ],
+   "wake": null
+  },
+  "cap": "cap",
+  "holdId": "holdId",
+  "agent": "agent",
+  "usd": 2,
+  "taskId": "taskId",
+  "heldUsd": 2,
+  "op": "op",
+  "invocationId": "invocationId",
+  "format": {
+   "thinkMissing": 2,
+   "coerced": 2,
+   "malformed": 2,
+   "truncated": 2,
+   "capped": 2,
+   "held": 2
+  },
+  "steps": 2
+ }
+]
