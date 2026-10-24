@@ -235,7 +235,12 @@ const journal = createJournal({ appendStore, dataDir, config: () => hot.config.j
 // The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
 // below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
 // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
-const memoryDb = createMemoryDb({ hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }) });
+// `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
+const memoryDb = createMemoryDb({
+  hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
+  embed: (texts, options) => embedder.embed(texts, options),
+  selfName: () => getSelfName(getGuildId()),
+});
 const store = createStore({
   dataDir,
   memoryRead: memoryDb.reader,
@@ -510,6 +515,8 @@ const inner = createInnerLife({
   submit: (event) => door.submit(event),
   // What an inner turn did and found becomes lines of hers for the memory analyzer.
   onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
+  // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
+  memoryDb,
   // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, what she can do. No presence or
   // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
   heartbeat: {

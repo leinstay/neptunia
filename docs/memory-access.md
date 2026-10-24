@@ -52,6 +52,10 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `focus_members` | internal-only | her current close and exploring sets; only the focus code and her internal wakes read it (`src/memory/db/focus.js`) |
 | `focus_events` | internal-only | every change of those sets, every challenge and its end (append-only) |
 | `focus_overrides` | internal-only | the owner's pins and exclusions |
+| `wake_runs` | internal-only | one row per inner wake run: its kind, state, the ids and versions its view showed, the envelope's policy version and the outcome |
+| `wake_actions` | inherits from wake_runs | each action of a run once, keyed by the run and its number |
+| `index_policy` | internal-only | the tier of each stored line (by its graph node), why, a pin, and how long a touch lasts; derived from the typed tables |
+| `skill_evaluations` | internal-only | the tests, trials, outcome reviews and audience checks of each skill version, with the hashes they evaluated (append-only); the evidence they name keeps its own audience |
 | `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
 | `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
 | `ledger_tasks` | internal-only | the task ledger's copy |
@@ -79,6 +83,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `files` | structural | the signature of every memory file the sync read |
 | `co_owners` | structural | rows two servers' files both map |
 | `schema_version` | structural | the migrations applied |
+| `skills` | structural | the engine's skills by name, the active version, the lifecycle and a pin; code in the repository, no remembered content |
+| `skill_versions` | structural | each version of a skill: its content hash, manifest hash, engine commit, status and manifest |
 | `graph_nodes` | structural | one node per typed row of a node kind (derived, rebuildable); whether a context may see a node is `node_access`'s answer |
 | `graph_edges` | audience-scoped | the edges between nodes, each with the audience of the typed row it came from (derived, rebuildable); a walk follows only edges the context may read |
 | `node_access` | internal-only | which audiences may see each node, one witness row per node, audience and evidence (derived, rebuildable); the walks read it, nothing shows it |
@@ -132,3 +138,16 @@ closed until the partner becomes a person.
   migration. Each is projected into the graph (`published_as` from the entry, `publication_source` to each stored line
   a receipt names). Later mirrors get theirs from the sync the same way.
 - `publication_grants`, `relationship_daily`, `focus_members`, `focus_events`, `focus_overrides`: created empty.
+
+## Columns and rows of schema 11
+
+- `wake_runs`, `wake_actions`, `skills`, `skill_versions`, `skill_evaluations`, `index_policy`: created empty. The wake
+  runs are written only with `memoryDb.wakeRuns` on, the registry only with `memoryDb.skillsRegistry` on, the policy
+  only by `recall.db.vectorEviction` (and the touches it implies) or `tools/memory-db.mjs index-policy --apply`.
+- `sources.tier`: empty until the index policy runs; then `a` (hers, addressed to her, in a DM, cited, pinned or
+  touched), `b` (seen) or `c` (captured from a foreign place), the same tier `index_policy` holds.
+- `vectors.evicted_at`: empty. An evicted vector keeps its row, `model`, `dims`, `scale`, `norm` and `context`; only
+  `bytes` is dropped, and recall does not read it. Under `memoryDb.authority: json` the vector month files keep the
+  bytes, so `verify` reports an evicted row's month as different.
+- `media.availability`: `unknown` for every row; `tools/memory-db.mjs media-check` sets her diary media to `present`
+  or `missing`.

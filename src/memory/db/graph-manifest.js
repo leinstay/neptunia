@@ -23,7 +23,7 @@
 
 /** Kinds of nodes whose table is not built yet: listed so the manifest is the whole spec list, projected by nothing. */
 export const DEFERRED = Object.freeze({
-  skill: 'the skills registry (stage 6)',
+  skill: 'the skills registry (table `skills`, schema v11): projected once the improvement wake reads it (its own spec)',
 });
 
 /**

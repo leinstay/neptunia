@@ -115,7 +115,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
   backend: 'discord',
-  db: Object.freeze({ gateShare: 0.5, candidates: 40, wordPool: 400, minMeaning: 0.35 }),
+  db: Object.freeze({ gateShare: 0.5, candidates: 40, wordPool: 400, minMeaning: 0.35, vectorDays: 90, touchDays: 30, vectorEviction: false, reembed: false }),
   prefetch: PREFETCH_DEFAULTS,
 });
 
@@ -259,6 +259,11 @@ export function recallSettings(config) {
       candidates: intAtLeast(r.db?.candidates, d.db.candidates, 1),
       wordPool: intAtLeast(r.db?.wordPool, d.db.wordPool, 1),
       minMeaning: Number.isFinite(r.db?.minMeaning) && r.db.minMeaning >= -1 && r.db.minMeaning <= 1 ? r.db.minMeaning : d.db.minMeaning,
+      // The index policy (src/memory/db/index-policy.js, schema v11): read there from the live config, normalised here alike.
+      vectorDays: intAtLeast(r.db?.vectorDays, d.db.vectorDays, 1),
+      touchDays: intAtLeast(r.db?.touchDays, d.db.touchDays, 1),
+      vectorEviction: r.db?.vectorEviction === true,
+      reembed: r.db?.reembed === true,
     },
     prefetch: prefetchSettingsOf(r.prefetch),
   };

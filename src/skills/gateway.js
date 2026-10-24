@@ -125,7 +125,8 @@ function budgetRefusal(skill, requester, context, args) {
  * @param {{ skill: string, args: object, principal: { kind: string }, requester: { id: string, roleIds?: string[] } | null,
  *   audience: { conversationId: string, memberIds?: string[] }, context: { config: object, selfId?: string,
  *   images?: object, speech?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean, ownInitiative?: boolean,
- *   lastRunAt?: number|null, now?: number } }} call
+ *   wakeKind?: string, wakeActions?: object[], lastRunAt?: number|null, now?: number } }} call
+ *   `wakeKind` and `wakeActions` (an inner turn, with `ownInitiative`): the wake envelope is checked with the access.
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
 export function checkSkill({ skill: name, args, principal, requester = null, audience, context = {} }) {
@@ -141,8 +142,11 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
     config: context.config,
     conversationId: targetConversation(args, null),
     currentConversationId: audience?.conversationId ?? null,
+    // An inner turn's wake envelope (src/skills/access.js#wakeEnvelopeRefusal): its kind and the turn's calls so far.
+    wakeKind: context.ownInitiative === true && typeof context.wakeKind === 'string' ? context.wakeKind : null,
+    wakeActions: Array.isArray(context.wakeActions) ? context.wakeActions : null,
   });
-  if (!access.allowed) return refused(access.reason, access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name);
+  if (!access.allowed) return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name));
 
   // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall); a GIF-only post: no text beside a `gif`.
   const bodyArg = skill.dispatch?.body;

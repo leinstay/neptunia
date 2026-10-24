@@ -19,6 +19,7 @@ import { channelCore, matchChannel, MESSAGE_LINK_RE, occursAsWholeWord } from '.
 import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
+import { nestedRefusal } from './access.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'anchor', 'media']);
@@ -424,7 +425,9 @@ function fromPort(result) {
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
  * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
  * arguments her call maps to (`dispatch.toOp`, as above), under the same timeout; its result is the call's as it is (a result without a
- * known status is `failed`).
+ * known status is `failed`). On her own initiative (an inner turn) the wake envelope of `envelope.wakeKind`
+ * (src/skills/access.js#nestedRefusal, over `deps.config`, the live config) is checked at the capabilities the skill
+ * reaches inside its operation, before it runs and again before its files are posted: `denied` `not-allowed`.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null, taskId?: string }>}
  */
 export async function executeCall(resolved, deps) {
@@ -458,6 +461,11 @@ export async function executeCall(resolved, deps) {
     const initiative = envelope.ownInitiative === true && !requester;
     const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnOp : initiative ? deps.runInitiativeOp : deps.runOp;
     if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    // An inner turn's wake envelope, at the capabilities this skill reaches inside its operation (a picture or a voice
+    // message is a post): checked before anything runs, so nothing paid is made for a post the envelope forbids.
+    const wakeKind = initiative && typeof envelope.wakeKind === 'string' ? envelope.wakeKind : null;
+    const nested = nestedRefusal({ config: deps.config, wakeKind, skill: resolved.skill });
+    if (nested) return { status: 'denied', code: nested.reason, reason: nested.detail, data: { text: '' } };
     const result = await withTimeout(run(call.op, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,
@@ -484,6 +492,9 @@ export async function executeCall(resolved, deps) {
     const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(result?.data?.voice ? { voice: result.data.voice } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}), ...(status === 'ok' && typeof result?.data?.intention?.id === 'string' ? { intentionId: result.data.intention.id } : {}) };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
+    // The post of the files is a post of hers: the wake envelope is asked again right where it happens.
+    const posting = nestedRefusal({ config: deps.config, wakeKind, capability: 'message.create' });
+    if (posting) return { status: 'denied', code: posting.reason, reason: posting.detail, data: { text } };
     const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));
     const sent = fromPort(await deps.port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
     return { ...sent, data: { text } };

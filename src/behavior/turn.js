@@ -2071,6 +2071,8 @@ export function createTurnRunner({
         mixedRequesters: envelope.mixed,
         // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
         ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
+        // An inner turn's wake envelope (innerLife.wakes.<kind>): its wake kind and the calls it made so far.
+        ...(draft?.inner?.wake?.kind ? { wakeKind: String(draft.inner.wake.kind), wakeActions: draft.innerActions ?? [] } : {}),
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
@@ -2224,6 +2226,8 @@ export function createTurnRunner({
           runOwnOp,
           runInitiativeOp,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
+          // The live config, for the wake envelope's check at the capabilities a skill reaches (src/skills/access.js).
+          config: hot.config,
           timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),

@@ -11,6 +11,14 @@
 // a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.skills`
 // false refuses every skill, and `skills.safeMode` true lets only the carried-over tags pass; a
 // skill behind a feature switch of its own (FEATURE_SKILLS) is refused while that switch is off.
+// Wake envelopes (schema v11 stage, spec 2026-10-24-memory-schema-v7, sections 6 and 11): an inner turn's call is
+// also checked against the envelope of its wake kind, `innerLife.wakes.<kind>` (`tools`: `"*"` or a list of skill
+// names, `family.*` naming a family; `maxActs`: the most calls that change something per turn; `maxTasks`: the most
+// errands per turn; `inputTokens`: the input budget the envelope declares). The default of every kind is `"*"` with no
+// caps, today's behaviour. The check runs at the resolved call (skillAccess, through the gateway) and again where a
+// skill reaches another capability inside its own operation (NESTED_CAPABILITIES: a picture or a voice message is a
+// post), so a skill the envelope allows cannot post where the envelope forbids posting. A refusal is the access code
+// `not-allowed` with the envelope's key as its reason.
 // Pure over the live config the caller reads at the moment of use.
 
 import { isPlainObject } from '../config.js';
@@ -54,6 +62,73 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
  */
 export const FEATURE_SKILLS = Object.freeze(Object.fromEntries(SKILL_DEFINITIONS.filter((definition) => definition.feature !== null).map((definition) => [definition.name, definition.feature])));
 
+/** The policy version of the wake envelopes (recorded on every wake run). */
+export const WAKE_POLICY_VERSION = 1;
+
+/**
+ * The capabilities a skill reaches inside its own operation, as the skills that stand for them: a picture and a voice
+ * message are posts (`message.create`). Checked against a wake's envelope before the operation runs and again where
+ * it posts (src/skills/executors.js, src/ops/shared.js#postingConversation).
+ */
+export const NESTED_CAPABILITIES = Object.freeze({
+  'draw.create': Object.freeze(['message.create']),
+  'voice.say': Object.freeze(['message.create']),
+});
+
+const EFFECTS_OF = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.effects]));
+const capOf = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
+
+/**
+ * The envelope of wake kind `kind` (`innerLife.wakes.<kind>`, read now): `{ tools, maxActs, maxTasks, inputTokens }`,
+ * `tools` `'*'` or a list of names; a missing or malformed value is today's behaviour (`'*'`, no cap).
+ */
+export function wakeEnvelope(config, kind) {
+  const given = isPlainObject(config?.innerLife?.wakes) && typeof kind === 'string' && isPlainObject(config.innerLife.wakes[kind]) ? config.innerLife.wakes[kind] : {};
+  const tools = Array.isArray(given.tools) ? given.tools.filter((name) => typeof name === 'string' && name) : '*';
+  return { tools, maxActs: capOf(given.maxActs), maxTasks: capOf(given.maxTasks), inputTokens: Number.isInteger(given.inputTokens) && given.inputTokens > 0 ? given.inputTokens : null };
+}
+
+/** Whether `envelope.tools` names `skill` (`'*'`, the name itself, or `<family>.*`). */
+export function envelopeAllows(envelope, skill) {
+  if (envelope.tools === '*') return true;
+  const family = String(skill).split('.')[0];
+  return envelope.tools.includes(skill) || envelope.tools.includes(`${family}.*`) || envelope.tools.includes('*');
+}
+
+/** A call that counts as done or proposed (src/behavior/turn.js `innerActions`). */
+const counted = (action) => action && (action.status === 'executed' || action.status === 'proposed');
+
+/**
+ * Null when the wake envelope of `wakeKind` lets `skill` run now, else `{ allowed: false, reason: 'not-allowed', detail }`
+ * (`detail`: `innerLife.wakes.<kind>.tools|maxActs|maxTasks`). No wake kind (not an inner turn): null. `actions` are
+ * the turn's calls so far (`{ skill, status }`): a call that changes something counts against `maxActs`, an errand
+ * (`task.run`) against `maxTasks`. With `nested` true only the allowlist is checked (the call itself was counted).
+ */
+export function wakeEnvelopeRefusal({ config, wakeKind = null, skill, actions = null, nested = false }) {
+  if (typeof wakeKind !== 'string' || !wakeKind) return null;
+  const envelope = wakeEnvelope(config, wakeKind);
+  const deny = (key) => ({ allowed: false, reason: CODE.NOT_ALLOWED, detail: `innerLife.wakes.${wakeKind}.${key}` });
+  if (!envelopeAllows(envelope, skill)) return deny('tools');
+  if (nested) return null;
+  const done = (Array.isArray(actions) ? actions : []).filter(counted);
+  if (envelope.maxActs !== null && (EFFECTS_OF.get(skill) ?? 'write') !== 'read' && done.filter((action) => (EFFECTS_OF.get(action.skill) ?? 'write') !== 'read').length >= envelope.maxActs) return deny('maxActs');
+  if (envelope.maxTasks !== null && skill === 'task.run' && done.filter((action) => action.skill === 'task.run').length >= envelope.maxTasks) return deny('maxTasks');
+  return null;
+}
+
+/**
+ * The envelope check of the capabilities `skill` reaches inside its operation (NESTED_CAPABILITIES), or of one
+ * `capability` given: null, or the first refusal.
+ */
+export function nestedRefusal({ config, wakeKind = null, skill = null, capability = null }) {
+  const names = capability ? [capability] : (NESTED_CAPABILITIES[skill] ?? []);
+  for (const name of names) {
+    const refusal = wakeEnvelopeRefusal({ config, wakeKind, skill: name, nested: true });
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
 /** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */
 export function skillFeatureOn(name, config) {
   const key = Object.hasOwn(FEATURE_SKILLS, name) ? FEATURE_SKILLS[name] : null;
@@ -93,13 +168,17 @@ export function grantedToPersona(config, selfId, name) {
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
  * grant to her user id under its name, grantedToPersona), else `not-allowed`. An
  * owner-only skill is granted like any other: who may have it run is the requester's right
- * (src/skills/gateway.js).
- * @param {{ skill: object, config: object, selfId?: string|null, conversationId?: string|null, currentConversationId?: string|null }} args
- * @returns {{ allowed: boolean, reason: string }}
+ * (src/skills/gateway.js). On an inner turn (`wakeKind`) the wake envelope goes before the carried-over tags
+ * (wakeEnvelopeRefusal over `wakeActions`, the turn's calls so far): `not-allowed` with its `detail`.
+ * @param {{ skill: object, config: object, selfId?: string|null, conversationId?: string|null, currentConversationId?: string|null,
+ *   wakeKind?: string|null, wakeActions?: object[]|null }} args
+ * @returns {{ allowed: boolean, reason: string, detail?: string }}
  */
-export function skillAccess({ skill, config, selfId = null, conversationId = null, currentConversationId = null }) {
+export function skillAccess({ skill, config, selfId = null, conversationId = null, currentConversationId = null, wakeKind = null, wakeActions = null }) {
   if (!skillsOn(config)) return { allowed: false, reason: CODE.SKILLS_OFF };
   if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: CODE.FEATURE_OFF };
+  const envelope = wakeEnvelopeRefusal({ config, wakeKind, skill: skill.name, actions: wakeActions });
+  if (envelope) return envelope;
   const target = conversationId ?? currentConversationId;
   const here = target === null || target === undefined ? currentConversationId == null : String(target) === String(currentConversationId);
   if (CARRIED_OVER.includes(skill.name) && here) return { allowed: true, reason: 'carried-over' };

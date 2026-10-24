@@ -27,6 +27,9 @@
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.js#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode and no authority.
+//   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
+//       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
+//       Bookkeeping of the database itself, not her memory: no mode and no authority.
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -68,6 +71,9 @@ import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortH
 import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
 import { ensureAudience, ensureInterface } from './rows.js';
 import { projectRow } from './graph.js';
+import { applyWakeWrite } from './wakes.js';
+import { applySkillsWrite } from './skills.js';
+import { applyIndexWrite } from './index-policy.js';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -373,6 +379,10 @@ function guard(update) {
 export function applyMemoryWrite(handle, update) {
   if (update?.kind === 'context') return writeContext(handle, update);
   if (update?.kind === 'description') return writeDescription(handle, update);
+  // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.
+  if (update?.kind === 'wake') return applyWakeWrite(handle, update);
+  if (update?.kind === 'skills') return applySkillsWrite(handle, update);
+  if (update?.kind === 'index-policy' || update?.kind === 'touch' || update?.kind === 'reembed') return applyIndexWrite(handle, update);
   if (update?.kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
   const at = iso(now ?? Date.now());
