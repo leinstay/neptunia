@@ -34,9 +34,11 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { lockPathOf, openMemoryDb } from './open.js';
 import { syncOnce, walk, unitsOf } from './sync.js';
+import { fillStems } from './stems.js';
 import { exportOne, idsUnderDir } from './export.js';
 import { channelPlaceId, guildPlaceId } from './ids.js';
 import { memoryRootOf } from '../root.js';
+import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -169,14 +171,16 @@ function startWorker({ workerFile, dataDir, log, codeOf }) {
 /**
  * @param {{ hot: { config: object }, dataDir: string, log?: object, now?: () => number,
  *   open?: typeof openMemoryDb, sync?: typeof syncOnce, defer?: (fn: () => void) => void, sliceMs?: number,
- *   clock?: () => number }} options
+ *   clock?: () => number, diaryMediaDeps?: () => ({ port: object, imageFetcher: object }|null) }} options
+ *   `diaryMediaDeps` (read at each tick) gives the interface port and the image fetcher the diary media job needs
+ *   (`memoryDb.diaryMedia`, diary-media.js); without it the job does nothing.
  *   `defer` runs a function on the next turn of the event loop (setImmediate); `clock` is a monotonic
  *   millisecond clock for the slices (performance.now); both are injected by the tests.
  */
 export function createMemoryDb({
   hot, dataDir, log = silent, now = Date.now, open, sync,
   defer = (fn) => setImmediate(fn), sliceMs = 30, clock = () => performance.now(),
-  worker: useWorker, workerFile = WORKER_FILE,
+  worker: useWorker, workerFile = WORKER_FILE, diaryMediaDeps = null, diarySleep,
 }) {
   const threaded = useWorker ?? (open === undefined && sync === undefined);
   open ??= openMemoryDb;
@@ -287,6 +291,15 @@ export function createMemoryDb({
       await yieldLoop();
     }
     if (handle && !closing && total.errors === 0) {
+      // The slices left the stems (sync.js): stemmed once now, from all the text the import brought.
+      try {
+        fillStems(handle.db);
+      } catch (error) {
+        total.errors += 1;
+        log.warn('memory db: stems failed', { code: codeOf(error) });
+      }
+    }
+    if (handle && !closing && total.errors === 0) {
       setMeta(IMPORT_DONE, '1');
       importDone = true;
     }
@@ -322,6 +335,24 @@ export function createMemoryDb({
     return running;
   }
 
+  // The diary's text and pictures (diary-media.js): off by default, one run per start over the rows still without text.
+  const diaryJob = createDiaryMedia({
+    db: () => (handle ? handle.db : null),
+    apply: (update) => (engine ? engine.call('diaryApply', { update }) : applyDiaryUpdate(handle, update)),
+    port: () => diaryMediaDeps?.()?.port ?? null,
+    imageFetcher: () => diaryMediaDeps?.()?.imageFetcher ?? null,
+    config: () => hot.config,
+    dataDir,
+    log,
+    sleep: diarySleep,
+  });
+  function startDiaryMedia() {
+    if (closing || !on() || !handle || !importDone || lastSyncAt === null || running) return;
+    if (hot.config?.memoryDb?.diaryMedia !== true || engine?.dead) return;
+    if (!diaryJob.hasWork()) return;
+    diaryJob.run().catch((error) => log.warn('diary media: run failed', { code: codeOf(error) }));
+  }
+
   /** The tick: follows the switch, runs a pass when one is due. Safe to call at any rate. */
   async function tick() {
     if (closing) return;
@@ -340,6 +371,7 @@ export function createMemoryDb({
     }
     if (!handle || running) return;
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
+    startDiaryMedia();
   }
 
   /** A flush wrote files: a pass soon, off the caller's path. */
@@ -351,6 +383,12 @@ export function createMemoryDb({
 
   const readActive = () => on() && settings().read && handle !== null && importDone && lastSyncAt !== null;
   const count = (key) => { reads[key] += 1; return null; };
+
+  /**
+   * The database for recall (src/memory/db/recall.js, `recall.backend` `db`): the read-only connection while the
+   * switch is on, this process has synced once and the first import is done; else null (recall then reads as it did).
+   */
+  const database = () => (on() && handle !== null && importDone && lastSyncAt !== null ? handle.db : null);
 
   /** What the store reads through (store.js `memoryRead`). */
   const reader = {
@@ -443,6 +481,7 @@ export function createMemoryDb({
     closing = true;
     const { closeMs } = settings();
     const deadline = performance.now() + closeMs;
+    await waitFor(diaryJob.stop(), closeMs);
     await waitFor(running, closeMs);
     if (handle && on() && importDone && !running && !engine?.dead) {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
@@ -450,5 +489,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, recordTurnReads, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, status, close };
 }

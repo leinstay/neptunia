@@ -21,7 +21,7 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
-const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'media']);
+const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'anchor', 'media']);
 
 /**
  * The options of conversation.read that are a message when written as `#N` or a link and a count

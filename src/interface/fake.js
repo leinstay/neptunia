@@ -192,6 +192,20 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       return ok({ ...message.ref });
     },
 
+    async fetchMessages(conversation, messageIds) {
+      calls.push({ op: 'fetchMessages', args: [conversation, messageIds] });
+      const early = takeQueued('fetchMessages');
+      if (early) return early;
+      const refused = refRefusal(conversation, iface);
+      if (refused) return refused;
+      const out = (Array.isArray(messageIds) ? messageIds : []).map((id) => {
+        const message = messages.get(`${conversation.conversationId}/${id}`);
+        if (!message || message.deleted) return { messageId: String(id), missing: true };
+        return { messageId: String(id), text: message.text, attachments: message.attachments.map((attachment) => ({ ...attachment })) };
+      });
+      return { ...ok(), messages: out };
+    },
+
     async typing(conversation) {
       const early = front('typing', [conversation]);
       if (early) return early;

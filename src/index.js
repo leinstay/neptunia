@@ -232,7 +232,8 @@ const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, w
 const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore] });
 // The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
 // below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
-const memoryDb = createMemoryDb({ hot, dataDir, log });
+// diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
+const memoryDb = createMemoryDb({ hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }) });
 const store = createStore({
   dataDir,
   memoryRead: memoryDb.reader,
@@ -358,7 +359,7 @@ const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
 // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
 // index (one embedding of the question per run).
-const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed });
+const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed, memoryDb });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();

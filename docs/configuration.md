@@ -232,6 +232,7 @@ The memory database (`features.memoryDb`). One SQLite file holding the memory in
 | `syncSeconds` | `60` | The longest gap between sync passes. A pass also runs soon after each store flush. A pass reads only the files that changed since the last one (a month of vectors that only grew reads just its new rows). The first pass on an empty database is the full import |
 | `closeTimeoutMs` | `10000` | At shutdown (or when the switch turns off), how long to wait for the pass under way and for the worker to close the database before the worker is terminated. A pass cut short is safe: the next start takes it up again |
 | `read` | `false` | Needs `features.memoryDb`. The store takes a memory file's first load, and the list of ids under a directory, from the database instead of the JSON files, once the process has synced. A file the database does not hold, or holds behind the disk, is read from the disk as before. Writes are unchanged. Must be exactly `true` to enable |
+| `diaryMedia` | `false` | Needs `features.memoryDb`, the first import done and `diary.channelId`. The core keeps its own copy of the diary: for every diary post that has Discord message ids and no text yet, it fetches those messages through the interface (at most one fetch a second), stores the post's text in the database and saves each picture under `data/media/diary/` (size cap `image.referenceMaxBytes`, timeout `context.vision.fetchTimeoutMs`), with a `media` row that carries the post's scope. A post whose messages are all gone is marked lost. A failure leaves the post for the next start. New posts are picked up after the next sync. Must be exactly `true` to enable |
 | `turnReads` | `true` | Needs `features.memoryDb`. After a turn's request is built, record which memory rows it carried (profile items, channel and guild notes, lore, recent lines, participation episodes, retrieved sources) in the database, one transaction per turn step. A missing key counts as on |
 
 ## `embed`
@@ -455,6 +456,20 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `locatorBonus` | `2` | When the question's date only helps find the event (`when-role: locator`, or a `when:` beside word or name forms without a role), the record, the archive and the vector index search past that date, and each stretch, cluster or memory item near it gets up to this much added to its score (in topic points: one matched form; scaled to one top rank when the score is fused with the meaning search). The full bonus inside the date's range, less with distance. `0` = the date gives no bonus |
 | `locatorDecayDays` | `7` | The bonus above falls linearly to nothing at this many days away from the date's range. Also how far before the date the record must reach for the extra broad Discord page to be skipped. `0` = a bonus only inside the range |
 | `locatorBroadShare` | `0.5` | Share of the kept stretches, clusters and memory items (rounded up) chosen by content alone, regardless of the date, so a misremembered date cannot crowd out the right event; the rest are chosen with the bonus. From `0` (all by the bonus) to `1` (all by content: the date changes nothing) |
+| `backend` | `"discord"` | Where the persona's own `memory.search` and the memory prefetch read the server's history. `"discord"`: Discord's search, the record, the record index and the vector files, as before. `"db"`: the memory database (`features.memoryDb` on, the database open and synced once; until then the old way is used), inside the read scope of the turn: a channel turn reads what a group may see, a private chat what its partner may. Read at the moment of use. See `recall.db` |
+
+### `recall.db`
+
+The settings of the database backend (`recall.backend: "db"`); the window and follow sizes are the `recall` ones above (`recordContext`, `followMessages`, `followGapMinutes`, `maxClusters`).
+
+| Key | Default | What it does |
+|---|---|---|
+| `gateShare` | `0.5` | From `0` to `1`. After the word, letter, meaning and people lists are fused (reciprocal rank, k 60), a hit needs at least this share of the best fused score to stay; the ones that stay are ranked by closeness to the question's date (the middle of its range) when it names one; with no date, by how many distinct terms and phrases a hit holds, and by closeness to now only among hits holding the same. `0` keeps every hit |
+| `candidates` | `40` | Rows taken from each list (words, letters, meaning, people) before they are fused. At least 1 |
+| `wordPool` | `400` | Rows fetched from the word and letter lists before they are ranked by how many distinct terms (then phrases, then bm25) each holds; the best `candidates` of that order go on to the fusion. At least 1; a value under `candidates` counts as `candidates` |
+| `minMeaning` | `0.35` | The least cosine a meaning hit needs to join the fusion, from `-1` to `1` |
+
+A `memory.search` call that names an `anchor` (a `#N` of a quoted line) with `move` (`up` earlier, `down` later) and `messages` or `minutes` reads the lines next to it instead of searching. The `hidden` marker (a better match exists only in a private conversation a channel turn may not open) carries no text and no count.
 
 ### `recall.prefetch`
 

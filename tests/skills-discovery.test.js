@@ -245,7 +245,7 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   const texts = { 'memory.search': { title: 'T', whenToUse: 'W', whenNotToUse: 'N' }, 'memory.journal.read': { title: 'J', whenToUse: 'jw', whenNotToUse: '' } };
   const exact = describeRows({ config, selfId: self, registry, texts, name: ' Memory.Search ' });
   assert.deepEqual(exact.rows.map((row) => [row.name, row.title, row.reason, row.allowed]), [['memory.search', 'T', 'allowed', true]]);
-  assert.deepEqual(exact.rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
+  assert.deepEqual(exact.rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms', 'anchor', 'move', 'messages', 'minutes']);
   const off = describeRows({ config, selfId: self, registry, texts, name: 'memory.journal.read' });
   assert.equal(off.rows[0].reason, 'not-allowed', 'not switched on for her');
   const family = describeRows({ config, selfId: self, registry, texts, name: 'memory' });

@@ -48,7 +48,7 @@ test('skills.describe: an exact name comes back in full with its arguments and w
   const env = envOf({ 'memory.search': grant });
   const result = await call(env, 'memory.search');
   assert.equal(result.status, 'ok');
-  assert.equal(result.data.text, 'memory.search: Search -- find old talk (allowed) Arguments: question*, people, channel, when, terms.');
+  assert.equal(result.data.text, 'memory.search: Search -- find old talk (allowed) Arguments: question, people, channel, when, terms, anchor, move, messages, minutes.');
   const off = await call(env, 'memory.journal.read');
   assert.match(off.data.text, /\(off\)/);
 });
