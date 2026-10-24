@@ -39,9 +39,19 @@
 //   episodes:     { subjectId, what, feeling, sources }
 //   affinity:     { personId, delta, reason, sources }
 //   descriptions: { subjectKind, subjectId, field, why }
+//   people:       { op: 'add', subjectKind: 'account' | 'participant', subjectId, sources, reason }   (schema v8)
+//                 shadow: a `decisions` row `proposed:people_add`. apply: a new person `person:<uuid>` (kind `person`,
+//                 the uuid minted here; `update.uuid` injects it in tests), a `proposed` link (`account_person_links`
+//                 or `participant_links`, evidence the first source) and a `decisions` row `people_add`. The account's
+//                 `person_id` is not set: it stays the projection of a verified link. A subject that already has a
+//                 person or a live link is rejected (`has_person`); the request does not offer the op yet.
+// mergePeople(handle, from, into, { by, reason, evidence, now }) is the writer of `people_merges` (no session op yet):
+// one row, the merged person's `status` `merged_into:<into>`; nothing else is rewritten (claims keep their subject,
+// links keep their rows); a merge into a person that resolves back to `from` is refused (`MERGE_CYCLE`).
 // Counts and codes only, never a text.
 
-import { CORE_AUTHORITY, otherSourceId, shortHash } from './ids.js';
+import { randomUUID } from 'node:crypto';
+import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.js';
 import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
 import { ensureAudience, ensureInterface } from './rows.js';
 
@@ -59,11 +69,12 @@ function targetOf(group, op) {
     case 'claims': return op.op === 'add' ? { kind: 'claim', id: null } : { kind: 'claim', id: op.id };
     case 'episodes': return { kind: 'episode', id: null };
     case 'affinity': return { kind: 'person', id: op.personId };
+    case 'people': return { kind: op.subjectKind, id: op.subjectId };
     default: return { kind: 'description', id: `desc:${op.subjectId}:${op.field}` };
   }
 }
 
-const nameOf = (group, op) => (group === 'claims' ? op.op : group === 'descriptions' ? 'description' : group === 'episodes' ? 'episode' : 'affinity');
+const nameOf = (group, op) => (group === 'claims' ? op.op : group === 'descriptions' ? 'description' : group === 'episodes' ? 'episode' : group === 'people' ? `people_${op.op}` : 'affinity');
 const reasonOf = (op) => (typeof op.reason === 'string' && op.reason ? op.reason : typeof op.why === 'string' && op.why ? op.why : null);
 
 const scopeOfRow = (row) => ({ scope_kind: row.scope_kind ?? null, scope_iface: row.scope_iface ?? null, scope_dm: row.scope_dm ?? null });
@@ -270,7 +281,46 @@ function applyAffinity(db, op, state) {
   counts.affinity += 1;
 }
 
-const emptyCounts = () => ({ proposed: 0, added: 0, confirmed: 0, revised: 0, retired: 0, episodes: 0, affinity: 0, flags: 0, missing: 0, rejected: 0, derived: 0, duplicate: 0 });
+/** The live link of an account or participant to a person (or, for a participant, to an account), if any. */
+function liveLinkOf(db, kind, id) {
+  if (kind === 'account') {
+    return db.prepare("SELECT id FROM account_person_links WHERE account_id = ? AND state IN ('proposed', 'verified') AND valid_to_at IS NULL LIMIT 1").get(id) ?? null;
+  }
+  return db.prepare("SELECT id FROM participant_links WHERE participant_id = ? AND state IN ('proposed', 'verified') AND valid_to_at IS NULL LIMIT 1").get(id) ?? null;
+}
+
+/** people:add in apply: a tentative person, its `proposed` link and a decision (see the head of this file). */
+function applyPeopleAdd(db, op, state) {
+  const { at, runId, index, counts } = state;
+  const evidence = evidenceOf(db, op.sources);
+  if (!evidence) return reject(db, state, 'people', op, 'unknown_source');
+  if (!present(op.reason)) return reject(db, state, 'people', op, 'no_reason');
+  if (op.subjectKind !== 'account' && op.subjectKind !== 'participant') return reject(db, state, 'people', op, 'bad_subject');
+  const subject = op.subjectKind === 'account'
+    ? db.prepare('SELECT id, person_id FROM accounts WHERE id = ? AND retired_at IS NULL').get(op.subjectId)
+    : db.prepare('SELECT id, NULL AS person_id FROM participants WHERE id = ?').get(op.subjectId);
+  if (!subject) { counts.missing += 1; return; }
+  if (subject.person_id || liveLinkOf(db, op.subjectKind, op.subjectId)) return reject(db, state, 'people', op, 'has_person');
+  const person = newPersonId(state.uuid);
+  db.prepare("INSERT INTO people (id, kind, first_seen_at, last_seen_at, status, owner_file) VALUES (?, 'person', ?, ?, 'active', NULL)").run(person, at, at);
+  let link;
+  if (op.subjectKind === 'account') {
+    link = linkId(op.subjectId, person);
+    db.prepare(`INSERT INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
+      VALUES (?, ?, ?, 'proposed', 'her', ?, ?, ?, NULL, ?)`).run(link, op.subjectId, person, op.reason, op.sources[0], at, at);
+  } else {
+    link = `plink:${op.subjectId}:${person}`;
+    db.prepare(`INSERT INTO participant_links (id, participant_id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
+      VALUES (?, ?, NULL, ?, 'proposed', 'her', ?, ?, ?, NULL, ?)`).run(link, op.subjectId, person, op.reason, op.sources[0], at, at);
+  }
+  db.prepare(
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
+     VALUES (?, ?, 'her', 'person', ?, 'people_add', ?, ?, NULL, NULL, NULL)`,
+  ).run(`dec:${runId}:${index}`, at, person, op.reason, json({ run: runId, op, link }));
+  counts.people += 1;
+}
+
+const emptyCounts = () => ({ proposed: 0, added: 0, confirmed: 0, revised: 0, retired: 0, episodes: 0, affinity: 0, flags: 0, missing: 0, rejected: 0, derived: 0, duplicate: 0, people: 0 });
 
 /** Throws unless `mode` is one the writer knows, and `apply` has the database as the writer. */
 function guard(update) {
@@ -303,8 +353,11 @@ export function applyMemoryWrite(handle, update) {
     const applied = run != null && mode === 'apply' && plan != null && run.outcome === 'ok';
     if (run) insertRun(db, run, mode, { applied, answerSource, at });
     if (plan && run) {
-      const state = { at, runId: run.id, run, scope: run.scope, maxDelta: update.maxDelta, counts, index: 0, audienceColumn: update.audienceColumn === true };
-      for (const group of ['claims', 'episodes', 'affinity', 'descriptions']) {
+      const state = {
+        at, runId: run.id, run, scope: run.scope, maxDelta: update.maxDelta, counts, index: 0, audienceColumn: update.audienceColumn === true,
+        uuid: typeof update.uuid === 'function' ? update.uuid : randomUUID,
+      };
+      for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people']) {
         for (const op of plan[group] ?? []) {
           state.index += 1;
           if (mode === 'shadow') {
@@ -316,6 +369,9 @@ export function applyMemoryWrite(handle, update) {
             applyEpisode(db, op, state);
           } else if (group === 'affinity') {
             applyAffinity(db, op, state);
+          } else if (group === 'people') {
+            if (op.op === 'add') applyPeopleAdd(db, op, state);
+            else reject(db, state, 'people', op, 'bad_op');
           } else {
             insertDecision(db, { id: `dec:${run.id}:${state.index}`, at, group, op, action: 'flag:description', run });
             counts.flags += 1;
@@ -398,4 +454,36 @@ function writeContext(handle, update) {
     ).run(row.id, row.mode, row.iface ?? null, row.destination_place_id ?? null, row.partner_person_id ?? null, row.policy_version ?? 1, row.issued_at).changes);
   });
   return { written };
+}
+
+/**
+ * Merges person `from` into person `into` (schema v8; the writer of `people_merges`, no session op yet). One
+ * transaction: a `people_merges` row (from, into, at, by, reason, evidence) and `from`'s `status` `merged_into:<into>`.
+ * History is never rewritten: claims, links and audiences keep their rows (a merge cannot widen a DM audience: those
+ * are per DM place). Refused, with a coded error: an unknown person (`UNKNOWN_PERSON`), one person (`SAME_PERSON`), her
+ * own row (`SELF_PERSON`), a person already merged (`ALREADY_MERGED`), a merge whose target resolves back to `from`
+ * (`MERGE_CYCLE`), no `by` (`BAD_MERGE`). Returns `{ id, survivor }`: the final survivor of the chain `into` starts.
+ * @param {{ db: object, transaction: (fn: () => any) => any }} handle
+ * @param {string} from
+ * @param {string} into
+ * @param {{ by: string, reason?: string, evidence?: any, now?: number }} opts
+ */
+export function mergePeople(handle, from, into, { by, reason = null, evidence = null, now } = {}) {
+  if (!present(from) || !present(into) || !present(by)) throw coded('BAD_MERGE');
+  if (from === into) throw coded('SAME_PERSON');
+  if (from === SELF_PERSON || into === SELF_PERSON) throw coded('SELF_PERSON');
+  const at = iso(now ?? Date.now());
+  return handle.transaction(() => {
+    const { db } = handle;
+    const exists = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?');
+    if (!exists.get(from) || !exists.get(into)) throw coded('UNKNOWN_PERSON');
+    if (db.prepare('SELECT 1 AS ok FROM people_merges WHERE from_person = ?').get(from)) throw coded('ALREADY_MERGED');
+    const survivor = survivorOf(db, into);
+    if (survivor === from) throw coded('MERGE_CYCLE');
+    const id = `merge:${from}`;
+    db.prepare('INSERT INTO people_merges (id, from_person, into_person, at, by, reason, evidence) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, from, into, at, by, reason, evidence === null || evidence === undefined ? null : json(evidence));
+    db.prepare('UPDATE people SET status = ? WHERE id = ?').run(`merged_into:${into}`, from);
+    return { id, survivor };
+  });
 }

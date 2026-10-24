@@ -34,6 +34,7 @@ import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { exportOne } from './export.js';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.js';
 import { audienceOf, dmContext, groupContext, scopeWhere, wellFormed } from './scope.js';
+import { columnsOf } from './rows.js';
 
 export const SESSION_PURPOSE = 'memory-session';
 export const CLAIM_KINDS = Object.freeze(['detail', 'interest', 'alias', 'injoke', 'self_fact', 'lesson', 'pattern']);
@@ -178,8 +179,10 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, a
   }
   where.push(CURRENT);
   if (since) { where.push('s.occurred_at >= ?'); params.push(since); }
+  // Schema v8: a line by a thread-local poster names its participant.
+  const participant = columnsOf(db, 'sources').has('author_participant') ? 's.author_participant' : 'NULL';
   const rows = db.prepare(
-    `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, s.occurred_at, s.text, s.direct
+    `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, ${participant} AS author_participant, s.occurred_at, s.text, s.direct
        FROM sources s WHERE ${where.join(' AND ')} ORDER BY s.rowid LIMIT ?`,
   ).all(...params, maxMessages);
   const out = [];
@@ -195,7 +198,12 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, a
 
 const foldName = (text) => String(text ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** The names and ids of the accounts and people a batch touches. */
+/**
+ * The names and ids of the accounts and people a batch touches, and its authors: every account and participant (schema
+ * v8) that wrote a line of it apart from her, in order of their first line, each with a handle `aN` (`authors`: handle ->
+ * `{ kind: 'account' | 'participant', id, hasPerson }`). The handles are what `people:add` names; the request does not
+ * render them yet (docs/prompt-contract.md).
+ */
 function peopleOf(db, batch, selfName) {
   const accountIds = [...new Set(batch.map((line) => line.author_account).filter(Boolean))];
   const accounts = new Map();
@@ -204,6 +212,22 @@ function peopleOf(db, batch, selfName) {
     if (!row) continue;
     const names = parseJson(row.names);
     accounts.set(id, { personId: row.person_id, native: row.native_id ?? nativeOf(id), name: Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : (row.native_id ?? id) });
+  }
+  const participants = new Map();
+  for (const id of new Set(batch.map((line) => line.author_participant).filter(Boolean))) {
+    const row = db.prepare('SELECT id, display FROM participants WHERE id = ?').get(id);
+    if (row) participants.set(id, { name: row.display || '?' });
+  }
+  const authors = new Map();
+  const handled = new Set();
+  for (const line of batch) {
+    if (line.kind === 'said') continue;
+    const entry = line.author_participant && participants.has(line.author_participant)
+      ? { kind: 'participant', id: line.author_participant }
+      : line.author_account && accounts.has(line.author_account) ? { kind: 'account', id: line.author_account } : null;
+    if (!entry || handled.has(entry.id)) continue;
+    handled.add(entry.id);
+    authors.set(`a${authors.size + 1}`, { ...entry, hasPerson: entry.kind === 'account' ? Boolean(accounts.get(entry.id).personId) : false });
   }
   const byPerson = new Map();
   for (const line of batch) {
@@ -214,13 +238,14 @@ function peopleOf(db, batch, selfName) {
     entry.count += 1;
     byPerson.set(account.personId, entry);
   }
-  return { accounts, people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)), selfName };
+  return { accounts, participants, authors, people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)), selfName };
 }
 
 /** One line of the batch: `#n [time] [pN] name: text`, a line addressed to her led by `→ `, her own under her self label. */
-function lineText(line, n, { accounts, selfName, labels, timezone, handle }) {
+function lineText(line, n, { accounts, participants, selfName, labels, timezone, handle }) {
   const own = line.kind === 'said';
-  const author = own ? String(labels?.self ?? '{name}').replace('{name}', selfName) : (accounts.get(line.author_account)?.name ?? line.author_account ?? '?');
+  const author = own ? String(labels?.self ?? '{name}').replace('{name}', selfName)
+    : (accounts.get(line.author_account)?.name ?? participants?.get(line.author_participant)?.name ?? line.author_account ?? '?');
   const lead = !own && line.direct ? '→ ' : '';
   const place = handle ? `[${handle}] ` : '';
   return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${author}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
@@ -274,7 +299,8 @@ function profileAsOf(db, profile, cutoff) {
 /**
  * The request of one batch (one page of its people). Returns `{ messages, maps, lines, people, places, pages, cutoff }`:
  * `maps` carries what the answer's local ids stand for (`sources`: `#n` -> source id, `claims`: `cN` / `sN` -> claim id,
- * `episodes`: `eN` -> episode id, `places`: `pN` -> place id); `people` are the page's people (the answer's subjects);
+ * `episodes`: `eN` -> episode id, `places`: `pN` -> place id, `authors`: `aN` -> an account or participant of the batch,
+ * not rendered yet); `people` are the page's people (the answer's subjects);
  * `pages` is how many requests the batch takes. The context (profiles, claims, episodes) is as of the batch's
  * cutoff, the newest line: what was created or seen after it is left out.
  * @param {{ db: object, scope: object, batch: object[], config: object, prompts: object, selfName: string, now: number, page?: number }} input
@@ -284,8 +310,8 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const labels = prompts?.labels ?? {};
   const timezone = config?.bot?.timezone ?? 'UTC';
   const { ctx } = scope;
-  const maps = { sources: new Map(), claims: new Map(), episodes: new Map(), places: new Map() };
   const touched = peopleOf(db, batch, selfName);
+  const maps = { sources: new Map(), claims: new Map(), episodes: new Map(), places: new Map(), authors: touched.authors };
   const nameOf = (id) => {
     for (const account of touched.accounts.values()) if (account.native === String(id)) return account.name;
     return null;
@@ -314,7 +340,7 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     if (typeof line.text !== 'string' || line.text.trim() === '') continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id);
-    rendered.push(lineText(line, n, { accounts: touched.accounts, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null }));
+    rendered.push(lineText(line, n, { accounts: touched.accounts, participants: touched.participants, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null }));
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 
@@ -473,7 +499,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
  * @param {{ maps: object, people: object[] }} request  `people`: the subjects of this request (its page of the batch)
  */
 export function validateAnswer(value, { maps, people }) {
-  const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
+  const plan = { claims: [], episodes: [], affinity: [], descriptions: [], people: [] };
   const counts = { kept: 0, dropped: {} };
   const drop = (reason) => { counts.dropped[reason] = (counts.dropped[reason] ?? 0) + 1; };
   const personByKey = new Map();
@@ -587,6 +613,19 @@ export function validateAnswer(value, { maps, people }) {
     if (!DESCRIPTION_FIELDS.includes(item.field)) { drop('bad_field'); continue; }
     if (!text(item.why)) { drop('no_reason'); continue; }
     keep('descriptions', { subjectKind: subject.kind, subjectId: subject.id, field: item.field, why: text(item.why) });
+  }
+
+  // people:add (schema v8): an account or participant of the batch, by its handle, becomes a tentative person. The
+  // request does not offer the op yet (docs/prompt-contract.md); the validator and the writer take it.
+  for (const item of list('people')) {
+    if (!isObject(item) || text(item.op) !== 'add') { drop('bad_op'); continue; }
+    const author = maps.authors?.get(text(item.subject));
+    if (!author) { drop('unknown_subject'); continue; }
+    if (author.hasPerson) { drop('has_person'); continue; }
+    if (!text(item.reason)) { drop('no_reason'); continue; }
+    const sources = sourcesOf(item.sources);
+    if (!sources) continue;
+    keep('people', { op: 'add', subjectKind: author.kind, subjectId: author.id, sources, reason: text(item.reason) });
   }
   return { plan, counts };
 }
@@ -850,7 +889,7 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
     return finish('bad_answer', { answer });
   }
   const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people });
-  const counted = { lines: request.lines, page, pages, kept: counts.kept, dropped: counts.dropped, claims: plan.claims.length, episodes: plan.episodes.length, affinity: plan.affinity.length, descriptions: plan.descriptions.length };
+  const counted = { lines: request.lines, page, pages, kept: counts.kept, dropped: counts.dropped, claims: plan.claims.length, episodes: plan.episodes.length, affinity: plan.affinity.length, descriptions: plan.descriptions.length, people: plan.people.length };
   return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', { plan, counts: counted, answer });
 }
 

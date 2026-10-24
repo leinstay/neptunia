@@ -30,7 +30,9 @@
 // audience, an account's or a place's authority and native key, a source's author kind), so a remap re-derives them
 // and never nulls them; the DM place a DM row names and its audience are created when missing; people, accounts and
 // places are registered in `external_keys`; an account with a person gets its `account_person_links` row once. Those
-// rows have no `owner_file`: no remap and no retirement of a file ever touches them.
+// rows have no `owner_file`: no remap and no retirement of a file ever touches them. From schema v8 a line's `reply_to`
+// also gives it a `source_relations` row (rows.js#ensureRelations), inserted once and resolved when the replied line is
+// stored; the tables the database owns (participants, links, merges, capture, relations) are never remapped or retired.
 //
 // Order inside a pass: ordinary files first, then archive segments, participation and vectors (an archived item that is not in hot
 // memory becomes a retired `historical` claim, which needs the hot claims to be in), then request dumps (a dump's
@@ -49,7 +51,7 @@ import { classify } from './map/index.js';
 import { stepSourceBelongsTo } from './map/requests.js';
 import { personId } from './ids.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
-import { deriveRow, ensureLinks, ensureNodeKeys } from './rows.js';
+import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -142,6 +144,8 @@ function writeRow(db, table, row, opts) {
   const derived = deriveRow(db, table, row, { at: opts.at });
   upsert(db, table, derived, opts);
   if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, derived, { at: opts.at });
+  // Schema v8: a line's `reply_to` is a `replies_to` relation, and relations waiting for this line are resolved.
+  if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   if (found && found.owner_file !== row.owner_file) {
     prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, row), row.owner_file);
   }

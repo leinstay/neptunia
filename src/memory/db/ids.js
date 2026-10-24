@@ -1,5 +1,6 @@
 // Deterministic ids for the memory database (spec section 2): the same input gives the same id, so a re-import
-// writes the same rows. Pure, no I/O except `resolveAlias`, which reads `external_keys` on a connection it is given.
+// writes the same rows. Pure, no I/O except `resolveAlias` and `survivorOf`, which read `external_keys` and
+// `people_merges` on a connection they are given.
 //
 // Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
 //   - the legacy Discord-shaped ids (`person:discord:<id>`, `discord:<id>`, `discord:channel:<id>`, `src:discord:...`):
@@ -7,6 +8,7 @@
 //     is taken apart, and only for those legacy spellings;
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
+// Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -129,6 +131,41 @@ export function resolveAlias(db, authority, kind, nativeKey, atIso = null) {
   if (nodes.length === 1) return nodes[0];
   return { unresolved: true, candidates: matching.length > 0 ? matching : rows };
 }
+
+/**
+ * The person a person id stands for now: the final survivor of its merges (`people_merges`, from -> into, followed to
+ * the end). A person never merged is itself. A loop (refused by the writer, never expected) stops at the first repeat.
+ */
+export function survivorOf(db, person) {
+  const next = db.prepare('SELECT into_person FROM people_merges WHERE from_person = ?');
+  const seen = new Set();
+  let current = String(person);
+  while (!seen.has(current)) {
+    seen.add(current);
+    const row = next.get(current);
+    if (!row) return current;
+    current = row.into_person;
+  }
+  return current;
+}
+
+/**
+ * The interface's native kind of the objects its legacy record lines name (`message` for Discord: `sources.native_id`
+ * is a message id); null for any other interface (an observation names its own kind).
+ */
+export const legacyNativeKind = (iface) => (iface === IFACE ? 'message' : null);
+
+/**
+ * The key of a relation's target named by its native tuple (schema v8, `source_relations.target_key`): JSON of the
+ * ordered array `[authority, kind, native key, generation, revision]` (a revision not named is null: any revision).
+ * The same spelling as `canonicalKey`, the same refusals. It never changes once written, whether or not the target
+ * arrives later.
+ */
+export function externalTargetKey({ authority, kind, key, generation = 1, revision = null }) {
+  return canonicalKey(String(authority), [String(kind), String(key), Number.isInteger(generation) ? generation : 1, Number.isInteger(revision) ? revision : null]);
+}
+/** The key of a relation's target named by our own source id: `source:<id>`. */
+export const sourceTargetKey = (sourceId) => `source:${text(sourceId)}`;
 
 /** A message source: `src:discord:<messageId>:<revision>:<kind>`. */
 export const messageSourceId = (messageId, revision, kind) => `src:${IFACE}:${text(messageId)}:${text(revision)}:${kind}`;

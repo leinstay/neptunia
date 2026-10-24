@@ -21,6 +21,10 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `sources` | audience-scoped | every observed or said line, her answers and her session answers (internal) |
 | `sources_fts` | inherits from sources | the word index; a search joins back to `sources` and filters there before any limit |
 | `sources_tri` | inherits from sources | the trigram index, as `sources_fts` |
+| `source_relations` | inherits from sources | what a line replies to, quotes, reposts, mentions, edits or refers to; read with the replying line's audience, and the target line keeps its own |
+| `capture_bundles` | inherits from sources | the context stored around one line in a foreign place, read with the audience of its anchor line |
+| `capture_members` | inherits from capture_bundles | the lines of a bundle and their roles; each line keeps its own audience |
+| `capture_events` | inherits from capture_bundles | each step a bundle grew by, with the coverage after it (append-only) |
 | `vectors` | audience-scoped | one embedding per chunk, with the scope of its line |
 | `claims` | audience-scoped | what she holds true about a person, a place or herself |
 | `claim_versions` | inherits from claims | the history of a claim |
@@ -41,6 +45,7 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `decisions` | internal-only | why the engine or she changed memory (proposals, rejections, quarantines) |
 | `turn_reads` | internal-only | which rows each request carried, in which context and by which reader |
 | `execution_contexts` | internal-only | the contexts the core issued for turns, sessions and wakes |
+| `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
 | `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
 | `ledger_tasks` | internal-only | the task ledger's copy |
 | `ledger_attempts` | internal-only | the task ledger's copy |
@@ -53,6 +58,9 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `people` | structural | one row per person (hers is `person:self`); the attitude columns mirror the public profile, the DM attitude lives in `affinity_events` |
 | `accounts` | structural | one row per account on an interface; names are what the interface shows everyone |
 | `account_person_links` | structural | which person an account belongs to, with its state (proposed, verified, revoked) and validity |
+| `participants` | structural | posters known only inside a thread or a site (a thread token, a site token, a post number, a display name or nothing), never a person by themselves; the display name is what the place shows everyone there |
+| `participant_links` | structural | which account or person a participant is, with its state and validity |
+| `people_merges` | structural | which person was found to be another one, when, by whom and why |
 | `places` | structural | servers, channels and DM conversations; a DM place's name is read only by the internal context |
 | `memberships` | inherits from places | an account's nick, roles and address in a server |
 | `interfaces` | structural | the integrations (`discord`, `cli`, `core`, ...) |
@@ -79,3 +87,16 @@ The migration fills the new columns from the columns that were there; most are e
 - `places.conversation`: `dm` for a DM place, empty for a container (a server, a category), `group` otherwise.
 - `recorded_at` of the keys, links and quarantine decisions the migration writes: the time of the last sync before
   the migration (the time the legacy rows are as of), so two copies migrated from the same rows agree.
+
+## Columns filled by the migration to schema 8
+
+- `sources.native_kind`: `message` for every Discord line with a message id (the native object a line is); empty
+  otherwise. `sources.generation`: 1 (no native key had been reused before schema 8).
+- `source_relations`: one `replies_to` row for every Discord line with a `reply_to`, its target key the replied
+  message on the line's own authority (any revision); resolved to the first stored revision of that message where the
+  record holds it, left waiting otherwise. Its `recorded_at` and `resolved_at` are the time of the last sync before the
+  migration. A line that arrives later fills in the relations waiting for it.
+
+A DM observed on an interface where the partner is no known person yet carries the audience of its DM place
+(`aud:dm:<place>`) and a scope triple with an empty partner, which the triple reader shows in no context: it fails
+closed until the partner becomes a person.
