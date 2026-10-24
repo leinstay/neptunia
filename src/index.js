@@ -517,6 +517,7 @@ const inner = createInnerLife({
     skills: () => grantedSkillNames({ config: hot.config, selfId: client.user?.id ?? null, registry: skillRegistry() }),
     agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
     selfId: () => client.user?.id ?? null,
+    focusPeople: () => (hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople() : null),
   },
   log,
 });

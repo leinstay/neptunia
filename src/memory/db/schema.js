@@ -8,6 +8,8 @@
 //
 // There is no `now` table and no `states` table: the owner dropped both.
 
+import { deriveAllMirrorPublications } from './publish.js';
+
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
 const V1 = `
@@ -650,8 +652,99 @@ const V9 = [
   `INSERT OR REPLACE INTO meta (key, value) SELECT 'graph_pending', '{"unit":0,"after":null}' WHERE ${PENDING_TABLES.map((table) => `EXISTS (SELECT 1 FROM ${table})`).join(' OR ')};`,
 ].join('\n');
 
-/** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9];
+// Version 10 (spec 2026-10-24-memory-schema-v7, stages 4 and 5; section 11 item 4 and the smaller resolutions on focus):
+// publications with grants, and the focus set.
+//  - `publications`: one row per outward send of something of hers (a diary entry first): the exact rendered text and
+//    its content hash (immutable once known: a trigger refuses a change), the destination place, the execution context,
+//    the grant it went out under, its state (`queued` | `sent` | `failed` | `unknown`), a unique idempotency key and
+//    the interface's receipts (`[{ authority, kind, key }]`). Never deleted. publish.js is its writer;
+//  - `publication_grants`: the owner's exceptions, bound to one content hash of one row and a set of destination places;
+//    immutable but for `revoked_at` (set once). Never deleted;
+//  - every `diary_mirrors` row becomes a `sent` publication (the mirror's id, its entry's text and hash, the mirror's
+//    place as the destination when that place exists, its message ids as receipts, the key `diary:<entry>:<place>`),
+//    by the same function the sync uses for every later mirror write (publish.js#deriveMirrorPublication), and is
+//    projected into the graph (`published_as`, `publication_source`; left to the pending projection when v9's is still
+//    pending). That one step is JavaScript (SQLite has no
+//    SHA-256), which is why this entry is a function of the connection;
+//  - focus: `relationship_daily` (counts per person, UTC day and audience, recounted from `sources` by focus.js),
+//    `focus_members` (the current close and exploring sets only, no snapshot), `focus_events` (append-only history:
+//    every change of bucket, every challenge and its end, pins over capacity) and `focus_overrides` (the owner's pins
+//    and exclusions). Filled by focus.js, never by a file: the sync never touches them.
+
+/** Every table schema v10 adds. */
+export const V10_TABLES = ['publications', 'publication_grants', 'relationship_daily', 'focus_members', 'focus_events', 'focus_overrides'];
+/** The buckets of the focus set. */
+export const FOCUS_BUCKETS = ['close', 'exploring'];
+
+const V10_SQL = [
+  `CREATE TABLE publication_grants (
+    id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, row_id TEXT NOT NULL, content_hash TEXT NOT NULL CHECK (content_hash <> ''),
+    destinations JSON NOT NULL CHECK (json_valid(destinations) AND json_type(destinations) = 'array' AND json_array_length(destinations) > 0),
+    approved_by TEXT NOT NULL CHECK (approved_by <> ''), approved_at TEXT NOT NULL, reason TEXT, revoked_at TEXT
+  );`,
+  'CREATE INDEX publication_grants_row ON publication_grants(row_kind, row_id, content_hash);',
+  `CREATE TRIGGER publication_grants_fixed BEFORE UPDATE OF id, row_kind, row_id, content_hash, destinations, approved_by, approved_at, reason ON publication_grants
+    BEGIN SELECT RAISE(ABORT, 'a grant is immutable; revoke it and grant again'); END;`,
+  `CREATE TRIGGER publication_grants_revoked_once BEFORE UPDATE OF revoked_at ON publication_grants WHEN old.revoked_at IS NOT NULL
+    BEGIN SELECT RAISE(ABORT, 'a revoked grant stays revoked'); END;`,
+  ...APPEND_ONLY('publication_grants', 'grants are never deleted').slice(1),
+  `CREATE TABLE publications (
+    id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, row_id TEXT NOT NULL, content_hash TEXT, rendered TEXT,
+    destination_place_id TEXT REFERENCES places(id), context_id TEXT REFERENCES execution_contexts(id),
+    grant_id TEXT REFERENCES publication_grants(id),
+    status TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed', 'unknown')),
+    idempotency_key TEXT NOT NULL UNIQUE, receipts JSON CHECK (receipts IS NULL OR (json_valid(receipts) AND json_type(receipts) = 'array')),
+    created_at TEXT NOT NULL, sent_at TEXT, owner_file TEXT, retired_at TEXT,
+    CHECK ((content_hash IS NULL) = (rendered IS NULL))
+  );`,
+  'CREATE INDEX publications_row ON publications(row_kind, row_id);',
+  'CREATE INDEX publications_owner ON publications(owner_file);',
+  "CREATE INDEX publications_unsettled ON publications(status) WHERE status IN ('queued', 'unknown');",
+  `CREATE TRIGGER publications_content_fixed BEFORE UPDATE OF rendered, content_hash ON publications
+    WHEN old.content_hash IS NOT NULL AND (new.content_hash IS NOT old.content_hash OR new.rendered IS NOT old.rendered)
+    BEGIN SELECT RAISE(ABORT, 'a publication keeps its content; an edit is a new publication'); END;`,
+  `CREATE TRIGGER publications_key_fixed BEFORE UPDATE OF id, row_kind, row_id, idempotency_key ON publications
+    BEGIN SELECT RAISE(ABORT, 'a publication keeps its row and its key'); END;`,
+  ...APPEND_ONLY('publications', 'publications are never deleted').slice(1),
+
+  `CREATE TABLE relationship_daily (
+    person_id TEXT NOT NULL REFERENCES people(id), day TEXT NOT NULL, audience_id TEXT NOT NULL REFERENCES audiences(id),
+    addressed_by_them INTEGER NOT NULL DEFAULT 0, addressed_by_her INTEGER NOT NULL DEFAULT 0,
+    meaningful INTEGER NOT NULL DEFAULT 0 CHECK (meaningful IN (0, 1)), last_contact_at TEXT,
+    PRIMARY KEY (person_id, day, audience_id)
+  );`,
+  'CREATE INDEX relationship_daily_day ON relationship_daily(day);',
+  `CREATE TABLE focus_members (
+    person_id TEXT PRIMARY KEY REFERENCES people(id), bucket TEXT NOT NULL CHECK (bucket IN (${IN(['close', 'exploring'])})),
+    since TEXT NOT NULL, score REAL, policy_version INTEGER NOT NULL, reason JSON
+  );`,
+  `CREATE TABLE focus_events (
+    id TEXT PRIMARY KEY, person_id TEXT NOT NULL, at TEXT NOT NULL, old_bucket TEXT, new_bucket TEXT, reason TEXT NOT NULL,
+    policy_version INTEGER NOT NULL, extra JSON
+  );`,
+  'CREATE INDEX focus_events_person ON focus_events(person_id, at);',
+  'CREATE INDEX focus_events_at ON focus_events(at);',
+  ...APPEND_ONLY('focus_events', 'focus events are append-only'),
+  `CREATE TABLE focus_overrides (
+    person_id TEXT PRIMARY KEY REFERENCES people(id), kind TEXT NOT NULL CHECK (kind IN ('pin', 'exclude')), expires_at TEXT,
+    approved_by TEXT NOT NULL CHECK (approved_by <> ''), reason TEXT
+  );`,
+].join('\n');
+
+/**
+ * Schema v10: the tables, then every mirror's publication (one function for the migration and the sync), projected now
+ * unless the whole projection is still pending from v9 (then the pending projection takes the publications with it).
+ */
+function V10(db) {
+  db.exec(V10_SQL);
+  const at = db.prepare(`SELECT ${NOW_SQL} AS at`).get().at;
+  const pending = db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'graph_pending'").get() !== undefined;
+  deriveAllMirrorPublications(db, { at, project: !pending });
+}
+
+/** Each entry moves the schema one version up: SQL text, or a function of the connection for a step SQL cannot do.
+ * Never edit a shipped entry: append a new one. */
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];

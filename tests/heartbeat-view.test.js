@@ -390,3 +390,37 @@ test('budget: over heartbeat.maxTokens the lists shed their last items in order 
   assert.equal(rowsOf(tightText, /^name-p\d: /), 5, 'people beyond 5 are shed');
   assert.ok(tightText.includes(labels.wake.heartbeat.more.replace('{more}', '3')), 'three places and three people are counted');
 });
+
+// ---------- the focus set (innerLife.heartbeat.focusSource, src/memory/db/focus.js) ----------
+
+test('focus: a reader that gives nothing leaves the view exactly as the affinity ranking makes it', async () => {
+  const profiles = [profile('a', 10), profile('b', 50), profile('c', 30), profile('self', 99)];
+  const lines = [seen('b', NOW - 2 * HOUR_MS, 'c2'), said(NOW - HOUR_MS, 'c3', ['c'])];
+  const input = () => base({ profiles, selfId: 'self', settings: { people: 2 }, record: record(lines) });
+  const plain = await buildHeartbeatFacts(input());
+  for (const focusPeople of [null, () => null, () => ({}), () => { throw new Error('closed'); }]) {
+    const facts = await buildHeartbeatFacts({ ...input(), focusPeople });
+    assert.equal(JSON.stringify(facts), JSON.stringify(plain));
+  }
+  const words = (heartbeat) => wakeBlockText({ items: [{ kind: 'heartbeat', intentionIds: [] }], intentions: [], now: NOW, timezone: 'UTC', heartbeat, here: null }, labels);
+  assert.equal(words(await buildHeartbeatFacts({ ...input(), focusPeople: () => null })), words(plain));
+});
+
+test('focus: with the sets the close members come first, then the exploring ones with their share; a member with no profile still shows', async () => {
+  const profiles = [profile('a', 90), profile('b', 80), profile('c', 70), profile('d', 60), profile('e', 50), profile('x', 1)];
+  const focusPeople = () => ({ close: ['c', 'a', 'z', 'b', 'd', 'self'], exploring: ['x', 'e', 'a'], exploringShare: 0.25 });
+  // 8 people: 0.25 * 8 = 2 exploring slots; the close set has 5 (self left out), so the room left goes to exploring too.
+  const wide = await buildHeartbeatFacts(base({ profiles, selfId: 'self', settings: { people: 8 }, focusPeople }));
+  assert.deepEqual(wide.people.map((p) => p.id), ['c', 'a', 'z', 'b', 'd', 'x', 'e']);
+  // 4 people: one exploring slot (0.25 * 4), the close ones first.
+  const narrow = await buildHeartbeatFacts(base({ profiles, selfId: 'self', settings: { people: 4 }, focusPeople }));
+  assert.deepEqual(narrow.people.map((p) => p.id), ['c', 'a', 'z', 'x']);
+  // A small share still gives one slot when there are exploring members.
+  const small = await buildHeartbeatFacts(base({ profiles, selfId: 'self', settings: { people: 4 }, focusPeople: () => ({ close: ['a', 'b', 'c', 'd'], exploring: ['e'], exploringShare: 0.01 }) }));
+  assert.deepEqual(small.people.map((p) => p.id), ['a', 'b', 'c', 'e']);
+  // A member with no profile here is listed by id with no profile facts.
+  const z = narrow.people.find((p) => p.id === 'z');
+  assert.deepEqual({ interests: z.interests, lastAt: z.lastAt, lastPlace: z.lastPlace }, { interests: [], lastAt: null, lastPlace: null });
+  // Empty sets: an empty block (the profiles are not consulted while the sets are given).
+  assert.deepEqual((await buildHeartbeatFacts(base({ profiles, focusPeople: () => ({ close: [], exploring: [] }) }))).people, []);
+});

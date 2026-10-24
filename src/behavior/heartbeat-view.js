@@ -8,6 +8,11 @@
 //              talked with them and where (the record: their own line, or a line of hers naming them,
 //              else the profile's `lastSeen` with no place), the top 3 interests of the profile, the
 //              places where they wrote lately (no presence or do-not-disturb state: the owner, 2026-10-20);
+//              with `innerLife.heartbeat.focusSource` `db` the members come from her focus set instead (the injected
+//              `focusPeople()`, src/memory/db/focus.js): the close members first, then the exploring ones with a share of
+//              `focus.exploringShare` of `heartbeat.people` (rounded, at least one when there are any; more when the
+//              close set leaves room). The reader returns null while the switch is off or the database is closed, and
+//              the ranking by affinity applies as before;
 //   places     (`activity`) where others wrote in the last `heartbeat.placesHours` (the record, her own lines
 //              left out), the busiest first, each with its line count, who wrote and its last lines as previews;
 //              the places page of the review stays passed through as `places`;
@@ -281,6 +286,39 @@ function closestOf({ profiles, selfId, settings }) {
     .slice(0, Math.max(0, settings.people));
 }
 
+/**
+ * The members of her focus set, in the view's order: the close ones first, then the exploring ones with their share of
+ * `settings.people` (see the head of this file). `focus`: `{ close: string[], exploring: string[], exploringShare }`.
+ */
+function focusedOf({ focus, profiles, selfId, settings }) {
+  const self = String(selfId ?? '');
+  const byId = new Map(list(profiles).filter((profile) => profile && typeof profile.id === 'string').map((profile) => [profile.id, profile]));
+  const ids = (value) => [...new Set(list(value).filter((id) => typeof id === 'string' && id && id !== self))];
+  const close = ids(focus.close);
+  const exploring = ids(focus.exploring).filter((id) => !close.includes(id));
+  const n = Math.max(0, Math.floor(settings.people));
+  const share = Number.isFinite(focus.exploringShare) && focus.exploringShare >= 0 ? focus.exploringShare : 0.15;
+  const slots = exploring.length > 0 && n > 0 ? Math.min(exploring.length, Math.max(1, Math.round(share * n))) : 0;
+  const shownClose = close.slice(0, n - slots);
+  const shownExploring = exploring.slice(0, n - shownClose.length);
+  return [...shownClose, ...shownExploring].map((id) => {
+    const profile = byId.get(id) ?? { id };
+    return { profile, seen: Date.parse(profile.lastSeen) };
+  });
+}
+
+/** The focus sets the injected reader gives, or null (the switch off, the database closed, a failing read). */
+function readFocus(focusPeople, warn) {
+  if (typeof focusPeople !== 'function') return null;
+  try {
+    const sets = focusPeople();
+    return sets && typeof sets === 'object' && (Array.isArray(sets.close) || Array.isArray(sets.exploring)) ? sets : null;
+  } catch (error) {
+    warn('focus', error);
+    return null;
+  }
+}
+
 /** Her life: the last day, her open intentions and the latest closed ones. */
 function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName, scan }) {
   const dayAgo = now - DAY_MS;
@@ -434,6 +472,8 @@ function sinceOf({ from, now, settings, innerTurns, tasks, intentions, diary, un
  * @param {(id: string) => string|null} [input.nameOf]
  * @param {(id: string) => string} [input.placeName]
  * @param {(memberId: string) => string[]} [input.activePlaces]  Where a member wrote lately (names).
+ * @param {(() => ({ close: string[], exploring: string[], exploringShare?: number }|null))|null} [input.focusPeople]
+ *   Her focus set as member ids (`innerLife.heartbeat.focusSource` `db`); null or absent: the profiles' affinity ranks.
  * @param {{ warn?: Function }} [input.log]
  * @returns {Promise<object>}
  */
@@ -457,6 +497,7 @@ export async function buildHeartbeatFacts({
   nameOf = null,
   placeName = (id) => id,
   activePlaces = null,
+  focusPeople = null,
   log = null,
 }) {
   const s = { ...VIEW_DEFAULTS, ...Object.fromEntries(Object.entries(settings ?? {}).filter(([, value]) => Number.isFinite(value) && value >= 0)) };
@@ -487,7 +528,8 @@ export async function buildHeartbeatFacts({
   } catch (error) {
     warn('address', error);
   }
-  const ranked = closestOf({ profiles, selfId, settings: s });
+  const focus = readFocus(focusPeople, warn);
+  const ranked = focus ? focusedOf({ focus, profiles, selfId, settings: s }) : closestOf({ profiles, selfId, settings: s });
   const filteredAll = filteredOf({ from, now, missedVerdicts: answers.filter((entry) => entry.event === 'verdict'), addressVerdicts: [...address, ...journalAddress], placeName: place });
   const filteredShown = filteredAll.slice(0, s.filteredShown);
   const scan = await scanRecord({ record, guildId, now, settings: s, selfId, chosen: new Set(ranked.map(({ profile }) => profile.id)), wantIds: new Set(filteredShown.map((item) => item.messageId).filter(Boolean)), warn });

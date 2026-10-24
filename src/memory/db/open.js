@@ -67,13 +67,15 @@ export function schemaVersion(db) {
   return db.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v ?? 0;
 }
 
-/** Applies every migration above the current version, in one transaction. */
+/** Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the connection. */
 export function migrate(db, migrations = MIGRATIONS) {
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
     while (version < migrations.length) {
-      db.exec(migrations[version]);
+      const step = migrations[version];
+      if (typeof step === 'function') step(db);
+      else db.exec(step);
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
     }

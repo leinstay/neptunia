@@ -15,7 +15,8 @@
 // Audiences (the rule the manifest names per entry): an edge carries the audience of the row it came from; an identity
 // link takes the audience of its evidence source when it has one, else the audience of the account's place (an
 // account lives in its interface: the group of that interface; a participant lives in its scope place), else internal;
-// a membership takes the audience of its place. A place's own audience is its conversation's (`dm` -> its DM audience,
+// a membership takes the audience of its place; a publication (schema v10) once sent takes the audience of its
+// destination place (the diary entry's when it names none), and before that is internal. A place's own audience is its conversation's (`dm` -> its DM audience,
 // `group` -> the group of its interface, a container such as a server -> the group of its interface, anything else
 // internal). `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a
 // claim, ...) witnesses itself; every live edge witnesses both of its ends with its own audience.
@@ -50,7 +51,7 @@ export const NODE_KINDS = Object.freeze({
   intention: { table: 'intentions', key: 'id', created: 'created_ms', ms: true, audience: 'audience_id', retired: 'retired_at' },
   work: { table: 'work', key: 'id', created: 'created_ms', ms: true, audience: 'audience_id', retired: 'retired_at' },
   decision: { table: 'decisions', key: 'id', created: 'at', internal: true, retired: 'retired_at' },
-  publication: { table: 'diary_mirrors', key: 'id', created: 'posted_at', inherits: ['diary', 'diary_id'], retired: 'retired_at' },
+  publication: { table: 'publications', key: 'id', created: 'created_at', retired: 'retired_at' },
   skill: { table: null, deferred: DEFERRED.skill },
 });
 
@@ -123,16 +124,20 @@ export const PREDICATES = Object.freeze({
     rule: 'each live version supersedes the live version before it (recorded time, then row order); a claim superseded_by another', audience: 'the claim or the description',
   },
   published_as: {
-    from: ['diary'], to: ['publication'], table: 'diary_mirrors', columns: ['diary_id', 'id', 'posted_at', 'retired_at'],
-    rule: 'every mirror of a diary entry (a publication)', audience: 'the diary entry',
+    from: ['diary'], to: ['publication'], table: 'publications', columns: ['row_kind', 'row_id', 'id', 'status', 'destination_place_id', 'created_at', 'retired_at'],
+    rule: 'every publication of a diary entry (row kind diary; a diary mirror is one, schema v10)',
+    audience: 'a sent publication: its destination place, else the diary entry; one not sent (queued, failed, unknown): internal',
   },
-  publication_source: { from: ['publication'], to: ['source'], table: null, deferred: 'the publications of stage 4 (receipts with source ids)' },
+  publication_source: {
+    from: ['publication'], to: ['source'], table: 'publications', columns: ['receipts', 'status', 'retired_at'],
+    rule: 'each receipt of a sent publication that names a stored line (its native tuple, the first stored revision)', audience: 'as published_as',
+  },
 });
 
 /** Every projected table and the unit it belongs to: [unit table, the column naming the unit] (null: the row is its own unit). */
 export const UNIT_OF = Object.freeze({
   interfaces: null, authorities: null, people: null, accounts: null, participants: null, places: null, memberships: null, sources: null,
-  claims: null, descriptions: null, episodes: null, diary: null, media: null, intentions: null, work: null, decisions: null,
+  claims: null, descriptions: null, episodes: null, diary: null, publications: null, media: null, intentions: null, work: null, decisions: null,
   account_person_links: ['accounts', 'account_id'],
   participant_links: ['participants', 'participant_id'],
   source_relations: ['sources', 'source_id'],
@@ -141,7 +146,6 @@ export const UNIT_OF = Object.freeze({
   claim_version_sources: ['claims', 'version_id'],
   description_versions: ['descriptions', 'description_id'],
   episode_sources: ['episodes', 'episode_id'],
-  diary_mirrors: ['diary', 'diary_id'],
 });
 
 /**
@@ -151,7 +155,7 @@ export const UNIT_OF = Object.freeze({
  */
 export const UNIT_ORDER = Object.freeze([
   'interfaces', 'authorities', 'people', 'accounts', 'participants', 'places', 'memberships', 'sources', 'claims', 'descriptions',
-  'episodes', 'diary', 'media', 'intentions', 'work', 'decisions',
+  'episodes', 'diary', 'publications', 'media', 'intentions', 'work', 'decisions',
 ]);
 
 /** The predicates graph.js projects (the spec list less the deferred ones). */
