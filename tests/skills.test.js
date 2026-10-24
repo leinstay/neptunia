@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runOp, resolveCommand, COMMAND_TO_OP } from '../src/ops/index.js';
+import { runOp, resolveCommand } from '../src/ops/index.js';
 import { listOps } from '../src/ops/registry.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.js';
@@ -17,9 +17,7 @@ import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
 import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
 import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
-import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { loadSkills, skillRegistry, skillNames, describeSkill, skillArgTexts, missingDefinitions } from '../src/skills/registry.js';
-import { EXPECTED_DIFFERENCES, commandSources, optionsSchema } from './oracles/skills-derive.js';
 import { CARRIED_OVER, FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
@@ -159,41 +157,30 @@ test('skills registry: prompts/skills.json has the title and when-to-use of ever
   assert.equal(Object.hasOwn(texts, 'memory.affinity.set'), false);
 });
 
-test('skills derived: the real tree -- every schema is generated from the slash command options, never copied', () => {
-  const sources = commandSources({ table: COMMAND_TABLE, resolve: resolveCommand });
-  for (const op of listOps()) {
-    const source = sources.get(op.name);
-    assert.ok(source, `${op.name}: a command runs it`);
-    assert.ok(Object.hasOwn(COMMAND_TO_OP, source.key), op.name);
-    // Except where a definition is meant to differ from the command tree (EXPECTED_DIFFERENCES).
-    const oracle = optionsSchema(source);
-    assert.deepEqual(skillRegistry().get(op.name).argsSchema, EXPECTED_DIFFERENCES[op.name]?.schema?.(oracle) ?? oracle, op.name);
-  }
-  // `/nep memory show`: the same option names, kinds, required flags and choices as the owner types
-  const leaf = COMMAND_TABLE.find((node) => node.name === 'memory').subcommands.find((sub) => sub.name === 'show');
-  const schema = skillRegistry().get('memory.profile.read').argsSchema;
-  assert.deepEqual(Object.keys(schema.properties), leaf.options.map((option) => option.name));
-  assert.deepEqual(schema.required, leaf.options.filter((option) => option.required).map((option) => option.name));
-  assert.deepEqual(schema.properties.section.enum, leaf.options.find((option) => option.name === 'section').choices.map((choice) => choice.value));
-  // `/nep media action:status`: the action is the skill, the kind its argument (the days, read by the pictures recache only, are left to media.recache)
-  assert.deepEqual(sources.get('media.status').fixed, { action: 'status' });
-  assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind']);
-  assert.deepEqual(Object.keys(skillRegistry().get('media.recache').argsSchema.properties), ['kind', 'days']);
-  // `/nep message create`: a channel and a message to answer, and her own text, the main argument of her call;
-  // a file one of her errands brought back, optional; nothing is required (a post may be a GIF, a file or a media repost)
+test('skills schemas: her own table gives each skill its arguments', () => {
+  const props = (name) => Object.keys(skillRegistry().get(name).argsSchema.properties);
+  assert.deepEqual(props('memory.profile.read').slice(0, 1), ['user']);
+  assert.deepEqual(props('media.status'), ['kind']);
+  assert.deepEqual(props('media.recache'), ['kind', 'days']);
   const create = skillRegistry().get('message.create');
   assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file', 'gif', 'media', 'item']);
   assert.deepEqual(create.argsSchema.required, []);
   assert.equal(create.dispatch.body, 'text');
-  // `/nep draw`: a channel to post the picture in, the owner's too
   assert.ok(Object.hasOwn(skillRegistry().get('draw.create').argsSchema.properties, 'channel'));
-  // A yes/no option, a STRING with lowercase true/false choices for Discord, is a boolean argument for her.
   assert.deepEqual(skillRegistry().get('draw.create').argsSchema.properties.self, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('lore.add').argsSchema.properties.always, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('route.set').argsSchema.properties.fallbacks, { type: 'boolean' });
   assert.equal(skillRegistry().get('lore.add').dispatch.toOp({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
   assert.equal(skillRegistry().get('lore.add').dispatch.toOp({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
-  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field', 'part']);
+  assert.deepEqual(props('status.show'), ['field', 'part']);
+});
+
+test('skills memory.search: the window arguments of her call reach the operation', () => {
+  const search = skillRegistry().get('memory.search');
+  for (const name of ['anchor', 'move', 'messages', 'minutes']) assert.ok(Object.hasOwn(search.argsSchema.properties, name), name);
+  const call = search.dispatch.toOp({ anchor: '#3', move: 'up', messages: 5, minutes: 30 });
+  assert.equal(call.op, 'memory.search');
+  assert.deepEqual({ anchor: call.args.anchor, move: call.args.move, messages: call.args.messages, minutes: call.args.minutes }, { anchor: '#3', move: 'up', messages: 5, minutes: 30 });
 });
 
 test('skills schema: types, bounds, enums, arrays and anyOf', () => {

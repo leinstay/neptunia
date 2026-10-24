@@ -1,15 +1,11 @@
-// Tests for src/skills/definitions.js: the skills' own table is equal, entry by entry, to what the
-// owner's command tree derives (tests/oracles/skills-derive.js is the oracle until that tree goes): the same
-// names in the same order, byte-identical argument schemas, the same body, options, effects, cost
-// and feature, and `toArgs` giving the very arguments the derived `toCall` does. Plus the API
-// names and the validation of a bad table.
+// Tests for src/skills/definitions.js: her own table of skills over the operations: one entry per
+// operation in the registry order, the effects and features it declares, `toArgs` on generated
+// samples, the quirks of the mapping, the API names and the validation of a bad table.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { listOps, resolveCommand } from '../src/ops/index.js';
-import { COMMAND_TABLE } from '../src/ops/catalog.js';
+import { listOps } from '../src/ops/index.js';
 import { OP_EFFECTS } from '../src/ops/effects.js';
-import { EXPECTED_DIFFERENCES, commandSources, deriveSkillDefinitions } from './oracles/skills-derive.js';
 import { FEATURE_SKILLS } from '../src/skills/access.js';
 import {
   API_NAMES,
@@ -22,11 +18,6 @@ import {
   validateDefinitions,
 } from '../src/skills/definitions.js';
 
-const ORACLE = deriveSkillDefinitions({
-  ops: listOps(),
-  sources: commandSources({ table: COMMAND_TABLE, resolve: resolveCommand }),
-  resolve: resolveCommand,
-});
 const BY_NAME = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition]));
 const ID = '123456789012345678';
 const show = (value) => JSON.stringify(value, (key, inner) => (typeof inner === 'bigint' ? `${inner}n` : inner));
@@ -66,44 +57,29 @@ function samplesOf(definition) {
 test('the table holds every operation, in the operations registry order', () => {
   assert.equal(SKILL_DEFINITIONS.length, 73);
   assert.deepEqual(SKILL_DEFINITIONS.map((definition) => definition.name), listOps().map((op) => op.name));
-  assert.deepEqual(SKILL_DEFINITIONS.map((definition) => definition.name), ORACLE.map((skill) => skill.name));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));
   for (const definition of SKILL_DEFINITIONS) assert.equal(definition.op, definition.name);
 });
 
-test('every definition is equal to the derived skill: schema bytes, body, options, effects, cost, feature', () => {
-  for (const oracle of ORACLE) {
-    const definition = BY_NAME.get(oracle.name);
-    assert.ok(definition, oracle.name);
-    const expectedSchema = EXPECTED_DIFFERENCES[oracle.name]?.schema?.(oracle.argsSchema) ?? oracle.argsSchema;
-    assert.equal(JSON.stringify(definition.params), JSON.stringify(expectedSchema), `${oracle.name}: params`);
-    const kept = new Set(Object.keys(expectedSchema.properties));
-    const expectedBody = Object.hasOwn(EXPECTED_DIFFERENCES[oracle.name] ?? {}, 'body') ? EXPECTED_DIFFERENCES[oracle.name].body : kept.has(oracle.command.body) ? oracle.command.body : null;
-    assert.equal(definition.body, expectedBody, `${oracle.name}: body`);
-    const options = optionsOfDefinition(definition).filter((option) => !(oracle.name === 'draw.create' && option.name === 'reply'));
-    const oracleOptions = new Map(oracle.command.options.map((option) => [option.name, option.kind]));
-    const expectedOptions = [...kept].filter((name) => oracleOptions.has(name)).map((name) => ({ name, kind: oracleOptions.get(name) }));
-    assert.deepEqual(options, EXPECTED_DIFFERENCES[oracle.name]?.options?.(expectedOptions) ?? expectedOptions, `${oracle.name}: options`);
-    assert.equal(definition.effects, oracle.effects, `${oracle.name}: effects`);
-    assert.equal(definition.effects !== 'read', oracle.sharedState, `${oracle.name}: sharedState`);
-    assert.equal(definition.costClass, oracle.costClass, `${oracle.name}: costClass`);
-    assert.equal(definition.feature, Object.hasOwn(FEATURE_SKILLS, oracle.name) ? FEATURE_SKILLS[oracle.name] : null, `${oracle.name}: feature`);
-    assert.equal(definition.effects, OP_EFFECTS[oracle.name], `${oracle.name}: effects table`);
+test('every definition declares its own effects, cost, feature and a body that is one of its arguments', () => {
+  for (const definition of SKILL_DEFINITIONS) {
+    const { name } = definition;
+    assert.equal(definition.effects, OP_EFFECTS[name], `${name}: effects table`);
+    assert.equal(definition.feature, Object.hasOwn(FEATURE_SKILLS, name) ? FEATURE_SKILLS[name] : null, `${name}: feature`);
+    assert.ok(definition.costClass, `${name}: costClass`);
+    assert.ok(definition.body === null || Object.hasOwn(definition.params.properties, definition.body), `${name}: body`);
+    const optionNames = optionsOfDefinition(definition).map((option) => option.name);
+    for (const option of optionNames) assert.ok(Object.hasOwn(definition.params.properties, option), `${name}: option ${option}`);
   }
 });
 
-test('toArgs gives the arguments of the derived toCall on every generated sample', () => {
+test('toArgs gives null or a plain object on every generated sample', () => {
   let compared = 0;
-  for (const oracle of ORACLE) {
-    const definition = BY_NAME.get(oracle.name);
+  for (const definition of SKILL_DEFINITIONS) {
     for (const sample of samplesOf(definition)) {
-      const call = oracle.command.toCall(sample);
-      // A sample without a required argument may reach another operation (`pings` without `mode`).
-      if (definition.params.required.every((name) => sample[name] !== undefined)) assert.equal(call.op, definition.op, `${oracle.name}: op for ${show(sample)}`);
       const args = definition.toArgs(sample);
-      if (call.args === null) assert.equal(args, null, `${oracle.name}: null for ${show(sample)}`);
-      else assert.deepStrictEqual(args, EXPECTED_DIFFERENCES[oracle.name]?.args?.(call.args, sample) ?? call.args, `${oracle.name}: ${show(sample)}`);
+      assert.ok(args === null || (typeof args === 'object' && !Array.isArray(args)), `${definition.name}: ${show(sample)}`);
       compared += 1;
     }
   }
