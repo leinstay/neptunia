@@ -1,0 +1,43 @@
+[
+ [
+  {
+   "id": "id",
+   "title": "title",
+   "keys": [
+    "keys[]"
+   ],
+   "text": "text",
+   "always": true,
+   "source": "source",
+   "weight": 1,
+   "createdAt": "createdAt",
+   "updatedAt": "updatedAt"
+  },
+  {
+   "id": "id",
+   "title": "title",
+   "keys": [
+    "keys[]"
+   ],
+   "text": "text",
+   "always": false,
+   "source": "source",
+   "weight": 2,
+   "createdAt": "createdAt",
+   "updatedAt": "updatedAt"
+  },
+  {
+   "id": "id",
+   "title": "title",
+   "keys": [
+    "keys[]"
+   ],
+   "text": "text",
+   "always": true,
+   "source": "source",
+   "weight": 3,
+   "createdAt": "createdAt",
+   "updatedAt": "updatedAt"
+  }
+ ]
+]
