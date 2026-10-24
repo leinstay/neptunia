@@ -2,7 +2,8 @@
 // and the Discord message ids a post was sent as; the post's text and its pictures live in Discord. This job asks
 // the interface (port.fetchMessages) for those messages, stores the text in `diary.text`, downloads each image to
 // `data/media/diary/<diary id>-<n>.<ext>` and records it as a `media` row (kind diary, owner the diary id, the
-// scope of the diary row). A post whose messages are all gone is marked `lost = 1`. The Discord posts are mirrors;
+// scope of the diary row). The diary here is the one truth: a post whose messages Discord no longer has keeps what the
+// database holds (its gist), and its text is set empty so it is not asked for again. The Discord posts are mirrors;
 // the files here are the core's copy. Other people's media are never fetched here (they stay references).
 //
 // One-shot and idempotent. `run()` handles every pending row (a live diary row with message ids and no text) once
@@ -11,7 +12,7 @@
 // a failure leaves it whole for the next start; files are written atomically (temp file, then rename) under
 // deterministic names, so a repeat overwrites with the same bytes. The row writes (`applyDiaryUpdate`) run on the
 // writer connection: in the sync worker thread, or on the calling thread when there is none. The export ignores
-// `text` and `lost` (the old JSON has no such fields). Logs carry counts and codes only.
+// `text` (the old JSON has no such field). Logs carry counts and codes only.
 //
 // Audio: an `audio/*` attachment (a voice message, or mp3 / m4a / wav) is saved next to the pictures, in the same
 // numbering, under the cap `memoryDb.diaryAudioMaxBytes` (default 8 MB) and the same timeout, with a plain fetch
@@ -52,14 +53,14 @@ function audioExtension(mime, name) {
 }
 
 /**
- * The diary rows still to fill: live, mirrored, not lost, and either no text yet or (a post saved before audio was
+ * The diary rows still to fill: live, mirrored, and either no text yet or (a post saved before audio was
  * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any.
  */
 export function pendingDiaryRows(db) {
   const rows = db.prepare(
     `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
-      WHERE d.retired_at IS NULL AND (d.lost IS NULL OR d.lost = 0)
+      WHERE d.retired_at IS NULL
         AND (d.text IS NULL
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
@@ -82,7 +83,7 @@ export function pendingDiaryRows(db) {
 }
 
 /**
- * Writes one row's result on the writer connection: `{ id, text, lost, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
+ * Writes one row's result on the writer connection: `{ id, text, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
  * The media rows take the diary row's scope. One transaction.
  */
 export function applyDiaryUpdate(handle, update) {
@@ -90,8 +91,7 @@ export function applyDiaryUpdate(handle, update) {
     const db = handle.db;
     const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
     if (!diary) return;
-    if (update.lost) db.prepare('UPDATE diary SET lost = 1 WHERE id = ?').run(update.id);
-    else db.prepare('UPDATE diary SET text = ?, lost = NULL WHERE id = ?').run(update.text ?? '', update.id);
+    db.prepare('UPDATE diary SET text = ? WHERE id = ?').run(update.text ?? '', update.id);
     const insert = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at)
        VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
@@ -169,7 +169,7 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
     };
   }
 
-  /** One row: fetch, download, write. Returns 'done', 'lost' or 'failed'. */
+  /** One row: fetch, download, write. Returns 'done' or 'failed'. */
   async function handleRow(row, { channelId, maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
     const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId: channelId }, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
@@ -179,8 +179,9 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
     const byId = new Map(result.messages.map((message) => [message.messageId, message]));
     const present = row.messageIds.map((id) => byId.get(id)).filter((message) => message && !message.missing);
     if (present.length === 0) {
-      await apply({ id: row.id, lost: true });
-      return 'lost';
+      // Nothing of it is left in Discord: the database keeps what it has; an empty text marks it fetched.
+      await apply({ id: row.id, text: '', media: [] });
+      return 'done';
     }
     const text = present.map((message) => (typeof message.text === 'string' ? message.text : '')).filter((part) => part !== '').join('\n');
     const media = [];
@@ -245,12 +246,12 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
         });
       }
     }
-    await apply({ id: row.id, text, lost: false, media });
+    await apply({ id: row.id, text, media });
     return 'done';
   }
 
   async function runOnce() {
-    const counts = { done: 0, lost: 0, failed: 0 };
+    const counts = { done: 0, failed: 0 };
     const database = db();
     const adapter = port();
     const fetcher = imageFetcher();
@@ -277,7 +278,7 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
         log.warn('diary media: row failed', { code: codeOf(error) });
       }
     }
-    if (counts.done + counts.lost + counts.failed > 0) log.info('diary media: pass', counts);
+    if (counts.done + counts.failed > 0) log.info('diary media: pass', counts);
     return counts;
   }
 
