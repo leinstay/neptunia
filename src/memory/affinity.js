@@ -367,8 +367,9 @@ const MAX_DECAY_DAYS = 3650;
  *
  * @param {object} affinity  Stored `{ score, reason, history, decayedAt? }`, or malformed/undefined.
  * @param {number} nowMs     Epoch milliseconds.
- * @param {{ decayPerDay?: number, decayPower?: number }} [cfg]  `config.relationships`.
- *   `decayPerDay` 0, missing or non-finite = off; `decayPower` not a positive finite number = 1.
+ * @param {{ decayPerDay?: number, decayPower?: number, skipMs?: number }} [cfg]  `config.relationships`.
+ *   `decayPerDay` 0, missing or non-finite = off; `decayPower` not a positive finite number = 1; `skipMs` the time she was
+ *   not running since the last sweep (index.js), which moves the stamp forward before any day is counted.
  * @returns {{ affinity: object, days: number }}  `affinity` is the SAME object when nothing
  *   changes (off, less than a day elapsed, a stamp in the future); `days` = whole days applied.
  */
@@ -379,13 +380,17 @@ export function decayAffinity(affinity, nowMs, cfg = {}) {
   const extra = affinity && typeof affinity === 'object' && !Array.isArray(affinity) ? affinity : {};
   const base = { ...extra, ...normalizeAffinity(affinity) };
 
-  const since = typeof base.decayedAt === 'string' ? Date.parse(base.decayedAt) : NaN;
-  if (!Number.isFinite(since)) {
+  const stamped = typeof base.decayedAt === 'string' ? Date.parse(base.decayedAt) : NaN;
+  if (!Number.isFinite(stamped)) {
     return { affinity: { ...base, decayedAt: new Date(nowMs).toISOString() }, days: 0 };
   }
+  // Time she was not running does not count (owner, 2026-10-24: decay happens only while she is awake): `skipMs`, the
+  // downtime since the last sweep, moves the stamp forward first, never past now.
+  const skip = Number.isFinite(cfg?.skipMs) && cfg.skipMs > 0 ? cfg.skipMs : 0;
+  const since = skip > 0 ? Math.max(stamped, Math.min(nowMs, stamped + skip)) : stamped;
 
   const days = Math.min(MAX_DECAY_DAYS, Math.floor((nowMs - since) / DAY_MS));
-  if (days < 1) return { affinity, days: 0 };
+  if (days < 1) return since === stamped ? { affinity, days: 0 } : { affinity: { ...base, decayedAt: new Date(since).toISOString() }, days: 0 };
 
   let score = base.score;
   for (let i = 0; i < days && score !== 0; i += 1) {
