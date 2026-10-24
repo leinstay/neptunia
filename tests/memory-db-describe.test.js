@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { claimDiff, fieldCap, parseDescriptionAnswer, reviewDescription, showsClaim } from '../src/memory/db/describe.js';
-import { messageSourceId, personId } from '../src/memory/db/ids.js';
+import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.js';
+import { dmContext } from '../src/memory/db/scope.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -86,7 +87,8 @@ const ctxOf = (env, { llm, cfg = config(), envVars = { OPENROUTER_MEMORY_KEY: 'k
   now: () => NOW,
   log: {},
   selfName: 'Nep',
-  write: async (update) => applyMemoryWrite(env.handle, update),
+  // The service stamps the authority of the live config into every write; so does this one.
+  write: async (update) => applyMemoryWrite(env.handle, { ...update, authority: cfg.memoryDb?.authority ?? 'json' }),
 });
 
 const answer = (description, reason) => `<think>looking</think>\n<description>${description}</description>\n<reason>${reason}</reason>`;
@@ -165,7 +167,7 @@ test('in shadow the draft and the final are one description_versions row of orig
     await reviewDescription(env.db, subjectOf(env), 'character', { ctx: { ...ctxOf(env, { llm: again }), now: () => NOW + 2 * 3600_000 } });
     const evidence = again.calls[0].messages[1].content.split('<evidence>')[1].split('</evidence>')[0];
     assert.match(evidence, /confirm \[k-cafe\]/);
-    assert.doesNotMatch(evidence, /moved to Thessaloniki/, 'what the last review already had is not new evidence');
+    assert.match(evidence, /moved to Thessaloniki/, 'a shadow review does not move the last-reviewed mark: the accepted version of September is still the last one');
   } finally {
     env.done();
   }
@@ -226,4 +228,108 @@ test('the claim-level diff is a text match over a claim words: what the old text
   assert.equal(showsClaim('anything', claims[3]), false, 'a claim with no word of four letters is never shown by a match');
   const diff = claimDiff(claims, 'Likes café mornings. Plays chess privately.', 'Likes café mornings. Moved to Thessaloniki.');
   assert.deepEqual([diff.kept, diff.lost.map((c) => c.id), diff.gained.map((c) => c.id)], [1, ['b'], ['c']]);
+});
+
+const applyConfig = (extra = {}) => ({ ...config({ mode: 'apply' }), memoryDb: { authority: 'db', session: { mode: 'apply' }, ...extra } });
+
+test('a description is identified by its scope: a private review of the same subject and field is a description of its own', async () => {
+  const env = fixture();
+  try {
+    const dm = dmContext(personId(ADA), 'discord');
+    const llm = fakeLlm(answer('A private draft.', 'r'), answer('A private final.', 'r'));
+    const result = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: { ...ctxOf(env, { llm }), readCtx: dm } });
+    assert.equal(result.status, 'ok');
+    assert.equal(result.row.descriptionId, `desc:dm.discord.${personId(ADA)}:${env.person}:character`);
+    assert.doesNotMatch(llm.calls[1].messages[1].content, /<current>/, 'the group description is not the private one');
+    // the stored group description keeps the id it has and is found again
+    const group = fakeLlm(answer('g', 'r'), answer('h', 'r'));
+    const again = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm: group }) });
+    assert.equal(again.row.descriptionId, `desc:${env.person}:character`);
+    assert.match(group.calls[1].messages[1].content, /<current>\nAda likes café mornings/);
+  } finally {
+    env.done();
+  }
+});
+
+test('the version stores its exact evidence: claim and source ids, model, prompt hashes, and both whole answers as internal sources', async () => {
+  const env = fixture();
+  try {
+    // a retired link is not evidence (it would sort first if it counted)
+    env.db.prepare("INSERT INTO claim_sources (claim_id, source_id, position, retired_at) VALUES ('k-cafe', ?, -1, '2026-10-01T00:00:00.000Z')").run(messageSourceId('s3', 1, 'seen'));
+    const llm = fakeLlm(answer('A draft.', 'because'), answer('The final.', 'longer'));
+    const result = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm }) });
+    assert.equal(result.status, 'ok');
+    const extra = JSON.parse(env.db.prepare("SELECT extra FROM description_versions WHERE origin = 'shadow'").get().extra);
+    assert.deepEqual(extra.claimIds, ['k-cafe', 'k-chess', 'k-move']);
+    assert.deepEqual(extra.evidenceClaimIds, ['k-move'], 'only the claim that changed since the last accepted review is evidence');
+    assert.deepEqual(extra.evidenceSourceIds.sort(), [messageSourceId('s1', 1, 'seen'), messageSourceId('s2', 1, 'seen'), messageSourceId('s3', 1, 'seen')]);
+    assert.ok(extra.evidence.some((line) => line.includes('moved to Thessaloniki')));
+    assert.equal(extra.model, 'x/memory');
+    assert.deepEqual(extra.prompts, { draft: shortHash('DRAFT PROMPT'), check: shortHash('CHECK PROMPT') });
+    assert.equal(extra.basedOn, 'dv:old');
+    assert.deepEqual(extra.diff.lost.sort(), ['k-cafe', 'k-chess']);
+    const kept = env.db.prepare("SELECT id, kind, text, think, scope_kind FROM sources WHERE kind = 'description_review' ORDER BY id").all();
+    assert.equal(kept.length, 2);
+    assert.ok(kept.every((row) => row.scope_kind === 'internal' && row.text.startsWith('<think>looking</think>') && row.think === 'looking'));
+    assert.deepEqual(extra.answers.map((entry) => entry.purpose), ['description-draft', 'description-check']);
+    assert.deepEqual(extra.answers.map((entry) => entry.source).sort(), kept.map((row) => row.id));
+    assert.ok(extra.samples.some((line) => line.includes('I love a café morning')), 'the live link of the claim is the sample');
+    assert.ok(!extra.samples.some((line) => line.includes('Thessaloniki')), 'the retired link is not');
+  } finally {
+    env.done();
+  }
+});
+
+test('apply: the final becomes the current version in the transaction that stores it; the next review starts from it', async () => {
+  const env = fixture();
+  try {
+    const cfg = applyConfig();
+    const llm = fakeLlm(answer('A draft.', 'r'), answer('The accepted text.', 'because'));
+    const result = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm, cfg }) });
+    assert.equal(result.status, 'ok');
+    const row = env.db.prepare('SELECT id, origin, text FROM description_versions WHERE author = ?').get('her');
+    assert.deepEqual([row.origin, row.text], ['review', 'The accepted text.']);
+    assert.equal(env.db.prepare('SELECT current_version FROM descriptions WHERE id = ?').get(`desc:${env.person}:character`).current_version, row.id);
+    // the next review reads it as the stored text and counts evidence from its time
+    const next = fakeLlm(answer('x', 'y'), answer('z', 'w'));
+    await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm: next, cfg }) });
+    assert.match(next.calls[1].messages[1].content, /<current>\nThe accepted text\./);
+    const evidence = next.calls[0].messages[1].content.split('<evidence>')[1] ?? '';
+    assert.doesNotMatch(evidence, /moved to Thessaloniki/, 'the accepted review already had it');
+    // a description that did not exist is created with its scope
+    const fresh = await reviewDescription(env.db, subjectOf(env), 'style', { ctx: ctxOf(env, { llm: fakeLlm(answer('a', 'b'), answer('fresh style', 'c')), cfg }) });
+    const created = env.db.prepare("SELECT * FROM descriptions WHERE field = 'style'").get();
+    assert.deepEqual([created.id, created.scope_kind, created.scope_iface, created.current_version], [fresh.row.descriptionId, 'group', 'discord', fresh.row.id]);
+  } finally {
+    env.done();
+  }
+});
+
+test('apply is refused without the database as the authority, in the review and in the writer; a version moved meanwhile is not overwritten', async () => {
+  const env = fixture();
+  try {
+    const llm = fakeLlm(answer('a', 'b'), answer('c', 'd'));
+    const jsonWriter = { ...config({ mode: 'apply' }), memoryDb: { read: true, session: { mode: 'apply' } } };
+    assert.deepEqual(await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm, cfg: jsonWriter }) }), { status: 'refused', code: 'APPLY_JSON_WRITER' });
+    assert.equal(llm.calls.length, 0);
+    const row = { id: 'dv:x', descriptionId: `desc:${env.person}:character`, text: 'x', writtenAt: '2026-10-24T12:00:00.000Z', extra: {} };
+    const update = { kind: 'description', mode: 'apply', row, subject: { kind: 'person', id: env.person, field: 'character' }, scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, expectCurrent: 'dv:old', now: NOW };
+    assert.throws(() => applyMemoryWrite(env.handle, update), (error) => error.code === 'APPLY_JSON_WRITER');
+    assert.throws(() => applyMemoryWrite(env.handle, { ...update, mode: 'other', authority: 'db' }), (error) => error.code === 'BAD_MODE');
+    assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM description_versions WHERE id = 'dv:x'").get().n, 0);
+    // the current version moved after the review began
+    const racing = { ...ctxOf(env, { llm: fakeLlm(answer('a', 'b'), answer('c', 'd')), cfg: applyConfig() }) };
+    const write = racing.write;
+    racing.write = async (given) => {
+      env.db.prepare("INSERT INTO description_versions (id, description_id, text, origin) VALUES ('dv:other', ?, 'someone else', 'review')").run(row.descriptionId);
+      env.db.prepare('UPDATE descriptions SET current_version = ? WHERE id = ?').run('dv:other', row.descriptionId);
+      return write(given);
+    };
+    const raced = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: racing });
+    assert.deepEqual(raced, { status: 'failed', code: 'VERSION_CONFLICT', step: 'write' });
+    assert.equal(env.db.prepare('SELECT current_version FROM descriptions WHERE id = ?').get(row.descriptionId).current_version, 'dv:other');
+    assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM description_versions WHERE author = 'her'").get().n, 0, 'the refused version is not stored');
+  } finally {
+    env.done();
+  }
 });

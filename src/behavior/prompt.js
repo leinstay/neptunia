@@ -200,6 +200,19 @@ function fitEpisodeLines(lines, remaining, cost) {
  * The builders below fill it; no rendered text depends on it. Kinds: claim, episode, item, channel, guild_note,
  * lore, recent_line, participation, source. Items without an `itemId` are not recorded.
  */
+const READ_BLOCKS = ['about_chat', 'people', 'server', 'lore', 'recent', 'participation', 'retrieved'];
+
+/**
+ * Each read names the block it was rendered in (the tag of the user content) and, once the collector is done, its place
+ * in the request (`ord`, following the order the blocks have in the content); the per-turn record keeps both.
+ */
+function ordered(reads) {
+  const rank = (read) => READ_BLOCKS.indexOf(read.block);
+  return [...new Map(reads.map((read) => [`${read.kind}\u0000${read.id}`, read])).values()]
+    .sort((a, b) => rank(a) - rank(b))
+    .map((read, ord) => ({ ...read, ord }));
+}
+
 function noteItems(reads, kind, items) {
   if (!Array.isArray(reads)) return;
   for (const item of items) if (typeof item?.itemId === 'string' && item.itemId) reads.push({ kind, id: item.itemId });
@@ -3063,7 +3076,7 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   adds to the budget line `offered` (episodes selected), `shown`, `cut` (offered and not
  *   shown: a channel without a name, an episode left without an own line by the dedup, the
  *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
- *   `memoryReads` lists what the request carried from memory, `{ kind, id }` each once, in the memory's own identity
+ *   `memoryReads` lists what the request carried from memory, `{ kind, id, block, ord }` each once, in the memory's own identity
  *   (an item's `itemId`, a channel id, a lore entry's id, a message id; see `noteItems`): the profile items shown,
  *   the channels, guild notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
  *   what the prefetch offered. The per-turn record (src/memory/db/service.js) writes it; no text depends on it.
@@ -3981,7 +3994,7 @@ export function buildRequest(input) {
       }
     }
     shown.sort((a, b) => a.at - b.at);
-    for (const entry of shown) if (entry.read) memoryReads.push(entry.read);
+    for (const entry of shown) if (entry.read) memoryReads.push({ ...entry.read, block: 'recent' });
     kept.recent = shown.length > 0 ? [[recentBuilt.header, ...shown.map((entry) => entry.text)].join('\n')] : [];
     if (stats.recent) stats.recent = { ...stats.recent, kept: shown.length, dropped: recentBuilt.entries.length - shown.length };
     // Counted only when the view held something: an item, or one hidden, repeated or unnamed.
@@ -4013,7 +4026,7 @@ export function buildRequest(input) {
       }
     }
     const text = participationText(participationBuilt, shown);
-    if (text) for (const episode of shown) if (episode.itemId) memoryReads.push({ kind: 'participation', id: episode.itemId });
+    if (text) for (const episode of shown) if (episode.itemId) memoryReads.push({ kind: 'participation', id: episode.itemId, block: 'participation' });
     kept.participation = text ? [text] : [];
     stats.participation = {
       ...(stats.participation ?? { used: 0, kept: 0, dropped: 0 }),
@@ -4049,18 +4062,18 @@ export function buildRequest(input) {
   if ((kept.interlocutor ?? []).length > 0) showPerson(interlocutor);
   for (const entry of keptPeopleEntries) showPerson(entry.profile);
   // The rest of the collector: the profiles shown, the sections kept, what the prefetch offered.
-  if ((kept.interlocutor ?? []).length > 0) memoryReads.push(...interlocutorShown.reads);
-  for (const entry of keptPeopleEntries) memoryReads.push(...(entry.reads ?? []));
-  for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? [])) memoryReads.push({ kind: 'channel', id });
-  for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? [])) memoryReads.push({ kind: 'guild_note', id });
-  for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? [])) memoryReads.push({ kind: 'lore', id });
+  if ((kept.interlocutor ?? []).length > 0) memoryReads.push(...interlocutorShown.reads.map((read) => ({ ...read, block: 'people' })));
+  for (const entry of keptPeopleEntries) memoryReads.push(...(entry.reads ?? []).map((read) => ({ ...read, block: 'people' })));
+  for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? [])) memoryReads.push({ kind: 'channel', id, block: 'server' });
+  for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? [])) memoryReads.push({ kind: 'guild_note', id, block: 'about_chat' });
+  for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? [])) memoryReads.push({ kind: 'lore', id, block: 'lore' });
   if ((kept.prefetch ?? []).length > 0) {
     for (const excerpt of Array.isArray(input.prefetch?.excerpts) ? input.prefetch.excerpts : []) {
       if (typeof excerpt?.lines !== 'string' || !excerpt.lines.trim()) continue;
       if (excerpt.source === 'memory') {
-        if (typeof excerpt.id === 'string' && excerpt.id) memoryReads.push({ kind: 'item', id: excerpt.id });
+        if (typeof excerpt.id === 'string' && excerpt.id) memoryReads.push({ kind: 'item', id: excerpt.id, block: 'retrieved' });
       } else {
-        for (const id of Array.isArray(excerpt.hitIds) ? excerpt.hitIds : []) if (typeof id === 'string' && id) memoryReads.push({ kind: 'source', id });
+        for (const id of Array.isArray(excerpt.hitIds) ? excerpt.hitIds : []) if (typeof id === 'string' && id) memoryReads.push({ kind: 'source', id, block: 'retrieved' });
       }
     }
   }
@@ -4120,7 +4133,7 @@ export function buildRequest(input) {
     recent,
     seen,
     // What the request carried from memory, `{ kind, id }` in the memory's own identity, each once (the per-turn record).
-    memoryReads: [...new Map(memoryReads.map((read) => [`${read.kind}\u0000${read.id}`, read])).values()],
+    memoryReads: ordered(memoryReads),
     // Handle -> member id, for the persona's `@handle` (null with features.mentionHandles off).
     handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
     // Member id -> names, for the note on her tag that named a member without the handle (null with the handles off).

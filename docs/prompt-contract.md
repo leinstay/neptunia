@@ -1937,25 +1937,31 @@ then `prompts/memory-session.md`. User content, blocks in this order (stable fir
 out):
 
 - `<self>`: her self facts and lessons, one `[sN] kind: text` line each (`s1`, ...).
-- `<place>`: `scope: group|dm`, the channels of the batch, the current description of each place field as
+- `<place>`: `scope: group|dm`, the places of the batch with a handle each, `[pN] channel: name - topic` (`dm` for a
+  private conversation), then the guilds they sit in, `[pN] guild: name`; the current description of each place field as
   `field: text`, then the place's claims as `[cN] kind: text`.
-- `<people>`: for each person in the batch (the most active `memoryDb.session.maxPeople`), the profile rendered by
-  `renderProfile` from the profile the database rebuilds, `id: <@id>`, `affinity: <number>`, then the person's claims
-  as `[cN] kind: text`. The numbers `cN` run on from `<place>`.
+- `<people>`: for each person of this request's page of people (the batch's people, the most active first, at most
+  `memoryDb.session.maxPeople` to a request), the profile rendered by `renderProfile` from the profile the database
+  rebuilds, `id: <@id>`, `affinity: <number>`, then the person's claims as `[cN] kind: text`. The numbers `cN` run on
+  from `<place>`. A batch with more people is sent again, the same lines, with the next page of people.
 - `<episodes>`: open episodes with these people, `[eN] date name: what (feeling)`.
 - `<intentions>`: her open intentions that concern these people or this place, `status: purpose`.
-- `<batch>`: `cutoff: <time>`, then the lines in time order, `#n [time] name: text`; a line addressed to her starts
-  with `→ `; her own lines carry her self label (`labels.self`). Times are `YYYY-MM-DD HH:MM` in `bot.timezone`.
+- `<batch>`: `cutoff: <time>` (the newest line), then the lines in event time (`occurred_at`, then arrival),
+  `#n [time] [pN] name: text`, `pN` being the place handle of the line; a line addressed to her starts with `→ `; her
+  own lines carry her self label (`labels.self`). Times are `YYYY-MM-DD HH:MM` in `bot.timezone`.
 
-One request per scope: the public channels of an interface together, each private conversation alone, at most
-`maxMessages` lines, read after the scope's cursor and never newer than `settleMinutes`.
+Everything in the request apart from the batch (profiles, claims, episodes) is as of the cutoff: what was created or seen
+again after it is left out.
+
+One request per scope and page of people: the public channels of an interface together, each private conversation
+alone, at most `maxMessages` lines, read after the scope's cursor and never newer than `settleMinutes`.
 
 ### Memory session answer
 
 `<think>...</think>`, then exactly one `<memory>` block with a JSON object:
 
 ```
-{ "claims": [ { "op": "add", "subject", "kind", "text", "how", "sources", "when" },
+{ "claims": [ { "op": "add", "subject", "place", "kind", "text", "how", "sources", "when" },
               { "op": "confirm", "id", "sources" },
               { "op": "revise", "id", "text", "how", "sources", "reason" },
               { "op": "retire", "id", "truth", "reason", "sources" } ],
@@ -1964,24 +1970,34 @@ One request per scope: the public channels of an interface together, each privat
   "descriptions": [ { "subject", "field", "why" } ] }
 ```
 
-`subject` is a person's name or id, `place` or `self`; `kind` one of `detail`, `interest`, `alias`, `injoke`,
+`subject` is a person's name or id, `place` or `self`; for a place, `place` names it by the handle the request gave it
+(`pN`; there is no default place); `kind` one of `detail`, `interest`, `alias`, `injoke`,
 `self_fact`, `lesson`, `pattern`; `how` one of `said`, `saw`, `claimed`, `inferred`, `taught`; `truth` one of
 `historical`, `disputed`, `retired`; `field` one of `character`, `style`, `relationship`, `purpose`, `topics`, `tone`,
 `patterns`, `starters`, `self_view`. `sources` are the `#n` of the batch.
 
 The engine maps `#n`, `cN`, `sN` and `eN` back to database ids and checks everything it sent. An op is dropped, and
 counted by reason in `session_runs.counts`, when: its id is not one the request carried (`unknown_id`), a source is not a
-line of the batch (`unknown_source`, the op stays if another source holds), no source is left (`no_sources`), the
-subject is unknown or a name two people share (`unknown_subject`), the kind, `how`, `truth` or field is not in its list
-(`bad_kind`, `bad_how`, `bad_truth`, `bad_field`), the text is empty (`no_text`), an affinity delta is not a non-zero
-number (`bad_delta`), or the op is not an object or names another op (`bad_op`). A part that is not a list is dropped
+line of the batch (`unknown_source`: the op is dropped whole when any of its sources is unknown, never kept with part of
+its evidence), it has no source (`no_sources`), the subject is unknown or a name two people share (`unknown_subject`),
+a place op names no place or an unknown handle (`no_place`, `unknown_place`), the kind, `how`, `truth` or field is not in
+its list (`bad_kind`, `bad_how`, `bad_truth`, `bad_field`), the text is empty (`no_text`), a revise, a retire, an
+affinity change or a description flag has no reason (`no_reason`), an affinity delta is not a non-zero number
+(`bad_delta`), or the op is not an object or names another op (`bad_op`). A part that is not a list is dropped
 whole (`<part>_not_list`). Nothing is repaired or guessed. A missing or unreadable `<memory>` block is the outcome
-`bad_answer` (`no_block`, `bad_json`, `not_object`): nothing is written and the cursor stays.
+`bad_answer` (`no_block`, `bad_json`, `not_object`): no change is made and the cursor stays. An answer in which every
+part was dropped (`all_dropped`) leaves the cursor too: the batch stays pending, with a retry count
+(`memoryDb.session.retryLimit`), and is skipped with a recorded decision after that many tries. Her whole answer,
+`<think>` included, is stored as a `sources` row of kind `memory_session`, scope internal.
 
 In `shadow` every kept op is a `decisions` row (`by` `her`, `action` `proposed:<op>`, the op in `extra`); in `apply`
 the changes land in `claims`, `claim_versions`, `claim_sources`, `episodes`, `affinity_events` and `people.affinity`
 (the delta is capped by `relationships.maxDeltaPerUpdate`), each with a `decisions` row whose `action` is the op; a
-description flag is a `decisions` row only. `apply` is refused (`APPLY_JSON_WRITER`) while `memoryDb.read` is off.
+description flag is a `decisions` row only. `apply` is refused (`APPLY_JSON_WRITER`) unless `memoryDb.authority` is
+`db` (the read switch does not count). In `apply` a run is written once (a retried batch returns the first result), an
+op whose sources do not all exist is rejected whole, and a claim's scope is the narrowest scope of the run and of the new
+sources of the op: when that differs from the claim's own scope (a private line revising a group claim), the change is
+written as a new claim of the narrower scope and the old claim stays as it was.
 
 ### Description review
 
@@ -1991,5 +2007,8 @@ last review with their sources), `<samples>` (older lines spread over time); the
 Answer: `<think>`, `<description>`, `<reason>`. Call 2 (`description-check`): `<draft>`, `<current>` (the stored
 description, empty when none) and `<diff>` (the claims the stored text showed and the draft does not, and the reverse,
 by a text match); answer: `<think>`, `<description>` (final, may equal the draft), `<reason>`. The final is stored as a
-`description_versions` row with `origin` `shadow`, the draft in `extra`; it never becomes the current version. A final
-over the cap is stored as it came, with `extra.overCap`.
+`description_versions` row, the draft in `extra` with the claim and source ids both calls were given, the model and the
+hash of both prompts; both whole answers are `sources` rows of kind `description_review`, scope internal. In `shadow` the
+row has `origin` `shadow`, is never current and does not move the "last reviewed" mark; in `apply` (authority `db`) its
+`origin` is `review` and the same transaction makes it the description's current version. A description's id carries its
+scope. A final over the cap is stored as it came, with `extra.overCap`.

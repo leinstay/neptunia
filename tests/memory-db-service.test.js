@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createMemoryDb, turnReadRows } from '../src/memory/db/service.js';
 import { syncOnce } from '../src/memory/db/sync.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
@@ -256,6 +257,102 @@ test('turn reads: one deduplicated insert per step, rows resolved against the da
   } finally { await env.done(); }
 });
 
+test('turn reads are resolved when the request is assembled: block, order and the exact versions, whatever is written before the deferred insert', async () => {
+  const env = setup({ manual: true });
+  let writer = null;
+  try {
+    const first = env.service.tick();
+    while (env.queue.length) { env.queue.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
+    await first;
+    writer = new DatabaseSync(env.dbFile());
+    writer.exec('PRAGMA busy_timeout = 5000');
+    writer.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event, by, origin) VALUES ('cv-early', ?, 'early', '2099-06-01T00:00:00.000Z', 'add', 'her', 'session')").run(HOT_ITEM);
+    env.service.recordTurnReads({
+      turnId: 'turn-A', step: 's1',
+      reads: [{ kind: 'claim', id: HOT_ITEM, block: 'people', ord: 4 }, { kind: 'source', id: '400000000000000002', block: 'retrieved', ord: 9 }],
+    });
+    // the sync, or her session, writes a newer version before the deferred insert runs
+    writer.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event, by, origin) VALUES ('cv-late', ?, 'late', '2099-12-31T00:00:00.000Z', 'revise', 'her', 'session')").run(HOT_ITEM);
+    writer.close();
+    writer = null;
+    await env.flushQueue();
+    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
+    try {
+      const rows = reader.db.prepare('SELECT row_kind, row_id, block, ord, version_id, revision FROM turn_reads WHERE turn_id = ? ORDER BY ord').all('turn-A').map((row) => ({ ...row }));
+      assert.equal(rows.length, 2);
+      assert.deepEqual([rows[0].row_kind, rows[0].row_id, rows[0].block, rows[0].ord, rows[0].version_id, rows[0].revision], ['claims', HOT_ITEM, 'people', 4, 'cv-early', null], 'the version the request was built from, not the newest one');
+      assert.deepEqual([rows[1].row_kind, rows[1].block, rows[1].ord, rows[1].version_id], ['sources', 'retrieved', 9, null]);
+      assert.ok(Number.isInteger(rows[1].revision) && rows[1].revision >= 1);
+    } finally { reader.close(); }
+  } finally { writer?.close(); await env.done(); }
+});
+
+test('authority db: the sync is off (ticks, flushes and the shutdown pass), the status says so, and a switch back to json syncs again', async () => {
+  const env = setup();
+  try {
+    await env.service.tick();
+    const before = counts(env);
+    assert.ok(before.files > 0);
+    assert.deepEqual([env.service.status().authority, env.service.status().syncOff], ['json', false]);
+    env.hot.config.memoryDb.authority = 'db';
+    const passes = () => env.log.out.filter((e) => e.message === 'memory db: pass').length;
+    const ran = passes();
+    writeJson(path.join(env.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
+    env.service.requestSync();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    env.advance(300_000);
+    await env.service.tick();
+    assert.equal(passes(), ran, 'no pass');
+    assert.equal(counts(env).files, before.files);
+    const status = env.service.status();
+    assert.deepEqual([status.authority, status.syncOff, status.lagSeconds, status.open], ['db', true, null, true]);
+    // back to json: the database is dirty and catches up
+    env.hot.config.memoryDb.authority = 'json';
+    await env.service.tick();
+    assert.equal(counts(env).files, before.files + 1);
+    // db again: the shutdown pass is off too
+    env.hot.config.memoryDb.authority = 'db';
+    writeJson(path.join(env.g, 'users', '100000000000000078.json'), { id: '100000000000000078', names: ['Yan'] });
+    await env.service.close();
+    assert.equal(counts(env).files, before.files + 1, 'the last pass did not run');
+  } finally { await env.done(); }
+});
+
+test('authority db from the first open: nothing is imported, the database counts as in step, no pass is ever run', async () => {
+  const env = setup({ memoryDb: { authority: 'db' } });
+  try {
+    await env.service.tick();
+    await env.service.tick();
+    const status = env.service.status();
+    assert.deepEqual([status.open, status.syncOff, status.lastPass, status.lagSeconds], [true, true, null, null]);
+    assert.equal(env.log.out.filter((e) => e.message === 'memory db: pass').length, 0);
+    assert.equal(counts(env).files, 0);
+  } finally { await env.done(); }
+});
+
+test('memoryWrite: the service stamps the authority of the live config; the caller cannot claim it', async () => {
+  const env = setup();
+  try {
+    await env.service.tick();
+    const run = { id: 'run:svc', sweepId: 'sweep:svc', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|svc', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
+    const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
+    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'db', run, plan, now: 1 }), (error) => error.code === 'APPLY_JSON_WRITER');
+    assert.equal(env.service.database().prepare('SELECT COUNT(*) AS n FROM session_runs').get().n, 0);
+    env.hot.config.memoryDb.authority = 'db';
+    await env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'json', run, plan, now: 1 });
+    assert.deepEqual({ ...env.service.database().prepare('SELECT mode, applied FROM session_runs').get() }, { mode: 'apply', applied: 1 });
+    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'other', run: { ...run, id: 'run:2' }, plan, now: 1 }), (error) => error.code === 'BAD_MODE');
+  } finally { await env.done(); }
+});
+
+test('status line: while the database is the writer the sync-off line replaces the sync line, when its label is filled', () => {
+  const status = { on: true, open: true, rows: 7, files: 3, lastSyncAt: Date.UTC(2026, 9, 24, 12), lagSeconds: null, read: true, reads: {}, syncOff: true };
+  const labels = { status: { memoryDb: { line: 'rows {rows}', syncOff: 'OFF {rows} {files}', readOn: 'on', readOff: 'off' } } };
+  assert.equal(memoryDbStatusLine(status, labels), 'OFF 7 3');
+  assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { ...labels.status.memoryDb, syncOff: '' } } }), 'rows 7', 'a label not filled yet leaves the usual line');
+  assert.equal(memoryDbStatusLine({ ...status, syncOff: false }, labels), 'rows 7');
+});
+
 test('turn reads: nothing without the switch, the setting, a turn id or reads', async () => {
   const env = setup({ memoryDb: { turnReads: false } });
   try {
@@ -275,7 +372,15 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
   const handle = openMemoryDb(':memory:');
   try {
     assert.deepEqual(turnReadRows(handle.db, [{ kind: 'guild_note', id: 'patterns' }, { kind: 'mystery', id: 'x' }, { kind: 'claim' }]), []);
-    assert.deepEqual(turnReadRows(handle.db, [{ kind: 'guild_note', id: 'starters' }], { guildId: '5' }), [{ row_kind: 'descriptions', row_id: 'desc:discord:guild:5:starters' }]);
+    assert.deepEqual(turnReadRows(handle.db, [{ kind: 'guild_note', id: 'starters', block: 'about_chat', ord: 2 }], { guildId: '5' }), [
+      { row_kind: 'descriptions', row_id: 'desc:discord:guild:5:starters', block: 'about_chat', ord: 2, version_id: null, revision: null },
+    ]);
+    // the exact version of a description or a claim, the revision of a source, resolved now
+    handle.db.prepare("INSERT INTO descriptions (id, subject_kind, subject_id, field, current_version) VALUES ('desc:discord:guild:5:starters', 'place', 'discord:guild:5', 'starters', 'dv-1')").run();
+    handle.db.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv-1', 'c1', 'a', '2026-10-01'), ('cv-2', 'c1', 'b', '2026-10-02')").run();
+    handle.db.prepare("INSERT INTO sources (id, kind, native_id, revision) VALUES ('src:discord:m1:3:seen', 'seen', 'm1', 3)").run();
+    const rows = turnReadRows(handle.db, [{ kind: 'guild_note', id: 'starters' }, { kind: 'claim', id: 'c1' }, { kind: 'source', id: 'm1' }], { guildId: '5' });
+    assert.deepEqual(rows.map((row) => [row.row_kind, row.version_id, row.revision, row.ord]), [['descriptions', 'dv-1', null, 1], ['claims', 'cv-2', null, 2], ['sources', null, 3, 3]]);
   } finally { handle.close(); }
 });
 

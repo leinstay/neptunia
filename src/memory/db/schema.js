@@ -222,8 +222,27 @@ const V5 = [
   'DROP TABLE temp._owner_paths;',
 ].join('\n');
 
+// Version 6 (her memory session before any `apply`):
+//  - `session_runs` gets `batch_key` (mode, scope, cursor range and request page: the identity of what a run read),
+//    `applied` (1 once an `apply` run committed; a unique index on `batch_key` among applied runs is what makes a retried
+//    run apply nothing twice), `result` (the counts the first application returned, handed back to a retry) and
+//    `answer_source` (the `sources` row that holds her whole answer);
+//  - `turn_reads` records what the prompt rendered, resolved at assembly time: the block it was in, its order in the
+//    request, the exact claim / description version and the source revision.
+const V6 = [
+  'ALTER TABLE session_runs ADD COLUMN batch_key TEXT;',
+  'ALTER TABLE session_runs ADD COLUMN applied INTEGER NOT NULL DEFAULT 0;',
+  'ALTER TABLE session_runs ADD COLUMN result JSON;',
+  'ALTER TABLE session_runs ADD COLUMN answer_source TEXT;',
+  'CREATE UNIQUE INDEX session_runs_applied ON session_runs(batch_key) WHERE applied = 1;',
+  'ALTER TABLE turn_reads ADD COLUMN block TEXT;',
+  'ALTER TABLE turn_reads ADD COLUMN ord INTEGER;',
+  'ALTER TABLE turn_reads ADD COLUMN version_id TEXT;',
+  'ALTER TABLE turn_reads ADD COLUMN revision INTEGER;',
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [

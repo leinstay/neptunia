@@ -134,13 +134,17 @@ export function innerLines(s, labels, { tokens = null } = {}) {
  * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
  * `off` (the switch is off), `unavailable` (on, the database not open), `notSynced` (open, no pass yet, `{files}`),
  * else `line` with `{rows}`, `{files}`, `{at}` (last sync), `{lag}` (seconds), `{read}` (`readOn` or `readOff`) and
- * `{fallbacks}` (reads that fell back to the disk). Null when the label is missing or blank.
+ * `{fallbacks}` (reads that fell back to the disk); `syncOff` (`{rows}`, `{files}`) replaces the line while the database is the
+ * writer and the sync is off. Null when the label is missing or blank.
  */
 export function memoryDbStatusLine(s, labels, nowMs = Date.now()) {
   const L = labels?.status?.memoryDb;
   if (!isPlainObject(L) || !isPlainObject(s)) return null;
   if (!s.on) return labelLine(L.off, {});
   if (!s.open) return labelLine(L.unavailable, {});
+  // The database is the writer (`memoryDb.authority` `db`): the sync is off, and the line says so (when its label is filled).
+  const syncOff = s.syncOff === true ? labelLine(L.syncOff, { rows: s.rows ?? 0, files: s.files ?? 0 }) : null;
+  if (syncOff) return syncOff;
   if (s.lastSyncAt === null || s.lastSyncAt === undefined) return labelLine(L.notSynced, { files: s.files ?? 0 });
   const fallbacks = Object.entries(s.reads ?? {}).reduce((sum, [key, n]) => (key === 'db' ? sum : sum + (Number.isFinite(n) ? n : 0)), 0);
   return labelLine(L.line, {

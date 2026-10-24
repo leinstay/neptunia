@@ -107,3 +107,36 @@ test('memoryReads: collecting changes no rendered text', () => {
   const again = contentText(request({ interlocutor: { ...profile, interests: profile.interests.map((item) => ({ ...item, itemId: undefined })) } }).messages[1].content);
   assert.equal(plain, again);
 });
+
+test('memoryReads: each read names the block it sat in and its place in the request, following the order of the blocks in the content', () => {
+  const stored = (id, ts, self) => ({ id, ts, authorId: self ? 'self' : 'u9', name: self ? 'Nept' : 'Ana', self, text: `line ${id}`, replyTo: null, caption: null });
+  const result = request({
+    interlocutor: profile,
+    guildMemory: { patterns: 'short messages' },
+    loreEntries: [{ id: 'l1', title: 'The Great Flood', keys: ['flood'], text: 'It flooded once.', always: false, source: 'analyzer', weight: 3 }],
+    channels: [{ id: HERE, name: 'general' }, { id: 'c2', name: 'journal' }],
+    recentLines: [{ id: 1, at: NOW - HOUR, addedAt: new Date(NOW).toISOString(), channelId: HERE, text: 'a note', who: [], weight: 2, itemId: 'rc-1' }],
+    participation: {
+      state: { nextId: 5, episodes: [{ id: 'p1', itemId: 'pe-1', channelId: 'c2', continues: null, messages: [stored('a1', NOW - 2 * HOUR - MIN, false), stored('a2', NOW - 2 * HOUR, true)] }] },
+      pickedIds: [], audience: () => true, channelName: () => null,
+    },
+    prefetch: {
+      status: 'ok', basis: [],
+      excerpts: [{ source: 'memory', kind: 'detail', id: 'de-9', date: '2026-10-01', who: 'Ana', lines: 'lives in Lyon' }],
+    },
+  });
+  const reads = result.memoryReads;
+  assert.deepEqual(reads.map((read) => read.ord), reads.map((_, index) => index), 'a place in the request for each read, from 0');
+  const blockOf = (kind, id) => reads.find((read) => read.kind === kind && read.id === id)?.block;
+  assert.equal(blockOf('claim', 'in-1'), 'people');
+  assert.equal(blockOf('episode', 'ep-1'), 'people');
+  assert.equal(blockOf('guild_note', 'patterns'), 'about_chat');
+  assert.equal(blockOf('lore', 'l1'), 'lore');
+  assert.equal(blockOf('recent_line', 'rc-1'), 'recent');
+  assert.equal(blockOf('participation', 'pe-1'), 'participation');
+  assert.equal(blockOf('item', 'de-9'), 'retrieved');
+  const text = contentText(result.messages[1].content);
+  const at = reads.map((read) => text.indexOf(`<${read.block}>`));
+  assert.ok(at.every((position) => position >= 0), `every block is in the content: ${reads.map((read) => read.block)}`);
+  assert.deepEqual(at, [...at].sort((a, b) => a - b), 'the reads follow the order of their blocks in the content');
+});
