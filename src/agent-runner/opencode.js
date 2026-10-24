@@ -226,6 +226,7 @@ async function deliverableFiles(collected, { scope, withheldCount }) {
  *   task's `secrets` do not bring).
  * @param {string} [options.opencodePath]  `agents.opencodePath`.
  * @param {string} [options.openrouterKeyEnv]  The env name of the OpenRouter key when a task brings none.
+ * @param {string} [options.openrouterKeyFallbackEnv]  The earlier name of that variable, read while the new one is unset.
  * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile) when a task brings none.
  * @param {string} [options.proxyEnv]  The env name of the web profile's proxy when a task brings none.
  * @param {() => object} [options.getConfig]  The engine config, read at each task: the model of a task
@@ -238,7 +239,8 @@ export function createOpencodeRunner({
   outDir,
   env = process.env,
   opencodePath = DEFAULT_OPENCODE_PATH,
-  openrouterKeyEnv = 'OPENROUTER_AGENT_KEY',
+  openrouterKeyEnv = 'OPENROUTER_ERRAND_KEY',
+  openrouterKeyFallbackEnv = 'OPENROUTER_AGENT_KEY',
   searchKeyEnv = 'OPENCODE_WEBSEARCH_KEY',
   proxyEnv = 'PROXY_URL',
   getConfig = () => ({}),
@@ -325,7 +327,7 @@ export function createOpencodeRunner({
     // The core's secrets first, the runner's environment after; never a value in a log.
     const given = isPlainObject(secrets) ? secrets : {};
     const pick = (value, name) => (typeof value === 'string' && value ? value : (env[name] || ''));
-    const openrouterKey = pick(given.openrouterKey, openrouterKeyEnv);
+    const openrouterKey = pick(given.openrouterKey, openrouterKeyEnv) || (openrouterKeyFallbackEnv ? env[openrouterKeyFallbackEnv] || '' : '');
     if (!openrouterKey) {
       if (!warnedNoKey) {
         warnedNoKey = true;

@@ -191,9 +191,9 @@ test('defaults: limits, daily, model, env names', () => {
   assert.deepEqual(WEB.defaultLimits, { steps: 25, seconds: 300 });
   assert.deepEqual(SERVER.defaultLimits, { steps: 20, seconds: 120 });
   assert.deepEqual(WEB.defaultDaily, { tasks: 40 });
-  assert.ok(WEB.envNames.includes('OPENROUTER_AGENT_KEY'));
+  assert.ok(WEB.envNames.includes('OPENROUTER_ERRAND_KEY'));
   assert.ok(WEB.envNames.includes('PROXY_URL'));
-  assert.deepEqual([...SERVER.envNames], ['OPENROUTER_AGENT_KEY']);
+  assert.deepEqual([...SERVER.envNames], ['OPENROUTER_ERRAND_KEY']);
   assert.equal(WEB.defaultSearchProvider, 'exa');
 });
 
@@ -648,7 +648,7 @@ function workerProfile(id, changes = {}) {
     searchProvider: null,
     socket: `/run/test-${id}/sock`,
     out: `/var/lib/test-${id}/out`,
-    env: ['OPENROUTER_AGENT_KEY'],
+    env: ['OPENROUTER_ERRAND_KEY'],
     description: 'A test worker.',
   };
   const merged = { ...base, ...changes };
@@ -701,7 +701,7 @@ test('loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
     assert.equal(probe.defaultSearchProvider, null);
     assert.equal(probe.defaultSocket, '/run/test-probe/sock');
     assert.equal(probe.defaultOut, '/var/lib/test-probe/out');
-    assert.deepEqual([...probe.envNames], ['OPENROUTER_AGENT_KEY']);
+    assert.deepEqual([...probe.envNames], ['OPENROUTER_ERRAND_KEY']);
     // A profile only narrows: the tools it leaves out of its class are denied.
     const p = probe.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-probe'].permission;
     assert.equal(p.read, 'allow');
@@ -902,7 +902,7 @@ test('the real drawing profile: a tool agent with no prompt and no override, who
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.deepEqual(shipped.agents.drawing.limits, tool.limits, 'config.json and the profile agree on the limits');
   assert.deepEqual(shipped.agents.drawing.daily, tool.daily, 'and on the daily caps');
-  assert.equal(shipped.llm.keyByRole.drawing, 'OPENROUTER_AGENT_KEY', 'pictures are paid with the agents key');
+  assert.equal(shipped.llm.keyByRole.drawing, 'OPENROUTER_ERRAND_KEY', 'pictures are paid with the agents key');
   assert.equal(profileOf('drawing'), null);
   const run = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'agent-runner.mjs'), '--profile', 'drawing'], { encoding: 'utf8', timeout: 20000 });
   assert.equal(run.status, 1);

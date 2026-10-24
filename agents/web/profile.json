@@ -11,6 +11,6 @@
   "searchProvider": "exa",
   "socket": "/run/neptunia-agent-web/sock",
   "out": "/var/lib/neptunia-agent-web/out",
-  "env": ["OPENROUTER_AGENT_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
+  "env": ["OPENROUTER_ERRAND_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
   "description": "Internet errands: searches the web, reads pages, looks at images and downloads files through a proxy."
 }

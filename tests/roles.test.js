@@ -291,7 +291,7 @@ test('loadConfig: config.local.json is read through the adapter, config.json as 
 test('loadConfig: a config.local.json that still holds roles is refused with the exact moves, never read', () => {
   const local = {
     roles: { voice: 'x/voice', byPurpose: { split: 'x/s' }, drawing: 'x/d', 'agent.web': 'openrouter/x/web', agentDev: 'openrouter/x/dev', 'agent.advice': 'x/advice' },
-    llm: { keyByRole: { 'agent.web': 'OPENROUTER_AGENT_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY' } },
+    llm: { keyByRole: { 'agent.web': 'OPENROUTER_ERRAND_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY' } },
   };
   assert.throws(() => loadWith(local), (err) => {
     assert.ok(err instanceof ConfigShapeError);
@@ -315,7 +315,7 @@ test('loadConfig: a config.local.json that still holds roles is refused with the
     return true;
   });
   assert.throws(() => loadWith({ roles: {} }), ConfigShapeError, 'an empty roles map too');
-  assert.throws(() => loadWith({ llm: { keyByRole: { 'agent.server': 'OPENROUTER_AGENT_KEY' } } }), /"llm\.keyByRole\.agent\.server" -> "llm\.keyByRole\.server"/, 'an old agent role key alone');
+  assert.throws(() => loadWith({ llm: { keyByRole: { 'agent.server': 'OPENROUTER_ERRAND_KEY' } } }), /"llm\.keyByRole\.agent\.server" -> "llm\.keyByRole\.server"/, 'an old agent role key alone');
   assert.throws(() => loadWith({ roles: { odd: 'x/o' } }), /"roles\.odd" has no new key/);
 });
 
@@ -346,7 +346,7 @@ test('migrateModelsKeys: every roles key to its new path, agent.advice dropped, 
       voice: 'a/voice', analyzer: 'a/an', reasoner: 'a/an', extractor: 'a/ex', vision: 'a/vi', video: 'a/vd', embedding: 'a/em',
       byPurpose: { lookup: 'a/lk' }, drawing: 'a/dr', 'agent.web': 'openrouter/a/web', 'agent.server': 'openrouter/a/srv', 'agent.dev': 'openrouter/a/dev', 'agent.advice': 'a/adv',
     },
-    llm: { temperature: 1, keyByRole: { 'agent.web': 'OPENROUTER_AGENT_KEY', agentServer: 'OPENROUTER_AGENT_KEY', 'agent.dev': 'OPENROUTER_DEV_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY', voice: 'OPENROUTER_VOICE_KEY' } },
+    llm: { temperature: 1, keyByRole: { 'agent.web': 'OPENROUTER_ERRAND_KEY', agentServer: 'OPENROUTER_ERRAND_KEY', 'agent.dev': 'OPENROUTER_DEV_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY', voice: 'OPENROUTER_VOICE_KEY' } },
     features: {},
   };
   const before = structuredClone(layer);
@@ -360,7 +360,7 @@ test('migrateModelsKeys: every roles key to its new path, agent.advice dropped, 
       core: 'a/voice', helpers: { analyzer: 'a/an', extractor: 'a/ex', vision: 'a/vi', video: 'a/vd', embedding: 'a/em' }, byPurpose: { lookup: 'a/lk' },
       agents: { drawing: 'a/dr', web: 'openrouter/a/web', server: 'openrouter/a/srv', dev: 'openrouter/a/dev' },
     },
-    llm: { temperature: 1, keyByRole: { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY', core: 'OPENROUTER_VOICE_KEY' } },
+    llm: { temperature: 1, keyByRole: { web: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY', dev: 'OPENROUTER_DEV_KEY', core: 'OPENROUTER_VOICE_KEY' } },
     features: {},
   });
   assert.deepEqual(Object.keys(config), ['bot', 'models', 'llm', 'features'], 'models where roles stood');
@@ -421,7 +421,7 @@ test('adaptLegacyModelKeys: models.base.* moves to models.core / models.helpers 
   const local = {
     models: { base: { voice: 'x/v', analyzer: 'x/a', extractor: 'x/ex', vision: 'x/vi', video: 'x/vd', embedding: 'x/em', byPurpose: { lookup: 'x/lk' } }, agents: { web: 'openrouter/x/web' } },
     llm: {
-      keyByRole: { voice: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_AGENT_KEY' },
+      keyByRole: { voice: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_ERRAND_KEY' },
       cache: { roles: ['voice'] },
       hedge: { roles: ['analyzer', 'voice'] },
       providerByModel: { 'anthropic/@voice': { order: ['a'] }, 'openai/': { order: ['o'] } },
@@ -433,7 +433,7 @@ test('adaptLegacyModelKeys: models.base.* moves to models.core / models.helpers 
   assert.deepEqual(config, {
     models: { core: 'x/v', helpers: { analyzer: 'x/a', extractor: 'x/ex', vision: 'x/vi', video: 'x/vd', embedding: 'x/em' }, byPurpose: { lookup: 'x/lk' }, agents: { web: 'openrouter/x/web' } },
     llm: {
-      keyByRole: { web: 'OPENROUTER_AGENT_KEY', core: 'OPENROUTER_VOICE_KEY' },
+      keyByRole: { web: 'OPENROUTER_ERRAND_KEY', core: 'OPENROUTER_VOICE_KEY' },
       cache: { roles: ['core'] },
       hedge: { roles: ['analyzer', 'core'] },
       providerByModel: { 'openai/': { order: ['o'] }, 'anthropic/@core': { order: ['a'] } },

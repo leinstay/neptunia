@@ -11,6 +11,6 @@
   "searchProvider": null,
   "socket": "/run/neptunia-agent-server/sock",
   "out": "/var/lib/neptunia-agent-server/out",
-  "env": ["OPENROUTER_AGENT_KEY"],
+  "env": ["OPENROUTER_ERRAND_KEY"],
   "description": "Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API."
 }

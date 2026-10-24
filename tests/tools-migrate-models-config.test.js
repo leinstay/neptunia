@@ -28,7 +28,7 @@ const OLD_LOCAL = {
     'agent.dev': 'openrouter/vendor/dev-model',
     'agent.advice': 'vendor/advice-model',
   },
-  llm: { keyByRole: { 'agent.web': 'OPENROUTER_AGENT_KEY', 'agent.server': 'OPENROUTER_AGENT_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY' } },
+  llm: { keyByRole: { 'agent.web': 'OPENROUTER_ERRAND_KEY', 'agent.server': 'OPENROUTER_ERRAND_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY' } },
 };
 
 /** A scratch dir holding `config.local.json` with `content` (mode 0600). */
@@ -73,7 +73,7 @@ test('migrate-models-config: --write moves the keys in place, keeps the file mod
       core: 'vendor/voice-model', helpers: { analyzer: 'vendor/analyzer-model' }, byPurpose: { lookup: 'vendor/lookup-model' },
       agents: { drawing: 'vendor/image-model', web: 'openrouter/vendor/web-model', dev: 'openrouter/vendor/dev-model' },
     },
-    llm: { keyByRole: { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY' } },
+    llm: { keyByRole: { web: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY' } },
   });
   assert.deepEqual(Object.keys(written), ['bot', 'models', 'llm'], 'models where roles stood');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the mode is kept');
@@ -107,7 +107,7 @@ test('migrate-models-config: an unknown roles key or a move onto a set key is re
 const BASE_LOCAL = {
   models: { base: { voice: 'vendor/voice-model', extractor: 'vendor/extractor-model', byPurpose: { reply: 'vendor/reply-model' } }, agents: { web: 'openrouter/vendor/web-model' } },
   llm: {
-    keyByRole: { voice: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_AGENT_KEY' },
+    keyByRole: { voice: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_ERRAND_KEY' },
     cache: { roles: ['voice'] },
     hedge: { roles: ['analyzer'] },
     providerByModel: { 'anthropic/@voice': { order: ['anthropic'] }, 'openai/': { order: ['openai'] } },
@@ -134,7 +134,7 @@ test('migrate-models-config: models.base and the role voice move to models.core 
   assert.deepEqual(written, {
     models: { core: 'vendor/voice-model', helpers: { extractor: 'vendor/extractor-model' }, byPurpose: { reply: 'vendor/reply-model' }, agents: { web: 'openrouter/vendor/web-model' } },
     llm: {
-      keyByRole: { core: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_AGENT_KEY' },
+      keyByRole: { core: 'OPENROUTER_VOICE_KEY', web: 'OPENROUTER_ERRAND_KEY' },
       cache: { roles: ['core'] },
       hedge: { roles: ['analyzer'] },
       providerByModel: { 'openai/': { order: ['openai'] }, 'anthropic/@core': { order: ['anthropic'] } },
