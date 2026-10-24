@@ -378,12 +378,12 @@
       "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
     },
     "memoryDb": {
-      "off": "",
-      "unavailable": "",
-      "notSynced": "",
-      "line": "",
-      "readOn": "",
-      "readOff": ""
+      "off": "db: off",
+      "unavailable": "db: on, not open",
+      "notSynced": "db · {files} files not synced",
+      "line": "db · {rows} rows · {files} files · last sync {at} · lag {lag} s · reads {read} · {fallbacks} fallbacks",
+      "readOn": "on",
+      "readOff": "off"
     }
   },
   "warmup": {
@@ -836,7 +836,7 @@
         "none": "No matching messages found.",
         "degraded": "The meaning index was not reachable; only word matches were used.",
         "partial": "{failed} of {total} searches were cut short; some results may be missing.",
-        "hidden": "[writer: placeholder. A closing line: a match for this search exists in a private conversation that cannot be opened here. No content, no count.]"
+        "hidden": "A match was found in a private conversation that cannot be opened here."
       },
       "describe": {
         "closest": "No skill by that name. The closest: {names}."

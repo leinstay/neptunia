@@ -392,17 +392,17 @@
   },
   "memory.search": {
     "title": "Search this server's messages",
-    "whenToUse": "Find what was said. Quoted sample with time and author.",
+    "whenToUse": "Find what was said. With anchor, read lines around a known line instead. Quoted sample with time and author.",
     "whenNotToUse": "Not for what chat shows.",
     "args": {
       "when": "YYYY-MM-DD or range (A..B).",
       "people": "Names or @handles.",
       "terms": "Exact words to match.",
       "channel": "#handle.",
-      "anchor": "[writer: placeholder. A #N from a quoted line. With it the call reads the lines next to that line instead of searching.]",
-      "move": "[writer: placeholder. up = earlier lines, down = later ones; with anchor.]",
-      "messages": "[writer: placeholder. How many lines to read from the anchor; with anchor.]",
-      "minutes": "[writer: placeholder. Read lines within this many minutes of the anchor; with anchor.]"
+      "anchor": "#N from a result or the chat, or a message id. Reads nearby lines instead of searching.",
+      "move": "up for earlier, down for later.",
+      "messages": "How many lines (1 to 60).",
+      "minutes": "Lines within this many minutes of the anchor (1 to 1440)."
     }
   },
   "conversation.read": {
