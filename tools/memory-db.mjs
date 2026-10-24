@@ -61,12 +61,26 @@
 //        with the stored size, else `missing`; every other row stays `unknown`. Prints the counts; --apply writes them.
 //   node tools/memory-db.mjs backup --db <file> --to <dir> [--data <dir>]
 //        `VACUUM INTO <dir>/memory.db`, a copy of `media/diary/` (from --data, default the database's directory) and
-//        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version and the row count of every
-//        table. The directory must be new or empty. Opens the database read-only.
+//        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version, the engine commit and the row
+//        count of every table (src/memory/db/backup.js; the bot's own daily backup, `memoryDb.backup`, also names the
+//        config's hash). The directory must be new or empty. Opens the database read-only.
 //   node tools/memory-db.mjs restore --from <dir> --db <file> [--data <dir>]
 //        Checks every file of the backup against its manifest, then restores the database to --db (which must not
 //        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
 //        checks the schema version and the row counts of the restored file.
+//   node tools/memory-db.mjs retire-check --data <dir> [--since <iso>]
+//        The memory files that retire when the database becomes the writer (src/memory/db/paths.js#MEMORY_PATTERNS):
+//        per pattern the number of files and the newest modification time, then how many files are operational (the
+//        allowlist, still written under `db`) and how many are in neither list (the first five named). With --since (the
+//        switch time) it exits 1 when any memory file was modified after it, naming the first five: the proof that
+//        nothing writes a memory file under `db`. Reads only.
+//   node tools/memory-db.mjs restore-test --from <backup dir> [--days N]
+//        The exact-restore rehearsal: `restore` of the backup into a new temporary data directory, a memory service
+//        opened there with authority `db` (no worker, no network, no interface, every job off), the memory modules'
+//        reads of `reader-parity` (over the last N days, default 30) through that service compared with the same reads
+//        over the backup's own database (opened read-only), and an `export` of the restored database compared file by
+//        file (as `verify`) with an `export` of the backup's. Exit 1 on any difference. The temporary directory is
+//        removed in every case.
 //   node tools/memory-db.mjs observe-check --db <file> --since <iso> [--data <dir>]   (--data: lines still in the analyzer buffer are pending)
 //        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the record lines of every kind
 //        (`seen`, `said`, `deleted`, `felt`) that happened since --since and that only one side wrote: observed and
@@ -95,7 +109,7 @@ import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
 import { createHash } from 'node:crypto';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.js';
-import { schemaVersion, lockPathOf } from '../src/memory/db/open.js';
+import { lockPathOf } from '../src/memory/db/open.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createArchive } from '../src/memory/archive.js';
@@ -104,6 +118,11 @@ import { createVectors, dequantize } from '../src/memory/vectors.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { chunkKey } from '../src/memory/chunks.js';
+import { backupDatabase, restoreDatabase, tablesOf } from '../src/memory/db/backup.js';
+import { MEMORY_PATTERNS, pathClass } from '../src/memory/db/paths.js';
+import { createMemoryDb, engineCommit } from '../src/memory/db/service.js';
+
+export { backupDatabase, restoreDatabase };
 
 const FLAGS = new Set(['resume', 'apply', 'live']);
 
@@ -473,6 +492,120 @@ function sameHits(a, b) {
 }
 
 /**
+ * The memory modules' reads over two sides, compared with fixed parameters: the side `files` is each module created
+ * with the arguments `left` (none: its files), the side `db` with `right` (`{ memoryDb }`: the database readers).
+ * `root` is the layout the guilds, the private layers, the days and the query vectors are listed from (a data
+ * directory, or an export of a database), and the modules' data directory. Returns `{ results, failures }`: per function
+ * `{ compared, equal, differ, first }`, and the codes of the database reads that failed.
+ */
+async function compareModuleReads({ root, days, left = {}, right, scratch }) {
+  const failures = [];
+  const quiet = { info() {}, debug() {}, error() {}, warn: (message, fields) => { if (message === 'memory db: read failed') failures.push(fields?.code ?? 'ERROR'); } };
+  const results = new Map();
+  const compare = (fn, label, fileValue, dbValue, same = isDeepStrictEqual(fileValue, dbValue)) => {
+    const entry = results.get(fn) ?? { compared: 0, equal: 0, differ: 0, first: [] };
+    results.set(fn, entry);
+    entry.compared += 1;
+    if (same) { entry.equal += 1; return; }
+    entry.differ += 1;
+    if (entry.first.length < 3) entry.first.push(`${label}: ${diffPaths(dbValue, fileValue).join('; ') || 'differs'}`);
+  };
+  const both = async (fn, label, read) => {
+    let fileValue;
+    let dbValue;
+    try { fileValue = await read('files'); } catch (error) { fileValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
+    try { dbValue = await read('db'); } catch (error) { dbValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
+    compare(fn, label, fileValue, dbValue);
+    return fileValue;
+  };
+  const collect = async (iterable) => { const out = []; for await (const value of iterable) out.push(value); return out; };
+  const make = (factory, args) => ({ files: factory({ ...args, log: quiet, ...left }), db: factory({ ...args, log: quiet, ...right }) });
+  const appendStore = createAppendStore({ log: quiet });
+  const noOut = path.join(scratch, 'no-out');
+  const taskConfig = () => ({ agents: new Proxy({}, { get: () => ({ out: noOut }) }) });
+  const guilds = namesIn(path.join(root, 'guilds'), { dirs: true });
+  for (const g of guilds) {
+    const guildDir = path.join(root, 'guilds', g);
+    const endDay = newestDayOf(guildDir) ?? new Date().toISOString().slice(0, 10);
+    const endMs = Date.parse(`${endDay}T23:59:59.999Z`);
+    const startMs = Date.parse(`${endDay}T00:00:00.000Z`) - (days - 1) * DAY_MS;
+    const range = { from: new Date(startMs).toISOString(), to: new Date(endMs).toISOString() };
+    const dayList = Array.from({ length: days }, (_, i) => new Date(startMs + i * DAY_MS).toISOString().slice(0, 10));
+    const record = make(createRecord, { appendStore, dataDir: root });
+    const archive = make(createArchive, { appendStore, dataDir: root });
+    const journal = make(createJournal, { appendStore, dataDir: root, now: () => endMs });
+    const vectors = make(createVectors, { dataDir: root });
+    const layers = [null, ...namesIn(path.join(guildDir, 'private'), { dirs: true })];
+    for (const layer of layers) {
+      const at = `${g}${layer ? `/private/${layer}` : ''}`;
+      const lines = await both('record.iterate', at, (side) => collect(record[side].iterate(g, { ...range, privateUserId: layer })));
+      const list = Array.isArray(lines) ? lines : [];
+      for (const channel of spread([...new Set(list.map((line) => line?.scope?.channel).filter(Boolean))], 3)) {
+        await both('record.iterate', `${at} channel`, (side) => collect(record[side].iterate(g, { ...range, channelIds: [channel], privateUserId: layer })));
+      }
+      const messages = new Map();
+      for (const line of list) if (typeof line?.messageId === 'string' && !messages.has(line.messageId)) messages.set(line.messageId, line.occurredAt);
+      for (const [id, occurredAt] of spread([...messages], SAMPLE_MESSAGES)) {
+        await both('record.newestRevision', at, (side) => record[side].newestRevision(g, id, occurredAt, { privateUserId: layer }));
+      }
+      const entries = await both('archive.iterate', at, (side) => collect(archive[side].iterate(g, { ...range, privateUserId: layer })));
+      const everything = await collect(archive.files.iterate(g, { privateUserId: layer })).catch(() => []);
+      const items = [...new Set([...(Array.isArray(entries) ? entries : []), ...everything].map((entry) => entry?.itemId).filter((id) => typeof id === 'string'))];
+      for (const itemId of spread(items, SAMPLE_ITEMS)) await both('archive.find', at, (side) => archive[side].find(g, itemId));
+      const turns = [];
+      for (const day of dayList) {
+        const records = await both('journal.read', `${at} ${day}`, (side) => journal[side].read(g, { day, n: Number.MAX_SAFE_INTEGER, privateUserId: layer }));
+        for (const rec of Array.isArray(records) ? records : []) if (rec?.kind === 'turn' && typeof rec.turnId === 'string') turns.push({ rec, day });
+      }
+      for (const { rec, day } of spread(turns, SAMPLE_TURNS)) {
+        const next = new Date(Date.parse(`${day}T00:00:00.000Z`) + DAY_MS).toISOString().slice(0, 10);
+        await both('journal.turnOperations', at, (side) => journal[side].turnOperations(g, { turnId: rec.turnId, days: [day, next], privateUserId: layer }));
+        if (layer) continue;
+        for (const posted of (Array.isArray(rec.posted) ? rec.posted : []).slice(0, 1)) {
+          if (typeof posted?.messageId !== 'string') continue;
+          await both('journal.findTurn', at, (side) => journal[side].findTurn(g, { messageId: posted.messageId, at: Date.parse(rec.occurredAt) }));
+        }
+      }
+      const vectorBase = layer ? path.join(guildDir, 'private', layer, 'vectors') : path.join(guildDir, 'vectors');
+      for (const query of queryVectorsOf(vectorBase, QUERY_VECTORS)) {
+        const fileHits = await vectors.files.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
+        const dbHits = await vectors.db.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
+        compare('vectors.search', at, fileHits, dbHits, sameHits(fileHits, dbHits));
+      }
+      for (const month of namesIn(vectorBase, { dirs: true }).filter((name) => /^\d{4}-\d{2}$/.test(name))) {
+        await both('vectors.has', `${at} ${month}`, async (side) => [...await vectors[side].has(g, month, { privateUserId: layer })].sort());
+      }
+      await both('vectors.stats', at, (side) => vectors[side].stats(g, { privateUserId: layer }));
+    }
+    await both('journal.timeline', g, (side) => journal[side].timeline(g, { from: startMs }));
+    await both('journal.pending', g, (side) => journal[side].pending(g, { days: dayList }));
+    const intentions = make(createIntentionStores, { dataDir: root });
+    const ids = await both('intentions.list', g, (side) => intentions[side].get(g).list());
+    for (const intention of Array.isArray(ids) ? ids : []) await both('intentions.get', g, (side) => intentions[side].get(g).get(intention.id));
+    await both('intentions.archived', g, (side) => intentions[side].get(g).archived());
+    const tasks = make(createTaskStores, { dataDir: root, config: taskConfig });
+    await both('tasks.open', g, (side) => tasks[side].get(g).open());
+    const recent = await both('tasks.recent', g, (side) => tasks[side].get(g).recent(Number.MAX_SAFE_INTEGER));
+    for (const task of Array.isArray(recent) ? recent : []) await both('tasks.get', g, (side) => tasks[side].get(g).get(task.id));
+    await both('tasks.costs', g, (side) => tasks[side].get(g).costs());
+  }
+  await appendStore.close?.();
+  return { results, failures };
+}
+
+/** Prints a comparison (`compareModuleReads`); returns how many reads differ. */
+function printComparison(io, { results, failures }) {
+  let differ = 0;
+  for (const [fn, entry] of [...results].sort(([a], [b]) => a.localeCompare(b))) {
+    differ += entry.differ;
+    io.out(`${fn.padEnd(24)} compared ${entry.compared}  equal ${entry.equal}  differ ${entry.differ}`);
+    for (const line of entry.first) io.out(`  ${line}`);
+  }
+  if (failures.length > 0) io.out(`database reads failed: ${failures.length} (${[...new Set(failures)].join(', ')})`);
+  return differ;
+}
+
+/**
  * The memory modules' reads from the files and from the database, compared (see the head of this file).
  * @returns {Promise<number>} the exit code
  */
@@ -487,106 +620,9 @@ async function runReaderParity(io, options) {
   const start = performance.now();
   const handle = openMemoryDb(options.db, { readOnly: true });
   const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'reader-parity-'));
-  const failures = [];
-  const quiet = { info() {}, debug() {}, error() {}, warn: (message, fields) => { if (message === 'memory db: read failed') failures.push(fields?.code ?? 'ERROR'); } };
   try {
     const memoryDb = { authority: () => 'db', readHandle: () => handle };
-    const results = new Map();
-    const compare = (fn, label, fileValue, dbValue, same = isDeepStrictEqual(fileValue, dbValue)) => {
-      const entry = results.get(fn) ?? { compared: 0, equal: 0, differ: 0, first: [] };
-      results.set(fn, entry);
-      entry.compared += 1;
-      if (same) { entry.equal += 1; return; }
-      entry.differ += 1;
-      if (entry.first.length < 3) entry.first.push(`${label}: ${diffPaths(dbValue, fileValue).join('; ') || 'differs'}`);
-    };
-    const both = async (fn, label, read) => {
-      let fileValue;
-      let dbValue;
-      try { fileValue = await read('files'); } catch (error) { fileValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
-      try { dbValue = await read('db'); } catch (error) { dbValue = { $error: error?.code ?? error?.name ?? 'ERROR' }; }
-      compare(fn, label, fileValue, dbValue);
-      return fileValue;
-    };
-    const collect = async (iterable) => { const out = []; for await (const value of iterable) out.push(value); return out; };
-    const make = (factory, args) => ({ files: factory({ ...args, log: quiet }), db: factory({ ...args, log: quiet, memoryDb }) });
-    const appendStore = createAppendStore({ log: quiet });
-    const noOut = path.join(scratch, 'no-out');
-    const taskConfig = () => ({ agents: new Proxy({}, { get: () => ({ out: noOut }) }) });
-    const guilds = namesIn(path.join(root, 'guilds'), { dirs: true });
-    for (const g of guilds) {
-      const guildDir = path.join(root, 'guilds', g);
-      const endDay = newestDayOf(guildDir) ?? new Date().toISOString().slice(0, 10);
-      const endMs = Date.parse(`${endDay}T23:59:59.999Z`);
-      const startMs = Date.parse(`${endDay}T00:00:00.000Z`) - (days - 1) * DAY_MS;
-      const range = { from: new Date(startMs).toISOString(), to: new Date(endMs).toISOString() };
-      const dayList = Array.from({ length: days }, (_, i) => new Date(startMs + i * DAY_MS).toISOString().slice(0, 10));
-      const record = make(createRecord, { appendStore, dataDir: root });
-      const archive = make(createArchive, { appendStore, dataDir: root });
-      const journal = make(createJournal, { appendStore, dataDir: root, now: () => endMs });
-      const vectors = make(createVectors, { dataDir: root });
-      const layers = [null, ...namesIn(path.join(guildDir, 'private'), { dirs: true })];
-      for (const layer of layers) {
-        const at = `${g}${layer ? `/private/${layer}` : ''}`;
-        const lines = await both('record.iterate', at, (side) => collect(record[side].iterate(g, { ...range, privateUserId: layer })));
-        const list = Array.isArray(lines) ? lines : [];
-        for (const channel of spread([...new Set(list.map((line) => line?.scope?.channel).filter(Boolean))], 3)) {
-          await both('record.iterate', `${at} channel`, (side) => collect(record[side].iterate(g, { ...range, channelIds: [channel], privateUserId: layer })));
-        }
-        const messages = new Map();
-        for (const line of list) if (typeof line?.messageId === 'string' && !messages.has(line.messageId)) messages.set(line.messageId, line.occurredAt);
-        for (const [id, occurredAt] of spread([...messages], SAMPLE_MESSAGES)) {
-          await both('record.newestRevision', at, (side) => record[side].newestRevision(g, id, occurredAt, { privateUserId: layer }));
-        }
-        const entries = await both('archive.iterate', at, (side) => collect(archive[side].iterate(g, { ...range, privateUserId: layer })));
-        const everything = await collect(archive.files.iterate(g, { privateUserId: layer })).catch(() => []);
-        const items = [...new Set([...(Array.isArray(entries) ? entries : []), ...everything].map((entry) => entry?.itemId).filter((id) => typeof id === 'string'))];
-        for (const itemId of spread(items, SAMPLE_ITEMS)) await both('archive.find', at, (side) => archive[side].find(g, itemId));
-        const turns = [];
-        for (const day of dayList) {
-          const records = await both('journal.read', `${at} ${day}`, (side) => journal[side].read(g, { day, n: Number.MAX_SAFE_INTEGER, privateUserId: layer }));
-          for (const rec of Array.isArray(records) ? records : []) if (rec?.kind === 'turn' && typeof rec.turnId === 'string') turns.push({ rec, day });
-        }
-        for (const { rec, day } of spread(turns, SAMPLE_TURNS)) {
-          const next = new Date(Date.parse(`${day}T00:00:00.000Z`) + DAY_MS).toISOString().slice(0, 10);
-          await both('journal.turnOperations', at, (side) => journal[side].turnOperations(g, { turnId: rec.turnId, days: [day, next], privateUserId: layer }));
-          if (layer) continue;
-          for (const posted of (Array.isArray(rec.posted) ? rec.posted : []).slice(0, 1)) {
-            if (typeof posted?.messageId !== 'string') continue;
-            await both('journal.findTurn', at, (side) => journal[side].findTurn(g, { messageId: posted.messageId, at: Date.parse(rec.occurredAt) }));
-          }
-        }
-        const vectorBase = layer ? path.join(guildDir, 'private', layer, 'vectors') : path.join(guildDir, 'vectors');
-        for (const query of queryVectorsOf(vectorBase, QUERY_VECTORS)) {
-          const fileHits = await vectors.files.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
-          const dbHits = await vectors.db.search(g, query, { k: SEARCH_K, privateUserId: layer }).catch((error) => ({ $error: error?.code ?? 'ERROR' }));
-          compare('vectors.search', at, fileHits, dbHits, sameHits(fileHits, dbHits));
-        }
-        for (const month of namesIn(vectorBase, { dirs: true }).filter((name) => /^\d{4}-\d{2}$/.test(name))) {
-          await both('vectors.has', `${at} ${month}`, async (side) => [...await vectors[side].has(g, month, { privateUserId: layer })].sort());
-        }
-        await both('vectors.stats', at, (side) => vectors[side].stats(g, { privateUserId: layer }));
-      }
-      await both('journal.timeline', g, (side) => journal[side].timeline(g, { from: startMs }));
-      await both('journal.pending', g, (side) => journal[side].pending(g, { days: dayList }));
-      const intentions = make(createIntentionStores, { dataDir: root });
-      const ids = await both('intentions.list', g, (side) => intentions[side].get(g).list());
-      for (const intention of Array.isArray(ids) ? ids : []) await both('intentions.get', g, (side) => intentions[side].get(g).get(intention.id));
-      await both('intentions.archived', g, (side) => intentions[side].get(g).archived());
-      const tasks = make(createTaskStores, { dataDir: root, config: taskConfig });
-      await both('tasks.open', g, (side) => tasks[side].get(g).open());
-      const recent = await both('tasks.recent', g, (side) => tasks[side].get(g).recent(Number.MAX_SAFE_INTEGER));
-      for (const task of Array.isArray(recent) ? recent : []) await both('tasks.get', g, (side) => tasks[side].get(g).get(task.id));
-      await both('tasks.costs', g, (side) => tasks[side].get(g).costs());
-    }
-    await appendStore.close?.();
-    let differ = 0;
-    for (const [fn, entry] of [...results].sort(([a], [b]) => a.localeCompare(b))) {
-      differ += entry.differ;
-      io.out(`${fn.padEnd(24)} compared ${entry.compared}  equal ${entry.equal}  differ ${entry.differ}`);
-      for (const line of entry.first) io.out(`  ${line}`);
-    }
-    if (failures.length > 0) io.out(`database reads failed: ${failures.length} (${[...new Set(failures)].join(', ')})`);
+    const differ = printComparison(io, await compareModuleReads({ root, days, right: { memoryDb }, scratch }));
     io.out(differ === 0 ? `reader parity ok (${seconds(start)})` : `reader parity FAILED: ${differ} differ (${seconds(start)})`);
     return differ === 0 ? 0 : 1;
   } finally {
@@ -625,13 +661,6 @@ function runStats(io, options) {
 }
 
 // ---------- hash, reproject, rebuild ----------
-
-/** The tables of a database (no SQLite internals), with the virtual ones marked and their shadow tables left out. */
-function tablesOf(db) {
-  const rows = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
-  const virtual = new Set(rows.filter((row) => /^CREATE VIRTUAL TABLE/i.test(row.sql ?? '')).map((row) => row.name));
-  return rows.map((row) => row.name).filter((name) => ![...virtual].some((v) => name.startsWith(`${v}_`))).map((name) => ({ name, virtual: virtual.has(name) }));
-}
 
 const valueOf = (value) => {
   if (value instanceof Uint8Array) return ['blob', Buffer.from(value).toString('hex')];
@@ -794,97 +823,10 @@ function runMediaCheck(io, options) {
   }
 }
 
-const DIARY_MEDIA = path.join('media', 'diary');
-const sha256File = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-
-/** The files under `dir`, relative, in name order (none when it does not exist). */
-function filesUnder(dir) {
-  if (!fs.existsSync(dir)) return [];
-  const out = [];
-  const visit = (rel) => {
-    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const next = rel ? path.join(rel, entry.name) : entry.name;
-      if (entry.isDirectory()) visit(next);
-      else if (entry.isFile()) out.push(next);
-    }
-  };
-  visit('');
-  return out;
-}
-
-/** Row counts of every table (tablesOf), by name. */
-function rowCounts(db) {
-  return Object.fromEntries(tablesOf(db).map(({ name }) => [name, db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get().n]));
-}
-
-/** Writes a backup (see the head of this file); returns its manifest. */
-export function backupDatabase({ db: dbPath, to, data = path.dirname(dbPath), now = Date.now }) {
-  if (fs.existsSync(to) && fs.readdirSync(to).length > 0) throw new Error(`${to} is not empty`);
-  fs.mkdirSync(to, { recursive: true });
-  const handle = openMemoryDb(dbPath, { readOnly: true });
-  let manifest;
-  try {
-    const target = path.join(to, 'memory.db');
-    handle.db.prepare('VACUUM INTO ?').run(target);
-    const files = ['memory.db'];
-    for (const rel of filesUnder(path.join(data, DIARY_MEDIA))) {
-      const out = path.join(to, DIARY_MEDIA, rel);
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      fs.copyFileSync(path.join(data, DIARY_MEDIA, rel), out);
-      files.push(path.join(DIARY_MEDIA, rel));
-    }
-    manifest = {
-      v: 1,
-      createdAt: new Date(now()).toISOString(),
-      schemaVersion: schemaVersion(handle.db),
-      files: files.map((rel) => ({ path: rel.split(path.sep).join('/'), size: fs.statSync(path.join(to, rel)).size, sha256: sha256File(path.join(to, rel)) })),
-      rows: rowCounts(handle.db),
-    };
-  } finally {
-    handle.close();
-  }
-  fs.writeFileSync(path.join(to, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  return manifest;
-}
-
-/** Checks a backup against its manifest and restores it (see the head of this file); returns the manifest. */
-export function restoreDatabase({ from, db: dbPath, data = path.dirname(dbPath) }) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(from, 'manifest.json'), 'utf8'));
-  if (manifest?.v !== 1 || !Array.isArray(manifest.files) || !manifest.files.some((file) => file.path === 'memory.db')) throw new Error('not a memory database backup');
-  for (const file of manifest.files) {
-    const abs = path.join(from, ...String(file.path).split('/'));
-    if (String(file.path).split('/').includes('..')) throw new Error(`bad path in the manifest: ${file.path}`);
-    if (!fs.existsSync(abs)) throw new Error(`missing from the backup: ${file.path}`);
-    if (fs.statSync(abs).size !== file.size || sha256File(abs) !== file.sha256) throw new Error(`does not match the manifest: ${file.path}`);
-  }
-  for (const suffix of ['', '-wal', '-shm', '.lock']) if (fs.existsSync(`${dbPath}${suffix}`)) throw new Error(`${dbPath}${suffix} exists; restore only into an empty path`);
-  const media = manifest.files.filter((file) => file.path !== 'memory.db');
-  for (const file of media) {
-    const out = path.join(data, ...String(file.path).split('/'));
-    if (fs.existsSync(out)) throw new Error(`${out} exists; restore never overwrites a file`);
-  }
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  fs.copyFileSync(path.join(from, 'memory.db'), dbPath, fs.constants.COPYFILE_EXCL);
-  for (const file of media) {
-    const out = path.join(data, ...String(file.path).split('/'));
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.copyFileSync(path.join(from, ...String(file.path).split('/')), out, fs.constants.COPYFILE_EXCL);
-  }
-  const handle = openMemoryDb(dbPath, { readOnly: true });
-  try {
-    if (schemaVersion(handle.db) !== manifest.schemaVersion) throw new Error('the restored schema version differs from the manifest');
-    const rows = rowCounts(handle.db);
-    for (const [table, n] of Object.entries(manifest.rows ?? {})) if (rows[table] !== n) throw new Error(`the restored row count of ${table} differs from the manifest`);
-  } finally {
-    handle.close();
-  }
-  return manifest;
-}
-
 function runBackup(io, options) {
   need(options, 'db', 'to');
   const start = performance.now();
-  const manifest = backupDatabase({ db: options.db, to: options.to, ...(options.data ? { data: options.data } : {}) });
+  const manifest = backupDatabase({ db: options.db, to: options.to, commit: engineCommit(), ...(options.data ? { data: options.data } : {}) });
   io.out(`backup: schema ${manifest.schemaVersion}, ${manifest.files.length} files, ${Object.keys(manifest.rows).length} tables in ${seconds(start)}`);
   return 0;
 }
@@ -895,6 +837,122 @@ function runRestore(io, options) {
   const manifest = restoreDatabase({ from: options.from, db: options.db, ...(options.data ? { data: options.data } : {}) });
   io.out(`restore ok: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked and restored, row counts equal (${seconds(start)})`);
   return 0;
+}
+
+// ---------- retire-check, restore-test ----------
+
+/** Every regular file under `dir`: [{ rel, mtimeMs }], relative with forward slashes, in name order. */
+function filesWithTimes(dir, rel = '', out = []) {
+  const entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
+    const child = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) filesWithTimes(dir, child, out);
+    else if (entry.isFile()) out.push({ rel: child, mtimeMs: fs.statSync(path.join(dir, child)).mtimeMs });
+  }
+  return out;
+}
+
+/**
+ * The memory files of a data directory (src/memory/db/paths.js#MEMORY_PATTERNS) with their newest time, per pattern,
+ * and the ones modified after --since: the proof that nothing writes a memory file under authority `db`.
+ */
+function runRetireCheck(io, options) {
+  need(options, 'data');
+  let sinceMs = null;
+  if (options.since !== undefined) {
+    sinceMs = Date.parse(options.since);
+    if (!Number.isFinite(sinceMs)) throw new Error('--since needs an ISO time');
+  }
+  const files = filesWithTimes(path.resolve(options.data));
+  const byPattern = new Map(MEMORY_PATTERNS.map((entry) => [entry.glob, { files: 0, newest: null }]));
+  const touched = [];
+  const unknown = [];
+  let operational = 0;
+  for (const file of files) {
+    const kind = pathClass(file.rel);
+    if (kind === 'operational') { operational += 1; continue; }
+    if (kind === null) { unknown.push(file.rel); continue; }
+    const entry = MEMORY_PATTERNS.find((item) => item.re.test(file.rel));
+    const slot = byPattern.get(entry.glob);
+    slot.files += 1;
+    if (slot.newest === null || file.mtimeMs > slot.newest) slot.newest = file.mtimeMs;
+    if (sinceMs !== null && file.mtimeMs > sinceMs) touched.push(file);
+  }
+  for (const [glob, slot] of byPattern) {
+    io.out(`${glob.padEnd(56)} files ${String(slot.files).padStart(6)}  newest ${slot.newest === null ? '-' : new Date(slot.newest).toISOString()}`);
+  }
+  io.out(`operational files ${operational}, unknown files ${unknown.length}${unknown.length ? ` (first: ${unknown.slice(0, 5).join(', ')})` : ''}`);
+  if (sinceMs === null) return 0;
+  const since = new Date(sinceMs).toISOString();
+  if (touched.length === 0) {
+    io.out(`retire-check ok: no memory file modified since ${since}`);
+    return 0;
+  }
+  io.out(`retire-check FAILED: ${touched.length} memory files modified since ${since}`);
+  for (const file of touched.slice(0, 5)) io.out(`  ${file.rel} ${new Date(file.mtimeMs).toISOString()}`);
+  return 1;
+}
+
+/** The config of the isolated service a restore test opens: authority `db`, every start check met, every job off. */
+const RESTORE_TEST_CONFIG = Object.freeze({
+  features: { memoryDb: true },
+  memoryDb: { authority: 'db', read: true, observeLive: true, session: { mode: 'off' }, backup: { enabled: false } },
+  recall: { backend: 'db' },
+});
+
+/**
+ * Restores a backup into a temporary data directory, opens a service there under authority `db` (no worker, no
+ * network, no interface), and compares: the memory modules' reads through the service against the same reads over the
+ * backup's own database, and an export of the restored database against an export of the backup's. The temporary
+ * directory is removed in every case.
+ * @returns {Promise<number>} the exit code
+ */
+async function runRestoreTest(io, options) {
+  need(options, 'from');
+  const days = options.days === undefined ? PARITY_DAYS : Number(options.days);
+  if (!Number.isInteger(days) || days < 1) throw new Error('--days must be a whole number of days, 1 or more');
+  const start = performance.now();
+  const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'restore-test-'));
+  const data = path.join(scratch, 'data');
+  let service = null;
+  let backup = null;
+  try {
+    const manifest = restoreDatabase({ from: options.from, db: path.join(data, 'memory.db'), data });
+    io.out(`restored: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked`);
+    const warnings = [];
+    const log = { info() {}, debug() {}, error: (message, fields) => warnings.push({ message, code: fields?.code ?? null }), warn: (message, fields) => warnings.push({ message, code: fields?.code ?? null }) };
+    service = createMemoryDb({ hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} }, dataDir: data, log, worker: false });
+    await service.tick();
+    const state = service.status();
+    if (!state.open || !service.readHandle()) {
+      io.out(`restore-test FAILED: the service did not open the restored database (${state.refused ?? (warnings.map((entry) => entry.code).filter(Boolean).join(', ') || 'unknown')})`);
+      return 1;
+    }
+    backup = openMemoryDb(path.join(options.from, 'memory.db'), { readOnly: true });
+    const backupSeam = { authority: () => 'db', readHandle: () => backup };
+    // The layout the reads are listed from: the backup's database exported (the restored data directory holds no file).
+    const layout = path.join(scratch, 'backup-export');
+    const exportedBackup = exportAll(backup, layout);
+    const restoredExport = path.join(scratch, 'restored-export');
+    const exportedRestored = exportAll(service.readHandle(), restoredExport);
+    const comparison = await compareModuleReads({ root: layout, days, left: { memoryDb: backupSeam }, right: { memoryDb: service }, scratch });
+    const differ = printComparison(io, comparison);
+    const failed = [...exportedBackup.failed, ...exportedRestored.failed];
+    for (const item of failed) io.out(`could not export: ${item.kind} ${item.code}`);
+    const { byKind, different } = compareTrees(layout, restoredExport);
+    for (const [kind, slot] of Object.entries(byKind).sort()) {
+      io.out(`export ${kind.padEnd(14)} equal ${slot.equal}  differs ${slot.differs.length}  missing ${slot.missing.length}  extra ${slot.extra.length}`);
+    }
+    const ok = differ === 0 && different === 0 && failed.length === 0;
+    io.out(ok
+      ? `restore-test ok: reads equal, the restored export equals the backup's (${exportedRestored.files} files, ${seconds(start)})`
+      : `restore-test FAILED: ${differ} reads differ, ${different} exported files differ (${seconds(start)})`);
+    return ok ? 0 : 1;
+  } finally {
+    backup?.close();
+    if (service) await service.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 // ---------- observe-check ----------
@@ -978,9 +1036,11 @@ const COMMANDS = {
   'observe-check': runObserveCheck,
   backup: runBackup,
   restore: runRestore,
+  'retire-check': runRetireCheck,
+  'restore-test': runRestoreTest,
 };
 
-/** Runs a command line; returns the exit code (a promise of it for `reader-parity`). `io` is { out(line), err(line) }. */
+/** Runs a command line; returns the exit code (a promise of it for `reader-parity` and `restore-test`). `io` is { out(line), err(line) }. */
 export function main(argv, io = { out: (line) => console.log(line), err: (line) => console.error(line) }) {
   try {
     const { command, options } = parseArgs(argv);

@@ -141,6 +141,7 @@
     "skillsRegistry": false,
     "observeLive": false,
     "observeTimeoutMs": 5000,
+    "backup": { "enabled": false, "hour": 3, "dir": "../backups/memory", "keep": 7 },
     "session": {
       "mode": "off",
       "maxMessages": 200,

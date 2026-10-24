@@ -20,6 +20,7 @@ import { observationOf } from '../src/memory/db/observe-event.js';
 import { authorityRefusal, toolRefusal } from '../src/memory/db/authority.js';
 import { channelPlaceId } from '../src/memory/db/ids.js';
 import { graphPending } from '../src/memory/db/graph.js';
+import { isMemoryPath, isOperational } from '../src/memory/db/paths.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { appendRevision, createRecord, feltLine, toRecordLine } from '../src/memory/record.js';
 import { createJournal } from '../src/memory/journal.js';
@@ -47,8 +48,8 @@ const UNITS = [
   `guilds/${GUILD}/vectors/2026-11`,
 ];
 const DB_FILES = new Set(['memory.db', 'memory.db-wal', 'memory.db-shm', 'memory.db.lock']);
-/** What the operational allowlist lets a `db` day write (spec 6.8): the participation file and the process state. */
-const ALLOWED = new Set([`guilds/${GUILD}/participation.json`, 'state.json']);
+/** What a `db` day may write: the operational allowlist (spec 6.8, src/memory/db/paths.js), never a memory path. */
+const allowed = (rel) => isOperational(rel) && !isMemoryPath(rel);
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-w2a-'));
 const settle = async (rounds = 6) => { for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
@@ -101,7 +102,7 @@ function freeze(data, mode) {
         if (mode === 'thaw') fs.chmodSync(abs, 0o755);
         walkDir(abs);
         if (mode === 'freeze') fs.chmodSync(abs, 0o555);
-      } else if (!ALLOWED.has(path.relative(data, abs).split(path.sep).join('/'))) {
+      } else if (!allowed(path.relative(data, abs).split(path.sep).join('/'))) {
         fs.chmodSync(abs, mode === 'freeze' ? 0o444 : 0o644);
       }
     }
@@ -279,7 +280,7 @@ test('a scripted day under db writes no memory file, fills every table the sync 
     // Nothing but the allowlist changed on the db run's disk, and no write failed.
     const after = tree(db.data);
     for (const rel of new Set([...before.keys(), ...after.keys()])) {
-      if (ALLOWED.has(rel)) continue;
+      if (allowed(rel)) continue;
       assert.equal(after.get(rel), before.get(rel), `${rel} was written under db`);
     }
     assert.ok(!dbLog.out.some((entry) => entry.level === 'warn' && /failed|refused/.test(entry.message)), JSON.stringify(dbLog.out.filter((entry) => entry.level === 'warn')));

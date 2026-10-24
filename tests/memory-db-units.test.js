@@ -15,7 +15,7 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { syncOnce } from '../src/memory/db/sync.js';
-import { operationalJsonPath } from '../src/memory/store.js';
+import { isOperational } from '../src/memory/db/paths.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createJournal } from '../src/memory/journal.js';
@@ -67,12 +67,12 @@ function prepared() {
   return { root, data };
 }
 
-/** The memory files of a data directory (every file but the database's own and the operational allowlist), relative. */
+/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/db/paths.js), relative. */
 function memoryFiles(data, rel = '', out = []) {
   for (const entry of fs.readdirSync(path.join(data, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) memoryFiles(data, child, out);
-    else if (!DB_FILES.has(child) && !operationalJsonPath(child) && !/recall-trace\.jsonl$/.test(child) && !/archive\/pending[^/]*\.jsonl$/.test(child)) out.push(child);
+    else if (!DB_FILES.has(child) && !isOperational(child)) out.push(child);
   }
   return out;
 }
