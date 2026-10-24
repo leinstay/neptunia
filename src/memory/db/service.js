@@ -22,7 +22,11 @@
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
 //     the worker, so the bot's loop never holds a write transaction. The service stamps its authority (fixed for the
 //     process) and `memoryDb.audienceColumn` (the read predicate of the target check) into every write; `apply` is
-//     refused unless authority is `db`.
+//     refused unless authority is `db`. After an apply, its committed attitude moves are told once to the subscribers
+//     of `onAffinityMoves(fn)` (the store, whose cached profiles would otherwise write an older score over them).
+//   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
+//     (`dropped`: the bounded queue's oldest, a write that failed every retry, one the shutdown could not write);
+//     `waitObservations()` writes the waiting ones and awaits them.
 //   - `issueContext(spec)` issues an execution context (scope.js#issueContext: an id, the mode, the destination) read
 //     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
 //     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.
@@ -718,12 +722,31 @@ export function createMemoryDb({
    */
   // Observations that came while the database was not open yet (the start's catch-up runs before it opens) wait here
   // and are written right after it opens; a shutdown writes the waiting ones and those under way before it closes.
-  // Bounded: past OBSERVE_QUEUE_MAX the oldest is dropped and counted (a warning, never silent).
+  // Bounded: past OBSERVE_QUEUE_MAX the oldest is dropped. Every dropped observation is counted (`status().observe`):
+  // the first drop of a run of drops is a warning at once, and the run's count is a warning when the queue is next
+  // written (the open, a tick) or at the shutdown; what the shutdown could not write is counted the same way.
   const OBSERVE_QUEUE_MAX = 5000;
   const OBSERVE_ATTEMPTS = 5;
   const observeQueue = [];
   const observing = new Set();
   let observeDropped = 0;
+  let observeShutdown = false;
+  // The drops not yet reported by a count warning, by reason.
+  const droppedUntold = new Map();
+
+  /** One dropped observation, counted (see above). */
+  function dropObservation(reason) {
+    observeDropped += 1;
+    const untold = droppedUntold.get(reason) ?? 0;
+    droppedUntold.set(reason, untold + 1);
+    if (untold === 0) log.warn('memory db: observe dropped', { reason, dropped: observeDropped });
+  }
+
+  /** The drops since the last count warning, one warning per reason with its count. */
+  function tellDropped() {
+    for (const [reason, count] of droppedUntold) log.warn('memory db: observations dropped', { reason, count, dropped: observeDropped });
+    droppedUntold.clear();
+  }
   const observeOn = (envelope) => on() && hot.config?.memoryDb?.observeLive === true && envelope !== null && typeof envelope === 'object';
 
   /** The record unit of an observed line under authority `db` (record.js#dayFile's day: the UTC day of the line), or null. */
@@ -741,8 +764,7 @@ export function createMemoryDb({
     observeQueue.push(item);
     if (observeQueue.length > OBSERVE_QUEUE_MAX) {
       observeQueue.shift();
-      observeDropped += 1;
-      log.warn('memory db: observe dropped', { reason: 'queue_full', dropped: observeDropped });
+      dropObservation('queue_full');
     }
   }
 
@@ -757,14 +779,13 @@ export function createMemoryDb({
       })
       .catch((error) => {
         log.warn('memory db: observe failed', { code: codeOf(error) });
-        // Under `db` the observation is the line's only record: it waits for the next tick, never for a file.
-        if (pinnedAuthority === 'db') {
+        // Under `db` the observation is the line's only record: it waits for the next tick, never for a file; past the
+        // shutdown's last write no tick comes, so it is counted as dropped.
+        if (pinnedAuthority === 'db' && observeShutdown) dropObservation('shutdown');
+        else if (pinnedAuthority === 'db') {
           const attempts = (item.attempts ?? 0) + 1;
           if (attempts < OBSERVE_ATTEMPTS) queueObservation({ ...item, attempts });
-          else {
-            observeDropped += 1;
-            log.warn('memory db: observe dropped', { reason: 'retries', dropped: observeDropped });
-          }
+          else dropObservation('retries');
         }
         return null;
       });
@@ -783,8 +804,7 @@ export function createMemoryDb({
     }
     if (!handle) {
       if (closed) {
-        observeDropped += 1;
-        log.warn('memory db: observe dropped', { reason: 'closed', dropped: observeDropped });
+        dropObservation('closed');
         return null;
       }
       queueObservation(item);
@@ -796,9 +816,23 @@ export function createMemoryDb({
   /** Writes the observations that waited (for the database to open, or for a retry), in arrival order. */
   function drainObservations() {
     if (!handle || handingOff || observeQueue.length === 0) return;
+    tellDropped();
     const waiting = observeQueue.splice(0, observeQueue.length);
     log.info('memory db: observations written after open', { count: waiting.length });
     for (const item of waiting) sendObservation(item);
+  }
+
+  /**
+   * The waiting observations written and every one under way awaited (a retry that failed again waits for the next
+   * round, at most OBSERVE_ATTEMPTS rounds): the queue as the next tick leaves it. Resolves the queue's size after.
+   */
+  async function waitObservations() {
+    for (let round = 0; round < OBSERVE_ATTEMPTS && (observeQueue.length > 0 || observing.size > 0); round += 1) {
+      drainObservations();
+      await Promise.allSettled([...observing]);
+      if (!handle || handingOff) break;
+    }
+    return observeQueue.length;
   }
 
   /**
@@ -830,10 +864,17 @@ export function createMemoryDb({
       .finally(() => { projectRun = null; });
   }
 
-  /** Shutdown: the waiting observations are written, then every one under way is awaited. */
+  /**
+   * Shutdown: the waiting observations are written, then every one under way is awaited. One that failed meanwhile (it
+   * waits for a retry no tick will send) and one that fails from here on (the writer stopped under it) is lost with the
+   * shutdown: counted as dropped (reason `shutdown`) and told with its count once the database is closed.
+   */
   async function flushObservations(timeoutMs) {
     drainObservations();
     await waitFor(Promise.allSettled([...observing]), timeoutMs);
+    observeShutdown = true;
+    for (let n = observeQueue.length; n > 0; n -= 1) dropObservation('shutdown');
+    observeQueue.length = 0;
   }
 
   /** The sources `ids` were read by a request or a session: touched (index-policy.js#touch) while eviction is on. */
@@ -1009,7 +1050,7 @@ export function createMemoryDb({
         const done = await memoryWrite({ kind: 'handoff', now: now() });
         handoffDone = true;
         if (done?.already !== true) {
-          log.info('memory db: handoff', { scopes: done?.scopes ?? 0, set: done?.set ?? 0, kept: done?.kept ?? 0, buffered: done?.buffered ?? 0, behind: done?.behind ?? 0 });
+          log.info('memory db: handoff', { scopes: done?.scopes ?? 0, set: done?.set ?? 0, kept: done?.kept ?? 0, buffered: done?.buffered ?? 0, behind: done?.behind ?? 0, adopted: done?.adopted ?? 0 });
           if ((done?.behind ?? 0) > 0) log.warn('memory db: handoff left buffered lines behind', { behind: done.behind });
         }
       } catch (error) {
@@ -1267,9 +1308,47 @@ export function createMemoryDb({
     await waitFor(Promise.allSettled([...writingReads]), timeoutMs);
   }
 
+  // Her session's attitude moves, told to whoever caches the people they move (the store: a profile it holds would
+  // otherwise write its older score over the move at its next flush). Each committed move is told once, after its
+  // apply, also when the apply's answer was lost (the move is read back from the database by its run).
+  const affinityListeners = new Set();
+  const toldMoves = new Set();
+  const TOLD_MOVES_KEPT = 10_000;
+
+  /** Subscribes `fn(moves)` (`[{ personId, applied, score }]`) to her session's committed attitude moves; returns the unsubscribe. */
+  function onAffinityMoves(fn) {
+    if (typeof fn !== 'function') return () => {};
+    affinityListeners.add(fn);
+    return () => affinityListeners.delete(fn);
+  }
+
+  /** The committed attitude moves of run `runId` not told yet, told to every listener (a failure is a warning, never the write's). */
+  function tellAffinityMoves(runId) {
+    if (affinityListeners.size === 0 || typeof runId !== 'string' || !runId || !handle) return;
+    let moves = [];
+    try {
+      const prefix = `aff:${runId}:`;
+      moves = handle.db.prepare('SELECT id, person_id AS personId, applied, score FROM affinity_events WHERE substr(id, 1, ?) = ? ORDER BY id')
+        .all(prefix.length, prefix).filter((move) => !toldMoves.has(move.id));
+    } catch (error) {
+      log.warn('memory db: affinity moves unread', { code: codeOf(error) });
+      return;
+    }
+    if (moves.length === 0) return;
+    for (const move of moves) {
+      toldMoves.add(move.id);
+      if (toldMoves.size > TOLD_MOVES_KEPT) toldMoves.delete(toldMoves.values().next().value);
+    }
+    const told = moves.map(({ personId, applied, score }) => ({ personId, applied, score }));
+    for (const fn of affinityListeners) {
+      try { fn(told); } catch (error) { log.warn('memory db: affinity moves not told', { code: codeOf(error) }); }
+    }
+  }
+
   /**
    * One write of her memory session or a description review (session-write.js), on the writer connection: a message
    * to the worker, or the calling thread's own connection when there is no worker. Rejects when the database is closed.
+   * A session's apply then tells its attitude moves (`onAffinityMoves`), whether its answer came back or not.
    */
   async function memoryWrite(update) {
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
@@ -1278,8 +1357,13 @@ export function createMemoryDb({
     const stamped = { ...update, authority: settings().authority, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
     // A session's batch read its lines: touched while eviction is on.
     if (update?.kind === 'session' && Array.isArray(update.reads)) touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
-    if (engine) return engine.call('memoryWrite', { update: stamped });
-    return applyMemoryWrite(handle, stamped);
+    const applies = update?.kind === 'session' && update.mode === 'apply';
+    try {
+      if (engine) return await engine.call('memoryWrite', { update: stamped });
+      return applyMemoryWrite(handle, stamped);
+    } finally {
+      if (applies) tellAffinityMoves(update.run?.id);
+    }
   }
 
   /**
@@ -1330,6 +1414,7 @@ export function createMemoryDb({
       lastPass,
       reads: { ...reads },
       backup: pinnedAuthority === 'db' ? { running: backupRun !== null, lastAt: backupState.lastAt, lastName: backupState.lastName, lastFailure: backupState.lastFailure } : null,
+      observe: { queued: observeQueue.length, writing: observing.size, dropped: observeDropped },
       session: { running: sessionRun !== null, handoff: handoffDone, lastAt: sessionState.lastAt, lastOutcome: sessionState.lastOutcome, lastFailure: sessionState.lastFailure, reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0 },
     };
   }
@@ -1353,6 +1438,8 @@ export function createMemoryDb({
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
     }
     await closeNow(Math.max(0, deadline - performance.now()));
+    await Promise.allSettled([...observing]);
+    tellDropped();
     closed = true;
   }
 
@@ -1361,5 +1448,5 @@ export function createMemoryDb({
   /** The daily backup under way (stage W4), or a resolved promise: its end. */
   const waitBackup = () => backupRun ?? Promise.resolve();
 
-  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, writeUnit, keepPending, recordWake, issueContext, observe, focusPeople, status, close, waitSession, waitBackup };
+  return { tick, requestSync, reader, database, authority, readHandle, recordTurnReads, memoryWrite, onAffinityMoves, writeUnit, keepPending, recordWake, issueContext, observe, waitObservations, focusPeople, status, close, waitSession, waitBackup };
 }

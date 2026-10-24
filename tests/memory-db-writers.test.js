@@ -19,7 +19,7 @@ import { classify } from '../src/memory/db/map/index.js';
 import { observationOf } from '../src/memory/db/observe-event.js';
 import { authorityRefusal, toolRefusal } from '../src/memory/db/authority.js';
 import { channelPlaceId } from '../src/memory/db/ids.js';
-import { graphPending } from '../src/memory/db/graph.js';
+import { graphNodeId, graphPending } from '../src/memory/db/graph.js';
 import { isMemoryPath, isOperational } from '../src/memory/db/paths.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { appendRevision, createRecord, feltLine, toRecordLine } from '../src/memory/record.js';
@@ -372,5 +372,67 @@ test('under db the writers finish the graph projection a migration left pending,
     }
     assert.equal(graphPending(service.readHandle()), false);
     assert.equal(service.status().syncOff, true);
+  } finally { await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('under db observations queued before the open: past the bound the oldest is dropped and counted, the rest written after it', async () => {
+  const { root, data } = prepared();
+  const log = logs();
+  const service = createMemoryDb({ hot: { config: configOf('db') }, dataDir: data, log, worker: false, now: () => NOW, defer: (fn) => setImmediate(fn) });
+  const idOf = (n) => `7${String(n).padStart(17, '0')}`;
+  try {
+    const total = 5001;
+    for (let n = 0; n < total; n += 1) {
+      service.observe(observationOf(eventOf({ id: idOf(n), content: 'ναι', at: NOW - 3_600_000 + n })), { guildId: GUILD });
+    }
+    assert.deepEqual(service.status().observe, { queued: 5000, writing: 0, dropped: 1 });
+    assert.equal(log.out.filter((entry) => entry.message === 'memory db: observe dropped').length, 1, 'one warning at the first drop, not one per drop');
+    await service.tick();
+    await service.tick();
+    assert.equal(await service.waitObservations(), 0);
+    const db = service.readHandle().db;
+    const rows = (n) => db.prepare('SELECT COUNT(*) AS n FROM sources WHERE native_id = ?').get(idOf(n)).n;
+    assert.deepEqual([rows(0), rows(1), rows(total - 1)], [0, 1, 1], 'only the oldest went');
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sources WHERE native_id GLOB '7*' AND owner_file GLOB '*/record/*'").get().n, total - 1);
+    assert.deepEqual(service.status().observe, { queued: 0, writing: 0, dropped: 1 });
+    const told = log.out.filter((entry) => entry.message === 'memory db: observations dropped');
+    assert.deepEqual(told.map((entry) => [entry.reason, entry.count]), [['queue_full', 1]], 'the count told when the queue is written');
+  } finally { await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('under db an observation broken off inside its transaction is retried from the queue with its row and its graph node', async () => {
+  const { root, data } = prepared();
+  let armed = 1;
+  // A writer whose transaction dies at its end once (rolled back whole): the observation's row and projection with it.
+  const open = (target, options) => {
+    const real = openMemoryDb(target, options);
+    return {
+      ...real,
+      transaction(fn) {
+        return real.transaction(() => {
+          const result = fn();
+          if (armed > 0 && result?.ok === true && result.written === 1) { armed -= 1; throw Object.assign(new Error('the writer died'), { code: 'WORKER_EXIT' }); }
+          return result;
+        });
+      },
+    };
+  };
+  const service = createMemoryDb({ hot: { config: configOf('db') }, dataDir: data, log: quiet, open, now: () => NOW, defer: (fn) => setImmediate(fn) });
+  try {
+    await service.tick();
+    await service.tick();
+    const id = '700000000000000042';
+    assert.equal(await service.observe(observationOf(eventOf({ id, content: 'Καλημέρα', at: NOW - 60_000 })), { guildId: GUILD }), null, 'the failed write');
+    const db = service.readHandle().db;
+    const sourceOf = () => db.prepare('SELECT id, owner_file FROM sources WHERE native_id = ?').get(id);
+    assert.equal(sourceOf(), undefined, 'rolled back with its projection');
+    assert.equal(service.status().observe.queued, 1, 'waiting for the next tick');
+    await service.tick();
+    assert.equal(await service.waitObservations(), 0);
+    const source = sourceOf();
+    assert.match(source.owner_file, /\/record\/2026-11\/2026-11-03\.jsonl$/);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?').get(graphNodeId('source', source.id)).n, 1, 'projected by the retry');
+    assert.equal(graphPending(service.readHandle()), false);
+    assert.deepEqual(service.status().observe, { queued: 0, writing: 0, dropped: 0 });
   } finally { await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });

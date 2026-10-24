@@ -22,7 +22,9 @@
 //       month (`archive/<YYYY-MM>.jsonl`, a private layer's alike: `claim_versions`, with the retired `historical`
 //       claim of an item hot memory does not hold, as the sync's archive pass makes it), of `intentions-archive.jsonl`
 //       and of `tasks.jsonl`; the module refuses its own duplicates (the archive's month index), so every line given
-//       is written.
+//       is written, except a transition of `tasks.jsonl` the unit already holds: its key is the line itself (the
+//       task's id, the transition's time and the task as it was then), so a write retried after its answer was lost
+//       (the outbox sends the same line again) is a duplicate (`duplicates`), never a second transition.
 //   { kind: 'unit', op: 'value', owner, value, destination? }      (authority db) a whole JSON unit, mapped whole as a
 //       sync pass maps the file (sync.js#syncWhole), the unit's rows it no longer holds retired and its `files` row
 //       kept: participation.json and media.json (whose files stay written) and, from stage W2b, every unit of the
@@ -123,6 +125,12 @@ function recordDuplicate(db, owner, line) {
   return false;
 }
 
+/** Whether a task transition line is one the unit already holds (the same line: a retried write). */
+function transitionHeld(db, owner, line) {
+  return db.prepare('SELECT 1 AS ok FROM work_events WHERE owner_file = ? AND record = ? AND retired_at IS NULL LIMIT 1')
+    .get(owner, JSON.stringify(line)) !== undefined;
+}
+
 function writeLines(db, update, at) {
   const unit = unitOf(update.owner);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
@@ -137,6 +145,7 @@ function writeLines(db, update, at) {
     const source = unit.kind === 'record' ? mapping.sources?.[0] : null;
     const found = source ? db.prepare('SELECT owner_file, position, origin, retired_at FROM sources WHERE id = ?').get(source.id) : undefined;
     if (unit.kind === 'record' && recordDuplicate(db, unit.full, line)) { result.duplicates += 1; continue; }
+    if (unit.kind === 'tasks' && transitionHeld(db, unit.full, line)) { result.duplicates += 1; continue; }
     if (found && found.origin !== 'observation' && found.retired_at === null) { result.duplicates += 1; continue; }
     // The live observation wrote the line first: the line takes the row over, its place in the unit stays.
     const keep = found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
