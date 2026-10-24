@@ -1001,3 +1001,28 @@ test('her whole answer, thinking included, is a source of kind memory_session, s
     env.done();
   }
 });
+
+test('a batch retried from the same cursor keeps its lines: lines that settled since do not widen it, so an applied page is not applied again', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const config = baseConfig({ mode: 'apply', maxPeople: 1 });
+    const cursor = cursorKey('apply', 'group:discord');
+    const page = (subject, text, ref) => memoryBlock({ claims: [{ op: 'add', subject, kind: 'detail', text, how: 'said', sources: [ref] }], affinity: [{ person: subject, delta: 2, reason: 'kind', sources: [ref] }] });
+    const first = await sweep(ctxOf(env, { llm: fakeLlm([page('Ada', 'ada fact', '#1'), Object.assign(new Error('boom'), { code: 'ECONNRESET' })]), config }));
+    assert.deepEqual(first.runs.map((run) => run.outcome), ['ok', 'llm_error']);
+    const firstTo = env.db.prepare("SELECT cursor_to FROM session_runs WHERE applied = 1").get().cursor_to;
+    // a line that was still settling during the first sweep is in now
+    env.say({ native: 'm6', minutesAgo: 20, text: 'one more thing' });
+    const llm = fakeLlm([page('Βασίλης', 'bob fact', '#2')]);
+    const second = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
+    assert.deepEqual(second.runs.map((run) => run.outcome), ['applied_before', 'ok']);
+    assert.equal(llm.calls.length, 1, 'only the missing page is asked, over the old lines');
+    assert.equal(Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value), firstTo, 'the cursor stops where the old batch ended');
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 7, 'the first page was not applied again');
+    assert.equal(count(env.db, 'claims', "author = 'her'"), 2);
+    assert.ok(env.db.prepare("SELECT rowid FROM sources WHERE native_id = 'm6'").get().rowid > firstTo, 'the new line waits for the next batch');
+  } finally {
+    env.done();
+  }
+});

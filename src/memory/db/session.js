@@ -654,11 +654,32 @@ export async function sweep(ctx, options = {}) {
  * page was written (or had been applied before); an `all_dropped` page keeps the batch pending, and after `retryLimit`
  * tries the batch is skipped with a recorded decision. Never throws; returns one entry per page (or the skip).
  */
-async function runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }) {
+async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, settings }) {
   const { db, hot } = ctx;
   const config = hot.config;
-  const cursorTo = Math.max(...batch.map((line) => line.rowid));
+  let batch = read;
+  let cursorTo = Math.max(...batch.map((line) => line.rowid));
   const holdKey = pendingKey(settings.mode, scope.key);
+  // A batch read from this cursor before, with a page applied and another not, keeps the lines it had: the settle cut
+  // may have let more lines in since, and a wider batch would carry another key and apply its first pages again. The
+  // lines after it wait for the next batch.
+  if (settings.mode === 'apply') {
+    const earlier = db.prepare('SELECT MIN(cursor_to) AS last FROM session_runs WHERE mode = ? AND scope_key = ? AND cursor_from = ? AND applied = 1').get(settings.mode, scope.key, cursor)?.last;
+    if (Number.isFinite(earlier) && earlier !== cursorTo) {
+      batch = batch.filter((line) => line.rowid <= earlier);
+      cursorTo = earlier;
+      if (batch.length === 0) {
+        // Every line of the old batch is gone (retired since): only the cursor is left to move.
+        try {
+          await ctx.write({ kind: 'session', mode: settings.mode, run: null, plan: null, advance: { key, value: cursorTo, expect: cursor }, pending: { key: holdKey, value: null }, now: (ctx.now ?? Date.now)() });
+          return [{ scope: scope.key, outcome: 'applied_before', lines: 0 }];
+        } catch (error) {
+          ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
+          return [{ scope: scope.key, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] }];
+        }
+      }
+    }
+  }
   const held = parseJson(metaOf(db, holdKey));
   const tries = held && held.from === cursor ? Number(held.tries) || 0 : 0;
   if (tries >= settings.retryLimit) return [await skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
