@@ -178,8 +178,8 @@ function evidenceOf(db, ids) {
   return rows;
 }
 
-/** A new version of a claim, with its sources (`role`: `supports` or `conflicts`) in `claim_version_sources` (v9). */
-function version(db, { claimId, at, text, event, runId, index, extra = null, sources = [], role = 'supports' }) {
+/** A new version of a claim, with its sources (`evidence`: `supports` or `conflicts`) in `claim_version_sources` (v9). */
+function version(db, { claimId, at, text, event, runId, index, extra = null, sources = [], evidence = 'supports' }) {
   const id = `cv:${claimId}:${shortHash(runId, index, event)}`;
   db.prepare(
     `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, owner_file, position, retired_at)
@@ -187,7 +187,7 @@ function version(db, { claimId, at, text, event, runId, index, extra = null, sou
   ).run(id, claimId, `rv:${shortHash(runId, index)}`, text, extra ? json(extra) : null, at, event);
   if (hasTable(db, 'claim_version_sources')) {
     const insert = db.prepare('INSERT OR IGNORE INTO claim_version_sources (version_id, source_id, role, legacy) VALUES (?, ?, ?, 0)');
-    for (const source of new Set(sources ?? [])) insert.run(id, source, role);
+    for (const source of new Set(sources ?? [])) insert.run(id, source, evidence);
   }
   projectRow(db, 'claims', { id: claimId }, { at });
 }
@@ -270,7 +270,7 @@ function applyClaim(db, op, state) {
       db.prepare('UPDATE claims SET truth = ?, shown = ?, valid_to = COALESCE(?, valid_to) WHERE id = ?').run(op.truth, shown, validTo, op.id);
     }
     addSources(db, 'claim_sources', 'claim_id', target, op.sources);
-    version(db, { claimId: target, at, text: claim.text, event: 'retire', runId, index, extra: { truth: op.truth, reason: op.reason }, sources: op.sources, role: 'conflicts' });
+    version(db, { claimId: target, at, text: claim.text, event: 'retire', runId, index, extra: { truth: op.truth, reason: op.reason }, sources: op.sources, evidence: 'conflicts' });
     counts.retired += 1;
   }
   if (derived) counts.derived += 1;

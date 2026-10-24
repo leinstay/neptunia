@@ -35,6 +35,7 @@
 // Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
+import { log as engineLog } from '../../log.js';
 import { canonicalKey } from './ids.js';
 import { AUD_INTERNAL, audienceParts, audiencesOf, dmAudienceId, groupAudienceId } from './scope.js';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.js';
@@ -72,7 +73,7 @@ function cacheOf(db) {
   let cache = caches.get(db);
   if (!cache) {
     const has = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'graph_edges'").get() !== undefined;
-    cache = { has, statements: new Map(), audiences: new Set() };
+    cache = { has, statements: new Map() };
     caches.set(db, cache);
   }
   return cache;
@@ -87,14 +88,15 @@ function prepared(db, sql) {
 const one = (db, sql, ...params) => prepared(db, sql).get(...params);
 const all = (db, sql, ...params) => prepared(db, sql).all(...params);
 
-/** The audience id an edge or a witness can carry: its row created when missing (an id of no known shape is internal). */
+/**
+ * The audience id an edge or a witness can carry: its row created when missing (an id of no known shape is internal).
+ * Looked up every time, never cached: a rolled-back transaction takes the rows it created with it.
+ */
 function usableAudience(db, id) {
   const value = filled(id) ? id : AUD_INTERNAL;
-  const { audiences } = cacheOf(db);
-  if (audiences.has(value)) return value;
   const parts = audienceParts(value);
   if (!parts) return usableAudience(db, AUD_INTERNAL);
-  if (one(db, 'SELECT 1 AS ok FROM audiences WHERE id = ?', value)) { audiences.add(value); return value; }
+  if (one(db, 'SELECT 1 AS ok FROM audiences WHERE id = ?', value)) return value;
   if (parts.kind === 'none' || parts.kind === 'internal') {
     prepared(db, 'INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, ?)').run(value, parts.kind);
   } else if (parts.kind === 'group') {
@@ -106,7 +108,6 @@ function usableAudience(db, id) {
     prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(place.iface);
     prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(value, place.iface, parts.place_id);
   }
-  audiences.add(value);
   return value;
 }
 
@@ -446,13 +447,24 @@ function unitsOfRow(db, table, row) {
  * @param {object} row     the row (its id, or the column naming its unit)
  * @param {{ at?: string }} [opts]  the writer's time (the retirement time of an edge the unit no longer produces)
  */
-export function projectRow(handle, table, row, { at } = {}) {
+export function projectRow(handle, table, row, { at, log = engineLog } = {}) {
   const db = dbOf(handle);
   if (!cacheOf(db).has) return 0;
   let count = 0;
   for (const [unit, id] of unitsOfRow(db, table, row)) {
-    writeUnit(db, unit, String(id), at);
-    count += 1;
+    // The projection never fails the typed write: a unit that cannot be projected is rolled back alone, logged with a
+    // code, and the whole projection is marked pending so the next full pass projects it again.
+    db.exec('SAVEPOINT graph_unit');
+    try {
+      writeUnit(db, unit, String(id), at);
+      db.exec('RELEASE graph_unit');
+      count += 1;
+    } catch (error) {
+      db.exec('ROLLBACK TO graph_unit');
+      db.exec('RELEASE graph_unit');
+      prepared(db, 'INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run(PENDING_KEY, JSON.stringify({ unit: 0, after: null }));
+      log?.warn?.('memory graph: unit not projected, projection pending', { table: unit, code: error?.code ?? error?.name ?? 'ERROR' });
+    }
   }
   return count;
 }

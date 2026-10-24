@@ -329,6 +329,7 @@ export function ensureLinks(db, accounts, { by = 'import', at } = {}) {
 }
 
 /** Inserts (or replaces, by primary key) every row of a mapping, with the v7 derived columns filled from each row. */
+// Tests only: REPLACE does not fire the FTS delete trigger without recursive_triggers, so no live writer may use it for sources.
 export function insertRows(db, mapping, { log = engineLog, at } = {}) {
   for (const [table, rows] of Object.entries(mapping)) {
     for (const given of rows) {
