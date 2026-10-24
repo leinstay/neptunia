@@ -1,73 +1,75 @@
 // The model roles: every LLM request names the role it goes out on, and each role has its own
 // model with a built-in default (the same value config.json ships). The models sit in three
-// places: `models.core` for the core (the one model that speaks and decides as the persona),
-// `models.helpers.<role>` for the helper roles (thinking for it, seeing, extracting, embedding) and
-// `models.agents.<role>` for the agents. A role never takes another role's model: an unset role
-// is its own default, so changing one role can never move another. `models.byPurpose` pins
-// a single purpose (one helper, one kind of request) to a model of its own whatever its role.
-// The role names are what the request does:
-// models.core
-// - `core`       speaks as the persona: the reply and the memory texts worded in its voice
-//                (formerly the role `core`, 2026-10: the old key and role name are read as
-//                aliases by src/config.js#adaptLegacyModelKeys and src/llm/openrouter.js#currentRoleName);
-// models.helpers
+// groups, matching the status card:
+// - `models.base.<role>`: her core and organs, the roles the bot's own requests go out on;
+// - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async;
+// - `models.development.<role>`: the agents outside her, working on this repository.
+// A role never takes another role's model: an unset role is its own default, so changing one role
+// can never move another. `models.byPurpose` pins a single purpose (one helper, one kind of
+// request) to a model of its own whatever its role.
+// models.base
+// - `core`       speaks as the persona: the reply and the memory texts worded in its voice;
+// - `memory`     her memory session and description review (src/memory/db/session.js); its default
+//                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's helper model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
 //                plans a search and turns sources into notes (lookup, planner, recall-summary,
 //                search-summary, read-link, diary-plan) and runs the persona's raw web search
-//                on the OpenRouter engine (web-search). The former `reasoner` role is merged
-//                into it (2026-10): its purposes keep their names, for `byPurpose` and the logs;
+//                on the OpenRouter engine (web-search);
 // - `extractor`  turns conversations into stored memory: the memory analyzer's batches, the
 //                portraits' stage A, the channel and server notes, the warmup, the backfill;
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
-// - `speech`    speaks her text aloud (src/speech/, OpenRouter's speech endpoint: no chat completion
+// - `speech`     speaks her text aloud (src/speech/, OpenRouter's speech endpoint: no chat completion
 //                behind it, so nothing probes it with one);
-// models.agents
-// - `web`, `server`  run the persona's errand agents (src/agent-runner/, profiles `web` and
-//                `server`);
+// - `drawing`    generates the persona's pictures: one Images API request through the bot's own
+//                client (src/llm/images.js), no loop, with a bare OpenRouter image model id.
+// models.errands
+// - `scout`, `server`  the persona's errand agents (src/agent-runner/, profiles `scout` and `server`);
+// models.development
 // - `thinker`, `dev`, `writer`  the development agents (outside this repository): `thinker` picks
-//                up and steers the tasks, `dev` writes the code, `writer` writes the texts;
-// - `drawing`    generates the persona's pictures (for now through the bot's own Images client,
-//                src/llm/images.js, with a bare OpenRouter image model id).
-// No request of the bot goes out on `web`, `server`, `thinker`, `dev` or `writer` (OPENCODE_ROLES): they run on
+//                up and steers the tasks, `dev` writes the code, `writer` writes the texts.
+// No request of the bot goes out on an errand or development role (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
-// (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the other roles.
-// A config that still carries the old flat `roles` map, or a model for the merged `reasoner`
-// role, is refused at load (src/config.js); one that still carries `models.base.*` is read
-// under the new keys with one warning.
+// (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base roles.
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
-/** The core: the one role that speaks and decides as the persona, its model under `models.core`. */
+/** The core: the one role that speaks and decides as the persona, its model under `models.base.core`. */
 export const CORE_ROLE = 'core';
 
 /**
  * Her memory session and description review (src/memory/db/session.js): words in her voice, so the role sits beside
- * the core (`models.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
+ * the core (`models.base.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
  * Its key (`llm.keyByRole.memory`) never falls back to another key.
  */
 export const MEMORY_ROLE = 'memory';
 
-/** The memory role's model while `models.memory` is unset: the core's built-in default, as config.json ships it. */
+/** The memory role's model while `models.base.memory` is unset: the core's built-in default, as config.json ships it. */
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
-/** The helper roles, in display order: their models under `models.helpers`. */
+/** The helper roles, in display order. */
 export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
 
-/** The core's own roles (the core, then the helpers), in display order: the roles the bot's own requests go out on besides drawing. */
+/** The roles the bot's chat and embedding requests go out on, in display order: the core, then the helpers. */
 export const CORE_ROLES = Object.freeze([CORE_ROLE, ...HELPER_ROLES]);
 
-/** The roles whose model an OpenCode worker runs on, never the bot's own client. */
-export const OPENCODE_ROLES = Object.freeze(['web', 'server', 'thinker', 'dev', 'writer']);
+/** The base roles, in display order: the core, the helpers, then drawing. Their models sit under `models.base`. */
+export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 
-/** The agents' roles, in display order: their models under `models.agents`. */
-export const AGENT_ROLES = Object.freeze([...OPENCODE_ROLES, 'drawing']);
+/** The errand roles: their models sit under `models.errands`. */
+export const ERRAND_ROLES = Object.freeze(['scout', 'server']);
+
+/** The development roles: their models sit under `models.development`. */
+export const DEVELOPMENT_ROLES = Object.freeze(['thinker', 'dev', 'writer']);
+
+/** The roles whose model an OpenCode worker runs on, never the bot's own client. */
+export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
 
 /** The roles, in display order (`/nep model`, the status card). */
-export const ROLES = Object.freeze([...CORE_ROLES, ...AGENT_ROLES]);
+export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 
 /** Each role's model while its key is unset: config.json's values. */
 export const ROLE_DEFAULTS = Object.freeze({
@@ -78,37 +80,36 @@ export const ROLE_DEFAULTS = Object.freeze({
   video: 'google/gemini-3.8-flash',
   embedding: 'openai/text-embedding-3-large',
   speech: 'elevenlabs/eleven-v4',
-  web: 'openrouter/openai/gpt-6.1-sol',
+  drawing: 'openai/gpt-image-2.5-flare',
+  scout: 'openrouter/openai/gpt-6.1-sol',
   server: 'openrouter/openai/gpt-6.1-sol',
   thinker: 'openrouter/anthropic/claude-opus-5.5',
   dev: 'openrouter/anthropic/claude-sonnet-5.5',
   writer: 'openrouter/anthropic/claude-opus-4.6',
-  drawing: 'openai/gpt-image-2.5-flare',
 });
 
 /**
- * The section of `models` a role's model sits in: `core` (the core's model is `models.core`
- * itself), `helpers` or `agents`, undefined for a name that is not a role.
+ * The group of `models` a role's model sits in: `base`, `errands` or `development`, undefined for
+ * a name that is not a role.
  * @param {unknown} role
- * @returns {'core'|'helpers'|'agents'|undefined}
+ * @returns {'base'|'errands'|'development'|undefined}
  */
-export function roleSection(role) {
-  if (role === CORE_ROLE || role === MEMORY_ROLE) return 'core';
-  if (HELPER_ROLES.includes(role)) return 'helpers';
-  if (AGENT_ROLES.includes(role)) return 'agents';
+export function roleGroup(role) {
+  if (role === MEMORY_ROLE || BASE_ROLES.includes(role)) return 'base';
+  if (ERRAND_ROLES.includes(role)) return 'errands';
+  if (DEVELOPMENT_ROLES.includes(role)) return 'development';
   return undefined;
 }
 
 /**
- * The config keys of a role's model (`['models', 'core']`, `['models', 'helpers', 'vision']`,
- * `['models', 'agents', 'web']`), undefined for a name that is not a role.
+ * The config keys of a role's model (`['models', 'base', 'vision']`, `['models', 'errands', 'scout']`),
+ * undefined for a name that is not a role.
  * @param {unknown} role
  * @returns {string[]|undefined}
  */
 export function roleConfigKeys(role) {
-  const section = roleSection(role);
-  if (!section) return undefined;
-  return section === 'core' ? ['models', role] : ['models', section, role];
+  const group = roleGroup(role);
+  return group ? ['models', group, role] : undefined;
 }
 
 /**
@@ -157,11 +158,9 @@ export function isRole(role) {
 /**
  * The model of one request, the one resolver every caller goes through: the
  * `models.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a
- * plain object), else the role's own key (`models.core`, `models.helpers.<role>` or
- * `models.agents.<role>`) when it is a non-empty string, else the role's own default
- * (ROLE_DEFAULTS). Never another role's model. `undefined` only for a `role` that is not one of
- * ROLES and no `byPurpose` entry. The old keys (`models.base.*`) are not read here: a
- * config.local.json still holding them is moved at load (src/config.js#adaptLegacyModelKeys).
+ * plain object), else the role's own key (`models.<group>.<role>`) when it is a non-empty string,
+ * else the role's own default (ROLE_DEFAULTS). Never another role's model. `undefined` only for a
+ * `role` that is not one of ROLES and no `byPurpose` entry.
  * @param {object|undefined} config  The whole live config, read at the moment of use.
  * @param {string} role
  * @param {string} [purpose]
@@ -174,14 +173,9 @@ export function roleModel(config, role, purpose) {
     const pinned = byPurpose[purpose];
     if (typeof pinned === 'string' && pinned) return pinned;
   }
-  const section = roleSection(role);
-  if (!section) return undefined;
-  let own;
-  if (section === 'core') {
-    own = models && Object.hasOwn(models, role) ? models[role] : undefined;
-  } else {
-    const map = models && Object.hasOwn(models, section) && isPlainObject(models[section]) ? models[section] : undefined;
-    own = map && Object.hasOwn(map, role) ? map[role] : undefined;
-  }
+  const group = roleGroup(role);
+  if (!group) return undefined;
+  const map = models && Object.hasOwn(models, group) && isPlainObject(models[group]) ? models[group] : undefined;
+  const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
   return typeof own === 'string' && own ? own : (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
 }

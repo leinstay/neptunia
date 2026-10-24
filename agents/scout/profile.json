@@ -1,16 +1,16 @@
 {
-  "id": "web",
+  "id": "scout",
   "kind": "worker",
-  "role": "web",
+  "role": "scout",
   "prompt": "prompt.md",
-  "override": "agent-web.md",
+  "override": "agent-scout.md",
   "tools": ["websearch", "webfetch", "read", "glob", "list", "bash"],
-  "shell": "web-download",
+  "shell": "scout-download",
   "limits": { "steps": 25, "seconds": 300 },
   "daily": { "tasks": 40 },
   "searchProvider": "exa",
-  "socket": "/run/neptunia-agent-web/sock",
-  "out": "/var/lib/neptunia-agent-web/out",
+  "socket": "/run/neptunia-agent-scout/sock",
+  "out": "/var/lib/neptunia-agent-scout/out",
   "env": ["OPENROUTER_ERRAND_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
   "description": "Internet errands: searches the web, reads pages, looks at images and downloads files through a proxy."
 }

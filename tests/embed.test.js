@@ -20,7 +20,7 @@ function config(overrides = {}) {
       providerByModel: { 'openai/@embedding': { only: ['openai'] } },
       ...overrides.llm,
     },
-    models: { helpers: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', ...overrides.models?.helpers }, byPurpose: { ...overrides.models?.byPurpose } },
+    models: { base: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', ...overrides.models?.base }, byPurpose: { ...overrides.models?.byPurpose } },
     embed: { dimensions: 4, ...overrides.embed },
   };
 }
@@ -158,9 +158,9 @@ test('embed: nothing to embed sends nothing; an empty text is an error before an
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test('embed: an unset models.helpers.embedding goes out on the role default, never on another role\'s model', async () => {
+test('embed: an unset models.base.embedding goes out on the role default, never on another role\'s model', async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0, 0, 0]])]);
-  await embedder.embed(['a'], { config: config({ models: { helpers: { analyzer: 'x/text', embedding: null } } }), purpose: 'search' });
+  await embedder.embed(['a'], { config: config({ models: { base: { analyzer: 'x/text', embedding: null } } }), purpose: 'search' });
   assert.equal(sent[0].body.model, ROLE_DEFAULTS.embedding);
 });
 

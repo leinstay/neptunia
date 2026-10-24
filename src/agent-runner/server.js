@@ -3,7 +3,7 @@
 // the runner answers `progress` events while a task works and one `end` per
 // task. One connection may carry many tasks, and several connections may be
 // open, but a runner works one task at a time -- the rest wait in a queue, so
-// a slow web errand never overlaps another. `cancel` aborts the running task
+// a slow scout errand never overlaps another. `cancel` aborts the running task
 // or drops a queued one; `ping` lets the core learn that a task the runner no
 // longer knows (it restarted between the run and now) has failed, so the core
 // stops waiting. On startup the socket is chmod 660 (the core's group reaches

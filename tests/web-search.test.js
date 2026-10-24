@@ -1,4 +1,4 @@
-// Tests for src/web/web-search.js, the web agent's search command: the command
+// Tests for src/web/web-search.js, the scout agent's search command: the command
 // line (query words, --count), the request it sends (OpenRouter's chat
 // completions with the web plugin on Exa, the agent's key, the model the
 // runner passes), the results read from the answer's url_citation annotations
@@ -65,8 +65,8 @@ test('buildSearchRequest: the query as the only message, the Exa web plugin with
 
 test('webSearchModel: the persona\'s own web.search model (analyzer for web-search), a byPurpose entry included', () => {
   assert.equal(webSearchModel({}), ROLE_DEFAULTS.analyzer);
-  assert.equal(webSearchModel({ models: { helpers: { analyzer: 'x/cheap' } } }), 'x/cheap');
-  assert.equal(webSearchModel({ models: { helpers: { analyzer: 'x/cheap' }, byPurpose: { 'web-search': 'x/other' } } }), 'x/other');
+  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'x/cheap');
+  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' }, byPurpose: { 'web-search': 'x/other' } } }), 'x/other');
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {

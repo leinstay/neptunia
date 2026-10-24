@@ -90,7 +90,7 @@ const CALLS = [
   ['draw.create', {}, 'a lighthouse'],
   ['lore.list', {}, ''],
   ['memory.profile.read', { user: OWNER }, ''],
-  ['task.run', { agent: 'web', goal: 'look at the weather' }, ''],
+  ['task.run', { agent: 'scout', goal: 'look at the weather' }, ''],
   ['intent.set', {}, 'remember to say hi'],
   ['web.search', {}, 'weather'],
   ['skills.describe', { name: 'lore.list' }, ''],

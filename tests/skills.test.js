@@ -371,7 +371,7 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
   assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'improvement', wakeActions: done }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxActs' });
   assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes, wakeKind: 'improvement', wakeActions: done }), { ok: true });
   assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'improvement', wakeActions: done.slice(0, 1) }), { ok: true });
-  assert.deepEqual(innerCheck({ skill: 'task.run', args: { agent: 'web', goal: 'βρες' }, granted: ['task.run'], wakes: { improvement: { maxTasks: 0 } }, wakeKind: 'improvement' }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxTasks' });
+  assert.deepEqual(innerCheck({ skill: 'task.run', args: { agent: 'scout', goal: 'βρες' }, granted: ['task.run'], wakes: { improvement: { maxTasks: 0 } }, wakeKind: 'improvement' }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxTasks' });
 });
 
 test('wake envelope: a skill that posts inside its own operation is refused at the nested capability, before anything runs', async () => {

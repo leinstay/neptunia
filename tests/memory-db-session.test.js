@@ -39,7 +39,7 @@ const prompts = {
 };
 const baseConfig = (session = {}, extra = {}) => ({
   bot: { timezone: 'UTC' },
-  models: { memory: 'x/memory' },
+  models: { base: { memory: 'x/memory' } },
   llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   relationships: { maxDeltaPerUpdate: 5 },
   memoryDb: { read: true, authority: 'db', session: { mode: 'shadow', minMessages: 1, ...session } },
@@ -127,15 +127,15 @@ const request = (env, config = baseConfig()) => {
 };
 
 test('the memory role: its own model key, its own key variable, no other key stands in', async () => {
-  assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'memory']);
-  assert.equal(roleModel({ models: { memory: 'x/m', core: 'x/c' } }, 'memory'), 'x/m');
-  assert.equal(roleModel({ models: { core: 'x/c' } }, 'memory'), MEMORY_ROLE_DEFAULT, 'unset: its own default, never the core key');
+  assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'base', 'memory']);
+  assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, 'memory'), 'x/m');
+  assert.equal(roleModel({ models: { base: { core: 'x/c' } } }, 'memory'), MEMORY_ROLE_DEFAULT, 'unset: its own default, never the core key');
   assert.ok(STRICT_KEY_ROLES.includes('memory'));
   const config = { llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } } };
   assert.equal(roleApiKey(config, { OPENROUTER_MEMORY_KEY: 'mine' }, 'memory', 'main'), 'mine');
   const { result } = await withCapturedLogs(() => roleApiKey(config, {}, 'memory', 'main'));
   assert.equal(result, '', 'unset variable: no key, never the main key');
-  assert.equal(roleApiKey({ llm: {} }, { OPENROUTER_API_KEY: 'x' }, 'memory', 'main'), '', 'unmapped: no key either');
+  assert.equal(roleApiKey({ llm: {} }, { OPENROUTER_CORE_KEY: 'x' }, 'memory', 'main'), '', 'unmapped: no key either');
   assert.equal(roleApiKey({ llm: {} }, {}, 'core', 'main'), 'main', 'other roles keep the main key');
 });
 
@@ -386,7 +386,7 @@ test('refused before any request: off, no key of its own, apply while the JSON f
     const llm = fakeLlm(memoryBlock({}));
     const off = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'off' }) }));
     assert.deepEqual([off.status, off.code], ['off', 'off']);
-    const keyless = await sweep(ctxOf(env, { llm, envVars: { OPENROUTER_API_KEY: 'main', OPENROUTER_CORE_KEY: 'core' } }));
+    const keyless = await sweep(ctxOf(env, { llm, envVars: { OPENROUTER_CORE_KEY: 'main', OPENROUTER_OTHER_KEY: 'other' } }));
     assert.deepEqual([keyless.status, keyless.code], ['refused', 'not_configured'], 'another key never stands in');
     const jsonWriter = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply', minMessages: 1 } } }) }));
     assert.deepEqual([jsonWriter.status, jsonWriter.code], ['refused', 'APPLY_JSON_WRITER']);

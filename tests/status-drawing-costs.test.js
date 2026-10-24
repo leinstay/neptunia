@@ -1,7 +1,6 @@
-// The drawing agent on the owner's `/nep status` card (stage 3b): `costs.agents` lists it with its
-// runs and dollars from the task records, `costs.base` has no row for the pictures (they are the
-// drawing agent's spend, never counted twice), and `keys.base` has no line for the agents' key
-// when the drawing role is on it, nor does the main key's rolling sum count the pictures. Over a
+// Drawing on the owner's `/nep status` card: `costs.base` has its row from the usage accumulator
+// (one Images API request is a base role), `costs.errands` has none, and `keys.base` has no line
+// for the errands' key when the drawing role is on it. Over a
 // real task store in a temp directory and a fake usage accumulator; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +36,7 @@ const COSTS = {
 function setup() {
   const config = {
     bot: { owners: ['42'] },
-    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { web: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' } },
+    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' } },
     agents: { maxOpen: 3, drawing: { daily: { tasks: 100 } } },
   };
   const hot = { config, prompts: { labels: { status: { costs: COSTS } } }, promptSources: {}, rootDir: tempDir('nep-status-drawing-') };
@@ -54,7 +53,7 @@ function setup() {
   tap({ msg: 'images: generated', cost: 0.03 });
   const reads = [];
   const llm = {
-    roleKeys: () => [{ roles: ['drawing', 'web'] }],
+    roleKeys: () => [{ roles: ['drawing', 'scout'] }],
     async keyInfo(options) {
       reads.push(options.role ?? 'main');
       return { ok: true, status: 200, json: { data: { limit: 30, limit_remaining: 30 } } };
@@ -67,18 +66,16 @@ function setup() {
   return { card, reads };
 }
 
-test('status: costs.agents lists the drawing agent with its runs and dollars; costs.base has no row for the pictures', async () => {
+test('status: drawing\'s spend is a row of costs.base from the usage accumulator, never a line of costs.errands', async () => {
   const { card } = setup();
-  const { result } = await withCapturedLogs(async () => ({ agents: await card('costs.agents'), base: await card('costs.base') }));
-  const drawing = result.agents.find((line) => line.startsWith('drawing:'));
-  assert.equal(drawing, 'drawing: D 2r 80/2.0k 0.05 | W 2r 80/2.0k 0.05 | M 2r 80/2.0k 0.05');
-  assert.equal(result.agents.at(-1), 'est.');
-  assert.deepEqual(result.base, ['core: 1 req 0.40'], 'no drawing row: nothing counts twice');
+  const { result } = await withCapturedLogs(async () => ({ errands: await card('costs.errands'), base: await card('costs.base') }));
+  assert.deepEqual(result.errands, ['scout: none', 'server: none', 'est.'], 'the pictures are not an errand');
+  assert.deepEqual(result.base, ['core: 1 req 0.40', 'drawing: 1 req 0.03']);
 });
 
 test('status: keys.base leaves the agents\' key out when the drawing role is on it, and never reads it', async () => {
   const { card, reads } = setup();
   const { result } = await withCapturedLogs(() => card('keys.base'));
   assert.deepEqual(result, ['main 0.00/30.00', 'sim: not set']);
-  assert.deepEqual(reads, ['main'], 'the agents key (web and drawing) is not read');
+  assert.deepEqual(reads, ['main'], 'the agents key (scout and drawing) is not read');
 });

@@ -1,5 +1,5 @@
 // Tests for src/ops/task.js: the `/nep task` operations over a real task store (a temp data/
-// directory) and a FAKE errand client. The rights: a member may run the web agent but not the
+// directory) and a FAKE errand client. The rights: a member may run the scout agent but not the
 // server one, an owner may run both; a cap refuses with its code; the answer is at once (id and
 // `queued`) while the errand runs in the background; a cancel is for the requester or an owner;
 // a private chat's task is shown only to its requester or an owner.
@@ -50,7 +50,7 @@ function fakeClient({ configured = true } = {}) {
 function makeEnv({ agents = {}, configured = true } = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
-    config: { bot: { owners: [OWNER], access: {} }, features: {}, agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } }, ...agents } },
+    config: { bot: { owners: [OWNER], access: {} }, features: {}, agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } }, ...agents } },
     prompts: { labels: {} },
     rootDir,
     reloadConfig: () => true,
@@ -66,10 +66,10 @@ function makeEnv({ agents = {}, configured = true } = {}) {
 
 const ctx = (env, userId, extra = {}) => ({ env, guildId: 'g1', channelId: 'c1', userId, roleIds: [], ...extra });
 
-test('task.run: a member may run the web agent; the answer is at once, the errand runs in the background', async () => {
+test('task.run: a member may run the scout agent; the answer is at once, the errand runs in the background', async () => {
   const { env, client, errands, finished, stores } = makeEnv();
   await withCapturedLogs(async () => {
-    const result = await runOp('task.run', { agent: 'web', goal: 'find the changelog' }, ctx(env, MEMBER, { sourceMessageId: 'm5' }));
+    const result = await runOp('task.run', { agent: 'scout', goal: 'find the changelog' }, ctx(env, MEMBER, { sourceMessageId: 'm5' }));
     assert.equal(result.status, 'ok');
     const { id, state } = result.data.task;
     assert.equal(state, 'queued');
@@ -82,8 +82,8 @@ test('task.run: a member may run the web agent; the answer is at once, the erran
     await new Promise((r) => setImmediate(r));
     assert.equal(client.runs.length, 1);
     assert.equal(client.runs[0].context.scope, 'group');
-    assert.deepEqual(client.runs[0].limits, { steps: 25, seconds: 300 }, 'the profile defaults under agents.web.limits');
-    assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes models.agents.web');
+    assert.deepEqual(client.runs[0].limits, { steps: 25, seconds: 300 }, 'the profile defaults under agents.scout.limits');
+    assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes models.errands.scout');
     assert.equal(stores.get('g1').get(id).state, 'running');
     client.end(id);
     await errands.idle();
@@ -114,8 +114,8 @@ test('task.run: a member may not run the server agent; an owner may', async () =
 test('task.run: a cap refuses with its code; a runner that is not set up is not-configured', async () => {
   const { env } = makeEnv({ agents: { maxOpen: 1 } });
   await withCapturedLogs(async () => {
-    assert.equal((await runOp('task.run', { agent: 'web', goal: 'one' }, ctx(env, MEMBER))).status, 'ok');
-    const second = await runOp('task.run', { agent: 'web', goal: 'two' }, ctx(env, MEMBER));
+    assert.equal((await runOp('task.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).status, 'ok');
+    const second = await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER));
     assert.equal(second.status, 'failed');
     assert.equal(second.code, 'cap-open');
     const bad = await runOp('task.run', { agent: 'mail', goal: 'x' }, ctx(env, MEMBER));
@@ -123,7 +123,7 @@ test('task.run: a cap refuses with its code; a runner that is not set up is not-
   });
   const off = makeEnv({ configured: false });
   await withCapturedLogs(async () => {
-    const result = await runOp('task.run', { agent: 'web', goal: 'x' }, ctx(off.env, MEMBER));
+    const result = await runOp('task.run', { agent: 'scout', goal: 'x' }, ctx(off.env, MEMBER));
     assert.equal(result.status, 'failed');
     assert.equal(result.code, 'not-configured');
   });
@@ -132,8 +132,8 @@ test('task.run: a cap refuses with its code; a runner that is not set up is not-
 test('task.cancel: only the requester of the task or an owner', async () => {
   const { env, client, stores } = makeEnv();
   await withCapturedLogs(async () => {
-    const first = (await runOp('task.run', { agent: 'web', goal: 'one' }, ctx(env, MEMBER))).data.task.id;
-    const second = (await runOp('task.run', { agent: 'web', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
+    const first = (await runOp('task.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).data.task.id;
+    const second = (await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
     await new Promise((r) => setImmediate(r));
     const refused = await runOp('task.cancel', { id: first }, ctx(env, OTHER));
     assert.equal(refused.status, 'denied');
@@ -155,14 +155,14 @@ test('task.cancel: only the requester of the task or an owner', async () => {
 test('task.status and task.list: the open ones, one by id, a private chat\'s only for its requester or an owner', async () => {
   const { env } = makeEnv();
   await withCapturedLogs(async () => {
-    const group = (await runOp('task.run', { agent: 'web', goal: 'public errand' }, ctx(env, MEMBER))).data.task.id;
-    const dm = (await runOp('task.run', { agent: 'web', goal: 'private errand' }, ctx(env, MEMBER, { privateChat: true, channelId: 'dm1' }))).data.task.id;
+    const group = (await runOp('task.run', { agent: 'scout', goal: 'public errand' }, ctx(env, MEMBER))).data.task.id;
+    const dm = (await runOp('task.run', { agent: 'scout', goal: 'private errand' }, ctx(env, MEMBER, { privateChat: true, channelId: 'dm1' }))).data.task.id;
     const open = await runOp('task.status', {}, ctx(env, OTHER));
     assert.equal(open.status, 'ok');
     assert.ok(open.summary.includes(group));
     assert.ok(!open.summary.includes(dm), 'another member does not see a private chat\'s task');
     const one = await runOp('task.status', { id: dm }, ctx(env, MEMBER));
-    assert.ok(one.summary.startsWith(`${dm} web`));
+    assert.ok(one.summary.startsWith(`${dm} scout`));
     assert.equal((await runOp('task.status', { id: dm }, ctx(env, OTHER))).code, 'not-found');
     const listed = await runOp('task.list', {}, ctx(env, OWNER));
     assert.ok(listed.summary.includes(group) && listed.summary.includes(dm));
@@ -172,21 +172,21 @@ test('task.status and task.list: the open ones, one by id, a private chat\'s onl
 
 test('task.status: a finished task whose files the runner deleted says files-expired', async () => {
   const out = tempDir('nep-ops-task-out-');
-  const { env, client, errands } = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10 } } } });
+  const { env, client, errands } = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
   await withCapturedLogs(async () => {
-    const id = (await runOp('task.run', { agent: 'web', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
+    const id = (await runOp('task.run', { agent: 'scout', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
     while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
     client.end(id, { status: 'done', result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] }, usage: { usd: 0.01 } });
     await errands.idle();
     const one = await runOp('task.status', { id }, ctx(env, MEMBER));
-    assert.ok(one.summary.startsWith(`${id} web done (files-expired) `), one.summary);
+    assert.ok(one.summary.startsWith(`${id} scout done (files-expired) `), one.summary);
   });
 });
 
 test('task.status: a task mirrored into the ledger shows its ledger id; task.cancel tells the service who cancelled', async () => {
   const { env, errands, stores } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('task.run', { agent: 'web', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
+    const id = (await runOp('task.run', { agent: 'scout', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
     const plain = await runOp('task.status', { id }, ctx(env, MEMBER));
     assert.ok(!plain.summary.includes('ledger:'), 'no line without a ledger id');
     stores.get('g1').setLedgerId(id, 'L42');
@@ -200,8 +200,8 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
       seen.push(args.by);
       return cancel(args);
     };
-    const other = (await runOp('task.run', { agent: 'web', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
-    const hers = (await runOp('task.run', { agent: 'web', goal: 'three' }, ctx(env, null, { actor: 'persona' }))).data.task.id;
+    const other = (await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
+    const hers = (await runOp('task.run', { agent: 'scout', goal: 'three' }, ctx(env, null, { actor: 'persona' }))).data.task.id;
     await runOp('task.cancel', { id }, ctx(env, MEMBER));
     await runOp('task.cancel', { id: other }, ctx(env, OWNER));
     await runOp('task.cancel', { id: hers }, ctx(env, null, { actor: 'persona' }));
@@ -210,11 +210,11 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
   });
 });
 
-/** Ends a fresh web task of MEMBER with `result` and returns its id. */
+/** Ends a fresh scout task of MEMBER with `result` and returns its id. */
 async function finishedTask(fixture, goal, result, extra = {}) {
   const { env, client, errands } = fixture;
   const before = client.runs.length;
-  const id = (await runOp('task.run', { agent: 'web', goal }, ctx(env, MEMBER, extra))).data.task.id;
+  const id = (await runOp('task.run', { agent: 'scout', goal }, ctx(env, MEMBER, extra))).data.task.id;
   while (client.runs.length === before) await new Promise((resolve) => setImmediate(resolve));
   client.end(id, { status: 'done', result, usage: { usd: 0.01 } });
   await errands.idle();
@@ -227,7 +227,7 @@ test('task.status without an id lists the open tasks and the finished ones not r
   await withCapturedLogs(async () => {
     const done = await finishedTask(fixture, 'first', { text: 'the answer' });
     const listed = await runOp('task.status', {}, ctx(env, MEMBER));
-    assert.ok(listed.summary.includes(`${done} web done`) && listed.summary.includes('(unread)'), listed.summary);
+    assert.ok(listed.summary.includes(`${done} scout done`) && listed.summary.includes('(unread)'), listed.summary);
     const read = await runOp('task.read', { id: done }, ctx(env, MEMBER));
     assert.equal(read.status, 'ok');
     assert.ok(read.summary.includes('the answer'));
@@ -238,7 +238,7 @@ test('task.status without an id lists the open tasks and the finished ones not r
 
 test('task.read: pages of agents.resultMaxChars, the last page marks it read; sources, the error and the file manifest come with the first page', async () => {
   const out = tempDir('nep-ops-task-out-');
-  const fixture = makeEnv({ agents: { resultMaxChars: 10, web: { enabled: true, out, daily: { tasks: 10 } } } });
+  const fixture = makeEnv({ agents: { resultMaxChars: 10, scout: { enabled: true, out, daily: { tasks: 10 } } } });
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'long one', { text: 'abcdefghijklmnopqrstuvwxy', sources: ['https://example.org/a'], files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 12 }] });
@@ -261,14 +261,14 @@ test('task.read: pages of agents.resultMaxChars, the last page marks it read; so
 
 test('task.read: an expired file is marked and has no handle; a failed task shows its error; an open or unknown task, and a private chat\'s task for another member, are refused', async () => {
   const out = tempDir('nep-ops-task-out-');
-  const fixture = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10 } } } });
+  const fixture = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
   const { env, client, errands } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'a meme', { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 5 }] });
     const lines = (await runOp('task.read', { id }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(lines.includes('file: a.png (image/png, 5 bytes) expired, no handle'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.includes(`file:${id}`)));
-    const failed = (await runOp('task.run', { agent: 'web', goal: 'will fail' }, ctx(env, MEMBER))).data.task.id;
+    const failed = (await runOp('task.run', { agent: 'scout', goal: 'will fail' }, ctx(env, MEMBER))).data.task.id;
     const open = await runOp('task.read', { id: failed }, ctx(env, MEMBER));
     assert.equal(open.status, 'invalid');
     while (client.runs.length < 2) await new Promise((resolve) => setImmediate(resolve));
@@ -294,7 +294,7 @@ test('task.resolve: closes a finished task of her view so the list drops it; an 
     assert.equal(stores.get('g1').get(id).resolvedAt > 0, true);
     assert.equal((await runOp('task.status', {}, ctx(env, MEMBER))).summary, 'no open tasks');
     assert.equal((await runOp('task.resolve', { id }, ctx(env, MEMBER))).status, 'ok');
-    const open = (await runOp('task.run', { agent: 'web', goal: 'still going' }, ctx(env, MEMBER))).data.task.id;
+    const open = (await runOp('task.run', { agent: 'scout', goal: 'still going' }, ctx(env, MEMBER))).data.task.id;
     assert.equal((await runOp('task.resolve', { id: open }, ctx(env, MEMBER))).status, 'invalid');
     assert.equal((await runOp('task.resolve', { id: 'tnope' }, ctx(env, OTHER))).code, 'not-found');
   });

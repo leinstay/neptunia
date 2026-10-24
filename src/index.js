@@ -119,7 +119,7 @@ if (!fs.existsSync(paths.privateDir)) fail(`index: the private directory ${paths
 
 loadDotEnv(paths.privateDir);
 const discordToken = needOrFail('DISCORD_TOKEN');
-const openrouterKey = needOrFail('OPENROUTER_API_KEY');
+const openrouterKey = needOrFail('OPENROUTER_CORE_KEY');
 // Optional: without it a YouTube duration comes from the watch page only.
 const youtubeApiKey = env.YOUTUBE_API_KEY || null;
 // Optional: without it the `brave` search engine never runs (the web lookup still reads links). Never logged.

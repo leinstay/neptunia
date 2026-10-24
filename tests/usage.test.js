@@ -1,4 +1,4 @@
-// The costs fields of the owner's /nep status card (keys.base, costs.base, costs.agents): today's per-role accumulator fed by the
+// The costs fields of the owner's /nep status card (keys.base, costs.base, costs.errands, costs.development): today's per-role accumulator fed by the
 // `llm: usage` log lines (src/ops/usage.js), the OpenRouter key reads, and the pure renderers
 // over every key shape the owner may set.
 import { test } from 'node:test';
@@ -404,13 +404,13 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
 });
 
 test('keyCostsLines: roleNames names the roles of an extra key, each name once, so the agents key is one word', () => {
-  const labels = { status: { costs: { ...LABELS.status.costs, keyLead: 'main', roleKeyLead: '{roles} key', roleSeparator: '+', keyLimitPlain: '{lead} {spent}/{limit}', simKeyNotSet: 'sim: not set', roleNames: { web: 'agents', server: 'agents', dev: 'agents' } } } };
+  const labels = { status: { costs: { ...LABELS.status.costs, keyLead: 'main', roleKeyLead: '{roles} key', roleSeparator: '+', keyLimitPlain: '{lead} {spent}/{limit}', simKeyNotSet: 'sim: not set', roleNames: { scout: 'agents', server: 'agents', dev: 'agents' } } } };
   const lines = keyCostsLines({
     key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
     labels,
     roleKeys: [
-      { roles: ['dev', 'server', 'web'], key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }), windows: { last7: window(0), last30: window(0) } },
-      { roles: ['web', 'core'], key: ok({ limit: 5, limit_remaining: 5 }) },
+      { roles: ['dev', 'server', 'scout'], key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }), windows: { last7: window(0), last30: window(0) } },
+      { roles: ['scout', 'core'], key: ok({ limit: 5, limit_remaining: 5 }) },
     ],
   });
   assert.deepEqual(lines.slice(3), ['agents key 1.00/10.00', 'usage D 0.50 | L7 0.00 | L30 0.00', 'agents+core key 0.00/5.00']);
@@ -420,14 +420,14 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
     sim: ok({}),
     labels: { status: { costs: shipped } },
     roleKeys: [
-      { roles: ['server', 'web'], key: ok({ limit: 10, limit_remaining: 9 }) },
+      { roles: ['server', 'scout'], key: ok({ limit: 10, limit_remaining: 9 }) },
       { roles: ['dev'], key: ok({ limit: 20, limit_remaining: 15 }) },
     ],
   });
-  assert.ok(five.some((text) => text.startsWith('dedicated agents key: 1.00 / 10.00 USD')), `the shipped wording names the errand agents' key "agents": ${five.join(' / ')}`);
+  assert.ok(five.some((text) => text.startsWith('dedicated errands key: 1.00 / 10.00 USD')), `the shipped wording names the errand agents' key "errands": ${five.join(' / ')}`);
   assert.ok(five.some((text) => text.startsWith('dedicated development key: 5.00 / 20.00 USD')), `and the coding worker's "development": ${five.join(' / ')}`);
-  const plain = keyCostsLines({ key: ok({}), labels: { status: { costs: { ...labels.status.costs, roleNames: 'odd' } } }, roleKeys: [{ roles: ['web'], key: ok({ limit: 5, limit_remaining: 5 }) }] });
-  assert.ok(plain.some((text) => text.startsWith('web key')), 'no usable roleNames: the role itself');
+  const plain = keyCostsLines({ key: ok({}), labels: { status: { costs: { ...labels.status.costs, roleNames: 'odd' } } }, roleKeys: [{ roles: ['scout'], key: ok({ limit: 5, limit_remaining: 5 }) }] });
+  assert.ok(plain.some((text) => text.startsWith('scout key')), 'no usable roleNames: the role itself');
 });
 
 test('roleCostsLines: the role lines carry the average cost per request, left out with no request or no label', () => {
@@ -499,8 +499,8 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   const state = { data: {}, markDirty() {} };
   const llm = createLlm({
     apiKey: 'k-test',
-    env: { OPENROUTER_VOICE_KEY: 'k-core' },
-    getConfig: () => ({ llm: { baseUrl: 'https://openrouter.ai/api/v1', timeoutMs: 5000, maxRequestsPerDay: 1, keyByRole: { core: 'OPENROUTER_VOICE_KEY' } } }),
+    env: { OPENROUTER_CORE_KEY_X: 'k-core' },
+    getConfig: () => ({ llm: { baseUrl: 'https://openrouter.ai/api/v1', timeoutMs: 5000, maxRequestsPerDay: 1, keyByRole: { core: 'OPENROUTER_CORE_KEY_X' } } }),
     calibrator: { observe() {} },
     state,
     fetchImpl: async (url, init) => {
@@ -524,18 +524,18 @@ test('agentCostsLines: one line per agent in order with today, 7 and 30 days, no
   const labels = { status: { costs: { partSeparator: ' | ', agentLine: '{agent}: {parts}', agentWindow: '{window} {runs}r {in}/{out} {usd}', agentWindows: { today: 'D', last7: 'W' }, agentNoRuns: '{agent}: none', agentEstimate: 'est.' } } };
   const row = (runs, input, output, usd) => ({ runs, input, output, usd });
   const totals = {
-    web: { today: row(2, 12_400, 3_100, 0.123), last7: row(9, 98_000, 20_000, 0.8), last30: row(30, 1_234_567, 99_999, 3.456) },
+    scout: { today: row(2, 12_400, 3_100, 0.123), last7: row(9, 98_000, 20_000, 0.8), last30: row(30, 1_234_567, 99_999, 3.456) },
     server: { today: row(0, 0, 0, 0), last7: row(0, 0, 0, 0), last30: row(0, 0, 0, 0) },
   };
-  assert.deepEqual(agentCostsLines({ agents: ['web', 'server', 'dev'], totals, labels }), [
-    'web: D 2r 12k/3.1k 0.12 | W 9r 98k/20k 0.80 | last30 30r 1.23M/100k 3.46',
+  assert.deepEqual(agentCostsLines({ agents: ['scout', 'server', 'dev'], totals, labels }), [
+    'scout: D 2r 12k/3.1k 0.12 | W 9r 98k/20k 0.80 | last30 30r 1.23M/100k 3.46',
     'server: none',
     'dev: none',
     'est.',
   ]);
   const noNote = { status: { costs: { ...labels.status.costs, agentEstimate: undefined } } };
   assert.deepEqual(agentCostsLines({ agents: ['dev'], totals: null, labels: noNote }), ['dev: none']);
-  assert.deepEqual(agentCostsLines({ agents: ['web'], totals, labels: {} }), []);
+  assert.deepEqual(agentCostsLines({ agents: ['scout'], totals, labels: {} }), []);
 });
 
 test('agentCostsLines: an agent with a last wave gets its context line right after its own line; a wave without context, or no label, adds none', () => {

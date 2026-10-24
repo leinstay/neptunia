@@ -1,8 +1,8 @@
 // The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
-// accounting; `costs.agents`, the agents' runs and estimated spend (web and server from the errand
-// records, src/errands/costs.js; thinker, dev and writer from the ledger, src/errands/ledger.js#costs;
-// rendered here by agentCostsLines). The
+// accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
+// server from the errand records, src/errands/costs.js); `costs.development`, thinker, dev and writer
+// from the ledger (src/errands/ledger.js#costs); both rendered here by agentCostsLines. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -495,7 +495,7 @@ export function roleCostsLines({ rows, labels }) {
 const AGENT_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
 
 /**
- * The `costs.agents` field's lines, every word from `labels.status.costs` (no `status.costs`
+ * The `costs.errands` and `costs.development` fields' lines, every word from `labels.status.costs` (no `status.costs`
  * gives []): one line per agent in the given order, `agentLine` ({agent} {parts}) with one
  * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
  * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`

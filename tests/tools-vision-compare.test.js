@@ -22,7 +22,7 @@ const MP4 = `data:video/mp4;base64,${Buffer.from('clip').toString('base64')}`;
 /** A live hot view with its own config and prompts; `config` is the object a reload would hold. */
 function liveHot() {
   const config = {
-    models: { core: 'live/voice', helpers: { vision: 'live/vision', video: 'live/video' }, byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' } },
+    models: { base: { core: 'live/voice', vision: 'live/vision', video: 'live/video' }, byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' } },
     features: { mediaDescriptions: false },
     llm: { helperTimeoutMs: 1000 },
     media: { descriptionChars: 300, gif: { maxSeconds: 4, maxPerDay: 1 }, video: { maxPerDay: 1, sites: ['youtube.com'] } },
@@ -151,8 +151,8 @@ test('vision-compare toolHot: the model is overridden in the tool view only', ()
   const base = liveHot();
   const before = structuredClone(base.config);
   const view = toolHot(base, { model: 'cand/model' });
-  assert.equal(view.config.models.helpers.vision, 'cand/model');
-  assert.equal(view.config.models.helpers.video, 'cand/model');
+  assert.equal(view.config.models.base.vision, 'cand/model');
+  assert.equal(view.config.models.base.video, 'cand/model');
   assert.equal(view.config.models.byPurpose.describe, undefined);
   assert.equal(view.config.models.byPurpose.reply, 'pinned/reply');
   assert.equal(view.config.features.mediaDescriptions, true);

@@ -145,9 +145,9 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
   assert.deepEqual(verdict, { ok: true });
   // Without its agent: refused naming the agents she may pick, never a bare missing argument.
   const agentless = resolve('task.run', { goal });
-  assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'web,server']);
+  assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'scout,server']);
   assert.equal(refusalStatus(agentless.code), 'invalid');
-  assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] });
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['scout', 'server'] });
   assert.deepEqual(resolve('rule.add', { text: 'όχι emoji' }).args, { text: 'όχι emoji' });
 });
 
@@ -555,7 +555,7 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
     generate: async ({ prompt }) => { generated.push(prompt); return { buffer: Buffer.from('pic'), mediaType: 'image/png', model: 'm', seconds: 1, cost: 0.02 }; },
     quota: () => ({ spent: false, userSpent: false }),
   };
-  const cfg = { ...config(), models: { agents: { drawing: 'openai/gpt-image' } } };
+  const cfg = { ...config(), models: { base: { drawing: 'openai/gpt-image' } } };
   const { admin, port } = makeAdmin({ cfg, extra: { images } });
   const here = await executeCall(resolve('draw.create', {}, 'a lighthouse at dusk'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
@@ -628,7 +628,7 @@ test('executeCall: draw.create to a channel without Attach Files is refused befo
     generate: async ({ prompt }) => { generated.push(prompt); return { buffer: Buffer.from('pic'), mediaType: 'image/png', model: 'm', seconds: 1, cost: 0.02 }; },
     quota: () => ({ spent: false, userSpent: false }),
   };
-  const { admin, port } = makeAdmin({ cfg: { ...config(), models: { agents: { drawing: 'openai/gpt-image' } } }, extra: { images } });
+  const { admin, port } = makeAdmin({ cfg: { ...config(), models: { base: { drawing: 'openai/gpt-image' } } }, extra: { images } });
   const refused = await executeCall(direct('draw.create', { channel: NO_FILES, text: 'a lighthouse' }), deps(admin, port));
   assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission']);
   assert.deepEqual([generated.length, port.calls.length], [0, 0]);

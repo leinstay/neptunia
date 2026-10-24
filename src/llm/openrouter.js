@@ -84,15 +84,6 @@ export function apiUrl(baseUrl, path) {
 export const ROLE_KEY_NAME = /^OPENROUTER_[A-Z0-9_]+$/;
 
 /**
- * A key variable read in place of another while the named one is unset: `OPENROUTER_CORE_KEY`
- * (the core's key, the role's name since 2026-10) falls back to `OPENROUTER_VOICE_KEY` (its name
- * while the role was `voice`), and `OPENROUTER_ERRAND_KEY` (the errand agents' key) to
- * `OPENROUTER_AGENT_KEY` (its earlier name), so a deployment whose `.env` still holds the old
- * variable keeps its key. One step, never chained.
- */
-export const ROLE_KEY_FALLBACKS = Object.freeze({ OPENROUTER_CORE_KEY: 'OPENROUTER_VOICE_KEY', OPENROUTER_ERRAND_KEY: 'OPENROUTER_AGENT_KEY' });
-
-/**
  * The roles that never go out on the main key: an unset or blank variable gives an empty key (`roleApiKey`), and a
  * request of such a role is refused before it is sent (`complete` throws `ROLE_KEY_MISSING`). Her memory session
  * (`memory`) spends its own key or nothing.
@@ -105,15 +96,14 @@ const warnedRoleKeys = new Set();
 /**
  * The OpenRouter key a request of `role` goes out on: the variable `llm.keyByRole[role]` names
  * (read from `env`, the parsed `.env`) when the name matches `ROLE_KEY_NAME` and the variable is
- * set and not blank, else the variable `ROLE_KEY_FALLBACKS` names for it when that one is set,
- * else `mainKey`. The map is read from `config` at the moment of use. A mapped
+ * set and not blank, else `mainKey`. The map is read from `config` at the moment of use. A mapped
  * role that falls back logs `llm: role key missing` (role, name) once per name per process; a
  * name that is not a variable name is logged as null (it may be a pasted key). Never logs a value.
  * The one place a request's key is chosen (chat completions, embeddings, the status card's reads).
  * @param {object} config
  * @param {Record<string, string|undefined>|null|undefined} env
  * @param {unknown} role  The request's `options.role`.
- * @param {string} mainKey  `OPENROUTER_API_KEY`.
+ * @param {string} mainKey  `OPENROUTER_CORE_KEY`.
  * @returns {string}
  */
 export function roleApiKey(config, env, role, mainKey) {
@@ -124,8 +114,6 @@ export function roleApiKey(config, env, role, mainKey) {
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const value = valid && env ? env[name] : undefined;
   if (typeof value === 'string' && value.trim()) return value;
-  const fallback = valid && env && Object.hasOwn(ROLE_KEY_FALLBACKS, name) ? env[ROLE_KEY_FALLBACKS[name]] : undefined;
-  if (typeof fallback === 'string' && fallback.trim()) return fallback;
   const seen = valid ? name : `bad:${String(name)}`;
   if (!warnedRoleKeys.has(seen)) {
     warnedRoleKeys.add(seen);
@@ -264,8 +252,7 @@ const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['analyzer']), after
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
- * config.json's: `roles` (the `options.role` values whose helper requests are hedged, each read
- * through `currentRoleName`; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
+ * config.json's: `roles` (the `options.role` values whose helper requests are hedged; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
  * same limit for a helper marked `long`, whose answer is a summary of several hundred tokens; a
@@ -281,7 +268,7 @@ export function hedgeSettings(config) {
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
   const limit = (value, fallback) => (finite(value) && value > 0 ? value : fallback);
   return {
-    roles: Array.isArray(group.roles) ? group.roles.map(currentRoleName) : [...HEDGE_FALLBACK.roles],
+    roles: Array.isArray(group.roles) ? [...group.roles] : [...HEDGE_FALLBACK.roles],
     afterMs: finite(group.afterMs) && group.afterMs >= 0 ? group.afterMs : HEDGE_FALLBACK.afterMs,
     timeoutMs: limit(group.timeoutMs, HEDGE_FALLBACK.timeoutMs),
     longTimeoutMs: limit(group.longTimeoutMs, HEDGE_FALLBACK.longTimeoutMs),
@@ -386,7 +373,7 @@ export function dailyCapOf(value, key) {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/behavior/sandbox.js): role `core`, the one role on `models.core`, purpose `reply`. Spread
+ * in src/behavior/sandbox.js): role `core`, the one role on `models.base.core`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
@@ -394,47 +381,12 @@ export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
 /**
  * The `llm.complete` options that name a request wording memory in the persona's voice (the
  * two-stage analyzer's voice run, its single-stage fallback, the warmup's and the portrait
- * refresh's wording requests): role `core` on `models.core` like the reply, purpose
+ * refresh's wording requests): role `core` on `models.base.core` like the reply, purpose
  * `memory-voice`, and `cache: false`, so the prompt-cache marker stays on the reply only (a
  * cache write costs more than a plain prompt, and this system text is not the reply's).
  * Spread into a request's own options, never mutated.
  */
 export const MEMORY_VOICE_REQUEST = Object.freeze({ role: 'core', purpose: 'memory-voice', cache: false });
-
-/**
- * The former role names a deployment's config may still carry, each with the role it is read as:
- * `voice` and, before it, `talk`, the former names of `core` (the model that speaks as the
- * persona), and `reasoner`, the helper role merged into `analyzer` (2026-10).
- */
-const RETIRED_ROLES = new Map([
-  ['talk', 'core'],
-  ['voice', 'core'],
-  ['reasoner', 'analyzer'],
-]);
-/** The retired role names already reported in this process. */
-const retiredRolesReported = new Set();
-
-/**
- * A role name as written in a deployment's config, read under today's names: `voice` and
- * `talk`, the former names of the role `core`, are `core`; `reasoner`, merged into `analyzer`, is
- * `analyzer`; anything else is returned as it is. The one reader of the old names, used by the
- * three places a config may still carry them -- the role suffix of an `llm.providerByModel` key
- * (`matchRoute`), `llm.cache.roles` (`cacheTtlFor`) and `llm.hedge.roles` (`hedgeSettings`) -- so
- * an existing deployment keeps routing, caching and hedging those requests as before. The first
- * old name seen in a process logs `config: role <old> is now <new>` once; later ones stay quiet.
- * Requests never carry an old name: a request's own `options.role` is never read through this.
- * @param {unknown} role
- * @returns {unknown}
- */
-export function currentRoleName(role) {
-  if (typeof role !== 'string' || !RETIRED_ROLES.has(role)) return role;
-  const use = RETIRED_ROLES.get(role);
-  if (!retiredRolesReported.has(role)) {
-    retiredRolesReported.add(role);
-    log.warn(`config: role ${role} is now ${use}`, { role, use });
-  }
-  return use;
-}
 
 /**
  * One `llm.providerByModel` key split into its model prefix and its role:
@@ -456,8 +408,7 @@ export function parseRouteKey(key) {
  * the role-less keys. A role-specific key beats a role-less one whatever their
  * lengths; a role never takes another role's keys. A non-string or empty `role` matches
  * role-less keys only. A key's
- * role is read through `currentRoleName` (`"<prefix>@talk"` is a key for the
- * role `core`, and its entry's `role` says `voice`, the role's former name); `role` itself is taken as given.
+ * role is the text after the last `@`; `role` itself is taken as given.
  * Non-object entries and maps are ignored.
  * @param {unknown} model
  * @param {unknown} byModel
@@ -473,7 +424,7 @@ export function matchRoute(model, byModel, role) {
     if (!isPlainObject(value)) continue;
     const parsed = parseRouteKey(key);
     if (!model.startsWith(parsed.prefix)) continue;
-    const keyRole = parsed.role === null ? null : currentRoleName(parsed.role);
+    const keyRole = parsed.role;
     const entry = { key, prefix: parsed.prefix, role: keyRole, value };
     if (keyRole === null) {
       if (bestAny === null || parsed.prefix.length > bestAny.prefix.length) bestAny = entry;
@@ -552,7 +503,7 @@ const DEFAULT_CACHE_MODELS = Object.freeze(['anthropic/']);
  * `force === true` -> the TTL whatever the switch, the role list and the model list say (one
  * call that must be cached, e.g. a probe); anything else -> null unless
  * `config.features.promptCache === true` (missing = off), `role` is in `config.llm.cache.roles`
- * (each read through `currentRoleName`; not an array -> `['core']`) and `model` starts with one of the strings in
+ * (not an array -> `['core']`) and `model` starts with one of the strings in
  * `config.llm.cache.models` (case-sensitive, like `llm.providerByModel`; not an array ->
  * `['anthropic/']`; a model that is not a string matches none).
  * The TTL is `'5m'` when `config.llm.cache.ttl` is exactly `'5m'`, else `'1h'` (config.json's).
@@ -570,7 +521,7 @@ export function cacheTtlFor(config, role, model, force) {
   if (force === true) return ttl;
   if (config?.features?.promptCache !== true) return null;
   const roles = Array.isArray(cache?.roles) ? cache.roles : DEFAULT_CACHE_ROLES;
-  if (typeof role !== 'string' || !roles.some((listed) => currentRoleName(listed) === role)) return null;
+  if (typeof role !== 'string' || !roles.includes(role)) return null;
   const models = Array.isArray(cache?.models) ? cache.models : DEFAULT_CACHE_MODELS;
   const listed = typeof model === 'string' && models.some((prefix) => typeof prefix === 'string' && model.startsWith(prefix));
   return listed ? ttl : null;
@@ -976,7 +927,7 @@ function hedgeTimeoutError(ms) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey           `OPENROUTER_API_KEY`: every role `llm.keyByRole` does not map elsewhere.
+ * @param {string} deps.apiKey           `OPENROUTER_CORE_KEY`: every role `llm.keyByRole` does not map elsewhere.
  * @param {Record<string, string|undefined>} [deps.env]  The parsed `.env` the role keys are looked up in (`roleApiKey`).
  * @param {() => object} deps.getConfig   Returns the live config (hot-reloaded).
  * @param {object} deps.calibrator        From createCalibrator().
@@ -1170,7 +1121,7 @@ export function createLlm({
    * may hold an assistant message with `tool_calls` (content may be null) and `role: 'tool'`
    * messages (`tool_call_id`, `content`), sent as given. Without `tools` nothing changes.
    * `options.model` / `options.maxOutputTokens` / `options.temperature`
-   * override the config defaults (`models.core`, `llm.maxOutputTokens`, `llm.temperature`).
+   * override the config defaults (`models.base.core`, `llm.maxOutputTokens`, `llm.temperature`).
    *
    * Retries (`llm.retries`): a network failure, a timed-out attempt and an
    * HTTP status in `RETRY_STATUS` are retried after `backoffMs`, each retried
@@ -1348,7 +1299,7 @@ export function createLlm({
       countRequest(cfg.maxRequestsPerDay);
     }
 
-    // No model of its own: the core's model (`models.core`, or a `models.byPurpose` entry for the purpose).
+    // No model of its own: the core's model (`models.base.core`, or a `models.byPurpose` entry for the purpose).
     const model = options.model ?? roleModel(getConfig(), 'core', options.purpose);
     const body = {
       model,

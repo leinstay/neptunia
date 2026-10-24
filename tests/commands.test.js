@@ -62,15 +62,14 @@ test('buildCommandTree: no subcommand or group name anywhere in the tree contain
   for (const name of names) assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
 });
 
-test('status: an optional field option whose choices are the field names of the card, names as values', () => {
+test('status: an optional field option that autocompletes the field names of the card (no fixed choices: the command stays under Discord\'s size limit)', () => {
   const [command] = buildCommandTree('nep');
   const field = findOption(findOption(command.options, 'status').options, 'field');
   assert.equal(field.type, 3);
   assert.equal(field.required, false);
-  assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
-  assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
-  for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
-  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'inner', 'limits', 'memory', 'speed'], 'the core\'s sections, then the agents\'');
+  assert.equal(field.autocomplete, true);
+  assert.equal(Object.hasOwn(field, 'choices'), false);
+  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed'], 'the core\'s sections, then the agents\'');
   for (const name of STATUS_FIELDS) assert.match(name, /^[a-z]+(\.[a-z]+)?$/, name);
 });
 
@@ -138,9 +137,9 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const values = (option) => option.choices.map((c) => c.value);
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  const agents = ['web', 'server', 'thinker', 'dev', 'writer'];
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, ...agents, 'drawing'], 'the core and the helper roles (models.core, models.helpers), then the agents\' roles (models.agents), drawing last');
-  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, ...agents, 'drawing']);
+  const agents = ['scout', 'server', 'thinker', 'dev', 'writer'];
+  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing', ...agents], 'the base roles (models.base: the core, the helpers, drawing), then the errand and development roles');
+  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
   assert.ok(MODEL_ROLES.includes('core') && !MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
   assert.ok(MODEL_ROLES.includes('analyzer') && MODEL_ROLES.includes('embedding') && !MODEL_ROLES.includes('reasoner'), 'the helper and the embedding roles are set and routed like the others; the reasoner is merged into the analyzer');
   assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
@@ -1285,7 +1284,7 @@ test('autocomplete: the route model option offers the route prefixes and the mod
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
-      models: { core: 'anthropic/claude-opus-4.6', helpers: { analyzer: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x' }, agents: { drawing: 'openai/gpt-image-x' } },
+      models: { base: { core: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x', drawing: 'openai/gpt-image-x' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
@@ -1297,6 +1296,17 @@ test('autocomplete: the route model option offers the route prefixes and the mod
   const typed = fakeInteraction({ kind: 'autocomplete', group: 'route', subcommand: 'remove', focused: { name: 'model', value: 'GOO' } });
   await handler(typed);
   assert.deepEqual(typed.respondCalls[0].map((c) => c.value), ['google/', 'google/gemini-3.8-flash']);
+});
+
+test('autocomplete: status field offers the card\'s field names, filtered by the typed text', async () => {
+  const hot = { config: { bot: { commandName: 'nep', owners: ['owner1'] }, features: {} } };
+  const handler = createInteractionHandler({ hot, admin: fakeAdmin(), getGuildId: () => 'g1' });
+  const all = fakeInteraction({ kind: 'autocomplete', subcommand: 'status', focused: { name: 'field', value: '' } });
+  await handler(all);
+  assert.deepEqual(all.respondCalls[0].map((c) => c.value), [...STATUS_FIELDS]);
+  const typed = fakeInteraction({ kind: 'autocomplete', subcommand: 'status', focused: { name: 'field', value: 'ERRANDS' } });
+  await handler(typed);
+  assert.deepEqual(typed.respondCalls[0].map((c) => c.value), ['models.errands', 'costs.errands']);
 });
 
 test('autocomplete: model set offers the model ids in use; memory restore offers the newest archive ids', async () => {
@@ -1313,7 +1323,7 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: {} },
-      models: { core: 'anthropic/claude-opus-4.6', helpers: { vision: 'google/gemini-3.8-flash' } },
+      models: { base: { core: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });

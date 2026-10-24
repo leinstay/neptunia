@@ -3,17 +3,17 @@
 // working directory under the profile's out dir. The child gets, through its
 // environment, the OpenCode config this task needs (the profile's agent
 // definition, the model -- the task's own, else the profile's model role,
-// `models.agents.web` / `models.agents.server`, read at each task -- and its cost,
+// `models.errands.scout` / `models.errands.server`, read at each task -- and its cost,
 // the permission ruleset for the scope)
 // and a per-task database, with project/claude config, auto-update and the
 // price fetch disabled so nothing of this server leaks into the worker and
 // the run is reproducible. The agent's OpenRouter key (its own, never the
 // persona's) comes from the core with each task (`secrets.openrouterKey`; the
 // runner cannot read the bot's .env), else from the runner's environment, and
-// is passed as OPENROUTER_API_KEY; the web agent's proxy (HTTPS_PROXY /
+// is passed as OPENROUTER_API_KEY; the scout agent's proxy (HTTPS_PROXY /
 // HTTP_PROXY, http form) and search key likewise. A profile's own commands
-// (the web agent's `web-search`, src/web/web-search.js) come first on the
-// child's PATH, node's folder after them; the web child also gets the search
+// (the scout agent's `web-search`, src/web/web-search.js) come first on the
+// child's PATH, node's folder after them; the scout child also gets the search
 // model of the config read at the task (NEPTUNIA_WEB_SEARCH_MODEL). A task with no key from
 // either fails `no-key` (one warning per runner). No secret is ever logged.
 // A task may bring the deployment's shared preamble (`preamble`, read by the
@@ -226,11 +226,10 @@ async function deliverableFiles(collected, { scope, withheldCount }) {
  *   task's `secrets` do not bring).
  * @param {string} [options.opencodePath]  `agents.opencodePath`.
  * @param {string} [options.openrouterKeyEnv]  The env name of the OpenRouter key when a task brings none.
- * @param {string} [options.openrouterKeyFallbackEnv]  The earlier name of that variable, read while the new one is unset.
- * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile) when a task brings none.
- * @param {string} [options.proxyEnv]  The env name of the web profile's proxy when a task brings none.
+ * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (scout profile) when a task brings none.
+ * @param {string} [options.proxyEnv]  The env name of the scout profile's proxy when a task brings none.
  * @param {() => object} [options.getConfig]  The engine config, read at each task: the model of a task
- *   without one is `models.agents.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
+ *   without one is `models.<group>.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
  * @param {() => number} [options.now]
  * @param {typeof spawn} [options.spawnImpl]
  */
@@ -240,7 +239,6 @@ export function createOpencodeRunner({
   env = process.env,
   opencodePath = DEFAULT_OPENCODE_PATH,
   openrouterKeyEnv = 'OPENROUTER_ERRAND_KEY',
-  openrouterKeyFallbackEnv = 'OPENROUTER_AGENT_KEY',
   searchKeyEnv = 'OPENCODE_WEBSEARCH_KEY',
   proxyEnv = 'PROXY_URL',
   getConfig = () => ({}),
@@ -302,8 +300,8 @@ export function createOpencodeRunner({
     if (shared) systemPrompt = `${shared}\n\n${systemPrompt}`;
 
     const taskModel = typeof model === 'string' && model ? model : '';
-    // Read only when needed: the model of a task without one, the web agent's search model.
-    const config = !taskModel || profile.name === 'web' ? configNow() : undefined;
+    // Read only when needed: the model of a task without one, the scout agent's search model.
+    const config = !taskModel || profile.name === 'scout' ? configNow() : undefined;
     const providerModel = taskModel || (modelOfRole(config) ?? profile.defaultModel);
     const configContent = JSON.stringify(profile.buildConfig({ systemPrompt, providerModel, steps, scope, cost, toolResultChars: limits.toolResultChars }));
     const childEnv = {
@@ -315,7 +313,7 @@ export function createOpencodeRunner({
       OPENCODE_DB: path.join(dir, 'opencode.db'),
       HOME: dir,
       PWD: dir,
-      // The profile's own commands (the web agent's `web-search`), then node's folder, which they
+      // The profile's own commands (the scout agent's `web-search`), then node's folder, which they
       // run on, ahead of the inherited PATH.
       ...(Array.isArray(profile.pathDirs) && profile.pathDirs.length
         ? { PATH: [...profile.pathDirs, path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter) }
@@ -327,7 +325,7 @@ export function createOpencodeRunner({
     // The core's secrets first, the runner's environment after; never a value in a log.
     const given = isPlainObject(secrets) ? secrets : {};
     const pick = (value, name) => (typeof value === 'string' && value ? value : (env[name] || ''));
-    const openrouterKey = pick(given.openrouterKey, openrouterKeyEnv) || (openrouterKeyFallbackEnv ? env[openrouterKeyFallbackEnv] || '' : '');
+    const openrouterKey = pick(given.openrouterKey, openrouterKeyEnv);
     if (!openrouterKey) {
       if (!warnedNoKey) {
         warnedNoKey = true;
@@ -336,7 +334,7 @@ export function createOpencodeRunner({
       return finish('failed', '', 'no-key');
     }
     childEnv.OPENROUTER_API_KEY = openrouterKey;
-    if (profile.name === 'web') {
+    if (profile.name === 'scout') {
       // v1.19.3 picks the web search provider from OPENCODE_WEBSEARCH_PROVIDER
       // (`exa`, keyless, or `parallel`, which needs PARALLEL_API_KEY). The
       // provider key, when set, goes to that provider's own env name.
@@ -475,7 +473,7 @@ export function createOpencodeRunner({
           const hit = withheldInToolUse({ tool: toolName, input }, scope);
           if (hit) withheld.add(hit);
           progress({ step: usage.steps, tool: String(toolName), note: hit ? `withheld: ${hit}` : '' });
-          // The web agent's sources are the pages it fetched.
+          // The scout agent's sources are the pages it fetched.
           if ((toolName === 'webfetch' || toolName === 'fetch') && typeof input.url === 'string') sources.add(input.url);
           return;
         }

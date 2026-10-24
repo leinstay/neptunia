@@ -123,7 +123,7 @@ export function hasText(value) {
 
 /**
  * Which request a portrait refresh sends, read from the live config and prompts at the moment of
- * use. `two` (stage A, prompts/portrait.md on `models.helpers.extractor`, the character queued for the voice
+ * use. `two` (stage A, prompts/portrait.md on `models.base.extractor`, the character queued for the voice
  * model) only when `features.memoryTwoStage` is exactly true AND both PORTRAIT_TWO_STAGE_PROMPTS
  * are non-blank. Otherwise `single`, today's prompts/profile.md request that writes the portrait
  * itself: as always with the switch off; with it on (a prompt `missing`), on the voice model

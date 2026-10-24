@@ -11,21 +11,21 @@
   ],
   "history": { "selfHours": [10, 16], "channel": "c-general" },
   "stub": { "review": [[]] },
-  "tasks": [{ "id": "t-build", "agent": "web", "state": "running" }],
+  "tasks": [{ "id": "t-build", "agent": "scout", "state": "running" }],
   "intentions": [
     {
       "key": "build-log",
       "purpose": "find out why the build log search hangs and report back",
       "channel": "c-dev",
       "wait": { "task": "t-build", "deadline": "1 12:00" },
-      "stub": { "errand_deadline": [[{ "skill": "task.run", "args": { "id": "$intention", "agent": "web", "goal": "search the build log again", "wait": "2h" } }]] }
+      "stub": { "errand_deadline": [[{ "skill": "task.run", "args": { "id": "$intention", "agent": "scout", "goal": "search the build log again", "wait": "2h" } }]] }
     },
     {
       "key": "release-date",
       "purpose": "look up the release date of the expansion",
       "channel": "c-general",
       "due": "2 10:00",
-      "stub": { "intention_due": [[{ "skill": "task.run", "args": { "id": "$intention", "agent": "web", "goal": "find the release date", "wait": "3h" } }]] }
+      "stub": { "intention_due": [[{ "skill": "task.run", "args": { "id": "$intention", "agent": "scout", "goal": "find the release date", "wait": "3h" } }]] }
     }
   ],
   "events": [

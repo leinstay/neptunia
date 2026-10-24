@@ -26,7 +26,7 @@ const prompts = {
 };
 const config = (session = {}, memory = {}) => ({
   bot: { timezone: 'UTC' },
-  models: { memory: 'x/memory' },
+  models: { base: { memory: 'x/memory' } },
   llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   memory: { fieldChars: 300, ...memory },
   relationships: { textChars: 500 },
@@ -197,7 +197,7 @@ test('refusals and failures write nothing: off, no key of its own, no prompt, an
     const llm = fakeLlm(answer('a', 'b'), answer('c', 'd'));
     const run = (extra, field = 'character', subject = subjectOf(env)) => reviewDescription(env.db, subject, field, { ctx: ctxOf(env, { llm, ...extra }) });
     assert.deepEqual(await run({ cfg: config({ mode: 'off' }) }), { status: 'off', code: 'off' });
-    assert.deepEqual(await run({ envVars: { OPENROUTER_API_KEY: 'main' } }), { status: 'refused', code: 'not_configured' });
+    assert.deepEqual(await run({ envVars: { OPENROUTER_CORE_KEY: 'main' } }), { status: 'refused', code: 'not_configured' });
     assert.deepEqual(await run({ promptSet: { ...prompts, 'description-check': '' } }), { status: 'refused', code: 'no_prompt' });
     assert.deepEqual(await run({}, 'height'), { status: 'refused', code: 'bad_subject' });
     assert.deepEqual(await run({}, 'character', { kind: 'thing', id: 'x' }), { status: 'refused', code: 'bad_subject' });

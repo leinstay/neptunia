@@ -76,7 +76,7 @@ function vectorsOf(json, count) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey  `OPENROUTER_API_KEY`, unless `llm.keyByRole.embedding` names another (`roleApiKey`).
+ * @param {string} deps.apiKey  `OPENROUTER_CORE_KEY`, unless `llm.keyByRole.embedding` names another (`roleApiKey`).
  * @param {Record<string, string|undefined>} [deps.env]  The parsed `.env` the role key is looked up in.
  * @param {{ data: object, markDirty: () => void }} deps.state  Persistent state with the daily request counter.
  * @param {typeof fetch} [deps.fetchImpl]
@@ -88,7 +88,7 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
    * The model is `roleModel(config, 'embedding', purpose)` (a
-   * `models.byPurpose` entry, else `models.helpers.embedding`, else its default); no model throws before any request.
+   * `models.byPurpose` entry, else `models.base.embedding`, else its default); no model throws before any request.
    * Body: `{ model, input, dimensions }` (`embed.dimensions`, default 1024) plus the provider
    * routing `resolveProvider` picks for the model and the role (without its `byok` mark, see
    * `providerBodyOf`). Rails, in order, before anything
@@ -117,7 +117,7 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
     if (texts.length === 0) return [];
     const cfg = config?.llm ?? {};
     const model = roleModel(config, EMBED_ROLE, purpose);
-    if (!model) throw new Error('embed: no embedding model configured (models.helpers.embedding)');
+    if (!model) throw new Error('embed: no embedding model configured (models.base.embedding)');
 
     const estimated = texts.reduce((sum, text) => sum + estimateTokens(text), 0);
     if (estimated > cfg.maxRequestTokens || !Number.isFinite(cfg.maxRequestTokens)) {

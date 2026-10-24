@@ -105,7 +105,7 @@ function hotFor(overrides = {}) {
     config: {
       bot: { timezone: 'UTC' },
       context: { gapMarkerMinutes: 20, maxMessageChars: 2000 },
-      models: { core: 'x/y', helpers: { extractor: 'x/y' } },
+      models: { base: { core: 'x/y', extractor: 'x/y' } },
       llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 },
       memory: { batchMessages: 2, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 },
       features: { record: true },

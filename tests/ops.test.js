@@ -282,7 +282,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
   assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('vision key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
 });
 
-test('status keys.base and costs.agents: the errand agents\' key has no line and no read; their spend comes from the task records, the agents without records show no runs', async () => {
+test('status keys.base and costs.errands: the errand agents\' key has no line and no read; their spend comes from the task records, the agents without records show no runs', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
@@ -299,12 +299,12 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
     agentEstimate: 'est.',
   };
   const NOW = Date.parse('2026-10-18T12:00:00Z');
-  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { web: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } } };
+  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { scout: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } } };
   const hot = { config, prompts: { labels: { status: { costs } } }, promptSources: {}, rootDir };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const reads = [];
   const llm = {
-    roleKeys: () => [{ roles: ['server', 'web'] }, { roles: ['dev', 'thinker', 'writer'] }],
+    roleKeys: () => [{ roles: ['server', 'scout'] }, { roles: ['dev', 'thinker', 'writer'] }],
     async keyInfo(options) {
       reads.push(options.role ?? 'main');
       return { ok: true, status: 200, json: { data: { limit: options.role ? 200 : 30, limit_remaining: options.role ? 200 : 30 } } };
@@ -318,9 +318,9 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
     tasks.finish(task.id, { status: 'done', result: { text: 'ok' }, usage });
   };
   await withCapturedLogs(() => {
-    run('web', { input: 40_000, output: 2_000, usd: 0.5 });
+    run('scout', { input: 40_000, output: 2_000, usd: 0.5 });
     clock.t = NOW;
-    run('web', { input: 12_400, output: 3_100, usd: 0.12 });
+    run('scout', { input: 12_400, output: 3_100, usd: 0.12 });
     run('server', { input: 1_000, output: 100, usd: 0.01 });
   });
   const errands = { store: (guildId) => (guildId === 'g1' ? tasks : null) };
@@ -331,25 +331,21 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
   assert.deepEqual(keys.value.split('\n'), ['main 0.00/30.00', 'sim: not set', 'dev+thinker+writer key 0.00/200.00'], 'the development key stays, the agents key is gone');
   assert.deepEqual(reads.sort(), ['dev', 'main'], 'the agents key is not read');
 
-  const [agents] = await card('costs.agents');
-  assert.equal(agents.name, 'costs.agents');
+  const [agents] = await card('costs.errands');
+  assert.equal(agents.name, 'costs.errands');
   assert.deepEqual(agents.value.split('\n'), [
-    'web: D 1r 12k/3.1k 0.12 | W 1r 12k/3.1k 0.12 | M 2r 52k/5.1k 0.62',
+    'scout: D 1r 12k/3.1k 0.12 | W 1r 12k/3.1k 0.12 | M 2r 52k/5.1k 0.62',
     'server: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
-    'thinker: none',
-    'dev: none',
-    'writer: none',
-    'drawing: none',
     'est.',
   ]);
-  assert.deepEqual(tasks.today('web'), { tasks: 1, usd: 0.12, caps: { tasks: 40 } }, 'the web cap reads the same today');
+  assert.deepEqual(tasks.today('scout'), { tasks: 1, usd: 0.12, caps: { tasks: 40 } }, 'the scout cap reads the same today');
 
   const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
-  const [empty] = (await runOp('status.show', { field: 'costs.agents' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
-  assert.deepEqual(empty.value.split('\n'), ['web: none', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'drawing: none', 'est.'], 'no errands: every agent with no runs');
+  const [empty] = (await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+  assert.deepEqual(empty.value.split('\n'), ['scout: none', 'server: none', 'est.'], 'no errands: every agent with no runs');
 });
 
-test('status costs.agents: thinker, dev and writer from the ledger beside the errand records, the thinker\'s context line; no runs for them when the ledger gives nothing or throws', async () => {
+test('status costs.development: thinker, dev and writer from the ledger, the thinker\'s context line; no runs for them when the ledger gives nothing or throws', async () => {
   const costs = {
     partSeparator: ' | ',
     agentLine: '{agent}: {parts}',
@@ -364,7 +360,7 @@ test('status costs.agents: thinker, dev and writer from the ledger beside the er
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const w = (runs, input, output, usd) => ({ runs, input, output, usd });
   const zero = { today: w(0, 0, 0, 0), last7: w(0, 0, 0, 0), last30: w(0, 0, 0, 0) };
-  const records = { web: { today: w(1, 1_000, 100, 0.01), last7: w(1, 1_000, 100, 0.01), last30: w(1, 1_000, 100, 0.01) }, server: zero, thinker: zero, dev: zero, writer: zero };
+  const records = { scout: { today: w(1, 1_000, 100, 0.01), last7: w(1, 1_000, 100, 0.01), last30: w(1, 1_000, 100, 0.01) }, server: zero, thinker: zero, dev: zero, writer: zero };
   const fromLedger = {
     thinker: { today: w(2, 300_000, 9_000, 1.5), last7: w(2, 300_000, 9_000, 1.5), last30: w(2, 300_000, 9_000, 1.5), last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 } },
     dev: { today: zero.today, last7: w(1, 50_000, 4_000, 0.4), last30: w(1, 50_000, 4_000, 0.4) },
@@ -373,19 +369,16 @@ test('status costs.agents: thinker, dev and writer from the ledger beside the er
   const field = async (ledger) => {
     const errands = { store: () => ({ costs: () => records }), ledger };
     const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', errands });
-    return (await runOp('status.show', { field: 'costs.agents' }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields[0].value.split('\n');
+    return (await runOp('status.show', { field: 'costs.development' }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields[0].value.split('\n');
   };
   assert.deepEqual(await field({ costs: async () => fromLedger }), [
-    'web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
-    'server: none',
     'thinker: D 2r 300k/9.0k 1.50 | W 2r 300k/9.0k 1.50 | M 2r 300k/9.0k 1.50',
     'thinker wave 3: 2t ctx 120k/210k 1.50',
     'dev: D 0r 0/0 0.00 | W 1r 50k/4.0k 0.40 | M 1r 50k/4.0k 0.40',
     'writer: none',
-    'drawing: none',
     'est.',
   ]);
-  const fallback = ['web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'drawing: none', 'est.'];
+  const fallback = ['thinker: none', 'dev: none', 'writer: none', 'est.'];
   assert.deepEqual(await field({ costs: async () => null }), fallback, 'the ledger unavailable');
   await withCapturedLogs(async () => {
     assert.deepEqual(await field({ costs: async () => { throw new Error('boom'); } }), fallback, 'a throwing ledger never fails the field');

@@ -35,7 +35,7 @@ function fakeHot({ features = {}, avatars = {}, prompts = {} } = {}) {
       avatars: { intervalMs: 20000, maxPerDay: 60, descriptionChars: 200, ...avatars },
       context: { vision: { maxBytes: 1000, fetchTimeoutMs: 500 } },
       media: { maxOutputTokens: 300 },
-      models: { helpers: { vision: 'v/model' } },
+      models: { base: { vision: 'v/model' } },
     },
     prompts: { avatar: PROMPT, ...prompts },
   };

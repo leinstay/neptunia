@@ -3,7 +3,7 @@
 // `hot.prompts.preambles`, by base name), with no tracked default. One shared text does not fit
 // every model, so a run's preamble is the matching files, in this order, joined by a blank line:
 //   all.md                 every run;
-//   <agent>.md             the runs of one agent (`web.md`, `server.md`, ...);
+//   <agent>.md             the runs of one agent (`scout.md`, `server.md`, ...);
 //   @<model>.md            the runs on one model;
 //   <agent>@<model>.md     the runs of one agent on one model.
 // <model> is the run's model id lowercased, every character outside [a-z0-9.] replaced by `-`

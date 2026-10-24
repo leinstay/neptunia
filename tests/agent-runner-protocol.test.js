@@ -144,7 +144,7 @@ test('endEvent: status clamped to a known one, result and usage normalised', () 
 
 test('restarted, pong and error events', () => {
   assert.deepEqual(restartedEvent('a'), { id: 'a', event: 'end', status: 'failed', result: { text: '', sources: [], files: [] }, usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 }, error: 'restarted' });
-  assert.deepEqual(pongEvent({ profile: 'web', busy: true, queued: 2 }), { event: 'pong', profile: 'web', busy: true, queued: 2 });
+  assert.deepEqual(pongEvent({ profile: 'scout', busy: true, queued: 2 }), { event: 'pong', profile: 'scout', busy: true, queued: 2 });
   assert.deepEqual(errorEvent('bad-op'), { event: 'error', error: 'bad-op' });
   assert.deepEqual(errorEvent('bad-goal', 'a'), { id: 'a', event: 'error', error: 'bad-goal' });
 });

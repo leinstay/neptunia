@@ -93,7 +93,7 @@ function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, coreTools: true, ...features },
-      models: { helpers: { analyzer: 'x/text' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },

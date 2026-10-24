@@ -90,10 +90,10 @@ test('status inner: the core role\'s tokens today come from the usage accumulato
   assert.deepEqual(innerLines({ ...STATUS, attention: null }, { status: { inner: LABELS } }, { tokens: { prompt: 1, cached: 2, completion: 3 } }).at(-1), 'core tokens 1 (2) + 3');
 });
 
-test('status inner: in the whole card, between costs.agents and limits', async () => {
+test('status inner: in the whole card, between costs.development and limits', async () => {
   const { env } = envOf();
   const names = (await show(env, {}, '42')).map((f) => f.name);
-  assert.ok(names.indexOf('inner') > names.indexOf('costs.agents') && names.indexOf('inner') < names.indexOf('limits'), names.join());
+  assert.ok(names.indexOf('inner') > names.indexOf('costs.development') && names.indexOf('inner') < names.indexOf('limits'), names.join());
 });
 
 test('status inner: absent with features.innerLife off, hidden from a member', async () => {
@@ -133,8 +133,8 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
   const persona = async (args, userId = '42') => (await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: userId === '42' ? [] : ['staff'], actor: 'persona' })).data.embeds[0].fields;
   assert.deepEqual((await persona({})).map((f) => f.name), ['state', 'limits'], 'no part: the short overview');
   assert.deepEqual((await persona({ part: 'limits' })).map((f) => f.name), ['limits', 'costs.base']);
-  assert.deepEqual((await persona({ part: 'models' })).map((f) => f.name), ['models.base', 'models.agents']);
-  assert.deepEqual((await persona({ part: 'errands' })).map((f) => f.name), ['tasks', 'costs.agents']);
+  assert.deepEqual((await persona({ part: 'models' })).map((f) => f.name), ['models.base', 'models.errands', 'models.development']);
+  assert.deepEqual((await persona({ part: 'errands' })).map((f) => f.name), ['tasks', 'costs.errands', 'costs.development']);
   assert.deepEqual((await persona({ part: 'inner' })).map((f) => f.name), ['inner']);
   assert.deepEqual((await persona({ part: 'memory' })).map((f) => f.name), ['memory']);
   assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');

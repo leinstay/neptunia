@@ -1508,7 +1508,7 @@ function rewatchHot(features = {}, video = {}, config = {}) {
     { mediaDescriptions: true, videoDescriptions: true, ...features },
     {},
     {
-      models: { helpers: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
+      models: { base: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
       media: {
         maxPerTurn: 6,
         filePreviewChars: 500,
@@ -1571,11 +1571,11 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
 });
 
-test('createTurnRunner: rewatch -- the classifier model is models.helpers.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { helpers: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+test('createTurnRunner: rewatch -- the classifier model is models.base.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
+  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withText.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { helpers: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withOld.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'its own default: never the vision model or a deprecated key');
   const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: {} });
@@ -2174,7 +2174,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, ...features },
     {},
     {
-      models: { helpers: { analyzer: 'x/text', extractor: 'x/extract' } },
+      models: { base: { analyzer: 'x/text', extractor: 'x/extract' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -2320,7 +2320,7 @@ test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn r
 
 test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine lookup and has no <lookup> block', async () => {
   const lookup = fakeLookup();
-  const taskResult = { id: 't1', agent: 'web', goal: 'βρες τον νικητή', state: 'done', result: { text: 'ο νικητής', files: [] } };
+  const taskResult = { id: 't1', agent: 'scout', goal: 'βρες τον νικητή', state: 'done', result: { text: 'ο νικητής', files: [] } };
   const { llm, result } = await runLookupTurn({ lookup, llm: lookupLlm('champions final winner 2026'), triggerKind: 'task', taskResult });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.classifierCalls.length, 0, 'no search classifier on the result turn');
@@ -2623,13 +2623,13 @@ function fakeErrandClient() {
 /**
  * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`,
  * over a real errand service and task store (a temp data/ directory), a fake errand client and a
- * real admin's runSkillOp; `task.run` granted to the persona and the web agent enabled, so an
+ * real admin's runSkillOp; `task.run` granted to the persona and the scout agent enabled, so an
  * errand could be queued if anything tried.
  */
 async function runErrandLaneTurn({ classifier }) {
   const hot = lookupHot({ typingSimulation: false }, {}, {
     skills: { safeMode: false, resultMaxChars: 2000 },
-    agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } },
+    agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } },
   });
   hot.config.bot.owners = ['o9'];
   hot.config.bot.access = personaGrants(['task.run']);
@@ -3344,7 +3344,7 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
-  assert.deepEqual(withoutTools(llm.optionCalls[0]), { role: 'core', purpose: 'reply' }, 'only the role and the purpose besides her tools: models.core and every other setting stay the defaults');
+  assert.deepEqual(withoutTools(llm.optionCalls[0]), { role: 'core', purpose: 'reply' }, 'only the role and the purpose besides her tools: models.base.core and every other setting stay the defaults');
   assert.equal(llm.optionCalls[0].toolChoice, 'auto');
   assert.deepEqual(llm.optionCalls[0].tools.map((tool) => tool.function.name), ['draw_create', 'message_create', 'message_react_add'], 'the carried-over skills, nothing granted');
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
@@ -6826,7 +6826,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
     {},
     {
       gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
-      models: { helpers: { analyzer: 'cheap/classifier' } },
+      models: { base: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     },
   );
@@ -7944,7 +7944,7 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     {
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
       participation: { shown: 1 },
-      models: { helpers: { vision: 'x/haiku', analyzer: 'x/reason' } },
+      models: { base: { vision: 'x/haiku', analyzer: 'x/reason' } },
     },
   );
   Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });
@@ -8549,7 +8549,7 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
   assert.equal(addressed.llm.calls.length, 1);
   assert.deepEqual(addressed.sends, []);
   assert.equal(addressed.result.delivered, true, 'the edit went out');
-  const task = { id: 'tabc', agent: 'web', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
+  const task = { id: 'tabc', agent: 'scout', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
   const spontaneous = await callTurn({ answers: [toolAnswer('<msg>κι αυτό</msg>', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]), '<msg>δεν θα ειπωθεί</msg>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });
   assert.equal(spontaneous.llm.calls.length, 1);
   assert.deepEqual(spontaneous.sends.map((send) => send.text), ['να το', 'κι αυτό']);
@@ -8604,7 +8604,7 @@ test('skill call: edit and delete reach only her own message', async () => {
 });
 
 test('skill call: the result turn of her own errand (requester kind persona, nobody behind it) is her own initiative: her grants decide, no requester-denied', async () => {
-  const task = { id: 'tabc', agent: 'web', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
+  const task = { id: 'tabc', agent: 'scout', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
   const answer = toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]);
   // Without an origin message the turn is an interjection with a task result: her call runs.
   const own = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });

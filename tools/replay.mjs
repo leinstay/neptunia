@@ -119,7 +119,7 @@
 // name no grant opens for her is kept, so the gateway refuses it as live.
 // An errand (`task.run`) passes the gateway's budget exactly as live: the
 // open tasks against `agents.maxOpen` and today's tasks and dollars against
-// `agents.<agent>.daily` (agents.web, agents.server; the profile's defaults
+// `agents.<agent>.daily` (agents.scout, agents.server; the profile's defaults
 // under them), from the guild's data/guilds/<id>/tasks.json of the data read
 // (--snapshot's when given) and the config, read only
 // (sandboxErrandBudget, src/errands/store.js#budget); nothing is ever queued.

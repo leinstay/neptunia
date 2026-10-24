@@ -491,7 +491,7 @@ function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = f
   config.bot = { ...config.bot, timezone: 'UTC' };
   config.features = { ...config.features, memoryDb, meaningSearch: meaning, recall: true };
   config.recall = { ...config.recall, backend };
-  config.models = { ...config.models, helpers: { ...config.models?.helpers, embedding: 'test/embedder' } };
+  config.models = { ...config.models, base: { ...config.models?.base, embedding: 'test/embedder' } };
   const data = {};
   const store = { state: { get data() { return data; }, markDirty() {} }, listUserProfiles: () => [] };
   const llmCalls = [];

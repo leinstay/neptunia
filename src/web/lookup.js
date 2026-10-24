@@ -115,7 +115,7 @@ function openrouterFailure(err) {
 /**
  * The `url_citation` annotations of an answer (OpenRouter's web plugin) as `{ title, url, snippet }`,
  * http(s) urls only, each url once, in order; `title` and `snippet` (the annotation's `content`)
- * collapsed to one line, '' when absent. Shared with the web agent's search command
+ * collapsed to one line, '' when absent. Shared with the scout agent's search command
  * (src/web/web-search.js).
  * @param {unknown} annotations
  * @returns {{ title: string, url: string, snippet: string }[]}
@@ -231,7 +231,7 @@ function clampResults(value, fallback = 5) {
 
 /**
  * The `plugins` of a request that searches through OpenRouter's web plugin on Exa: the lookup's
- * `openrouter` engine and the web agent's search command (src/web/web-search.js). `results`
+ * `openrouter` engine and the scout agent's search command (src/web/web-search.js). `results`
  * becomes `max_results`, an integer in 1..10, `fallback` when not a number.
  * @param {unknown} results
  * @param {number} [fallback]
@@ -248,7 +248,7 @@ function searchKey(query) {
 
 /**
  * Numbered search results as plain lines (data, not wording): the search-summary prompt reads
- * them, and the web agent's search command prints them. Per result `<n>. <title>`, the url, the
+ * them, and the scout agent's search command prints them. Per result `<n>. <title>`, the url, the
  * snippet and the age, each on its own line when present; a blank line between results.
  * @param {{ title?: string, url?: string, snippet?: string, age?: string }[]} results
  * @returns {string}

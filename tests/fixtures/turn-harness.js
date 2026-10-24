@@ -84,7 +84,7 @@ export function hotWith({ features = {}, skills = {}, access = {}, config = {} }
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, ...features },
-      models: { helpers: { analyzer: 'x/text' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...skills },
@@ -219,6 +219,6 @@ export function errandService(hot) {
   return { service, runs };
 }
 
-export const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, web: { enabled: true, daily: { tasks: 10 } } } };
+export const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, scout: { enabled: true, daily: { tasks: 10 } } } };
 
 export const WEB_CONFIG = { web: { maxPerDay: 60, links: { enabled: false }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } }, recall: { maxForms: 4 } };

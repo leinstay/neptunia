@@ -1,5 +1,5 @@
 // The web agent's search command (bin/web-search.mjs, run from the agent's
-// shell as `web-search <query> [--count N]` through agents/web/bin/web-search):
+// shell as `web-search <query> [--count N]` through agents/scout/bin/web-search):
 // OpenCode v1.19.3 offers its own `websearch` tool only with Exa or Parallel
 // switched on directly, and Exa is used only through OpenRouter here. So the
 // agent searches with one OpenRouter chat completion carrying the web plugin
@@ -38,8 +38,8 @@ const SNIPPET_CHARS = 240;
 const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
- * The model the web agent searches with in `config` (the live engine config): the persona's own
- * web.search's, `models.helpers.analyzer` for the `web-search` purpose (src/llm/roles.js#roleModel).
+ * The model the scout agent searches with in `config` (the live engine config): the persona's own
+ * web.search's, `models.base.analyzer` for the `web-search` purpose (src/llm/roles.js#roleModel).
  * @param {object} config
  * @returns {string}
  */

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// The web agent's search command: one web search through OpenRouter's web
+// The scout agent's search command: one web search through OpenRouter's web
 // plugin, the results printed as numbered plain lines (title, URL, snippet).
 // The agent's shell runs it as `web-search <query> [--count N]` through the
-// wrapper agents/web/bin/web-search, which the runner puts on the OpenCode
+// wrapper agents/scout/bin/web-search, which the runner puts on the OpenCode
 // child's PATH (src/agent-runner/opencode.js); the logic is
 // src/web/web-search.js.
 //

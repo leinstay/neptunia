@@ -8,7 +8,7 @@
   "channels": [{ "id": "c-general", "name": "general" }, { "id": "c-deals", "name": "deals" }],
   "people": { "Hana": "u-501" },
   "history": { "selfHours": [20], "channel": "c-general" },
-  "tasks": [{ "id": "task-prices", "agent": "web" }],
+  "tasks": [{ "id": "task-prices", "agent": "scout" }],
   "stub": {
     "review": [[{ "skill": "intent.update", "args": { "id": "$candidates", "state": "pending" } }]]
   },

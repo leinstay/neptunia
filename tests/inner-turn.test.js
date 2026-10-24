@@ -105,7 +105,7 @@ function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, coreTools: true, ...features },
-      models: { helpers: { analyzer: 'x/text' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
@@ -183,7 +183,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   // A real errand service over a temp task store, its runner a fake whose runs never end.
   let errands = null;
   if (withErrands) {
-    hot.config.agents = { maxOpen: 3, web: { enabled: true, daily: { tasks: 10 } } };
+    hot.config.agents = { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } };
     const stores = createTaskStores({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config });
     errands = createErrandService({ client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true }, stores, hot, getGuildId: () => 'g1' });
   }
@@ -452,7 +452,7 @@ test('inner turn: what her reads found, her thinks and her other calls come back
 });
 
 test('inner turn, live: errands she hands off are queued like any call, with no hold and no dollar check', async () => {
-  const run = await innerTurn({ answers: [toolAnswer('', [call('task.run', { agent: 'web', goal: 'βρες τον πρώτο πίνακα' }), call('task.run', { agent: 'web', goal: 'βρες τον δεύτερο πίνακα' })]), '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true });
+  const run = await innerTurn({ answers: [toolAnswer('', [call('task.run', { agent: 'scout', goal: 'βρες τον πρώτο πίνακα' }), call('task.run', { agent: 'scout', goal: 'βρες τον δεύτερο πίνακα' })]), '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true });
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['task.run:executed:', 'task.run:executed:']);
   assert.equal(run.tasks.length, 2);
   assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
@@ -747,7 +747,7 @@ test('feedbackFacts: every status that is not ok is a callFailed with its code a
 });
 
 test('inner turn, live: a call that did not work carries the operation\'s own words into its action and its callFailed fact', async () => {
-  const run = await innerTurn({ answers: [toolAnswer('', [call('task.run', { agent: 'web', goal: 'βρες τον πίνακα' })]), '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true, errandConfigured: false });
+  const run = await innerTurn({ answers: [toolAnswer('', [call('task.run', { agent: 'scout', goal: 'βρες τον πίνακα' })]), '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true, errandConfigured: false });
   const [action] = run.result.inner.actions;
   assert.notEqual(action.result, 'ok');
   assert.equal(action.presented, true);

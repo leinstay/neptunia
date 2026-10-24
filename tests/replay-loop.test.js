@@ -50,7 +50,7 @@ function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    models: { core: 'x/chat' },
+    models: { base: { core: 'x/chat' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false, loop },
     features: { skills: true, webLookup: true },
@@ -282,7 +282,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   const { run, llm, toolCalls } = await loopRun(
     [
       toolAnswer(`${THINK}<msg>μισό λεπτό</msg>`, [call('web.search', { query: 'τελικός 2026', goal: 'ποιος κέρδισε' }, { id: 'w1' }), call('memory.search', { question: 'τι είπαμε για τον τελικό' }, { id: 'm1' })]),
-      toolAnswer(`${THINK}<msg>το στέλνω</msg>`, [call('task.run', { agent: 'web', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }, { id: 't1' })]),
+      toolAnswer(`${THINK}<msg>το στέλνω</msg>`, [call('task.run', { agent: 'scout', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }, { id: 't1' })]),
     ],
     { tool: (skill) => (skill === 'web.search' ? okTool('Η Ana κέρδισε.') : okTool('Élodie: το είδα', 0)) },
   );
@@ -305,7 +305,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   assert.deepEqual([record.decision, record.skill], ['call', 'web.search'], 'the single-call fields keep the first call');
   assert.equal(record.loop.steps.length, 2);
   assert.deepEqual(record.loop.calls.map((c) => [c.step, c.skill, c.status]), [[0, 'web.search', 'ok'], [0, 'memory.search', 'ok'], [1, 'task.run', 'ok']]);
-  assert.deepEqual(record.loop.errands, [{ step: 1, agent: 'web', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }]);
+  assert.deepEqual(record.loop.errands, [{ step: 1, agent: 'scout', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }]);
   const [reply, after] = record.loop.steps;
   assert.equal(reply.resultChars, 'Η Ana κέρδισε.'.length + 'Élodie: το είδα'.length);
   assert.deepEqual([reply.held, after.held], [true, false]);
@@ -323,7 +323,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   // The report: the calls in order, the held speech, the final messages, the turn's time and cost, the errand recorded.
   const report = renderSkillsReport([{ scenario: { id: 's', text: 'x', discovery: 'inventory' }, grantNames: TOOLS, summary: scenarioSummary([record]), records: [record] }]);
   assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:task.run ok'));
-  assert.ok(report.includes('errand recorded (step 1, not dispatched): web: Βρες τον πλήρη'));
+  assert.ok(report.includes('errand recorded (step 1, not dispatched): scout: Βρες τον πλήρη'));
   assert.ok(report.includes('speech held (not posted):'));
   assert.ok(report.includes('cost: 0.0220'));
 });
@@ -415,9 +415,9 @@ test('loopCall: a tool past its time answers the live timeout; one that throws f
   const refusal = { verdict: { stage: 'gateway', ok: false, code: 'not-allowed' }, executed: null, result: { skill: 'web.search', status: 'denied' } };
   const refused = loopCall({ simulate: () => refusal, runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS });
   assert.equal(await refused({ skill: 'web.search' }, {}), refusal);
-  const errand = loopCall({ simulate: () => outcome('task.run', { agent: 'web', goal: 'Βρες το πρόγραμμα' }), runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS });
-  const recorded = await errand({ skill: 'task.run', args: { agent: 'web', goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
-  assert.deepEqual(recorded.errand, { agent: 'web', goal: 'Βρες το πρόγραμμα' });
+  const errand = loopCall({ simulate: () => outcome('task.run', { agent: 'scout', goal: 'Βρες το πρόγραμμα' }), runTool: () => { ran += 1; }, inTurn: IN_TURN_TOOLS });
+  const recorded = await errand({ skill: 'task.run', args: { agent: 'scout', goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
+  assert.deepEqual(recorded.errand, { agent: 'scout', goal: 'Βρες το πρόγραμμα' });
   assert.equal(recorded.result.data.text, 'canned');
   assert.equal(ran, 0);
 });

@@ -28,7 +28,6 @@ import {
   withCacheMarker,
   profilesTtlFor,
   fullPromptTokens,
-  currentRoleName,
   REPLY_REQUEST,
   MEMORY_VOICE_REQUEST,
   countLlmRequest,
@@ -36,10 +35,10 @@ import {
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLimits } from '../src/llm/limits.js';
 
-/** `model` is the voice model (`models.core`), the one a request without a model goes out on. */
+/** `model` is the voice model (`models.base.core`), the one a request without a model goes out on. */
 function baseConfig({ model = 'test-model', ...overrides } = {}) {
   return {
-    models: { core: model },
+    models: { base: { core: model } },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       temperature: 1,
@@ -1443,7 +1442,7 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'core'), { key: 'google/', prefix: 'google/', role: null, value: VERTEX });
   assert.equal(matchRoute('openai/gpt-x', byModel, 'core'), null);
   // A key splits at its last @: the role is what follows it, the prefix may hold an @ of its own.
-  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'core'), { key: 'a@b@voice', prefix: 'a@b', role: 'core', value: STUDIO });
+  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@core': STUDIO }, 'core'), { key: 'a@b@core', prefix: 'a@b', role: 'core', value: STUDIO });
 });
 
 test('matchRoute: a role never takes another role\'s key: the extractor skips an analyzer key for a role-less one', () => {
@@ -1909,7 +1908,7 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
     for (const role of ['core', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
-    for (const body of sent) assert.equal(body, today(config.models.core));
+    for (const body of sent) assert.equal(body, today(config.models.base.core));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
   for (const role of ['extractor', 'analyzer', 'vision', 'video', undefined]) await llm.complete(messages, { role });
@@ -2786,7 +2785,7 @@ test('REPLY_REQUEST and MEMORY_VOICE_REQUEST: both go out as role core, told apa
 });
 
 test('complete: with the cache on, the reply is marked and the memory wording on the same role and model is not', async () => {
-  for (const roles of [['core'], ['voice'], ['talk']]) {
+  for (const roles of [['core']]) {
     const { llm, bodies } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, roles } }));
     await withCapturedLogs(async () => {
       await llm.complete(replyMessages(), { ...REPLY_REQUEST });
@@ -2797,64 +2796,6 @@ test('complete: with the cache on, the reply is marked and the memory wording on
     assert.equal(markedParts(memory.messages).length, 0, `the memory wording is not: ${roles}`);
     assert.equal(memory.messages[0].content, SYSTEM_TEXT, 'sent exactly as without caching');
   }
-});
-
-test('cacheTtlFor: llm.cache.roles listing an old name (voice, talk) still marks the core role, and only it', () => {
-  for (const old of ['voice', 'talk']) {
-    const config = cachingConfig({ cache: { ...CACHE, roles: [old] } });
-    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', old);
-    assert.equal(cacheTtlFor(config, old, LISTED_MODEL), null, 'a request never carries the old name');
-    assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null);
-  }
-  const config = cachingConfig({ cache: { ...CACHE, roles: ['talk'] } });
-  assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null);
-});
-
-test('complete: a "<prefix>@talk" route key still routes the reply; no request role talk is accepted', async () => {
-  const { llm, bodies } = capturingLlm(() => baseConfig({
-    model: 'anthropic/claude-test-4',
-    providerByModel: { 'anthropic/@talk': BEDROCK, 'anthropic/': { only: ['anthropic'] } },
-  }));
-  const msgs = [{ role: 'user', content: 'hi' }];
-  await withCapturedLogs(async () => {
-    await llm.complete(msgs, { ...REPLY_REQUEST });
-    await llm.complete(msgs, { ...MEMORY_VOICE_REQUEST });
-    await llm.complete(msgs, { role: 'extractor' });
-    await llm.complete(msgs, { role: 'talk' });
-  });
-  assert.deepEqual(bodies.map((b) => b.provider), [BEDROCK, BEDROCK, { only: ['anthropic'] }, { only: ['anthropic'] }]);
-  const route = await withCapturedLogs(() => matchRoute('anthropic/claude-test-4', { 'anthropic/@talk': BEDROCK }, 'core'));
-  assert.deepEqual(route.result, { key: 'anthropic/@talk', prefix: 'anthropic/', role: 'core', value: BEDROCK });
-});
-
-test('hedgeSettings: llm.hedge.roles listing talk or voice reads as core', async () => {
-  const { result } = await withCapturedLogs(() => hedgeSettings({ llm: { hedge: { roles: ['talk', 'analyzer', 'voice'] } } }));
-  assert.deepEqual(result.roles, ['core', 'analyzer', 'core']);
-});
-
-test('currentRoleName: talk and voice read as core, reasoner as analyzer, each said once per process; any other value passes through', async () => {
-  // A fresh instance of the module: its report-once flag is not touched by the tests above.
-  const fresh = await import(`../src/llm/openrouter.js?retired-role=${Date.now()}`);
-  const { result, logs } = await withCapturedLogs(() => [
-    fresh.currentRoleName('talk'),
-    fresh.currentRoleName('talk'),
-    fresh.currentRoleName('voice'),
-    fresh.currentRoleName('voice'),
-    fresh.currentRoleName('core'),
-    fresh.currentRoleName('extractor'),
-    fresh.currentRoleName(undefined),
-    fresh.currentRoleName(7),
-    fresh.matchRoute('x/model', { 'x/@talk': BEDROCK }, 'core')?.role,
-    fresh.cacheTtlFor({ features: { promptCache: true }, llm: { cache: { roles: ['talk'] } } }, 'core', 'anthropic/m'),
-    fresh.currentRoleName('reasoner'),
-    fresh.matchRoute('x/model', { 'x/@reasoner': BEDROCK }, 'analyzer')?.role,
-    fresh.hedgeSettings({ llm: { hedge: { roles: ['analyzer', 'reasoner'] } } }).roles,
-  ]);
-  assert.deepEqual(result, ['core', 'core', 'core', 'core', 'core', 'extractor', undefined, 7, 'core', '1h', 'analyzer', 'analyzer', ['analyzer', 'analyzer']]);
-  assert.equal(logs.filter((line) => line.msg === 'config: role talk is now core').length, 1);
-  assert.equal(logs.filter((line) => line.msg === 'config: role voice is now core').length, 1);
-  assert.equal(logs.filter((line) => line.msg === 'config: role reasoner is now analyzer').length, 1);
-  assert.equal(currentRoleName('video'), 'video');
 });
 
 // --- a choice-level provider error inside a 200 ---

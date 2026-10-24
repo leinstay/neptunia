@@ -35,7 +35,7 @@ function errandRaw(overrides = {}, scenario = {}) {
     channelId: HERE,
     grants: [],
     taskResult: {
-      agent: 'web',
+      agent: 'scout',
       goal: 'Βρες το πρόγραμμα των αγώνων',
       state: 'done',
       text: 'Le programme est prêt.',
@@ -61,10 +61,10 @@ function scenarioConfig(grants, { agents = {} } = {}) {
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    models: { core: 'x/chat' },
+    models: { base: { core: 'x/chat' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false },
-    agents: { maxOpen: 3, web: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
+    agents: { maxOpen: 3, scout: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
     features: { skills: true },
   }, SELF, grants);
 }
@@ -105,7 +105,7 @@ function treeOf(dir) {
 }
 
 /** A `task.run` call as she writes one, taken through the real resolution and gateway with `tasks` as the budget. */
-function runTask({ config, tasks, agent = 'web', author = OWNER }) {
+function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
   const channel = fakeChannel();
   return simulateCall({
     call: { skill: 'task.run', args: { agent, goal: 'Βρες το πρόγραμμα' }, body: '' },
@@ -122,17 +122,17 @@ function runTask({ config, tasks, agent = 'web', author = OWNER }) {
 
 test('replay --skills: task.run passes the sandbox gateway under the live errand budget, is refused at a spent cap, and nothing is written', (t) => {
   const config = scenarioConfig(['task.run']);
-  // One web and one server task asked today (the daily caps count them from the task records).
+  // One scout and one server task asked today (the daily caps count them from the task records).
   const ended = (id, agent) => ({ id, agent, goal: 'x', state: 'done', createdAt: NOW - 60_000, endedAt: NOW - 30_000, usage: { usd: 0.01 } });
-  const dataDir = scratchData(t, { tasks: [ended('w1', 'web'), ended('s1', 'server')] });
+  const dataDir = scratchData(t, { tasks: [ended('w1', 'scout'), ended('s1', 'server')] });
   const before = treeOf(dataDir);
   const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual(Object.keys(tasks), ['budget'], 'only the budget is handed out: nothing can be queued');
 
-  // Under the cap (1 of 2 web tasks today): it passes and is only recorded.
+  // Under the cap (1 of 2 scout tasks today): it passes and is only recorded.
   const passed = runTask({ config, tasks });
   assert.deepEqual(passed.verdict, { stage: 'gateway', ok: true });
-  assert.deepEqual(passed.executed, { skill: 'task.run', args: { agent: 'web', goal: 'Βρες το πρόγραμμα' } });
+  assert.deepEqual(passed.executed, { skill: 'task.run', args: { agent: 'scout', goal: 'Βρες το πρόγραμμα' } });
 
   // The server agent's cap is spent (1 of 1): refused as live, naming the setting.
   const spent = runTask({ config, tasks, agent: 'server' });
@@ -142,13 +142,13 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   const unbudgeted = runTask({ config, tasks: null });
   assert.deepEqual([unbudgeted.verdict.code, unbudgeted.verdict.reason], ['no-budget', 'unavailable']);
 
-  // The caps are read at the moment of use: a lower web cap refuses it the next time.
-  const lowered = scenarioConfig(['task.run'], { agents: { web: { daily: { tasks: 1 } } } });
+  // The caps are read at the moment of use: a lower scout cap refuses it the next time.
+  const lowered = scenarioConfig(['task.run'], { agents: { scout: { daily: { tasks: 1 } } } });
   const live = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => lowered, now: () => NOW });
   assert.equal(runTask({ config: lowered, tasks: live }).verdict.code, 'cap-tasks');
 
   // Open tasks count against agents.maxOpen as live.
-  const busyDir = scratchData(t, { tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'web', goal: 'x', state: 'running' })) });
+  const busyDir = scratchData(t, { tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'scout', goal: 'x', state: 'running' })) });
   const busy = sandboxErrandBudget({ createTaskStore, dataDir: busyDir, guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual([runTask({ config, tasks: busy }).verdict.code, runTask({ config, tasks: busy }).verdict.reason], ['cap-open', 'agents.maxOpen']);
 
@@ -165,7 +165,7 @@ test('parseScenarios: a taskResult scenario takes the place of author and text; 
   const [scenario] = load([errandRaw({ text: undefined, files: undefined })]);
   assert.deepEqual(scenario, {
     id: 'errand-1', channelId: HERE, before: null,
-    taskResult: { agent: 'web', goal: 'Βρες το πρόγραμμα των αγώνων', state: 'done', text: '', files: [], asker: MEMBER },
+    taskResult: { agent: 'scout', goal: 'Βρες το πρόγραμμα των αγώνων', state: 'done', text: '', files: [], asker: MEMBER },
     grants: [], runs: 1, result: '', discovery: 'inventory',
   });
   const [full] = load([errandRaw({ state: 'failed', files: [{ name: 'a.png' }, { name: 'b.csv', contentType: 'text/csv', bytes: 0 }] })]);
@@ -201,7 +201,7 @@ test('scenarioTask: the errand as the store keeps a finished task; its files res
   assert.match(task.id, /^t[0-9a-f]{8}$/);
   assert.equal(task.id, scenarioTaskId('errand-1'), 'the same id every run');
   assert.notEqual(scenarioTaskId('errand-2'), task.id);
-  assert.deepEqual([task.agent, task.state, task.error, task.scope, task.seen], ['web', 'done', null, 'group', false]);
+  assert.deepEqual([task.agent, task.state, task.error, task.scope, task.seen], ['scout', 'done', null, 'group', false]);
   assert.deepEqual(task.requester, { userId: MEMBER, kind: 'member' });
   assert.deepEqual(task.origin, { channelId: HERE, messageId: null });
   assert.equal(scenarioTask(load([errandRaw({ state: 'failed' })])[0], { at: NOW }).error, 'failed');
@@ -240,7 +240,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
   // What --dry builds: the request of the turn, with <task_result> and the file's handle in it.
   const dry = skillScenarioRequest(input);
   assert.ok(dry.user.includes('<task_result>'), dry.user);
-  assert.ok(dry.user.includes(`errand ${task.id} (web) ended done: Βρες το πρόγραμμα των αγώνων`));
+  assert.ok(dry.user.includes(`errand ${task.id} (scout) ended done: Βρες το πρόγραμμα των αγώνων`));
   assert.ok(dry.user.includes(`${handle} | application/pdf | 2048 bytes`));
   assert.ok(dry.user.includes('INTERJECT asked for the errand that just ended'), 'trigger kind task, an interjection');
   assert.ok(!dry.user.includes('<tasks>'), 'no other errand of hers is known');
@@ -273,7 +273,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
   const summary = scenarioSummary([record]);
   assert.deepEqual([summary.calls, summary.passed], [1, 1]);
   const report = renderSkillsReport([{ scenario, grantNames: [], records: [record], summary }]);
-  assert.ok(report.includes(`errand ${task.id} (web, done) asked by ${MEMBER}:`), report);
+  assert.ok(report.includes(`errand ${task.id} (scout, done) asked by ${MEMBER}:`), report);
   assert.ok(report.includes(`\`${handle}\``) && report.includes('> Le programme est prêt.'));
   assert.ok(report.includes('calls in order: 0:message.create ok') && report.includes('- call `message.create`') && report.includes(': passed; ok'));
 

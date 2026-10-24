@@ -89,7 +89,7 @@ test('drawing profile: a tool agent the runner never takes, with its own caps', 
   assert.equal(profileOf('drawing'), null, 'no runner profile: it cannot be submitted as an errand');
   assert.deepEqual(Object.keys(TOOL_PROFILES), ['drawing']);
   assert.equal(isToolTask('drawing'), true);
-  assert.equal(isToolTask({ agent: 'web' }), false);
+  assert.equal(isToolTask({ agent: 'scout' }), false);
 });
 
 test('draw tool: her scene goes into the draw prompt verbatim, with the appearance and the time, and the avatar as reference', async () => {
@@ -251,9 +251,9 @@ test('runInline: a tool outside agents.maxOpen, errands keep their cap; a tool t
   const running = errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'g', requester, run: async () => { await slow; return { output: 1 }; } });
   // A picture is under way: it is not an open errand, and an errand still gets its slot.
   assert.deepEqual(store.open(), []);
-  assert.equal(store.budget('web').spent, false);
-  assert.equal(store.add({ agent: 'web', goal: 'look', requester, origin: {}, scope: 'group' }).ok, true);
-  assert.equal(store.add({ agent: 'web', goal: 'again', requester, origin: {}, scope: 'group' }).code, 'cap-open');
+  assert.equal(store.budget('scout').spent, false);
+  assert.equal(store.add({ agent: 'scout', goal: 'look', requester, origin: {}, scope: 'group' }).ok, true);
+  assert.equal(store.add({ agent: 'scout', goal: 'again', requester, origin: {}, scope: 'group' }).code, 'cap-open');
   // And a full errand list does not refuse a picture.
   gate.release();
   assert.equal((await running).ok, true);
@@ -309,7 +309,7 @@ test('runInline: a store that cannot take the record never costs the picture', a
   assert.equal(survived.result.output, 'p');
   assert.ok(survived.logs.some((l) => l.msg === 'errands: tool run unrecorded'));
   // Only a tool agent runs inline.
-  assert.deepEqual(await errands.runInline({ guildId: 'g1', agent: 'web', goal: 'a', requester, run: async () => ({}) }), { ok: false, code: 'unknown-agent' });
+  assert.deepEqual(await errands.runInline({ guildId: 'g1', agent: 'scout', goal: 'a', requester, run: async () => ({}) }), { ok: false, code: 'unknown-agent' });
 });
 
 test('the drawing agent is not an errand: submit refuses it and a task of it cannot be cancelled', async () => {
@@ -325,7 +325,7 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   const clock = { t: NOW };
   const journalLines = [];
   const journal = { action: async (_guild, line) => { journalLines.push(line); } };
-  const config = { features: { journal: true }, agents: { maxOpen: 3, web: { daily: { tasks: 500 } }, drawing: { daily: { tasks: 500 } } } };
+  const config = { features: { journal: true }, agents: { maxOpen: 3, scout: { daily: { tasks: 500 } }, drawing: { daily: { tasks: 500 } } } };
   const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal });
   const draw = () => {
     clock.t += 1000;
@@ -336,15 +336,15 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   };
   for (let i = 0; i < KEEP_FINISHED_TOOL + 5; i += 1) assert.equal(draw().seen, true);
   // One errand finished and unseen, among the pictures.
-  const { task: errand } = store.add({ agent: 'web', goal: 'look', requester, origin: {}, scope: 'group' });
+  const { task: errand } = store.add({ agent: 'scout', goal: 'look', requester, origin: {}, scope: 'group' });
   store.start(errand.id);
   store.finish(errand.id, { status: 'done', result: { text: 'found' } });
   draw();
   assert.deepEqual(store.unseen().map((task) => task.id), [errand.id], 'only the errand is news');
-  assert.deepEqual(store.recent(100).map((task) => task.agent), ['web']);
+  assert.deepEqual(store.recent(100).map((task) => task.agent), ['scout']);
   const kept = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks;
   assert.equal(kept.filter((task) => task.agent === 'drawing').length, KEEP_FINISHED_TOOL);
-  assert.equal(kept.filter((task) => task.agent === 'web').length, 1);
+  assert.equal(kept.filter((task) => task.agent === 'scout').length, 1);
   // Every picture is still in the spend, kept whole by tasks.jsonl.
   const reloaded = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config });
   assert.equal(reloaded.costs(['drawing']).drawing.today.runs, KEEP_FINISHED_TOOL + 6);
