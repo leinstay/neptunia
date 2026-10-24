@@ -18,7 +18,9 @@ import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
 import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { loadSkills, skillRegistry, skillNames, describeSkill, skillArgTexts, missingDefinitions } from '../src/skills/registry.js';
-import { CARRIED_OVER, FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
+import { CARRIED_OVER, FEATURE_SKILLS, NESTED_CAPABILITIES, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess, wakeEnvelope } from '../src/skills/access.js';
+import { executeCall } from '../src/skills/executors.js';
+import { postingConversation } from '../src/ops/shared.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -332,6 +334,71 @@ test('skills gateway: features.skills off refuses everything; safe mode lets onl
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, cfg: safe }), { ok: true });
   // a missing switch counts as on
   assert.deepEqual(check({ granted: ['lore.list'], cfg: { bot: { owners: [OWNER] } } }), { ok: true });
+});
+
+// ---- wake envelopes (innerLife.wakes.<kind>) ------------------------------------------
+
+/** One gateway check of an inner turn's call: her own initiative, nobody asked, `wakeKind` and the calls so far. */
+function innerCheck({ skill, args = {}, wakes = {}, wakeKind = 'heartbeat', wakeActions = [], granted = [], features = {} }) {
+  const cfg = granting(granted, { ...config({ features }), innerLife: { wakes } });
+  return checkSkill({ skill, args, principal: persona, requester: null, audience, context: { config: cfg, selfId: SELF, registry: skillRegistry(), ownInitiative: true, wakeKind, wakeActions } });
+}
+
+test('wake envelope: "*" with no caps, or no envelope at all, is today\'s behaviour', () => {
+  assert.deepEqual(wakeEnvelope({}, 'heartbeat'), { tools: '*', maxActs: null, maxTasks: null, inputTokens: null });
+  assert.deepEqual(wakeEnvelope({ innerLife: { wakes: { review: { tools: ['a.b'], maxActs: 2, maxTasks: 0, inputTokens: 6000 } } } }, 'review'), { tools: ['a.b'], maxActs: 2, maxTasks: 0, inputTokens: 6000 });
+  for (const wakes of [{}, { heartbeat: { tools: '*', maxActs: null, maxTasks: null, inputTokens: null } }]) {
+    assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes }), { ok: true });
+    assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes }), { ok: true });
+  }
+});
+
+test('wake envelope: a tool outside the allowlist is refused at the call, carried-over tags included; a family entry opens the family', () => {
+  const wakes = { heartbeat: { tools: ['lore.list', 'intent.*'] } };
+  assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.heartbeat.tools' });
+  assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes }), { ok: true });
+  assert.deepEqual(innerCheck({ skill: 'intent.set', args: { text: 'ρωτήσω αύριο' }, granted: ['intent.set'], features: { intentions: true }, wakes }), { ok: true });
+  // Another wake kind has its own envelope (here none: everything as before).
+  assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'review' }), { ok: true });
+  // Not an inner turn: no envelope applies.
+  const cfg = granting([], { ...config(), innerLife: { wakes } });
+  assert.deepEqual(checkSkill({ skill: 'message.create', args: { text: 'γεια' }, principal: persona, requester: { id: OWNER }, audience, context: { config: cfg, selfId: SELF, wakeKind: 'heartbeat' } }), { ok: true });
+});
+
+test('wake envelope: maxActs counts the calls that changed something, maxTasks the errands; reads stay free', () => {
+  const wakes = { improvement: { maxActs: 1, maxTasks: 0 } };
+  const done = [{ skill: 'lore.list', status: 'executed' }, { skill: 'intent.set', status: 'proposed' }, { skill: 'message.create', status: 'refused' }];
+  assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'improvement', wakeActions: done }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxActs' });
+  assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes, wakeKind: 'improvement', wakeActions: done }), { ok: true });
+  assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'improvement', wakeActions: done.slice(0, 1) }), { ok: true });
+  assert.deepEqual(innerCheck({ skill: 'task.run', args: { agent: 'web', goal: 'βρες' }, granted: ['task.run'], wakes: { improvement: { maxTasks: 0 } }, wakeKind: 'improvement' }), { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxTasks' });
+});
+
+test('wake envelope: a skill that posts inside its own operation is refused at the nested capability, before anything runs', async () => {
+  assert.deepEqual(NESTED_CAPABILITIES['draw.create'], ['message.create']);
+  const registry = skillRegistry();
+  const resolved = { skill: 'draw.create', args: { text: 'ένα δέντρο' }, dispatch: registry.get('draw.create').dispatch };
+  let ran = 0;
+  const deps = (tools) => ({
+    envelope: { ownInitiative: true, wakeKind: 'heartbeat', requester: null },
+    // draw.create is one of her own expressive operations: it runs through runOwnOp.
+    runOwnOp: async () => { ran += 1; return { status: 'ok', code: 'ok', summary: 'drawn', data: {} }; },
+    opContext: { guildId: 'g1', channelId: HERE },
+    config: { innerLife: { wakes: { heartbeat: { tools } } } },
+  });
+  const refused = await executeCall(resolved, deps(['draw.create']));
+  assert.equal(refused.status, 'denied');
+  assert.equal(refused.code, 'not-allowed');
+  assert.equal(refused.reason, 'innerLife.wakes.heartbeat.tools');
+  assert.equal(ran, 0, 'nothing paid is made for a post the envelope forbids');
+  assert.equal((await executeCall(resolved, deps(['draw.create', 'message.create']))).status, 'ok');
+  assert.equal((await executeCall(resolved, deps('*'))).status, 'ok');
+  assert.equal(ran, 2);
+  // The posting point of the operations asks again: a send is refused, a read is not a post.
+  const context = { channelId: HERE, ownInitiative: true, wakeKind: 'heartbeat', env: { hot: { config: { innerLife: { wakes: { heartbeat: { tools: ['voice.say'] } } } } } } };
+  await assert.rejects(postingConversation({ client: null, discord: DISCORD, guildId: 'g1', channelId: null, context, need: 'attach' }), (error) => error.status === 'denied' && error.code === 'not-allowed');
+  assert.equal(await postingConversation({ client: null, discord: DISCORD, guildId: 'g1', channelId: null, context, need: 'read' }), HERE);
+  assert.equal(await postingConversation({ client: null, discord: DISCORD, guildId: 'g1', channelId: null, context: { ...context, ownInitiative: false }, need: 'send' }), HERE, 'not her own initiative: no envelope');
 });
 
 // ---- the catalogue view -----------------------------------------------------------------

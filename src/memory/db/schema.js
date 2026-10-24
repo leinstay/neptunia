@@ -742,9 +742,86 @@ function V10(db) {
   deriveAllMirrorPublications(db, { at, project: !pending });
 }
 
+// Version 11 (spec 2026-10-24-memory-schema-v7, stages 6 and 7; section 11 on wakes, skills, vectors, media, backups):
+// wake runs and their actions, the skills registry, the index policy and the storage marks. Additive and dark: every
+// new table starts empty, every new column NULL (`media.availability` `unknown`); nothing a turn reads changes.
+//  - `wake_runs`: one row per inner wake run (wakes.js is its writer), with its state (`queued` | `running` |
+//    `succeeded` | `failed` | `interrupted`), the inputs its view showed (ids with versions), the envelope's policy
+//    version and the outcome. `wake_actions`: one row per action of a run, keyed by `wake:<run>:<n>` (unique, checked
+//    against the run and the number): a restarted run that records the same action finds the first row;
+//  - `skills`, `skill_versions`, `skill_evaluations`: the registry of the engine's skills (skills.js). A version is
+//    bound to its content hash, its manifest hash and the engine commit; an evaluation carries the same three, so a
+//    passing evaluation of one version never counts for another. Evaluations are append-only;
+//  - `index_policy`: one row per graph node of a source (`source:<id>`), its tier (`a` | `b` | `c`), the reason, a pin,
+//    when it was evaluated and, for a touch, when the touch expires (index-policy.js). Derived: no foreign key into the
+//    graph, which may be pending;
+//  - `sources.tier` (the same tier on the row), `vectors.evicted_at` (an evicted vector keeps its row, `model`,
+//    `dims`, `norm` and `context`; only `bytes` is dropped), `media.availability` (`present` | `missing` | `unknown`).
+// Spelt out in one place so the tests and docs/memory-access.md can list them.
+
+/** Every table schema v11 adds. */
+export const V11_TABLES = ['wake_runs', 'wake_actions', 'skills', 'skill_versions', 'skill_evaluations', 'index_policy'];
+/** The states of a wake run. */
+export const WAKE_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'interrupted'];
+/** The lifecycle of a registered skill, the status of a skill version and the kinds of an evaluation. */
+export const SKILL_LIFECYCLES = ['active', 'stale', 'archived'];
+export const SKILL_VERSION_STATUSES = ['candidate', 'active', 'retired'];
+export const SKILL_EVALUATION_KINDS = ['tests', 'trial', 'outcome', 'audience_check'];
+/** The tiers of the index policy and the availability of a media row. */
+export const INDEX_TIERS = ['a', 'b', 'c'];
+export const MEDIA_AVAILABILITY = ['present', 'missing', 'unknown'];
+
+const JSON_OR_NULL = (col) => `CHECK (${col} IS NULL OR json_valid(${col}))`;
+
+const V11 = [
+  `CREATE TABLE wake_runs (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, trigger TEXT, scheduled_at TEXT, started_at TEXT, finished_at TEXT,
+    status TEXT NOT NULL CHECK (status IN (${IN(WAKE_RUN_STATUSES)})), context_id TEXT REFERENCES execution_contexts(id),
+    inputs JSON ${JSON_OR_NULL('inputs')}, policy_version INTEGER, outcome TEXT, extra JSON ${JSON_OR_NULL('extra')}
+  );`,
+  'CREATE INDEX wake_runs_status ON wake_runs(status, started_at);',
+  `CREATE TABLE wake_actions (
+    run_id TEXT NOT NULL REFERENCES wake_runs(id), n INTEGER NOT NULL CHECK (n >= 1),
+    idempotency_key TEXT NOT NULL UNIQUE CHECK (idempotency_key = 'wake:' || run_id || ':' || n),
+    kind TEXT NOT NULL, target TEXT, status TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (run_id, n)
+  );`,
+  `CREATE TABLE skills (
+    id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active_version TEXT REFERENCES skill_versions(id),
+    lifecycle TEXT NOT NULL CHECK (lifecycle IN (${IN(SKILL_LIFECYCLES)})), origin_work_id TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)), extra JSON ${JSON_OR_NULL('extra')}
+  );`,
+  `CREATE TABLE skill_versions (
+    id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES skills(id), version TEXT NOT NULL,
+    content_hash TEXT NOT NULL CHECK (content_hash <> ''), manifest_hash TEXT NOT NULL CHECK (manifest_hash <> ''),
+    commit_sha TEXT NOT NULL CHECK (commit_sha <> ''), origin_work_id TEXT,
+    status TEXT NOT NULL CHECK (status IN (${IN(SKILL_VERSION_STATUSES)})), created_at TEXT NOT NULL,
+    manifest JSON NOT NULL CHECK (json_valid(manifest) AND json_type(manifest) = 'object'),
+    UNIQUE (skill_id, content_hash, manifest_hash, commit_sha)
+  );`,
+  'CREATE INDEX skill_versions_skill ON skill_versions(skill_id, created_at);',
+  `CREATE TRIGGER skill_versions_fixed BEFORE UPDATE OF id, skill_id, version, content_hash, manifest_hash, commit_sha, manifest, created_at ON skill_versions
+    BEGIN SELECT RAISE(ABORT, 'a skill version keeps its hashes; a change is a new version'); END;`,
+  `CREATE TABLE skill_evaluations (
+    id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES skill_versions(id),
+    kind TEXT NOT NULL CHECK (kind IN (${IN(SKILL_EVALUATION_KINDS)})), passed INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    result JSON ${JSON_OR_NULL('result')}, evidence_id TEXT, at TEXT NOT NULL,
+    content_hash TEXT NOT NULL, manifest_hash TEXT NOT NULL, commit_sha TEXT NOT NULL
+  );`,
+  'CREATE INDEX skill_evaluations_version ON skill_evaluations(version_id, kind);',
+  ...APPEND_ONLY('skill_evaluations', 'evaluations are append-only'),
+  `CREATE TABLE index_policy (
+    node_id TEXT PRIMARY KEY, tier TEXT NOT NULL CHECK (tier IN (${IN(INDEX_TIERS)})), reason TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)), evaluated_at TEXT NOT NULL, expires_at TEXT
+  );`,
+  "CREATE INDEX index_policy_touch ON index_policy(expires_at) WHERE reason = 'touch';",
+  `ALTER TABLE sources ADD COLUMN tier TEXT CHECK (tier IS NULL OR tier IN (${IN(INDEX_TIERS)}));`,
+  'ALTER TABLE vectors ADD COLUMN evicted_at TEXT;',
+  `ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'unknown' CHECK (availability IN (${IN(MEDIA_AVAILABILITY)}));`,
+].join('\n');
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection for a step SQL cannot do.
  * Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];

@@ -37,9 +37,26 @@
 //   node tools/memory-db.mjs ledger-import --ledger <ledger.db> --db <file>
 //        Copies the task ledger's rows into the reserved ledger_* tables as JSON records (the source is opened
 //        read-only).
+//   node tools/memory-db.mjs index-policy --db <file> [--apply] [--days <n>]
+//        The index policy (src/memory/db/index-policy.js): the tier of every stored line and the vectors outside the
+//        owner's classes (older than --days, default `recall.db.vectorDays` 90, and not cited, pinned, touched or
+//        consolidated). Without --apply it prints what it would evict and changes nothing (read-only); with --apply it
+//        writes the tiers and evicts (the vector rows stay, only their bytes go). Under `memoryDb.authority: json` the
+//        vector month files still hold the bytes, so `verify` then reports the evicted rows' months as different.
+//   node tools/memory-db.mjs media-check --db <file> --data <dir> [--apply]
+//        Her diary media: each `media` row of kind diary is `present` when its file under the data directory exists
+//        with the stored size, else `missing`; every other row stays `unknown`. Prints the counts; --apply writes them.
+//   node tools/memory-db.mjs backup --db <file> --to <dir> [--data <dir>]
+//        `VACUUM INTO <dir>/memory.db`, a copy of `media/diary/` (from --data, default the database's directory) and
+//        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version and the row count of every
+//        table. The directory must be new or empty. Opens the database read-only.
+//   node tools/memory-db.mjs restore --from <dir> --db <file> [--data <dir>]
+//        Checks every file of the backup against its manifest, then restores the database to --db (which must not
+//        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
+//        checks the schema version and the row counts of the restored file.
 //
-// import, sync, reproject, rebuild and ledger-import take the database's writer lock and refuse while the bot (or another
-// tool) holds it.
+// import, sync, reproject, rebuild, ledger-import, index-policy --apply and media-check --apply take the database's
+// writer lock and refuse while the bot (or another tool) holds it.
 // The database is never added to git. Nothing here starts the bot or calls a model.
 
 import fs from 'node:fs';
@@ -56,8 +73,10 @@ import { classify } from '../src/memory/db/map/index.js';
 import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
 import { createHash } from 'node:crypto';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
+import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.js';
+import { schemaVersion } from '../src/memory/db/open.js';
 
-const FLAGS = new Set(['resume']);
+const FLAGS = new Set(['resume', 'apply']);
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -496,6 +515,143 @@ function runLedgerImport(io, options) {
   }
 }
 
+// ---------- index policy, media, backups ----------
+
+function runIndexPolicy(io, options) {
+  need(options, 'db');
+  const apply = options.apply === true;
+  const days = options.days === undefined ? undefined : Number(options.days);
+  if (days !== undefined && !(Number.isFinite(days) && days > 0)) throw new Error('--days must be a positive number');
+  const handle = openMemoryDb(options.db, { readOnly: !apply });
+  try {
+    const config = { recall: { db: { ...(days ? { vectorDays: days } : {}), vectorEviction: apply } } };
+    const done = classifyIndex(handle, { now: Date.now(), config, apply, evict: apply });
+    io.out(`tiers: a ${done.tiers.a}, b ${done.tiers.b}, c ${done.tiers.c} (${Object.entries(done.reasons).sort().map(([reason, n]) => `${reason} ${n}`).join(', ')})`);
+    const kept = done.vectors.kept;
+    io.out(`vectors kept: recent ${kept.recent}, cited ${kept.cited}, pinned ${kept.pinned}, touched ${kept.touch}, consolidated ${kept.consolidated}, unlinked ${kept.unlinked}; evicted before ${done.vectors.evicted}`);
+    io.out(apply ? `evicted now: ${done.evictedNow}` : `would evict: ${done.vectors.evict} (dry run: nothing written; --apply to evict)`);
+    return 0;
+  } finally {
+    handle.close();
+  }
+}
+
+function runMediaCheck(io, options) {
+  need(options, 'db', 'data');
+  const apply = options.apply === true;
+  const handle = openMemoryDb(options.db, { readOnly: !apply });
+  try {
+    const done = checkMedia(handle, { dataDir: options.data, apply });
+    io.out(`media: present ${done.present}, missing ${done.missing}, unknown ${done.unknown}; ${apply ? 'marked' : 'would mark'} ${done.changed}`);
+    return 0;
+  } finally {
+    handle.close();
+  }
+}
+
+const DIARY_MEDIA = path.join('media', 'diary');
+const sha256File = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+
+/** The files under `dir`, relative, in name order (none when it does not exist). */
+function filesUnder(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  const visit = (rel) => {
+    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const next = rel ? path.join(rel, entry.name) : entry.name;
+      if (entry.isDirectory()) visit(next);
+      else if (entry.isFile()) out.push(next);
+    }
+  };
+  visit('');
+  return out;
+}
+
+/** Row counts of every table (tablesOf), by name. */
+function rowCounts(db) {
+  return Object.fromEntries(tablesOf(db).map(({ name }) => [name, db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get().n]));
+}
+
+/** Writes a backup (see the head of this file); returns its manifest. */
+export function backupDatabase({ db: dbPath, to, data = path.dirname(dbPath), now = Date.now }) {
+  if (fs.existsSync(to) && fs.readdirSync(to).length > 0) throw new Error(`${to} is not empty`);
+  fs.mkdirSync(to, { recursive: true });
+  const handle = openMemoryDb(dbPath, { readOnly: true });
+  let manifest;
+  try {
+    const target = path.join(to, 'memory.db');
+    handle.db.prepare('VACUUM INTO ?').run(target);
+    const files = ['memory.db'];
+    for (const rel of filesUnder(path.join(data, DIARY_MEDIA))) {
+      const out = path.join(to, DIARY_MEDIA, rel);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.copyFileSync(path.join(data, DIARY_MEDIA, rel), out);
+      files.push(path.join(DIARY_MEDIA, rel));
+    }
+    manifest = {
+      v: 1,
+      createdAt: new Date(now()).toISOString(),
+      schemaVersion: schemaVersion(handle.db),
+      files: files.map((rel) => ({ path: rel.split(path.sep).join('/'), size: fs.statSync(path.join(to, rel)).size, sha256: sha256File(path.join(to, rel)) })),
+      rows: rowCounts(handle.db),
+    };
+  } finally {
+    handle.close();
+  }
+  fs.writeFileSync(path.join(to, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}
+
+/** Checks a backup against its manifest and restores it (see the head of this file); returns the manifest. */
+export function restoreDatabase({ from, db: dbPath, data = path.dirname(dbPath) }) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(from, 'manifest.json'), 'utf8'));
+  if (manifest?.v !== 1 || !Array.isArray(manifest.files) || !manifest.files.some((file) => file.path === 'memory.db')) throw new Error('not a memory database backup');
+  for (const file of manifest.files) {
+    const abs = path.join(from, ...String(file.path).split('/'));
+    if (String(file.path).split('/').includes('..')) throw new Error(`bad path in the manifest: ${file.path}`);
+    if (!fs.existsSync(abs)) throw new Error(`missing from the backup: ${file.path}`);
+    if (fs.statSync(abs).size !== file.size || sha256File(abs) !== file.sha256) throw new Error(`does not match the manifest: ${file.path}`);
+  }
+  for (const suffix of ['', '-wal', '-shm', '.lock']) if (fs.existsSync(`${dbPath}${suffix}`)) throw new Error(`${dbPath}${suffix} exists; restore only into an empty path`);
+  const media = manifest.files.filter((file) => file.path !== 'memory.db');
+  for (const file of media) {
+    const out = path.join(data, ...String(file.path).split('/'));
+    if (fs.existsSync(out)) throw new Error(`${out} exists; restore never overwrites a file`);
+  }
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  fs.copyFileSync(path.join(from, 'memory.db'), dbPath, fs.constants.COPYFILE_EXCL);
+  for (const file of media) {
+    const out = path.join(data, ...String(file.path).split('/'));
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.copyFileSync(path.join(from, ...String(file.path).split('/')), out, fs.constants.COPYFILE_EXCL);
+  }
+  const handle = openMemoryDb(dbPath, { readOnly: true });
+  try {
+    if (schemaVersion(handle.db) !== manifest.schemaVersion) throw new Error('the restored schema version differs from the manifest');
+    const rows = rowCounts(handle.db);
+    for (const [table, n] of Object.entries(manifest.rows ?? {})) if (rows[table] !== n) throw new Error(`the restored row count of ${table} differs from the manifest`);
+  } finally {
+    handle.close();
+  }
+  return manifest;
+}
+
+function runBackup(io, options) {
+  need(options, 'db', 'to');
+  const start = performance.now();
+  const manifest = backupDatabase({ db: options.db, to: options.to, ...(options.data ? { data: options.data } : {}) });
+  io.out(`backup: schema ${manifest.schemaVersion}, ${manifest.files.length} files, ${Object.keys(manifest.rows).length} tables in ${seconds(start)}`);
+  return 0;
+}
+
+function runRestore(io, options) {
+  need(options, 'from', 'db');
+  const start = performance.now();
+  const manifest = restoreDatabase({ from: options.from, db: options.db, ...(options.data ? { data: options.data } : {}) });
+  io.out(`restore ok: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked and restored, row counts equal (${seconds(start)})`);
+  return 0;
+}
+
 // ---------- entry ----------
 
 const COMMANDS = {
@@ -509,6 +665,10 @@ const COMMANDS = {
   reproject: runReproject,
   rebuild: runRebuild,
   'ledger-import': runLedgerImport,
+  'index-policy': runIndexPolicy,
+  'media-check': runMediaCheck,
+  backup: runBackup,
+  restore: runRestore,
 };
 
 /** Runs a command line; returns the exit code. `io` is { out(line), err(line) }. */

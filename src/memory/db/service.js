@@ -35,6 +35,19 @@
 //     relationship counts of yesterday and today are recounted and the close and exploring sets recomputed, through the
 //     writer (the worker), with the live `focus` settings. `focusPeople()` reads the sets for the heartbeat's people
 //     view on the read connection (an internal reader), with `focus.exploringShare`; null while the database is closed.
+//   - schema v11 (wakes.js, skills.js, index-policy.js), every part behind its own switch, all off by default:
+//       `memoryDb.wakeRuns`: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
+//       inner.js), through the writer; at each open the runs a dead process left `running` longer than the inner
+//       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
+//       `memoryDb.skillsRegistry`: at each open every skill of src/skills/definitions.js is registered with its
+//       content hash (its definition and its operation's source file under src/ops/), its manifest and the engine
+//       commit (`git rev-parse HEAD`, else `unknown`; `commit` injects it).
+//       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
+//       the vectors outside the owner's classes, through the writer; the sources a turn's request carried
+//       (`recordTurnReads`) and a memory session's batch read (`memoryWrite`) are touched, so their vectors come back.
+//       `recall.db.reembed` (with an injected `embed`, the embedding client): at most once a minute, at a tick, the
+//       touched lines' evicted vectors are embedded again (index-policy.js#reembedTouched) on this thread, and written
+//       through the writer.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -63,10 +76,40 @@ import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from '.
 import { projectPending } from './graph.js';
 import { focusView, lastFocusDay, runFocusDay } from './focus.js';
 import { utcDay } from '../../time.js';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { skillVersionsOf } from './skills.js';
+import { indexSettings, reembedTouched } from './index-policy.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
+/** The inner turn's time budget when `innerLife.loop.timeBudgetMs` is not set (config.json's value). */
+const DEFAULT_TURN_BUDGET_MS = 180_000;
+/** The least time between two runs of the re-embed job. */
+const REEMBED_EVERY_MS = 60_000;
+const OPS_DIR = new URL('../../ops/', import.meta.url);
+const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+
+/** The source text of each operation's module under src/ops/ (op name -> the file's text). */
+export function opSources(dir = OPS_DIR) {
+  const out = new Map();
+  for (const name of fs.readdirSync(dir).filter((file) => file.endsWith('.js')).sort()) {
+    const text = fs.readFileSync(new URL(name, dir), 'utf8');
+    for (const match of text.matchAll(/defineOp\(\{\s*name:\s*'([^']+)'/g)) out.set(match[1], text);
+  }
+  return out;
+}
+
+/** The engine's commit (`git rev-parse HEAD` in the checkout), or 'unknown'. */
+export function engineCommit(cwd = ENGINE_ROOT) {
+  try {
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8').trim();
+    return /^[0-9a-f]{7,64}$/.test(sha) ? sha : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 const WORKER_FILE = new URL('./sync-worker.js', import.meta.url);
 const IMPORT_DONE = 'service_import_done';
 /** The weight of opening one unit in a slice, in bytes of file (about what a small file costs to import). */
@@ -235,11 +278,15 @@ function startWorker({ workerFile, dataDir, log, codeOf }) {
  *   (`memoryDb.diaryMedia`, diary-media.js); without it the job does nothing.
  *   `defer` runs a function on the next turn of the event loop (setImmediate); `clock` is a monotonic
  *   millisecond clock for the slices (performance.now); both are injected by the tests.
+ *   `embed` is the embedding client's `embed(texts, { config, purpose })` (the re-embed job; none: the job does
+ *   nothing), `commit` the engine commit for the skills registry (default `git rev-parse HEAD`), `selfName()` her name
+ *   in a rebuilt embedding input.
  */
 export function createMemoryDb({
   hot, dataDir, log = silent, now = Date.now, open, sync,
   defer = (fn) => setImmediate(fn), sliceMs = 30, clock = () => performance.now(),
   worker: useWorker, workerFile = WORKER_FILE, diaryMediaDeps = null, diarySleep,
+  embed = null, commit = null, selfName = () => '',
 }) {
   const threaded = useWorker ?? (open === undefined && sync === undefined);
   open ??= openMemoryDb;
@@ -294,6 +341,7 @@ export function createMemoryDb({
       dirty = true;
       openErrors.clear();
       log.info('memory db: opened', { file });
+      startupJobs();
     } catch (error) {
       handle = null;
       engine = null;
@@ -418,6 +466,99 @@ export function createMemoryDb({
     diaryJob.run().catch((error) => log.warn('diary media: run failed', { code: codeOf(error) }));
   }
 
+  /** One write on the writer connection: a message to the worker, or this thread's own connection. */
+  function write(update) {
+    if (!handle || closing) return Promise.reject(Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' }));
+    if (engine) return engine.call('memoryWrite', { update });
+    return Promise.resolve().then(() => applyMemoryWrite(handle, update));
+  }
+
+  /** What each open does once (schema v11): stale wake runs interrupted, the skills registered (each behind its switch). */
+  function startupJobs() {
+    const given = hot.config?.memoryDb ?? {};
+    if (given.wakeRuns === true) {
+      const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
+      write({ kind: 'wake', op: 'interrupt', now: now(), limitMs: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TURN_BUDGET_MS })
+        .then((done) => { if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted }); })
+        .catch((error) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
+    }
+    if (given.skillsRegistry === true) {
+      Promise.resolve()
+        .then(async () => {
+          const [{ SKILL_DEFINITIONS }, { NESTED_CAPABILITIES }] = await Promise.all([import('../../skills/definitions.js'), import('../../skills/access.js')]);
+          const sources = opSources();
+          const entries = skillVersionsOf({ definitions: SKILL_DEFINITIONS, nested: NESTED_CAPABILITIES, sourceOf: (op) => sources.get(op) ?? '', commit: typeof commit === 'string' ? commit : engineCommit() });
+          return write({ kind: 'skills', entries, now: now() });
+        })
+        .then((done) => log.debug?.('memory db: skills registered', { skills: done?.skills ?? 0, versions: done?.versions ?? 0, stale: done?.stale ?? 0 }))
+        .catch((error) => log.warn('memory db: skills registry failed', { code: codeOf(error) }));
+    }
+  }
+
+  /**
+   * One write of the inner life's wake runs (wakes.js#applyWakeWrite) through the writer, while `memoryDb.wakeRuns` is
+   * exactly true and the database is open; else null (nothing is written).
+   */
+  function recordWake(update) {
+    if (!handle || !on() || closing || hot.config?.memoryDb?.wakeRuns !== true || update?.kind !== 'wake') return null;
+    return write(update);
+  }
+
+  /** The sources `ids` were read by a request or a session: touched (index-policy.js#touch) while eviction is on. */
+  function touchSources(ids) {
+    if (!handle || !on() || closing || !indexSettings(hot.config).eviction) return;
+    const sources = [...new Set(ids.filter((id) => typeof id === 'string' && id))];
+    if (sources.length === 0) return;
+    write({ kind: 'touch', sourceIds: sources, now: now(), config: { recall: { db: hot.config?.recall?.db ?? {} } } })
+      .catch((error) => log.warn('memory db: touch failed', { code: codeOf(error) }));
+  }
+
+  // The index policy (index-policy.js): once per UTC day while `recall.db.vectorEviction` is on, through the writer.
+  let indexRun = null;
+  let indexDay = null;
+  function startIndexPolicy() {
+    if (closing || !on() || !handle || !importDone || indexRun || engine?.dead) return;
+    if (!indexSettings(hot.config).eviction) return;
+    const at = now();
+    const day = utcDay(at);
+    if (indexDay === day) return;
+    indexRun = write({ kind: 'index-policy', now: at, config: { recall: { db: hot.config?.recall?.db ?? {} } } })
+      .then((done) => {
+        indexDay = day;
+        log.debug?.('memory db: index policy', { a: done?.tiers?.a ?? 0, b: done?.tiers?.b ?? 0, c: done?.tiers?.c ?? 0, evicted: done?.evicted ?? 0 });
+      })
+      .catch((error) => log.warn('memory db: index policy failed', { code: codeOf(error) }))
+      .finally(() => { indexRun = null; });
+  }
+
+  // The re-embed job (index-policy.js#reembedTouched): `recall.db.reembed` with an embedding client, at most once a minute.
+  let reembedRun = null;
+  let reembedAt = -Infinity;
+  function startReembed() {
+    if (closing || !on() || !handle || !importDone || reembedRun || engine?.dead || typeof embed !== 'function') return;
+    if (!indexSettings(hot.config).reembed) return;
+    const at = now();
+    if (at - reembedAt < REEMBED_EVERY_MS) return;
+    reembedAt = at;
+    const db = handle.db;
+    reembedRun = (async () => {
+      const [{ quantize }, { recordChunk }, { roleModel }] = await Promise.all([import('../vectors.js'), import('../chunks.js'), import('../../llm/roles.js')]);
+      const config = hot.config;
+      const nameOf = (id) => {
+        try {
+          const names = JSON.parse(db.prepare('SELECT names FROM accounts WHERE native_id = ? LIMIT 1').get(id)?.names ?? 'null');
+          return Array.isArray(names) && typeof names[0] === 'string' ? names[0] : null;
+        } catch {
+          return null;
+        }
+      };
+      return reembedTouched({ db, write, embed, config, now: at, quantize, model: roleModel(config, 'embedding') ?? null, chunkOf: (line, context) => recordChunk(line, context, { nameOf, selfName: selfName() ?? '' }).text });
+    })()
+      .then((done) => { if (done.pending > 0) log.debug?.('memory db: reembed', { pending: done.pending, embedded: done.embedded, written: done.written, skipped: done.skipped }); })
+      .catch((error) => log.warn('memory db: reembed failed', { code: codeOf(error) }))
+      .finally(() => { reembedRun = null; });
+  }
+
   // The focus job (focus.js): once per UTC day, through the writer, with the live settings.
   let focusRun = null;
   let focusDay = null;
@@ -475,10 +616,12 @@ export function createMemoryDb({
     }
     if (!handle || running) return;
     // Authority `db`: the sync stays off. A switch back to `json` finds the database dirty and runs a pass.
-    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); startFocus(); return; }
+    if (settings().authority === 'db') { dirty = true; startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); return; }
     if (dirty || lastSyncAt === null || now() - lastSyncAt >= settings().syncMs) await runPass('tick');
     startDiaryMedia();
     startFocus();
+    startIndexPolicy();
+    startReembed();
   }
 
   /** A flush wrote files: a pass soon, off the caller's path. */
@@ -542,6 +685,8 @@ export function createMemoryDb({
     const context = typeof contextId === 'string' ? contextId : '';
     const reader = READER_KINDS.includes(readerKind) ? readerKind : 'turn';
     rows = rows.map((row) => ({ ...row, context_id: context, reader_kind: reader }));
+    // The lines a request carried were shown to her: touched while eviction is on (their vectors come back).
+    touchSources(rows.filter((row) => row.row_kind === 'sources').map((row) => row.row_id));
     // The write waits for a quiet loop, but a shutdown never drops it: `close` runs every write still queued, then waits
     // for the ones under way, before the database closes.
     const job = { run: null, done: null };
@@ -588,6 +733,8 @@ export function createMemoryDb({
     if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
     // Who writes is the live config's word, never the caller's; so is the read predicate of the target check.
     const stamped = { ...update, authority: settings().authority, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
+    // A session's batch read its lines: touched while eviction is on.
+    if (update?.kind === 'session' && Array.isArray(update.reads)) touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
     if (engine) return engine.call('memoryWrite', { update: stamped });
     return applyMemoryWrite(handle, stamped);
   }
@@ -649,6 +796,8 @@ export function createMemoryDb({
     await waitFor(diaryJob.stop(), closeMs);
     await waitFor(running, closeMs);
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
+    await waitFor(indexRun, Math.max(0, deadline - performance.now()));
+    await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
@@ -656,5 +805,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, issueContext, focusPeople, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, recordWake, issueContext, focusPeople, status, close };
 }

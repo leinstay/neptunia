@@ -75,6 +75,11 @@
 // day's review, the counters, the stop), written whole after every change, so a restart resumes;
 // ticks missed while down coalesce into the first tick after it. Logs carry ids, codes and
 // counts, never text.
+//
+// With `memoryDb.wakeRuns` exactly true (read at the turn) each inner turn is also a wake run in the memory database
+// (src/memory/db/wakes.js, through the service's writer): started before the turn runs (its id the in-flight turn id,
+// its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
+// number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.
 
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -88,6 +93,7 @@ import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, o
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../skills/codes.js';
+import { WAKE_POLICY_VERSION } from '../skills/access.js';
 import { buildHeartbeatFacts } from './heartbeat-view.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
@@ -741,6 +747,8 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
  * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null, focusPeople?: (guildId: string) => object|null }} [options.heartbeat]
  *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
+ * @param {{ recordWake?: (update: object) => Promise<unknown>|null }|null} [options.memoryDb]  The memory database
+ *   (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake run with its actions.
  * @param {() => number} [options.rng]
  * @param {() => number} [options.now]
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
@@ -767,6 +775,7 @@ export function createInnerLife({
   meter = null,
   onEpisode = null,
   heartbeat: heartbeatSources = {},
+  memoryDb = null,
   rng = Math.random,
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -839,6 +848,17 @@ export function createInnerLife({
       log.warn('inner: state write failed', { guildId: key, code: err?.code ?? null });
     }
     return next;
+  }
+
+  /**
+   * One write of the turn's wake run through the memory database's writer (`memoryDb.wakeRuns` exactly true, read
+   * now; src/memory/db/wakes.js), in order with the others; a failure is logged with a code. Never throws.
+   */
+  function wakeWrite(update) {
+    if (hot.config?.memoryDb?.wakeRuns !== true || typeof memoryDb?.recordWake !== 'function') return;
+    Promise.resolve()
+      .then(() => memoryDb.recordWake(update))
+      .catch((err) => log.warn('inner: wake run not recorded', { op: update?.op ?? null, code: err?.code ?? null }));
   }
 
   /** One `inner` journal record (features.journal exactly true, read now); never throws. */
@@ -1614,6 +1634,27 @@ export function createInnerLife({
     const turnKey = `t-${uuid()}`;
     state.inflight = { turnId: turnKey, wakeIds: group.map((wake) => wake.id), kind: anchor.kind, startedAt: at, channelId: String(channel.id), privateChat: !channel.guild, privateUserId: channel.guild ? null : (channel.recipientId == null ? null : String(channel.recipientId)) };
     save(guildId);
+    // The wake run (memoryDb.wakeRuns): what this turn's view showed, ids with their versions; the journal and the
+    // `day` rows stay as they are.
+    wakeWrite({
+      kind: 'wake',
+      op: 'start',
+      run: {
+        id: turnKey,
+        kind: anchor.kind,
+        trigger: anchor.id,
+        scheduledAt: Number.isFinite(anchor.dueAt) ? anchor.dueAt : null,
+        startedAt: at,
+        policyVersion: WAKE_POLICY_VERSION,
+        inputs: {
+          wakes: group.map((wake) => wake.id),
+          intentions: records.map((record) => ({ id: record.id, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : null })),
+          facts: [...shownFacts.map((fact) => fact.id), ...ownFactIds],
+          channelId: current.channelId ?? null,
+          ...(heartbeat ? { heartbeat: true } : {}),
+        },
+      },
+    });
     let measured;
     try {
       measured = await costs.run(() =>
@@ -1642,6 +1683,12 @@ export function createInnerLife({
     const outcome = result.outcome ?? 'error';
     const after = stateOf(guildId);
     after.inflight = null;
+    // The run's actions, each once by its number (a restarted run records nothing twice), then its end.
+    const runActions = list(result.inner?.actions);
+    if (runActions.length > 0) {
+      wakeWrite({ kind: 'wake', op: 'actions', actions: runActions.map((action, index) => ({ runId: turnKey, n: index + 1, kind: String(action?.skill ?? 'unknown'), target: action?.target ?? null, status: String(action?.status ?? 'unknown'), at: now() })) });
+    }
+    wakeWrite({ kind: 'wake', op: 'finish', finish: { id: turnKey, status: outcome === 'error' || HELD.has(outcome) ? 'failed' : 'succeeded', outcome, finishedAt: now() } });
     if (HELD.has(outcome)) {
       // Stopped while it waited: its wakes go with the rest of the queue.
       if (after.stopped) {

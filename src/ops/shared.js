@@ -16,6 +16,7 @@ import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
 import { denied, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
+import { nestedRefusal } from '../skills/access.js';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -713,6 +714,9 @@ export async function channelById(client, id) {
   return (await client.channels.fetch(id).catch(() => null)) ?? null;
 }
 
+/** The skill a channel need stands for, as a wake envelope names it (a read stands for none). */
+const NEED_CAPABILITY = Object.freeze({ send: 'message.create', reply: 'message.create', attach: 'message.create', react: 'message.react.add' });
+
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
  * channel:`): `channelId`, else the one the command runs in. The one it runs in passes as it is;
@@ -721,11 +725,19 @@ export async function channelById(client, id) {
  * Discord's permissions are the only limit on where. Otherwise a `denied` error
  * (`channel-no-permission`), a channel the bot cannot find included; nothing was done.
  * `discord` is the Discord interface's capabilities object the permission checks are asked of.
+ * On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is also
+ * asked of the wake's envelope (src/skills/access.js#nestedRefusal, the live config through `context.env.hot`): a
+ * `denied` error (`not-allowed`) before anything is done.
  * @param {{ client: object, discord: object, guildId: string|null, channelId: string|null|undefined,
  *   context: { channelId?: string }, need: keyof typeof CHANNEL_NEEDS }} args
  * @returns {Promise<string>}
  */
 export async function postingConversation({ client, discord, guildId, channelId, context, need }) {
+  const capability = NEED_CAPABILITY[need] ?? null;
+  if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
+    const refusal = nestedRefusal({ config: context.env?.hot?.config, wakeKind: context.wakeKind, capability });
+    if (refusal) throw denied(`the wake envelope does not allow ${capability}`, refusal.reason);
+  }
   const id = channelId ? String(channelId) : context?.channelId ? String(context.channelId) : null;
   if (!id) throw invalid('a channel is required');
   if (id === String(context?.channelId ?? '')) return id;

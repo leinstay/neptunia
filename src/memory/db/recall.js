@@ -260,12 +260,20 @@ const signed = (bytes) => new Int8Array(bytes.buffer, bytes.byteOffset, bytes.by
 
 let warnedModel = false;
 
+const evictionColumn = new WeakMap();
+/** ` AND v.evicted_at IS NULL` on a database with the column (schema v11), '' before it. */
+function notEvicted(db) {
+  if (!evictionColumn.has(db)) evictionColumn.set(db, db.prepare('PRAGMA table_info(vectors)').all().some((column) => column.name === 'evicted_at'));
+  return evictionColumn.get(db) ? ' AND v.evicted_at IS NULL' : '';
+}
+
 /**
  * The best `limit` vector rows by cosine to `vector`: { source_rowid, score }. The vectors are joined to the
  * eligible current sources before the top-K: a row the context may not open, a place the caller refuses, a deleted or
  * superseded message never competes. A vector stored on an older revision counts only while that revision's text is
  * the current text (`source_rowid` then names the current row). `model` is the query's embedding model: a row of
- * another model is skipped; a row with no model is taken by its dims, and says so once in the log.
+ * another model is skipped; a row with no model is taken by its dims, and says so once in the log. An evicted vector
+ * (schema v11, index-policy.js: no bytes, `evicted_at` set) never competes.
  */
 function meaningRows(db, ctx, vector, scopeArgs, limit, model = null) {
   const q = vector instanceof Float32Array ? vector : Float32Array.from(vector ?? []);
@@ -279,7 +287,7 @@ function meaningRows(db, ctx, vector, scopeArgs, limit, model = null) {
   const rows = db.prepare(`SELECT s.rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes, v.model AS model
     FROM vectors v JOIN sources o ON o.rowid = v.source_rowid
     JOIN sources s ON s.native_id = o.native_id AND (s.rowid = o.rowid OR s.text IS o.text)
-    WHERE v.retired_at IS NULL AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`).iterate(q.length, ...modelParams, ...filter.params);
+    WHERE v.retired_at IS NULL AND v.bytes IS NOT NULL${notEvicted(db)} AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`).iterate(q.length, ...modelParams, ...filter.params);
   const heap = [];
   let floor = -Infinity;
   for (const row of rows) {
