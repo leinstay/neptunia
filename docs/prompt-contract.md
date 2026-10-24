@@ -1976,7 +1976,7 @@ out):
 - `<episodes>`: open episodes with these people, `[eN] date name: what (feeling)`.
 - `<intentions>`: her open intentions that concern these people or this place, `status: purpose`.
 - `<batch>`: `cutoff: <time>` (the newest line), then the lines in event time (`occurred_at`, then arrival),
-  `#n [time] [pN] name: text`, `pN` being the place handle of the line; a line addressed to her starts with `→ `; her
+  `#n [time] [pN] [aN] name: text`, `pN` being the place handle and `[aN]` the author handle, shown only for authors who are not yet a person; a line addressed to her starts with `→ `; her
   own lines carry her self label (`labels.self`). Times are `YYYY-MM-DD HH:MM` in `bot.timezone`.
 
 Everything in the request apart from the batch (profiles, claims, episodes) is as of the cutoff: what was created or seen
@@ -2000,8 +2000,8 @@ alone, at most `maxMessages` lines, read after the scope's cursor and never newe
   "people": [ { "op": "add", "subject", "sources", "reason" } ] }
 ```
 
-`people` (`people:add`) is accepted by the engine but **not offered by the prompt yet**: the request does not render
-the handles it names. Its `subject` is the handle `aN` of an account or a thread-local participant that wrote a line
+`people` (`people:add`): the `<batch>` renders author handles (`[aN]`) before the name for authors who are not yet
+a person. `subject` is the handle `aN` of an account or a thread-local participant that wrote a line
 of the batch (the request's `maps.authors`, in order of their first line, her own lines left out); it is dropped as
 `unknown_subject` for any other handle, `has_person` when the account already belongs to a person, `no_reason` without a
 reason, `bad_op` for an op other than `add`. In `shadow` it is a `decisions` row `proposed:people_add`; in `apply` the

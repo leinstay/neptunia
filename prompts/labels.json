@@ -385,13 +385,14 @@
       "line": "db · {rows} rows · {files} files · last sync {at} · lag {lag} s · reads {read} · {fallbacks} fallbacks",
       "readOn": "on",
       "readOff": "off",
-      "syncOff": "db · {rows} rows · {files} files · the database writes · sync off"
+      "syncOff": "db · {rows} rows · {files} files · the database writes · sync off",
+      "refused": "db: writer refused ({code})"
     },
     "memorySession": {
       "off": "session: off",
       "notConfigured": "session: no key",
       "refused": "session: refused ({code})",
-      "line": "session · {mode} · {sweeps} of {cap} today · last run {outcome} at {at}",
+      "line": "session · {mode} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
       "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
     }
   },
