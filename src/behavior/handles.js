@@ -267,3 +267,33 @@ export function renderChannelDirectory(entries, handles, labels) {
   if (lines.length === 0) return '';
   return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');
 }
+
+/**
+ * Every member's names for one request: the directory entries' names and aliases, then the names
+ * the lines carry -- an author's name (never the persona's or a bot's) and the names of the members
+ * a line mentions (`mentionedUsers`, `{ id, name }`, interfaces/discord/collect.js). id -> names,
+ * each once, in the order met. Pure.
+ * @param {{ id: string, names: string[], aliases: string[] }[]} entries  directoryEntries'.
+ * @param {Iterable<object>} lines  Normalized messages.
+ * @returns {Map<string, string[]>}
+ */
+export function memberNameMap(entries, lines) {
+  const map = new Map();
+  const add = (id, name) => {
+    if (id === undefined || id === null || typeof name !== 'string') return;
+    const text = oneLine(name);
+    if (!text) return;
+    const key = String(id);
+    if (!map.has(key)) map.set(key, []);
+    if (!map.get(key).includes(text)) map.get(key).push(text);
+  };
+  for (const entry of entries ?? []) for (const name of [...entry.names, ...entry.aliases]) add(entry.id, name);
+  for (const line of lines ?? []) {
+    if (!line || typeof line !== 'object') continue;
+    if (!line.self && !line.bot) add(line.authorId, line.authorName);
+    for (const user of Array.isArray(line.mentionedUsers) ? line.mentionedUsers : []) add(user?.id, user?.name);
+  }
+  return map;
+}
+
+export { untaggedNames, withUserHandles } from '../handles-text.js';

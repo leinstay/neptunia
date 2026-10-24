@@ -67,9 +67,10 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
 /**
  * How a message addresses others: whether it mentions the persona (`mentioned`) or replies to
  * one of her messages (`replyToSelf`, as far as the adapter knows without asking the platform
- * again), and every member and conversation it mentions.
+ * again), and every member and conversation it mentions. `mentionedUsers` (optional): the name
+ * the message's text reads for each mentioned member (`{ id, name }`).
  * @typedef {{ mentioned: boolean, replyToSelf: boolean, mentionedUserIds: string[],
- *   mentionedConversationIds: string[] }} Addressing
+ *   mentionedUsers?: { id: string, name: string }[], mentionedConversationIds: string[] }} Addressing
  */
 
 /**

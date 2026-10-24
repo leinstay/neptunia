@@ -612,6 +612,16 @@ test('normalizeMessage: mentionedUserIds carries the real mention ids, in order'
   assert.deepEqual(m.mentionedUserIds, ['u2', 'u3']);
 });
 
+test('normalizeMessage: mentionedUsers names each mention as the text reads it (the member\'s display name, else the user\'s)', () => {
+  const raw = rawMessage({
+    mentions: {
+      users: new Map([['u2', { globalName: 'Zo\u00eb' }], ['u3', { username: 'bo' }], ['u4', {}]]),
+      members: new Map([['u3', { displayName: 'Bo Nick' }]]),
+    },
+  });
+  assert.deepEqual(normalizeMessage(raw, 'self').mentionedUsers, [{ id: 'u2', name: 'Zo\u00eb' }, { id: 'u3', name: 'Bo Nick' }]);
+});
+
 // --- normalizeMessage: mentionedChannelIds -------------------------------
 // discord.js's cleanContent rewrites <#id> into #name, so the ids are read
 // from the RAW content; the text keeps reading as #name.
@@ -1532,7 +1542,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.equal(event.message.content, 'hello @Bot #news');
   assert.equal(event.message.at, 1000);
   assert.equal(event.message.replyToId, 'm0');
-  assert.deepEqual(event.addressing, { mentioned: true, replyToSelf: false, mentionedUserIds: ['self', 'u2'], mentionedConversationIds: ['222222222222222222'] });
+  assert.deepEqual(event.addressing, { mentioned: true, replyToSelf: false, mentionedUserIds: ['self', 'u2'], mentionedUsers: [], mentionedConversationIds: ['222222222222222222'] });
   assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
   for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds']) assert.ok(!(key in event.message), key);
 });

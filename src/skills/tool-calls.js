@@ -132,7 +132,9 @@ export function toolResultText(result, labels, { maxChars = 2000, coerced = [], 
   const told = typeof words.coerced === 'string' && words.coerced
     ? (Array.isArray(coerced) ? coerced : []).map((item) => fill(words.coerced, { arg: item.arg, value: String(item.to) }))
     : [];
-  return [...told, [lead, data].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
+  // What the engine noticed about a call that went through (a tag that named nobody), after the result.
+  const note = typeof result.note === 'string' ? result.note : '';
+  return [...told, [lead, data, note].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
 }
 
 /**
