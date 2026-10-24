@@ -162,8 +162,18 @@ const V2 = [
   'CREATE INDEX diary_mirrors_diary ON diary_mirrors(diary_id);',
 ].join('\n');
 
+// Version 3 (her memory session): one row per session request, shadow or apply, whatever its outcome.
+const V3 = `
+CREATE TABLE session_runs (
+  id TEXT PRIMARY KEY, sweep_id TEXT, scope_key TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT, mode TEXT,
+  started_at TEXT, finished_at TEXT, cursor_from INTEGER, cursor_to INTEGER, sources_n INTEGER,
+  tokens_prompt INTEGER, tokens_completion INTEGER, model TEXT, outcome TEXT, counts JSON, errors JSON
+);
+CREATE INDEX session_runs_sweep ON session_runs(sweep_id);
+`;
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2];
+export const MIGRATIONS = [V1, V2, V3];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [

@@ -1912,3 +1912,76 @@ Private DM caps post the notice once per person per day (tracked by `replies.not
 An image cap on a `draw.create` call comes back to her as a result (`image-cap-daily`, `image-cap-user-daily`; the
 senses line already told her the quota was spent). Video and web daily caps do not block a reply and keep their
 in-transcript states; no notice.
+
+## Her memory session and description review
+
+The memory database's session (`src/memory/db/session.js`, `memoryDb.session.mode` `shadow` or `apply`) and the
+description review (`src/memory/db/describe.js`). Prompts: `prompts/memory-session.md`, `prompts/description-draft.md`,
+`prompts/description-check.md`. They are neutral engine text; the persona comes in through her card, rules and the
+memory blocks, as in her turns. The requests go out on the role `memory` (`models.memory`, its own key
+`llm.keyByRole.memory`, no fallback to another key), purposes `memory-session`, `description-draft` and
+`description-check`. Provider reasoning is never sent: she thinks in `<think>`, then answers.
+
+### Memory session request
+
+System: the same system text her turns get (`system-prompt`, `character-card`, `rules`, `format`, `{{name}}` filled),
+then `prompts/memory-session.md`. User content, blocks in this order (stable first; a block with nothing to say drops
+out):
+
+- `<self>`: her self facts and lessons, one `[sN] kind: text` line each (`s1`, ...).
+- `<place>`: `scope: group|dm`, the channels of the batch, the current description of each place field as
+  `field: text`, then the place's claims as `[cN] kind: text`.
+- `<people>`: for each person in the batch (the most active `memoryDb.session.maxPeople`), the profile rendered by
+  `renderProfile` from the profile the database rebuilds, `id: <@id>`, `affinity: <number>`, then the person's claims
+  as `[cN] kind: text`. The numbers `cN` run on from `<place>`.
+- `<episodes>`: open episodes with these people, `[eN] date name: what (feeling)`.
+- `<intentions>`: her open intentions that concern these people or this place, `status: purpose`.
+- `<batch>`: `cutoff: <time>`, then the lines in time order, `#n [time] name: text`; a line addressed to her starts
+  with `→ `; her own lines carry her self label (`labels.self`). Times are `YYYY-MM-DD HH:MM` in `bot.timezone`.
+
+One request per scope: the public channels of an interface together, each private conversation alone, at most
+`maxMessages` lines, read after the scope's cursor and never newer than `settleMinutes`.
+
+### Memory session answer
+
+`<think>...</think>`, then exactly one `<memory>` block with a JSON object:
+
+```
+{ "claims": [ { "op": "add", "subject", "kind", "text", "how", "sources", "when" },
+              { "op": "confirm", "id", "sources" },
+              { "op": "revise", "id", "text", "how", "sources", "reason" },
+              { "op": "retire", "id", "truth", "reason", "sources" } ],
+  "episodes": [ { "subject", "what", "feeling", "sources" } ],
+  "affinity": [ { "person", "delta", "reason", "sources" } ],
+  "descriptions": [ { "subject", "field", "why" } ] }
+```
+
+`subject` is a person's name or id, `place` or `self`; `kind` one of `detail`, `interest`, `alias`, `injoke`,
+`self_fact`, `lesson`, `pattern`; `how` one of `said`, `saw`, `claimed`, `inferred`, `taught`; `truth` one of
+`historical`, `disputed`, `retired`; `field` one of `character`, `style`, `relationship`, `purpose`, `topics`, `tone`,
+`patterns`, `starters`, `self_view`. `sources` are the `#n` of the batch.
+
+The engine maps `#n`, `cN`, `sN` and `eN` back to database ids and checks everything it sent. An op is dropped, and
+counted by reason in `session_runs.counts`, when: its id is not one the request carried (`unknown_id`), a source is not a
+line of the batch (`unknown_source`, the op stays if another source holds), no source is left (`no_sources`), the
+subject is unknown or a name two people share (`unknown_subject`), the kind, `how`, `truth` or field is not in its list
+(`bad_kind`, `bad_how`, `bad_truth`, `bad_field`), the text is empty (`no_text`), an affinity delta is not a non-zero
+number (`bad_delta`), or the op is not an object or names another op (`bad_op`). A part that is not a list is dropped
+whole (`<part>_not_list`). Nothing is repaired or guessed. A missing or unreadable `<memory>` block is the outcome
+`bad_answer` (`no_block`, `bad_json`, `not_object`): nothing is written and the cursor stays.
+
+In `shadow` every kept op is a `decisions` row (`by` `her`, `action` `proposed:<op>`, the op in `extra`); in `apply`
+the changes land in `claims`, `claim_versions`, `claim_sources`, `episodes`, `affinity_events` and `people.affinity`
+(the delta is capped by `relationships.maxDeltaPerUpdate`), each with a `decisions` row whose `action` is the op; a
+description flag is a `decisions` row only. `apply` is refused (`APPLY_JSON_WRITER`) while `memoryDb.read` is off.
+
+### Description review
+
+Two calls, serial. Call 1 (`description-draft`): her system text, then `<subject>` (`subject`, `kind`, `field`, `cap`
+in characters), `<claims>` (each claim with its id, dates, and shown or historical), `<evidence>` (changes since the
+last review with their sources), `<samples>` (older lines spread over time); the old description text is not sent.
+Answer: `<think>`, `<description>`, `<reason>`. Call 2 (`description-check`): `<draft>`, `<current>` (the stored
+description, empty when none) and `<diff>` (the claims the stored text showed and the draft does not, and the reverse,
+by a text match); answer: `<think>`, `<description>` (final, may equal the draft), `<reason>`. The final is stored as a
+`description_versions` row with `origin` `shadow`, the draft in `extra`; it never becomes the current version. A final
+over the cap is stored as it came, with `extra.overCap`.

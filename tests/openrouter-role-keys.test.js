@@ -126,8 +126,8 @@ test('createLlm: roleKeys names the extra keys by role without their values; key
 
 test('config.json: the errand agents share OPENROUTER_AGENT_KEY, the development agents share OPENROUTER_DEV_KEY: two key lines; an unset one logs once and shows none', async () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-  assert.deepEqual(shipped.llm.keyByRole, { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', drawing: 'OPENROUTER_AGENT_KEY', thinker: 'OPENROUTER_DEV_KEY', dev: 'OPENROUTER_DEV_KEY', writer: 'OPENROUTER_DEV_KEY' });
-  assert.deepEqual(Object.keys(shipped.llm.keyByRole).sort(), [...AGENT_ROLES].sort(), 'every agent role has its own key, the pictures on the agents key');
+  assert.deepEqual(shipped.llm.keyByRole, { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', drawing: 'OPENROUTER_AGENT_KEY', thinker: 'OPENROUTER_DEV_KEY', dev: 'OPENROUTER_DEV_KEY', writer: 'OPENROUTER_DEV_KEY', memory: 'OPENROUTER_MEMORY_KEY' });
+  assert.deepEqual(Object.keys(shipped.llm.keyByRole).sort(), [...AGENT_ROLES, 'memory'].sort(), 'every agent role has its own key, the pictures on the agents key, and her memory session its own');
   const cfg = config(shipped.llm.keyByRole);
   const { llm, sent } = makeLlm(cfg, { OPENROUTER_AGENT_KEY: 'agent-key', OPENROUTER_DEV_KEY: 'dev-key' });
   assert.deepEqual(llm.roleKeys(), [{ roles: ['drawing', 'server', 'web'] }, { roles: ['dev', 'thinker', 'writer'] }], 'the agents key, then the development key');

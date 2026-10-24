@@ -138,6 +138,12 @@ The core (`models.core`) wants, decides and speaks as the persona; each helper (
 |---|---|---|
 | `core` | `"anthropic/claude-opus-4.6"` | The persona's model, a string. Purposes: `reply`, `memory-voice` (the memory texts worded in its voice). Formerly `models.base.voice` (role `voice`); see the alias note below |
 
+### `models.memory`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `memory` | `"anthropic/claude-opus-4.6"` | The model of her memory session and description review (`memoryDb.session`), a string. Purposes: `memory-session`, `description-draft`, `description-check`. It is her voice like the core, but a role of its own: the same default as `models.core`, not a copy of it, and `/nep model` does not list it. Provider reasoning is never used on it. Its key is `llm.keyByRole.memory` and never falls back to another key |
+
 ### `models.helpers`
 
 | Key | Default | What it does |
@@ -197,7 +203,7 @@ The `.env` variable `OPENROUTER_CORE_KEY` falls back to `OPENROUTER_VOICE_KEY` w
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below. A route may carry `"byok": true` (never sent to OpenRouter): an answer to a request on that route that OpenRouter served from its own capacity instead of your provider account (`usage.is_byok` is `false`) is logged as `llm: not byok` and fails without a retry |
-| `keyByRole` | `{ "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" }` | Maps a role name (`core`, helper `analyzer`, `extractor`, `vision`, `video`, `embedding`, or agent `web`, `server`, `drawing`, `thinker`, `dev`, `writer`) to the NAME of a `.env` variable holding an OpenRouter key, e.g. `{ "core": "OPENROUTER_CORE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable falls back to `OPENROUTER_API_KEY`; a bad or unset main key logs `llm: role key missing` once. The exception: `OPENROUTER_CORE_KEY` tries `OPENROUTER_VOICE_KEY` first (its name while the role was `voice`), then the main key. The old key name `voice` is read as `core` (see [Aliases](#models)). `/nep status` shows each extra key's limit and rolling spend. Defaults: `web`, `server` and `drawing` on `OPENROUTER_AGENT_KEY` (shown on the card as `agents`), `thinker`, `dev` and `writer` on `OPENROUTER_DEV_KEY` (shown as `development`). A role mapped to `OPENROUTER_SIM_KEY` appears on the simulator key's line, with no line of its own. Old agent role names (`agent.web`, ...) are refused at load (see [Migration from `roles`](#models)). The bot sends no request on the OpenCode roles; with a variable unset in `.env` the card shows no line for it (the main key is never shown as theirs) |
+| `keyByRole` | `{ "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" }` | Maps a role name (`core`, helper `analyzer`, `extractor`, `vision`, `video`, `embedding`, or agent `web`, `server`, `drawing`, `thinker`, `dev`, `writer`) to the NAME of a `.env` variable holding an OpenRouter key, e.g. `{ "core": "OPENROUTER_CORE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable falls back to `OPENROUTER_API_KEY`; a bad or unset main key logs `llm: role key missing` once. The role `memory` (her memory session) is the exception to the fallback: its default is `OPENROUTER_MEMORY_KEY`, and with that variable unset the session is not configured (`/nep status` says so) and no request goes out on any other key. The other exception: `OPENROUTER_CORE_KEY` tries `OPENROUTER_VOICE_KEY` first (its name while the role was `voice`), then the main key. The old key name `voice` is read as `core` (see [Aliases](#models)). `/nep status` shows each extra key's limit and rolling spend. Defaults: `web`, `server` and `drawing` on `OPENROUTER_AGENT_KEY` (shown on the card as `agents`), `thinker`, `dev` and `writer` on `OPENROUTER_DEV_KEY` (shown as `development`). A role mapped to `OPENROUTER_SIM_KEY` appears on the simulator key's line, with no line of its own. Old agent role names (`agent.web`, ...) are refused at load (see [Migration from `roles`](#models)). The bot sends no request on the OpenCode roles; with a variable unset in `.env` the card shows no line for it (the main key is never shown as theirs) |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"`. Also the length of the bucket over which the stable prefix holds what memory changes (`<self_facts>`): a change shows at the next bucket edge |
 | `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
 | `cache.roles` | `["core"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` to cache the helpers' stable parts too |
@@ -233,7 +239,30 @@ The memory database (`features.memoryDb`). One SQLite file holding the memory in
 | `closeTimeoutMs` | `10000` | At shutdown (or when the switch turns off), how long to wait for the pass under way and for the worker to close the database before the worker is terminated. A pass cut short is safe: the next start takes it up again |
 | `read` | `false` | Needs `features.memoryDb`. The store takes a memory file's first load, and the list of ids under a directory, from the database instead of the JSON files, once the process has synced. A file the database does not hold, or holds behind the disk, is read from the disk as before. Writes are unchanged. Must be exactly `true` to enable |
 | `diaryMedia` | `false` | Needs `features.memoryDb`, the first import done and `diary.channelId`. The core keeps its own copy of the diary: for every diary post that has Discord message ids and no text yet, it fetches those messages through the interface (at most one fetch a second), stores the post's text in the database and saves each picture under `data/media/diary/` (size cap `image.referenceMaxBytes`, timeout `context.vision.fetchTimeoutMs`), with a `media` row that carries the post's scope. A post whose messages are all gone is marked lost. A failure leaves the post for the next start. New posts are picked up after the next sync. Must be exactly `true` to enable |
+| `session` | see below | Her memory session and description review, an object (below). Needs `features.memoryDb`, the first import done and the key `OPENROUTER_MEMORY_KEY` |
 | `turnReads` | `true` | Needs `features.memoryDb`. After a turn's request is built, record which memory rows it carried (profile items, channel and guild notes, lore, recent lines, participation episodes, retrieved sources) in the database, one transaction per turn step. A missing key counts as on |
+
+### `memoryDb.session`
+
+Her memory session (`src/memory/db/session.js`): she reads the new chat lines of one scope (all the public channels of an interface together, each private conversation alone) and says what she keeps, in her own voice, on the model `models.memory` and the key `llm.keyByRole.memory`. Provider reasoning is never sent. A scope is read after its own cursor in the database (`meta`, one cursor per mode and scope), so a line is read once. The description review (`reviewDescription`, `src/memory/db/describe.js`) is two calls on the same model.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mode` | `"off"` | `off`: nothing runs. `shadow`: every proposed change is written as a `decisions` row (`by` `her`, `action` `proposed:<op>`, the whole op in `extra`) and one `session_runs` row per request; no claim, episode or attitude is touched. `apply`: the changes are written to the database (claims with their versions and sources, episodes, attitude events, decisions); refused with the status code `APPLY_JSON_WRITER` while `memoryDb.read` is not `true`, because the JSON files are still the writer then |
+| `maxMessages` | `200` | The most lines in one request |
+| `minMessages` | `5` | A scope with fewer new lines waits for more |
+| `sweepsPerDay` | `4` | The most sweeps (one pass over every scope with new lines) per UTC day |
+| `settleMinutes` | `10` | Lines newer than this many minutes are left for the next sweep, so a conversation under way is not cut |
+| `since` | `null` | An ISO date; a scope with no cursor starts at the first line from this date on (null: the first line there is) |
+| `maxPeople` | `12` | The most people shown in a request (the most active in the batch first) |
+| `claimsPerPerson` | `30` | The most claims listed with their ids for each person |
+| `selfMax` | `40` | The most of her own claims listed |
+| `episodesMax` | `20` | The most episodes listed |
+| `maxOutputTokens` | `4000` | The answer's token limit for a session request |
+| `timeoutMs` | `300000` | The timeout of a session request |
+| `descriptionMaxOutputTokens` | `1500` | The answer's token limit for each call of a description review |
+
+The status of the session (`off`, `not_configured` while the key variable is unset or blank, `apply_refused`, or the last sweep's outcome) is part of the memory database's state. A missing key means no request at all: the session never runs on another key.
 
 ## `embed`
 

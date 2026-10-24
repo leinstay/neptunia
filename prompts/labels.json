@@ -384,6 +384,12 @@
       "line": "db · {rows} rows · {files} files · last sync {at} · lag {lag} s · reads {read} · {fallbacks} fallbacks",
       "readOn": "on",
       "readOff": "off"
+    },
+    "memorySession": {
+      "off": "[writer: placeholder. Status line: her memory session is off.]",
+      "notConfigured": "[writer: placeholder. Status line: her memory session is not configured, its key is missing.]",
+      "refused": "[writer: placeholder. Status line: her memory session is refused, with {code}.]",
+      "line": "[writer: placeholder. Status line: mode {mode}, sweeps {sweeps} of {cap} today, last run {outcome} at {at}.]"
     }
   },
   "warmup": {
