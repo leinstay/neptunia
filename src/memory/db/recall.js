@@ -153,6 +153,21 @@ function termsOf(stem, forms) {
   return out;
 }
 
+/**
+ * The relevance gate: a hit stays when its fused score is at least `gateShare` of the best one, or when it holds as
+ * many distinct terms as the best-covering hit (two at least). Without the second rule a line holding every term but
+ * found by the words alone falls under a recent line the meaning stream also found (its fused score doubles).
+ * @param {Array<{ score: number }>} visible  fused entries, best first
+ * @param {(entry: object) => number} termsOf  distinct terms an entry's line holds
+ * @param {number} gateShare
+ */
+export function passGate(visible, termsOf, gateShare) {
+  const best = visible[0]?.score ?? 0;
+  const counts = visible.map((entry) => termsOf(entry));
+  const most = counts.reduce((max, n) => Math.max(max, n), 0);
+  return visible.filter((entry, i) => entry.score >= best * gateShare || (most >= 2 && counts[i] === most));
+}
+
 const matchOf = (terms) => `{stems} : (${terms.map((term) => quoteFts(term.id)).join(' OR ')})`;
 
 /** How many terms, and how many of them phrases, a row holds (by its stems; by its text for a trigram hit). */
@@ -460,11 +475,9 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const skip = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
   const shown = (row) => !skip.has(row.native_id) && (typeof allowPlace !== 'function' || allowPlace(row.place_id));
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id)));
-  const best = visible[0]?.score ?? 0;
   const target = targetOf(scopeArgs, now);
   const dated = scopeArgs.from !== null || scopeArgs.to !== null;
-  const hits = visible
-    .filter((entry) => entry.score >= best * gateShare)
+  const hits = passGate(visible, (entry) => holds(terms, rowsOf.get(entry.id)).terms, gateShare)
     .map((entry) => {
       const row = rowsOf.get(entry.id);
       const held = holds(terms, row);
@@ -496,17 +509,20 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
     const rows = stretchAround(db, ctx, rowsOf.get(hit.rowid), { around: opts.recordContext, followMessages: opts.followMessages, followGapMinutes: opts.followGapMinutes });
     return windowOf(rows, new Set(rows.map((row) => row.native_id).filter((id) => hitIds.has(id))), read);
   });
+  // A window's place is its best hit's place in the ranked hits (the order above: relevance first, or nearness to a
+  // named date), so the windows kept follow the same order the hits do.
+  const order = new Map(hits.map((hit, i) => [hit.messageId, i]));
   const merged = mergeWindows(built).map((window) => ({
     ...window,
-    score: Math.max(0, ...hits.filter((hit) => window.hitIds.has(hit.messageId)).map((hit) => hit.score)),
+    best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
     endTs: window.messages[window.messages.length - 1].ts,
   }));
   // The windows kept are the best by their best hit; they come back newest first, as the record recall's do.
   const windows = merged
-    .sort((a, b) => b.score - a.score || b.endTs - a.endTs)
+    .sort((a, b) => a.best - b.best || b.endTs - a.endTs)
     .slice(0, keep)
     .sort((a, b) => b.endTs - a.endTs)
-    .map(({ score, endTs, ...window }) => window);
+    .map(({ best, endTs, ...window }) => window);
 
   const hidden = ctx.kind === 'group' && terms.length > 0 ? hiddenBetter(db, ctx, terms, scopeArgs, shown) : false;
   return { windows, hits, hidden, stats };

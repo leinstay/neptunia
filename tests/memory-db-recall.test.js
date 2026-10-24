@@ -634,9 +634,21 @@ test('words: a wide pool is ranked by the distinct terms a line holds; relevance
     const found = run(env, forms, { settings });
     assert.equal(ids(found)[0], 'w-old', 'three distinct terms beat a recent line of one');
     assert.equal(found.hits[0].terms, 3);
+    const one = run(env, forms, { settings, limit: 1 });
+    assert.ok(one.windows[0].messages.some((message) => message.id === 'w-old'), 'the one window kept is the best-ranked hit\'s');
     const aimed = run(env, forms, { settings, plan: { from: NOW - 3 * DAY, to: NOW } });
     assert.ok(ids(aimed).every((id) => id.startsWith('w-new-')), 'a named date ranks toward it');
   } finally {
     env.done();
   }
+});
+
+test('gate: a hit holding the most distinct terms passes even under the share of the best fused score', async () => {
+  const { passGate } = await import('../src/memory/db/recall.js');
+  const visible = [{ id: 'a', score: 0.032 }, { id: 'b', score: 0.016 }, { id: 'c', score: 0.012 }, { id: 'd', score: 0.011 }];
+  const held = { a: 1, b: 3, c: 1, d: 0 };
+  const kept = passGate(visible, (e) => held[e.id], 0.5).map((e) => e.id);
+  assert.deepEqual(kept, ['a', 'b']);
+  const single = passGate(visible, (e) => ({ a: 1, b: 1, c: 1, d: 0 })[e.id], 0.5).map((e) => e.id);
+  assert.deepEqual(single, ['a', 'b'], 'one term is no reason to pass the gate');
 });
