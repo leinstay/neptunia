@@ -42,6 +42,8 @@ import {
   duplicates,
   expireAt,
   heartbeatLimits,
+  dueJitterMinutes,
+  wakeTimeOf,
   openFromHeartbeat,
   HEARTBEAT_ORIGIN,
   intentionSettings,
@@ -490,7 +492,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       const store = storeOf(guildId);
       const current = store?.get(id) ?? null;
       const at = now();
-      if (!current?.every || current.status !== 'pending' || !(Number.isFinite(current.dueAt) && current.dueAt <= at)) return { ok: true, intention: current, changed: false };
+      if (!current?.every || current.status !== 'pending' || !(wakeTimeOf(current, dueJitterMinutes(hot.config)) <= at)) return { ok: true, intention: current, changed: false };
       const code = named ? 'recurred' : 'missed';
       const result = store.update(id, (record) => advanceOccurrence(record, { now: at, timezone: timezone(), code, by }));
       if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(id), code, dueAt: result.intention.dueAt });
@@ -505,7 +507,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   function afterWait(store, record) {
     if (!record?.every || record.status !== 'pending') return;
     const at = now();
-    if (!(Number.isFinite(record.dueAt) && record.dueAt <= at)) return;
+    if (!(wakeTimeOf(record, dueJitterMinutes(hot.config)) <= at)) return;
     const result = store.update(record.id, (current) => advanceOccurrence(current, { now: at, timezone: timezone(), code: CODE.RECURRED, by: 'engine', keepWaitEnd: true }));
     if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: CODE.RECURRED, dueAt: result.intention.dueAt });
   }
@@ -556,7 +558,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const store = storeOf(guildId);
     if (!store) return [];
     sweepExpired(store);
-    return dueOf(store.list(), now());
+    return dueOf(store.list(), now(), dueJitterMinutes(hot.config));
   }
 
   /**
