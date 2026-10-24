@@ -1,7 +1,7 @@
 // Tests for tools/replay.mjs `--inner`: its flags, the hot it runs with (shadow forced, no dry
 // run, no journal) and the wake it builds from the inner state read. Pure parts only: the mode
 // itself needs Discord and a key.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -82,9 +82,14 @@ test('replay --inner heartbeat: no intention or review flag; samples, prompts, o
   }
 });
 
+// The fixtures' directories, removed when the file ends (PR #225: a test file leaves no temp directory behind).
+const fixtureDirs = [];
+after(() => { for (const dir of fixtureDirs) fs.rmSync(dir, { recursive: true, force: true }); });
+
 function heartbeatFixture({ stopped = false } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-test-data-'));
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-test-tmp-'));
+  fixtureDirs.push(dataDir, tmpRoot);
   const stateFile = path.join(dataDir, 'guilds', 'g1', 'inner.json');
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
   const kept = JSON.stringify({ ...inner.emptyState(), stopped, heartbeat: { nextAt: NOW - 1000, lastAt: NOW - 3 * 3_600_000 } });

@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +7,14 @@ import '../src/ops/index.js';
 import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.js';
 import { requestJson, createAnswersDir, withAnswersDir, renderRequest, isAnthropicModel } from '../tools/lib/answers-dir.mjs';
 
-const tmp = () => fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'answers-dir-'));
+// Every directory a test makes is removed when the file ends (PR #225: a test file leaves no temp directory behind).
+const made = [];
+const tmp = () => {
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'answers-dir-'));
+  made.push(dir);
+  return dir;
+};
+after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
 
 test('renderRequest lays out the model, the system prompt and every message verbatim', () => {
   const text = renderRequest({
