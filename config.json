@@ -154,7 +154,7 @@
       "claimsPerPerson": 30,
       "selfMax": 40,
       "episodesMax": 20,
-      "maxOutputTokens": 4000,
+      "maxOutputTokens": 8000,
       "timeoutMs": 300000,
       "descriptionMaxOutputTokens": 1500,
       "retryLimit": 3

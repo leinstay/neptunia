@@ -154,6 +154,12 @@ export function storedProposals(db, day) {
 }
 
 /** What the analyzer wrote on `day`, by scope key: `{ claims, episodes, affinity }` (her session's own rows left out). */
+// What the analyzer's day holds that is not a decision about memory, left out of the comparison: the archive's own
+// bookkeeping (an item pushed out by a cap, expired, set aside, restored), the code-made items (participation episodes'
+// claims and the recent lines), and attitude moves with no reason (the hourly decay).
+const ARCHIVE_CHURN = ['evicted', 'expired', 'set-aside', 'restored', 'backfill'];
+const CODE_KINDS = ['participation', 'recent', 'recent_line'];
+
 export function analyzerWrites(db, day) {
   const by = new Map();
   const of = (row) => {
@@ -163,13 +169,15 @@ export function analyzerWrites(db, day) {
   };
   for (const row of db.prepare(
     `SELECT v.claim_id, v.event, v.text, c.subject_kind, c.subject_id, c.kind, c.scope_kind, c.scope_iface, c.scope_dm FROM claim_versions v JOIN claims c ON c.id = v.claim_id
-      WHERE substr(v.recorded_at, 1, 10) = ? AND v.origin IS NOT 'session' AND v.retired_at IS NULL ORDER BY v.recorded_at, v.rowid`,
+      WHERE substr(v.recorded_at, 1, 10) = ? AND v.origin IS NOT 'session' AND v.retired_at IS NULL
+        AND v.event NOT IN (${ARCHIVE_CHURN.map((event) => `'${event}'`).join(', ')}) AND c.kind NOT IN (${CODE_KINDS.map((kind) => `'${kind}'`).join(', ')})
+      ORDER BY v.recorded_at, v.rowid`,
   ).all(day)) of(row).claims.push({ claimId: row.claim_id, event: row.event, text: row.text ?? '', subjectKind: row.subject_kind, subjectId: row.subject_id, kind: row.kind });
   for (const row of db.prepare(
     "SELECT id, subject_id, what, scope_kind, scope_iface, scope_dm FROM episodes WHERE substr(created_at, 1, 10) = ? AND kind IS NOT 'session' AND retired_at IS NULL ORDER BY created_at, id",
   ).all(day)) of(row).episodes.push({ id: row.id, subjectId: row.subject_id, what: row.what ?? '' });
   for (const row of db.prepare(
-    "SELECT id, person_id, delta, scope_kind, scope_iface, scope_dm FROM affinity_events WHERE substr(at, 1, 10) = ? AND retired_at IS NULL AND json_extract(extra, '$.run') IS NULL ORDER BY at, id",
+    "SELECT id, person_id, delta, scope_kind, scope_iface, scope_dm FROM affinity_events WHERE substr(at, 1, 10) = ? AND retired_at IS NULL AND json_extract(extra, '$.run') IS NULL AND COALESCE(reason, '') <> '' ORDER BY at, id",
   ).all(day)) of(row).affinity.push({ id: row.id, personId: row.person_id, delta: Number(row.delta) || 0 });
   return by;
 }

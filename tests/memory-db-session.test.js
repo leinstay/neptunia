@@ -5,12 +5,13 @@ import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import {
-  CODES, batchOf, buildSessionRequest, cursorKey, memoryKeyState, memorySessionStatusLine, parseSessionAnswer, refusalOf, scopesOf,
+  CODES, batchOf, buildSessionRequest, cursorKey, fitBatch, memoryKeyState, memorySessionStatusLine, parseSessionAnswer, refusalOf, scopesOf,
   resolveSessionReads, sessionSettings, sessionStatus, sweep, validateAnswer,
 } from '../src/memory/db/session.js';
 import { channelPlaceId, dmPlaceId, guildPlaceId, messageSourceId, personId, SELF_PERSON } from '../src/memory/db/ids.js';
 import { groupContext, whereFor } from '../src/memory/db/scope.js';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
+import { estimateMessages } from '../src/llm/tokens.js';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.js';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { labels } from './fixtures/labels.js';
@@ -1115,6 +1116,25 @@ test('a batch line names an author who is not a person yet by the handle people:
     const user = request.messages[1].content;
     assert.match(user, new RegExp(`\\[${handle}\\] Stranger: hello there`));
     assert.ok(![...request.maps.authors].some(([h, entry]) => entry.hasPerson && user.includes(`[${h}]`)), 'a person carries no handle');
+
+test('a batch whose request would pass the request cap is cut to its first lines by arrival until it fits; the rest waits for the next batch', async () => {
+  const env = fixture();
+  try {
+    chat(env);
+    const scope = scopesOf(env.db).find((entry) => entry.key === 'group:discord');
+    const all = batchOf(env.db, GROUP, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
+    // The cap is set just under the full request, so the batch must be cut, and the cut must fit.
+    const probe = buildSessionRequest({ db: env.db, scope, batch: all, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
+    const full = estimateMessages(probe.messages);
+    const config = baseConfig({}, { llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' }, maxRequestTokens: Math.floor((full - 1) / 0.85) } });
+    const fitted = fitBatch(env.db, scope, all, { config, prompts, selfName: 'Nep', now: NOW, min: 1 });
+    assert.ok(fitted.length < all.length && fitted.length >= 1, 'cut');
+    const firstByArrival = [...all].sort((a, b) => a.rowid - b.rowid).slice(0, fitted.length).map((line) => line.rowid).sort();
+    assert.deepEqual(fitted.map((line) => line.rowid).sort(), firstByArrival, 'the first lines by arrival, so none is skipped');
+    const llm = fakeLlm([memoryBlock({})]);
+    const result = await sweep(ctxOf(env, { llm, config }));
+    assert.equal(result.runs[0].lines, fitted.length);
+    assert.equal(Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey('shadow', 'group:discord')).value), Math.max(...fitted.map((line) => line.rowid)), 'the cursor follows the cut');
   } finally {
     env.done();
   }
