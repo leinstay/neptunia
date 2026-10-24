@@ -245,6 +245,8 @@ export function createMemoryDb({
   let dirty = true;
   let lastSyncAt = null;
   let lastPass = null;
+  const pendingReads = new Set();
+  const writingReads = new Set();
   let importDone = false;
   let closing = false;
   const openErrors = new Set();
@@ -493,24 +495,42 @@ export function createMemoryDb({
     const context = typeof contextId === 'string' ? contextId : '';
     const reader = READER_KINDS.includes(readerKind) ? readerKind : 'turn';
     rows = rows.map((row) => ({ ...row, context_id: context, reader_kind: reader }));
-    if (engine) {
-      defer(() => {
-        if (!engine || engine.dead) return;
-        engine.call('turnReads', { turnId: String(turnId), step: String(step), rows })
-          .then((done) => { if (done.rows > 0) log.debug?.('memory db: turn reads', { rows: done.rows }); })
-          .catch((error) => log.warn('memory db: turn reads failed', { code: codeOf(error) }));
-      });
-      return;
-    }
-    defer(() => {
-      if (!handle) return;
-      try {
-        insertTurnReads(handle, turnId, step, rows);
-        log.debug?.('memory db: turn reads', { rows: rows.length });
-      } catch (error) {
-        log.warn('memory db: turn reads failed', { code: codeOf(error) });
-      }
-    });
+    // The write waits for a quiet loop, but a shutdown never drops it: `close` runs every write still queued, then waits
+    // for the ones under way, before the database closes.
+    const job = { run: null, done: null };
+    job.run = () => {
+      if (job.done) return job.done;
+      pendingReads.delete(job);
+      job.done = (async () => {
+        if (engine && !engine.dead) {
+          try {
+            const done = await engine.call('turnReads', { turnId: String(turnId), step: String(step), rows });
+            if (done.rows > 0) log.debug?.('memory db: turn reads', { rows: done.rows });
+          } catch (error) {
+            log.warn('memory db: turn reads failed', { code: codeOf(error) });
+          }
+          return;
+        }
+        if (!handle || engine) return;
+        try {
+          insertTurnReads(handle, turnId, step, rows);
+          log.debug?.('memory db: turn reads', { rows: rows.length });
+        } catch (error) {
+          log.warn('memory db: turn reads failed', { code: codeOf(error) });
+        }
+      })();
+      writingReads.add(job.done);
+      job.done.finally(() => writingReads.delete(job.done));
+      return job.done;
+    };
+    pendingReads.add(job);
+    defer(job.run);
+  }
+
+  /** Runs every queued turn-reads write now and waits for all of them (shutdown). */
+  async function flushTurnReads(timeoutMs) {
+    for (const job of [...pendingReads]) job.run();
+    await waitFor(Promise.allSettled([...writingReads]), timeoutMs);
   }
 
   /**
@@ -581,6 +601,7 @@ export function createMemoryDb({
     const deadline = performance.now() + closeMs;
     await waitFor(diaryJob.stop(), closeMs);
     await waitFor(running, closeMs);
+    await flushTurnReads(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
     }

@@ -218,3 +218,16 @@ test('the worker refuses a pass while the database is the authority; a write thr
     try { assert.equal(reader.db.prepare("SELECT COUNT(*) AS n FROM session_runs WHERE applied = 1").get().n, 1); } finally { reader.close(); }
   } finally { await env.done(); }
 });
+
+test('a shutdown right after a turn writes its reads before the database closes, even when the deferred write has not run', async () => {
+  const env = setup({ options: { defer: () => {} } });
+  try {
+    await env.service.tick();
+    env.service.recordTurnReads({ turnId: 'turn-10', step: 's0', reads: [{ kind: 'channel', id: CHANNEL, block: 'server', ord: 0 }] });
+    await env.service.close();
+    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
+    try {
+      assert.deepEqual(reader.db.prepare("SELECT row_kind FROM turn_reads WHERE turn_id = 'turn-10'").all().map((row) => row.row_kind), ['places']);
+    } finally { reader.close(); }
+  } finally { await env.done(); }
+});
