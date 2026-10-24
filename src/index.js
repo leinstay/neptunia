@@ -358,7 +358,7 @@ const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
 // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
 // index (one embedding of the question per run).
-const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed });
+const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed, memoryDb });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();

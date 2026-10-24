@@ -508,16 +508,18 @@ const ENTRIES = [
     toArgs: (a) => ({ query: val(a, 'query'), ...(val(a, 'n') == null ? {} : { n: val(a, 'n') }) }),
   }),
   def('memory.search', {
-    params: obj({ question: str(500), people: str(200), channel: ref(), when: str(40), terms: str(300) }, ['question']),
+    params: obj({ question: str(500), people: str(200), channel: ref(), when: str(40), terms: str(300), anchor: str(200), move: oneOf(['up', 'down']), messages: int(1, 60), minutes: int(1, 1440) }),
     refs: { channel: 'channel' },
     body: 'question',
     effects: 'read',
     toArgs: (a) => ({
-      question: val(a, 'question'),
+      question: opt(a, 'question'),
       people: opt(a, 'people'),
       channelId: idOf(a, 'channel'),
       when: opt(a, 'when'),
       terms: opt(a, 'terms'),
+      // The window read's arguments ride along only when she gave them.
+      ...Object.fromEntries(['anchor', 'move', 'messages', 'minutes'].filter((name) => val(a, name) !== null).map((name) => [name, val(a, name)])),
     }),
   }),
   def('conversation.read', {

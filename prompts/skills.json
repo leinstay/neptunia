@@ -398,7 +398,11 @@
       "when": "YYYY-MM-DD or range (A..B).",
       "people": "Names or @handles.",
       "terms": "Exact words to match.",
-      "channel": "#handle."
+      "channel": "#handle.",
+      "anchor": "[writer: placeholder. A #N from a quoted line. With it the call reads the lines next to that line instead of searching.]",
+      "move": "[writer: placeholder. up = earlier lines, down = later ones; with anchor.]",
+      "messages": "[writer: placeholder. How many lines to read from the anchor; with anchor.]",
+      "minutes": "[writer: placeholder. Read lines within this many minutes of the anchor; with anchor.]"
     }
   },
   "conversation.read": {

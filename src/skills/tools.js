@@ -182,16 +182,19 @@ export function webReadText(page, { labels, maxChars = READ_CHARS_FALLBACK }) {
  * `{where}`: each left-out stretch's channel and day, comma-joined) says what she did not get. The
  * first stretch always stays. A missing label adds nothing.
  *
+ * With `hidden` (the search found that a better match exists only in a private conversation this one may not open) a
+ * last line, `.hidden`, says so: no text, no count. Shown with or without stretches.
+ *
  * With `refs` (`{ next(): number, take(shown): void }`, the turn's handle registry) and a stretch's
  * `entries` (`{ id, text, authorId, self, message }` per line), each quoted line starts with a `#N`
  * handle numbered on from `refs.next()`, `.handles` follows the source line, and the lines that
  * stayed in the text after the cuts are handed to `refs.take` (`{ n, id, channelId, authorId, self,
  * message }`); a line cut away is never registered. Otherwise pure.
  * @param {{ channelId?: string, channelName?: string|null, startTs: number, lines: string, entries?: object[] }[]} quotes
- * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number, refs?: { next(): number, take(shown: object[]): void }|null }} options
+ * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number, refs?: { next(): number, take(shown: object[]): void }|null, hidden?: boolean }} options
  * @returns {string}
  */
-export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars, refs = null }) {
+export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars, refs = null, hidden = false }) {
   const l = toolLabels(labels, 'memory');
   const lines = l.source ? [l.source] : [];
   let counter = refs ? refs.next() : 0;
@@ -204,6 +207,7 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
   const shown = (Array.isArray(quotes) ? quotes : []).filter((quote) => typeof quote?.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs));
   if (shown.length === 0) {
     if (l.none) lines.push(l.none);
+    if (hidden && l.hidden) lines.push(l.hidden);
     return lines.join('\n');
   }
   const kept = [];
@@ -254,6 +258,7 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
   }
   if (handled && l.handles) lines.splice(l.source ? 1 : 0, 0, l.handles);
   if (closing()) lines.push(closing());
+  if (hidden && l.hidden) lines.push(l.hidden);
   return lines.join('\n');
 }
 
@@ -383,7 +388,10 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  * over the turn's `history` (its lines are left out: she sees them already) and `decorate`.
  * `not_configured` without the runner or while it is not available; `not_configured`
  * (`unsupported`) in a private chat without its partner; `invalid` (`no-query`) when nothing is
- * left to search; else `ok` with memorySearchText as its `data.text`. Never throws.
+ * left to search; else `ok` with memorySearchText as its `data.text`. With `args.anchor` (a message id: the
+ * executor resolves a `#N`) the call is a window read instead (`recall.window`: `move` `up` | `down`, `messages`
+ * or `minutes`): the same text, `invalid` (`unknown-message`) for an anchor that cannot be opened,
+ * `not_configured` while the runner has no database to read. Never throws.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
 export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null }) {
@@ -392,6 +400,17 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(config);
     const timezone = config?.bot?.timezone ?? 'UTC';
+    // An `anchor` makes the call a window read: the lines up or down from that message, no search.
+    if (text(args?.anchor)) {
+      if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      const count = (value) => (Number.isInteger(value) && value > 0 ? value : null);
+      const read = await recall.window({ guild, guildId, channel, partner, selfName, history, anchor: text(args.anchor), move: text(args?.move) === 'down' ? 'down' : 'up', messages: count(args?.messages), minutes: count(args?.minutes), decorate });
+      const kind = read?.outcome?.kind ?? null;
+      if (kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      if (kind === 'unknown-anchor') return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: 'args.anchor' };
+      if (kind === 'error' || !Array.isArray(read?.quotes)) return { status: 'failed', code: CODE.ERROR };
+      return { status: 'ok', data: { text: memorySearchText(read.quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs }) } };
+    }
     const plan = memorySearchPlan({
       question: text(args?.question),
       people: text(args?.people),
@@ -410,7 +429,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
-    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs });
+    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs, hidden: found?.hidden === true });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
     if (outcome?.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
     if (outcome?.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };

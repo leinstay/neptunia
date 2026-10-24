@@ -32,6 +32,7 @@ import { inTransaction } from './open.js';
 import { classify } from './map/index.js';
 import { stepSourceBelongsTo } from './map/requests.js';
 import { personId } from './ids.js';
+import { fillStems, markStemsPending, stemsPending } from './stems.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -82,8 +83,10 @@ function upsert(db, table, row, { ignore = false } = {}) {
   const cols = Object.keys(out).filter((col) => have.has(col));
   const key = OWNED[table] ?? [];
   const update = cols.filter((col) => !key.includes(col));
+  // A source whose text changed loses its stems (the pass's closing step stems it again).
+  const restem = table === 'sources' && cols.includes('text') && have.has('stems') ? ', "stems" = CASE WHEN excluded."text" IS "sources"."text" THEN "sources"."stems" ELSE NULL END' : '';
   const sql = `INSERT INTO ${quote(table)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${key.map(quote).join(', ')}) `
-    + (ignore || update.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${update.map((col) => `${quote(col)} = excluded.${quote(col)}`).join(', ')}`);
+    + (ignore || update.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${update.map((col) => `${quote(col)} = excluded.${quote(col)}`).join(', ')}${restem}`);
   prepared(db, sql).run(...cols.map((col) => bind(out[col])));
 }
 
@@ -518,6 +521,15 @@ export function syncOnce(database, dataDir, { now = Date.now, log = silent, filt
         log.warn('memory sync: retire failed', { kind: prior.kind, code: error?.code ?? error?.name ?? 'ERROR' });
       }
     }
+  }
+  // The stems of the rows this pass wrote (the word search reads them; src/memory/db/stems.js). A pass limited to some
+  // files (a slice of the first import, `filter`) leaves them: the importer stems once, when the last slice is in.
+  try {
+    if (result.upserted > 0) markStemsPending(db);
+    if (!filter && stemsPending(db)) fillStems(db);
+  } catch (error) {
+    result.errors += 1;
+    log.warn('memory sync: stems failed', { kind: 'sources', code: error?.code ?? error?.name ?? 'ERROR' });
   }
   // Rows of forgotten members that an earlier pass imported.
   try {

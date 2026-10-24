@@ -835,7 +835,8 @@
         "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, channel, people or terms to see them.",
         "none": "No matching messages found.",
         "degraded": "The meaning index was not reachable; only word matches were used.",
-        "partial": "{failed} of {total} searches were cut short; some results may be missing."
+        "partial": "{failed} of {total} searches were cut short; some results may be missing.",
+        "hidden": "[writer: placeholder. A closing line: a match for this search exists in a private conversation that cannot be opened here. No content, no count.]"
       },
       "describe": {
         "closest": "No skill by that name. The closest: {names}."

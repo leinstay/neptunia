@@ -34,6 +34,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { lockPathOf, openMemoryDb } from './open.js';
 import { syncOnce, walk, unitsOf } from './sync.js';
+import { fillStems } from './stems.js';
 import { exportOne, idsUnderDir } from './export.js';
 import { channelPlaceId, guildPlaceId } from './ids.js';
 import { memoryRootOf } from '../root.js';
@@ -287,6 +288,15 @@ export function createMemoryDb({
       await yieldLoop();
     }
     if (handle && !closing && total.errors === 0) {
+      // The slices left the stems (sync.js): stemmed once now, from all the text the import brought.
+      try {
+        fillStems(handle.db);
+      } catch (error) {
+        total.errors += 1;
+        log.warn('memory db: stems failed', { code: codeOf(error) });
+      }
+    }
+    if (handle && !closing && total.errors === 0) {
       setMeta(IMPORT_DONE, '1');
       importDone = true;
     }
@@ -351,6 +361,12 @@ export function createMemoryDb({
 
   const readActive = () => on() && settings().read && handle !== null && importDone && lastSyncAt !== null;
   const count = (key) => { reads[key] += 1; return null; };
+
+  /**
+   * The database for recall (src/memory/db/recall.js, `recall.backend` `db`): the read-only connection while the
+   * switch is on, this process has synced once and the first import is done; else null (recall then reads as it did).
+   */
+  const database = () => (on() && handle !== null && importDone && lastSyncAt !== null ? handle.db : null);
 
   /** What the store reads through (store.js `memoryRead`). */
   const reader = {
@@ -450,5 +466,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, recordTurnReads, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, status, close };
 }

@@ -455,6 +455,19 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `locatorBonus` | `2` | When the question's date only helps find the event (`when-role: locator`, or a `when:` beside word or name forms without a role), the record, the archive and the vector index search past that date, and each stretch, cluster or memory item near it gets up to this much added to its score (in topic points: one matched form; scaled to one top rank when the score is fused with the meaning search). The full bonus inside the date's range, less with distance. `0` = the date gives no bonus |
 | `locatorDecayDays` | `7` | The bonus above falls linearly to nothing at this many days away from the date's range. Also how far before the date the record must reach for the extra broad Discord page to be skipped. `0` = a bonus only inside the range |
 | `locatorBroadShare` | `0.5` | Share of the kept stretches, clusters and memory items (rounded up) chosen by content alone, regardless of the date, so a misremembered date cannot crowd out the right event; the rest are chosen with the bonus. From `0` (all by the bonus) to `1` (all by content: the date changes nothing) |
+| `backend` | `"discord"` | Where the persona's own `memory.search` and the memory prefetch read the server's history. `"discord"`: Discord's search, the record, the record index and the vector files, as before. `"db"`: the memory database (`features.memoryDb` on, the database open and synced once; until then the old way is used), inside the read scope of the turn: a channel turn reads what a group may see, a private chat what its partner may. Read at the moment of use. See `recall.db` |
+
+### `recall.db`
+
+The settings of the database backend (`recall.backend: "db"`); the window and follow sizes are the `recall` ones above (`recordContext`, `followMessages`, `followGapMinutes`, `maxClusters`).
+
+| Key | Default | What it does |
+|---|---|---|
+| `gateShare` | `0.5` | From `0` to `1`. After the word, letter, meaning and people lists are fused (reciprocal rank, k 60), a hit needs at least this share of the best fused score to stay; the ones that stay are ranked by closeness to the question's date (the middle of its range, else now). `0` keeps every hit |
+| `candidates` | `40` | Rows taken from each list (words, letters, meaning, people) before they are fused. At least 1 |
+| `minMeaning` | `0.35` | The least cosine a meaning hit needs to join the fusion, from `-1` to `1` |
+
+A `memory.search` call that names an `anchor` (a `#N` of a quoted line) with `move` (`up` earlier, `down` later) and `messages` or `minutes` reads the lines next to it instead of searching. The `hidden` marker (a better match exists only in a private conversation a channel turn may not open) carries no text and no count.
 
 ### `recall.prefetch`
 

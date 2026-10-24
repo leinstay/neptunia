@@ -9,6 +9,7 @@
 //   cd /opt/neptunia/app && node tools/recall-eval.mjs sample [--n 80] [--days 30]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
 //   cd /opt/neptunia/app && node tools/recall-eval.mjs [<questions.json>] --prefetch [--no-deadline] [the flags above]
+//   cd /opt/neptunia/app && node tools/recall-eval.mjs [<questions.json>] --backend db --db <memory.db> [the flags above]
 //   cd /opt/neptunia/app && node tools/recall-eval.mjs traces [<recall-trace.jsonl>] [--limit N] [--dry] [--no-deadline]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
 //
@@ -84,6 +85,14 @@
 // `--no-deadline`: the prefetch runs without its `recall.prefetch.deadlineMs` (retrieval quality
 // apart from latency); without it the live deadline applies and a cut search shows in the status.
 //
+// `--backend db --db <file>`: the memory database (data/memory.db, opened read only, no lock) answers instead of
+// the record, the archive's memory and the vector files: each question's server part (the classifier's, or the
+// fallback plan under `--dry`) goes to the recall runner as the persona's own memory.search does (`quotes`: the
+// stretches of src/memory/db/recall.js, no summary request, so no `confident` answer), with recall.backend `db` and
+// features.memoryDb switched on for this process only. Scored the same way (the lines the search matched, the windows
+// it showed), so a run compares per question with one made without `--backend` (`json` and `discord` name the default).
+// With `--prefetch` the prefetch reads the database too. The database must be a copy or a quiet file: nothing is written.
+//
 // `traces`: no classifier, no summary. Reads the live recall runs (data/guilds/<id>/recall-trace.jsonl,
 // or the file given; read only) and, for each run with a trigger, rebuilds the trigger and the
 // channel's lines before it from the record and runs the prefetch as of the trigger's moment (no
@@ -124,7 +133,7 @@ import {
 } from './lib/recall-eval.mjs';
 
 const USAGE =
-  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--backend db --db <memory.db>] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
   '       node tools/recall-eval.mjs traces [<recall-trace.jsonl>] [--limit N] [--dry] [--no-deadline] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
   '       node tools/recall-eval.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -406,7 +415,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
  */
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const flags = parseFlags(argv, {
-    values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed'],
+    values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed', '--backend', '--db'],
     switches: ['--dry', '--discord', '--web', '--prefetch', '--no-deadline'],
     usage: USAGE,
   });
@@ -434,6 +443,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const usePrefetch = flags['--prefetch'] === true;
   const noDeadline = flags['--no-deadline'] === true;
   if (useWeb && dry) throw new CliError(`recall-eval: --web needs the classifier, which --dry leaves out\n${USAGE}`);
+  const backend = flags['--backend'] ?? 'json';
+  if (!['db', 'json', 'discord'].includes(backend)) throw new CliError(`recall-eval: --backend is db, json or discord\n${USAGE}`);
+  const useDb = backend === 'db';
+  if (useDb !== (flags['--db'] !== undefined)) throw new CliError(`recall-eval: --backend db goes with --db <memory.db>, and only with it\n${USAGE}`);
+  const dbFile = useDb ? path.resolve(cwd, flags['--db']) : null;
+  if (useDb && !fs.existsSync(dbFile)) throw new CliError(`recall-eval: no database at ${dbFile}`);
 
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
@@ -454,7 +469,11 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const evalHot = {
     get config() {
       const live = hot.config;
-      return withoutDeadline({ ...live, features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) } }, noDeadline);
+      return withoutDeadline({
+        ...live,
+        features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}), ...(useDb ? { memoryDb: true } : {}) },
+        ...(useDb ? { recall: { ...(live.recall ?? {}), backend: 'db' } } : {}),
+      }, noDeadline);
     },
     get prompts() {
       return hot.prompts;
@@ -497,6 +516,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { record, archive, vectors, store } = await openSources(dataDir);
   const names = namesOf(store, guildId);
   const nameOf = (id) => names.get(String(id)) ?? null;
+  // `--backend db`: the memory database, read only, the recall runner's `memoryDb`.
+  let dbHandle = null;
+  if (useDb) {
+    const { openMemoryDb } = await import('../src/memory/db/open.js');
+    dbHandle = openMemoryDb(dbFile, { readOnly: true });
+  }
+  const memoryDb = dbHandle ? { database: () => dbHandle.db } : null;
 
   // The model clients on throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
   const counters = { data: {}, markDirty() {} };
@@ -652,7 +678,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const history = [...chat, trigger];
       const { lanes, skip } = prefetchLanes({ trigger, history, settings: settings.prefetch, selfId: self.id, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
       if (skip) return { status: `skipped:${skip}`, excerpts: 0, score: scoreQuestion(q, { chatIds: chat.map((m) => m.id) }), ms: now() - started };
-      const recall = createRecall({ hot: evalHot, store: readStore(), llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
+      const recall = createRecall({ hot: evalHot, store: readStore(), llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, memoryDb, now });
       const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes });
       const { windows, matched } = prefetchWindows(found);
       return {
@@ -726,7 +752,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const recallStore = readStore((line) => {
         trace = line;
       });
-      const recall = createRecall({ hot: evalHot, store: recallStore, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
+      const recall = createRecall({ hot: evalHot, store: recallStore, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, memoryDb, now });
       const windows = [];
       const found = await recall.run({
         guild,
@@ -737,6 +763,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         history,
         candidate: trigger,
         server: classified.server,
+        quotes: useDb,
         decorate: (messages) => {
           windows.push(messages);
           return messages;
@@ -745,6 +772,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const matched = new Set(discordHits);
       for (const window of trace?.record ?? []) if (window.kept) for (const hit of window.hitIds ?? []) matched.add(hit);
       for (const row of trace?.meaning?.kept ?? []) if (row.kind === 'record') matched.add(row.id);
+      for (const id of found?.hitIds ?? []) matched.add(id);
       const confident = typeof found?.text === 'string' && found.text.length > 0;
       const web = webRun ? await webRun : null;
       return finish({
@@ -780,6 +808,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     });
   } finally {
     if (connection) await connection.client.destroy().catch(() => {});
+    dbHandle?.close();
     hot.close?.();
   }
 
@@ -790,7 +819,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     at: new Date(now()).toISOString(),
     guildId,
     questionsFile,
-    mode: { dry, discord: useDiscord, web: useWeb, prefetch: usePrefetch, noDeadline },
+    mode: { dry, discord: useDiscord, web: useWeb, prefetch: usePrefetch, noDeadline, backend },
     stages,
     settings: { recall: settings, meaningSearch: config.features?.meaningSearch === true, channelMessages: historyCount },
     stopped: outcome.stopped,
