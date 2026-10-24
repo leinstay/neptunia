@@ -13,6 +13,10 @@
 //        equal, JSONL line by line parsed, .i8 bytes). Prints, per kind, how many files are equal, differ (key paths
 //        only, never values), are missing or extra. Exit 1 on any difference. It does not sync: run `sync` first if
 //        the bot has written since the last pass.
+//   node tools/memory-db.mjs parity --data <dir> --db <file>
+//        Reads every public read of the store twice, from the JSON files and through the database (the read switch,
+//        `memoryDb.read`), and compares them deep. Exit 1 on any difference. Run `sync` first; a file that changed on
+//        disk since the last sync is read from the disk and counted as stale. Opens the database read-only.
 //   node tools/memory-db.mjs stats --db <file>
 //        Row counts per table, and per scope kind where a table has scopes.
 //   node tools/memory-db.mjs ledger-import --ledger <ledger.db> --db <file>
@@ -29,7 +33,9 @@ import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { syncOnce, walk, forgottenOf, memberOfUnit, lineIsForgotten } from '../src/memory/db/sync.js';
-import { exportAll } from '../src/memory/db/export.js';
+import { exportAll, exportOne, idsUnderDir } from '../src/memory/db/export.js';
+import { createStore } from '../src/memory/store.js';
+import { isDeepStrictEqual } from 'node:util';
 import { classify } from '../src/memory/db/map/index.js';
 import { jsonEqual, isPlainObject } from '../src/memory/db/map/common.js';
 import { V1_TABLES } from '../src/memory/db/schema.js';
@@ -245,6 +251,69 @@ function runVerify(io, options) {
   }
 }
 
+// ---------- parity ----------
+
+/**
+ * Every public read of the store, once from the JSON files and once through the database (the read switch of
+ * spec section 7, `memoryDb.read`), compared deep. The proof that the switch changes nothing: run `sync` first. A file
+ * the database is behind on (it changed on disk after the last sync) is read from the disk and counted as stale.
+ */
+function runParity(io, options) {
+  need(options, 'data', 'db');
+  const start = performance.now();
+  const handle = openMemoryDb(options.db, { readOnly: true });
+  try {
+    const root = path.resolve(options.data);
+    const served = { db: 0, missing: 0, stale: 0, unmapped: 0, empty: 0, absent: 0 };
+    const relative = (file) => path.relative(root, file).split(path.sep).join('/');
+    const memoryRead = {
+      value(file) {
+        const found = exportOne(handle, relative(file), { dataDir: root });
+        if (found.found) { served.db += 1; return found; }
+        if (found.reason === 'missing' && !fs.existsSync(file)) served.absent += 1;
+        else served[found.reason] = (served[found.reason] ?? 0) + 1;
+        return null;
+      },
+      ids: (dir) => idsUnderDir(handle, relative(dir)),
+    };
+    const files = createStore({ dataDir: root });
+    const db = createStore({ dataDir: root, memoryRead });
+    const guilds = fs.existsSync(path.join(root, 'guilds')) ? fs.readdirSync(path.join(root, 'guilds')) : [];
+    let compared = 0;
+    const differ = new Map();
+    for (const g of guilds) {
+      const users = files.listUserProfiles(g).map((user) => user.id);
+      const privates = files.listPrivate(g);
+      const channels = files.listChannels(g).map((channel) => channel.id);
+      const reads = (store) => ({
+        users: store.listUserProfiles(g), userCount: store.countUsers(g), privateIds: store.listPrivate(g),
+        guild: store.getGuild(g), channels: store.listChannels(g), lore: store.getLore(g), media: store.getMediaCache(g),
+        gifs: store.getGifs(g), recent: store.getRecent(g), participation: store.getParticipation(g),
+        diary: store.getDiary(g), buffer: store.getBuffer(g), voice: store.getVoiceQueue(g),
+        ...Object.fromEntries(users.flatMap((id) => [[`user:${id}`, store.getUser(g, id)], [`versions:${id}`, store.listVersions(g, 'users', id)]])),
+        ...Object.fromEntries(privates.flatMap((id) => [[`private:${id}`, store.getPrivate(g, id)], [`privateBuffer:${id}`, store.getPrivateBuffer(g, id)]])),
+        ...Object.fromEntries(channels.map((id) => [`channel:${id}`, store.getChannel(g, id)])),
+      });
+      const a = reads(files);
+      const b = reads(db);
+      for (const key of Object.keys(a)) {
+        compared += 1;
+        if (!isDeepStrictEqual(a[key], b[key])) {
+          const kind = key.split(':')[0];
+          differ.set(kind, (differ.get(kind) ?? 0) + 1);
+        }
+      }
+    }
+    io.out(`reads compared ${compared}, differ ${[...differ.values()].reduce((n, v) => n + v, 0)}${differ.size ? ` (${[...differ].map(([k, n]) => `${k} ${n}`).join(', ')})` : ''}`);
+    io.out(`files read: from the database ${served.db}, absent on disk too ${served.absent}, from the disk: missing ${served.missing}, stale ${served.stale}, not memory ${served.unmapped}, empty ${served.empty}`);
+    const ok = differ.size === 0;
+    io.out(ok ? `parity ok (${seconds(start)})` : `parity FAILED (${seconds(start)})`);
+    return ok ? 0 : 1;
+  } finally {
+    handle.close();
+  }
+}
+
 // ---------- stats ----------
 
 function runStats(io, options) {
@@ -307,6 +376,7 @@ const COMMANDS = {
   sync: (io, options) => runSync(io, options, { importing: false }),
   export: runExport,
   verify: runVerify,
+  parity: runParity,
   stats: runStats,
   'ledger-import': runLedgerImport,
 };
