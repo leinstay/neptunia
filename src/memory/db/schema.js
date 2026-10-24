@@ -435,11 +435,147 @@ END;`,
   'DROP TABLE temp._v7_scopes;',
 ].join('\n');
 
+// Version 8 (spec 2026-10-24-memory-schema-v7, stage 2; section 11 items 1, 3, 8 and the smaller resolutions):
+// participants, foreign capture and source relations. Additive, as v7: no JSON field moves.
+//  - `participants`: a poster known only inside a place or a site (`token_kind`: a per-thread token, a site-scoped
+//    token, a bare post number, a display name, nothing). The canonical tuple is (authority, scope place, token kind,
+//    token or observation key, generation), stored whole under one unique index; a thread token needs its thread, a
+//    display name or no token is keyed by the observation it came with (one participant per post). Never a person;
+//    `participant_links` names exactly one target (an account or a person), `people_merges` records merges (the writer
+//    refuses a cycle; a chain resolves to its final survivor, ids.js#survivorOf);
+//  - `sources.author_participant` (the author combination is checked by the one writer path, rows.js#checkAuthor:
+//    SQLite cannot add a CHECK to an existing table), `sources.native_kind` and `sources.generation` (with
+//    `authority_id`, `native_id` and `revision`: the native tuple a relation's target is matched on). Discord lines get
+//    `native_kind = 'message'`;
+//  - capture: `capture_bundles` (the current coverage on the row), `capture_members` (a source may hold several roles),
+//    `capture_events` (append-only: the coverage after each step) and `capture_watches`. Members and events are never
+//    updated or deleted (triggers refuse it);
+//  - `source_relations`: one row per (source, predicate, target_key); `target_key` is `source:<id>` or the external
+//    tuple JSON (ids.js#externalTargetKey) and never changes; `target_source_id` and `resolved_at` are filled when the
+//    target is or becomes a stored source. Backfilled from every Discord line's `reply_to`, resolved where the replied
+//    message is stored (its first revision).
+
+/** The token kinds of a participant. */
+export const PARTICIPANT_TOKEN_KINDS = ['thread_token', 'site_token', 'post_number', 'display_name', 'none'];
+/** How far a participant's token is known to stay one poster. */
+export const CONTINUITIES = ['provider_asserted', 'verified', 'unknown'];
+/** The predicates of `source_relations`. */
+export const RELATION_PREDICATES = ['replies_to', 'quotes', 'reposts', 'mentions', 'edits', 'references'];
+/** Why a capture bundle was opened. */
+export const CAPTURE_REASONS = ['own_line', 'mention', 'reply_to_me', 'expansion', 'watch'];
+/** The roles a source holds in a bundle. */
+export const CAPTURE_ROLES = ['anchor', 'ancestor', 'before', 'after', 'reply', 'mention', 'same_author', 'watch'];
+/** The states of a bundle's coverage. */
+export const COVERAGE_STATES = ['complete', 'pending_expansion', 'provider_unavailable', 'incomplete'];
+/** The kinds of a capture event. */
+export const CAPTURE_EVENT_KINDS = ['initial', 'expansion', 'watch'];
+/** How a watch ended. */
+export const WATCH_OUTCOMES = ['fetched', 'nothing_new', 'unavailable'];
+
+const IN = (values) => values.map((value) => `'${value}'`).join(', ');
+const COVERAGE_CHECK = (col) => `CHECK (json_valid(${col}) AND json_type(${col}) = 'object' AND json_extract(${col}, '$.state') IN (${IN(COVERAGE_STATES)}))`;
+const APPEND_ONLY = (table, what) => [
+  `CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT, '${what}'); END;`,
+  `CREATE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT, '${what}'); END;`,
+];
+/** The first stored revision of the message a Discord line replies to (`s` the replying line). */
+const REPLY_TARGET_SQL = `(SELECT t.id FROM sources t WHERE t.authority_id = s.authority_id AND t.native_kind = 'message' AND t.native_id = s.reply_to
+  AND t.generation = 1 AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL ORDER BY t.revision, t.rowid LIMIT 1)`;
+
+const V8 = [
+  `CREATE TABLE participants (
+    id TEXT PRIMARY KEY, authority_id TEXT NOT NULL REFERENCES authorities(id), scope_place_id TEXT REFERENCES places(id),
+    token_kind TEXT NOT NULL CHECK (token_kind IN (${IN(PARTICIPANT_TOKEN_KINDS)})), native_token TEXT, observation_key TEXT,
+    generation INTEGER NOT NULL DEFAULT 1 CHECK (generation >= 1),
+    continuity TEXT NOT NULL CHECK (continuity IN (${IN(CONTINUITIES)})),
+    display TEXT, first_seen_at TEXT, last_seen_at TEXT, extra JSON, recorded_at TEXT NOT NULL,
+    CHECK (CASE
+      WHEN token_kind = 'thread_token' THEN scope_place_id IS NOT NULL AND native_token IS NOT NULL AND native_token <> '' AND observation_key IS NULL
+      WHEN token_kind = 'site_token' THEN scope_place_id IS NULL AND native_token IS NOT NULL AND native_token <> '' AND observation_key IS NULL
+      WHEN token_kind = 'post_number' THEN native_token IS NOT NULL AND native_token <> '' AND observation_key IS NULL
+      ELSE native_token IS NULL AND observation_key IS NOT NULL AND observation_key <> '' END)
+  );`,
+  "CREATE UNIQUE INDEX participants_tuple ON participants(authority_id, COALESCE(scope_place_id, ''), token_kind, COALESCE(native_token, observation_key), generation);",
+  `CREATE TABLE participant_links (
+    id TEXT PRIMARY KEY, participant_id TEXT NOT NULL REFERENCES participants(id),
+    account_id TEXT REFERENCES accounts(id), person_id TEXT REFERENCES people(id),
+    state TEXT NOT NULL CHECK (state IN ('proposed', 'verified', 'revoked')),
+    by TEXT, reason TEXT, evidence_id TEXT, valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL,
+    CHECK ((account_id IS NULL) <> (person_id IS NULL))
+  );`,
+  'CREATE INDEX participant_links_participant ON participant_links(participant_id, valid_to_at);',
+  'CREATE INDEX participant_links_account ON participant_links(account_id);',
+  'CREATE INDEX participant_links_person ON participant_links(person_id);',
+  `CREATE TABLE people_merges (
+    id TEXT PRIMARY KEY, from_person TEXT NOT NULL REFERENCES people(id), into_person TEXT NOT NULL REFERENCES people(id),
+    at TEXT NOT NULL, by TEXT NOT NULL, reason TEXT, evidence JSON, CHECK (from_person <> into_person)
+  );`,
+  'CREATE UNIQUE INDEX people_merges_from ON people_merges(from_person);',
+  'CREATE INDEX people_merges_into ON people_merges(into_person);',
+
+  'ALTER TABLE sources ADD COLUMN author_participant TEXT REFERENCES participants(id);',
+  'ALTER TABLE sources ADD COLUMN native_kind TEXT;',
+  'ALTER TABLE sources ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;',
+  "UPDATE sources SET native_kind = 'message' WHERE iface = 'discord' AND native_id IS NOT NULL;",
+  'CREATE INDEX sources_native_tuple ON sources(authority_id, native_kind, native_id, generation, revision);',
+  'CREATE INDEX sources_author_participant ON sources(author_participant) WHERE author_participant IS NOT NULL;',
+
+  `CREATE TABLE capture_bundles (
+    id TEXT PRIMARY KEY, anchor_source_id TEXT NOT NULL REFERENCES sources(id), place_id TEXT NOT NULL REFERENCES places(id),
+    reason TEXT NOT NULL CHECK (reason IN (${IN(CAPTURE_REASONS)})), policy_version INTEGER NOT NULL,
+    coverage JSON NOT NULL ${COVERAGE_CHECK('coverage')}, created_at TEXT NOT NULL, connection_id TEXT
+  );`,
+  'CREATE INDEX capture_bundles_anchor ON capture_bundles(anchor_source_id);',
+  `CREATE TABLE capture_members (
+    bundle_id TEXT NOT NULL REFERENCES capture_bundles(id), source_id TEXT NOT NULL REFERENCES sources(id),
+    role TEXT NOT NULL CHECK (role IN (${IN(CAPTURE_ROLES)})), added_at TEXT NOT NULL,
+    PRIMARY KEY (bundle_id, source_id, role)
+  );`,
+  'CREATE INDEX capture_members_source ON capture_members(source_id);',
+  `CREATE TABLE capture_events (
+    id INTEGER PRIMARY KEY, bundle_id TEXT NOT NULL REFERENCES capture_bundles(id), at TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN (${IN(CAPTURE_EVENT_KINDS)})), coverage JSON NOT NULL ${COVERAGE_CHECK('coverage')},
+    added INTEGER NOT NULL DEFAULT 0
+  );`,
+  'CREATE INDEX capture_events_bundle ON capture_events(bundle_id, id);',
+  ...APPEND_ONLY('capture_events', 'capture events are append-only'),
+  ...APPEND_ONLY('capture_members', 'capture members are never removed'),
+  `CREATE TABLE capture_watches (
+    id TEXT PRIMARY KEY, bundle_id TEXT NOT NULL REFERENCES capture_bundles(id), due_at TEXT NOT NULL, done_at TEXT,
+    outcome TEXT CHECK (outcome IS NULL OR outcome IN (${IN(WATCH_OUTCOMES)})), extra JSON,
+    CHECK ((done_at IS NULL) = (outcome IS NULL))
+  );`,
+  'CREATE INDEX capture_watches_due ON capture_watches(done_at, due_at);',
+
+  `CREATE TABLE source_relations (
+    id INTEGER PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id),
+    predicate TEXT NOT NULL CHECK (predicate IN (${IN(RELATION_PREDICATES)})), target_key TEXT NOT NULL,
+    target_source_id TEXT REFERENCES sources(id), recorded_at TEXT NOT NULL, resolved_at TEXT,
+    CHECK ((target_source_id IS NULL) = (resolved_at IS NULL))
+  );`,
+  'CREATE UNIQUE INDEX source_relations_key ON source_relations(source_id, predicate, target_key);',
+  'CREATE INDEX source_relations_pending ON source_relations(target_key) WHERE target_source_id IS NULL;',
+  'CREATE INDEX source_relations_target ON source_relations(target_source_id) WHERE target_source_id IS NOT NULL;',
+  `CREATE TRIGGER source_relations_key_fixed BEFORE UPDATE OF source_id, predicate, target_key ON source_relations
+    BEGIN SELECT RAISE(ABORT, 'a relation keeps its source, predicate and target key'); END;`,
+  ...APPEND_ONLY('source_relations', 'relations are never deleted').slice(1),
+  `INSERT OR IGNORE INTO source_relations (source_id, predicate, target_key, target_source_id, recorded_at, resolved_at)
+    SELECT id, 'replies_to', json_array(authority_id, 'message', reply_to, 1, NULL), target, ${NOW_SQL}, CASE WHEN target IS NULL THEN NULL ELSE ${NOW_SQL} END
+    FROM (SELECT s.id AS id, s.authority_id AS authority_id, s.reply_to AS reply_to, ${REPLY_TARGET_SQL} AS target FROM sources s
+      WHERE s.iface = 'discord' AND s.id IS NOT NULL AND s.authority_id IS NOT NULL AND s.reply_to IS NOT NULL AND s.reply_to <> '')
+    ORDER BY id;`,
+].join('\n');
+
 /** Each entry moves the schema one version up. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];
+
+/** Every table schema v8 adds. */
+export const V8_TABLES = [
+  'participants', 'participant_links', 'people_merges', 'capture_bundles', 'capture_members', 'capture_events', 'capture_watches', 'source_relations',
+];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [

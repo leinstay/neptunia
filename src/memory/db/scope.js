@@ -132,8 +132,9 @@ const filled = (value) => typeof value === 'string' && value !== '';
 /**
  * The one resolver: a scope (its three columns) and its audience id, `{ scope_kind, scope_iface, scope_dm, audience_id }`.
  * The triple comes back as given (it stays the compatibility projection). A DM scope resolves to the DM place of its
- * partner on that interface (`opts.dmPlace` when the writer knows it); a triple that names no valid audience (an
- * unknown kind, a group without an interface, a DM without a partner or whose partner has no place) is `aud:internal`.
+ * partner on that interface (`opts.dmPlace` when the writer knows it: then a DM whose partner is no known person, schema
+ * v8's observed DM with an account nobody linked, is still its conversation); a triple that names no valid audience (an
+ * unknown kind, a group without an interface, a DM with neither a partner nor a known place) is `aud:internal`.
  * @param {{ scope_kind?: string|null, scope_iface?: string|null, scope_dm?: string|null }|null|undefined} scope
  * @param {{ dmPlace?: string|null }} [opts]
  */
@@ -144,7 +145,7 @@ export function audienceOf(scope, { dmPlace = null } = {}) {
   const out = { scope_kind: kind, scope_iface: iface, scope_dm: dm, audience_id: AUD_INTERNAL };
   if (kind === 'none') out.audience_id = AUD_NONE;
   else if (kind === 'group' && filled(iface)) out.audience_id = groupAudienceId(iface);
-  else if (kind === 'dm' && filled(iface) && filled(dm)) {
+  else if (kind === 'dm' && filled(iface) && (filled(dm) || filled(dmPlace))) {
     const place = filled(dmPlace) ? dmPlace : dmPlaceOfPerson(dm, iface);
     if (place) out.audience_id = dmAudienceId(place);
   }

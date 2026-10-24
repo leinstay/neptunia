@@ -79,8 +79,9 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
   const { db } = handle;
   try {
     t.diagnostic(`v7 migration of the fixture database: ${ms.toFixed(1)} ms`);
-    assert.equal(schemaVersion(db), 7);
-    assert.equal(MIGRATIONS.length, 7);
+    // The database goes to the newest schema; v7 is the seventh entry (tests/memory-db-v8.test.js pins the count).
+    assert.equal(schemaVersion(db), MIGRATIONS.length);
+    assert.ok(MIGRATIONS.length >= 7);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
     assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     assertAudiences(db);

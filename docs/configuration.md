@@ -268,6 +268,19 @@ Her memory session (`src/memory/db/session.js`): she reads the new chat lines of
 
 The status of the session (`off`, `not_configured` while the key variable is unset or blank, `apply_refused`, or the last sweep's outcome) is part of the memory database's state. A missing key means no request at all: the session never runs on another key.
 
+## `capture`
+
+Foreign capture (`src/memory/db/observe.js`, schema v8): when the persona writes, is mentioned or is replied to in a place her connection does not read continuously (a foreign thread, a wall, a post's comments), the adapter fetches the context around that line and the core stores it as a bundle with a coverage that says what was fetched and what was not. Not wired to a live adapter yet. The numbers are a first fetch and a page size, never a ceiling: a bundle grows by further expansions, up to the whole thread, and no number makes a bundle count as complete. Read at the moment of use.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ancestors` | `2` | The reply chain above the anchor line in the first fetch |
+| `before` | `3` | Lines before the anchor in thread order in the first fetch |
+| `after` | `3` | Lines after the anchor in thread order in the first fetch |
+| `pageLines` | `60` | The most lines one expansion writes. What does not fit is handed back to the caller and the bundle's coverage says `pending_expansion` until a further expansion adds it |
+| `watch` | `[15, 120, 1440]` | Minutes after the anchor line at which a watch looks again for new direct replies and mentions; a watch that cannot run records `unavailable` |
+| `watchSameAuthor` | `20` | The most later lines of authors already in the bundle that one watch asks for, where the site allows it |
+
 ## `embed`
 
 | Key | Default | Meaning |

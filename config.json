@@ -151,6 +151,14 @@
       "retryLimit": 3
     }
   },
+  "capture": {
+    "ancestors": 2,
+    "before": 3,
+    "after": 3,
+    "pageLines": 60,
+    "watch": [15, 120, 1440],
+    "watchSameAuthor": 20
+  },
   "embed": {
     "dimensions": 1024,
     "batch": 64,

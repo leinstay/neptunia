@@ -1967,8 +1967,17 @@ alone, at most `maxMessages` lines, read after the scope's cursor and never newe
               { "op": "retire", "id", "truth", "reason", "sources" } ],
   "episodes": [ { "subject", "what", "feeling", "sources" } ],
   "affinity": [ { "person", "delta", "reason", "sources" } ],
-  "descriptions": [ { "subject", "field", "why" } ] }
+  "descriptions": [ { "subject", "field", "why" } ],
+  "people": [ { "op": "add", "subject", "sources", "reason" } ] }
 ```
+
+`people` (`people:add`) is accepted by the engine but **not offered by the prompt yet**: the request does not render
+the handles it names. Its `subject` is the handle `aN` of an account or a thread-local participant that wrote a line
+of the batch (the request's `maps.authors`, in order of their first line, her own lines left out); it is dropped as
+`unknown_subject` for any other handle, `has_person` when the account already belongs to a person, `no_reason` without a
+reason, `bad_op` for an op other than `add`. In `shadow` it is a `decisions` row `proposed:people_add`; in `apply` the
+engine mints a tentative person (`person:<uuid>`) with a `proposed` link to the subject and a `decisions` row
+`people_add` (rejected whole as `has_person` when the subject gained a person or a live link meanwhile).
 
 `subject` is a person's name or id, `place` or `self`; for a place, `place` names it by the handle the request gave it
 (`pN`; there is no default place); `kind` one of `detail`, `interest`, `alias`, `injoke`,
