@@ -137,6 +137,7 @@
     "focus": { "enabled": false },
     "wakeRuns": false,
     "skillsRegistry": false,
+    "observeLive": false,
     "session": {
       "mode": "off",
       "maxMessages": 200,

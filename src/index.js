@@ -397,6 +397,8 @@ const turns = createTurnRunner({
   store,
   // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
   memoryReads: (args) => memoryDb.recordTurnReads(args),
+  // One execution context per turn for its memory reads (recorded while the database is open).
+  memoryContext: (spec) => memoryDb.issueContext(spec),
   llm,
   calibrator,
   client,
@@ -572,6 +574,8 @@ const onMessage = createMessageHandler({
   record,
   // A failed address gate and a replaced deferred follow-up are missed-answer facts.
   missed,
+  // memoryDb.observeLive: every observed message also goes to the memory database as an observation.
+  memoryDb,
 });
 
 // The messages posted while the bot was down (src/behavior/catch-up.js): once at start, fetched

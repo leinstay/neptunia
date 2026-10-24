@@ -7467,6 +7467,26 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
   assert.deepEqual(quiet, []);
 });
 
+test('turn: one execution context per turn; its id goes with the memory rows the request carried', async () => {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const profile = { id: 'u1', names: ['Alice'], details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }] };
+  const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+  const { journal } = journalOverMemory();
+  const calls = [];
+  const issued = [];
+  const turns = createTurnRunner({
+    discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore({ userProfiles: { u1: profile } }), llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
+    calibrator: identityCalibrator(), client: fakeClient(), journal, memoryReads: (args) => calls.push(args),
+    memoryContext: (spec) => { issued.push(spec); return { iface: 'discord', kind: spec.kind, id: `ctx:${issued.length}` }; },
+  });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(calls.length, 1);
+  assert.equal(issued.length, 1, 'one context for the turn');
+  assert.deepEqual(issued[0], { kind: 'group', destination: `discord:channel:${channel.id}` });
+  assert.equal(calls[0].contextId, 'ctx:1');
+});
+
 test('turn: writes turn.start and turn records when the journal is on', async () => {
   const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });

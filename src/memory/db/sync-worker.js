@@ -8,6 +8,7 @@
 //              { id, type: 'diaryApply', update }                one diary row's text and picture rows (diary-media.js)
 //              { id, type: 'memoryWrite', update }                one write of her memory session or a description review (session-write.js)
 //              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.js#runFocusDay)
+//              { id, type: 'observe', envelope, now }           one observation of the live message path (observe.js#observe)
 //              { id, type: 'close' }                            close the database, release the lock, then the thread ends
 // Messages out { id, ok: true, result } | { id, ok: false, code }   one reply per message
 //              { type: 'log', level, message, fields }              a line for the service's log (warnings only)
@@ -21,6 +22,7 @@ import { insertTurnReads, turnReadRows } from './service.js';
 import { applyDiaryUpdate } from './diary-media.js';
 import { applyMemoryWrite } from './session-write.js';
 import { runFocusDay } from './focus.js';
+import { observe } from './observe.js';
 
 const IMPORT_DONE = 'service_import_done';
 const dataDir = workerData?.dataDir;
@@ -76,6 +78,9 @@ const handlers = {
   },
   focus({ now, config }) {
     return runFocusDay(handle, { now, config });
+  },
+  observe({ envelope, now }) {
+    return observe(handle, envelope, { now: () => now, log });
   },
   close() {
     handle?.close();

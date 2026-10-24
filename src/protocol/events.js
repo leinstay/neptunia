@@ -34,6 +34,12 @@ export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED, INNER_W
 /** Every conversation kind. */
 export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
 
+/**
+ * The chat types of a conversation (`conversation.chatType`): a one-to-one chat, a group chat outside a community,
+ * a channel of a community, a thread.
+ */
+export const CONVERSATION_CHAT_TYPES = Object.freeze(['dm', 'group_dm', 'channel', 'thread']);
+
 /** The chat types of an origin record: a direct chat, a small group, a channel of a community, a thread. */
 export const CHAT_TYPES = Object.freeze(['dm', 'group', 'channel', 'thread']);
 
@@ -44,8 +50,11 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  * Where an event happened. `guildId`: the community the conversation belongs to (none for a
  * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
  * `parentId`: the conversation a thread belongs to (absent or null for any other).
+ * `chatType` (optional, CONVERSATION_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
+ * thread; `partnerId` (optional): the other person of a one-to-one chat, null when unknown.
  * @typedef {{ id: string, kind: 'channel'|'dm'|'thread', guildId?: string|null, name?: string|null,
- *   topic?: string|null, category?: string|null, parentId?: string|null }} Conversation
+ *   topic?: string|null, category?: string|null, parentId?: string|null,
+ *   chatType?: 'dm'|'group_dm'|'channel'|'thread', partnerId?: string|null }} Conversation
  */
 
 /**

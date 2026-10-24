@@ -392,10 +392,11 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  * executor resolves a `#N`) the call is a window read instead (`recall.window`: `move` `up` | `down`, `messages`
  * or `minutes`): the same text, `invalid` (`unknown-message`) for an anchor that cannot be opened,
  * `not_configured` while the runner has no database to read. `asker` is the user id of whoever asked (the trigger's
- * author): the hidden-DM marker is set only for that person's own private chat. Never throws.
+ * author): the hidden-DM marker is set only for that person's own private chat; the window read gets it too.
+ * `memoryContext` (optional): the turn's execution context, handed to the recall runner. Never throws.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
-export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null, asker = null }) {
+export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null, asker = null, memoryContext = null }) {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
@@ -405,7 +406,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (text(args?.anchor)) {
       if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       const count = (value) => (Number.isInteger(value) && value > 0 ? value : null);
-      const read = await recall.window({ guild, guildId, channel, partner, selfName, history, anchor: text(args.anchor), move: text(args?.move) === 'down' ? 'down' : 'up', messages: count(args?.messages), minutes: count(args?.minutes), decorate });
+      const read = await recall.window({ guild, guildId, channel, partner, selfName, history, anchor: text(args.anchor), move: text(args?.move) === 'down' ? 'down' : 'up', messages: count(args?.messages), minutes: count(args?.minutes), decorate, asker, ...(memoryContext ? { memoryContext } : {}) });
       const kind = read?.outcome?.kind ?? null;
       if (kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       if (kind === 'unknown-anchor') return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: 'args.anchor' };
@@ -427,7 +428,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     });
     if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
     const candidate = { id: null, content: text(args?.question), authorId: asker };
-    const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
+    const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true, ...(memoryContext ? { memoryContext } : {}) });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
     const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs, hidden: found?.hidden === true });

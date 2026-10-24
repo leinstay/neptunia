@@ -6,7 +6,7 @@
 // protocol events built from discord.js messages and reactions (toEvent,
 // reactionEvent), until the Discord adapter becomes its own package.
 
-import { PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../../src/log.js';
 import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.js';
 import { MINUTE_MS } from '../../src/time.js';
@@ -457,12 +457,16 @@ export function normalizeOptions(config) {
 /**
  * The protocol conversation of a discord.js message: its channel id as Discord gives it, `dm`
  * outside a guild, `thread` for a thread, else `channel`; the channel's name, topic and category
- * read exactly as normalizeMessage reads them.
+ * read exactly as normalizeMessage reads them. `chatType` tells a one-to-one chat (`dm`) from a
+ * group chat (`group_dm`, Discord's `GroupDM` channel type), a `thread` and a `channel`; a
+ * one-to-one chat names its partner (`partnerId`: the channel's recipient, null when Discord did
+ * not say), a thread the channel it sits in (`parentId`).
  */
 function conversationOf(message) {
   const channel = message?.channel ?? null;
   const guildId = message?.guild?.id ?? message?.guildId ?? null;
   const kind = guildId === null ? 'dm' : channel?.isThread?.() ? 'thread' : 'channel';
+  const chatType = kind === 'dm' ? (channel?.type === ChannelType.GroupDM ? 'group_dm' : 'dm') : kind;
   return {
     id: message?.channelId,
     kind,
@@ -470,6 +474,9 @@ function conversationOf(message) {
     name: channel?.name ?? null,
     topic: channel?.topic ?? null,
     category: channel?.parent?.name ?? null,
+    chatType,
+    ...(chatType === 'dm' ? { partnerId: idString(channel?.recipientId ?? channel?.recipient?.id) } : {}),
+    ...(chatType === 'thread' ? { parentId: idString(channel?.parentId) } : {}),
   };
 }
 

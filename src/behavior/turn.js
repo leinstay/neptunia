@@ -85,6 +85,7 @@ import { skillRegistry } from '../skills/registry.js';
 import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { fetchSpan, runConversationRead, recordMessages } from '../skills/conversation-read.js';
 import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { channelPlaceId, personId } from '../memory/db/ids.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
@@ -1877,9 +1878,34 @@ export function createTurnRunner({
   places = null,
   // The per-turn record of the memory rows a request carried (src/memory/db/service.js#recordTurnReads); null: none.
   memoryReads = null,
+  // The execution context of a turn (src/memory/db/service.js#issueContext, `(spec) => ctx`); null: none.
+  memoryContext = null,
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
+
+  /**
+   * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
+   * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
+   * A private chat reads as a DM of its partner, anything else as the interface's group. Null without the dependency
+   * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
+   */
+  function turnContextOf(draft, channel) {
+    if (!draft || typeof memoryContext !== 'function') return null;
+    if (draft.memoryContext !== undefined) return draft.memoryContext;
+    let ctx = null;
+    try {
+      const isPrivate = !channel?.guild;
+      const partner = isPrivate ? (draft.privateUserId ?? null) : null;
+      if (!isPrivate || partner) {
+        ctx = memoryContext(isPrivate ? { kind: 'dm', person: personId(String(partner)) } : { kind: 'group', destination: channel?.id ? channelPlaceId(channel.id) : null }) ?? null;
+      }
+    } catch {
+      ctx = null;
+    }
+    draft.memoryContext = ctx;
+    return ctx;
+  }
   // The drawing agent's tool over the injected image client (src/errands/tools.js): every picture
   // of a turn, a diary post or a diary set is made through it.
   const drawing = images ? createDrawingTool({ images, hot, client, imageFetcher, now: clock }) : null;
@@ -2398,6 +2424,7 @@ export function createTurnRunner({
           history,
           decorate: (lines) => linkCalls(lines, { channel, guildId }),
           asker: trigger?.authorId ?? null,
+          memoryContext: turnContextOf(draft, channel),
           args,
           now: clock(),
           ...(draft ? { refs: searchHandles(draft) } : {}),
@@ -4754,9 +4781,10 @@ export function createTurnRunner({
    * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
    * classifier never creates or suggests an errand, only the persona's own `task.run` call does.
    * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
-   * search), `+`-joined in that order, else `none`.
+   * search), `+`-joined in that order, else `none`. `turnContext()` (optional) gives the turn's
+   * execution context for the server search's database reads (turnContextOf).
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, onSkills = null, journalStep = null, triggerKind = null, limits = null, planned = null }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, onSkills = null, journalStep = null, triggerKind = null, limits = null, planned = null, turnContext = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
@@ -4879,6 +4907,8 @@ export function createTurnRunner({
                   server,
                   // Her lines in the found stretches show her skill calls like her chat lines.
                   decorate: (lines) => linkCalls(lines, { channel, guildId }),
+                  // The turn's execution context, issued when the search runs.
+                  ...(typeof turnContext === 'function' ? { memoryContext: turnContext() } : {}),
                 }),
               channelId,
               'server',
@@ -6698,6 +6728,7 @@ export function createTurnRunner({
                     limits: draft.limits ?? null,
                     // With the planner its lookup block stands in for the search classifier.
                     planned: planner ? await planner.result : null,
+                    turnContext: () => turnContextOf(draft, channel),
                   });
                 } catch (err) {
                   log.warn('lookup: failed', { channel: channel.id, error: err });
@@ -7118,7 +7149,11 @@ export function createTurnRunner({
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
       if (memoryReads && draft.started?.turnId && request.memoryReads?.length) {
-        try { memoryReads({ turnId: draft.started.turnId, step: 's0', guildId, reads: request.memoryReads }); } catch { /* a record, never a turn's failure */ }
+        // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.
+        try {
+          const readContext = turnContextOf(draft, channel);
+          memoryReads({ turnId: draft.started.turnId, step: 's0', guildId, reads: request.memoryReads, ...(readContext?.id ? { contextId: readContext.id } : {}) });
+        } catch { /* a record, never a turn's failure */ }
       }
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
       if (draft.started && request.seen) {

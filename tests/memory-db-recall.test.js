@@ -14,6 +14,7 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js';
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';
 import { syncOnce } from '../src/memory/db/sync.js';
+import { insertRows } from '../src/memory/db/rows.js';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.js';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.js';
 import { quantize } from '../src/memory/vectors.js';
@@ -463,8 +464,20 @@ const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8
 const DISCORD = createDiscordInterface().capabilities;
 const withHidden = { ...labels, skills: { ...labels.skills, tools: { ...labels.skills.tools, memory: { ...labels.skills.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } } } };
 
-/** A runner over a fake guild (#general c1, #secret c4 that @everyone cannot see) and the fixture database. */
-function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = false, embed = null } = {}) {
+/**
+ * A runner over a fake guild (#general c1, #secret c4 that @everyone cannot see) and the fixture database, whose
+ * places rows hold both channels and Bob's DM (`places: false`: none; the runner's place rule reads them).
+ */
+function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = false, embed = null, places = true } = {}) {
+  if (places) {
+    insertRows(env.db, {
+      places: [
+        { id: channelPlaceId('c1'), iface: 'discord', kind: 'channel', native_id: 'c1', scope_kind: 'group', name: 'general' },
+        { id: channelPlaceId('c4'), iface: 'discord', kind: 'channel', native_id: 'c4', scope_kind: 'group', name: 'secret' },
+        { id: dmPlaceId(BOB), iface: 'discord', kind: 'dm', native_id: null, scope_kind: 'dm', partner_person: personId(BOB) },
+      ],
+    }, { log: { info() {}, debug() {}, warn() {}, error() {} } });
+  }
   const rest = [];
   const guild = { id: 'g1', members: { me: { id: 'self' } }, roles: { everyone: { id: 'g1' }, cache: new Map() }, channels: { cache: new Map() }, client: { rest: { get: async (route) => { rest.push(route); return route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }; } } } };
   const addChannel = (id, name, everyone) => {
@@ -578,6 +591,65 @@ test('recall.window: reads up or down from a message through the same rails; an 
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'zzz', move: 'up' })).outcome.kind, 'unknown-anchor');
     const off = runner(env, { backend: 'discord' });
     assert.equal((await off.recaller.window({ ...off.args, anchor: 'x2' })).outcome.kind, 'not-configured');
+  } finally {
+    env.done();
+  }
+});
+
+test('recall.window: the place rule reads the place row; a DM place with one opens for its partner, a place with none is refused', async () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'p1', at: NOW - 120000, text: 'γραμμη ενα', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
+    env.say({ native: 'p2', at: NOW - 60000, text: 'γραμμη δυο', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
+    // A line Bob may read, in a DM place the database holds no row for.
+    env.say({ native: 'u1', at: NOW - 30000, text: 'αγνωστη θεση', place: dmPlaceId(CAROL), scope: dmScope(personId(BOB)) });
+    env.say({ native: 'c1', at: NOW - 60000, text: 'γραμμη στο καναλι', place: channelPlaceId('c1') });
+    env.say({ native: 'c2', at: NOW - 30000, text: 'και αλλη', place: channelPlaceId('c1') });
+    env.stem();
+    const s = runner(env);
+    const dm = { ...s.args, channel: { id: 'dm-bob', guild: null }, partner: { id: BOB } };
+    const read = await s.recaller.window({ ...dm, anchor: 'p2', move: 'up', messages: 2 });
+    assert.deepEqual(read.quotes[0].entries.map((entry) => entry.id), ['p1']);
+    assert.equal((await s.recaller.window({ ...dm, anchor: 'u1', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor', 'no row: refused');
+    assert.deepEqual((await s.recaller.window({ ...s.args, anchor: 'c2', move: 'up', messages: 2 })).quotes[0].entries.map((entry) => entry.id), ['c1']);
+    // Without the rows, the channel the pull rail lets through is refused all the same.
+    const bare = fixture();
+    try {
+      bare.say({ native: 'c1', at: NOW - 60000, text: 'γραμμη στο καναλι', place: channelPlaceId('c1') });
+      bare.say({ native: 'c2', at: NOW - 30000, text: 'και αλλη', place: channelPlaceId('c1') });
+      const none = runner(bare, { places: false });
+      assert.equal((await none.recaller.window({ ...none.args, anchor: 'c2', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor');
+    } finally {
+      bare.done();
+    }
+  } finally {
+    env.done();
+  }
+});
+
+test('recall: the turn\'s execution context is used when it fits the read; a read it does not fit is issued its own', async () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'r1', at: NOW - DAY, text: 'το σπιτι', place: channelPlaceId('c1') });
+    env.stem();
+    const s = runner(env);
+    const issued = [];
+    const recaller = createRecall({
+      discord: DISCORD, hot: s.hot, store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] }, llm: { capLeft: () => 100, complete: async () => ({ text: '' }) }, now: () => NOW,
+      memoryDb: {
+        database: () => env.db,
+        issueContext: (spec) => { issued.push(spec); return { iface: 'discord', kind: spec.kind, ...(spec.person ? { person: spec.person } : {}), id: `ctx:issued:${issued.length}` }; },
+      },
+    });
+    const turn = { iface: 'discord', kind: 'group', id: 'ctx:turn' };
+    const found = await recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true, memoryContext: turn });
+    assert.equal(found.quotes.length, 1);
+    assert.deepEqual(issued, [], 'the turn\'s own context, none issued');
+    await recaller.window({ ...s.args, anchor: 'r1', move: 'up', messages: 2, memoryContext: turn, asker: ALICE });
+    assert.deepEqual(issued, []);
+    // A DM read does not take a group context: it is issued for its partner.
+    await recaller.window({ ...s.args, channel: { id: 'dm-bob', guild: null }, partner: { id: BOB }, anchor: 'r1', move: 'up', messages: 2, memoryContext: turn });
+    assert.deepEqual(issued.map((spec) => [spec.kind, spec.person]), [['dm', personId(BOB)]]);
   } finally {
     env.done();
   }

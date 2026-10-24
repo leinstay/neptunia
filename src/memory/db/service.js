@@ -48,6 +48,10 @@
 //       `recall.db.reembed` (with an injected `embed`, the embedding client): at most once a minute, at a tick, the
 //       touched lines' evicted vectors are embedded again (index-policy.js#reembedTouched) on this thread, and written
 //       through the writer.
+//   - `observe(envelope)` (stage 8a, `memoryDb.observeLive`, off by default): one observation of the live message path
+//     (observe.js#observe, the envelope from observe-event.js#observationOf) through the writer, like every other
+//     write; while the JSON files are the writer it lands on the rows the sync writes (observe.js resolves them, the
+//     sync adopts the ones it wrote first). Null while the switch is off or the database closed; never throws.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -80,6 +84,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { skillVersionsOf } from './skills.js';
 import { indexSettings, reembedTouched } from './index-policy.js';
+import { observe as observeEnvelope } from './observe.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -504,6 +509,22 @@ export function createMemoryDb({
     return write(update);
   }
 
+  /**
+   * One observation of the live message path (observe.js#observe) through the writer, while `memoryDb.observeLive` is
+   * exactly true and the database is open: resolves the observe result (`{ ok, ... }` or `{ ok: false, code }`).
+   * Otherwise null (nothing is written). A failed write is logged with a code and resolves null: never a turn's failure.
+   */
+  function observe(envelope) {
+    if (!handle || !on() || closing || hot.config?.memoryDb?.observeLive !== true || !envelope || typeof envelope !== 'object') return null;
+    const done = engine
+      ? engine.call('observe', { envelope, now: now() })
+      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log }));
+    return done.catch((error) => {
+      log.warn('memory db: observe failed', { code: codeOf(error) });
+      return null;
+    });
+  }
+
   /** The sources `ids` were read by a request or a session: touched (index-policy.js#touch) while eviction is on. */
   function touchSources(ids) {
     if (!handle || !on() || closing || !indexSettings(hot.config).eviction) return;
@@ -805,5 +826,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, recordWake, issueContext, focusPeople, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, recordWake, issueContext, observe, focusPeople, status, close };
 }

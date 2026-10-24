@@ -12,6 +12,7 @@ import { ACTIONS, CAPABILITIES, COMMAND_RESULT } from './actions.js';
 import {
   CHAT_TYPES,
   COMMAND_REQUESTED,
+  CONVERSATION_CHAT_TYPES,
   CONVERSATION_KINDS,
   CORE_KINDS,
   EVENT_KINDS,
@@ -72,6 +73,8 @@ function checkConversation(conversation) {
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', (kind) => CONVERSATION_KINDS.includes(kind), { problem: 'unknown' });
   for (const key of ['guildId', 'name', 'topic', 'category', 'parentId']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
+  need(conversation.chatType, 'conversation.chatType', (value) => CONVERSATION_CHAT_TYPES.includes(value), { required: false, problem: 'unknown' });
+  need(conversation.partnerId, 'conversation.partnerId', (value) => value === null || isId(value), { required: false });
 }
 
 /** The values of `reaction.changed`'s `cleared`. */
