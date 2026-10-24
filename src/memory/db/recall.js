@@ -509,9 +509,12 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
     const rows = stretchAround(db, ctx, rowsOf.get(hit.rowid), { around: opts.recordContext, followMessages: opts.followMessages, followGapMinutes: opts.followGapMinutes });
     return windowOf(rows, new Set(rows.map((row) => row.native_id).filter((id) => hitIds.has(id))), read);
   });
-  // A window's place is its best hit's place in the ranked hits (the order above: relevance first, or nearness to a
-  // named date), so the windows kept follow the same order the hits do.
-  const order = new Map(hits.map((hit, i) => [hit.messageId, i]));
+  // A window's place is its best hit's place.
+  // Its place is the better of two ranks: in the ranked hits (coverage) and by the fused score (where the meaning
+  // stream lifts a line the words miss), so neither kind of match crowds the other out of the windows kept.
+  const byRank = new Map(hits.map((hit, i) => [hit.messageId, i]));
+  const byFused = new Map(byScore.map((hit, i) => [hit.messageId, i]));
+  const order = new Map(hits.map((hit) => [hit.messageId, Math.min(byRank.get(hit.messageId), byFused.get(hit.messageId))]));
   const merged = mergeWindows(built).map((window) => ({
     ...window,
     best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
