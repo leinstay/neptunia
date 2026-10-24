@@ -1116,6 +1116,10 @@ test('a batch line names an author who is not a person yet by the handle people:
     const user = request.messages[1].content;
     assert.match(user, new RegExp(`\\[${handle}\\] Stranger: hello there`));
     assert.ok(![...request.maps.authors].some(([h, entry]) => entry.hasPerson && user.includes(`[${h}]`)), 'a person carries no handle');
+  } finally {
+    env.done();
+  }
+});
 
 test('a batch whose request would pass the request cap is cut to its first lines by arrival until it fits; the rest waits for the next batch', async () => {
   const env = fixture();
