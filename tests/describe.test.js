@@ -816,9 +816,9 @@ test('describeVideo: attachment is watched through a data URL with the video set
     maxBytes: 8_000_000,
     toolTimeoutMs: 60_000,
     ffmpegPath: 'ffmpeg-test',
-    fetchTimeoutMs: 10_000,
     audioMap: AUDIO_MAP_ON,
   });
+  assert.equal(videoFetcher.calls[0].options.fetchTimeoutMs, undefined, 'a video file is downloaded under toolTimeoutMs, not the picture fetch timeout');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.deepEqual(system, { role: 'system', content: VIDEO_PROMPT });
