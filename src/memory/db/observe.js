@@ -50,6 +50,12 @@
 //   - a DM place observed with a partner (`place.partner`) names the partner's person when the partner's account is
 //     linked (a verified link), else none (the DM stays its own audience, fail-closed); a stored DM place without a
 //     partner gets it filled in.
+// Stage W2a (authority `db`, spec 2026-10-24-memory-authority section 6 item 3): the observation is the record of a seen
+// line, so the service passes the line's record unit (`owner`: `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`, or the private
+// record's day file) and the row is written in it: `owner_file` that unit, `position` the next one of the unit (the
+// unit's `files` row is kept, unit-write.js#noteUnit), and a stored line of the tuple with no owner yet is stamped the
+// same way. Without `owner` (authority `json`) the row has none, as before, and the sync adopts it. With `owner` the
+// result also carries the line's `revision` (an edit's is the one counted here).
 // Logs carry codes only (`log.debug?.()`).
 
 import { log as engineLog } from '../../log.js';
@@ -61,6 +67,7 @@ import {
 } from './schema.js';
 import { markStemsPending } from './stems.js';
 import { projectRow } from './graph.js';
+import { nextPosition, noteUnit } from './unit-write.js';
 
 /** The version of the envelope this module reads. */
 export const OBSERVATION_VERSION = 1;
@@ -430,8 +437,16 @@ const sourceKeyOf = (n) => canonicalKey(n.kind, [n.key, n.revision, n.subtype ??
  * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
  * yet, gets the connection it came by when it has none, and the relations it lacks. Nothing else of it changes.
  */
-function replayOf(db, envelope, sourceId, at) {
+function replayOf(db, envelope, sourceId, at, owner = null) {
   const e = envelope;
+  if (filled(owner)) {
+    const stored = db.prepare('SELECT owner_file FROM sources WHERE id = ?').get(sourceId);
+    if (stored && (stored.owner_file === null || stored.owner_file === undefined)) {
+      const position = nextPosition(db, owner);
+      db.prepare('UPDATE sources SET owner_file = ?, position = ? WHERE id = ?').run(owner, position, sourceId);
+      noteUnit(db, owner, 'record', { lines: position + 1, at });
+    }
+  }
   ensureAuthority(db, e.authority, e.iface, e.authority.slice(e.iface.length + 1));
   addKey(db, e.authority, 'source', sourceKeyOf(e.native), sourceId, { generation: e.native.generation ?? 1, at });
   if (filled(e.connection) && db.prepare('SELECT iface FROM connections WHERE id = ?').get(e.connection)?.iface === e.iface) {
@@ -443,10 +458,10 @@ function replayOf(db, envelope, sourceId, at) {
     relations += addRelation(db, sourceId, relation.predicate, target, { at });
   }
   if (relations > 0) projectRow(db, 'sources', { id: sourceId }, { at });
-  return { ok: true, replayed: true, sourceId, written: 0 };
+  return { ok: true, replayed: true, sourceId, ...(filled(owner) ? { revision: e.native.revision } : {}), written: 0 };
 }
 
-function writeObservation(db, given, at, log) {
+function writeObservation(db, given, at, log, owner = null) {
   // An edit with no revision: the database's count says which revision it is.
   let e = given;
   let known = null;
@@ -457,7 +472,7 @@ function writeObservation(db, given, at, log) {
   }
   const n = e.native;
   const sourceId = known ?? storedLineOf(db, e, n.revision) ?? observedSourceId(e);
-  if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at);
+  if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at, owner);
   ensureInterface(db, e.iface);
   const authorities = new Set([e.authority, e.place.authority, e.author.authority, e.place.partner?.authority, ...(e.relations ?? []).map((r) => r.target?.authority)]);
   for (const authority of authorities) if (filled(authority)) ensureAuthority(db, authority, e.iface, authority.slice(e.iface.length + 1));
@@ -485,10 +500,11 @@ function writeObservation(db, given, at, log) {
     text: e.text, media: Array.isArray(e.media) && e.media.length > 0 ? json(e.media) : null, mentions: Array.isArray(e.mentions) ? json(e.mentions) : null,
     direct: e.direct === true ? 1 : 0, connection_id: connection,
     authority_id: e.authority, ...scope, audience_id: audience, origin: 'observation',
-    extra: Object.keys(extra).length > 0 ? json(extra) : null, owner_file: null, position: null,
+    extra: Object.keys(extra).length > 0 ? json(extra) : null, owner_file: filled(owner) ? owner : null, position: filled(owner) ? nextPosition(db, owner) : null,
   }, { at, log });
   if (row.audience_id !== audience) throw refusal(OBSERVE_CODES.AUDIENCE_CONFLICT);
   insertRow(db, 'sources', row);
+  if (filled(owner)) noteUnit(db, owner, 'record', { lines: row.position + 1, at });
   addKey(db, e.authority, 'source', sourceKeyOf(n), sourceId, { generation: n.generation ?? 1, at });
   let relations = 0;
   for (const relation of e.relations ?? []) {
@@ -510,23 +526,25 @@ function writeObservation(db, given, at, log) {
     }
   }
   markStemsPending(db);
-  return { ok: true, replayed: false, sourceId, placeId: place.id, author, audienceId: audience, relations, resolved, bundleId, written: 1 };
+  return { ok: true, replayed: false, sourceId, ...(filled(owner) ? { revision: n.revision } : {}), placeId: place.id, author, audienceId: audience, relations, resolved, bundleId, written: 1 };
 }
 
 /**
  * Writes one observation (see the head of this file). Returns `{ ok: true, replayed, sourceId, placeId, author,
- * audienceId, relations, resolved, bundleId, written }` or `{ ok: false, code }` (nothing written).
+ * audienceId, relations, resolved, bundleId, written }` (with `owner`, also `revision`) or `{ ok: false, code }`
+ * (nothing written).
  * @param {{ db: object, transaction: (fn: () => any) => any }} handle  an `openMemoryDb` handle (the writer)
  * @param {object} envelope
- * @param {{ now?: () => number, log?: object }} [opts]
+ * @param {{ now?: () => number, log?: object, owner?: string|null }} [opts]  `owner`: the record unit the line is
+ *   written in (authority `db`; see the head of this file)
  */
-export function observe(handle, envelope, { now = Date.now, log = engineLog } = {}) {
+export function observe(handle, envelope, { now = Date.now, log = engineLog, owner = null } = {}) {
   const code = checkEnvelope(envelope);
   if (code) {
     log?.debug?.('memory observe: refused', { code });
     return { ok: false, code };
   }
-  return guarded(handle, () => writeObservation(handle.db, envelope, toIso(now()), log), log);
+  return guarded(handle, () => writeObservation(handle.db, envelope, toIso(now()), log, owner), log);
 }
 
 // ---------- capture ----------

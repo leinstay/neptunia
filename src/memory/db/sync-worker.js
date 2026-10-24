@@ -2,13 +2,16 @@
 // connection (and so the writer lock, which it takes for the process), runs the sync passes and writes the
 // turn_reads rows, so no mapper and no write ever runs on the bot's main thread. One message at a time, in order.
 //
-// Messages in  { id, type: 'open', path }                      open the database with the writer lock
+// Messages in  { id, type: 'open', path, context }             open the database with the writer lock (`context`: what
+//                                                               a migration needs from the opener, open.js#migrate)
 //              { id, type: 'pass', first, now }                 one sync pass (`first`: the full import, marked done)
 //              { id, type: 'turnReads', turnId, step, rows }                   the turn_reads rows, resolved by the caller at assembly time
 //              { id, type: 'diaryApply', update }                one diary row's text and picture rows (diary-media.js)
-//              { id, type: 'memoryWrite', update }                one write of her memory session or a description review (session-write.js)
+//              { id, type: 'memoryWrite', update }                one write of her memory session or a description review, or
+//                                                               of an append-like memory unit (session-write.js, unit-write.js)
 //              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.js#runFocusDay)
-//              { id, type: 'observe', envelope, now }           one observation of the live message path (observe.js#observe)
+//              { id, type: 'observe', envelope, now, owner }    one observation of the live message path (observe.js#observe;
+//                                                               `owner`: its record unit under authority db)
 //              { id, type: 'close' }                            close the database, release the lock, then the thread ends
 // Messages out { id, ok: true, result } | { id, ok: false, code }   one reply per message
 //              { type: 'log', level, message, fields }              a line for the service's log (warnings only)
@@ -47,8 +50,8 @@ const log = {
 const metaOf = (key) => handle.db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 
 const handlers = {
-  open({ path }) {
-    handle = openMemoryDb(path, { alive });
+  open({ path, context }) {
+    handle = openMemoryDb(path, { alive, context: context ?? {} });
     return { importDone: metaOf(IMPORT_DONE) === '1' };
   },
   pass({ first, now, authority }) {
@@ -79,8 +82,8 @@ const handlers = {
   focus({ now, config }) {
     return runFocusDay(handle, { now, config });
   },
-  observe({ envelope, now }) {
-    return observe(handle, envelope, { now: () => now, log });
+  observe({ envelope, now, owner }) {
+    return observe(handle, envelope, { now: () => now, log, owner: owner ?? null });
   },
   close() {
     handle?.close();

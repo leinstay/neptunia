@@ -121,7 +121,7 @@ import { journalDrops, requestMentions } from './journal.js';
 import { redactUser } from './mentions.js';
 import { normalizeAvatar } from './avatars.js';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.js';
-import { createReadSeam, ledgerEntries } from './db/readers/common.js';
+import { createReadSeam, ledgerEntries, unitValue } from './db/readers/common.js';
 import { idsUnderDir } from './db/export.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
@@ -1136,7 +1136,12 @@ function normalizeChannel(channel) {
  *   a flush that wrote files (the database sync follows it); a throw there is swallowed.
  *   `memoryDb` (the memory database service, optional): under its authority `db` a directory's ids come from the
  *   database only (no `readdir`; a closed database or a failed read throws, with a code) and `validate` checks only
- *   the operational JSON files (`operationalJsonPath`); under `json` both are as before.
+ *   the operational JSON files (`operationalJsonPath`); under `json` both are as before. Stage W2a, under `db`:
+ *   `diary.json` is never written: its first load is the database's (`unitValue`, no file fallback), each post of
+ *   `appendDiaryPost` goes to the database (`memoryDb.writeUnit`, op `diary`: the diary row and its mirror's `sent`
+ *   publication) and a flush of the entry writes nothing; `participation.json` is still written (an operational file)
+ *   and each flush of it also sends the whole value to the database (op `value`: its episodes), a failed send leaving
+ *   the entry dirty for the next flush. A failed diary write is logged with its code (`store: diary write failed`).
  */
 export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null, memoryRead = null, afterFlush = null, memoryDb = null }) {
   const root = memoryRootOf(dataDir);
@@ -1513,14 +1518,41 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   function flushEntry(file, item, { force = false } = {}) {
     if (!item.dirty) return 'clean';
     if (!force && item.holdFlush > 0) return 'held';
+    const dbUnit = seam.authority() === 'db' ? dbWrittenUnit(file) : null;
+    // Authority `db`: the diary is the database's (appendDiaryPost wrote the post there); its file is not written.
+    if (dbUnit === 'diary') {
+      item.dirty = false;
+      return 'written';
+    }
     try {
       writeJsonAtomic(file, item.value);
       item.dirty = false;
+      if (dbUnit === 'participation') sendParticipation(file, item);
       return 'written';
     } catch (err) {
       log.error('store: flush failed', { file, error: err });
       return 'failed';
     }
+  }
+
+  /** Which store file under authority `db` the database writes (stage W2a): 'diary', 'participation' or null. */
+  function dbWrittenUnit(file) {
+    const name = path.basename(file);
+    if (name !== 'diary.json' && name !== 'participation.json') return null;
+    if (!/^guilds\/[^/]+\/(?:diary|participation)\.json$/.test(root.relative(file))) return null;
+    return name === 'diary.json' ? 'diary' : 'participation';
+  }
+
+  /** Authority `db`: the participation file just written, sent whole to the database; a failure leaves it dirty. */
+  function sendParticipation(file, item) {
+    if (typeof memoryDb?.writeUnit !== 'function') return;
+    const value = structuredClone(item.value);
+    Promise.resolve()
+      .then(() => memoryDb.writeUnit({ op: 'value', owner: root.relative(file), value }))
+      .catch((error) => {
+        item.dirty = true;
+        log.warn('store: participation write failed', { code: error?.code ?? null });
+      });
   }
 
   /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
@@ -1861,7 +1893,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * a diary (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
    * the disk copy is only rewritten by the next change. */
   function diaryEntry(guildId) {
-    const item = entry(diaryFile(guildId), emptyDiary);
+    const file = diaryFile(guildId);
+    // Authority `db`: the diary's first load is the database's, never the file (a closed database throws, with a code).
+    if (!entries.has(file) && seam.authority() === 'db') {
+      const db = seam.db();
+      const found = seam.run(() => unitValue(db, root.relative(file)));
+      entries.set(file, { value: found.found ? found.value : emptyDiary(), dirty: false });
+    }
+    const item = entry(file, emptyDiary);
     if (!isPlainObject(item.value) || !Array.isArray(item.value.posts)) item.value = emptyDiary();
     return item;
   }
@@ -3996,7 +4035,19 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @returns {{ dropped: object[] }}  The posts that fell past `max` (see `writeDiary`).
      */
     appendDiaryPost(guildId, post, opts = {}) {
-      return writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
+      const done = writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
+      if (seam.authority() === 'db') {
+        const item = diaryEntry(guildId);
+        const written = structuredClone(item.value.posts[item.value.posts.length - 1]);
+        const max = Number.isFinite(opts.max) && opts.max > 0 ? Math.floor(opts.max) : DIARY_HISTORY_POSTS;
+        const failed = (error) => log.warn('store: diary write failed', { code: error?.code ?? null });
+        try {
+          Promise.resolve(memoryDb.writeUnit({ op: 'diary', owner: root.relative(diaryFile(guildId)), post: written, max, updatedAt: item.value.updatedAt })).catch(failed);
+        } catch (error) {
+          failed(error);
+        }
+      }
+      return done;
     },
 
     /**

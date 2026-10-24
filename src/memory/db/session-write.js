@@ -30,6 +30,10 @@
 //   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode and no authority.
+//   { kind: 'unit', op, authority, ... }
+//       Stage W2a: the append-like memory units (record and journal lines, participation, the diary, the vectors) and
+//       the projection the writers finish under authority `db`, handed to unit-write.js#applyUnitWrite (the authority
+//       is the service's stamp).
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -74,6 +78,7 @@ import { projectRow } from './graph.js';
 import { applyWakeWrite } from './wakes.js';
 import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
+import { applyUnitWrite } from './unit-write.js';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -383,6 +388,7 @@ export function applyMemoryWrite(handle, update) {
   if (update?.kind === 'wake') return applyWakeWrite(handle, update);
   if (update?.kind === 'skills') return applySkillsWrite(handle, update);
   if (update?.kind === 'index-policy' || update?.kind === 'touch' || update?.kind === 'reembed') return applyIndexWrite(handle, update);
+  if (update?.kind === 'unit') return applyUnitWrite(handle, update);
   if (update?.kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
   const at = iso(now ?? Date.now());

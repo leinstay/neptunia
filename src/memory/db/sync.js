@@ -39,6 +39,9 @@
 // authority, the native kind and generation, and the native id), never by the native id alone.
 // Stage 8a: a row an observation wrote live (observe.js: a line, an account, a place under the importer's own id) is
 // adopted when its file brings it (`observedRow`): the file's row wins while the files are the writer.
+// Stage W2a: `writeMapping`, `qualify`, `retireAbsent` and `linkVectors` are also the database writers' own path
+// (unit-write.js): under authority `db` the record, the journal, participation, the diary and the vectors write their
+// mapper's rows through them, so a row the writers make is the row a pass would have made.
 // From schema v10 every diary mirror a pass writes or retires derives its `publications` row in the same transaction
 // (publish.js#deriveMirrorPublication: inserted once by its key, then following the mirror); the other publications,
 // the grants and the focus tables are the database's own and no pass touches them.
@@ -195,7 +198,7 @@ const childKey = (child, row) => (child === 'diary_mirrors'
   : [row[CHILDREN[child][1]], row.position].join('\u0000'));
 
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
-function retireAbsent(db, owner, mapping, at) {
+export function retireAbsent(db, owner, mapping, at) {
   let count = 0;
   for (const [table, key] of Object.entries(OWNED)) {
     const keep = new Set((mapping[table] ?? []).map((row) => keyOf(table, row)));
@@ -257,7 +260,7 @@ function writeChildren(db, mapping, owner, skippedParents, touched) {
 }
 
 /** Writes a mapping (table -> rows) of the unit `owner`. */
-function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
+export function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
   let count = 0;
   const skippedParents = new Set();
   for (const [table, rows] of Object.entries(mapping)) {
@@ -283,7 +286,7 @@ function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
 }
 
 /** Makes a unit's mapping use the full unit path: `owner_file` of every row, and the `owner` of an operational row built from the path. */
-function qualify(mapping, unit) {
+export function qualify(mapping, unit) {
   for (const rows of Object.values(mapping)) {
     for (const row of rows) {
       if (row.owner_file !== undefined && row.owner_file !== null && row.owner_file === unit.rel) {
@@ -502,7 +505,7 @@ function relinkParticipation(db, at) {
   return count;
 }
 
-function linkVectors(db, rows) {
+export function linkVectors(db, rows) {
   for (const row of rows) {
     const match = /^(?:private:[^:]+:)?record:(.+):([^:]*?)(?:#\d+)?$/.exec(String(row.chunk_key));
     if (!match || match[2] === '') continue;

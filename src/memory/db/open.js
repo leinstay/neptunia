@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { MIGRATIONS } from './schema.js';
+import { MIGRATIONS, finishDiaryDestination } from './schema.js';
 
 const originalListeners = process.listeners('warning');
 process.removeAllListeners('warning');
@@ -67,18 +67,23 @@ export function schemaVersion(db) {
   return db.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v ?? 0;
 }
 
-/** Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the connection. */
-export function migrate(db, migrations = MIGRATIONS) {
+/**
+ * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
+ * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12). A
+ * data step v12 could not finish without the context is finished by the first open that has it.
+ */
+export function migrate(db, migrations = MIGRATIONS, context = {}) {
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
     while (version < migrations.length) {
       const step = migrations[version];
-      if (typeof step === 'function') step(db);
+      if (typeof step === 'function') step(db, context);
       else db.exec(step);
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
     }
+    if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) finishDiaryDestination(db, context);
   });
 }
 
@@ -98,7 +103,8 @@ export function inTransaction(db, fn) {
 /**
  * Opens a memory database.
  * @param {string} dbPath  A file path, or ':memory:' (no lock, no file).
- * @param {{ readOnly?: boolean, migrations?: string[], pid?: number, now?: () => number, alive?: (pid: number) => boolean }} [opts]
+ * @param {{ readOnly?: boolean, migrations?: string[], pid?: number, now?: () => number, alive?: (pid: number) => boolean,
+ *   context?: { diaryPlaceId?: string|null } }} [opts]  `context`: what a migration step needs from the opener (migrate)
  * @returns {{ db: object, path: string, readOnly: boolean, transaction: (fn: () => any) => any, close: () => void }}
  */
 export function openMemoryDb(dbPath, opts = {}) {
@@ -115,7 +121,7 @@ export function openMemoryDb(dbPath, opts = {}) {
     }
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA foreign_keys = ON');
-    if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS);
+    if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS, opts.context ?? {});
   } catch (error) {
     try { db?.close(); } catch { /* not open */ }
     release();

@@ -140,6 +140,7 @@
     "wakeRuns": false,
     "skillsRegistry": false,
     "observeLive": false,
+    "observeTimeoutMs": 5000,
     "session": {
       "mode": "off",
       "maxMessages": 200,

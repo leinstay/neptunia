@@ -444,7 +444,8 @@ const warmup = createWarmup({ hot, store, client, discord, llm, calibrator, getS
 const isWarmingUp = warmup.isWarmingUp;
 const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId, isWarmingUp });
 // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
-const diary = createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp, backfill: backfillDiary });
+// Under memoryDb.authority `db` (fixed for the process) the diary's posts are rows already: no backfill from the channel.
+const diary = createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp, backfill: memoryDb.authority() === 'db' ? null : backfillDiary });
 // The stream analyzer's "the stored portrait misses something" cue -- src/memory/warmup.js's
 // own rails (hours/day/mute) decide whether a refresh actually runs; never awaited here.
 const memory = createMemoryUpdater({

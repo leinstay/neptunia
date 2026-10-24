@@ -25,8 +25,11 @@
 // (`deriveMirrorPublication`), on the one path every mirror write takes (the sync, rows.js#insertRows, the v10
 // migration), so a remap keeps the row and never makes a second one.
 //
+// `assignDiaryDestination` gives the diary's publications that name no destination the deployment's diary channel (the
+// v12 data step for the legacy mirrors, and the diary writer under authority `db`, unit-write.js).
 // Every write projects the publication into the graph in the same transaction (graph.js#projectRow). No live writer
-// uses preparePublication yet: the JSON diary posts until the switch. Logs: none; a caller logs codes.
+// uses preparePublication yet: under authority `db` the diary's own write (a post, then its row and the mirror's
+// `sent` publication, unit-write.js) derives them like the sync. Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.js';
@@ -306,6 +309,25 @@ export function deriveMirrorPublication(handle, mirror, { at, project = true } =
   const id = existing?.id ?? row.id;
   if (project) projectRow(db, 'publications', { id });
   return id;
+}
+
+/**
+ * The deployment's diary channel as the destination of the diary's publications that name none (schema v12's data
+ * step for the legacy mirrors, and every diary write under authority `db`, stage W2a): `placeId` (the channel's place)
+ * is set on every `diary` publication without a destination (of the unit `owner` only, when given), when that place is
+ * stored; nothing else of a publication changes. Returns how many were set.
+ * @param {object} handle
+ * @param {string} placeId
+ * @param {{ owner?: string|null, at?: string, project?: boolean }} [opts]
+ */
+export function assignDiaryDestination(handle, placeId, { owner = null, at, project = true } = {}) {
+  const db = dbOf(handle);
+  if (!hasPublications(db) || !filled(placeId)) return 0;
+  if (db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) === undefined) return 0;
+  const ids = db.prepare(`UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_file = ?' : ''} RETURNING id`)
+    .all(...(filled(owner) ? [placeId, owner] : [placeId])).map((row) => row.id);
+  if (project) for (const id of ids) projectRow(db, 'publications', { id }, { at });
+  return ids.length;
 }
 
 /** Every mirror's publication (the v10 migration; idempotent). Returns how many mirrors were looked at. */

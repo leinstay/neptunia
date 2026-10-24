@@ -151,3 +151,11 @@ closed until the partner becomes a person.
   bytes, so `verify` reports an evicted row's month as different.
 - `media.availability`: `unknown` for every row; `tools/memory-db.mjs media-check` sets her diary media to `present`
   or `missing`.
+
+## Rows filled by the migration to schema 12
+
+- `publications.destination_place_id` of the diary's publications that named none (the legacy mirrors name no
+  place): the deployment's diary channel (`diary.channelId` of the config the bot opens the database with), where that
+  channel's place is stored. Opened without it (by a tool), the step waits (meta `diary_destination_pending`) for the
+  first open that knows the channel. Under `memoryDb.authority` `db` every new diary post's publication gets the same
+  destination when it is written.

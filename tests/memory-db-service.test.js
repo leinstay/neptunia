@@ -287,39 +287,54 @@ test('turn reads are resolved when the request is assembled: block, order and th
   } finally { writer?.close(); await env.done(); }
 });
 
-test('authority db: the sync is off (ticks, flushes and the shutdown pass), the status says so, and a switch back to json syncs again', async () => {
+/** Every start check of authority db met (src/memory/db/authority.js). */
+const DB_WRITER = { authority: 'db', read: true, observeLive: true };
+
+test('authority is fixed for the process: a live change to db leaves the sync on and is logged once', async () => {
   const env = setup();
   try {
     await env.service.tick();
     const before = counts(env);
     assert.ok(before.files > 0);
-    assert.deepEqual([env.service.status().authority, env.service.status().syncOff], ['json', false]);
     env.hot.config.memoryDb.authority = 'db';
-    const passes = () => env.log.out.filter((e) => e.message === 'memory db: pass').length;
-    const ran = passes();
     writeJson(path.join(env.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
     env.service.requestSync();
     await new Promise((resolve) => setTimeout(resolve, 50));
     env.advance(300_000);
     await env.service.tick();
-    assert.equal(passes(), ran, 'no pass');
-    assert.equal(counts(env).files, before.files);
-    const status = env.service.status();
-    assert.deepEqual([status.authority, status.syncOff, status.lagSeconds, status.open], ['db', true, null, true]);
-    // back to json: the database is dirty and catches up
-    env.hot.config.memoryDb.authority = 'json';
-    await env.service.tick();
-    assert.equal(counts(env).files, before.files + 1);
-    // db again: the shutdown pass is off too
-    env.hot.config.memoryDb.authority = 'db';
-    writeJson(path.join(env.g, 'users', '100000000000000078.json'), { id: '100000000000000078', names: ['Yan'] });
-    await env.service.close();
-    assert.equal(counts(env).files, before.files + 1, 'the last pass did not run');
+    assert.equal(counts(env).files, before.files + 1, 'the sync still runs');
+    assert.deepEqual([env.service.status().authority, env.service.status().syncOff, env.service.authority()], ['json', false, 'json']);
+    assert.equal(env.log.out.filter((e) => e.message === 'memory db: authority change needs a restart').length, 1);
   } finally { await env.done(); }
 });
 
+test('authority db (a new service): the sync is off (ticks, flushes and the shutdown pass) and the status says so', async () => {
+  const first = setup();
+  try {
+    await first.service.tick();
+    await first.service.close();
+    const before = counts(first);
+    const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, ...DB_WRITER }, recall: { backend: 'db' } } };
+    const service = createMemoryDb({ hot, dataDir: first.data, log: first.log, worker: false, now: () => Date.UTC(2026, 9, 24, 12), defer: (fn) => setImmediate(fn) });
+    const passes = () => first.log.out.filter((e) => e.message === 'memory db: pass').length;
+    const ran = passes();
+    try {
+      await service.tick();
+      writeJson(path.join(first.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
+      service.requestSync();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await service.tick();
+      assert.equal(passes(), ran, 'no pass');
+      const status = service.status();
+      assert.deepEqual([status.authority, status.syncOff, status.lagSeconds, status.open, status.refused], ['db', true, null, true, null]);
+    } finally { await service.close(); }
+    assert.equal(counts(first).files, before.files, 'no pass, not even the last one');
+  } finally { await first.done(); }
+});
+
 test('authority db from the first open: nothing is imported, the database counts as in step, no pass is ever run', async () => {
-  const env = setup({ memoryDb: { authority: 'db' } });
+  const env = setup({ memoryDb: DB_WRITER });
+  env.hot.config.recall = { backend: 'db' };
   try {
     await env.service.tick();
     await env.service.tick();
@@ -330,19 +345,25 @@ test('authority db from the first open: nothing is imported, the database counts
   } finally { await env.done(); }
 });
 
-test('memoryWrite: the service stamps the authority of the live config; the caller cannot claim it', async () => {
+test('memoryWrite: the service stamps its own authority (fixed for the process); the caller cannot claim it', async () => {
+  const run = { id: 'run:svc', sweepId: 'sweep:svc', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|svc', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
+  const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
   const env = setup();
   try {
     await env.service.tick();
-    const run = { id: 'run:svc', sweepId: 'sweep:svc', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|svc', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
-    const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
     await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'db', run, plan, now: 1 }), (error) => error.code === 'APPLY_JSON_WRITER');
-    assert.equal(env.service.database().prepare('SELECT COUNT(*) AS n FROM session_runs').get().n, 0);
     env.hot.config.memoryDb.authority = 'db';
-    await env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'json', run, plan, now: 1 });
-    assert.deepEqual({ ...env.service.database().prepare('SELECT mode, applied FROM session_runs').get() }, { mode: 'apply', applied: 1 });
-    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'other', run: { ...run, id: 'run:2' }, plan, now: 1 }), (error) => error.code === 'BAD_MODE');
+    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'db', run, plan, now: 1 }), (error) => error.code === 'APPLY_JSON_WRITER', 'a live change does not unlock it');
+    assert.equal(env.service.database().prepare('SELECT COUNT(*) AS n FROM session_runs').get().n, 0);
   } finally { await env.done(); }
+  const db = setup({ memoryDb: DB_WRITER });
+  db.hot.config.recall = { backend: 'db' };
+  try {
+    await db.service.tick();
+    await db.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'json', run, plan, now: 1 });
+    assert.deepEqual({ ...db.service.readHandle().db.prepare('SELECT mode, applied FROM session_runs').get() }, { mode: 'apply', applied: 1 });
+    await assert.rejects(() => db.service.memoryWrite({ kind: 'session', mode: 'other', run: { ...run, id: 'run:2' }, plan, now: 1 }), (error) => error.code === 'BAD_MODE');
+  } finally { await db.done(); }
 });
 
 test('status line: while the database is the writer the sync-off line replaces the sync line, when its label is filled', () => {
