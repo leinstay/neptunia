@@ -307,6 +307,7 @@ export function createMemoryDb({
   const writingReads = new Set();
   let importDone = false;
   let closing = false;
+  let closed = false;
   const openErrors = new Set();
   const reads = { db: 0, missing: 0, stale: 0, unmapped: 0, empty: 0, errors: 0 };
 
@@ -346,6 +347,7 @@ export function createMemoryDb({
       dirty = true;
       openErrors.clear();
       log.info('memory db: opened', { file });
+      drainObservations();
       startupJobs();
     } catch (error) {
       handle = null;
@@ -514,15 +516,63 @@ export function createMemoryDb({
    * exactly true and the database is open: resolves the observe result (`{ ok, ... }` or `{ ok: false, code }`).
    * Otherwise null (nothing is written). A failed write is logged with a code and resolves null: never a turn's failure.
    */
-  function observe(envelope) {
-    if (!handle || !on() || closing || hot.config?.memoryDb?.observeLive !== true || !envelope || typeof envelope !== 'object') return null;
-    const done = engine
+  // Observations that came while the database was not open yet (the start's catch-up runs before it opens) wait here
+  // and are written right after it opens; a shutdown writes the waiting ones and those under way before it closes.
+  // Bounded: past OBSERVE_QUEUE_MAX the oldest is dropped and counted (a warning, never silent).
+  const OBSERVE_QUEUE_MAX = 5000;
+  const observeQueue = [];
+  const observing = new Set();
+  let observeDropped = 0;
+  const observeOn = (envelope) => on() && hot.config?.memoryDb?.observeLive === true && envelope !== null && typeof envelope === 'object';
+
+  function sendObservation(envelope) {
+    const done = (engine
       ? engine.call('observe', { envelope, now: now() })
-      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log }));
-    return done.catch((error) => {
-      log.warn('memory db: observe failed', { code: codeOf(error) });
+      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log })))
+      .then((result) => {
+        if (result && result.ok === false) log.warn('memory db: observe refused', { code: result.code ?? null });
+        return result;
+      })
+      .catch((error) => {
+        log.warn('memory db: observe failed', { code: codeOf(error) });
+        return null;
+      });
+    observing.add(done);
+    done.finally(() => observing.delete(done));
+    return done;
+  }
+
+  function observe(envelope) {
+    if (!observeOn(envelope)) return null;
+    if (!handle) {
+      if (closed) {
+        observeDropped += 1;
+        log.warn('memory db: observe dropped', { reason: 'closed', dropped: observeDropped });
+        return null;
+      }
+      observeQueue.push(envelope);
+      if (observeQueue.length > OBSERVE_QUEUE_MAX) {
+        observeQueue.shift();
+        observeDropped += 1;
+        log.warn('memory db: observe dropped', { reason: 'queue_full', dropped: observeDropped });
+      }
       return null;
-    });
+    }
+    return sendObservation(envelope);
+  }
+
+  /** Writes the observations that waited for the database to open, in arrival order. */
+  function drainObservations() {
+    if (!handle || observeQueue.length === 0) return;
+    const waiting = observeQueue.splice(0, observeQueue.length);
+    log.info('memory db: observations written after open', { count: waiting.length });
+    for (const envelope of waiting) sendObservation(envelope);
+  }
+
+  /** Shutdown: the waiting observations are written, then every one under way is awaited. */
+  async function flushObservations(timeoutMs) {
+    drainObservations();
+    await waitFor(Promise.allSettled([...observing]), timeoutMs);
   }
 
   /** The sources `ids` were read by a request or a session: touched (index-policy.js#touch) while eviction is on. */
@@ -820,10 +870,12 @@ export function createMemoryDb({
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
+    await flushObservations(Math.max(0, deadline - performance.now()));
     if (handle && on() && importDone && !running && !engine?.dead && settings().authority !== 'db') {
       try { await waitFor(runPass('shutdown'), Math.max(0, deadline - performance.now())); } catch { /* logged inside */ }
     }
     await closeNow(Math.max(0, deadline - performance.now()));
+    closed = true;
   }
 
   return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, recordWake, issueContext, observe, focusPeople, status, close };

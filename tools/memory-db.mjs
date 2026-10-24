@@ -54,7 +54,7 @@
 //        Checks every file of the backup against its manifest, then restores the database to --db (which must not
 //        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
 //        checks the schema version and the row counts of the restored file.
-//   node tools/memory-db.mjs observe-check --db <file> --since <iso>
+//   node tools/memory-db.mjs observe-check --db <file> --since <iso> [--data <dir>]   (--data: lines still in the analyzer buffer are pending)
 //        The live observation path against the sync (stage 8a, `memoryDb.observeLive`): the lines (`seen`, `said`) that
 //        happened since --since and that only one side wrote: observed and never brought by a record file (an
 //        observation the sync did not adopt), and brought by a record file and never observed (no source key in
@@ -663,6 +663,22 @@ function runRestore(io, options) {
 /** A DM line: its audience or its scope says so. */
 const DM_LINE_SQL = "(s.audience_id LIKE 'aud:dm:%' OR s.scope_kind = 'dm')";
 
+/** The message ids in every guild's analyzer buffer under `dataDir` (empty without one). */
+function bufferedIds(dataDir) {
+  const ids = new Set();
+  if (!dataDir) return ids;
+  let guilds = [];
+  try { guilds = fs.readdirSync(path.join(dataDir, 'guilds')); } catch { return ids; }
+  for (const guild of guilds) {
+    try {
+      const buffer = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guild, 'buffer.json'), 'utf8'));
+      const list = Array.isArray(buffer) ? buffer : Array.isArray(buffer?.messages) ? buffer.messages : [];
+      for (const message of list) if (message?.id != null) ids.add(String(message.id));
+    } catch { /* no buffer: nothing pending */ }
+  }
+  return ids;
+}
+
 function runObserveCheck(io, options) {
   need(options, 'db', 'since');
   const sinceMs = Date.parse(options.since);
@@ -671,11 +687,15 @@ function runObserveCheck(io, options) {
   const handle = openMemoryDb(options.db, { readOnly: true });
   try {
     const { db } = handle;
-    const observedOnly = db.prepare(`SELECT s.id AS id, ${DM_LINE_SQL} AS dm FROM sources s
+    const observedRows = db.prepare(`SELECT s.id AS id, s.native_id AS native, ${DM_LINE_SQL} AS dm FROM sources s
       WHERE s.origin = 'observation' AND s.owner_file IS NULL AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL ORDER BY s.occurred_at, s.id`).all(since);
     const syncOnly = db.prepare(`SELECT s.id AS id, ${DM_LINE_SQL} AS dm FROM sources s
       WHERE s.owner_file GLOB '*record/*' AND s.kind IN ('seen', 'said') AND s.occurred_at >= ? AND s.retired_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM external_keys k WHERE k.object_kind = 'source' AND k.node_id = s.id) ORDER BY s.occurred_at, s.id`).all(since);
+        AND NOT EXISTS (SELECT 1 FROM external_keys k WHERE k.object_kind = 'source' AND k.node_id = s.id)
+        -- the same message observed under the other subtype (her echo recorded as \`seen\` beside her \`said\`) is observed
+        AND NOT EXISTS (SELECT 1 FROM sources o JOIN external_keys k ON k.object_kind = 'source' AND k.node_id = o.id
+          WHERE o.native_id = s.native_id AND o.authority_id IS s.authority_id AND o.retired_at IS NULL)
+        ORDER BY s.occurred_at, s.id`).all(since);
     const report = (name, rows) => {
       const outside = rows.filter((row) => !row.dm);
       const dm = rows.length - outside.length;
@@ -683,6 +703,12 @@ function runObserveCheck(io, options) {
       if (outside.length > 0) io.out(`  first: ${outside.slice(0, 5).map((row) => row.id).join(', ')}`);
       return outside.length;
     };
+    // A line still in the analyzer's buffer (`--data`: data/guilds/<g>/buffer.json) is not in the record yet: the record
+    // takes seen lines when the analyzer takes the batch. Those are pending, not a difference.
+    const buffered = bufferedIds(options.data);
+    const pending = observedRows.filter((row) => buffered.has(String(row.native)));
+    const observedOnly = observedRows.filter((row) => !buffered.has(String(row.native)));
+    if (options.data) io.out(`observed, still in the analyzer buffer (pending): ${pending.length}`);
     const differ = report('observed, not in the record', observedOnly) + report('in the record, not observed', syncOnly);
     io.out(differ === 0 ? `observe-check ok since ${since}` : `observe-check FAILED: ${differ} lines differ since ${since}`);
     return differ === 0 ? 0 : 1;
