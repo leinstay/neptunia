@@ -2393,6 +2393,7 @@ export function createTurnRunner({
           selfName,
           history,
           decorate: (lines) => linkCalls(lines, { channel, guildId }),
+          asker: trigger?.authorId ?? null,
           args,
           now: clock(),
           ...(draft ? { refs: searchHandles(draft) } : {}),

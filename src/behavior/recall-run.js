@@ -817,8 +817,12 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     }
   }
 
-  /** What a db read needs of a turn: the read context, the pull rail for places, the names. */
-  function dbReader({ config, guild, guildId, channel, partner }) {
+  /**
+   * What a db read needs of a turn: the read context, the pull rail for places, the names. `asker` is the user id of
+   * the person who asked (the trigger's author): the context carries their person id, and the hidden-DM marker is set
+   * only for a private chat of that person. `model` is the embedding model the question's vector comes from.
+   */
+  function dbReader({ config, guild, guildId, channel, partner, asker = null }) {
     const { sourceOf, privateUserId } = scopeOf({ config, guild, channel, partner });
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile]));
@@ -829,7 +833,8 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     return {
       sourceOf,
       nameOf,
-      ctx: privateUserId ? dmContext(personId(privateUserId)) : groupContext(),
+      ctx: privateUserId ? dmContext(personId(privateUserId)) : { ...groupContext(), ...(asker ? { asker: [personId(String(asker))] } : {}) },
+      model: roleModel(config, 'embedding', 'recall-query') ?? null,
       channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
       // A private chat's own place is the partner's; a channel is shown only where the pull rail lets this turn read it.
       allowPlace: (placeId) => String(placeId).startsWith('discord:dm:') || sourceOf(String(placeId).replace(/^discord:channel:/, '')) !== null,
@@ -860,7 +865,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    */
   async function runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started }) {
     const stats = emptyStats();
-    const reader = dbReader({ config, guild, guildId, channel, partner });
+    const reader = dbReader({ config, guild, guildId, channel, partner, asker: candidate?.authorId ?? null });
     if (server?.channelId && reader.sourceOf(server.channelId) === null) return { text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, outcome: { kind: 'not-visible' } };
     let vector = null;
     let degraded = false;
@@ -884,7 +889,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       }
     }
     const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
-    const found = dbSearch(db, { ctx: reader.ctx, plan: server, limit: settings.maxClusters, now: now(), vector, settings: dbSettings(config), exclude: new Set(own), nameOf: reader.nameOf, selfName, channelNameOf: reader.channelNameOf, allowPlace: reader.allowPlace });
+    const found = dbSearch(db, { ctx: reader.ctx, plan: server, limit: settings.maxClusters, now: now(), vector, settings: dbSettings(config), exclude: new Set(own), nameOf: reader.nameOf, selfName, channelNameOf: reader.channelNameOf, allowPlace: reader.allowPlace, model: reader.model });
     stats.hits = found.hits.length;
     stats.meaning = found.stats.meaning;
     stats.windows = found.windows.length;
@@ -1751,6 +1756,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
                 selfName,
                 channelNameOf,
                 allowPlace: reader.allowPlace,
+                model: reader.model,
               })));
               if (signal.aborted) return null;
               const windows = found.windows.map(inTime);

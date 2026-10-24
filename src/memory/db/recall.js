@@ -1,7 +1,8 @@
 // Recall over the memory database (spec 2026-10-24-memory-store, section 8): what `memory.search` and the memory
 // prefetch use when `recall.backend` is `db`. It reads the `sources` table of the record (every chat line, its
 // scope and place) and the `vectors` table, always inside a scope context (src/memory/db/scope.js): a row the context
-// may not open is never searched, never counted and never read into a stretch.
+// may not open is never searched, never counted and never read into a stretch. The caller's place rule (`allowPlace`)
+// is resolved once into a set of places and runs inside every stream's query, before any LIMIT, ranking or fusion.
 //
 // search(db, { ctx, plan, ... }) takes the plan `memorySearchPlan` builds (`forms`, `who`, `from`, `to`, `channelId`)
 // and runs four streams, each a ranked list of messages:
@@ -32,6 +33,7 @@
 
 import { MINUTE_MS } from '../../time.js';
 import { RECALL_DEFAULTS, RRF_K, cutStretch, followConversation, fuseRanks, mergeWindows, recallSettings, renderRecallWindows } from '../../behavior/recall.js';
+import { log } from '../../log.js';
 import { foldText } from '../recent.js';
 import { indexWords } from '../record-index.js';
 import { channelPlaceId, nativeOf } from './ids.js';
@@ -78,9 +80,10 @@ const parseJson = (text) => {
 };
 const str = (value) => (typeof value === 'string' ? value : '');
 
+/** The first name of each account, by native id: an account's own names only, never through its person's other accounts. */
 function accountNames(db) {
   const names = new Map();
-  for (const row of db.prepare('SELECT id, native_id, names FROM accounts').all()) {
+  for (const row of db.prepare('SELECT id, native_id, names FROM accounts WHERE retired_at IS NULL').all()) {
     const list = parseJson(row.names);
     const first = Array.isArray(list) ? list.find((name) => typeof name === 'string' && name) : null;
     if (first) names.set(row.native_id ?? nativeOf(row.id), first);
@@ -88,9 +91,14 @@ function accountNames(db) {
   return names;
 }
 
-function placeNames(db) {
+/** The names of the places a context may know: a private place's name is the internal context's alone. */
+function placeNames(db, ctx) {
   const names = new Map();
-  for (const row of db.prepare("SELECT id, name FROM places WHERE name IS NOT NULL AND retired_at IS NULL").all()) names.set(row.id, row.name);
+  const rows = db.prepare("SELECT id, name, iface, scope_kind FROM places WHERE name IS NOT NULL AND retired_at IS NULL").all();
+  for (const row of rows) {
+    if (ctx.internal !== true && (row.scope_kind === 'dm' || row.scope_kind === 'internal' || (row.iface && row.iface !== ctx.iface))) continue;
+    names.set(row.id, row.name);
+  }
   return names;
 }
 
@@ -193,14 +201,27 @@ function holds(terms, row) {
 
 // ---------- the streams ----------
 
-/** The shared filters of a stream: scope, range, place. Returns { sql, params } (without a leading AND). */
-function filters(ctx, { from, to, placeId }, alias = 's') {
+/**
+ * The places the caller allows, resolved once per search: every place holding a row the context may see, kept when
+ * `allowPlace` says yes. Null without a caller rule (every place); a JSON list otherwise, handed to the streams as a
+ * SQL predicate, so a refused place is out of the queries before any LIMIT, ranking or fusion.
+ */
+function placesAllowed(db, ctx, allowPlace) {
+  if (typeof allowPlace !== 'function') return null;
+  const scope = whereFor(ctx, 's');
+  const found = db.prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE s.place_id IS NOT NULL AND ${scope.sql}`).all(...scope.params);
+  return JSON.stringify(found.map((row) => row.place_id).filter((placeId) => allowPlace(placeId)));
+}
+
+/** The shared filters of a stream: scope, range, place, the caller's allowed places. Returns { sql, params } (without a leading AND). */
+function filters(ctx, { from, to, placeId, places = null }, alias = 's') {
   const scope = whereFor(ctx, alias);
   const parts = [scope.sql];
   const params = [...scope.params];
   if (Number.isFinite(from)) { parts.push(`${alias}.occurred_at >= ?`); params.push(iso(from)); }
   if (Number.isFinite(to)) { parts.push(`${alias}.occurred_at <= ?`); params.push(iso(to)); }
   if (placeId) { parts.push(`${alias}.place_id = ?`); params.push(placeId); }
+  if (places !== null) { parts.push(`${alias}.place_id IN (SELECT value FROM json_each(?))`); params.push(places); }
   return { sql: parts.join(' AND '), params };
 }
 
@@ -234,19 +255,35 @@ function trigramRows(db, ctx, terms, scopeArgs, limit) {
 /** The int8 row `bytes` (a Uint8Array from SQLite) as signed bytes. */
 const signed = (bytes) => new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
-/** The best `limit` vector rows by cosine to `vector`: { source_rowid, score }. */
-function meaningRows(db, ctx, vector, scopeArgs, limit) {
+let warnedModel = false;
+
+/**
+ * The best `limit` vector rows by cosine to `vector`: { source_rowid, score }. The vectors are joined to the
+ * eligible current sources before the top-K: a row the context may not open, a place the caller refuses, a deleted or
+ * superseded message never competes. A vector stored on an older revision counts only while that revision's text is
+ * the current text (`source_rowid` then names the current row). `model` is the query's embedding model: a row of
+ * another model is skipped; a row with no model is taken by its dims, and says so once in the log.
+ */
+function meaningRows(db, ctx, vector, scopeArgs, limit, model = null) {
   const q = vector instanceof Float32Array ? vector : Float32Array.from(vector ?? []);
   let qq = 0;
   for (let i = 0; i < q.length; i += 1) qq += q[i] * q[i];
   const qNorm = Math.sqrt(qq);
   if (!(qNorm > 0) || limit <= 0) return [];
-  const filter = filters(ctx, { from: scopeArgs.from, to: scopeArgs.to }, 'v');
-  const rows = db.prepare(`SELECT v.source_rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes
-    FROM vectors v WHERE v.retired_at IS NULL AND v.source_rowid IS NOT NULL AND v.dims = ? AND ${filter.sql}`).iterate(q.length, ...filter.params);
+  const filter = filters(ctx, scopeArgs);
+  const modelSql = typeof model === 'string' && model ? ' AND (v.model IS NULL OR v.model = ?)' : '';
+  const modelParams = modelSql ? [model] : [];
+  const rows = db.prepare(`SELECT s.rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes, v.model AS model
+    FROM vectors v JOIN sources o ON o.rowid = v.source_rowid
+    JOIN sources s ON s.native_id = o.native_id AND (s.rowid = o.rowid OR s.text IS o.text)
+    WHERE v.retired_at IS NULL AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`).iterate(q.length, ...modelParams, ...filter.params);
   const heap = [];
   let floor = -Infinity;
   for (const row of rows) {
+    if (row.model === null && !warnedModel) {
+      warnedModel = true;
+      log.warn('memory db recall: vectors without a model are matched by dims alone');
+    }
     if (!(row.norm > 0) || !(row.scale > 0)) continue;
     const data = signed(row.bytes);
     let dot = 0;
@@ -276,8 +313,12 @@ function currentRows(db, ctx, rowids, scopeArgs) {
   return out;
 }
 
-/** The account ids the plan's `who` forms name: an account's name equals a form (folded), or an alias claim of its person does. */
-function accountsOf(db, forms) {
+/**
+ * The account ids the plan's `who` forms name: an account whose own name equals a form (folded), or an account of a
+ * person an alias claim names. The alias claim must be one the context may see, and a person's other accounts count
+ * only while their link is `verified`.
+ */
+function accountsOf(db, ctx, forms) {
   const wanted = new Map((Array.isArray(forms) ? forms : []).map((form) => [foldText(form), form]).filter(([key]) => key));
   const ids = new Set();
   const named = new Set();
@@ -289,7 +330,9 @@ function accountsOf(db, forms) {
       if (wanted.has(key)) { ids.add(row.id); named.add(key); }
     }
   }
-  const aliases = db.prepare("SELECT c.text AS text, a.id AS account FROM claims c JOIN accounts a ON a.person_id = c.subject_id WHERE c.kind = 'alias' AND c.retired_at IS NULL AND a.retired_at IS NULL").all();
+  const scope = whereFor(ctx, 'c');
+  const aliases = db.prepare(`SELECT c.text AS text, a.id AS account FROM claims c JOIN accounts a ON a.person_id = c.subject_id
+    WHERE c.kind = 'alias' AND c.retired_at IS NULL AND a.retired_at IS NULL AND a.link = 'verified' AND ${scope.sql}`).all(...scope.params);
   for (const row of aliases) {
     const key = foldText(row.text);
     if (wanted.has(key)) { ids.add(row.account); named.add(key); }
@@ -317,26 +360,43 @@ function neighbours(db, ctx, row, direction, { count, minutes = null }) {
   const earlier = direction < 0;
   const limitMs = Number.isFinite(minutes) ? Date.parse(row.occurred_at) + (earlier ? -1 : 1) * minutes * MINUTE_MS : null;
   const bound = limitMs === null ? '' : ` AND s.occurred_at ${earlier ? '>=' : '<='} ?`;
-  const sql = `SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.place_id = ? AND ${CURRENT}
+  // The boundary is read as ids and scope columns only; the text is fetched for the lines the context may open.
+  const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.place_id = ? AND ${CURRENT}
     AND (s.occurred_at, s.rowid) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY s.occurred_at ${earlier ? 'DESC' : 'ASC'}, s.rowid ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
   const found = db.prepare(sql).all(row.place_id, row.occurred_at, row.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
-  const rows = [];
+  const open = [];
+  let stopped = null;
   for (const next of found) {
-    if (!allowed(next, ctx)) return { rows, stopped: 'hidden' };
-    rows.push(next);
+    if (!allowed(next, ctx)) { stopped = 'hidden'; break; }
+    open.push(next.rowid);
   }
-  return { rows, stopped: rows.length < count ? 'edge' : null };
+  const rows = rowsByRowid(db, open);
+  return { rows, stopped: stopped ?? (rows.length < count ? 'edge' : null) };
 }
 
-const sourceByNative = (db, nativeId) => db.prepare(`SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.native_id = ? AND ${CURRENT}`).get(String(nativeId));
+/** The full source rows of `rowids`, in that order. */
+function rowsByRowid(db, rowids) {
+  if (rowids.length === 0) return [];
+  const byId = new Map(db.prepare('SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.rowid IN (SELECT value FROM json_each(?))').all(JSON.stringify(rowids)).map((row) => [row.rowid, row]));
+  return rowids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+/**
+ * The current line of a message id, only when the context may open it: the scope columns are read first, the text
+ * of a line the context may not open is never loaded.
+ */
+function sourceByNative(db, ctx, nativeId) {
+  const light = db.prepare(`SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.native_id = ? AND ${CURRENT}`).get(String(nativeId));
+  return light && allowed(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
+}
 
 /** The stretch around a hit: reply chain, `around` lines each side, the followed conversation. Rows, oldest first. */
 function stretchAround(db, ctx, hit, { around, followMessages, followGapMinutes }) {
   const chosen = new Map([[hit.rowid, hit]]);
   let parent = hit.reply_to;
   for (let depth = 0; parent && depth < REPLY_CHAIN_MAX; depth += 1) {
-    const found = sourceByNative(db, parent);
-    if (!found || found.place_id !== hit.place_id || !allowed(found, ctx) || chosen.has(found.rowid)) break;
+    const found = sourceByNative(db, ctx, parent);
+    if (!found || found.place_id !== hit.place_id || chosen.has(found.rowid)) break;
     chosen.set(found.rowid, found);
     parent = found.reply_to;
   }
@@ -370,7 +430,7 @@ function windowOf(rows, hitIds, read) {
   };
 }
 
-function readerOf(db, { nameOf = null, selfName = '', channelNameOf = null, exclude = null } = {}) {
+function readerOf(db, ctx, { nameOf = null, selfName = '', channelNameOf = null, exclude = null } = {}) {
   let names = null;
   let places = null;
   return {
@@ -385,7 +445,7 @@ function readerOf(db, { nameOf = null, selfName = '', channelNameOf = null, excl
     channelNameOf: (channelId, placeId) => {
       const given = typeof channelNameOf === 'function' ? channelNameOf(channelId) : null;
       if (given) return given;
-      places ??= placeNames(db);
+      places ??= placeNames(db, ctx);
       return places.get(placeId) ?? places.get(channelPlaceId(channelId)) ?? null;
     },
   };
@@ -406,14 +466,16 @@ function targetOf({ from, to }, now) {
  * @param {object} db  an opened memory database (any connection)
  * @param {{ ctx: object, plan: { forms?: string[], who?: string[], from?: number|null, to?: number|null, channelId?: string },
  *   limit?: number, now?: number, vector?: ArrayLike<number>|null, settings?: object, exclude?: Set<string>|string[],
- *   nameOf?: Function, selfName?: string, channelNameOf?: Function, allowPlace?: (placeId: string) => boolean }} input
+ *   nameOf?: Function, selfName?: string, channelNameOf?: Function, allowPlace?: (placeId: string) => boolean, model?: string|null }} input
  *   `limit`: the most windows (recall.maxClusters); `vector`: the question's embedding, none for a words-only search;
  *   `settings`: dbSettings(config); `exclude`: message ids the turn already shows; `allowPlace`: the caller's own rule
- *   for the places it may show (the pull rail of a channel), applied to every hit before anything is built.
+ *   for the places it may show (the pull rail of a channel), resolved once into the set of places the streams query (before any LIMIT or fusion);
+ *   `model`: the embedding model of `vector` (a stored vector of another model is skipped; one with no model is matched by dims).
+ *   The context may carry `asker` (a person id, or a list of them): the hidden marker is set only for a DM of one of them.
  * @returns {{ windows: object[], hits: object[], hidden: boolean, stats: object }}
  *   a hit: { id, rowid, messageId, placeId, ts, score, streams, terms, phrases, cosine }, best first.
  */
-export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now = Date.now(), vector = null, settings = null, exclude = null, nameOf = null, selfName = '', channelNameOf = null, allowPlace = null } = {}) {
+export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now = Date.now(), vector = null, settings = null, exclude = null, nameOf = null, selfName = '', channelNameOf = null, allowPlace = null, model = null } = {}) {
   whereFor(ctx); // a read without a valid context throws
   const opts = settings ?? dbSettings({});
   const { gateShare, candidates, minMeaning } = opts;
@@ -423,8 +485,10 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
     from: Number.isFinite(plan?.from) ? plan.from : null,
     to: Number.isFinite(plan?.to) ? plan.to : null,
     placeId: typeof plan?.channelId === 'string' && plan.channelId ? channelPlaceId(plan.channelId) : null,
+    // The caller's place rule runs inside every stream's query (see placesAllowed).
+    places: placesAllowed(db, ctx, allowPlace),
   };
-  const people = accountsOf(db, plan?.who);
+  const people = accountsOf(db, ctx, plan?.who);
   const terms = termsOf(stem, [...(plan?.forms ?? []), ...people.unresolved]);
   const stats = { words: 0, trigram: 0, meaning: 0, people: 0 };
   const rowsOf = new Map();
@@ -447,17 +511,11 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   let meaning = [];
   const cosine = new Map();
   if (vector && vector.length > 0) {
-    const scored = meaningRows(db, ctx, vector, scopeArgs, candidates);
+    const scored = meaningRows(db, ctx, vector, scopeArgs, candidates, model);
     const live = currentRows(db, ctx, scored.map((row) => row.source_rowid), scopeArgs);
     for (const row of scored) {
       if (row.score < minMeaning) continue;
-      let source = live.get(row.source_rowid);
-      if (!source) {
-        // The vector may sit on an older revision of the message: its newest revision stands for it.
-        const old = db.prepare('SELECT native_id FROM sources WHERE rowid = ?').get(row.source_rowid);
-        const latest = old ? sourceByNative(db, old.native_id) : null;
-        source = latest && currentRows(db, ctx, [latest.rowid], scopeArgs).get(latest.rowid);
-      }
+      const source = live.get(row.source_rowid);
       if (!source) continue;
       if (!cosine.has(source.rowid)) { cosine.set(source.rowid, row.score); meaning.push(source); }
     }
@@ -473,7 +531,7 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const lists = [words, trigram, meaning, talk].map((list) => list.map((row) => row.rowid));
   const weights = [1, 1, 1, terms.length > 0 ? PEOPLE_WEIGHT_WITH_FORMS : 1];
   const skip = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
-  const shown = (row) => !skip.has(row.native_id) && (typeof allowPlace !== 'function' || allowPlace(row.place_id));
+  const shown = (row) => !skip.has(row.native_id);
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id)));
   const target = targetOf(scopeArgs, now);
   const dated = scopeArgs.from !== null || scopeArgs.to !== null;
@@ -499,7 +557,7 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
       ? (a, b) => Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score
       : (a, b) => b.terms - a.terms || b.phrases - a.phrases || Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score);
 
-  const read = readerOf(db, { nameOf, selfName, channelNameOf, exclude: skip });
+  const read = readerOf(db, ctx, { nameOf, selfName, channelNameOf, exclude: skip });
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
   const byScore = [...hits].sort((a, b) => b.score - a.score);
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
@@ -527,17 +585,22 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ best, endTs, ...window }) => window);
 
-  const hidden = ctx.kind === 'group' && terms.length > 0 ? hiddenBetter(db, ctx, terms, scopeArgs, shown) : false;
+  const hidden = ctx.kind === 'group' && terms.length > 0 ? hiddenBetter(db, ctx, terms, scopeArgs, (row) => shown(row) && (typeof allowPlace !== 'function' || allowPlace(row.place_id)), askersOf(ctx)) : false;
   return { windows, hits, hidden, stats };
 }
 
+/** The person ids of whoever asked, from the context's optional `asker` (one id or a list). */
+const askersOf = (ctx) => (Array.isArray(ctx?.asker) ? ctx.asker : [ctx?.asker]).filter((id) => typeof id === 'string' && id);
+
 /**
- * Whether the best word match of the whole database that this context could use or not is a DM line it may not open:
- * the matches are walked best first, lines that are no business of the context (another interface's, internal ones, a
- * channel the caller refuses) skipped; the first line the context may show means no (a visible match is at least as
- * good), the first DM line it may not open means yes. A boolean: nothing of the line leaves this function.
+ * Whether the best word match of the whole database that this context may not open is a DM line of the person who
+ * asked: the matches are walked best first; a line the context may show means no (a visible match is at least as
+ * good), a line it may not open means yes only when it is a DM of this interface whose partner is one of the
+ * `askers`. Another person's DM, another interface's line, an internal row: no hint. A boolean: nothing of the line
+ * leaves this function (only ids and scope columns are read).
  */
-function hiddenBetter(db, ctx, terms, scopeArgs, shown) {
+function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
+  if (askers.length === 0) return false;
   const parts = [];
   const params = [];
   if (Number.isFinite(scopeArgs.from)) { parts.push('s.occurred_at >= ?'); params.push(iso(scopeArgs.from)); }
@@ -549,8 +612,8 @@ function hiddenBetter(db, ctx, terms, scopeArgs, shown) {
   for (const row of rows) {
     if (allowed(row, ctx)) {
       if (shown(row)) return false;
-    } else if (row.scope_kind === 'dm') {
-      return true;
+    } else {
+      return row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm);
     }
   }
   return false;
@@ -571,16 +634,20 @@ export function window(db, { ctx, anchor, move = 'up', messages = null, minutes 
   const gone = { windows: [], unknown: true, stopped: null };
   const id = String(anchor ?? '').trim();
   if (!id) return gone;
-  const row = id.startsWith('src:')
-    ? db.prepare('SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.id = ? AND s.retired_at IS NULL').get(id)
-    : sourceByNative(db, id);
-  if (!row || !allowed(row, ctx) || !row.place_id || (typeof allowPlace === 'function' && !allowPlace(row.place_id))) return gone;
+  let row = null;
+  if (id.startsWith('src:')) {
+    const light = db.prepare('SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm FROM sources s WHERE s.id = ? AND s.retired_at IS NULL').get(id);
+    row = light && allowed(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
+  } else {
+    row = sourceByNative(db, ctx, id);
+  }
+  if (!row || !row.place_id || (typeof allowPlace === 'function' && !allowPlace(row.place_id))) return gone;
   const count = Number.isInteger(messages) && messages > 0 ? messages : Number.isFinite(minutes) && minutes > 0 ? FOLLOW_READ_MAX : (settings?.windowMessages ?? WINDOW_FALLBACK);
   const span = Number.isFinite(minutes) && minutes > 0 ? minutes : null;
   const read = neighbours(db, ctx, row, move === 'down' ? 1 : -1, { count: Math.min(count, FOLLOW_READ_MAX), minutes: span });
   const rows = move === 'down' ? read.rows : [...read.rows].reverse();
   const skip = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
-  const shown = windowOf(rows, new Set(), readerOf(db, { nameOf, selfName, channelNameOf, exclude: skip }));
+  const shown = windowOf(rows, new Set(), readerOf(db, ctx, { nameOf, selfName, channelNameOf, exclude: skip }));
   return { windows: shown.messages.length > 0 ? [shown] : [], unknown: false, stopped: read.stopped };
 }
 

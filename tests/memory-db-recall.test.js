@@ -26,6 +26,7 @@ const MAIN = channelPlaceId('main');
 const OTHER = channelPlaceId('other');
 const ALICE = 'u-alice';
 const BOB = 'u-bob';
+const CAROL = 'u-carol';
 const group = groupContext();
 
 /** Filler chat that teaches the stemmer its Greek endings: twelve stems, each seen with five endings. */
@@ -54,7 +55,7 @@ function fixture() {
         VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
     },
     account(userId, names) {
-      db.prepare("INSERT INTO accounts (id, iface, native_id, person_id, names) VALUES (?, 'discord', ?, ?, ?)")
+      db.prepare("INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)")
         .run(`discord:${userId}`, userId, personId(userId), JSON.stringify(names));
     },
     /** A vector row for a source (by native id): the vector is stored as int8 the way the engine stores it. */
@@ -323,10 +324,12 @@ test('scope: a DM line is never in a group result; the group is told a better ma
     env.say({ native: 'dm1', at: NOW - DAY, text: secret, place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
     env.say({ native: 'dm2', at: NOW - DAY, text: `${secret} ξανα`, place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
     env.stem();
-    const result = run(env, ['σπιτι του δασκαλου']);
+    const asking = { ...group, asker: [personId(ALICE)] };
+    const result = run(env, ['σπιτι του δασκαλου'], {}, asking);
     assert.equal(result.hidden, true);
+    assert.equal(run(env, ['σπιτι του δασκαλου']).hidden, false, 'a context with no asker is told nothing');
     assert.deepEqual(ids(result), [], 'the phrase is only in the DM; the lone word of the group does not match the phrase');
-    const wide = run(env, ['σπιτι', 'δασκαλου']);
+    const wide = run(env, ['σπιτι', 'δασκαλου'], {}, asking);
     assert.deepEqual(ids(wide), ['g1']);
     assert.equal(wide.hidden, true);
     const dump = JSON.stringify({ windows: wide.windows, hits: wide.hits, stats: wide.stats });
@@ -475,6 +478,7 @@ function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = f
   config.bot = { ...config.bot, timezone: 'UTC' };
   config.features = { ...config.features, memoryDb, meaningSearch: meaning, recall: true };
   config.recall = { ...config.recall, backend };
+  config.models = { ...config.models, helpers: { ...config.models?.helpers, embedding: 'test/embedder' } };
   const data = {};
   const store = { state: { get data() { return data; }, markDirty() {} }, listUserProfiles: () => [] };
   const llmCalls = [];
@@ -494,7 +498,7 @@ test('recall.run with backend db: the stretches come from the database, in scope
     env.say({ native: 'r4', at: NOW - DAY, text: 'ιδιωτικο σπιτι', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
     env.stem();
     const s = runner(env);
-    const found = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    const found = await s.recaller.run({ ...s.args, candidate: { ...s.args.candidate, authorId: BOB }, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
     assert.equal(found.outcome.kind, 'searched');
     assert.deepEqual(found.quotes.map((quote) => quote.channelName), ['general']);
     assert.deepEqual(found.quotes[0].entries.map((entry) => entry.id), ['r1', 'r2']);
@@ -502,8 +506,10 @@ test('recall.run with backend db: the stretches come from the database, in scope
     assert.ok(!JSON.stringify(found).includes('κρυφο') && !JSON.stringify(found).includes('ιδιωτικο'));
     assert.deepEqual(s.rest, [], 'no request to Discord');
     assert.equal(s.llmCalls.length, 0, 'no summary');
-    // The DM line matched better than the group's: the marker, nothing else.
+    // The DM line of the asker matched better than the group's: the marker, nothing else.
     assert.equal(found.hidden, true);
+    const stranger = await s.recaller.run({ ...s.args, candidate: { ...s.args.candidate, authorId: ALICE }, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    assert.equal(stranger.hidden, false, 'the DM is another person\'s');
     // The channel she names is refused by the pull rail.
     const named = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' }, quotes: true });
     assert.equal(named.outcome.kind, 'not-visible');
@@ -651,4 +657,148 @@ test('gate: a hit holding the most distinct terms passes even under the share of
   assert.deepEqual(kept, ['a', 'b']);
   const single = passGate(visible, (e) => ({ a: 1, b: 1, c: 1, d: 0 })[e.id], 0.5).map((e) => e.id);
   assert.deepEqual(single, ['a', 'b'], 'one term is no reason to pass the gate');
+});
+
+// ---------- the place rule and the order of candidates (fix 2 of the store review) ----------
+
+/** A db whose statements are recorded with every row they return, to prove which text was ever loaded. */
+function recording(db) {
+  const rows = [];
+  const wrap = (statement) => ({
+    all: (...args) => { const out = statement.all(...args); rows.push(...out); return out; },
+    get: (...args) => { const out = statement.get(...args); if (out) rows.push(out); return out; },
+    *iterate(...args) { for (const row of statement.iterate(...args)) { rows.push(row); yield row; } },
+  });
+  return { rows, db: new Proxy(db, { get: (target, key) => (key === 'prepare' ? (sql) => wrap(target.prepare(sql)) : Reflect.get(target, key)) }) };
+}
+
+test('place rule: a refused place and a DM never crowd an allowed line out of the candidates', () => {
+  const env = fixture();
+  try {
+    for (let i = 0; i < 6; i += 1) {
+      env.say({ native: `refused-${i}`, at: NOW - DAY, text: 'σπιτι σπιτι σπιτι δασκαλου', place: channelPlaceId('secret') });
+      env.say({ native: `dm-${i}`, at: NOW - DAY, text: 'σπιτι σπιτι σπιτι δασκαλου', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
+    }
+    env.say({ native: 'open', at: NOW - 5 * DAY, text: 'ενα σπιτι', place: channelPlaceId('c1') });
+    env.stem();
+    const settings = { ...dbSettings({}), gateShare: 0, candidates: 3, wordPool: 3 };
+    const allowPlace = (placeId) => placeId !== channelPlaceId('secret') && !String(placeId).startsWith('discord:dm:');
+    const found = run(env, ['σπιτι'], { settings, allowPlace });
+    assert.deepEqual(ids(found), ['open'], 'the word stream picked among the allowed places only');
+    assert.equal(found.stats.words, 1);
+    // The meaning stream: the refused lines are closer to the question than the allowed one.
+    for (let i = 0; i < 6; i += 1) env.vector(`refused-${i}`, [1, 0, 0, 0]);
+    env.vector('open', [0.8, 0.6, 0, 0]);
+    const meaning = run(env, ['ανυπαρκτο'], { settings: { ...settings, minMeaning: 0 }, allowPlace, vector: [1, 0, 0, 0] });
+    assert.deepEqual(ids(meaning), ['open']);
+    assert.equal(meaning.stats.meaning, 1);
+    // The people stream.
+    env.account(CAROL, ['Μπομπ']);
+    for (let i = 0; i < 6; i += 1) env.say({ native: `bob-secret-${i}`, at: NOW - 60000 * i, text: `ξεχωριστο ${i}`, place: channelPlaceId('secret'), author: CAROL });
+    env.say({ native: 'bob-open', at: NOW - 40 * DAY, text: 'κατι αλλο', place: channelPlaceId('c1'), author: CAROL });
+    const talk = run(env, [], { settings, allowPlace, plan: { who: ['Μπομπ'] } });
+    assert.deepEqual(ids(talk), ['bob-open']);
+  } finally {
+    env.done();
+  }
+});
+
+test('meaning: vectors of another model, an older revision with changed text and a deleted line are not matched', () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'a', at: NOW - DAY, text: 'ενα κειμενο' });
+    env.say({ native: 'b', at: NOW - DAY, text: 'παλιο κειμενο', revision: 1 });
+    env.say({ native: 'b', at: NOW - DAY + 1000, text: 'νεο κειμενο', revision: 2 });
+    env.say({ native: 'c', at: NOW - DAY, text: 'ιδιο κειμενο', revision: 1 });
+    env.say({ native: 'c', at: NOW - DAY + 1000, text: 'ιδιο κειμενο', revision: 2 });
+    env.say({ native: 'd', at: NOW - DAY, text: 'διαγραμμενο' });
+    env.deleted('d', NOW);
+    env.stem();
+    for (const native of ['a', 'b', 'c', 'd']) env.vector(native, [1, 0, 0, 0]);
+    env.db.prepare("UPDATE vectors SET model = 'other/embedder' WHERE item_id = 'a'").run();
+    const settings = { ...dbSettings({}), gateShare: 0, minMeaning: 0 };
+    const found = run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0], model: 'test/embedder' });
+    assert.deepEqual(ids(found).sort(), ['c'], 'a: another model; b: its vector is of the old text; d: deleted');
+    const any = run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0] });
+    assert.deepEqual(ids(any).sort(), ['a', 'c'], 'no model asked: matched by dims');
+    env.db.prepare('UPDATE vectors SET model = NULL').run();
+    assert.deepEqual(ids(run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0], model: 'test/embedder' })).sort(), ['a', 'c'], 'a row with no model is taken by its dims');
+  } finally {
+    env.done();
+  }
+});
+
+test('hidden marker: only the asker\'s own DM of this interface; another person\'s DM, another interface and internal rows give none', () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'own', at: NOW - DAY, text: 'σπιτι δασκαλου μυστικο', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
+    env.say({ native: 'foreign', at: NOW - DAY, text: 'βιβλιο κοσμου μυστικο', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
+    env.say({ native: 'abroad', at: NOW - DAY, text: 'παιδι νερου μυστικο', place: 'other:dm:x', scope: dmScope(personId(ALICE), 'other') });
+    env.say({ native: 'inner', at: NOW - DAY, text: 'δρομος καιρου μυστικο', place: dmPlaceId(ALICE), scope: { scope_kind: 'internal', scope_iface: null, scope_dm: null } });
+    env.stem();
+    const asked = (forms, asker) => run(env, forms, {}, { ...group, asker }).hidden;
+    assert.equal(asked(['σπιτι δασκαλου'], [personId(ALICE)]), true);
+    assert.equal(asked(['σπιτι δασκαλου'], personId(ALICE)), true, 'one id or a list');
+    assert.equal(asked(['σπιτι δασκαλου'], [personId(BOB)]), false, 'the DM is not theirs');
+    assert.equal(asked(['σπιτι δασκαλου'], [personId(BOB), personId(ALICE)]), true, 'any of the linked persons');
+    assert.equal(asked(['βιβλιο κοσμου'], [personId(ALICE)]), false, 'another person\'s DM');
+    assert.equal(asked(['παιδι νερου'], [personId(ALICE)]), false, 'another interface\'s DM');
+    assert.equal(asked(['δρομος καιρου'], [personId(ALICE)]), false, 'an internal row');
+    assert.equal(asked(['σπιτι δασκαλου'], []), false);
+  } finally {
+    env.done();
+  }
+});
+
+test('window: the text of a line the context may not open is never loaded, at a boundary, an anchor or a reply parent', () => {
+  const env = fixture();
+  try {
+    for (let i = 1; i <= 8; i += 1) {
+      const hiddenLine = i === 4;
+      env.say({
+        native: `h${i}`, at: NOW - (9 - i) * 60000, text: hiddenLine ? 'κρυφη γραμμη ΜΥΣΤΙΚΟ' : `γραμμη ${i}`,
+        ...(hiddenLine ? { scope: dmScope(personId(ALICE)) } : {}),
+        ...(i === 5 ? { replyTo: 'h4' } : {}),
+      });
+    }
+    env.stem();
+    const seen = recording(env.db);
+    const leaked = () => JSON.stringify(seen.rows).includes('ΜΥΣΤΙΚΟ');
+    window(seen.db, { ctx: group, anchor: 'h6', move: 'up', messages: 5 });
+    window(seen.db, { ctx: group, anchor: 'h2', move: 'down', messages: 5 });
+    window(seen.db, { ctx: group, anchor: 'h4', move: 'up', messages: 2 });
+    window(seen.db, { ctx: group, anchor: messageSourceId('h4', 1, 'seen'), move: 'down', messages: 2 });
+    assert.equal(leaked(), false, 'windows');
+    search(seen.db, { ctx: group, plan: plan(['γραμμη 5']), now: NOW, settings: { ...dbSettings({}), recordContext: 3 } });
+    assert.equal(leaked(), false, 'a hit\'s stretch, its reply parent and its neighbours');
+    // Control: the partner of that DM does read it, so the recorder sees the text.
+    window(seen.db, { ctx: dmContext(personId(ALICE)), anchor: 'h6', move: 'up', messages: 5 });
+    assert.equal(leaked(), true);
+  } finally {
+    env.done();
+  }
+});
+
+test('names: an alias claim resolves only through verified accounts and only when the context may see the claim', () => {
+  const env = fixture();
+  try {
+    env.account(ALICE, ['Αλίκη']);
+    env.account(CAROL, ['Μπομπ']);
+    env.say({ native: 'a1', at: NOW - DAY, text: 'γεια απο την Αλικη', author: ALICE });
+    env.say({ native: 'b1', at: NOW - DAY, text: 'γεια απο τον Μπομπ', author: CAROL });
+    env.stem();
+    const claim = (id, text, scope, subject) => env.db.prepare(`INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm)
+      VALUES (?, 'person', ?, 'alias', ?, ?, ?, ?)`).run(id, subject, text, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+    claim('c1', 'Λικα', groupScope(), personId(ALICE));
+    claim('c2', 'Μπομπακι', dmScope(personId(ALICE)), personId(CAROL));
+    const who = (name, ctx = group) => ids(search(env.db, { ctx, plan: plan([], { who: [name] }), now: NOW }));
+    assert.deepEqual(who('Λικα'), ['a1']);
+    assert.deepEqual(who('Μπομπακι'), [], 'a claim of a DM is no alias for the group');
+    assert.deepEqual(who('Μπομπακι', dmContext(personId(ALICE))), ['b1']);
+    env.db.prepare("UPDATE accounts SET link = 'pending' WHERE id = ?").run(`discord:${ALICE}`);
+    assert.deepEqual(who('Λικα'), [], 'an unverified link resolves nothing');
+    assert.deepEqual(who('Αλίκη'), ['a1'], 'the account\'s own name still does');
+  } finally {
+    env.done();
+  }
 });
