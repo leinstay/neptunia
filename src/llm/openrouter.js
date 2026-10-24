@@ -91,6 +91,13 @@ export const ROLE_KEY_NAME = /^OPENROUTER_[A-Z0-9_]+$/;
  */
 export const ROLE_KEY_FALLBACKS = Object.freeze({ OPENROUTER_CORE_KEY: 'OPENROUTER_VOICE_KEY' });
 
+/**
+ * The roles that never go out on the main key: an unset or blank variable gives an empty key (`roleApiKey`), and a
+ * request of such a role is refused before it is sent (`complete` throws `ROLE_KEY_MISSING`). Her memory session
+ * (`memory`) spends its own key or nothing.
+ */
+export const STRICT_KEY_ROLES = Object.freeze(['memory']);
+
 // The `llm.keyByRole` entries already reported as unusable in this process (by name).
 const warnedRoleKeys = new Set();
 
@@ -110,7 +117,8 @@ const warnedRoleKeys = new Set();
  */
 export function roleApiKey(config, env, role, mainKey) {
   const map = config?.llm?.keyByRole;
-  if (typeof role !== 'string' || !role || !isPlainObject(map) || !Object.hasOwn(map, role)) return mainKey;
+  const strict = typeof role === 'string' && STRICT_KEY_ROLES.includes(role);
+  if (typeof role !== 'string' || !role || !isPlainObject(map) || !Object.hasOwn(map, role)) return strict ? '' : mainKey;
   const name = map[role];
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const value = valid && env ? env[name] : undefined;
@@ -122,7 +130,7 @@ export function roleApiKey(config, env, role, mainKey) {
     warnedRoleKeys.add(seen);
     log.warn('llm: role key missing', { role, name: valid ? name : null });
   }
-  return mainKey;
+  return strict ? '' : mainKey;
 }
 
 /**
@@ -150,7 +158,7 @@ export function roleKeyGroups(config, env, mainKey) {
   const groups = new Map();
   for (const role of Object.keys(map)) {
     const apiKey = roleApiKey(config, env, role, mainKey);
-    if (apiKey === mainKey) continue;
+    if (apiKey === mainKey || !apiKey) continue;
     if (!groups.has(apiKey)) groups.set(apiKey, []);
     groups.get(apiKey).push(role);
   }
@@ -1377,6 +1385,7 @@ export function createLlm({
 
     // The key of this request's role (`llm.keyByRole`, read now), else the main key.
     const requestKey = roleApiKey(getConfig(), env, options.role, apiKey);
+    if (!requestKey) throw Object.assign(new Error('llm: no key for this role'), { code: 'ROLE_KEY_MISSING', name: 'RoleKeyMissingError' });
     // One POST of this body, under the attempt's own signal.
     const send = (signal) => fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
       method: 'POST',

@@ -97,6 +97,11 @@ const NOT_BUILT = {
   // Split into families and drawn from line by line (src/behavior/diary.js#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.js#pickSeeds), never sent whole',
+  // Her memory session and the description review build their requests over the memory database, not from a turn:
+  // tests/memory-db-session.test.js and tests/memory-db-describe.test.js check what they load.
+  'memory-session': 'built over the memory database (src/memory/db/session.js)',
+  'description-draft': 'built over the memory database (src/memory/db/describe.js)',
+  'description-check': 'built over the memory database (src/memory/db/describe.js)',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.js), never by a bot request.
 };

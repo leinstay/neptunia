@@ -42,6 +42,16 @@ import { isPlainObject } from '../config.js';
 /** The core: the one role that speaks and decides as the persona, its model under `models.core`. */
 export const CORE_ROLE = 'core';
 
+/**
+ * Her memory session and description review (src/memory/db/session.js): words in her voice, so the role sits beside
+ * the core (`models.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
+ * Its key (`llm.keyByRole.memory`) never falls back to another key.
+ */
+export const MEMORY_ROLE = 'memory';
+
+/** The memory role's model while `models.memory` is unset: the core's built-in default, as config.json ships it. */
+export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
+
 /** The helper roles, in display order: their models under `models.helpers`. */
 export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding']);
 
@@ -80,7 +90,7 @@ export const ROLE_DEFAULTS = Object.freeze({
  * @returns {'core'|'helpers'|'agents'|undefined}
  */
 export function roleSection(role) {
-  if (role === CORE_ROLE) return 'core';
+  if (role === CORE_ROLE || role === MEMORY_ROLE) return 'core';
   if (HELPER_ROLES.includes(role)) return 'helpers';
   if (AGENT_ROLES.includes(role)) return 'agents';
   return undefined;
@@ -95,7 +105,7 @@ export function roleSection(role) {
 export function roleConfigKeys(role) {
   const section = roleSection(role);
   if (!section) return undefined;
-  return section === 'core' ? ['models', 'core'] : ['models', section, role];
+  return section === 'core' ? ['models', role] : ['models', section, role];
 }
 
 /**
@@ -164,10 +174,10 @@ export function roleModel(config, role, purpose) {
   if (!section) return undefined;
   let own;
   if (section === 'core') {
-    own = models && Object.hasOwn(models, CORE_ROLE) ? models[CORE_ROLE] : undefined;
+    own = models && Object.hasOwn(models, role) ? models[role] : undefined;
   } else {
     const map = models && Object.hasOwn(models, section) && isPlainObject(models[section]) ? models[section] : undefined;
     own = map && Object.hasOwn(map, role) ? map[role] : undefined;
   }
-  return typeof own === 'string' && own ? own : ROLE_DEFAULTS[role];
+  return typeof own === 'string' && own ? own : (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
 }

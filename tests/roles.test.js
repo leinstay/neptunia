@@ -132,7 +132,9 @@ test('roles: the built-in defaults equal config.json\'s models.core, models.help
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.equal(Object.hasOwn(shipped, 'roles'), false, 'no flat roles map');
   assert.equal(Object.hasOwn(shipped.models, 'base'), false, 'no models.base: the core and the helpers have their own keys');
-  assert.deepEqual(Object.keys(shipped.models), ['core', 'helpers', 'byPurpose', 'agents']);
+  assert.deepEqual(Object.keys(shipped.models), ['core', 'memory', 'helpers', 'byPurpose', 'agents']);
+  assert.equal(shipped.models.memory, shipped.models.core, 'her memory session starts on the core\'s model, as its own key');
+  assert.equal(roleModel({}, 'memory'), roleModel({}, 'core'), 'unset: the built-in default of the memory role is the core\'s default');
   assert.equal(typeof shipped.models.core, 'string', 'the core is one model id, not a section');
   assert.deepEqual(Object.keys(shipped.models.helpers), [...HELPER_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.agents), [...AGENT_ROLES]);

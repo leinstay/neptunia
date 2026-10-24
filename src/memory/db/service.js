@@ -16,6 +16,8 @@
 //     (export.js#exportOne) and a directory's ids come from it. A file the database does not hold, holds behind the
 //     disk, or does not map falls back to the disk read and is counted (`status().reads`).
 //   - `recordTurnReads` writes the turn_reads rows of one step (`memoryDb.turnReads`), deferred, one transaction.
+//   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
+//     the worker, so the bot's loop never holds a write transaction.
 //   - `close()` waits for a pass under way, runs a last one (the caller has flushed the store), closes the database
 //     and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the worker is
 //     terminated (a pass cut short is safe: every file is one transaction and the import takes up where it was).
@@ -39,6 +41,7 @@ import { exportOne, idsUnderDir } from './export.js';
 import { channelPlaceId, guildPlaceId } from './ids.js';
 import { memoryRootOf } from '../root.js';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
+import { applyMemoryWrite } from './session-write.js';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_SYNC_SECONDS = 60;
@@ -447,6 +450,16 @@ export function createMemoryDb({
     });
   }
 
+  /**
+   * One write of her memory session or a description review (session-write.js), on the writer connection: a message
+   * to the worker, or the calling thread's own connection when there is no worker. Rejects when the database is closed.
+   */
+  async function memoryWrite(update) {
+    if (!handle || !on() || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
+    if (engine) return engine.call('memoryWrite', { update });
+    return applyMemoryWrite(handle, update);
+  }
+
   /** The state for the status card: on/off, rows, the last pass, how far behind it is, the read switch. */
   function status() {
     const open = handle !== null;
@@ -489,5 +502,5 @@ export function createMemoryDb({
     await closeNow(Math.max(0, deadline - performance.now()));
   }
 
-  return { tick, requestSync, reader, database, recordTurnReads, status, close };
+  return { tick, requestSync, reader, database, recordTurnReads, memoryWrite, status, close };
 }

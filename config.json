@@ -87,6 +87,7 @@
   },
   "models": {
     "core": "anthropic/claude-opus-4.6",
+    "memory": "anthropic/claude-opus-4.6",
     "helpers": {
       "analyzer": "openai/gpt-6.1-sol",
       "extractor": "openai/gpt-6.1-sol",
@@ -117,7 +118,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" },
+    "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["core"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
@@ -127,7 +128,22 @@
     "closeTimeoutMs": 10000,
     "read": false,
     "turnReads": true,
-    "diaryMedia": false
+    "diaryMedia": false,
+    "session": {
+      "mode": "off",
+      "maxMessages": 200,
+      "minMessages": 5,
+      "sweepsPerDay": 4,
+      "settleMinutes": 10,
+      "since": null,
+      "maxPeople": 12,
+      "claimsPerPerson": 30,
+      "selfMax": 40,
+      "episodesMax": 20,
+      "maxOutputTokens": 4000,
+      "timeoutMs": 300000,
+      "descriptionMaxOutputTokens": 1500
+    }
   },
   "embed": {
     "dimensions": 1024,
