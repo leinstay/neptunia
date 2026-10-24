@@ -32,7 +32,9 @@
     "whenToUse": "Generate one picture. Costs money; a failed picture is still paid. English, {{drawChars}} chars max (cut at last fitting sentence). Order: who and action, setting and light, camera position and direction. Faces: direction and eye target; 'facing the viewer' for selfie or portrait. Every figure: where the limbs inside the frame are, what carries its weight; in a side view, the far limb shows behind the near one. Name contacts the action needs. Camera: side for face plus action toward a target, three-quarters behind for depth; avoid target side (becomes viewer-facing). Keep the camera in profile, not turning the figure for the viewer at the cost of the action. Equipment: type and one layout fact. Ask about place if none obvious; clothes, expression, pose, time you decide. Generic people are not you. Fresh scene; restate setting when continuing.",
     "args": {
       "text": "English, {{drawChars}} chars max.",
-      "self": "True when you appear. Omit appearance. Think first: where, time, clothes, camera, direction (or facing viewer), expression as features not mood (several, pick one new), pose, action. Write all into the scene."
+      "self": "True when you appear. Omit appearance. Think first: where, time, clothes, camera, direction (or facing viewer), expression as features not mood (several, pick one new), pose, action. Write all into the scene.",
+      "channel": "Target #handle.",
+      "reply": "#N or link to reply to."
     }
   },
   "pings.get": {
@@ -176,7 +178,8 @@
     "args": {
       "section": "summary, character, style, relationship, affinity, aliases, interests, details, episodes, raw.",
       "limit": "Items shown (default 25, max 100).",
-      "order": "rank (weight) or recent."
+      "order": "rank (weight) or recent.",
+      "user": "@handle or name."
     }
   },
   "memory.channel.read": {
@@ -213,7 +216,10 @@
   },
   "memory.affinity.read": {
     "title": "Read attitude",
-    "whenToUse": "Attitude toward a member."
+    "whenToUse": "Attitude toward a member.",
+    "args": {
+      "user": "@handle or name."
+    }
   },
   "memory.wipe": {
     "title": "Wipe all memory",
@@ -372,7 +378,8 @@
     "args": {
       "message": "#N to look at.",
       "url": "A video link from a supported site, instead of a message.",
-      "item": "Which attachment of the message (1 to 20)."
+      "item": "Which attachment of the message (1 to 20).",
+      "question": "What to look for."
     }
   },
   "media.find": {
