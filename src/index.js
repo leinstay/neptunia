@@ -727,13 +727,24 @@ function every(ms, fn, label) {
  * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
  * full days. Skipped while paused (the owner may be editing data/) and while the warmup runs.
  */
+/** How often the affinity decay sweeps. */
+const AFFINITY_SWEEP_MS = 3_600_000;
+
 function sweepAffinityDecay() {
   const guildId = instance.guildId;
   const config = hot.config;
   if (!guildId || config.features?.relationships === false) return;
   if (store.state.data.paused || isWarmingUp()) return;
-  const counts = store.decayAffinities(guildId, Date.now(), config.relationships ?? {});
-  if (counts.decayed > 0) log.info('index: affinity decay applied', counts);
+  // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
+  // (kept in the state file) is downtime, and all of it but one sweep's hour is skipped.
+  const now = Date.now();
+  const last = Date.parse(store.state.data.affinityDecaySweptAt ?? '');
+  const gap = Number.isFinite(last) ? now - last : 0;
+  const skipMs = gap > 2 * AFFINITY_SWEEP_MS ? gap - AFFINITY_SWEEP_MS : 0;
+  const counts = store.decayAffinities(guildId, now, { ...(config.relationships ?? {}), skipMs });
+  store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
+  store.state.markDirty();
+  if (counts.decayed > 0 || skipMs > 0) log.info('index: affinity decay applied', { ...counts, skippedHours: Math.round(skipMs / 3_600_000) });
 }
 
 /**
@@ -896,7 +907,7 @@ client.once(Events.ClientReady, async () => {
   // scheduler looks every memory.notesCheckMinutes itself; the minute tick only gives it the chance.
   const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
   every(60_000, () => notes.tick(), 'notes.tick');
-  every(3_600_000, sweepAffinityDecay, 'affinity decay');
+  every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
   // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
   // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
