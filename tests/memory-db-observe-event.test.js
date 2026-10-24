@@ -326,3 +326,27 @@ test('service: observe goes through the writer only with memoryDb.observeLive; a
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('service: an observation that comes before the database opens is written once it opens; one just before a shutdown lands before it closes', async () => {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-8a-queue-'));
+  const data = path.join(root, 'data');
+  fs.mkdirSync(data);
+  buildDataDir(data);
+  const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, observeLive: true } } };
+  const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
+  const envelopeOf = (raw) => observationOf(eventOf(raw), { selfId: SELF });
+  try {
+    // the start's catch-up runs before the database opens
+    assert.equal(service.observe(envelopeOf(message({ id: 'm-early', content: 'early', at: T0 }))), null, 'queued, not written yet');
+    await service.tick();
+    // a line that arrives while the bot is stopping
+    service.observe(envelopeOf(message({ id: 'm-late', content: 'late', at: T0 + 1000 })));
+    await service.close();
+    const reader = openMemoryDb(path.join(data, 'memory.db'), { readOnly: true });
+    try {
+      assert.deepEqual(reader.db.prepare("SELECT native_id FROM sources WHERE native_id IN ('m-early', 'm-late') ORDER BY native_id").all().map((row) => row.native_id), ['m-early', 'm-late']);
+    } finally { reader.close(); }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
