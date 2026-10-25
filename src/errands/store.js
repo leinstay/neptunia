@@ -51,6 +51,11 @@ export const REQUESTER_KINDS = Object.freeze(['owner', 'member', 'persona']);
 export const DEFAULT_MAX_OPEN = 3;
 /** The finished tasks tasks.json keeps besides the open ones (tasks.jsonl keeps every transition). */
 export const KEEP_FINISHED = 50;
+/**
+ * Agents that no longer exist: the drawing agent was removed on 2026-10-25 (drawing is a core ability), but
+ * production task lists still hold its pictures as records. Load drops them.
+ */
+export const RETIRED_AGENTS = Object.freeze(['drawing']);
 /** The prefix of a task file handle. */
 export const FILE_HANDLE_PREFIX = 'file:';
 
@@ -107,10 +112,10 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
       raw = found.found ? found.value : null;
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
-    // A record of an agent that has no profile any more (the retired drawing agent's pictures) is dropped once, here.
-    const known = tasks.filter((task) => profileOf(task.agent));
+    // Records of a retired agent are dropped once, here.
+    const known = tasks.filter((task) => !RETIRED_AGENTS.includes(task.agent));
     if (known.length < tasks.length) {
-      log.info('errands: tasks of unknown agents dropped at load', { guildId: String(guildId), count: tasks.length - known.length });
+      log.info('errands: tasks of retired agents dropped at load', { guildId: String(guildId), count: tasks.length - known.length });
       tasks.splice(0, tasks.length, ...known);
     }
     for (const task of tasks) {

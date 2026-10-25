@@ -361,7 +361,7 @@ test('task store: the persona\'s call keeps its turn and its brief as written; t
   });
 });
 
-test('task store: a stored record of an agent with no profile is dropped once at load, the others stay', async () => {
+test('task store: a stored record of a retired agent is dropped once at load, the others stay', async () => {
   const dataDir = tempDataDir();
   const record = (id, agent) => ({ id, agent, goal: 'g', requester: { userId: null, kind: 'persona' }, origin: {}, scope: 'group', state: 'done', createdAt: T0, startedAt: T0, endedAt: T0, usage: null, result: null, error: null, seen: true, readAt: T0, resolvedAt: null });
   fs.mkdirSync(path.join(dataDir, 'guilds', 'g1'), { recursive: true });
@@ -372,7 +372,7 @@ test('task store: a stored record of an agent with no profile is dropped once at
     assert.equal(result.get('scout-1').agent, 'scout');
     assert.equal(result.get('pic-1'), null);
     assert.equal(result.get('pic-2'), null);
-    const dropped = logs.filter((entry) => entry.msg === 'errands: tasks of unknown agents dropped at load');
+    const dropped = logs.filter((entry) => entry.msg === 'errands: tasks of retired agents dropped at load');
     assert.equal(dropped.length, 1);
     assert.equal(dropped[0].count, 2);
   } finally {
