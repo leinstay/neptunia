@@ -542,14 +542,6 @@
       "attend": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
       "feedback": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
       "heartbeat": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null }
-    },
-    "memory": {
-      "enabled": true,
-      "thinkChars": 1200,
-      "resultChars": 1500,
-      "maxFindings": 5,
-      "maxSources": 10,
-      "skills": ["web.search", "web.read", "memory.search", "task.status", "task.list"]
     }
   },
   "appendStore": {

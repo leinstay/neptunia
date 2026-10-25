@@ -1,6 +1,6 @@
 // The environment every operation runs against: the dependencies src/admin.js#createAdmin is
 // given (see its JSDoc for each one) and the helpers several operations share -- the slash
-// wording of a pointer to another command, the paused / no-guild / warmup refusals, the token
+// wording of a pointer to another command, the paused / no-guild refusals, the token
 // resolver of analyzer text, the journal's system records and the config.local.json
 // writers (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
@@ -28,7 +28,6 @@ export function createOpsEnv({
   spontaneous,
   calibrator,
   getGuildId,
-  isWarmingUp = () => false,
   turns,
   pending,
   images,
@@ -85,19 +84,11 @@ export function createOpsEnv({
     return `paused -- run ${slash('resume')} first`;
   }
 
-  /** The one wording of "a warmup is running", for a refused command and a skipped job alike.
-   * The warmup has no command of its own (tools/warmup.mjs runs it with the bot stopped); one in
-   * the bot never starts or resumes a run, so this fires only where tools/warmup.mjs runs one. */
-  function warmupBusyText() {
-    return 'a warmup is running: wait for it to finish (the log follows it)';
-  }
-
   /** A background job's skip reason as the owner reads it: the job's own `skips` first, then the
-   * reasons every job shares (paused, a warmup running, no guild), else `fallback`. */
+   * reasons every job shares (paused, no guild), else `fallback`. */
   function skipText(skips, reason, fallback) {
     if (Object.hasOwn(skips, String(reason))) return skips[reason];
     if (reason === 'paused') return pausedText();
-    if (reason === 'warmup') return warmupBusyText();
     if (reason === 'no-guild') return NO_GUILD;
     return fallback;
   }
@@ -212,7 +203,6 @@ export function createOpsEnv({
     spontaneous,
     calibrator,
     getGuildId,
-    isWarmingUp,
     turns,
     pending,
     images,
@@ -255,7 +245,6 @@ export function createOpsEnv({
     connection,
     slash,
     pausedText,
-    warmupBusyText,
     skipText,
     assertNotPaused,
     freshenIfPaused,

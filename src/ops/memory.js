@@ -325,8 +325,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/memory-sim.mjs,
-   * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
+   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
    * Owner-only (src/ops/grants.js). Nothing under `data/` is changed but the new directory.
    */

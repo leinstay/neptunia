@@ -307,8 +307,8 @@ function mediaTags(message, labels, context = {}) {
     const description = labels.transcript.stickerDescribed
       ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? null)
       : null;
-    // The slim memory buffer keeps no `url` (see src/memory/update.js
-    // `observe()`) -- rebuild it from id/format when absent, so a memory
+    // A slim message keeps no `url` (see src/memory/update.js#slimMessage)
+    // -- rebuild it from id/format when absent, so a memory
     // transcript tells a picture-format sticker from a Lottie one exactly
     // like a live chat transcript does.
     const url = sticker.url ?? stickerUrl(sticker.id, sticker.format);

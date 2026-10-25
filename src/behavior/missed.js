@@ -23,7 +23,7 @@
 // `unchecked`, never owed. With `features.missedRecovery` exactly true the owed ones of a channel
 // get one ordinary reply turn together (trigger kind `missed`, the earliest as its trigger, all
 // named under `labels.task.missed`), one attempt per candidate, at most one such turn per channel
-// every `missed.channelCooldownMinutes`, never while paused or warming up, and the turn posts
+// every `missed.channelCooldownMinutes`, never while paused, and the turn posts
 // nothing when the persona spoke in that channel since it started (`stillDue`). Off (the
 // default), the sweep only classifies and journals: shadow mode. `features.missedAnswers` (a
 // missing key counts as on) switches the whole registry off.
@@ -485,7 +485,6 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
  * @param {object} deps.client  discord.js client: `user.id`, `channels.cache` / `channels.fetch`.
  * @param {() => string|null} deps.getGuildId
  * @param {(guildId: string) => string} [deps.getSelfName]
- * @param {() => boolean} [deps.isWarmingUp]
  * @param {string} deps.dataDir  `data/`.
  * @param {object} [deps.fs]  node:fs/promises-shaped.
  * @param {() => number} [deps.now]
@@ -508,7 +507,6 @@ export function createMissed({
   client,
   getGuildId,
   getSelfName = () => client?.user?.username ?? 'bot',
-  isWarmingUp = () => false,
   dataDir,
   fs = nodeFs,
   now = Date.now,
@@ -850,12 +848,12 @@ export function createMissed({
   /**
    * One channel's sweep (the timer's, or a test's): the code's filter (sweepPlan), the helper
    * for what is left, then a recovery turn for the owed ones (features.missedRecovery) or, in
-   * shadow mode, nothing posted. Skipped while paused or warming up.
+   * shadow mode, nothing posted. Skipped while paused.
    */
   async function sweep(channelId) {
     if (!enabled()) return;
-    if (paused() || isWarmingUp()) {
-      log.info('missed: sweep skipped', { channelId, reason: paused() ? 'paused' : 'warmup' });
+    if (paused()) {
+      log.info('missed: sweep skipped', { channelId, reason: 'paused' });
       return;
     }
     if (sweeping.has(channelId)) {
@@ -941,7 +939,7 @@ export function createMissed({
     const channelId = channel.id;
     const config = hot.config;
     const settings = missedSettings(config);
-    if (paused() || isWarmingUp()) return;
+    if (paused()) return;
     const list = [...owed].sort((a, b) => a.at - b.at);
     if (!canSend(channel)) {
       finishRecovery(channelId, list, { outcome: 'cannot-send' }, null);

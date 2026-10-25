@@ -27,7 +27,7 @@ import { sortByRank } from './ranking.js';
 /**
  * The library options from `gifs`, read by the caller at the moment of use: `storeMax` (300)
  * and `halfLifeDays` (30), config.json's values when a key is missing. Shared by the
- * analyzer (src/memory/update.js, recording on arrival) and the history backfill.
+ * live observer (src/memory/update.js, recording on arrival) and the history backfill.
  * @param {object} config  Live config.
  * @returns {{ storeMax: number, halfLifeDays: number }}
  */

@@ -1,5 +1,5 @@
 // Where a line of the persona's came from, for the injection guard of her intentions
-// (docs/intentions.md "Where a candidate's words came from"). A goal planted in a web page, a
+// (docs/inner-life.md). A goal planted in a web page, a
 // memory result or a tool's output can reach her own words -- she quotes or paraphrases it in a
 // line of hers -- and then the analyzer's quote check (src/intentions/model.js#candidatesFromAnswer)
 // passes, because nobody else's line holds those words. So each line she posts is noted with what
@@ -14,10 +14,10 @@
 //   A candidate whose quoted span or purpose shares one is `external`.
 // - `inner` and `chainId`: the line came from an inner turn of that causal chain.
 //
-// `externalOrigin` judges a candidate against its anchor line. A line of her inner-turn memory
-// episode (src/memory/inner-episode.js, `line.inner`) is what her reads returned, so it is always
-// outside material. Pure, except the small in-process registry (`createLineSources`) that holds the
-// notes from her post until the memory buffer takes the line (src/memory/update.js#observe).
+// `externalOrigin` judges a candidate against its anchor line. A line marked `line.inner` (what
+// her reads returned in an inner turn) is always outside material. Pure, except the small
+// in-process registry (`createLineSources`) that holds the notes from her post for the candidates
+// judged against it (src/intentions/service.js#addCandidates).
 
 /** Words per shingle. */
 export const SHINGLE_WORDS = 3;
@@ -105,7 +105,7 @@ export function lineSourcesOf({ text, external = [], read = false, turnId = null
 /**
  * Why candidate `candidate` (`{ span, purpose }`) is not hers alone, judged on its anchor line
  * `line` (a buffered line of hers) and that line's note `sources` (lineSourcesOf's, or null when
- * none is known): `inner-finding` (a line of her inner-turn memory episode), `read` (her turn read
+ * none is known): `inner-finding` (a line marked `inner`), `read` (her turn read
  * outside material first), `overlap` (its span or purpose shares a shingle with outside text of
  * her turn), `unknown` (no note while `strict`: the turn that wrote the line is not known). Null
  * when it is her own. Pure.

@@ -151,7 +151,7 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   }
 });
 
-test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skill group, no talk)', () => {
+test('buildCommandTree: the exact top-level list (18 entries, no skill group, no talk)', () => {
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
@@ -241,7 +241,6 @@ test('commandKeys: every group and every leaf command key, derived from the tree
   assert.ok(groups.has('rule'));
   assert.ok(groups.has('lore'));
   assert.ok(groups.has('model'));
-  assert.ok(!groups.has('warmup'), 'the warmup is tools/warmup.mjs, not a command');
   assert.ok(groups.has('access'));
   assert.ok(groups.has('alias'));
   assert.ok(groups.has('learning'));

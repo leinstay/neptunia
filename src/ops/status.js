@@ -129,14 +129,14 @@ export function innerLines(s, labels, { tokens = null } = {}) {
 
 /**
  * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
- * `unavailable` (the database not open), else `syncOff` with `{rows}` and `{files}` (the units it holds). Null when
+ * `unavailable` (the database not open), else `ok` with `{rows}` and `{files}` (the units it holds). Null when
  * the label is missing or blank.
  */
 export function memoryDbStatusLine(s, labels) {
   const L = labels?.status?.memoryDb;
   if (!isPlainObject(L) || !isPlainObject(s)) return null;
   if (!s.open) return labelLine(L.unavailable, {});
-  return labelLine(L.syncOff, { rows: s.rows ?? 0, files: s.files ?? 0 });
+  return labelLine(L.ok, { rows: s.rows ?? 0, files: s.files ?? 0 });
 }
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */

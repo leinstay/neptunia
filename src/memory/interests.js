@@ -3,9 +3,8 @@
 // (add/update/seen/remove) instead of a prose blob rewritten batch after
 // batch -- see docs/prompt-contract.md ("Interests are atomic items",
 // "Confirmation (the "(?)" mechanism)" and "Dates come from the messages", in
-// "The analyzer") and src/memory/update.js#applyMemoryUpdate, which routes
-// the model's `users.<id>.interests` through this module via
-// src/memory/store.js#applyProfileOps. `normalizeInterests` validates
+// "The analyzer"); src/memory/store.js#applyProfileOps routes a member's
+// interest ops through this module. `normalizeInterests` validates
 // whatever a profile's `interests` field currently holds on disk.
 //
 // Confirmation: `weight` counts the separate OCCASIONS a topic was observed,
@@ -20,8 +19,7 @@
 // EXISTING item changes nothing at all, not even the note or the dates.
 // `firstSeen`/`lastSeen` are min/max'd against `opts.seenAt` (the time of the
 // person's message, not the wall clock the analyzer happened to run at), so
-// history fed out of order (the memory warmup, src/memory/warmup.js) still ends up with
-// correct dates.
+// history fed out of order still ends up with correct dates.
 
 import { topByRank } from './ranking.js';
 import { clampText, stripUrls } from './clamp.js';

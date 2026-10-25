@@ -1,5 +1,5 @@
 // Operations: `/nep task intent action:add|update|cancel|list` -- the persona's intentions
-// (src/intentions/, docs/intentions.md): `intent.set` (a new one of hers, `pending`; its purpose
+// (src/intentions/, docs/inner-life.md): `intent.set` (a new one of hers, `pending`; its purpose
 // the body of her call), `intent.update` (accept a candidate with `state:pending`, close one with
 // `state:done`, drop it with `state:dropped` and a `reason:` (a desire she considered and let go; also
 // `intent.set state:dropped reason:...` records one born dropped), edit its purpose, due time, expiry, destination, chain or completion condition, or

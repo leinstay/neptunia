@@ -35,7 +35,7 @@ const DEFAULT_MAX_REQUEST_TOKENS = 50000;
  * Thrown by `fitSections` when the sections marked `required` alone already
  * exceed `limit` — i.e. the request cannot be built at all, not even by
  * trimming. A dedicated class (rather than matching the message text) lets a
- * caller — src/memory/update.js#analyze — reliably tell this apart from a
+ * caller reliably tell this apart from a
  * generic build/provider error and classify it as the same 'token-limit'
  * reason as a `TokenLimitError` from src/llm/openrouter.js.
  */
@@ -58,7 +58,7 @@ export function safetyMarginOf(config) {
  * `fitSections` accepts.
  * @param {object} config  The live config; `config.llm` may be missing.
  * @param {number} [maxRequestTokens]  The token cap to use instead of `config.llm.maxRequestTokens`
- *   (the warmup has its own).
+ *   (a caller with a cap of its own).
  * @returns {number}  A finite integer >= 0.
  */
 export function requestTokenLimit(config, maxRequestTokens = config?.llm?.maxRequestTokens) {

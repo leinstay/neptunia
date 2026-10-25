@@ -52,7 +52,7 @@
 // after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
 // `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
 // at run time (src/agent-runner/opencode.js), not in this config, because
-// v1.19.3 has no websearch config key. Keep in sync with docs/agents.md.
+// v1.19.3 has no websearch config key. Keep in sync with docs/errands.md.
 
 import fs from 'node:fs';
 import path from 'node:path';

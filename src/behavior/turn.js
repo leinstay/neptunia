@@ -1705,10 +1705,6 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `getSelfName` (src/index.js) is the persona's display name in a guild;
  * default: the client's cached guild member, else the bot user's name.
  *
- * `isWarmingUp` (src/memory/warmup.js, wired in src/index.js; default: never)
- * ends a chain of parts before its next part (runChain): a warmup mutes the
- * persona, as a pause does.
- *
  * A call whose text passes the splitter's pre-filter (src/behavior/split.js)
  * asks the splitter (prompts/split.md) beside the turn's preparation, under
  * its deadline. `one`, a late, failed or unparsable answer, a missing prompt
@@ -1859,7 +1855,6 @@ export function createTurnRunner({
   routeChannels,
   now: clock = Date.now,
   schedule = scheduleTimer,
-  isWarmingUp = () => false,
   activity = null,
   journal = null,
   record = null,
@@ -2270,10 +2265,6 @@ export function createTurnRunner({
       const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
       (draft.innerActions ??= []).push({ skill, status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused', result: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' ? callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) : {}), target: callTarget(plan.resolved?.args ?? {}), ...(named ? { intentionId: named } : {}), ...(skill === 'intent.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string' ? { createdId: result.intentionId } : {}), ...(typeof state === 'string' && state ? { state } : {}) });
       if (named) (draft.innerIntentIds ??= new Set()).add(named);
-      // What a read of hers found, for the memory episode of the turn (src/memory/inner-episode.js).
-      if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
-        (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
-      }
       // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
       if (innerGate?.proposed) {
         log.info('skills: proposed', { channel: channel.id, skill, shadow: true });
@@ -5694,8 +5685,8 @@ export function createTurnRunner({
    *   once per turn). The last step still runs one terminal action call of hers (a post, an
    *   intention change). The steps of an inner turn run under `innerLife.loop`
    *   (loopSettings with `inner`), not `skills.loop`. The result carries `inner: { actions, intentIds, loop,
-   *   openFollowUp?, turnId, episode }` (`openFollowUp: true` when that
-   *   step was made; `shadow: true` in shadow mode; `episode`: innerEpisodeOf's, for her memory). A
+   *   openFollowUp?, turnId }` (`openFollowUp: true` when that
+   *   step was made; `shadow: true` in shadow mode). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
    *   overheard line).
@@ -5883,14 +5874,9 @@ export function createTurnRunner({
       .catch((err) => log.warn('turn: onTurnEnd failed', { error: err }));
   }
 
-  /** Why a chain ends before its next part: `paused` (/nep pause), `warmup` (a warmup run), or null. */
+  /** Why a chain ends before its next part: `paused` (/nep pause), or null. */
   function chainStop() {
-    if (store.state.data.paused) return 'paused';
-    try {
-      return isWarmingUp() ? 'warmup' : null;
-    } catch {
-      return null;
-    }
+    return store.state.data.paused ? 'paused' : null;
   }
 
   /**
@@ -5907,7 +5893,7 @@ export function createTurnRunner({
    * does not stop the next. The attention stays the chain's from the
    * whole message's turn to the end -- nothing else starts in between
    * (pending calls keep queueing) -- and the idle notifications fire once, at
-   * the end. A pause or a warmup ends the chain before its next part (`turn:
+   * the end. A pause ends the chain before its next part (`turn:
    * chain stopped`). While it runs, the parts not started yet are the
    * author's waiting items (waitingParts); a later message of the author
    * folded into one of them (addToPart) reaches that part's request as
@@ -6030,50 +6016,8 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], loop: draft.innerLoop ?? { ...NO_LOOP }, ...(untoldDiagnostics(draft).length > 0 ? { diagnostics: untoldDiagnostics(draft) } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], loop: draft.innerLoop ?? { ...NO_LOOP }, ...(untoldDiagnostics(draft).length > 0 ? { diagnostics: untoldDiagnostics(draft) } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
-  }
-
-  /**
-   * What an inner turn (`args.inner`) did and found, for her memory (src/memory/inner-episode.js,
-   * src/memory/update.js#observeInner): her thinks, what her reads found (`draft.innerFindings`:
-   * skill, arguments, result text), her other calls with how each went, where it happened and
-   * whether it was shadow. Null when the turn found nothing and has nothing to answer for (no
-   * read found anything, no call other than a read, every call ended ok,
-   * no loop cut: the scheduler's feedback facts ride this episode, src/behavior/inner.js),
-   * or for a private chat whose partner is unknown (a private finding never goes to the server's
-   * memory). No wording here.
-   */
-  function innerEpisodeOf(args, draft, turnId) {
-    const findings = Array.isArray(draft.innerFindings) ? draft.innerFindings : [];
-    const channel = args.channel;
-    if (!args.inner || !channel) return null;
-    const registry = skills ?? defaultSkills();
-    const accountable = (draft.innerActions ?? []).some((action) => action.status !== 'executed' || action.result !== 'ok' || registry.get(action.skill)?.effects !== 'read');
-    if (findings.length === 0 && !accountable && !draft.loopCut) return null;
-    const privateChat = !channel.guild;
-    const privateUserId = privateChat ? (draft.privateUserId ?? channel.recipientId ?? null) : null;
-    if (privateChat && !privateUserId) return null;
-    const guildId = args.guildId ?? channel.guild?.id ?? null;
-    let selfName = null;
-    try {
-      selfName = guildId ? getSelfName(guildId) : null;
-    } catch {
-      selfName = null;
-    }
-    return {
-      turnId: turnId ?? null,
-      at: clock(),
-      shadow: args.inner.shadow === true,
-      channelId: String(channel.id),
-      channelName: typeof channel.name === 'string' ? channel.name : null,
-      privateUserId: privateUserId ? String(privateUserId) : null,
-      selfId: client?.user?.id ?? null,
-      selfName,
-      thinks: Array.isArray(draft.innerThinks) ? [...draft.innerThinks] : [],
-      findings: findings.map((finding) => ({ ...finding })),
-      actions: (draft.innerActions ?? []).filter((action) => registry.get(action.skill)?.effects !== 'read').map((action) => ({ skill: action.skill, status: action.status, ...(action.delivery ? { delivery: true } : {}) })),
-    };
   }
 
   /** runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord). */
@@ -7263,8 +7207,6 @@ export function createTurnRunner({
         const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
         noteDiagnostics(draft, shaped, answered);
         noteThink(draft, shaped);
-        // An inner turn keeps each step's think for its memory episode.
-        if (draft.inner && shaped.think) (draft.innerThinks ??= []).push(shaped.think);
         shaped.gif = resolveGif(guildId, shaped.gif, channel.id, draft.limits);
         // Counted, never refused: the answer is acted on all the same.
         if (thinkMissing(split.rawText)) {
@@ -7283,7 +7225,6 @@ export function createTurnRunner({
         draft.think = parsed.think;
         draft.usage = journalUsage(completion);
       }
-      if (draft.inner && parsed.think) draft.innerThinks = [parsed.think];
       const thinkField = journalOn() ? { thinkChars: Array.from(parsed.think ?? '').length } : { think: parsed.think };
 
       log.info('turn: model answered', {

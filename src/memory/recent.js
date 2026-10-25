@@ -1,7 +1,6 @@
 // The recent store, pure: short dated lines about the last few days that fit
 // no long-term kind of memory (an episode, lore, a self fact, a lesson) yet
-// matter for the next days. The analyzer writes them (src/memory/update.js);
-// src/memory/store.js keeps them in data/guilds/<id>/recent.json and runs every
+// matter for the next days. src/memory/store.js keeps them in data/guilds/<id>/recent.json and runs every
 // write through `mergeRecent`. The clock is passed in (`now`); only a missing
 // one falls back to the wall clock.
 //
@@ -35,8 +34,8 @@
 // the same window, read from the profiles by reference and never copied here.
 // It only ranks; the request builder renders, caps and re-orders by time. A
 // stored moment has no time of its own, only its `date` (the day the model
-// wrote, in the server's zone) and `addedAt` (when the analyzer stored it, or
-// the last sampled message for the warmup): both have to fall in the window
+// wrote, in the server's zone) and `addedAt` (when the analyzer stored it):
+// both have to fall in the window
 // (see `momentAt`).
 
 import { isPlainObject } from '../config.js';
@@ -400,8 +399,7 @@ export function episodeKey(profileId, ep) {
  *     `clock`. Every moment stored by src/memory/episodes.js#mergeEpisodes
  *     carries one: the analyzer's clock at the batch, a little after the
  *     moment, so a moment leaves the window by its time, not by its calendar
- *     day. The date still has to qualify: the warmup stamps old moments with a
- *     recent `addedAt` (the member's last sampled message).
+ *     day. The date has to qualify as well.
  * A moment without a parsable `addedAt` (written before the field existed, or by
  * hand) is judged by its date alone.
  */
@@ -419,8 +417,7 @@ function momentAt(ep, cutoff, clock) {
  * An id (a member's, a profile's, a channel's, a message's) as a string: a
  * finite number as its decimal form, a non-empty string as it is, anything
  * else null. The one copy for the recent view, the request builder
- * (src/behavior/prompt.js) and src/behavior/elsewhere.js (which cannot be its
- * home: it imports src/memory/update.js, which imports this module).
+ * (src/behavior/prompt.js) and src/behavior/elsewhere.js.
  * @param {unknown} raw
  * @returns {string|null}
  */

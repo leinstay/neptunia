@@ -1,4 +1,4 @@
-// The persona's intentions as data (docs/intentions.md): what she means to do later, set by her
+// The persona's intentions as data (docs/inner-life.md): what she means to do later, set by her
 // own call (`intent.set`, provenance `self`, born `pending`) or proposed by the memory analyzer
 // from one of her own lines (provenance `candidate`, born `proposed`, never active until she
 // accepts it). Pure: every function takes the record and the clock (`now`, epoch ms) and answers

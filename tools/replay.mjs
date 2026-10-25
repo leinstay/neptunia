@@ -1967,7 +1967,6 @@ export function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, gui
     emoji: mods.createEmojiIndex(client, () => guildId),
     getSelfName: () => self.name,
     routeChannels: mods.createChannelRouter({ hot, store, llm, discord: capabilities }),
-    isWarmingUp: () => false,
     activity: null,
     ...(port ? { port } : {}),
     ...(rng ? { rng } : {}),

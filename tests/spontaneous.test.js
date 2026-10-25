@@ -484,9 +484,8 @@ test('onMessage: eavesdrops when spontaneous and eavesdrop are both on (missing 
   assert.equal(calls, 1);
 });
 
-test('onMessage: the eavesdrop timer re-checks warmup, both switches and active hours when it fires', async () => {
+test('onMessage: the eavesdrop timer re-checks both switches and active hours when it fires', async () => {
   const cases = [
-    ['warmup', (ctx) => { ctx.warming = true; }],
     ['eavesdrop off', (ctx) => { ctx.config.features.eavesdrop = false; }],
     ['spontaneous off', (ctx) => { ctx.config.features.spontaneous = false; }],
     ['outside active hours', (ctx) => { ctx.time = Date.UTC(2026, 0, 5, 5, 0, 0); }],
@@ -495,7 +494,7 @@ test('onMessage: the eavesdrop timer re-checks warmup, both switches and active 
     const channel = fakeChannel('c1', fakeGuild('g1'));
     let calls = 0;
     const turns = fakeTurns({ runTurn: async () => { calls += 1; return { outcome: 'spoke' }; } });
-    const ctx = { warming: false, time: Date.UTC(2026, 0, 5, 12, 0, 0), config: eagerEavesdropConfig({}) };
+    const ctx = { time: Date.UTC(2026, 0, 5, 12, 0, 0), config: eagerEavesdropConfig({}) };
     const spontaneous = createSpontaneous({
       discord: DISCORD,
       hot: { config: ctx.config },
@@ -503,7 +502,6 @@ test('onMessage: the eavesdrop timer re-checks warmup, both switches and active 
       client: {},
       turns,
       getGuildId: () => 'g1',
-      isWarmingUp: () => ctx.warming,
       rng: () => 0,
       now: () => ctx.time,
     });
@@ -933,64 +931,6 @@ test('onMessage (eavesdrop): does not schedule while busy elsewhere and oneAtATi
   await flushTimers();
 
   assert.equal(calls, 0);
-});
-
-// ---------------------------------------------------------------------------
-// isWarmingUp -- the mute hook the memory warmup runner
-// (src/memory/warmup.js) uses. Same shape as the paused tests above.
-
-test('tick: does nothing while isWarmingUp() is true, not even the first-schedule write', async () => {
-  const guild = fakeGuild('g1');
-  const channel = fakeChannel('c1', guild);
-  guild.channels.cache.set(channel.id, channel);
-  const client = { guilds: { cache: new Map([[guild.id, guild]]) } };
-  const store = fakeStore();
-  let calls = 0;
-  const turns = fakeTurns({ runTurn: async () => { calls += 1; return { outcome: 'spoke' }; } });
-
-  const spontaneous = createSpontaneous({
-    discord: DISCORD,
-    hot: { config: baseConfig() },
-    store,
-    client,
-    turns,
-    getGuildId: () => 'g1',
-    isWarmingUp: () => true,
-    rng: () => 0.1,
-    now: () => Date.UTC(2026, 0, 5, 12, 0, 0),
-  });
-  await spontaneous.tick();
-
-  assert.equal(calls, 0);
-  assert.equal(store.state.data.spontaneous, undefined, 'must not even set up the schedule while warming up');
-  assert.equal(store.dirtyCalls, 0);
-});
-
-test('tick: does nothing while a run was already due, when isWarmingUp() is true', async () => {
-  const guild = fakeGuild('g1');
-  const channel = fakeChannel('c1', guild);
-  guild.channels.cache.set(channel.id, channel);
-  const client = { guilds: { cache: new Map([[guild.id, guild]]) } };
-  const t = Date.UTC(2026, 0, 5, 12, 0, 0);
-  const store = fakeStore({ spontaneous: { g1: t } }); // already due
-  let calls = 0;
-  const turns = fakeTurns({ runTurn: async () => { calls += 1; return { outcome: 'spoke' }; } });
-
-  const spontaneous = createSpontaneous({
-    discord: DISCORD,
-    hot: { config: baseConfig() },
-    store,
-    client,
-    turns,
-    getGuildId: () => 'g1',
-    isWarmingUp: () => true,
-    rng: () => 0.1,
-    now: () => t,
-  });
-  await spontaneous.tick();
-
-  assert.equal(calls, 0);
-  assert.equal(store.state.data.spontaneous.g1, t, 'the schedule is left exactly as it was');
 });
 
 // ---------------------------------------------------------------------------

@@ -175,15 +175,11 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
 });
 
-test('ops: no warmup and no memory refresh, forget, wipe or purge operation is left', () => {
+test('ops: no memory refresh, forget, wipe or purge operation is left', () => {
   const ops = listOps();
-  assert.deepEqual(ops.filter((op) => op.name.startsWith('warmup')), []);
-  for (const key of Object.keys(COMMAND_TO_OP)) assert.ok(!key.startsWith('warmup'), key);
   const gone = ['memory.refresh', 'memory.forget', 'memory.wipe', 'memory.private.forget', 'memory.private.purge'];
   assert.deepEqual(ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name), []);
   for (const key of ['memory.refresh', 'memory.forget', 'memory.wipe']) assert.equal(Object.hasOwn(COMMAND_TO_OP, key), false, key);
-  assert.equal(legacyGrantOps('warmup.run'), null);
-  assert.equal(legacyGrantOps('warmup'), null);
 });
 
 

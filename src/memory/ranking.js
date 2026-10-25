@@ -5,8 +5,7 @@
 // can gather weight in the unseen tail instead of being evicted the moment it
 // arrives -- see docs/prompt-contract.md, "More is stored than shown,
 // and rank decays with age". Used by the storage-eviction code in
-// interests.js/details.js, the `<existing_profiles>` view builder
-// (src/memory/update.js) and the chat-facing renderer (src/behavior/prompt.js)
+// interests.js/details.js, the chat-facing renderer (src/behavior/prompt.js)
 // and `/nep memory show` (src/admin.js) -- every place that decides what is
 // shown or what survives an eviction goes through the SAME function, so a
 // history backfill and the live bot agree on what matters.

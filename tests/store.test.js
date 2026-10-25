@@ -85,14 +85,14 @@ test('touchUser: an empty/falsy name does not touch the names list', () => {
   assert.deepEqual(profile.names, ['Alice']);
 });
 
-// ---- out-of-order touches (the memory warmup feeding old history after a live touch today) ----
+// ---- out-of-order touches (old history fed after a live touch today) ----
 
 test('touchUser: firstSeen is min(existing, at) and lastSeen is max(existing, at), regardless of arrival order', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   // Live touch today...
   store.touchUser('g1', 'u1', 'Alice', 5_000_000);
-  // ...then the warmup feeds four years of older history.
+  // ...then four years of older history arrive.
   const profile = store.touchUser('g1', 'u1', 'Alice', 1000);
   assert.equal(profile.firstSeen, new Date(1000).toISOString(), 'firstSeen widens to the older message');
   assert.equal(profile.lastSeen, new Date(5_000_000).toISOString(), 'lastSeen does NOT regress to the older message');
@@ -668,36 +668,6 @@ test('touchChannel: bumps the author into topWriters and adds up repeated visits
   ]);
 });
 
-test('setChannelFacts: SETs counters, never adds, so a redo lands on the same numbers', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const facts = {
-    name: 'general',
-    category: 'Text',
-    topic: 'chat',
-    messageCount: 12,
-    firstMessageAt: 1000,
-    lastMessageAt: 9000,
-    days: { '2026-09-20': 12 },
-    topWriters: [{ id: 'a', count: 8 }, { id: 'b', count: 4 }],
-  };
-  store.setChannelFacts('g1', 'c1', facts);
-  const channel = store.setChannelFacts('g1', 'c1', facts); // redo, same window
-  assert.equal(channel.messageCount, 12);
-  assert.equal(channel.firstMessageAt, 1000);
-  assert.equal(channel.lastMessageAt, 9000);
-  assert.deepEqual(channel.days, { '2026-09-20': 12 });
-  assert.deepEqual(channel.topWriters, [{ id: 'a', count: 8 }, { id: 'b', count: 4 }]);
-});
-
-test('setChannelFacts: leaves purpose/topics/tone (the analyzer\'s own fields) untouched', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.updateChannel('g1', 'c1', { purpose: 'general chatter' });
-  const channel = store.setChannelFacts('g1', 'c1', { messageCount: 3, days: {} });
-  assert.equal(channel.purpose, 'general chatter');
-});
-
 test('updateChannel: the analyzer cannot overwrite counters or Discord facts', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
@@ -857,46 +827,13 @@ test('touchChannel: a message without an author leaves the tally and topWriters 
   assert.equal(channel.messageCount, before.messageCount + 1);
 });
 
-test('touchChannel, setChannelFacts: counters never stamp updatedAt, only a change of the notes does', () => {
+test('touchChannel: counters never stamp updatedAt, only a change of the notes does', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   writeLines(store, 'c1', 'άλφα', 3, WRITERS_T0);
-  store.setChannelFacts('g1', 'c1', { ...AGORA_FACTS, messageCount: 3, lastMessageAt: WRITERS_T0, days: {}, topWriters: [{ id: 'άλφα', count: 3 }] });
   assert.equal(store.getChannel('g1', 'c1').updatedAt, null);
   assert.equal(store.getChannel('g1', 'c1').notesCheckedAt, null);
 
   assert.ok(store.updateChannel('g1', 'c1', { tone: 'ήρεμος' }).updatedAt);
-});
-
-test('setChannelFacts: seeds the writers tally from its window, and a redo lands on the same tally', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  const facts = {
-    ...AGORA_FACTS,
-    messageCount: 12,
-    firstMessageAt: WRITERS_T0,
-    lastMessageAt: WRITERS_T0 + 9000,
-    days: { '2026-06-01': 12 },
-    topWriters: [{ id: 'άλφα', count: 8 }, { id: 'βήτα', count: 4 }],
-  };
-  writeLines(store, 'c1', 'γάμα', 6, WRITERS_T0); // a live tally the window replaces, like every counter
-  store.setChannelFacts('g1', 'c1', facts);
-  const channel = store.setChannelFacts('g1', 'c1', facts);
-  assert.deepEqual(channel.writers, { 'άλφα': { count: 8, last: WRITERS_T0 + 9000 }, 'βήτα': { count: 4, last: WRITERS_T0 + 9000 } });
-  assert.deepEqual(channel.topWriters, facts.topWriters);
-
-  const live = writeLines(store, 'c1', 'βήτα', 5, WRITERS_T0 + 10_000);
-  assert.deepEqual(live.topWriters, [{ id: 'βήτα', count: 9 }, { id: 'άλφα', count: 8 }], 'live lines add to the seeded counts');
-
-  const empty = store.setChannelFacts('g1', 'c1', { ...AGORA_FACTS, messageCount: 0, days: {}, topWriters: [] });
-  assert.deepEqual([empty.writers, empty.topWriters], [{}, []], 'a window without messages empties the tally too');
-});
-
-test('setChannelFacts: writers the window counts equal keep their order at the next message', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  const topWriters = [{ id: 'άλφα', count: 3 }, { id: 'βήτα', count: 3 }, { id: 'γάμα', count: 3 }];
-  store.setChannelFacts('g1', 'c1', { ...AGORA_FACTS, messageCount: 9, lastMessageAt: WRITERS_T0, days: {}, topWriters });
-
-  const channel = writeLines(store, 'c1', 'δέλτα', 1, WRITERS_T0 + 1);
-  assert.deepEqual(channel.topWriters.map((writer) => writer.id), ['άλφα', 'βήτα', 'γάμα', 'δέλτα']);
 });
 
 test('getChannel: an old channel file without a tally seeds it from the stored topWriters, the file untouched', async () => {
@@ -1305,7 +1242,7 @@ function seedGuild(store) {
   const cache = store.getMediaCache('g1');
   cache.a1 = { text: 'a cat', ts: 1000 };
   store.markMediaCacheDirty('g1');
-  store.state.data.warmup = { done: false, channels: { c1: { batchesDone: 2 } } };
+  store.state.data.job = { done: false, channels: { c1: { batchesDone: 2 } } };
   store.state.data.llmDay = '2026-09-20';
   store.state.data.llmCount = 7;
   store.state.markDirty();
@@ -1411,13 +1348,13 @@ test('reloadState: re-reads state.json from disk, discarding the cached in-memor
   store.state.markDirty();
   store.flush();
 
-  // A hand-edit to state.json itself, e.g. warmup progress, made while paused.
-  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ llmCount: 99, warmup: { done: false } }));
+  // A hand-edit to state.json itself, made while paused.
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ llmCount: 99, job: { done: false } }));
 
   assert.equal(store.state.data.llmCount, 1, 'still the stale cached value before reloadState');
   store.reloadState();
   assert.equal(store.state.data.llmCount, 99);
-  assert.deepEqual(store.state.data.warmup, { done: false });
+  assert.deepEqual(store.state.data.job, { done: false });
 });
 
 test('validate: names every unparsable operational *.json file, path relative to dataDir and forward-slash separated', async () => {
@@ -2019,7 +1956,7 @@ function withStore(fn) {
 }
 
 test('store: a prose rewrite records the previous text with who wrote and a sentence diff; a first write records nothing', () => withStore((store) => {
-  store.updateChannel('g1', 'c1', { purpose: 'Ένα. Δύο.' }, { by: 'warmup' });
+  store.updateChannel('g1', 'c1', { purpose: 'Ένα. Δύο.' }, { by: 'owner' });
   assert.deepEqual(store.listVersions('g1', 'channels', 'c1'), {}, 'first write');
   store.updateChannel('g1', 'c1', { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
   const v = store.listVersions('g1', 'channels', 'c1');

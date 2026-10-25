@@ -112,7 +112,7 @@ const TAG_OVERHEAD = 60;
 /**
  * `body` wrapped in `<tag>` ... `</tag>` on lines of their own; '' for an
  * empty body, so a block with nothing to say drops out of a request. The one
- * copy: every request builder (chat, analyzer, warm-up) uses it.
+ * copy: every request builder uses it.
  * @param {string} tag
  * @param {string} body
  * @returns {string}

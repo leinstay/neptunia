@@ -145,8 +145,7 @@ function withItemIds(list, prefix, newId) {
 /**
  * `next` as `withItemIds` stamps it -- unless it equals `previous` as stored (JSON), in which case
  * `previous` comes back untouched: a merge that changed nothing does not rewrite the list just to
- * add ids, so the callers' before/after comparisons (src/memory/update.js counts changed
- * interests and aliases) still see no change.
+ * add ids, so a caller's before/after comparison still sees no change.
  * @param {unknown} previous
  * @param {object[]} next
  * @param {string} prefix
@@ -876,8 +875,7 @@ function normalizeWriters(value) {
 
 /**
  * The tally a `topWriters` list (`{ id, count }[]`, best first) stands for, every writer dated
- * `last` -- the newest message of the window the list was counted from (`setChannelFacts`), or
- * the channel's `lastMessageAt` for an entry stored before the tally existed. Items without an id
+ * `last` -- the channel's `lastMessageAt` for an entry stored before the tally existed. Items without an id
  * or a count of at least 1 are skipped. The first listed is inserted last, so writers of an equal
  * count keep their listed order at the next ranking (see `sortByRank`'s tie rule).
  * @param {unknown} topWriters
@@ -1712,9 +1710,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     /**
      * Record that a member spoke: names, counters, timestamps. Creates the
-     * profile. Messages do not always arrive in chronological order (the
-     * memory warmup, src/memory/warmup.js, can feed months of history
-     * after the live pipeline already touched a profile today) -- `firstSeen`/`lastSeen` are therefore
+     * profile. Messages do not always arrive in chronological order (older
+     * history can be fed after the live pipeline already touched a profile
+     * today) -- `firstSeen`/`lastSeen` are therefore
      * min/max'd against `at`, never just overwritten, so a late/backdated
      * touch can only widen the known range, never regress `lastSeen` to an
      * older message. `names`' order is meant to read "most recent display
@@ -2173,8 +2171,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * through this write and `markNotesChecked`. `notesUpdatedAt` gets the
      * same stamp when one of the server notes (`patterns`, `starters`,
      * `injokes`) really changes; `self` alone never moves it, and neither do
-     * `applySelfOps` or `applyLearnedOps`, so it tells how old the notes are
-     * (src/memory/update.js#notesStale). A changed `patterns`/`starters` keeps its previous
+     * `applySelfOps` or `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
      * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored guild, so what
      * a write of `injokes` or `self` takes out of the stored list (by
      * src/memory/interests.js#normalizeTopic) is handed to `opts.onDropped` instead, as
@@ -2206,7 +2203,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         if (key in safeFields) recordVersion(guildId, 'guild', 'guild', key, item.value[key], safeFields[key], opts);
       }
       // The in-jokes (and a single-stage self list) are replaced whole: what the new list no longer
-      // holds leaves the guild here (src/memory/update.js clamps the list before).
+      // holds leaves the guild here.
       const dropped = {
         injokes: 'injokes' in safeFields ? droppedStrings(item.value.injokes, safeFields.injokes, ITEM_ID_PREFIX.injoke, newId) : [],
         self: 'self' in safeFields ? droppedStrings(item.value.self, safeFields.self, ITEM_ID_PREFIX.selfFact, newId) : [],
@@ -2272,14 +2269,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * stale marker was applied): `notesCheckedAt` = the ISO time of `nowMs` on each listed
      * channel entry, and on the guild when `guild` is true. Nothing else is touched -- never
      * `updatedAt` or `notesUpdatedAt`, which only a real change of the text moves -- so notes
-     * answered with the same text are not asked about again until they are stale once more
-     * (src/memory/update.js#notesStale reads the later of the two stamps). A listed channel
+     * answered with the same text are not asked about again until they are stale once more.
+     * A listed channel
      * without an entry is skipped, never created; the guild file is created when it has to hold
      * the stamp. Marked dirty only where the stamp changes. Targets that name nothing change
      * nothing and never throw.
      * @param {string} guildId
-     * @param {{ channels?: string[], guild?: boolean }} targets  The targets a request flagged
-     *   (src/memory/update.js#buildMemoryRequest's `staleNotes`).
+     * @param {{ channels?: string[], guild?: boolean }} targets  The targets a request flagged.
      * @param {number} nowMs  Epoch milliseconds; not a finite number -> the wall clock.
      * @returns {{ channels: number, guild: boolean }}  How many channel entries hold the stamp
      *   now, and whether the guild does.
@@ -2439,8 +2435,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * people taught the persona, via src/memory/details.js#applyDetailOps --
      * the same confirmation/ranking/eviction mechanics as a member's
      * details, with the guild's own `learnedNextId` id counter. Used by the
-     * analyzer (src/memory/update.js#applyMemoryUpdate) and the owner
-     * commands. The limits are the `config.memory` keys of the same name, so
+     * owner commands (src/ops/learning.js). The limits are the `config.memory` keys of the same name, so
      * a caller can pass `{ ...config.memory, seenAt }` as-is; `seenAt` falls
      * back to the wall clock. Garbage `ops` change nothing and never throw.
      * The guild is marked dirty (and `updatedAt` stamped) only when the list
@@ -2493,10 +2488,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     /**
      * Apply one batch of self-fact ops to the guild's `self` list (what the persona said about
-     * itself), the two-stage analyzer's incremental shape (src/memory/voice.js): `remove` first,
+     * itself), as incremental ops: `remove` first,
      * every stored fact equal to one listed (compared by src/memory/interests.js#normalizeTopic:
-     * trimmed, whitespace collapsed, lower-cased -- the rule src/memory/voice.js tells a queued
-     * self fact by); then `add`, each new claim clamped like the single-stage self list
+     * trimmed, whitespace collapsed, lower-cased); then `add`, each new claim clamped like the single-stage self list
      * (src/memory/text-limits.js#SELF_CHARS, `opts.clampTolerance`) and appended unless it is already
      * stored (a claim that was only links adds nothing: links go first, `stripUrls`); past `opts.maxSelfFacts` the oldest leave to make room (a cap of 0 adds nothing; a
      * call that adds nothing never cuts the list, even one stored above a lowered cap). The
@@ -2508,7 +2502,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {{ add?: string[], remove?: string[] }} ops
      * @param {{ maxSelfFacts: number, clampTolerance?: number, now?: number }} opts
      *   `maxSelfFacts` is required: the caller's resolved `memory.maxSelfFacts` (its fallback is
-     *   src/memory/update.js#MEMORY_LIMIT_DEFAULTS'; the store keeps no copy). A fraction is
+     *   src/memory/text-limits.js#MEMORY_LIMIT_DEFAULTS'; the store keeps no copy). A fraction is
      *   floored.
      * @returns {{ added: number, removed: number, evicted: number }}  `evicted`: facts that left
      *   to stay under the cap (a claim added in this call included). The non-enumerable `dropped`
@@ -2625,59 +2619,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     },
 
     /**
-     * SET (never add) a channel entry's Discord facts and counters from a
-     * fetched history window (the warmup, src/memory/warmup.js#processChannel):
-     * unlike `touchChannel` (the live pipeline's one-message-at-a-time
-     * increments), a redo of the same window lands on the same numbers
-     * instead of doubling them -- mirrors `touchUserFromWindows`' SET-not-ADD
-     * pattern for user profiles. `topWriters` (`{ id, count }[]`, already
-     * computed by the caller from the same window) is stored as-is, ids
-     * coerced to strings and capped to 5, and the `writers` tally starts over
-     * from it like every other counter here (`writersFromTop`, each writer
-     * dated the window's `lastMessageAt`), so the live messages that follow
-     * add to the window's counts. Never stamps `updatedAt`. Creates the entry.
-     * @param {string} guildId
-     * @param {string} channelId
-     * @param {{ name?: string, category?: string|null, topic?: string|null, messageCount?: number,
-     *   firstMessageAt?: number|null, lastMessageAt?: number|null, days?: Record<string, number>,
-     *   topWriters?: {id: string, count: number}[] }} facts
-     */
-    setChannelFacts(guildId, channelId, facts) {
-      const item = channelEntry(guildId, channelId);
-      const channel = item.value;
-      const {
-        name,
-        category = null,
-        topic = null,
-        messageCount = 0,
-        firstMessageAt = null,
-        lastMessageAt = null,
-        days = {},
-        topWriters = [],
-      } = facts ?? {};
-      if (name) channel.name = name;
-      channel.category = category;
-      channel.topic = topic;
-      channel.messageCount = messageCount;
-      channel.firstMessageAt = firstMessageAt;
-      channel.lastMessageAt = lastMessageAt;
-      channel.days = { ...days };
-      channel.topWriters = Array.isArray(topWriters)
-        ? topWriters.slice(0, TOP_WRITERS).map(({ id, count }) => ({ id: String(id), count }))
-        : [];
-      channel.writers = writersFromTop(channel.topWriters, lastMessageAt);
-      item.dirty = true;
-      return channel;
-    },
-
-    /**
      * Merge analyzer-extracted fields into a channel entry. Only `purpose`,
      * `topics`, `tone` travel through here — everything else (counters,
      * Discord facts) is stripped, mirroring `updateUser`. Stamps `updatedAt`
      * only when one of them actually changes: an identical re-send is left
      * alone. Nothing else stamps a channel's `updatedAt`, so it is the notes'
-     * own stamp (src/memory/update.js#notesStale reads it beside
-     * `notesCheckedAt`, see `markNotesChecked`). Each field loses its links first (`withoutLinks`:
+     * own stamp (read beside `notesCheckedAt`, see `markNotesChecked`). Each field loses its links first (`withoutLinks`:
      * one that was only links is not written). A changed field keeps its previous text
      * (`recordVersion`; `opts.by`, `opts.versions`).
      * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number } }} [opts]
@@ -3218,7 +3165,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     /**
      * Force `state.json` to be re-read from disk right now, discarding
      * whatever was cached (`/nep resume`): the owner may have
-     * hand-edited it (e.g. warmup progress) while paused. Any unflushed
+     * hand-edited it while paused. Any unflushed
      * in-memory change is lost, the same guarantee every other cached file
      * already has once dropped.
      */

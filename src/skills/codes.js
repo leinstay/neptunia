@@ -135,7 +135,6 @@ export const CATALOGUE = Object.freeze({
   redirects: skill('failed'),
   'turn-cap': skill('failed'),
   'runner-down': skill('failed'),
-  'warmup-running': skill('failed'),
   'write-failed': skill('failed'),
   'file-unreadable': skill('failed'),
   'attachment-too-large': skill('failed'),

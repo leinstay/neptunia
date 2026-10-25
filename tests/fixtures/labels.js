@@ -286,18 +286,8 @@ export const labels = {
     when: 'Local time: {when}',
   },
   memory: {
-    privateNote: 'Private batch: judge only this person.',
     privateChannel: 'direct chat',
     redaction: 'someone',
-    inner: {
-      think: '[inner] thinking: {text}',
-      done: 'done: {skills}',
-      notDone: 'not done: {skills}',
-      found: '[inner] {skill}{asked} found: {text}',
-      asked: ' ({text})',
-      sources: 'sources: {links}',
-    },
-    innerFeedback: '[inner] not through: {facts}',
   },
   status: {
     probe: 'Reply with one word: pong',
@@ -337,10 +327,6 @@ export const labels = {
       agentContext: '{agent} wave {wave}: {turns} turns, ctx {mean}/{peak}, {usd} USD',
       agentEstimate: 'USD estimated',
     },
-  },
-  warmup: {
-    ownMark: '[own] ',
-    contextMark: '[ctx] ',
   },
   limits: {
     notice: 'limit reached ({limit}, {used}/{cap})',

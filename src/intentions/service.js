@@ -1,4 +1,4 @@
-// The persona's intentions at work (docs/intentions.md): her own calls (`intent.set`,
+// The persona's intentions at work (docs/inner-life.md): her own calls (`intent.set`,
 // `intent.update`, `intent.cancel`, `intent.list`, src/ops/intent.js) create and move them, the
 // memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
 // an errand's end reaches the intention waiting on it (`onTaskFinished`), and a reconciliation

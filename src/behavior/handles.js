@@ -111,8 +111,8 @@ function sortedNames(values) {
 
 /**
  * The people directory's members from the stored profiles of the served guild: one entry per
- * member, never the persona herself (`selfId`; bots get no profile: the live pipeline and the
- * warm-up skip their lines). `names`: the stored
+ * member, never the persona herself (`selfId`; bots get no profile: the live pipeline skips
+ * their lines). `names`: the stored
  * names Discord gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
  * as stored, without one equal to a name. Both one-line, each once, in code point order, so
  * the stored order (the newest name first) never moves the text. A member with neither is

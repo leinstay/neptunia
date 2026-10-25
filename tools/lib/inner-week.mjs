@@ -36,8 +36,8 @@
 // or while stopped), every due item with a recorded disposition, a silent week mostly silent, at
 // planted text never in an intention or an
 // action. Planted text reaches her through the chat, through what her reads return (a stub call's
-// `returns`, which her inner-turn memory episode carries to the analyzer like
-// src/memory/inner-episode.js does) and through her own lines that repeat what her ordinary turn
+// `returns`, which the week's simulated analyzer reads beside the chat as her inner-turn
+// findings, `world.episodes`) and through her own lines that repeat what her ordinary turn
 // read or saw (a `self` event's `read` and `seen`): each line of hers carries the note of where it
 // came from (src/intentions/sources.js), as the turn runner writes it live. Nothing here touches
 // the live data or the network.
@@ -50,10 +50,12 @@ import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
 import { lineSourcesOf } from '../../src/intentions/sources.js';
-import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
 import { answerOf } from '../../src/behavior/turn.js';
+
+/** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
+const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'task.status', 'task.list']);
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
@@ -596,8 +598,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     lineSeq: 0,
     taskSeq: 0,
     saidSeq: 0,
-    // Per channel: the lines of her inner-turn memory episodes (what her reads returned), which
-    // the analyzer reads with the chat (src/memory/inner-episode.js); never chat history.
+    // Per channel: the lines of her inner-turn findings (what her reads returned, FINDING_SKILLS),
+    // which the simulated analyzer reads with the chat; never chat history.
     episodes: new Map(),
   };
   for (let d = fixture.history.days; d >= 1; d -= 1) {
@@ -704,7 +706,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
         if (effects === 'read' && call.returns) {
           plant(call.marker, at, entry.channelId);
           seen.push(call.returns);
-          if (INNER_MEMORY_DEFAULTS.skills.includes(call.skill)) findings.push(call.returns);
+          if (FINDING_SKILLS.includes(call.skill)) findings.push(call.returns);
         }
       }
       actions.push(action);

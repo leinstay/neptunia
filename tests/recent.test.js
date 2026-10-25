@@ -534,15 +534,15 @@ test('recent view: a stored moment needs its addedAt and its date inside the win
   const sameDay = moment('την ίδια μέρα', { date: '2026-10-02' });
   const dayBefore = moment('την προηγούμενη', { date: '2026-10-01' });
   const storedBefore = moment('αποθηκεύτηκε πριν', { date: '2026-10-02', addedAt: '2026-10-02T11:59:59.999Z' });
-  const warmup = moment('παλιά, αποθηκεύτηκε τώρα', { date: '2026-09-20' });
+  const oldDate = moment('παλιά, αποθηκεύτηκε τώρα', { date: '2026-09-20' });
   const storedAfter = moment('αποθηκεύτηκε μετά', { addedAt: new Date(NOW + 1).toISOString() });
   const future = moment('μεθαύριο', { date: '2026-10-07', addedAt: undefined });
   const broken = moment('χωρίς ημερομηνία', { date: '4 Οκτ' });
-  const profiles = [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay, dayBefore, storedBefore, warmup, storedAfter, future, broken] }];
+  const profiles = [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay, dayBefore, storedBefore, oldDate, storedAfter, future, broken] }];
   assert.deepEqual(
     shapeOf(recentView({ lines: [], profiles, now: NOW, hours: 72, isShown: ALL })),
     ['την ίδια μέρα'],
-    'stored before the window, an old date stored lately (the warmup), stored after now: all out',
+    'stored before the window, an old date stored lately, stored after now: all out',
   );
   const atStart = moment('στην αρχή', { date: '2026-10-02', addedAt: '2026-10-02T12:00:00.000Z' });
   assert.deepEqual(shapeOf(recentView({ lines: [], profiles: [{ id: NIKOS, names: ['Nikos'], episodes: [atStart] }], now: NOW, hours: 72, isShown: ALL })), ['στην αρχή']);

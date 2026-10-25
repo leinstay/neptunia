@@ -12,7 +12,7 @@ import { sortByRank } from './ranking.js';
 /**
  * The `mergeEmojiUsage` options from `context.customEmoji`, read by the caller at the
  * moment of use: `storeMax` (200) and `halfLifeDays` (30), config.json's values when a key
- * is missing. Shared by the analyzer (src/memory/update.js) and the history backfill.
+ * is missing. Shared by the live observer (src/memory/update.js) and the history backfill.
  * @param {object} config  Live config.
  * @returns {{ storeMax: number, halfLifeDays: number }}
  */

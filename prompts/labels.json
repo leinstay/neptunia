@@ -379,14 +379,8 @@
       "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
     },
     "memoryDb": {
-      "off": "db: off",
       "unavailable": "db: on, not open",
-      "notSynced": "db · {files} files not synced",
-      "line": "db · {rows} rows · {files} files · last sync {at} · lag {lag} s · reads {read} · {fallbacks} fallbacks",
-      "readOn": "on",
-      "readOff": "off",
-      "syncOff": "db · {rows} rows · {files} files · the database writes · sync off",
-      "refused": "db: writer refused ({code})"
+      "ok": "db · {rows} rows · {files} files"
     },
     "memorySession": {
       "off": "session: off",
@@ -395,10 +389,6 @@
       "line": "session · {mode} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
       "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
     }
-  },
-  "warmup": {
-    "ownMark": ">> ",
-    "contextMark": "(ctx) "
   },
   "draw": {
     "when": "Local time: {when}"
@@ -422,18 +412,8 @@
     "topic": "The owner asked for this subject:"
   },
   "memory": {
-    "privateNote": "This batch is a private conversation with one person. Judge only this person — everything learned here is private and must not describe the server or other people. Output users for this person's id only; guild, channels, lore and self are empty.",
     "privateChannel": "private chat",
-    "redaction": "someone",
-    "inner": {
-      "think": "[on my own, nobody saw this] I thought: {text}",
-      "done": "I called: {skills}",
-      "notDone": "I considered but did not call (never ran, no outcome from these): {skills}",
-      "found": "[on my own, nobody saw this] I called {skill}{asked} and got: {text}",
-      "asked": " ({text})",
-      "sources": "Sources: {links}"
-    },
-    "innerFeedback": "[on my own, nobody saw this] Not everything went through: {facts}"
+    "redaction": "someone"
   },
   "limits": {
     "notice": "...but nobody came ({limit}, {used}/{cap})",
@@ -793,7 +773,6 @@
         "no-guild": "no server is set up",
         "error": "something went wrong",
         "runner-down": "that agent is not running",
-        "warmup-running": "the warm-up is running",
         "write-failed": "it could not be saved",
         "no-result": "nothing came back",
         "send-failed": "the message did not go out",
