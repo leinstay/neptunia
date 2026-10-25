@@ -1,5 +1,3 @@
-/CLAUDE.md
-/AGENTS.md
 /.claude/
 /.opencode/
 /.agents/
@@ -33,3 +31,10 @@ node_modules/
 
 # scratch files that may hold secrets
 temp.txt
+
+# Private to this machine: the agents, the references, the keys, the private git
+/references/
+/.secrets/
+/.workspace.git/
+/CLAUDE.local.md
+/workspace-map.yaml
