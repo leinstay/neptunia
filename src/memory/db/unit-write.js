@@ -1,65 +1,50 @@
-// The database writers of the append-like memory units (stage W2a, spec 2026-10-24-memory-authority, section 6 items
-// 2, 3 and 6): the record, the journal, participation, the diary and the meaning index write the rows their mapper
-// derives (src/memory/db/map/) through the one path the sync writes them by (sync.js#writeMapping, #qualify,
-// #retireAbsent, #linkVectors), on the writer connection (the worker, through session-write.js#applyMemoryWrite), in
-// one transaction per write. So a row these writers make is the row a sync pass over the same file would have made:
-// the same id, columns, `owner_file` (the unit's full path, `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`) and
-// `position`, the graph projected and a diary mirror's publication derived in the same transaction.
+// The database writers of the memory units: every memory module writes the rows its unit's mapper derives
+// (src/memory/db/map/) through upsert.js (`writeMapping`, `qualify`, `retireAbsent`, `linkVectors`), on the writer
+// connection (the worker, through session-write.js#applyMemoryWrite), in one transaction per write: the same id,
+// columns, `owner_file` (the unit's full path, `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`) and `position`, the graph
+// projected and a diary mirror's publication derived in the same transaction.
 //
-// applyUnitWrite(handle, update) -> counts. `update.authority` is stamped by the service (fixed for the process).
-//   { kind: 'unit', op: 'lines', owner, lines, mode: 'db' }        (authority db) every line of a JSONL unit (a record
-//       day, a journal day) mapped at the next position of the unit (the `files` row's `lines`, else one past the
-//       highest position its rows hold) and the `files` row kept (`lines`, so the export and the directory ids find the
-//       unit). A record line whose message revision (or, for `deleted`, whose deletion) the unit's month already holds
-//       is a duplicate (`duplicates`), as the month's id index refuses it on the files; a line the live observation
-//       wrote first (`origin` `observation`, the same id) is adopted: the line's columns win, its place in the unit
-//       stays. Returns `{ written, duplicates, adopted }`.
-//   { kind: 'unit', op: 'lines', owner, lines, mode: 'shadow' }    (authority json) the shadow of a record line the
-//       file has (said, deleted, felt): its mapper row as an observation's (`origin` `observation`, no owner, no
-//       position) and its id registered as a legacy key, so the sync adopts it when the file brings it
-//       (sync.js#observedRow) and `observe-check` counts it as observed. A row already stored is left alone.
-//   { kind: 'unit', op: 'lines', owner, lines, mode: 'db' }        (stage W2b) the same for the lines of an archive
-//       month (`archive/<YYYY-MM>.jsonl`, a private layer's alike: `claim_versions`, with the retired `historical`
-//       claim of an item hot memory does not hold, as the sync's archive pass makes it), of `intentions-archive.jsonl`
-//       and of `tasks.jsonl`; the module refuses its own duplicates (the archive's month index), so every line given
-//       is written, except a transition of `tasks.jsonl` the unit already holds: its key is the line itself (the
-//       task's id, the transition's time and the task as it was then), so a write retried after its answer was lost
-//       (the outbox sends the same line again) is a duplicate (`duplicates`), never a second transition.
-//   { kind: 'unit', op: 'value', owner, value, destination? }      (authority db) a whole JSON unit, mapped whole as a
-//       sync pass maps the file (sync.js#syncWhole), the unit's rows it no longer holds retired and its `files` row
-//       kept: participation.json and media.json (whose files stay written) and, from stage W2b, every unit of the
-//       store's cache (users, private layers, channels, guild, lore, recent, versions, the diary, voice, buffer) and
-//       of the module stores (intentions.json, tasks.json). A diary's mirrors that name no destination get
+// applyUnitWrite(handle, update) -> counts.
+//   { kind: 'unit', op: 'lines', owner, lines }   every line of a JSONL unit (a record day, a journal day, an archive
+//       month, a private layer's alike, `intentions-archive.jsonl`, `tasks.jsonl`) mapped at the next position of the
+//       unit (the `files` row's `lines`, else one past the highest position its rows hold) and the `files` row kept
+//       (`lines`, so the export and the directory ids find the unit). A record line whose message revision (or, for
+//       `deleted`, whose deletion) the unit's month already holds is a duplicate (`duplicates`); a line the live
+//       observation wrote first (`origin` `observation`, the same id) is adopted: the line's columns win, its place in
+//       the unit stays. An archive line of an item hot memory does not hold brings its retired `historical` claim
+//       (map/archive.js). A transition of `tasks.jsonl` the unit already holds (its key is the line itself: the task's
+//       id, the transition's time and the task as it was then) is a duplicate, never a second transition, so a write
+//       retried after its answer was lost is harmless. Returns `{ written, duplicates, adopted }`.
+//   { kind: 'unit', op: 'value', owner, value, destination? }   a whole JSON unit, mapped whole, the unit's rows it
+//       no longer holds retired and its `files` row kept: every unit of the store's cache (users, private layers,
+//       channels, guild, lore, recent, versions, the diary), participation.json and media.json (whose files stay
+//       written), and the module stores' (intentions.json, tasks.json). A diary's mirrors that name no destination get
 //       `destination` as in op `diary`. Request dumps (`journal/requests/`) are not written this way.
-//   { kind: 'unit', op: 'diary', owner, post, max, updatedAt, destination }   (authority db) one diary post appended
-//       to the diary the database holds (the newest `max` kept, `updatedAt` stamped, as store.js#writeDiary does), the
-//       unit mapped whole; its mirrors' publications are derived on the sync's path (publish.js) and, where they name
-//       no destination, get `destination` (the diary channel's place) when that place is stored.
-//   { kind: 'unit', op: 'vectors', owner, delta }                  (authority db) rows appended to a month of the
-//       meaning index: `delta` is `{ manifest, meta, i8 }` (the new manifest, the new jsonl lines, their int8 bytes),
-//       mapped by map/vectors.js#appendRows, or the month mapped whole when it cannot be extended (a new month, a stored
-//       tail); `{ owner, value }` instead is a whole month (a rewrite, a replace).
-//   { kind: 'unit', op: 'project', sliceUnits, maxSlices, at }      (authority db) the graph projection a migration left
-//       pending (graph.js#projectPending, at most `maxSlices` slices) and the stems still pending (stems.js), which a
-//       sync pass would finish; returns `{ units, done, stems }`.
-// A write under the wrong authority is refused whole with a code (`UNIT_JSON_WRITER`, `UNIT_DB_SHADOW`), an unmapped
-// owner with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a text.
+//   { kind: 'unit', op: 'diary', owner, post, max, updatedAt, destination }   one diary post appended to the diary the
+//       database holds (the newest `max` kept, `updatedAt` stamped, as store.js#writeDiary does), the unit mapped
+//       whole; its mirrors' publications are derived (publish.js) and, where they name no destination, get
+//       `destination` (the diary channel's place) when that place is stored.
+//   { kind: 'unit', op: 'vectors', owner, delta }   rows appended to a month of the meaning index: `delta` is
+//       `{ manifest, meta, i8 }` (the new manifest, the new jsonl lines, their int8 bytes), mapped by
+//       map/vectors.js#appendRows, or the month mapped whole when it cannot be extended (a new month, a stored tail);
+//       `{ owner, value }` instead is a whole month (a rewrite, a replace).
+//   { kind: 'unit', op: 'project', sliceUnits, maxSlices, at }   the graph projection a migration left pending
+//       (graph.js#projectPending, at most `maxSlices` slices) and the stems still pending (stems.js); returns
+//       `{ units, done, stems }`.
+// An unmapped owner is refused with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a
+// text.
 
 import { classify } from './map/index.js';
-import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './sync.js';
+import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.js';
 import { unitRows } from './export.js';
-import { addKey } from './rows.js';
-import { LEGACY_AUTHORITY } from './ids.js';
 import { assignDiaryDestination } from './publish.js';
 import { graphPending, projectPending } from './graph.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
 
 /** Tables of an owned unit whose rows carry a `position`. */
 const POSITIONED = ['sources', 'day', 'decisions', 'claims', 'claim_versions', 'description_versions', 'episodes', 'affinity_events', 'diary', 'intentions', 'work', 'work_events'];
-/** The kinds of JSONL unit op `lines` writes under `db`. */
+/** The kinds of JSONL unit op `lines` writes. */
 const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'tasks']);
-/** The record kinds a shadow write may carry (seen lines and edits come through the live observation). */
-const SHADOW_KINDS = new Set(['said', 'deleted', 'felt']);
 
 const coded = (code) => Object.assign(new Error(code), { code });
 const isoOf = (ms) => new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString();
@@ -94,7 +79,7 @@ export function nextPosition(db, owner) {
 /**
  * Keeps the `files` row of a unit the writers hold (what the export lists and the directory ids read): created when
  * missing, its line count (`lines`) or a month's generation and rows (`offset`, `lines`) moved. Its size and time stay
- * those of the last file a sync read (null for a unit only the database holds).
+ * null (the columns of the files a unit once came from).
  */
 export function noteUnit(db, owner, kind, { lines = null, offset = null, at }) {
   db.prepare(`INSERT INTO files (path, kind, size, mtime_ms, sha1, offset, synced_at, lines, tail_sha1, bad, gone_at)
@@ -137,7 +122,7 @@ function writeLines(db, update, at) {
   const lines = (Array.isArray(update.lines) ? update.lines : []).filter((line) => line !== null && typeof line === 'object' && !Array.isArray(line));
   const result = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextPosition(db, unit.full);
-  // An archive line of an item hot memory does not hold brings its retired claim (map/archive.js), as the sync's pass.
+  // An archive line of an item hot memory does not hold brings its retired claim (map/archive.js).
   const archive = unit.kind === 'archive';
   const ctx = archive ? { guildId: unit.guildId, hotClaimIds: hotClaimIds(db) } : { guildId: unit.guildId };
   for (const line of lines) {
@@ -160,26 +145,7 @@ function writeLines(db, update, at) {
   return result;
 }
 
-function writeShadow(db, update, at) {
-  const unit = unitOf(update.owner);
-  if (unit.kind !== 'record') throw coded('UNIT_UNMAPPED');
-  const result = { written: 0, existing: 0 };
-  for (const line of Array.isArray(update.lines) ? update.lines : []) {
-    if (line === null || typeof line !== 'object' || !SHADOW_KINDS.has(line.kind)) continue;
-    const mapping = unit.mapper.toRows(unit.rel, line, { guildId: unit.guildId, position: null });
-    const row = mapping.sources?.[0];
-    if (!row) continue;
-    if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(row.id)) { result.existing += 1; continue; }
-    Object.assign(row, { origin: 'observation', owner_file: null, position: null });
-    writeMapping(db, mapping, null, { at });
-    addKey(db, LEGACY_AUTHORITY, 'source', row.id, row.id, { at });
-    result.written += 1;
-  }
-  if (result.written > 0) markStemsPending(db);
-  return result;
-}
-
-/** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer, sync.js). */
+/** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer). */
 const NOT_VALUE_KINDS = new Set(['requests']);
 
 function writeValue(db, update, at) {
@@ -209,7 +175,7 @@ function writeDiary(db, update, at) {
   return { upserted, retired, posts: value.posts.length, destinations };
 }
 
-/** A whole month of vectors written as a sync maps it (its rows linked to their lines, the rows it no longer holds retired). */
+/** A whole month of vectors (its rows linked to their lines, the rows it no longer holds retired). */
 function writeMonth(db, unit, value, at) {
   const mapping = unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId });
   for (const row of mapping.vectors ?? []) row.owner_file = unit.rel;
@@ -277,16 +243,10 @@ function project(handle, update, at) {
 export function applyUnitWrite(handle, update) {
   const at = isoOf(update?.now);
   const op = update?.op;
-  const mode = op === 'lines' ? update.mode : 'db';
-  if (mode === 'shadow') {
-    if (update.authority === 'db') throw coded('UNIT_DB_SHADOW');
-  } else if (update?.authority !== 'db') {
-    throw coded('UNIT_JSON_WRITER');
-  }
   if (op === 'project') return project(handle, update, at);
   const db = handle.db;
   const run = {
-    lines: () => (mode === 'shadow' ? writeShadow(db, update, at) : writeLines(db, update, at)),
+    lines: () => writeLines(db, update, at),
     value: () => writeValue(db, update, at),
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),

@@ -465,40 +465,10 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     return failed;
   }
 
-  /**
-   * A forget of member `userId` (src/memory/store.js#forgetUser's `errands` step): their open
-   * tasks are cancelled at their runners first (the runner stops working on their goal), then the
-   * guild's store drops every task they asked for and their lines (src/errands/store.js#forgetUser,
-   * `vault` as given). `{ removed, lines }`.
-   */
-  function forgetUser(guildId, userId, options = {}) {
-    const store = storeOf(guildId);
-    if (!store) return { removed: 0, lines: 0 };
-    const id = String(userId ?? '');
-    for (const task of store.open()) {
-      if (task.requester?.userId !== id) continue;
-      // The ledger's mirror closed: the task leaves the core's store just below.
-      mirrored(task.id, () => mirror.cancel(task, { by: 'forget' }));
-      if (task.state !== 'running') continue;
-      try {
-        client.cancel?.({ agent: task.agent, id: task.id });
-      } catch (err) {
-        log.warn('errands: cancel failed', { id: task.id, agent: task.agent, error: err });
-      }
-    }
-    return stores.forgetUser ? stores.forgetUser(store.guildId, id, options) : store.forgetUser(id, options);
-  }
-
-  /** A wipe of the guild (src/memory/store.js#wipeGuild's `errands`): its tasks' files and list gone. `{ files }`. */
-  function wipe(guildId) {
-    const store = storeOf(guildId);
-    return store ? store.wipe() : { files: 0 };
-  }
-
   /** Wait for the runs in flight (tests). */
   async function idle() {
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, runInline, cancel, budget, view, fileOf, markSeen, markRead, markResultFailed, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
+  return { submit, runInline, cancel, budget, view, fileOf, markSeen, markRead, markResultFailed, start, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
 }

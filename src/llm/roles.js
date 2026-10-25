@@ -8,7 +8,7 @@
 // can never move another. `models.byPurpose` pins a single purpose (one helper, one kind of
 // request) to a model of its own whatever its role.
 // models.base
-// - `core`       speaks as the persona: the reply and the memory texts worded in its voice;
+// - `core`       speaks as the persona: the reply;
 // - `memory`     her memory session and description review (src/memory/db/session.js); its default
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's helper model: picks one of a few given options (address, room,
@@ -16,8 +16,6 @@
 //                plans a search and turns sources into notes (lookup, planner, recall-summary,
 //                search-summary, read-link, diary-plan) and runs the persona's raw web search
 //                on the OpenRouter engine (web-search);
-// - `extractor`  turns conversations into stored memory: the memory analyzer's batches, the
-//                portraits' stage A, the channel and server notes, the warmup, the backfill;
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -51,7 +49,7 @@ export const MEMORY_ROLE = 'memory';
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /** The helper roles, in display order. */
-export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
+export const HELPER_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 
 /** The roles the bot's chat and embedding requests go out on, in display order: the core, then the helpers. */
 export const CORE_ROLES = Object.freeze([CORE_ROLE, ...HELPER_ROLES]);
@@ -75,7 +73,6 @@ export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 export const ROLE_DEFAULTS = Object.freeze({
   core: 'anthropic/claude-opus-4.6',
   analyzer: 'openai/gpt-6.1-sol',
-  extractor: 'openai/gpt-6.1-sol',
   vision: 'google/gemini-3.8-flash',
   video: 'google/gemini-3.8-flash',
   embedding: 'openai/text-embedding-3-large',
@@ -115,12 +112,10 @@ export function roleConfigKeys(role) {
 /**
  * The role each named purpose goes out on (the `purpose` of a request, logged on its
  * `llm: usage` line and the key of a `models.byPurpose` entry). Requests with no purpose of their
- * own (the memory analyzer's batches, the warmup family, a video, an index embedding, a drawing)
- * are not listed: they are named by their role alone.
+ * own (a video, an index embedding, a drawing) are not listed: they are named by their role alone.
  */
 export const PURPOSE_ROLES = Object.freeze({
   reply: 'core',
-  'memory-voice': 'core',
   address: 'analyzer',
   room: 'analyzer',
   merge: 'analyzer',
@@ -138,7 +133,6 @@ export const PURPOSE_ROLES = Object.freeze({
   'diary-plan': 'analyzer',
   speech: 'analyzer',
   'web-search': 'analyzer',
-  backfill: 'extractor',
   describe: 'vision',
   relook: 'vision',
   avatar: 'vision',
@@ -147,38 +141,10 @@ export const PURPOSE_ROLES = Object.freeze({
 });
 
 /**
- * What the memory writer switch (`memoryDb.authority` `db`, spec 2026-10-24-memory-authority, stage W3) does to each
- * request purpose; the table of docs/prompt-contract.md, "The purposes at the writer switch". `stays`: the purpose runs
- * on its role as it does today, whatever the authority (every analyzer purpose, the vision, embedding and core ones).
- * `removed`: the analyzer's memory path, never sent under `db` (`memory-voice`, the two-stage wording on the core;
- * `backfill`, the extractor's); the stream analyzer's batches and the warmup family have no purpose of their own and go
- * with the role `extractor` (EXTRACTOR_RETIRED_ROLE). `memory`: her memory session and description review, on the role
- * `memory` (not one of PURPOSE_ROLES: that role is not in ROLES). Nothing is deleted here: under `json` every purpose
- * runs as before (the fallback week); the removed ones are deleted in the cleanup after it.
+ * The purposes of the role `memory` (her memory session and description review, src/memory/db/session.js and
+ * describe.js): not in PURPOSE_ROLES, as that role is not one of ROLES.
  */
-export const PURPOSE_AT_SWITCH = Object.freeze({
-  ...Object.fromEntries(Object.keys(PURPOSE_ROLES).map((purpose) => [purpose, 'stays'])),
-  'memory-voice': 'removed',
-  backfill: 'removed',
-  'memory-session': 'memory',
-  'description-draft': 'memory',
-  'description-check': 'memory',
-});
-
-/** The role whose every request goes with the switch (the stream analyzer's batches, the warmup family, the backfill). */
-export const EXTRACTOR_RETIRED_ROLE = 'extractor';
-
-/**
- * Whether a request of `role` and `purpose` belongs to the analyzer's memory path the switch turns off: the role
- * `extractor`, or a purpose PURPOSE_AT_SWITCH marks `removed`.
- * @param {unknown} role
- * @param {unknown} [purpose]
- * @returns {boolean}
- */
-export function retiredAtSwitch(role, purpose) {
-  if (role === EXTRACTOR_RETIRED_ROLE) return true;
-  return typeof purpose === 'string' && PURPOSE_AT_SWITCH[purpose] === 'removed';
-}
+export const MEMORY_PURPOSES = Object.freeze(['memory-session', 'description-draft', 'description-check']);
 
 /**
  * Whether `role` is one of ROLES.

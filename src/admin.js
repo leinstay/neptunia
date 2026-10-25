@@ -3,21 +3,14 @@
 // without ever touching data/: live rules (prompts.local/rules.md, seeded
 // from prompts/rules.md), config overrides (config.local.json, hot-reloaded),
 // status, a turn of the persona asked for now (`/nep message create`), and
-// profile inspection/deletion, plus one member command, `/nep pings` (cmdPings: a
+// profile inspection, plus one member command, `/nep pings` (cmdPings: a
 // member's own notification switch, open to everyone while
-// `features.memberCommands` is on). This is the ONLY place in the project that ever
-// deletes stored memory, through the three functions store.js allows for it:
-// store.forgetUser (one member everywhere, the vault copy first), store.forgetPrivate
-// (one member's private layer only, `/nep memory private action:forget` and
-// `action:purge`) and
-// store.wipeGuild (a whole guild's memory,
-// `/nep memory wipe`, gated by the served guild's exact name); src/index.js only finishes at start
-// a forget a crash cut short and re-applies the deletion ledger. The tracked
+// `features.memberCommands` is on). No command deletes stored memory. The tracked
 // prompts/ layer is never written at runtime — live corrections always land
 // in the untracked prompts.local/ layer.
 //
 // This module knows nothing about discord.js: `createAdmin(deps).runCommand`
-// takes a `commandKey` (e.g. `'memory.forget'`), a plain `args` object and a
+// takes a `commandKey` (e.g. `'memory.show'`), a plain `args` object and a
 // `context` (`{ guildId, channelId, userId, roleIds }`), checks the caller's
 // rights on the operation the key runs and answers `{ status, code, summary,
 // data }`; `run` (the tests' entry, no rights check) returns the reply text
@@ -47,37 +40,20 @@ const ARCHIVE_CHOICES = 25;
 
 /**
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
- * `client` — a discord.js Client (used for channels.fetch, guilds.cache, and users.fetch +
- *   createDM for `/nep private purge`).
+ * `client` — a discord.js Client (used for channels.fetch and guilds.cache).
  * `discord` — the Discord interface's capabilities object (interfaces/discord/index.js#
  *   createDiscordInterface; src/index.js passes the one it builds): the permission checks of
  *   an operation posting in another channel (src/ops/shared.js#
  *   postingConversation), `normalizeMessage` for a turn asked
- *   on a message (src/ops/message.js) and `PAGE` for `/nep private purge`. The operations read it
+ *   on a message (src/ops/message.js). The operations read it
  *   as `env.discord`.
  * `spontaneous` — the spontaneous scheduler: `force(channel, mode)` and `status()`.
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
- * `isWarmingUp` — `() => boolean`, optional: true while the memory warmup runner
- *   (src/memory/warmup.js) is in flight. Read by `cmdMemoryWipe`, the `memory.refresh.*`
- *   handlers. Default: never warming up.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by
  *   `/nep pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
- * `memory` — from createMemoryUpdater() (src/memory/update.js), optional: `waitIdle()`, used by
- *   `/nep pause` to wait out a live-analyzer `run()` or a voice run (`runVoice`, the two-stage
- *   analyzer's stage B) already in flight (an LLM call can take 30-90s; a voice answer that
- *   arrives once paused writes nothing) before the pause flushes and drops the store's caches, and by `/nep memory forget`,
- *   `/nep private forget` and `/nep memory wipe` before they delete (the run would re-create what
- *   they removed). Absent -> the wait is skipped.
  * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
- * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
- *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`),
- *   `refreshChannelNotes` and `refreshServerNotes` (`kind:channel`, `kind:server`: a fresh
- *   sample, the live rails) and
- *   `waitIdle` (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait
- *   refreshes in flight). A warmup run itself is tools/warmup.mjs's, with the bot stopped.
- *   Absent -> every `memory.refresh.*` command reports it is not available.
  * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `/nep draw`,
  *   `quota()` and `familyOf()` for the image lines of `/nep status` and `/nep model show`.
  *   Absent -> `/nep draw` reports it is not available and `/nep status` has no image lines.
@@ -96,13 +72,11 @@ const ARCHIVE_CHOICES = 25;
  * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate` (`/nep memory
  *   archive`), `find` and `append` (`/nep memory restore`, with the store's `restoreArchived`).
  *   Absent -> both report the archive is not available.
- * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause,
- *   resume, forget and wipe (written while `features.journal` is exactly true), `read` for
- *   `/nep memory journal`, handed to store.forgetUser for `/nep memory forget` and `removeGuild`
- *   for `/nep memory wipe` (run whatever the switch says: what was journalled goes with the
- *   member). Absent -> no records, and `/nep memory journal` reports it is not available.
+ * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause
+ *   and resume (written while `features.journal` is exactly true), `read` for
+ *   `/nep memory journal`. Absent -> no records, and `/nep memory journal` reports it is not available.
  *   `withWriterLock` holds the journal's, the record's and the archive's writes while `/nep memory
- *   snapshot` copies `data/` and while a forget or a wipe runs; absent, they run without it.
+ *   snapshot` copies `data/`; absent, it runs without it.
  * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, the probe the owner's
  *   `/nep status` card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.

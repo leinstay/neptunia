@@ -1,78 +1,48 @@
-// The persona's intentions on disk, one store per guild: `data/guilds/<id>/intentions.json`
-// holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole through
-// writeJsonAtomic on every change, so a restart reads back exactly what was there. The list keeps
-// every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired, dropped). An older
-// closed record is never deleted: it moves to `intentions-archive.jsonl` next to the file (append-only, one record per
-// line), which only tools (`archived`) and the forget path read. A file
-// that does not parse is copied aside (`intentions.json.unreadable-<ms>`) before the store starts
-// empty, so nothing is lost to a later write; a record that breaks the model's invariants is left
-// out on load (counted in the log). The store moves nothing by itself: every change is a pure
-// transition of the model applied through `update`. A forget of a member (`forgetUser`, the
-// `intentions` step of src/memory/store.js#forgetUser) takes out every intention that concerns
-// them (src/intentions/model.js#concernsMember), whatever its status, after copying the file
-// into the forget's vault, and scrubs the archive the same way; a wipe of the guild (`wipe`,
-// src/memory/store.js#wipeGuild) empties the list and deletes the file, the archive and the unreadable copies. Logs carry ids and counts, never text.
+// The persona's intentions, one store per guild: the unit `guilds/<id>/intentions.json` of the memory database
+// holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole on every change, so a restart
+// reads back exactly what was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done,
+// cancelled, expired, dropped). An older closed record is never deleted: it moves to the unit
+// `intentions-archive.jsonl` (append-only, one record per line), which only tools read (`archived`). A record that
+// breaks the model's invariants is left out on load (counted in the log). The store moves nothing by itself: every
+// change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { log as defaultLog } from '../log.js';
-import { writeJsonAtomic } from '../memory/index.js';
-import { checkInvariants, concernsMember, isOpen } from './model.js';
+import { checkInvariants, isOpen } from './model.js';
 import { CODE } from '../skills/codes.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
-import { forgetRefusal } from '../memory/db/authority.js';
 
-/** The closed intentions the file keeps besides the open ones. */
+/** The closed intentions the list keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
 
 /**
- * `memoryDb` (the memory database service) and `authorityOf`: under the authority `db` the list is loaded from the
- * database and `archived` reads it there (src/memory/db/readers/intentions.js), with no file fallback (a failed read
- * throws, with a code); under `json` (the default) the files are read as always. Stage W2b, under `db`: no file is
- * written; each change hands the whole list (`intentions.json`, op `value`) and the records it moved out
- * (`intentions-archive.jsonl`, op `lines`) to an outbox (src/memory/db/unit-outbox.js) that sends them through the
- * database's writer. The list in memory stays the truth meanwhile, so `add` and `update` answer at once; a write that
- * failed waits in the outbox and goes again at the next change or `flush`, and `flush({ final: true })` (the
- * shutdown) keeps what still fails in `memory-pending/`, replayed by the service at its next start.
- * @param {{ dataDir: string, guildId: string, now?: () => number, log?: object, memoryDb?: object|null,
- *   authorityOf?: (() => string)|null }} options
+ * `memoryDb` (the memory database service): the list is loaded from the database and `archived` reads it there
+ * (src/memory/db/readers/intentions.js; a failed read throws, with a code). Each change hands the whole list
+ * (`intentions.json`, op `value`) and the records it moved out (`intentions-archive.jsonl`, op `lines`) to an outbox
+ * (src/memory/db/unit-outbox.js) that sends them through the database's writer. The list in memory stays the truth
+ * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
+ * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
+ * replayed by the service at its next start. Without a `memoryDb` (tests, a tool's dry run) nothing is read or written:
+ * the list lives in memory only.
+ * @param {{ guildId: string, now?: () => number, log?: object, memoryDb?: object|null }} options
  */
-export function createIntentionStore({ dataDir, guildId, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
-  const dir = path.join(dataDir, 'guilds', String(guildId));
-  const file = path.join(dir, 'intentions.json');
-  const archiveFile = path.join(dir, 'intentions-archive.jsonl');
-  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'intentions' });
-  const state = { list: load() };
-  const outbox = seam.authority() === 'db' && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'intentions' }) : null;
+export function createIntentionStore({ guildId, log = defaultLog, memoryDb = null }) {
+  const seam = createReadSeam({ memoryDb, log, reader: 'intentions' });
+  const state = { list: load(), archived: [] };
+  const outbox = memoryDb && typeof memoryDb.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'intentions' }) : null;
   const owner = `guilds/${String(guildId)}/intentions.json`;
   const archiveOwner = `guilds/${String(guildId)}/intentions-archive.jsonl`;
 
-  /** intentions.json read once; a missing file is empty, a broken one copied aside first (from the database under `db`). */
+  /** The list read once from the database (none without a `memoryDb`). */
   function load() {
-    let raw;
+    if (!memoryDb) return [];
     const db = seam.db();
-    if (db) {
-      const found = seam.run(() => intentionsValue(db, guildId));
-      return valid(found.found ? found.value : null);
-    }
-    try {
-      raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (err) {
-      if (err?.code === 'ENOENT') return [];
-      try {
-        fs.copyFileSync(file, `${file}.unreadable-${now()}`);
-      } catch {
-        // nothing more to keep
-      }
-      log.warn('intentions: file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
-      return [];
-    }
-    return valid(raw);
+    const found = seam.run(() => intentionsValue(db, guildId));
+    return valid(found.found ? found.value : null);
   }
 
-  /** The records of a loaded file value that keep the model's invariants. */
+  /** The records of a loaded value that keep the model's invariants. */
   function valid(raw) {
     const list = Array.isArray(raw?.intentions) ? raw.intentions : [];
     const kept = list.filter((record) => record && typeof record.id === 'string' && checkInvariants(record) === null);
@@ -89,38 +59,27 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
   }
 
   /**
-   * intentions.json written whole, the records `moved` out of it appended to the archive first (so a
-   * crash between the two repeats a record in the archive, never loses one). Throws on a write error
-   * (the caller's change is then not made).
+   * The list handed to the outbox whole, the records `moved` out of it to the archive first (so a
+   * crash between the two repeats a record in the archive, never loses one). Throws when the outbox
+   * cannot take it (the caller's change is then not made). Without a `memoryDb` the moved records are
+   * kept in memory.
    */
   function persist(list, moved = []) {
-    if (seam.authority() === 'db') {
-      if (!outbox) throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-      if (moved.length > 0) outbox.lines(archiveOwner, JSON.parse(JSON.stringify(moved)));
-      outbox.value(owner, JSON.parse(JSON.stringify({ intentions: list })));
-      outbox.push();
+    if (!memoryDb) {
+      state.archived.push(...moved.map(copy));
       return;
     }
-    if (moved.length > 0) {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.appendFileSync(archiveFile, moved.map((record) => `${JSON.stringify(record)}\n`).join(''));
-    }
-    writeJsonAtomic(file, { intentions: list });
+    if (!outbox) throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    if (moved.length > 0) outbox.lines(archiveOwner, JSON.parse(JSON.stringify(moved)));
+    outbox.value(owner, JSON.parse(JSON.stringify({ intentions: list })));
+    outbox.push();
   }
 
   /** The archived records, oldest first (a line that does not parse is skipped). Tools only. */
   function archived() {
-    let raw;
+    if (!memoryDb) return state.archived.map(copy);
     const db = seam.db();
-    if (db) {
-      raw = seam.run(() => intentionsArchiveLines(db, guildId)).join('\n');
-    } else {
-      try {
-        raw = fs.readFileSync(archiveFile, 'utf8');
-      } catch {
-        return [];
-      }
-    }
+    const raw = seam.run(() => intentionsArchiveLines(db, guildId)).join('\n');
     const out = [];
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
@@ -188,83 +147,9 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { ok: true, intention: copy(result.intention), changed: true };
   }
 
-  /** The copies a broken file left aside (`intentions.json.unreadable-<ms>`), as paths. */
-  function unreadableCopies() {
-    let names = [];
-    try {
-      names = fs.readdirSync(dir);
-    } catch {
-      return [];
-    }
-    return names.filter((name) => name.startsWith('intentions.json.unreadable-')).map((name) => path.join(dir, name));
-  }
-
   /**
-   * Member `userId` forgotten: every intention concerning them (model#concernsMember, with their
-   * `names`) removed and the file written; an unreadable copy that names their id removed too.
-   * With `vault` (the forget's vault directory), what goes is copied there first under its path
-   * below `dataDir`. Throws on a write error, so the forget's step is not marked done.
-   * @param {string} userId
-   * @param {{ names?: string[], vault?: string|null }} [options]
-   * @returns {{ removed: number, copies: number }}
-   */
-  function forgetUser(userId, { names = [], vault = null } = {}) {
-    // Authority `db`: there is no forget (stage W3).
-    if (seam.authority() === 'db') throw forgetRefusal('intentions.forgetUser');
-    const id = String(userId ?? '');
-    if (!id) return { removed: 0, copies: 0 };
-    const victims = state.list.filter((record) => concernsMember(record, { userId: id, names }));
-    const copies = unreadableCopies().filter((copyPath) => {
-      try {
-        return fs.readFileSync(copyPath, 'utf8').includes(id);
-      } catch {
-        return false;
-      }
-    });
-    const archive = archived();
-    const archiveVictims = archive.filter((record) => concernsMember(record, { userId: id, names }));
-    if (vault && (victims.length > 0 || copies.length > 0 || archiveVictims.length > 0)) {
-      const base = path.join(vault, path.relative(dataDir, dir));
-      fs.mkdirSync(base, { recursive: true });
-      if (fs.existsSync(file)) fs.copyFileSync(file, path.join(base, 'intentions.json'));
-      if (archiveVictims.length > 0) fs.copyFileSync(archiveFile, path.join(base, path.basename(archiveFile)));
-      for (const copyPath of copies) fs.copyFileSync(copyPath, path.join(base, path.basename(copyPath)));
-    }
-    if (archiveVictims.length > 0) {
-      const gone = new Set(archiveVictims);
-      const rest = archive.filter((record) => !gone.has(record));
-      fs.writeFileSync(`${archiveFile}.tmp`, rest.map((record) => `${JSON.stringify(record)}\n`).join(''));
-      fs.renameSync(`${archiveFile}.tmp`, archiveFile);
-    }
-    if (victims.length > 0) {
-      const gone = new Set(victims.map((record) => record.id));
-      const next = state.list.filter((record) => !gone.has(record.id));
-      persist(next);
-      state.list = next;
-    }
-    for (const copyPath of copies) fs.rmSync(copyPath, { force: true });
-    const removed = victims.length + archiveVictims.length;
-    if (removed + copies.length > 0) log.info('intentions: member forgotten', { guildId: String(guildId), userId: id, removed, copies: copies.length });
-    return { removed, copies: copies.length };
-  }
-
-  /** The guild's intentions gone: the list emptied, the file and its unreadable copies deleted. How many files. */
-  function wipe() {
-    // Authority `db`: no wipe of the memory (stage W3).
-    if (seam.authority() === 'db') throw forgetRefusal('intentions.wipe');
-    let files = 0;
-    for (const target of [file, archiveFile, ...unreadableCopies()]) {
-      if (!fs.existsSync(target)) continue;
-      fs.rmSync(target, { force: true });
-      files += 1;
-    }
-    state.list = [];
-    return { files };
-  }
-
-  /**
-   * Authority `db`: the writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is
-   * kept in `memory-pending/`. Nothing under `json`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
+   * `memory-pending/`. Nothing without a `memoryDb`.
    * @returns {Promise<{ waiting: number, pending: number }>}
    */
   async function flush({ final = false } = {}) {
@@ -273,37 +158,26 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { waiting, pending: final ? outbox.keep() : 0 };
   }
 
-  return { list, get, add, update, archived, forgetUser, wipe, flush, guildId: String(guildId), file, archiveFile };
+  return { list, get, add, update, archived, flush, guildId: String(guildId) };
 }
 
 /**
- * One intention store per guild, created on first use over the same `data/` directory. `forgetUser`
- * and `wipe` are what the memory's deleters are handed (src/memory/store.js#forgetUser's
- * `intentions`, #wipeGuild's `intentions`). `memoryDb` and `authorityOf` go to every store
- * (createIntentionStore); a store whose load failed under `db` is not kept, so the next `get` tries again.
- * @param {{ dataDir: string, now?: () => number, log?: object, memoryDb?: object|null, authorityOf?: (() => string)|null }} options
+ * One intention store per guild, created on first use. `memoryDb` goes to every store (createIntentionStore); a
+ * store whose load failed is not kept, so the next `get` tries again.
+ * @param {{ now?: () => number, log?: object, memoryDb?: object|null }} options
  * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null,
- *   forgetUser(guildId: string, userId: string, options?: { names?: string[], vault?: string|null }): { removed: number, copies: number },
- *   wipe(guildId: string): { files: number } }}
+ *   flush(options?: { final?: boolean }): Promise<{ waiting: number, pending: number }> }}
  */
-export function createIntentionStores({ dataDir, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
+export function createIntentionStores({ now = Date.now, log = defaultLog, memoryDb = null }) {
   const stores = new Map();
   const api = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
-      if (!stores.has(key)) stores.set(key, createIntentionStore({ dataDir, guildId: key, now, log, memoryDb, authorityOf }));
+      if (!stores.has(key)) stores.set(key, createIntentionStore({ guildId: key, now, log, memoryDb }));
       return stores.get(key);
     },
-    forgetUser(guildId, userId, options = {}) {
-      const store = api.get(guildId);
-      return store ? store.forgetUser(userId, options) : { removed: 0, copies: 0 };
-    },
-    wipe(guildId) {
-      const store = api.get(guildId);
-      return store ? store.wipe() : { files: 0 };
-    },
-    /** Every store's `flush` (stage W2b: the writes waiting for the database; `final` at the shutdown). */
+    /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
     async flush(options = {}) {
       let waiting = 0;
       let pending = 0;

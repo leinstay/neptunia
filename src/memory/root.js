@@ -1,7 +1,6 @@
-// The memory's paths under `data/` in one place. The stores (store.js, record.js, journal.js,
-// archive.js, vectors.js, embedder.js) take a `dataDir` and used to join their own paths into it;
-// they now ask `memoryRootOf(dataDir)`, so when the memory moves behind its own framework the
-// layout changes in this file alone. The full layout is the header comment of store.js.
+// The memory's paths under `data/` in one place: the operational files and the names of the memory database's units
+// (a unit is named by the path it had under data/). The stores (store.js, record.js, journal.js, archive.js,
+// vectors.js) take a `dataDir` and ask `memoryRootOf(dataDir)`. The full layout is the header comment of store.js.
 //
 // Only the memory's own paths live here: the other owners under `data/` (errands' tasks,
 // usage.json, metrics.json, the media caches, recall-eval) are not memory and keep theirs.
@@ -12,7 +11,7 @@ import path from 'node:path';
 
 /** `memory.vaultDir` when it is missing (config.json carries the same). */
 export const DEFAULT_VAULT_DIR = 'vault';
-/** The directory under `data/` `/nep memory snapshot` writes to (src/admin.js); a forget and a wipe reach into it. */
+/** The directory under `data/` `/nep memory snapshot` writes to (src/ops/memory.js). */
 export const SNAPSHOTS_DIR = 'snapshots';
 
 /**
@@ -35,10 +34,6 @@ export function memoryRootOf(dataDir) {
     guildDir,
     /** `<dataDir>/state.json`. */
     stateFile: path.join(dataDir, 'state.json'),
-    /** `<guildDir>/forgotten.json`: the deletion ledger. */
-    forgottenFile: (guildId) => path.join(guildDir(guildId), 'forgotten.json'),
-    /** `<guildDir>/forgetting`: one marker per forget under way. */
-    forgettingDir: (guildId) => path.join(guildDir(guildId), 'forgetting'),
     /** `<guildDir>/record`, or `<guildDir>/private/<userId>/record` for a private chat's record. */
     recordDir: (guildId, privateUserId = null) =>
       typeof privateUserId === 'string' && privateUserId

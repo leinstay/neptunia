@@ -58,7 +58,7 @@ export const HOW = Object.freeze(['said', 'saw', 'claimed', 'inferred', 'taught'
 export const TRUTHS = Object.freeze(['historical', 'disputed', 'retired']);
 export const DESCRIPTION_FIELDS = Object.freeze(['character', 'style', 'relationship', 'purpose', 'topics', 'tone', 'patterns', 'starters', 'self_view']);
 /** Status codes. */
-export const CODES = Object.freeze({ OFF: 'off', NOT_CONFIGURED: 'not_configured', APPLY_REFUSED: 'APPLY_JSON_WRITER', NO_PROMPT: 'no_prompt', SWEEP_CAP: 'sweep_cap', NOT_READY: 'not_ready' });
+export const CODES = Object.freeze({ OFF: 'off', NOT_CONFIGURED: 'not_configured', NO_PROMPT: 'no_prompt', SWEEP_CAP: 'sweep_cap', NOT_READY: 'not_ready' });
 export const pendingKey = (mode, scopeKey) => `memory_session.pending.${mode}.${scopeKey}`;
 
 const DEFAULTS = Object.freeze({
@@ -69,9 +69,6 @@ const MODES = ['off', 'shadow', 'apply'];
 const MINUTE = 60_000;
 
 const posInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
-
-/** Who writes the memory: `json` (the files; the default) or `db`. Anything else is `json`. Separate from the read switch. */
-export const authorityOf = (config) => (config?.memoryDb?.authority === 'db' ? 'db' : 'json');
 
 /** The session settings of this moment, from the live config. */
 export function sessionSettings(config) {
@@ -109,15 +106,12 @@ export function memoryKeyState(config, env) {
 }
 
 /**
- * Why the session cannot run now, or null: `off` (mode), `not_configured` (no key of its own), `APPLY_JSON_WRITER`
- * (mode apply while `memoryDb.authority` is not `db`: the JSON files are still the writer; the read switch does not
- * count), `no_prompt`.
+ * Why the session cannot run now, or null: `off` (mode), `not_configured` (no key of its own), `no_prompt`.
  */
 export function refusalOf(config, env, prompts) {
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
-  if (mode === 'apply' && authorityOf(config) !== 'db') return CODES.APPLY_REFUSED;
   if (typeof prompts?.['memory-session'] !== 'string' || !prompts['memory-session'].trim()) return CODES.NO_PROMPT;
   return null;
 }
@@ -726,7 +720,7 @@ export function pendingBatches(db) {
 }
 
 /**
- * The state of the session for the status card: `{ mode, authority, state, code, sweepsToday, last, pending }`
+ * The state of the session for the status card: `{ mode, state, code, sweepsToday, last, pending }`
  * (`state`: `off`, `not_configured`, `refused`, `ready`). `last` is the newest run's outcome and time; `pending` the
  * batches waiting for another try, with their retry counts.
  */
@@ -749,7 +743,7 @@ export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
     } catch { /* an older database without the table */ }
   }
   // `sweepsPerDay` is the per-scope cap since stage W3 (the status line's `{cap}`).
-  return { mode, authority: authorityOf(config), state, code, sweepsToday: today, sweepsPerDay: sweepsPerScopePerDay, sweepsPerScopePerDay, retryLimit, last, pending };
+  return { mode, state, code, sweepsToday: today, sweepsPerDay: sweepsPerScopePerDay, sweepsPerScopePerDay, retryLimit, last, pending };
 }
 
 /**

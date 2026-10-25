@@ -2,7 +2,7 @@
 // (src/index.js, src/behavior/, src/ops/, src/errands/), so that the memory can
 // replace an implementation behind it without touching a caller. It re-exports and defines
 // nothing; nothing in src/memory/ imports it. The pure helpers that are not memory (clamp.js,
-// mentions.js, ranking.js, recent.js, text-limits.js, prose.js, sample.js) stay direct imports.
+// mentions.js, ranking.js, recent.js, text-limits.js, prose.js) stay direct imports.
 // The paths under data/ are src/memory/root.js; the layout is the header comment of store.js.
 
 // The stores and the schedulers src/index.js constructs.
@@ -14,9 +14,6 @@ export { createArchive } from './archive.js';
 export { createVectors } from './vectors.js';
 export { createEmbedder } from './embedder.js';
 export { createMemoryUpdater } from './update.js';
-export { createWarmup } from './warmup.js';
-export { createPortraitScheduler } from './portrait.js';
-export { createNotesScheduler } from './notes-refresh.js';
 export { createEmojiBackfill } from './emoji-backfill.js';
 export { createGifBackfill } from './gif-backfill.js';
 export { createGifRecache } from './gif-recache.js';
@@ -43,16 +40,15 @@ export { isVideoVisionOn } from './youtube-check.js';
 export { createOffPeriodsReader, journalLine, turnView } from './journal.js';
 export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.js';
 
-// Writes: the record's lines, the analyzer's buffer, participation, aliases, atomic JSON files.
+// Writes: the record's lines, participation, aliases, atomic JSON files.
 export { appendRevision, toRecordLine } from './record.js';
 export { slimMessage } from './update.js';
 export { recordFollowing, recordOwnLine } from './participation.js';
 export { applyAliasOps } from './aliases.js';
 export { writeJsonAtomic } from './store.js';
 
-// Forget, wipe and restore (the deleters are the store's methods): the ledger, the markers, the vault.
-export { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, readLedger } from './store.js';
-export { forgettingIds } from './record.js';
+// The snapshot of data/ and the vault left by the earlier forgets (data, never written).
+export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from './store.js';
 
 // The root: every memory path under data/.
 export { memoryRootOf } from './root.js';

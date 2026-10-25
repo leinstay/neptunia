@@ -434,6 +434,7 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs, hidden: found?.hidden === true });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
     if (outcome?.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
+    if (outcome?.kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (outcome?.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
     if (outcome?.kind === 'error') return { status: 'failed', code: CODE.ERROR };
     if (outcome?.kind === 'timeout') return quotes.length > 0 ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } } : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };

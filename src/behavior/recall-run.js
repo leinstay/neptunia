@@ -59,10 +59,10 @@
 // plus one broad page of the first query over the past the record does not
 // hold, unless the record covers the range and its decay margin. The summary
 // reads the cue as an estimate (`<time_cue>`).
-// With `recall.backend` `db` (read at the moment of use) and `features.memoryDb` on, the persona's own search
-// (`quotes`), its window reads (`window`) and the memory prefetch read the memory database instead of Discord's search,
-// the record index and the vector files (src/memory/db/recall.js): the same stretches, scope-checked by the read
-// context. Nothing else changes; with the backend `discord`, or the database not open yet, a run is what it was.
+// The persona's own search (`quotes`), its window reads (`window`) and the memory prefetch read the memory database
+// (src/memory/db/recall.js): the stretches scope-checked by the read context. While the database is not open they find
+// nothing (`not-configured`, or a prefetch of the stored memory alone). The server part of a turn's lookup (a run
+// without `quotes`) searches Discord's history and asks the summary, as above.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
@@ -102,8 +102,8 @@ import {
   searchPlan,
   snowflakeAt,
 } from './recall.js';
-import { fitExcerpts, focusHits, indexedPlan, indexRows, lanePlan, lexicalKeep, quotedPhrases, rankPrefetch } from './prefetch.js';
-import { indexQuery, indexWords, nameAlternates, querySupport, recordIndexOf, searchRecordIndex } from '../memory/record-index.js';
+import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.js';
+import { indexWords } from '../memory/record-index.js';
 import { CODE } from '../skills/codes.js';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.js';
@@ -116,14 +116,10 @@ const SEARCH_SHARE = 0.5;
 /** The share of `recall.timeoutMs` at which a search still out is cut: the windows and the summary need the rest. */
 const PREPARE_SHARE = 0.6;
 const TIMEOUT = Symbol('timeout');
-/** The lines on each side of a meaning hit of the prefetch whose words count as its support. */
-const MEANING_SUPPORT_LINES = 2;
 /** A meaning hit of the prefetch on a line of fewer words (an acknowledgement, an emoji) is no hit: its cosine comes from its neighbours. */
 const MEANING_MIN_WORDS = 3;
 /** How many lines apart the hits marked in one prefetch excerpt may lie (focusHits). */
 const FOCUS_LINES = 6;
-/** How many times `recall.prefetch.candidates` word hits of a lane are checked by their cosine before the best are kept. */
-const LEXICAL_POOL = 3;
 const DEFAULT_TIMERS = Object.freeze({
   set: (fn, ms) => setTimeout(fn, ms),
   clear: (timer) => clearTimeout(timer),
@@ -367,7 +363,7 @@ function summaryFailure(err) {
  * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's
  *   `embed`: one call per run that searches by meaning.
  * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.js: the open memory database
- *   for `recall.backend` `db`.
+ *   (the persona's own search, her window reads and the prefetch).
  * @param {() => number} [deps.now]
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
@@ -805,11 +801,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
   }
 
   /**
-   * The memory database to read, or null: `recall.backend` `db` and `features.memoryDb` on in the live config, and
-   * the database open and synced once (memoryDb.database()). Read at the moment of use.
+   * The memory database to read, or null while it is not open (memoryDb.database()). Read at the moment of use.
    */
-  function dbOf(config) {
-    if (config?.recall?.backend !== 'db' || config?.features?.memoryDb !== true) return null;
+  function dbOf() {
     try {
       return typeof memoryDb?.database === 'function' ? (memoryDb.database() ?? null) : null;
     } catch {
@@ -912,7 +906,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
   }
 
   /**
-   * The persona's own search over the memory database (`quotes`, backend `db`): the question embedded once when
+   * The persona's own search over the memory database (`quotes`): the question embedded once when
    * the meaning search is on (a failure leaves words only, `degraded`), then src/memory/db/recall.js#search inside the
    * turn's read context, the turn's own chat left out. Resolves the same result a `quotes` run does, plus `hidden`.
    */
@@ -949,7 +943,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     const quotes = dbQuotes({ config, settings, guildId, selfName, windows: found.windows, decorate });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
-    log.info('recall: quoted', { channel: channel.id, windows: found.windows.length, quoted: quotes.length, backend: 'db', hidden: found.hidden, totalMs: now() - started });
+    log.info('recall: quoted', { channel: channel.id, windows: found.windows.length, quoted: quotes.length, hidden: found.hidden, totalMs: now() - started });
     // `hitIds`: the messages the search matched (tools/recall-eval.mjs scores them); the persona's tool ignores it.
     return { text: null, stretch: null, quotes, hidden: found.hidden === true, hitIds: found.hits.map((hit) => hit.messageId), people: [], stats: { ...stats, ms: now() - started }, outcome: { kind: 'searched', degraded, failed: 0, total: 1 } };
   }
@@ -958,7 +952,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * A window read of the persona's own `memory.search` (`anchor`, `move`, `messages`, `minutes`): the lines of the
    * anchor's place up or down in time order, inside the turn's read context (src/memory/db/recall.js#window). The
    * `anchor` is a message id (a `#N` the executor already resolved). Resolves `{ quotes, outcome, stopped }`; `outcome`
-   * `not-configured` while the db backend is not on, `unknown-anchor` for an anchor the turn cannot open or that does
+   * `not-configured` while the database is not open, `unknown-anchor` for an anchor the turn cannot open or that does
    * not exist, `error` for a throw. Counts no daily run: it reads the local database only. `asker` is the user id of
    * whoever asked and `memoryContext` the turn's execution context, as for `run`.
    */
@@ -969,7 +963,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     try {
       const config = hot.config;
       const settings = recallSettings(config);
-      const db = dbOf(config);
+      const db = dbOf();
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
       if (!guild || (!channel?.guild && !partner)) return out({ outcome: { kind: 'not-configured' } });
       const reader = dbReader({ db, config, guild, guildId, channel, partner, asker, memoryContext });
@@ -994,7 +988,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * (the run's trace record, or null with `features.recallTrace` off) gets
    * the clusters and the summary's answer as they are known.
    */
-  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null, quotes = false, memoryContext = null }) {
+  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null, memoryContext = null }) {
     const channelId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     let counted = false;
@@ -1008,8 +1002,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
     const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scopeOf({ config, guild, channel, partner });
-    // The persona's own search naming a channel the rail hides: said so, not an empty result.
-    if (quotes && server?.channelId && sourceOf(server.channelId) === null) return result({ outcome: { kind: 'not-visible' } });
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1090,13 +1082,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     };
     for (const query of queue) tracePlanned(query);
     stepAt = now();
-    let cutQueries = 0;
     while (queue.length > 0) {
       if (signal.aborted) return null;
-      if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) {
-        cutQueries = queue.length;
-        break;
-      }
+      if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
       const query = queue.shift();
       beforeRequest();
       const page = await searchMessages(guild, query, { signal: searchSignal });
@@ -1276,17 +1264,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       });
       return { channelId: window.channelId, channelName: window.channelName, startTs: lines[0].ts, lines: lines.map((line) => line.text).join('\n'), entries };
     };
-    // The persona's own memory.search (`quotes`): the stretches as they were, no summary, no
-    // request; a channel she named keeps only its own (stored memory is notes, not chat: left out).
-    if (quotes) {
-      const shown = windows.filter((window) => !server.channelId || window.channelId === server.channelId).map(stretchOf).filter(Boolean);
-      stats.summary = 'quotes';
-      if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
-      log.info('recall: quoted', { channel: channelId, windows: windows.length, quoted: shown.length, totalMs: now() - started });
-      // What the persona is told besides the stretches: the words-only search, the queries that failed or were cut.
-      const outcome = { kind: 'searched', degraded: meaning?.degraded === true, failed: stats.failed + cutQueries, total: stats.planned };
-      return result({ quotes: shown, people: peopleOut(), outcome });
-    }
     // Stored memory alone is enough to ask the summary.
     const messages =
       windows.length > 0 || memory.items.length > 0
@@ -1408,16 +1385,14 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
    * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
    * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
-   * `quotes` (the persona's own memory.search, src/skills/tools.js): no summary is asked and the
-   * prompt is not needed; the run resolves `quotes`, every kept window as a stretch (cut to
-   * `recall.stretchChars`, no indices) in rank order -- only the channel `server.channelId`
-   * names when it is set -- with `text` and `stretch` null, and logs `recall: quoted`.
+   * `quotes` (the persona's own memory.search, src/skills/tools.js): the memory database's search
+   * (runDbQuotes): no summary is asked and the prompt is not needed; the run resolves `quotes`, the
+   * stretches in rank order, with `text` and `stretch` null, and logs `recall: quoted`; while the
+   * database is not open its `outcome` is `not-configured`.
    * The result's `outcome` (optional) says what a run that found nothing did not do: `{ kind }`
    * `daily-cap` (a daily limit spent: `llm.capLeft()` or `recall.maxPerDay`), `timeout`
-   * (`recall.timeoutMs` ran out, no fallback), `error` (a throw) or, with `quotes`, `not-visible`
-   * (the `server.channelId` named is hidden by the pull rail) and `searched` (`degraded`: the
-   * meaning search failed and words only were searched; `failed`, `total`: the planned queries that
-   * failed or were cut by the time share, out of all planned).
+   * (`recall.timeoutMs` ran out, no fallback), `error` (a throw) or, with `quotes`, `not-configured`,
+   * `not-visible` (the `server.channelId` named is hidden by the pull rail) and `searched` (`degraded`, `failed`, `total`).
    * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
    * window's messages once they are read and gives the ones rendered, so the persona's lines
    * there show what she called like her chat lines do. `memoryContext` (optional) is the turn's
@@ -1469,9 +1444,13 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       if (dailySpent(settings)) return skip('daily');
       if (op) await op.started();
 
-      // The persona's own search over the memory database (recall.backend db): no Discord request, no summary.
-      const db = quotes ? dbOf(config) : null;
-      if (db) {
+      // The persona's own search over the memory database: no Discord request, no summary.
+      if (quotes) {
+        const db = dbOf();
+        if (!db) {
+          if (op) await op.failed('not-configured');
+          return finish(empty({ outcome: { kind: 'not-configured' } }));
+        }
         const found = await runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started, memoryContext });
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
         if (op) await op.succeeded(opResult(found, 'ok'));
@@ -1510,7 +1489,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         stats,
         trace,
         decorate,
-        quotes,
         memoryContext,
       });
       work.catch(() => {});
@@ -1566,29 +1544,18 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * The automatic memory prefetch of a turn (src/behavior/prefetch.js; features.coreTools with
    * features.memoryPrefetch, decided by the caller): no model request but one embedding, no
    * Discord request, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
-   * the local searches of a run, all at once:
-   * - words: the record index (src/memory/record-index.js, recordIndexOf: the whole record, kept
-   *   in memory and refreshed in the background; the guild's, and a private partner's own) gives
-   *   the lane's distinctive terms and phrases (indexQuery: `recall.maxForms` terms of at most
-   *   `recall.prefetch.maxTermShare` of the messages, phrases by `recall.prefetch.maxPhraseDf` and
-   *   `recall.prefetch.minPhraseShare`, the persona's names left out, members' aliases as
-   *   alternates) and its hits (searchRecordIndex, `recall.prefetch.rareTermDf`), at most three
-   *   times `recall.prefetch.candidates`; with the meaning search on each hit's cosine is read from
-   *   the vector index and lexicalKeep decides; the best `recall.prefetch.candidates` are read
-   *   back from the record around them (matchRecord, `ceil(candidates / 4)` windows). The stored
-   *   memory and the archive are searched with those terms as forms (indexedPlan; lanePlan's when
-   *   the index has none; storedMemory, the recent lines left out: `<recent>` shows them);
-   * - meaning (features.meaningSearch exactly true, the index and the embedding client given):
-   *   one embedding request for every lane's text (purpose `recall-query`, shared with the word
-   *   hits' check), then per lane the vector index, `recall.prefetch.candidates` rows, those under
-   *   `recall.prefetch.minMeaningScore` dropped; record rows read around (matchRecord with no
-   *   word scan) and kept when their line has MEANING_MIN_WORDS words or more and either a cosine of
-   *   at least `recall.prefetch.strongMeaningScore` or a term or phrase of the lane's query within
-   *   MEANING_SUPPORT_LINES lines (querySupport, speakers' names included); archive rows as
-   *   stored-memory items by the same rule over their text.
+   * the local searches, all at once:
+   * - the memory database (src/memory/db/recall.js#search, while it is open): words, letters,
+   *   meaning (features.meaningSearch exactly true and the embedding client given: one embedding
+   *   request for every lane's text, purpose `recall-query`) and people fused, the stretches built
+   *   around the hits, `ceil(recall.prefetch.candidates / 4)` of them; a word hit is relevant by
+   *   lexicalKeep, a meaning hit when its line has MEANING_MIN_WORDS words or more and either a cosine
+   *   of at least `recall.prefetch.strongMeaningScore` or a term of the lane's question;
+   * - the stored memory and the archive, searched with the lane's forms (lanePlan; storedMemory,
+   *   the recent lines left out: `<recent>` shows them).
    * The scope rules are a run's (scopeOf): a refused channel's lines, items and rows, a private
    * line of another member, and the turn's own chat (`history`'s ids, on a server turn) never
-   * reach the result. The record and the archive are read once for all lanes (sharedSource).
+   * reach the result. The archive is read once for all lanes (sharedSource).
    * Bounded by `recall.prefetch.deadlineMs`: what has not settled then is abandoned, what has
    * stands. The relevant hits are fused and cut by rankPrefetch and fitExcerpts
    * (`recall.prefetch.maxExcerpts`, `recall.prefetch.maxTokens`); each window rendered as a
@@ -1596,8 +1563,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * (focusHits), cut to `recall.prefetch.excerptChars` by whole lines from its far ends, cached
    * captions only, `decorate` applied to its messages). `at` (a replay's moment, epoch ms) bounds
    * every source to what existed then (an archive entry recorded after it left out); live it is
-   * now. `stats.stages`: the milliseconds of each stage that ran (index, embed, check, record,
-   * read, memory).
+   * now. `stats.stages`: the milliseconds of each stage that ran (embed, record, memory).
    * Resolves null for no lane or with features.recall off; else `{ status, basis, excerpts, ms,
    * stats }`: `status` `ok` (an excerpt), `none` (searched, nothing relevant), `timeout` (the
    * deadline passed before anything relevant settled) or `unavailable` (no guild to read on behalf
@@ -1653,16 +1619,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         return (typeof name === 'string' && name ? name : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
       };
       const channelNameOf = (id) => guild?.channels?.cache?.get?.(id)?.name ?? null;
-      const recordShared = sharedSource(
-        typeof record?.iterate === 'function'
-          ? {
-              async *iterate(id, query) {
-                yield* record.iterate(id, query);
-                if (privateUserId) yield* record.iterate(id, { ...query, privateUserId });
-              },
-            }
-          : null,
-      );
       // A replay's moment bounds the archive too: an entry recorded after it did not exist yet.
       const archiveShared = sharedSource(
         bounded && typeof archive?.iterate === 'function'
@@ -1677,19 +1633,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       const plans = list.map((lane) =>
         lanePlan(lane, { profiles, selfId, selfName, maxForms: settings.maxForms, shortWords: p.shortWords, minFormsMatched: p.minFormsMatched, trigger }),
       );
-      const recordOptions = {
-        record: recordShared,
-        recordContext: settings.recordContext,
-        followMessages: settings.followMessages,
-        followGapMinutes: settings.followGapMinutes,
-        now: until,
-        allowLine,
-        exclude: ownIds,
-        nameOf,
-        selfName,
-        channelNameOf,
-        signal,
-      };
       // A source of a live turn's moment only: nothing after `at` (a replay's past moment).
       const inTime = (window) => ({ ...window, messages: window.messages.filter((m) => !(m.ts > until)) });
       const settled = [];
@@ -1707,8 +1650,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         );
       };
       const memoryItems = (items, keep) => items.filter((item) => item.kind !== 'recent' && keep(item));
-      // The record index (src/memory/record-index.js): the guild's, and a private partner's own; built
-      // once per process, refreshed in the background. Shared by every lane's word search.
       const stages = {};
       const timed = (name, promise) => {
         const at = now();
@@ -1716,70 +1657,17 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
           stages[name] = Math.max(stages[name] ?? 0, now() - at);
         });
       };
-      // With recall.backend db the record index and the vector files are not built or read: the database answers.
-      const db = dbOf(config);
-      const indexes =
-        !db && typeof record?.iterate === 'function'
-          ? timed(
-              'index',
-              Promise.all([
-                recordIndexOf(record, guildId, { now }),
-                ...(privateUserId ? [recordIndexOf(record, guildId, { privateUserId, now })] : []),
-              ]),
-            )
-          : null;
-      const alternates = nameAlternates(profiles, selfId);
-      const skipWords = [selfName, ...(Array.isArray(config.bot?.nameTriggers) ? config.bot.nameTriggers : [])].filter((name) => typeof name === 'string');
-      const allowDoc = (doc) => allowLine({ scope: doc.scope });
-      // Per lane: the index's queries (its distinctive terms and phrases), once.
-      const laneQueries = list.map((lane, i) =>
-        !indexes
-          ? Promise.resolve(null)
-          : indexes.then((all) => all.map((index) => indexQuery(index, lane.words, { until, exclude: ownIds, skipWords, alternates, quoted: quotedPhrases(lane.words), maxTerms: settings.maxForms, maxTermShare: p.maxTermShare, rareTermDf: p.rareTermDf, maxPhraseDf: p.maxPhraseDf, minPhraseShare: p.minPhraseShare }))),
-      );
-      laneQueries.forEach((queried) => queried.catch(() => {}));
-      const meaningOn = !db && config.features?.meaningSearch === true && typeof embed === 'function' && typeof vectors?.search === 'function';
+      // The database answers the words and the meaning of every lane (while it is not open, the stored memory alone).
+      const db = dbOf();
       const dbMeaning = Boolean(db) && config.features?.meaningSearch === true && typeof embed === 'function';
-      const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
-      const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
-      const range = { from: null, to: bounded ? until : null };
-      // One embedding request for every lane's text, shared by the meaning search and the word hits' check.
-      const laneVectors = meaningOn || dbMeaning ? timed('embed', embed(list.map((lane) => oneLine(lane.text)), { config, purpose: 'recall-query', signal })) : Promise.resolve(null);
+      // One embedding request for every lane's text.
+      const laneVectors = dbMeaning ? timed('embed', embed(list.map((lane) => oneLine(lane.text)), { config, purpose: 'recall-query', signal })) : Promise.resolve(null);
       laneVectors.catch(() => {});
-      /** The cosine of each of `ids` (record messages) to `vector`, from the vector index (none without a row). */
-      const cosinesOf = async (vector, ids) => {
-        if (!vector || ids.size === 0) return new Map();
-        const only = (meta) => meta?.kind !== 'archive' && ids.has(meta?.id);
-        let rows = await vectors.search(guildId, vector, { ...range, k: ids.size, filter: only });
-        if (privateUserId) rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k: ids.size, filter: only, privateUserId }))];
-        const out = new Map();
-        for (const row of Array.isArray(rows) ? rows : []) out.set(row.meta.id, Math.max(out.get(row.meta.id) ?? -1, row.score));
-        return out;
-      };
       const tasks = [];
       plans.forEach((plan, i) => {
-        if (indexes && recordShared) {
-          tasks.push(
-            task('record', async () => {
-              const [all, queries] = await Promise.all([indexes, laneQueries[i]]);
-              const hits = all.flatMap((index, j) => searchRecordIndex(index, queries[j], { until, exclude: ownIds, allow: allowDoc, limit: p.candidates * LEXICAL_POOL, rareTermDf: p.rareTermDf }));
-              if (hits.length === 0 || signal.aborted) return null;
-              // With the meaning search on, each word hit's own cosine checks it (lexicalKeep); without, words alone.
-              const vector = meaningOn ? ((await laneVectors.catch(() => null))?.[i] ?? null) : null;
-              const cosines = vector ? await timed('check', cosinesOf(vector, new Set(hits.map((hit) => hit.messageId)))) : null;
-              const rows = indexRows([hits.filter((hit) => lexicalKeep(hit, cosines, p))], p.candidates);
-              if (rows.length === 0 || signal.aborted) return null;
-              const found = await timed('record', matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: rows }));
-              const windows = found.windows.map(inTime);
-              const shown = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
-              return { lane: list[i].kind, windows, lexical: rows.map((row) => row.id).filter((id) => shown.has(id)) };
-            }),
-          );
-        }
         tasks.push(
           task('memory', async () => {
-            const queries = await laneQueries[i].catch(() => null);
-            const used = queries ? indexedPlan(plan, queries, { maxForms: settings.maxForms, minFormsMatched: p.minFormsMatched }) : plan;
+            const used = plan;
             if (!used) return null;
             const forms = [...used.phrases, ...used.forms];
             if (forms.length === 0 && used.who.length === 0) return null;
@@ -1831,55 +1719,6 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
             }),
           );
         });
-      }
-      if (meaningOn) {
-        tasks.push(
-          task('meaning', async () => {
-            const vectorsOf = await laneVectors;
-            await Promise.all(
-              list.map(async (lane, i) => {
-                const vector = vectorsOf?.[i];
-                if (!vector) return;
-                let rows = await vectors.search(guildId, vector, { ...range, k: p.candidates, filter: shared });
-                if (privateUserId) rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k: p.candidates, filter: unseen, privateUserId }))];
-                const kept = dedupeRows(Array.isArray(rows) ? rows : [], p.candidates).filter((row) => row.score >= p.minMeaningScore);
-                stats.meaning += kept.length;
-                const recordRows = kept.filter((row) => row.meta.kind !== 'archive').map(({ meta }) => ({ id: meta.id, channelId: meta.channelId, occurredAt: meta.occurredAt, sourceIds: Array.isArray(meta.sourceIds) ? meta.sourceIds : [] }));
-                const archiveRows = kept.filter((row) => row.meta.kind === 'archive').map(({ meta }) => ({ id: meta.id, occurredAt: meta.occurredAt }));
-                // Below `strongMeaningScore` a row needs a word of the lane's question (its index query's
-                // terms or phrases) on its line or the lines next to it, the speakers' names included.
-                const strong = new Set(kept.filter((row) => row.score >= p.strongMeaningScore).map((row) => row.meta.id));
-                const [all, queries] = indexes ? await Promise.all([indexes, laneQueries[i]]).catch(() => [null, null]) : [null, null];
-                const supported = (texts) =>
-                  !all ||
-                  !queries ||
-                  all.some((index, j) => {
-                    const support = querySupport(index, texts, queries[j]);
-                    return support.terms > 0 || support.phrases > 0;
-                  });
-                if (recordRows.length > 0 && recordShared) {
-                  const found = await timed('read', matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: recordRows }));
-                  const windows = found.windows.map(inTime);
-                  const around = new Map();
-                  for (const window of windows) {
-                    window.messages.forEach((message, at) => {
-                      const near = window.messages.slice(Math.max(0, at - MEANING_SUPPORT_LINES), at + MEANING_SUPPORT_LINES + 1);
-                      around.set(message.id, near.flatMap((m) => [m.content, m.authorName]));
-                    });
-                  }
-                  const wordy = new Set(windows.flatMap((window) => window.messages.filter((m) => indexWords(m.content).length >= MEANING_MIN_WORDS).map((m) => m.id)));
-                  const meant = recordRows.map((row) => row.id).filter((id) => around.has(id) && wordy.has(id) && (strong.has(id) || supported(around.get(id))));
-                  if (!signal.aborted) settled.push({ lane: lane.kind, windows, meaning: meant });
-                }
-                if (archiveRows.length > 0) {
-                  const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms: [], who: [], from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, meaning: archiveRows, source: archiveShared });
-                  if (!signal.aborted) settled.push({ lane: lane.kind, memory: memoryItems(memory.items, (item) => strong.has(item.itemId) || supported([item.text])) });
-                }
-              }),
-            );
-            return null;
-          }),
-        );
       }
       if (tasks.length === 0) return finish('none', { stats: { ...stats, candidates: 0 } });
       const deadline = new Promise((resolve) => {

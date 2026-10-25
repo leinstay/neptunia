@@ -114,7 +114,6 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorBonus: 2,
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
-  backend: 'discord',
   db: Object.freeze({ gateShare: 0.5, candidates: 40, wordPool: 400, minMeaning: 0.35, vectorDays: 90, touchDays: 30, vectorEviction: false, reembed: false }),
   prefetch: PREFETCH_DEFAULTS,
 });
@@ -201,10 +200,9 @@ function numberAtLeast(value, fallback, min) {
  * replied-to line joins the meaning query, meaningQuery) is on only when it
  * is exactly `true`. The locator numbers (a `when:` that only locates, see
  * proximityBonus and locatorKeep): `locatorBonus` and `locatorDecayDays`
- * numbers of at least 0, `locatorBroadShare` a number from 0 to 1. `backend`: `db` (the memory
- * database answers the persona's own search and the prefetch, src/memory/db/recall.js) or `discord`
- * (anything else); `db`: `gateShare` 0..1, `candidates` at least 1, `minMeaning` -1..1 of that
- * backend. `prefetch`: `recall.prefetch`
+ * numbers of at least 0, `locatorBroadShare` a number from 0 to 1. `db` (the memory database's
+ * search, src/memory/db/recall.js): `gateShare` 0..1, `candidates` at least 1, `minMeaning` -1..1.
+ * `prefetch`: `recall.prefetch`
  * read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
@@ -253,7 +251,6 @@ export function recallSettings(config) {
     locatorBonus: numberAtLeast(r.locatorBonus, d.locatorBonus, 0),
     locatorDecayDays: numberAtLeast(r.locatorDecayDays, d.locatorDecayDays, 0),
     locatorBroadShare: shareOf(r.locatorBroadShare, d.locatorBroadShare),
-    backend: r.backend === 'db' ? 'db' : d.backend,
     db: {
       gateShare: shareOf(r.db?.gateShare, d.db.gateShare),
       candidates: intAtLeast(r.db?.candidates, d.db.candidates, 1),

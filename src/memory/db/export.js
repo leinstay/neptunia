@@ -1,21 +1,17 @@
-// Export: writes today's JSON memory layout from the database alone (spec section 6), so the round trip can be
-// proved file by file (`tools/memory-db.mjs verify`) and the old files can one day be rebuilt or dropped.
+// A memory unit rebuilt from the database alone (spec 2026-10-24-memory-store, section 6): what the memory modules read
+// (src/memory/db/readers/), in the shape the unit had as a file under data/.
 //
-// Which files exist comes from the `files` table (a sync records every unit it read, a month of vectors being one
-// unit; a unit that left the disk is a tombstone (`gone_at`) and is not written); what is in them comes from the rows
-// whose `owner_file` is the unit's full path (`guilds/<g>/users/<u>.json`) or that the unit shares with another guild
-// (`co_owners`), and that are not retired. A retired row left its file, so it is not written. JSON is written the way
-// the store writes it (2 spaces, no trailing newline),
-// a JSONL file one line per row in the old line order, vector bytes exactly, operational rows verbatim.
+// Which units exist comes from the `files` table (the writers record every unit they wrote, a month of vectors being
+// one unit; a unit that is gone is a tombstone, `gone_at`); what is in them comes from the rows whose `owner_file` is
+// the unit's full path (`guilds/<g>/users/<u>.json`) or that the unit shares with another guild (`co_owners`), and that
+// are not retired. A JSON unit is built the way the store writes it (2 spaces, no trailing newline), a JSONL unit one
+// line per row in its line order, vector bytes exactly, operational rows verbatim.
 //
-// exportAll(database, toDir) -> { files, byKind, failed }
-// exportOne(database, relPath, { dataDir }) -> { found, value } | { found: false, reason }   (one JSON file's value)
+// exportOne(database, relPath) -> { found, value } | { found: false, reason }   (one JSON unit's value)
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { classify } from './map/index.js';
 import { filesOf } from './map/vectors.js';
-import { OWNED } from './sync.js';
+import { OWNED } from './upsert.js';
 
 const CHILDREN = {
   episode_sources: ['episodes', 'episode_id'],
@@ -96,59 +92,24 @@ export function filesOfUnit(db, unitRel, info, unitFull = unitRel) {
 }
 
 /**
- * Writes the whole layout under `toDir` (`<toDir>/guilds/<guildId>/...`). A unit that cannot be rebuilt is counted in
- * `failed` (kind and error code) and skipped.
- */
-export function exportAll(database, toDir) {
-  const db = database.db ?? database;
-  const result = { files: 0, byKind: {}, failed: [] };
-  for (const file of db.prepare('SELECT path, kind FROM files WHERE gone_at IS NULL ORDER BY path').all()) {
-    const match = /^guilds\/([^/]+)\/(.+)$/.exec(file.path);
-    const guildPrefix = match ? `guilds/${match[1]}/` : '';
-    const unitRel = match ? match[2] : file.path;
-    const info = classify(file.kind === 'vectors' ? `${file.path}/manifest.json` : file.path);
-    const counts = (result.byKind[file.kind] ??= { files: 0 });
-    if (!info || info.skipped) continue;
-    try {
-      for (const out of filesOfUnit(db, unitRel, info, file.path)) {
-        const target = path.join(toDir, guildPrefix, out.rel);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, out.data);
-        counts.files += 1;
-        result.files += 1;
-      }
-    } catch (error) {
-      result.failed.push({ kind: file.kind, code: error?.code ?? error?.name ?? 'ERROR' });
-    }
-  }
-  return result;
-}
-
-/**
- * The value of one JSON memory file, built from the database alone (the store's read switch, spec section 7).
- * `relPath` is relative to the data root (`guilds/<id>/users/<id>.json`). Not found, with the reason: `unmapped` (not
- * a memory file, or not a JSON one), `missing` (the database holds no unit for it), `stale` (with `dataDir`: the file
- * on disk is not the one the last sync read, so the database is behind it), `empty` (the unit has no rows).
+ * The value of one JSON memory unit, built from the database alone. `relPath` is relative to the data root
+ * (`guilds/<id>/users/<id>.json`). Not found, with the reason: `unmapped` (not a memory unit, or not a JSON one),
+ * `missing` (the database holds no unit for it), `empty` (the unit has no rows).
  * @returns {{ found: true, value: any } | { found: false, reason: string }}
  */
-export function exportOne(database, relPath, { dataDir = null } = {}) {
+export function exportOne(database, relPath) {
   const db = database.db ?? database;
   const info = classify(relPath);
   if (!info || info.skipped || info.format !== 'json') return { found: false, reason: 'unmapped' };
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  const file = db.prepare('SELECT size, mtime_ms FROM files WHERE path = ? AND gone_at IS NULL').get(full);
+  const file = db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full);
   if (!file) return { found: false, reason: 'missing' };
-  if (dataDir) {
-    let stat = null;
-    try { stat = fs.statSync(path.join(dataDir, relPath)); } catch { /* gone */ }
-    if (!stat || stat.size !== file.size || Math.floor(stat.mtimeMs) !== file.mtime_ms) return { found: false, reason: 'stale' };
-  }
   const [out] = filesOfUnit(db, info.unit, info, full);
   if (!out) return { found: false, reason: 'empty' };
   return { found: true, value: JSON.parse(out.data.toString('utf8')) };
 }
 
-/** The ids (file names without `.json`) of the JSON memory files directly under `relDir`, or null when the database holds none. */
+/** The ids (unit names without `.json`) of the JSON memory units directly under `relDir`, or null when the database holds none. */
 export function idsUnderDir(database, relDir) {
   const db = database.db ?? database;
   const prefix = `${String(relDir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;

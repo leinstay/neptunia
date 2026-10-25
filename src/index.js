@@ -23,9 +23,6 @@ import {
   createVectors,
   createEmbedder as createEmbedQueue,
   createMemoryUpdater,
-  createWarmup,
-  createPortraitScheduler,
-  createNotesScheduler,
   createEmojiBackfill,
   createGifBackfill,
   createGifRecache,
@@ -70,7 +67,7 @@ import {
 } from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { createInnerLife } from './behavior/inner.js';
-import { backfillDiary, createDiary } from './behavior/diary.js';
+import { createDiary } from './behavior/diary.js';
 import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
 import { createPageFetcher } from './web/fetch-page.js';
@@ -92,7 +89,7 @@ import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { isValidCommandName } from './ops/catalog.js';
 
-const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
+const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
 /** Print a one-line, secret-free error and terminate with a non-zero exit code. */
 function fail(message) {
@@ -181,21 +178,12 @@ onLog(metricsTap(metrics));
 // lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
 const usage = createUsage({ dataDir, log });
 onLog(usageTap(usage));
-// The append-only files under data/ (the journal): one serialized writer per file. Its settings
-// are read once here; the journal reads its own section (journal.*) at each write.
-const appendStore = createAppendStore({
-  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
-  retryMax: hot.config.appendStore?.retryMax ?? 1000,
-  log,
-});
-// The memory database (features.memoryDb): kept equal to the JSON files by a sync after each flush and on the tick
-// below; the store reads through it only with memoryDb.read on. All of it is a no-op while the switch is off.
-// Created before the memory modules: under memoryDb.authority `db` (fixed for the process, memoryDb.authority())
-// their reads go to the database (src/memory/db/readers/); under `json` they read their files.
+// The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
+// it (src/memory/db/readers/, src/memory/db/unit-write.js); opened at the start (the first tick, awaited below).
 // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
 // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
-// Under memoryDb.authority `db` her memory session is the memory writer (stage W3): it runs on the chat client (role
-// `memory`, its own key from `env`), and a run that fails is told to her as a `memoryFailed` fact (inner, defined below).
+// Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
+// run that fails is told to her as a `memoryFailed` fact (inner, defined below).
 const memoryDb = createMemoryDb({
   hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
   embed: (texts, options) => embedder.embed(texts, options),
@@ -205,21 +193,15 @@ const memoryDb = createMemoryDb({
   onSessionFailure: (failure) => tellSessionFailure(failure),
 });
 // The record (src/memory/record.js): every observed message, the persona's own lines and her
-// feelings, written while features.record is exactly true (read at each write). Its own append
-// store, flushed every record.fsyncMs (read once here).
-const recordAppendStore = createAppendStore({
-  fsyncMs: hot.config.record?.fsyncMs ?? 500,
-  retryMax: hot.config.appendStore?.retryMax ?? 1000,
-  log,
-});
-// A forget holds the record's appends with the journal's writer lock (journal.withWriterLock).
-const recordWriter = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
+// feelings, written while features.record is exactly true (read at each write).
+// A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
+const recordWriter = createRecord({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
 // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
 const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
 // The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
 let embedQueue = null;
-// The one place the meaning index hears of new record lines: every writer (the analyzer's
-// batches, edits and deletions, the persona's own lines, feelings) appends through this record,
+// The one place the meaning index hears of new record lines: every writer (edits and deletions,
+// the persona's own lines, feelings) appends through this record,
 // and once an append took lines they are queued for embedding (the queue keeps what it wants
 // and is off unless features.meaningSearch and features.embedIndex are both exactly true).
 const record = {
@@ -237,27 +219,23 @@ const record = {
   },
 };
 // The archive (src/memory/archive.js): every memory item a write drops is copied here before any
-// hot file loses it, while features.archive is exactly true (read at each write). Its own append
-// store, so its counts tell whether an archive line is on disk.
+// hot list loses it, while features.archive is exactly true (read at each write). Its own append
+// store for the pending queue (an operational file), so its counts speak for the archive alone.
 const archiveAppendStore = createAppendStore({
   fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
 const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
-// The journal's writer lock (a snapshot, a forget, a wipe, the ledger at start) flushes the record's
-// and the archive's append stores too, and holds their writers through their writerGate.
-const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore], memoryDb });
+// The journal's writer lock (a snapshot) flushes the archive's append store too, and holds the
+// record's and the archive's writers through their writerGate.
+const journal = createJournal({ dataDir, config: () => hot.config.journal ?? {}, lockStores: [archiveAppendStore], memoryDb });
 const store = createStore({
   dataDir,
-  memoryRead: memoryDb.reader,
-  afterFlush: () => memoryDb.requestSync(),
   record,
   recordOn: () => hot.config.features?.record === true,
   archive,
   archiveOn: () => hot.config.features?.archive === true,
-  // A forget and the ledger take members' rows out of the meaning index too.
-  vectors,
   memoryDb,
 });
 
@@ -272,7 +250,6 @@ embedQueue = createEmbedQueue({
   vectors,
   embed: embedder.embed,
   record: recordWriter,
-  dataDir,
   log,
   nameOf: (guildId, userId) =>
     store.getUser(guildId, userId)?.names?.[0] ?? client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ?? null,
@@ -368,7 +345,7 @@ const around = createAroundStore({ presences: presencesIntent });
 const reactors = createReactorStore({ maxMessages: () => hot.config.context?.reactions?.maxMessages ?? 500 });
 // The served guild's custom emoji (features.customEmoji): a live view over discord.js's own cache.
 const emoji = createEmojiIndex(client, getGuildId);
-// The persona's display name in a guild: the one name every request, the warmup and the analyzer use.
+// The persona's display name in a guild: the one name every request uses.
 const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
 // after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
@@ -387,12 +364,10 @@ const recall = createRecall({ hot, store, llm, discord, describer, archive, reco
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();
-// A warmup run ends a chain of parts (a message answered part by part) before its next part;
-// read through a closure, as the warmup is created just below.
 // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
-const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log, memoryDb });
+const taskStores = createTaskStores({ config: () => hot.config, journal, log, memoryDb });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
 // An errand's end is a `task.completed` event through the event door (`door`, created below with
 // the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
@@ -400,8 +375,8 @@ const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal
 const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
 // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
 // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
-// Under memoryDb.authority `db` both stores send their writes to the database; `flush` is their retry and shutdown step.
-const intentionStores = createIntentionStores({ dataDir, log, memoryDb });
+// Both stores send their writes to the database; `flush` is their retry and shutdown step.
+const intentionStores = createIntentionStores({ log, memoryDb });
 const intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId, log });
 const turns = createTurnRunner({
   hot,
@@ -425,7 +400,6 @@ const turns = createTurnRunner({
   reactors,
   getSelfName,
   routeChannels,
-  isWarmingUp: () => warmup.isWarmingUp(),
   activity,
   journal,
   record,
@@ -445,40 +419,12 @@ const turns = createTurnRunner({
   // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
   places: (guildId, options) => inner.places(guildId, options),
 });
-// THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
-// resumable, mutes the persona while a run is in flight (see isWarmingUp below).
-// Under memoryDb.authority `db` (fixed for the process) the extractor role is retired: every warmup entry refuses.
-const warmup = createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, getGuildId, authority: () => memoryDb.authority() });
-const isWarmingUp = warmup.isWarmingUp;
-const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId, isWarmingUp });
+const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId });
 // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
-// Under memoryDb.authority `db` (fixed for the process) the diary's posts are rows already: no backfill from the channel.
-const diary = createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp, backfill: memoryDb.authority() === 'db' ? null : backfillDiary });
-// The stream analyzer's "the stored portrait misses something" cue -- src/memory/warmup.js's
-// own rails (hours/day/mute) decide whether a refresh actually runs; never awaited here.
-const memory = createMemoryUpdater({
-  hot,
-  store,
-  llm,
-  calibrator,
-  getSelfName,
-  journal,
-  onPortraitRequest: (guildId, userId, reason) => {
-    warmup.refreshPortrait(guildId, userId, reason).catch((err) => log.error('index: portrait refresh failed', { error: err }));
-  },
-  // features.record: each batch reaches the record before it is analyzed.
-  record,
-  // features.archive: a pending queue over archive.pendingMax pauses memory application.
-  archive,
-  // A status line for the development channel (bot.dryRunChannelId, read now).
-  notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
-  // features.intentions: the intention candidates a batch found in her own lines.
-  onIntentionCandidates: (guildId, raw, messages) => intentions.addCandidates(guildId, raw, messages),
-  // Where her lines came from (src/intentions/sources.js), kept with them in the buffer.
-  lineSourcesOf: (messageId) => intentions.lineSources(messageId),
-  // Under memoryDb.authority `db` (fixed for the process) the analyzer's memory path is off: her session writes.
-  authority: () => memoryDb.authority(),
-});
+// The diary's posts are rows of the memory database already: no backfill from the channel.
+const diary = createDiary({ hot, store, client, discord, turns, getGuildId });
+// The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
+const memory = createMemoryUpdater({ hot, store });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
 const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
 /**
@@ -526,12 +472,9 @@ const inner = createInnerLife({
   discord,
   store,
   getGuildId,
-  isWarmingUp,
   // People's turns first: an inner turn waits while a direct ping is queued.
   peopleWaiting: () => onMessage.pendingCount() > 0,
   submit: (event) => door.submit(event),
-  // What an inner turn did and found becomes lines of hers for the memory analyzer.
-  onEpisode: (guildId, episode) => memory.observeInner(guildId, episode),
   // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
   memoryDb,
   // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, what she can do. No presence or
@@ -547,10 +490,8 @@ const inner = createInnerLife({
 });
 // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
 turns.setFactsSource(inner.facts);
-// A memory batch that cannot be applied is told to her through the same ledger (a `memoryFailed` fact).
-memory.setFactsSource(inner.facts);
 /**
- * A memory session run that failed under memoryDb.authority `db` (src/memory/db/service.js, once per failing scope),
+ * A memory session run that failed (src/memory/db/service.js, once per failing scope),
  * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private conversation's only in that
  * private chat (its DM channel, when the client knows it). Never throws.
  */
@@ -571,7 +512,7 @@ const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
 // recovery turn only with features.missedRecovery on (shadow mode by default).
-const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, isWarmingUp, dataDir, fetchHistory: discord.fetchHistory, canSend: discord.canSend });
+const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, dataDir, fetchHistory: discord.fetchHistory, canSend: discord.canSend });
 turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
 const emojiBackfill = createEmojiBackfill({ hot, store, client, discord, log });
@@ -581,7 +522,7 @@ const gifBackfill = createGifBackfill({ hot, store, client, discord, describer, 
 // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
 // and the pictures an older model described, found through the record: only on /nep media
 // kind:pictures action:recache.
-const gifRecache = createGifRecache({ hot, store, client, discord, describer, record, isWarmingUp, log });
+const gifRecache = createGifRecache({ hot, store, client, discord, describer, record, log });
 
 const onMessage = createMessageHandler({
   hot,
@@ -595,7 +536,6 @@ const onMessage = createMessageHandler({
   tagHistory,
   getGuildId,
   getSelfName,
-  isWarmingUp,
   describer,
   // features.followUp: the address classifier's own, separate LLM call.
   llm,
@@ -607,7 +547,7 @@ const onMessage = createMessageHandler({
   record,
   // A failed address gate and a replaced deferred follow-up are missed-answer facts.
   missed,
-  // memoryDb.observeLive: every observed message also goes to the memory database as an observation.
+  // Every observed message goes to the memory database as an observation: the record of the line.
   memoryDb,
 });
 
@@ -654,13 +594,9 @@ const admin = createAdmin({
   spontaneous,
   calibrator,
   getGuildId,
-  isWarmingUp,
   turns,
-  memory,
   // /nep pause: clears the pending-ping queue on pause.
   pending: { clear: () => onMessage.clearPending() },
-  // The sample-based memory warmup: run, user/users, channel/channels, server, status, reset, portrait refresh.
-  warmup,
   // The image client's quota and model family, for the owner commands; /nep draw generates through it.
   images,
   // The voice messages' quota and pipeline, for the skill `voice.say`.
@@ -675,7 +611,7 @@ const admin = createAdmin({
   gifRecache,
   // /nep memory archive | restore: the archive of what left hot memory.
   archive,
-  // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.
+  // /nep pause|resume: system records; /nep memory journal reads it.
   journal,
   // /nep status: the owner card probes every role's model and the drawing model's listing.
   llm,
@@ -725,13 +661,13 @@ function every(ms, fn, label) {
 /**
  * relationships.decayPerDay: every stored affinity (public and private) drifts toward zero, one
  * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
- * full days. Skipped while paused (the owner may be editing data/) and while the warmup runs.
+ * full days. Skipped while paused (the owner may be editing data/).
  */
 function sweepAffinityDecay() {
   const guildId = instance.guildId;
   const config = hot.config;
   if (!guildId || config.features?.relationships === false) return;
-  if (store.state.data.paused || isWarmingUp()) return;
+  if (store.state.data.paused) return;
   const counts = store.decayAffinities(guildId, Date.now(), config.relationships ?? {});
   if (counts.decayed > 0) log.info('index: affinity decay applied', counts);
 }
@@ -836,20 +772,10 @@ async function pruneJournalRequests(guildId) {
 }
 
 /**
- * The journal at start: forgets a crash left half done are finished first (store.resumeForgets,
- * every step of `/nep memory forget`, whatever the switch: what was journalled about a forgotten
- * member goes), then the deletion ledger is re-applied (store.applyLedger: a restored copy brings
- * no forgotten member back) -- both before the updater's first tick; then, with the journal on, a
- * `.running` marker left by a run that never stopped cleanly becomes an `unclean-stop` record,
- * this run's marker is written and the `start` record follows.
+ * The journal at start, with the journal on: a `.running` marker left by a run that never stopped
+ * cleanly becomes an `unclean-stop` record, this run's marker is written and the `start` record follows.
  */
 async function startJournal(guildId) {
-  // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
-  // `errands`: a forget's errands step (the tasks the member asked for, src/errands/service.js#forgetUser);
-  // `intentions`: its intentions step (hers that concern the member, src/intentions/service.js#forgetUser).
-  const deps = { journal, errands, intentions, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
-  await store.resumeForgets(guildId, deps);
-  await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
   const { unclean } = await journal.markRunning(guildId);
   if (unclean) log.warn('journal: unclean stop noted', { guildId });
@@ -874,10 +800,10 @@ client.once(Events.ClientReady, async () => {
   seedAround();
 
   // The periodic work first, before anything below can throw or wait: the
-  // flush, the spontaneous, diary, memory and portrait ticks, the hourly affinity decay.
+  // flush, the spontaneous and diary ticks, the hourly affinity decay.
   every(30_000, () => store.flush(), 'store.flush');
   every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
-  // Under memoryDb.authority `db`: the intention and task writes that failed go again (nothing to do under json).
+  // The intention and task writes that failed go again.
   every(30_000, () => Promise.all([intentionStores.flush(), taskStores.flush()]), 'module stores flush');
   // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the scheduler's clock becomes a
   // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
@@ -885,17 +811,6 @@ client.once(Events.ClientReady, async () => {
   every(30_000, () => diary.tick(), 'diary.tick');
   // The inner life's tick, every innerLife.tickSeconds (read before each wait).
   inner.startTimer();
-  // The tick still runs on schedule even with the switch off, so flipping it
-  // back on later needs no restart; it is the wrapper here that no-ops.
-  every(60_000, () => (hot.config.features?.memory !== false ? memory.tick() : undefined), 'memory.tick');
-  // Portraits refreshed by counters (features.portraitRefresh): the scheduler looks every
-  // memory.portraitCheckMinutes itself; the minute tick only gives it the chance.
-  const portraits = createPortraitScheduler({ hot, store, refreshPortrait: warmup.refreshPortrait, isWarmingUp, getGuildId, now: Date.now });
-  every(60_000, () => portraits.tick(), 'portraits.tick');
-  // Channel and server notes re-described from a spread sample (features.notesRefresh): the
-  // scheduler looks every memory.notesCheckMinutes itself; the minute tick only gives it the chance.
-  const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
-  every(60_000, () => notes.tick(), 'notes.tick');
   every(3_600_000, sweepAffinityDecay, 'affinity decay');
   // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
   // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
@@ -918,30 +833,29 @@ client.once(Events.ClientReady, async () => {
   log.info('index: ready', { guildId: instance.guildId, tag: client.user.tag });
 
   // /nep pause: a pause persisted before this restart comes back
-  // paused -- every spontaneous/analyzer tick keeps no-op'ing until /nep resume.
+  // paused -- every spontaneous tick keeps no-op'ing until /nep resume.
   if (store.state.data.paused) {
     log.info('index: starting up paused, run /nep resume when data/ is ready', {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
 
-  // Under memoryDb.authority `db` the database is the memory: opened first (its pending writes of the last
-  // shutdown replayed) and awaited, before anything below reads it.
-  if (memoryDb.authority() === 'db') await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
+  // The database is the memory: opened first (its pending writes of the last shutdown replayed) and awaited, before
+  // anything below reads it.
+  await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
 
-  // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
-  // reconciliation below reads a journal that hides every member being forgotten.
+  // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
   await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
 
   // The links of the persona's recent lines to the messages that started their turns, rebuilt
-  // from the journal once the forgets are settled. Fire-and-forget: a turn before it is done
+  // from the journal. Fire-and-forget: a turn before it is done
   // only lacks the older links.
   await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
   // The persona's recent skill calls, the same way.
   await startupStep('journal.callMarks', () => seedCallMarks(instance.guildId));
 
   // The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
-  // last hour once the forgets are settled; a sweep armed where a candidate waits.
+  // last hour; a sweep armed where a candidate waits.
   await startupStep('missed.start', () => missed.start(instance.guildId));
 
   // The errands a restart left open: their runner can no longer answer this process, so they fail
@@ -953,7 +867,7 @@ client.once(Events.ClientReady, async () => {
   await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
-  // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or
+  // embed.catchUpHours). Fire-and-forget; nothing while paused or
   // with the switches off.
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
@@ -1155,7 +1069,7 @@ async function shutdown(signal) {
   // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
   const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();
-  // `final`: under memoryDb.authority `db`, the unit writes that still fail are kept in data/memory-pending/.
+  // `final`: the unit writes that still fail are kept in data/memory-pending/.
   await store.flushSettled({ holdMaxMs, final: true });
   await metrics.save({ force: true });
   await usage.save({ force: true });
@@ -1164,13 +1078,11 @@ async function shutdown(signal) {
     if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
     await journal.clearRunning(instance.guildId).catch((err) => log.warn('index: journal marker not removed', { error: err }));
   }
-  await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
-  await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
-  // Under memoryDb.authority `db`: the intention and task writes still waiting, then those still failing kept pending.
+  // The intention and task writes still waiting, then those still failing kept pending.
   await intentionStores.flush({ final: true }).catch((err) => log.warn('index: intentions flush failed', { error: err }));
   await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
-  // The last sync after the last flush of every store, then the database closes and releases its lock.
+  // After the last flush of every store the database closes and releases its lock.
   await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
   await client.destroy();
   process.exit(0);

@@ -1,5 +1,5 @@
 // Recall over the memory database (spec 2026-10-24-memory-store, section 8): what `memory.search` and the memory
-// prefetch use when `recall.backend` is `db`. It reads the `sources` table of the record (every chat line, its
+// prefetch use. It reads the `sources` table of the record (every chat line, its
 // scope and place) and the `vectors` table, always inside a scope context (src/memory/db/scope.js): a row the context
 // may not open is never searched, never counted and never read into a stretch. The caller's place rule (`allowPlace`)
 // is resolved once into a set of places and runs inside every stream's query, before any LIMIT, ranking or fusion.

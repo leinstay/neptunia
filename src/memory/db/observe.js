@@ -33,15 +33,14 @@
 // Schema v9: every account, place, participant and source an observation writes is projected into the graph in the same
 // transaction (graph.js#projectRow).
 //
-// Stage 8a (the live observation path): the core maps an interface's normalised `message.received` event to an envelope
-// (observe-event.js#observationOf) and, behind `memoryDb.observeLive`, the pipeline sends it to the writer while the
-// JSON files are still the writer. Both must land on the same rows:
+// The live observation path: the core maps an interface's normalised `message.received` event to an envelope
+// (observe-event.js#observationOf) and the pipeline sends it to the writer. It lands on the rows already stored:
 //   - an account, place or source whose native tuple is already stored (authority, native key, generation; a source
 //     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
 //     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
-//   - a tuple the legacy importer writes (Discord, generation 1) is created under the importer's spelling
-//     (ids.js#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so the sync adopts the row when its file brings it
-//     (sync.js#writeRow) instead of writing a second one;
+//   - a tuple of the legacy layout (Discord, generation 1) is created under the legacy spelling
+//     (ids.js#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
+//     (upsert.js#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
 //     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
 //     the database, so it survives a restart;
@@ -50,12 +49,12 @@
 //   - a DM place observed with a partner (`place.partner`) names the partner's person when the partner's account is
 //     linked (a verified link), else none (the DM stays its own audience, fail-closed); a stored DM place without a
 //     partner gets it filled in.
-// Stage W2a (authority `db`, spec 2026-10-24-memory-authority section 6 item 3): the observation is the record of a seen
-// line, so the service passes the line's record unit (`owner`: `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`, or the private
-// record's day file) and the row is written in it: `owner_file` that unit, `position` the next one of the unit (the
-// unit's `files` row is kept, unit-write.js#noteUnit), and a stored line of the tuple with no owner yet is stamped the
-// same way. Without `owner` (authority `json`) the row has none, as before, and the sync adopts it. With `owner` the
-// result also carries the line's `revision` (an edit's is the one counted here).
+// The observation is the record of a seen line (spec 2026-10-24-memory-authority section 6 item 3), so the service
+// passes the line's record unit (`owner`: `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`, or the private record's day
+// file) and the row is written in it: `owner_file` that unit, `position` the next one of the unit (the unit's `files`
+// row is kept, unit-write.js#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
+// Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
+// counted here).
 // Logs carry codes only (`log.debug?.()`).
 
 import { log as engineLog } from '../../log.js';
@@ -536,7 +535,7 @@ function writeObservation(db, given, at, log, owner = null) {
  * @param {{ db: object, transaction: (fn: () => any) => any }} handle  an `openMemoryDb` handle (the writer)
  * @param {object} envelope
  * @param {{ now?: () => number, log?: object, owner?: string|null }} [opts]  `owner`: the record unit the line is
- *   written in (authority `db`; see the head of this file)
+ *   written in (see the head of this file)
  */
 export function observe(handle, envelope, { now = Date.now, log = engineLog, owner = null } = {}) {
   const code = checkEnvelope(envelope);

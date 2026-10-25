@@ -1,8 +1,7 @@
-// The persona's errand tasks on disk, one store per guild: `data/guilds/<id>/tasks.json` holds
+// The persona's errand tasks, one store per guild, in the memory database: the unit `guilds/<id>/tasks.json` holds
 // the current list (the open tasks, then the finished ones she has not seen yet and the latest
-// others, at most KEEP_FINISHED of them), written whole through
-// writeJsonAtomic on every change; `data/guilds/<id>/tasks.jsonl` gets one line per transition
-// (the task as it stands after it), appended, never rewritten. A task moves `queued` ->
+// others, at most KEEP_FINISHED of them), written whole on every change; the unit `guilds/<id>/tasks.jsonl` gets one
+// line per transition (the task as it stands after it), appended, never rewritten. A task moves `queued` ->
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
 // directly); a finished task is never reopened, and an end that arrives after a cancel is
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
@@ -10,7 +9,7 @@
 // the day it was queued). That daily number
 // and the owner card's `costs.errands` come from one place: src/errands/costs.js#agentCosts over
 // the store's spend records, one per task of the last KEEP_DAYS days (read from tasks.jsonl at
-// load, then kept with every transition; a forget and a wipe drop theirs with their lines).
+// load, then kept with every transition).
 // Every transition is also an `action` line of the
 // journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per task,
 // `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
@@ -19,11 +18,7 @@
 // result lists, inside `agents.<profile>.out`). The runner deletes a task's directory after
 // `agents.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
 // is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
-// when the tasks are read), and its handles name nothing from then on. A forget of a member
-// (src/memory/store.js#forgetUser, its `errands` step) removes every task they asked for from
-// tasks.json and rewrites tasks.jsonl without their lines (temp file + rename), copying both into
-// the forget's vault first; a wipe (src/memory/store.js#wipeGuild) deletes both files. Both
-// change the store's own copy too, so a task still running cannot write a forgotten one back.
+// when the tasks are read), and its handles name nothing from then on.
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
 // A task of a `tool` agent (src/agent-runner/profiles.js: the drawing agent, run by the core itself,
@@ -44,14 +39,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
-import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
-import { forgetRefusal } from '../memory/db/authority.js';
 import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../skills/codes.js';
 
@@ -96,28 +89,23 @@ export function isToolTask(task) {
 
 /**
  * @param {object} options
- * @param {string} options.dataDir  The `data/` directory.
  * @param {string} options.guildId
  * @param {() => number} [options.now]
  * @param {() => object} [options.config]  The live config (`agents.*`, `features.journal`).
  * @param {{ action: Function }|null} [options.journal]  src/memory/journal.js#createJournal's.
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
- * @param {object|null} [options.memoryDb]  the memory database service: under its authority `db` the list and the
- *   spend records are loaded from the database (src/memory/db/readers/tasks.js), with no file fallback (a failed
- *   read throws, with a code); under `json` (the default) from the files as always. Stage W2b, under `db`: no file is
- *   written; each change hands the whole list (`tasks.json`, op `value`) and the transition line (`tasks.jsonl`, op
- *   `lines`) to an outbox (src/memory/db/unit-outbox.js) that sends them through the database's writer; the list in
- *   memory stays the truth, a failed write goes again at the next change or `flush`, and `flush({ final: true })`
- *   (the shutdown) keeps what still fails in `memory-pending/`.
- * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
+ * @param {object|null} [options.memoryDb]  the memory database service: the list and the spend records are loaded
+ *   from it (src/memory/db/readers/tasks.js; a failed read throws, with a code); each change hands the whole list
+ *   (`tasks.json`, op `value`) and the transition line (`tasks.jsonl`, op `lines`) to an outbox
+ *   (src/memory/db/unit-outbox.js) that sends them through the database's writer; the list in memory stays the truth,
+ *   a failed write goes again at the next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what
+ *   still fails in `memory-pending/`. Without a `memoryDb` (tests) nothing is read or written: the list lives in
+ *   memory only.
  */
-export function createTaskStore({ dataDir, guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog, memoryDb = null, authorityOf = null }) {
-  const dir = path.join(dataDir, 'guilds', String(guildId));
-  const listFile = path.join(dir, 'tasks.json');
-  const logFile = path.join(dir, 'tasks.jsonl');
-  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'tasks' });
-  const db = seam.db();
+export function createTaskStore({ guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog, memoryDb = null }) {
+  const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
+  const db = memoryDb ? seam.db() : null;
   const state = load();
   const outbox = db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
   const listOwner = `guilds/${String(guildId)}/tasks.json`;
@@ -125,18 +113,12 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
   const spend = loadSpend();
 
-  /** tasks.json read once: its list; a missing or broken file starts empty (a broken one logged). */
+  /** The list read once from the database (none without a `memoryDb`). */
   function load() {
     let raw = null;
     if (db) {
       const found = seam.run(() => tasksValue(db, guildId));
       raw = found.found ? found.value : null;
-    } else {
-      try {
-        raw = JSON.parse(fs.readFileSync(listFile, 'utf8'));
-      } catch (err) {
-        if (err?.code !== 'ENOENT') log.warn('errands: tasks file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
-      }
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
     for (const task of tasks) {
@@ -157,16 +139,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    * parse is skipped), then the list's own copies over them; the stale ones left out. */
   function loadSpend() {
     const records = new Map();
-    let text = '';
-    if (db) {
-      text = seam.run(() => taskEventLines(db, guildId)).join('\n');
-    } else {
-      try {
-        text = fs.readFileSync(logFile, 'utf8');
-      } catch (err) {
-        if (err?.code !== 'ENOENT') log.warn('errands: tasks log unreadable, spend from the list only', { guildId: String(guildId), code: err?.code ?? null });
-      }
-    }
+    const text = db ? seam.run(() => taskEventLines(db, guildId)).join('\n') : '';
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       let value = null;
@@ -217,35 +190,18 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return listed.filter((task) => isOpenState(task.state) || isToolTask(task) || keep.has(task));
   }
 
-  /** tasks.json written whole, and the transition of `task` appended to tasks.jsonl. */
+  /** The list handed to the outbox whole, and the transition of `task` as a line of tasks.jsonl. */
   function persist(task) {
     state.tasks = pruned(state.tasks);
-    if (seam.authority() === 'db') {
-      if (!outbox) {
-        log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
-        return;
-      }
-      outbox.value(listOwner, JSON.parse(JSON.stringify({ tasks: state.tasks })));
-      if (task) {
-        noteSpend(task);
-        outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...task }))]);
-      }
-      outbox.push();
+    if (task) noteSpend(task);
+    if (!memoryDb) return;
+    if (!outbox) {
+      log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
       return;
     }
-    try {
-      writeJsonAtomic(listFile, { tasks: state.tasks });
-    } catch (err) {
-      log.warn('errands: tasks write failed', { guildId: String(guildId), code: err?.code ?? null });
-    }
-    if (!task) return;
-    noteSpend(task);
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.appendFileSync(logFile, `${JSON.stringify({ at: now(), ...task })}\n`);
-    } catch (err) {
-      log.warn('errands: tasks append failed', { guildId: String(guildId), code: err?.code ?? null });
-    }
+    outbox.value(listOwner, JSON.parse(JSON.stringify({ tasks: state.tasks })));
+    if (task) outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...task }))]);
+    outbox.push();
   }
 
   /** One journal `action` line of the task's operation (features.journal exactly true, read now); never throws. */
@@ -280,93 +236,6 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** The live `agents` section. */
   function agentsConfig() {
     return config()?.agents ?? {};
-  }
-
-  /** Whether `task` was asked for by `userId`. */
-  function askedBy(task, userId) {
-    return task?.requester?.userId === userId;
-  }
-
-  /**
-   * Forget one member here: every task whose `requester.userId` is theirs leaves the list
-   * (tasks.json written at once), and tasks.jsonl is rewritten without their transition lines
-   * (a temp file renamed over it; a line that does not parse goes when it names the member).
-   * With `vault` (the forget's vault, as absolute path), tasks.json as it was and the dropped
-   * lines (`tasks.jsonl.dropped.jsonl`) are copied there first, under their paths below `data/`.
-   * Idempotent. Throws on a write error (the forget's step then runs again at the next start).
-   * @param {string} userId
-   * @param {{ vault?: string|null }} [options]
-   * @returns {{ removed: number, lines: number }}
-   */
-  function forgetUser(userId, { vault = null } = {}) {
-    // Authority `db`: there is no forget (stage W3).
-    if (seam.authority() === 'db') throw forgetRefusal('tasks.forgetUser');
-    const id = String(userId ?? '');
-    if (!id) return { removed: 0, lines: 0 };
-    const victims = state.tasks.filter((task) => askedBy(task, id));
-    let text = '';
-    try {
-      text = fs.readFileSync(logFile, 'utf8');
-    } catch (err) {
-      if (err?.code !== 'ENOENT') throw err;
-    }
-    const kept = [];
-    const dropped = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      let value = null;
-      try {
-        value = JSON.parse(line);
-      } catch {
-        value = null;
-      }
-      const theirs = value ? askedBy(value, id) : line.includes(id);
-      (theirs ? dropped : kept).push(line);
-    }
-    if (vault && (victims.length > 0 || dropped.length > 0)) {
-      const base = path.join(vault, path.relative(dataDir, dir));
-      fs.mkdirSync(base, { recursive: true });
-      if (fs.existsSync(listFile)) fs.copyFileSync(listFile, path.join(base, 'tasks.json'));
-      if (dropped.length > 0) fs.writeFileSync(path.join(base, 'tasks.jsonl.dropped.jsonl'), dropped.map((line) => `${line}\n`).join(''));
-    }
-    for (const task of victims) spend.delete(task.id);
-    for (const line of dropped) {
-      try {
-        const value = JSON.parse(line);
-        if (typeof value?.id === 'string') spend.delete(value.id);
-      } catch {
-        // a line that does not parse names no task
-      }
-    }
-    if (victims.length > 0) {
-      state.tasks = state.tasks.filter((task) => !askedBy(task, id));
-      writeJsonAtomic(listFile, { tasks: state.tasks });
-    }
-    if (dropped.length > 0) {
-      const tmp = `${logFile}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, kept.map((line) => `${line}\n`).join(''));
-      fs.renameSync(tmp, logFile);
-    }
-    log.info('errands: member forgotten', { guildId: String(guildId), userId: id, removed: victims.length, lines: dropped.length });
-    return { removed: victims.length, lines: dropped.length };
-  }
-
-  /**
-   * The wipe: tasks.json and tasks.jsonl deleted, the list and the day's counters emptied (a task
-   * still running ends into nothing). Returns how many files were there.
-   * @returns {{ files: number }}
-   */
-  function wipe() {
-    // Authority `db`: no wipe of the memory (stage W3).
-    if (seam.authority() === 'db') throw forgetRefusal('tasks.wipe');
-    let files = 0;
-    for (const file of [listFile, logFile]) {
-      if (fs.existsSync(file)) files += 1;
-      fs.rmSync(file, { force: true });
-    }
-    state.tasks = [];
-    spend.clear();
-    return { files };
   }
 
   /** The out directory of `agent`: `agents.<agent>.out`, else the profile's; null when there is none. */
@@ -703,8 +572,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   }
 
   /**
-   * Authority `db`: the writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is
-   * kept in `memory-pending/`. Nothing under `json`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
+   * `memory-pending/`. Nothing without a `memoryDb`.
    * @returns {Promise<{ waiting: number, pending: number }>}
    */
   async function flush({ final = false } = {}) {
@@ -713,40 +582,26 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return { waiting, pending: final ? outbox.keep() : 0 };
   }
 
-  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, forgetUser, wipe, flush, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, flush, guildId: String(guildId) };
 }
 
 /**
- * One task store per guild, created on first use over the same `data/` directory, live config
- * and journal (createTaskStore). `forgetUser` and `wipe` are what the memory's deleters are
- * handed (src/memory/store.js#forgetUser's `errands`, #wipeGuild's `errands`): the guild's
- * store does the work, so its own copy changes with its files.
- * `memoryDb` and `authorityOf` go to every store (createTaskStore); a store whose load failed under `db` is not
- * kept, so the next `get` tries again.
- * @param {{ dataDir: string, config?: () => object, journal?: object|null, now?: () => number, log?: object,
- *   memoryDb?: object|null, authorityOf?: (() => string)|null }} options
+ * One task store per guild, created on first use over the same live config and journal (createTaskStore).
+ * `memoryDb` goes to every store; a store whose load failed is not kept, so the next `get` tries again.
+ * @param {{ config?: () => object, journal?: object|null, now?: () => number, log?: object, memoryDb?: object|null }} options
  * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore>,
- *   forgetUser(guildId: string, userId: string, options?: { vault?: string|null }): { removed: number, lines: number },
- *   wipe(guildId: string): { files: number } }}
+ *   flush(options?: { final?: boolean }): Promise<{ waiting: number, pending: number }> }}
  */
-export function createTaskStores({ dataDir, config = () => ({}), journal = null, now = Date.now, log = defaultLog, memoryDb = null, authorityOf = null }) {
+export function createTaskStores({ config = () => ({}), journal = null, now = Date.now, log = defaultLog, memoryDb = null }) {
   const stores = new Map();
   const tasks = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
-      if (!stores.has(key)) stores.set(key, createTaskStore({ dataDir, guildId: key, config, journal, now, log, memoryDb, authorityOf }));
+      if (!stores.has(key)) stores.set(key, createTaskStore({ guildId: key, config, journal, now, log, memoryDb }));
       return stores.get(key);
     },
-    forgetUser(guildId, userId, options = {}) {
-      const store = tasks.get(guildId);
-      return store ? store.forgetUser(userId, options) : { removed: 0, lines: 0 };
-    },
-    wipe(guildId) {
-      const store = tasks.get(guildId);
-      return store ? store.wipe() : { files: 0 };
-    },
-    /** Every store's `flush` (stage W2b: the writes waiting for the database; `final` at the shutdown). */
+    /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
     async flush(options = {}) {
       let waiting = 0;
       let pending = 0;

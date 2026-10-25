@@ -1,5 +1,4 @@
-// The errand task store's reads from the database (stage W1; src/errands/store.js dispatches to them under
-// authority `db`). `tasks.json` is the unit of `work` rows and one `operational` row, `tasks.jsonl` the unit of
+// The errand task store's reads from the database (src/errands/store.js reads through them). `tasks.json` is the unit of `work` rows and one `operational` row, `tasks.jsonl` the unit of
 // `work_events` rows (map/tasks.js); both come back rebuilt by the export. Pure functions over a read connection.
 
 import { layerDir, unitLines, unitValue } from './common.js';

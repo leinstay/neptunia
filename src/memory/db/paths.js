@@ -1,8 +1,8 @@
-// What stays a file and what retires when the memory database becomes the writer (spec 2026-10-24-memory-authority,
-// section 0 and section 6 item 8): the path allowlist as code. Every path is relative to the data directory, with
-// forward slashes (`guilds/<g>/users/<u>.json`, `state.json`).
+// What is a file under data/ and what is only a unit of the memory database (spec 2026-10-24-memory-authority, section
+// 0 and section 6 item 8): the path allowlist as code. Every path is relative to the data directory, with forward
+// slashes (`guilds/<g>/users/<u>.json`, `state.json`).
 //
-//   OPERATIONAL_PATTERNS  what is still written as a file under `memoryDb.authority: db`: the process's operational
+//   OPERATIONAL_PATTERNS  what is written as a file: the process's operational
 //                         state (`state.json`, `usage.json`, `metrics.json`, a guild's `inner.json` and `missed.json`),
 //                         the participation file, the GIF library and the vision cache (`gifs.json`, `media.json`), the
 //                         recall trace, the journal's `.running` marker and request dumps (`journal/` is a mixed
@@ -11,14 +11,14 @@
 //                         writes a shutdown could not make (`memory-pending/`), her diary media (`media/diary/`), the
 //                         database's own files (`memory.db*`), the tools' output folders, and the leftovers of any file
 //                         (`*.bak*`, `*.unreadable-*`, `*.tmp`, `*.tmp-*`, `*.torn-*`).
-//   MEMORY_PATTERNS       the memory paths that retire at the switch, by exact pattern: a guild's `users/`,
+//   MEMORY_PATTERNS       the memory paths, which no module writes as a file any more (the database holds their units;
+//                         the JSON memory they once were was deleted at the switch), by exact pattern: a guild's `users/`,
 //                         `channels/`, `versions/`, `vectors/`, `forgetting/` and `private/` trees (but the operational
 //                         paths of a private layer), `record/` (but the backfill cursor), `archive/` (but the pending
 //                         queue), the journal's day files only, `guild.json`, `lore.json`, `recent.json`, `diary.json`,
-//                         `buffer.json`, `voice.json` (stage W2b made it a unit of the database), `forgotten.json` (no
-//                         forget runs under `db`), `intentions*.json[l]` and `tasks*.json[l]`.
-// The two lists never share a path (tests/memory-db-paths.test.js enumerates every path the sync maps or skips and the
-// data layout, and fails on a path in neither or both). A path in neither is unknown: not memory the sync maps, and
+//                         `buffer.json`, `voice.json`, `forgotten.json`, `intentions*.json[l]` and `tasks*.json[l]`.
+// The two lists never share a path (tests/memory-db-paths.test.js enumerates every path the mappers map or skip and the
+// data layout, and fails on a path in neither or both). A path in neither is unknown: not memory the mappers map, and
 // not on the allowlist.
 //
 //   pathClass(rel)     'operational' | 'memory' | null
@@ -41,7 +41,7 @@ const GUILD_STATE = '(?:state|usage|metrics|inner|missed|participation|gifs|medi
 /** The tools' output folders. */
 const TOOL_OUTPUT = '(?:mentor|recall-eval|vision-compare)(?:/.*)?';
 
-/** What stays written as a file under authority `db` (see the head of this file). */
+/** What is written as a file (see the head of this file). */
 export const OPERATIONAL_PATTERNS = Object.freeze([
   pattern('{state,usage,metrics}.json', '(?:state|usage|metrics)\\.json'),
   pattern('guilds/*/[private/*/]{state,usage,metrics,inner,missed,participation,gifs,media}.json', `${G}${P}${GUILD_STATE}`),
@@ -64,7 +64,7 @@ export const OPERATIONAL_PATTERNS = Object.freeze([
 /** The operational paths of a private layer, relative to the layer's directory. */
 const PRIVATE_OPERATIONAL = `(?:${GUILD_STATE}|journal/\\.running|journal/requests/.+|backfill/.+|record/backfill\\.json|archive/pending[^/]*\\.jsonl)`;
 
-/** The memory paths that retire at the switch (see the head of this file). */
+/** The memory paths, units of the database only (see the head of this file). */
 export const MEMORY_PATTERNS = Object.freeze([
   pattern('guilds/*/users/**', `${NOT_LEFTOVER}${G}users/.+`),
   pattern('guilds/*/channels/**', `${NOT_LEFTOVER}${G}channels/.+`),
@@ -83,12 +83,12 @@ export const MEMORY_PATTERNS = Object.freeze([
 const normal = (rel) => String(rel ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
 const matches = (list, rel) => list.some((entry) => entry.re.test(rel));
 
-/** Whether a path stays written as a file under authority `db`. */
+/** Whether a path is written as a file. */
 export function isOperational(rel) {
   return matches(OPERATIONAL_PATTERNS, normal(rel));
 }
 
-/** Whether a path is a memory path that retires at the switch. */
+/** Whether a path is a memory path (a unit of the database, never a file). */
 export function isMemoryPath(rel) {
   return matches(MEMORY_PATTERNS, normal(rel));
 }
