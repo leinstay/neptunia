@@ -1,9 +1,8 @@
 // Stage 8a (spec 2026-10-24-memory-schema-v7): the Discord interface on the observation path. A discord.js-shaped
 // message goes through the adapter (toEvent), the core's mapping (observe-event.js#observationOf) and the envelope
-// check, and is written by observe.js; on a database the legacy sync made from the same lines, observe finds the rows
-// the sync wrote and mints none, and in the live order (observe first, the record later) the sync takes over the rows
-// observe wrote. `observe-check` reports what only one side wrote; `verify` and `parity` stay clean. Synthetic text only
-// (Greek or accented Latin for non-ASCII); the ids are made up.
+// check, and is written by observe.js; on a database the record's unit writes made from the same lines, observe finds
+// the rows they wrote and mints none, and in the live order (observe first, the record later) the record's writes take
+// over the rows observe wrote. Synthetic text only (Greek or accented Latin for non-ASCII); the ids are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,10 +14,9 @@ import { validateEvent } from '../src/protocol/index.js';
 import { observationOf } from '../src/memory/db/observe-event.js';
 import { checkEnvelope, observe } from '../src/memory/db/observe.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { slimMessage, toRecordLine } from '../src/memory/index.js';
-import { main } from '../tools/memory-db.mjs';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
@@ -28,14 +26,8 @@ const SELF = '100000000000000009';
 const MEMBER2 = '100000000000000002';
 const BOT = '100000000000000008';
 const DM_CHANNEL = '200000000000000099';
-const SINCE = '2026-10-24T00:00:00.000Z';
 const opts = { now: () => NOW, log: quiet };
 const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
-const run = (...argv) => {
-  const lines = [];
-  const code = main(argv, { out: (line) => lines.push(line), err: (line) => lines.push(line) });
-  return { code, text: lines.join('\n') };
-};
 
 const NAMES = { [MEMBER]: 'Ada', [MEMBER2]: 'Zoé', [SELF]: 'Her', [BOT]: 'Robot' };
 
@@ -91,7 +83,7 @@ function day() {
   return { events, record, privateRecord };
 }
 
-/** A data directory (the shared fixture, a second member) and its database after one sync. */
+/** A data directory (the shared fixture, a second member) and its database with its units written. */
 function imported({ withRecord }) {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-8a-'));
   const data = path.join(root, 'data');
@@ -106,7 +98,7 @@ function imported({ withRecord }) {
   if (withRecord) writeRecord();
   const file = path.join(root, 'memory.db');
   const handle = openMemoryDb(file);
-  assert.equal(syncOnce(handle, data, { log: quiet, now: () => NOW }).errors, 0);
+  assert.equal(seedUnits(handle, data, { log: quiet, now: () => NOW }).errors, 0);
   return { root, data, file, handle, fixture, writeRecord, done: () => { try { handle.close(); } catch { /* closed */ } fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -215,18 +207,13 @@ test('checkEnvelope: a revision may be left out only by an edit; mentions, direc
   assert.equal(checkEnvelope({ ...base, author: { ...base.author, account_kind: 'robot' } }), 'BAD_AUTHOR');
 });
 
-// ---------- the same rows as the sync ----------
+// ---------- the same rows as the record's ----------
 
-test('observe on a database the sync made from the same lines writes no new place or source; observe-check, verify and parity are clean', () => {
+test('observe on a database the record wrote from the same lines writes no new place or source', () => {
   const env = imported({ withRecord: true });
   try {
     const { db } = env.handle;
     const before = { places: ids(db, 'places'), accounts: ids(db, 'accounts'), sources: ids(db, 'sources') };
-    // Nothing observed yet: every line of the day is the sync's alone.
-    const unobserved = run('observe-check', '--db', env.file, '--since', SINCE);
-    assert.equal(unobserved.code, 1, unobserved.text);
-    assert.match(unobserved.text, /in the record, not observed: 4 \(and 2 DM lines\)/);
-
     const done = observeAll(env.handle, env.fixture.events);
     assert.ok(done.every((one) => one.replayed === true), 'every line is the stored one');
     assert.deepEqual(done.map((one) => one.sourceId), [
@@ -237,7 +224,7 @@ test('observe on a database the sync made from the same lines writes no new plac
     assert.deepEqual(ids(db, 'sources'), before.sources);
     // A stored line is replayed: no account is made for it either.
     assert.deepEqual(ids(db, 'accounts'), before.accounts);
-    // The DM line's relations and the reply's mention are the database's own rows; the reply's relation was the sync's.
+    // The DM line's relations and the reply's mention are the database's own rows; the reply's relation was the record's.
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM source_relations WHERE source_id = 'src:discord:400000000000000102:1:seen' AND predicate = 'replies_to'"), 1);
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM source_relations WHERE source_id = 'src:discord:400000000000000102:1:seen' AND predicate = 'mentions'"), 1);
     // A second pass is a replay through and through.
@@ -246,22 +233,12 @@ test('observe on a database the sync made from the same lines writes no new plac
     observeAll(env.handle, env.fixture.events);
     assert.deepEqual(sizes(), once);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-    env.handle.close();
-
-    const check = run('observe-check', '--db', env.file, '--since', SINCE);
-    assert.equal(check.code, 0, check.text);
-    assert.match(check.text, /observed, not in the record: 0\n/);
-    assert.match(check.text, /in the record, not observed: 0\n/);
-    for (const command of ['verify', 'parity']) {
-      const result = run(command, '--data', env.data, '--db', env.file);
-      assert.equal(result.code, 0, result.text);
-    }
   } finally {
     env.done();
   }
 });
 
-test('the live order: observe first, the record later; the sync takes the observed rows over and nothing is doubled', () => {
+test('the live order: observe first, the record later; the record\'s writes take the observed rows over and nothing is doubled', () => {
   const env = imported({ withRecord: false });
   try {
     const { db } = env.handle;
@@ -269,26 +246,14 @@ test('the live order: observe first, the record later; the sync takes the observ
     assert.ok(done.every((one) => one.replayed === false));
     // The edit was counted by the database: the message's second revision, as the record will write it.
     assert.equal(done[2].sourceId, 'src:discord:400000000000000101:2:seen');
-    const early = run('observe-check', '--db', env.file, '--since', SINCE);
-    assert.equal(early.code, 1);
-    assert.match(early.text, /observed, not in the record: 4 \(and 2 DM lines\)/);
-
     env.writeRecord();
-    assert.equal(syncOnce(env.handle, env.data, { log: quiet, now: () => NOW + 60_000 }).errors, 0);
+    assert.equal(seedUnits(env.handle, env.data, { log: quiet, now: () => NOW + 60_000 }).errors, 0);
     const natives = env.fixture.events.map(({ event }) => event.message.id);
     const mine = db.prepare(`SELECT id, owner_file, origin FROM sources WHERE native_id IN (${natives.map(() => '?').join(', ')}) ORDER BY id`).all(...natives).map((row) => ({ ...row }));
     assert.equal(mine.length, env.fixture.record.length + env.fixture.privateRecord.length, 'one row per record line');
     assert.ok(mine.every((row) => row.owner_file !== null && row.origin === 'live'), JSON.stringify(mine));
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM places WHERE id = ? AND owner_file IS NOT NULL", `discord:channel:${CHANNEL}`), 1);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-    env.handle.close();
-
-    const check = run('observe-check', '--db', env.file, '--since', SINCE);
-    assert.equal(check.code, 0, check.text);
-    for (const command of ['verify', 'parity']) {
-      const result = run(command, '--data', env.data, '--db', env.file);
-      assert.equal(result.code, 0, result.text);
-    }
   } finally {
     env.done();
   }
@@ -296,20 +261,18 @@ test('the live order: observe first, the record later; the sync takes the observ
 
 // ---------- through the service ----------
 
-test('service: observe goes through the writer only with memoryDb.observeLive; an edit\'s revision survives a new service', async () => {
+test('service: observe goes through the writer; an edit\'s revision survives a new service', async () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-8a-svc-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, observeLive: false } } };
+  const hot = { config: {} };
   const start = () => createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
   const envelopeOf = (raw, options) => observationOf(eventOf(raw, options), { selfId: SELF });
   const first = message({ id: 'm-svc', content: 'πρώτη', at: T0 });
   try {
     const one = start();
     await one.tick();
-    assert.equal(one.observe(envelopeOf(first)), null, 'off: nothing is written');
-    hot.config.memoryDb.observeLive = true;
     assert.equal((await one.observe(envelopeOf(first))).sourceId, 'src:discord:m-svc:1:seen');
     const edit = await one.observe(envelopeOf(message({ id: 'm-svc', content: 'δεύτερη', at: T0, editedAt: T0 + 1000 }), { edit: true, now: () => T0 + 1000 }));
     assert.equal(edit.sourceId, 'src:discord:m-svc:2:seen');
@@ -332,7 +295,7 @@ test('service: an observation that comes before the database opens is written on
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, observeLive: true } } };
+  const hot = { config: {} };
   const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
   const envelopeOf = (raw) => observationOf(eventOf(raw), { selfId: SELF });
   try {

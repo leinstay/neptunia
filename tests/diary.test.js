@@ -36,6 +36,7 @@ import { createStore } from '../src/memory/store.js';
 import { redactUser } from '../src/memory/mentions.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -556,21 +557,24 @@ test('store: setDiaryPosts replaces the list and keeps the newest max', () => {
   assert.equal(diary.updatedAt, 9);
 });
 
-test('store: diary survives flush and reload', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir, newId: () => 'one' });
+test('store: diary survives flush and reload', async () => {
+  const mem = await openTestMemory({ dataDir: tmpDataDir() });
+  const { dataDir: dir, memoryDb } = mem;
+  const store = createStore({ dataDir: dir, memoryDb, newId: () => 'one' });
   store.appendDiaryPost('g1', { ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
   store.flush();
-  assert.ok(fs.existsSync(path.join(dir, 'guilds', 'g1', 'diary.json')));
-  const again = createStore({ dataDir: dir });
+  await store.flushSettled({});
+  assert.ok(unitFile(memoryDb, 'guilds/g1/diary.json'), 'the diary is a unit of the database');
+  const again = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(again.getDiary('g1'), { posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }], updatedAt: 42 });
+  await mem.close();
 });
 
-test('store: a malformed diary file reads as the empty default', () => {
-  const dir = tmpDataDir();
-  fs.mkdirSync(path.join(dir, 'guilds', 'g1'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'diary.json'), '[1, 2]');
-  assert.deepEqual(createStore({ dataDir: dir }).getDiary('g1'), { posts: [], updatedAt: 0 });
+test('store: a malformed diary value reads as the empty default', async () => {
+  const mem = await openTestMemory({ dataDir: tmpDataDir() });
+  await mem.memoryDb.writeUnit({ op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
+  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary('g1'), { posts: [], updatedAt: 0 });
+  await mem.close();
 });
 
 // ---------------------------------------------------------------------------
@@ -989,25 +993,4 @@ test('force: a busy outcome from the turn waits once and posts again', async () 
   assert.equal(result.outcome, 'spoke');
   assert.equal(idle, 1);
   assert.equal(h.turnCalls.length, 2);
-});
-
-test('diary: redactUser replaces the mention and the names with the token and keeps the post', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const id = '348100000000000101';
-  store.appendDiaryPost('g1', { at: 1000, kind: 'news', gist: `Walked with <@${id}> and Λενιώ by the sea; λενιώ laughed, <@!${id}> too` }, { now: 1000 });
-  store.appendDiaryPost('g1', { at: 2000, kind: 'mood', gist: 'Rain all day, Λενιώτισσα sang.' }, { now: 2000 });
-  const before = store.getDiary('g1').posts;
-
-  assert.equal(store.redactDiary('g1', id, { names: ['Λενιώ', 'Ελένη', 'Al'], token: 'κάποιος' }), 1);
-  const after = store.getDiary('g1').posts;
-  assert.equal(after.length, 2, 'the posts stay');
-  assert.equal(after[0].gist, 'Walked with κάποιος and κάποιος by the sea; κάποιος laughed, κάποιος too');
-  assert.deepEqual({ ...after[0], gist: before[0].gist }, before[0], 'everything but the gist is kept, itemId included');
-  assert.deepEqual(after[1], before[1], 'a longer word that only starts with a name is not a mention');
-  assert.equal(createStore({ dataDir: dir }).getDiary('g1').posts[0].gist, after[0].gist, 'on disk at once');
-
-  assert.equal(redactUser('Al met Alexandros', { userId: id, names: ['Al', 'Alex'], token: 'x' }), 'Al met Alexandros', 'a two-letter name is too common to replace');
-  assert.equal(redactUser(`<@${id}9> stays`, { userId: id, names: [], token: 'x' }), `<@${id}9> stays`);
-  assert.equal(store.redactDiary('g1', id, { names: ['Λενιώ'], token: 'κάποιος' }), 0, 'a second pass finds nothing');
 });

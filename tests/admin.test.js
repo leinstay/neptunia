@@ -17,8 +17,6 @@ import { upsertLore } from '../src/memory/lore.js';
 import { createStore } from '../src/memory/store.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
-import { createMemoryUpdater } from '../src/memory/update.js';
-import { createWarmup } from '../src/memory/warmup.js';
 import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
@@ -32,6 +30,7 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -295,15 +294,6 @@ function makeStore() {
       profiles.set(key, profile);
       return profile.affinity;
     },
-    forgetDeps: null,
-    forgetResult: null,
-    forgetUser(guildId, userId, deps) {
-      forgotten.push([String(guildId), String(userId)]);
-      this.forgetDeps = deps;
-      profiles.delete(`${guildId}:${userId}`);
-      privates.delete(`${guildId}:${userId}`);
-      return Promise.resolve(this.forgetResult ?? { vault: `/data/vault/forget-${userId}`, counts: { profile: 1, journal: 5 } });
-    },
     privates,
     forgottenPrivate,
     getPrivate(guildId, userId) {
@@ -312,10 +302,6 @@ function makeStore() {
     listPrivate(guildId) {
       const prefix = `${guildId}:`;
       return [...privates.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
-    },
-    forgetPrivate(guildId, userId) {
-      forgottenPrivate.push([String(guildId), String(userId)]);
-      privates.delete(`${guildId}:${userId}`);
     },
     countUsers() {
       return profiles.size;
@@ -330,19 +316,6 @@ function makeStore() {
     },
     getBuffer() {
       return [];
-    },
-    listGuilds() {
-      return [];
-    },
-    wipeCalls: [],
-    vaultCalls: [],
-    vaultGuild(guildId, opts) {
-      this.vaultCalls.push([String(guildId), opts]);
-      return '/data/vault/wipe-1';
-    },
-    wipeGuild(guildId, opts) {
-      this.wipeCalls.push([String(guildId), opts]);
-      return { users: 2, channels: 1, loreRemoved: 3, loreKept: 1, bufferMessages: 5, privateLayers: 1, recordFiles: 4, archiveFiles: 2, backfillFiles: 1 };
     },
   };
   return store;
@@ -396,8 +369,8 @@ function readLocal(rootDir) {
 test('isAllowed: a listed owner id passes for any command; the admin exposes no separate owner check', () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  assert.equal(admin.isAllowed('memory.wipe', { userId: '42' }), true);
-  assert.equal(admin.isAllowed('memory.wipe', { userId: '999' }), false);
+  assert.equal(admin.isAllowed('config.set', { userId: '42' }), true);
+  assert.equal(admin.isAllowed('config.set', { userId: '999' }), false);
   assert.equal(admin.isOwner, undefined);
 });
 
@@ -548,7 +521,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: null } };
+  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, spare: null } };
   hot.config.features = { dryRun: false };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { userId: '42' };
@@ -563,11 +536,11 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
   await admin.run('set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('set', { path: 'features.dryRun', value: 'true' }, owner);
-  await admin.run('set', { path: 'models.base.extractor', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('set', { path: 'models.base.spare', value: '"x/y"' }, owner); // the current value is null: any type
   await admin.run('set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
     llm: { maxRequestsPerDay: 250 },
-    models: { base: { core: '123', extractor: 'x/y' } },
+    models: { base: { core: '123', spare: 'x/y' } },
     features: { dryRun: true },
   });
 });
@@ -594,15 +567,15 @@ test('run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
   assert.ok(!lines.some((line) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
-  assert.deepEqual(lines.slice(0, 13).map((line) => line.split(':')[0]), ['base', 'core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing', 'errands', 'scout', 'server', 'development'], 'the base roles, then the errand and development roles each under their group line');
+  assert.deepEqual(lines.slice(0, 12).map((line) => line.split(':')[0]), ['base', 'core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'errands', 'scout', 'server', 'development'], 'the base roles, then the errand and development roles each under their group line');
   assert.equal(lines[0], 'base:');
-  assert.equal(lines[9], 'errands:');
-  assert.equal(lines[12], 'development:');
-  assert.deepEqual(lines.slice(10, 12), [
+  assert.equal(lines[8], 'errands:');
+  assert.equal(lines[11], 'development:');
+  assert.deepEqual(lines.slice(9, 11), [
     `scout: ${ROLE_DEFAULTS.scout}`,
     `server: ${ROLE_DEFAULTS.server}`,
   ]);
-  assert.deepEqual(lines.slice(13, 16), [
+  assert.deepEqual(lines.slice(12, 15), [
     `thinker: ${ROLE_DEFAULTS.thinker}`,
     `dev: ${ROLE_DEFAULTS.dev}`,
     `writer: ${ROLE_DEFAULTS.writer}`,
@@ -636,7 +609,6 @@ test('run: model.set writes the models.<group> path of each role', async () => {
   assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'anthropic/claude-opus-4.6' } } });
 
   await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
-  await admin.run('model.set', { role: 'extractor', id: 'openrouter/cheap-model' }, {});
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
   await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
   await admin.run('model.set', { role: 'embedding', id: 'openai/text-embedding-3-small' }, {});
@@ -649,7 +621,6 @@ test('run: model.set writes the models.<group> path of each role', async () => {
       base: {
         core: 'anthropic/claude-opus-4.6',
         analyzer: 'openrouter/text-model',
-        extractor: 'openrouter/cheap-model',
         vision: 'anthropic/claude-haiku-4.5',
         video: 'openrouter/video-model',
         embedding: 'openai/text-embedding-3-small',
@@ -666,7 +637,7 @@ test('run: model.set writes the models.<group> path of each role', async () => {
     // The video model changed (the vision one was set to the model it already had).
     media: { recacheBefore: new Date(changedAt).toISOString() },
   });
-  assert.equal(hot.reloadConfigCalls, 10);
+  assert.equal(hot.reloadConfigCalls, 9);
 });
 
 test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
@@ -682,7 +653,7 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['core', 'analyzer', 'extractor', 'embedding', 'scout', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
+  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -705,7 +676,7 @@ test('run: model.set rejects an unknown role and a role name that is no longer o
   for (const role of ['bogus', 'web', 'voice', 'memory', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, speech, drawing, scout, server, thinker, dev, writer\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server, thinker, dev, writer\\)`),
       role,
     );
   }
@@ -729,16 +700,14 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
   assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5:beta' } }, media: { recacheBefore: new Date(0).toISOString() } });
 });
 
-test('model show: the core role is models.base.core, never the extractor or a stale memory.voiceModel; no voice line', async () => {
+test('model show: the core role is models.base.core, never a stale memory.voiceModel; no voice line', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models.base.extractor = 'openai/extractor-model';
   hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
   assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
-  assert.ok(lines.includes('extractor: openai/extractor-model'));
   assert.ok(!lines.some((l) => l.startsWith('voice:')), 'no voice role');
   assert.ok(lines.includes(`speech: ${ROLE_DEFAULTS.speech}`), 'speech is the voice model, a helper role');
   assert.ok(!lines.some((l) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
@@ -1062,7 +1031,7 @@ test('access.grant: a write operation gets the write note; a read operation none
     ['media.status', 'staff', []],
     ['media.rescan', 'staff', [writes]],
     ['media.recache', 'staff', [writes]],
-    ['memory.refresh.user', 'staff', [writes]],
+    ['lore.add', 'staff', [writes]],
   ]) {
     const target = roleId ? `role id:${roleId}` : 'everyone';
     assert.equal(await admin.run('access.grant', { command, roleId }, {}), [`Granted ${command} to ${target} (reload ok)`, ...notes].join('\n'), command);
@@ -1072,28 +1041,15 @@ test('access.grant: a write operation gets the write note; a read operation none
   assert.match(star[0], /^Granted \* to role id:mods as status\.show, /);
   assert.equal(star[1], readsOnly);
   const access = readLocal(rootDir).bot.access;
-  for (const name of ['draw.create', 'config.set', 'lore.add', 'memory.journal.read', 'memory.wipe', 'pings.get', 'access.list']) {
+  for (const name of ['draw.create', 'config.set', 'memory.journal.read', 'pings.get', 'access.list']) {
     assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
   }
   assert.ok(access['memory.profile.read'].roles.includes('mods'));
 });
 
 // ---------------------------------------------------------------------------
-// memory.forget / memory.show / memory.affinity
+// memory.show / memory.affinity
 // ---------------------------------------------------------------------------
-
-test('run: memory.forget calls store.forgetUser, clears the profile and says the private memory went too', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', character: 'chatty' });
-
-  const result = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-
-  assert.deepEqual(store.forgotten, [['g1', '123']]);
-  assert.equal(store.getUser('g1', '123'), null);
-  assert.ok(result.includes('Forgot 123'));
-  assert.match(result, /private memory/i, 'the reply says the private memory went too');
-});
 
 test('run: memory.affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
   const rootDir = makeRoot();
@@ -1137,7 +1093,7 @@ test('run: memory.affinity falls back to the single served guild when context.gu
 });
 
 // ---------------------------------------------------------------------------
-// private.show / private.forget and the private-aware memory commands
+// private.show and the private-aware memory commands
 // ---------------------------------------------------------------------------
 
 function utcToday() {
@@ -1160,7 +1116,7 @@ function samplePrivate(overrides = {}) {
   };
 }
 
-test('run: private.show renders the private layer under the public name, with both scores, replies and buffer size', async () => {
+test('run: private.show renders the private layer under the public name, with both scores and replies', async () => {
   const rootDir = makeRoot();
   const { admin, hot, store } = makeAdmin(rootDir);
   hot.config.private = { maxPerUserPerDay: 100, maxPerOwnerPerDay: 200 };
@@ -1179,7 +1135,6 @@ test('run: private.show renders the private layer under the public name, with bo
   assert.match(result, /kind in private/);
   assert.match(result, /effective affinity: 62\b/);
   assert.match(result, /replies today: 7 \/ 100/);
-  assert.match(result, /buffer: 2\b/);
   assert.ok(!result.includes('SECRET-BUFFERED-TEXT'), 'the buffer contents are never shown');
   assert.ok(!result.includes('another buffered line'), 'the buffer contents are never shown');
   assert.ok(!result.includes('public reason'), 'the public affinity reason is not part of the private view');
@@ -1210,238 +1165,13 @@ test('run: private.show counts replies stored for another day as 0 today', async
   assert.ok(!result.includes('55'));
 });
 
-test('run: private.show / private.forget need a user and a resolved guild', async () => {
+test('run: private.show needs a user and a resolved guild', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
   await assert.rejects(() => admin.run('memory.private', { action: 'show' }, { guildId: 'g1' }), /a user is required/);
-  await assert.rejects(() => admin.run('memory.private', { action: 'forget' }, { guildId: 'g1' }), /a user is required/);
 
   const { admin: unresolved } = makeAdmin(rootDir, { getGuildId: () => null });
   await assert.rejects(() => unresolved.run('memory.private', { action: 'show', userId: '123' }, {}), /no guild resolved yet/);
-  await assert.rejects(() => unresolved.run('memory.private', { action: 'forget', userId: '123' }, {}), /no guild resolved yet/);
-});
-
-test('run: private.forget removes only the private layer and says so', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
-  store.privates.set('g1:123', samplePrivate());
-
-  const result = await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' });
-
-  assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
-  assert.deepEqual(store.forgotten, [], 'the public profile is never forgotten');
-  assert.ok(store.getUser('g1', '123'), 'the public profile stays');
-  assert.equal(store.getPrivate('g1', '123'), null);
-  assert.match(result, /private memory/i);
-  assert.match(result, /123/);
-  assert.match(result, /public profile is kept/i);
-});
-
-test('run: private.forget is refused while paused; private.show keeps working', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
-  store.privates.set('g1:123', samplePrivate());
-
-  await admin.run('pause', {}, {});
-
-  await assert.rejects(() => admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' }), /paused.*resume/i);
-  assert.deepEqual(store.forgottenPrivate, []);
-  await assert.doesNotReject(() => admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' }));
-});
-
-// ---------------------------------------------------------------------------
-// private.purge
-// ---------------------------------------------------------------------------
-
-const BOT_ID = '900';
-
-/** A fake DM channel over `messages` (newest first, numeric snowflake ids): `messages.fetch`
- * pages like discord.js (`{ limit, before }` -> a Map, newest first) and records every call. */
-function fakeDmChannel(messages) {
-  const fetchCalls = [];
-  return {
-    fetchCalls,
-    messages: {
-      async fetch(options) {
-        fetchCalls.push({ ...options });
-        const older = options.before ? messages.filter((m) => BigInt(m.id) < BigInt(options.before)) : messages;
-        return new Map(older.slice(0, options.limit).map((m) => [m.id, m]));
-      },
-    },
-  };
-}
-
-/** `count` fake messages, newest first; `isBot(i)` picks the persona's own. Each records its delete. */
-function fakeDmMessages(count, isBot, { failDelete = () => false } = {}) {
-  const deleted = [];
-  const messages = [];
-  for (let i = 0; i < count; i += 1) {
-    const id = String(100000 + count - i); // descending ids: newest first
-    messages.push({
-      id,
-      author: { id: isBot(i) ? BOT_ID : '123' },
-      async delete() {
-        if (failDelete(i)) throw new Error('delete failed');
-        deleted.push(id);
-      },
-    });
-  }
-  return { messages, deleted };
-}
-
-function fakeDmClient(channel, { fetchUser, createDM } = {}) {
-  const userFetches = [];
-  return {
-    userFetches,
-    user: { id: BOT_ID },
-    users: {
-      async fetch(userId) {
-        userFetches.push(userId);
-        if (fetchUser) return fetchUser(userId);
-        return { id: userId, createDM: createDM ?? (async () => channel) };
-      },
-    },
-  };
-}
-
-test('run: private.purge pages through the DM, deletes only its own messages and forgets the private layer', async () => {
-  const rootDir = makeRoot();
-  // 150 messages, 60 of them the persona's (every i % 5 < 2), spread over both pages
-  const { messages, deleted } = fakeDmMessages(150, (i) => i % 5 < 2);
-  const channel = fakeDmChannel(messages);
-  const client = fakeDmClient(channel);
-  const { admin, store } = makeAdmin(rootDir, { client });
-  store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
-  store.privates.set('g1:123', samplePrivate());
-
-  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
-
-  assert.deepEqual(client.userFetches, ['123']);
-  assert.equal(channel.fetchCalls.length, 2, 'a full page of 100, then a short page of 50');
-  assert.equal(channel.fetchCalls[0].limit, 100);
-  assert.equal(channel.fetchCalls[0].before, undefined);
-  assert.equal(channel.fetchCalls[1].before, messages[99].id, 'the second page starts before the oldest of the first');
-  assert.equal(deleted.length, 60);
-  const ownIds = messages.filter((m) => m.author.id === BOT_ID).map((m) => m.id);
-  assert.deepEqual(deleted, ownIds, 'every own message deleted, in order, and nothing else');
-  assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
-  assert.ok(store.getUser('g1', '123'), 'the public profile stays');
-  assert.match(result, /\b60\b/);
-  assert.match(result, /\b0 failed\b/);
-  assert.ok(result.split('\n').length <= 2, 'two lines at most');
-});
-
-test('run: private.purge counts a failing delete and carries on', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(10, () => true, { failDelete: (i) => i === 3 || i === 7 });
-  const client = fakeDmClient(fakeDmChannel(messages));
-  const { admin, store } = makeAdmin(rootDir, { client });
-  store.privates.set('g1:123', samplePrivate());
-
-  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
-
-  assert.equal(deleted.length, 8);
-  assert.match(result, /\b8\b/);
-  assert.match(result, /\b2 failed\b/);
-  assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
-});
-
-test('run: private.purge stops scanning at private.purgeMaxMessages', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(350, () => true);
-  const channel = fakeDmChannel(messages);
-  const { admin, hot } = makeAdmin(rootDir, { client: fakeDmClient(channel) });
-  hot.config.private = { purgeMaxMessages: 150 };
-
-  await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
-
-  assert.equal(deleted.length, 150);
-  assert.equal(channel.fetchCalls.length, 2);
-});
-
-test('run: private.purge with a user that cannot be fetched or a DM that cannot be opened deletes nothing', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(5, () => true);
-  const channel = fakeDmChannel(messages);
-
-  const unknown = fakeDmClient(channel, { fetchUser: async () => { throw new Error('Unknown User'); } });
-  const { admin, store } = makeAdmin(rootDir, { client: unknown });
-  store.privates.set('g1:123', samplePrivate());
-  await assert.rejects(() => admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
-
-  const closed = fakeDmClient(channel, { createDM: async () => { throw new Error('Cannot open a DM'); } });
-  const { admin: admin2 } = makeAdmin(rootDir, { client: closed, store });
-  await assert.rejects(() => admin2.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
-
-  assert.equal(channel.fetchCalls.length, 0);
-  assert.deepEqual(deleted, []);
-  assert.deepEqual(store.forgottenPrivate, [], 'the private memory stays');
-});
-
-test('run: private.purge whose first history page fails deletes nothing; a later failure keeps what was done', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(150, () => true);
-
-  const broken = fakeDmChannel(messages);
-  broken.messages.fetch = async () => { throw new Error('Missing Access'); };
-  const { admin, store } = makeAdmin(rootDir, { client: fakeDmClient(broken) });
-  store.privates.set('g1:123', samplePrivate());
-  await assert.rejects(() => admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
-  assert.deepEqual(deleted, []);
-  assert.deepEqual(store.forgottenPrivate, [], 'the private memory stays');
-
-  const flaky = fakeDmChannel(messages);
-  const pageOf = flaky.messages.fetch;
-  flaky.messages.fetch = async (options) => {
-    if (options.before) throw new Error('page fetch failed');
-    return pageOf(options);
-  };
-  const { admin: admin2 } = makeAdmin(rootDir, { client: fakeDmClient(flaky), store });
-  const result = await admin2.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
-  assert.equal(deleted.length, 100, 'the first page was purged');
-  assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
-  assert.match(result, /\b100\b/);
-});
-
-test('run: private.purge keeps the private memory when a pause lands while it is deleting', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(3, () => true);
-  const { admin, store } = makeAdmin(rootDir, { client: fakeDmClient(fakeDmChannel(messages)) });
-  store.privates.set('g1:123', samplePrivate());
-  const firstDelete = messages[0].delete;
-  messages[0].delete = async () => {
-    store.state.data.paused = true;
-    return firstDelete();
-  };
-
-  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
-
-  assert.equal(deleted.length, 3);
-  assert.deepEqual(store.forgottenPrivate, [], 'nothing under data/ is written while paused');
-  assert.match(result, /paused/i);
-  assert.ok(result.split('\n').length <= 2, 'two lines at most');
-});
-
-test('run: private.purge is refused while paused, with the same message as private.forget', async () => {
-  const rootDir = makeRoot();
-  const { messages, deleted } = fakeDmMessages(5, () => true);
-  const client = fakeDmClient(fakeDmChannel(messages));
-  const { admin, store } = makeAdmin(rootDir, { client });
-  store.privates.set('g1:123', samplePrivate());
-
-  await admin.run('pause', {}, {});
-
-  let purgeError;
-  let forgetError;
-  await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }).catch((err) => { purgeError = err; });
-  await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' }).catch((err) => { forgetError = err; });
-  assert.ok(purgeError && forgetError);
-  assert.equal(purgeError.message, forgetError.message);
-  assert.deepEqual(client.userFetches, []);
-  assert.deepEqual(deleted, []);
-  assert.deepEqual(store.forgottenPrivate, []);
 });
 
 test('run: memory.show never shows the private layer', async () => {
@@ -1458,129 +1188,9 @@ test('run: memory.show never shows the private layer', async () => {
   }
 });
 
-test('run: private.show / private.forget / memory.forget against the real store', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser('g1', '123', 'Zoé', Date.parse('2026-09-01T00:00:00.000Z'));
-    store.applyPrivateOps('g1', '123', {});
-    store.adjustPrivateAffinity('g1', '123', 8, 'nice in private', { maxDelta: Infinity, historySize: 10, now: 1 });
-    store.pushPrivateBuffer('g1', '123', { id: 'm1', content: 'SECRET-BUFFERED-TEXT', ts: 1 });
-    store.bumpPrivateReplies('g1', '123', utcToday());
-    store.flush();
-
-    const shown = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
-    assert.match(shown.split('\n')[0], /Zoé/);
-    assert.match(shown, /private affinity: 8\b/);
-    assert.match(shown, /replies today: 1\b/);
-    assert.match(shown, /buffer: 1\b/);
-    assert.ok(!shown.includes('SECRET-BUFFERED-TEXT'));
-
-    await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' });
-    assert.equal(store.getPrivate('g1', '123'), null);
-    assert.ok(store.getUser('g1', '123'), 'the public profile stays');
-
-    store.applyPrivateOps('g1', '123', {});
-    store.flush();
-    await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-    assert.equal(store.getUser('g1', '123'), null);
-    assert.equal(store.getPrivate('g1', '123'), null, 'memory.forget removes the private layer too');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// memory.wipe
-// ---------------------------------------------------------------------------
-
 function clientWithGuild(guildId, name) {
   return { guilds: { cache: new Map([[guildId, { id: guildId, name }]]) } };
 }
-
-test('run: memory.wipe with a missing confirmation changes nothing', async () => {
-  const rootDir = makeRoot();
-  const client = clientWithGuild('g1', 'The Server');
-  const { admin, store } = makeAdmin(rootDir, { client });
-
-  const result = await admin.run('memory.wipe', {}, { guildId: 'g1' });
-
-  assert.equal(store.wipeCalls.length, 0);
-  assert.ok(result.includes('The Server'));
-});
-
-test('run: memory.wipe with the exact guild name wipes the guild and reports the counts', async () => {
-  const rootDir = makeRoot();
-  const client = clientWithGuild('g1', 'The Server');
-  const { admin, store } = makeAdmin(rootDir, { client });
-
-  const result = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
-
-  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/vault/wipe-1', vaultDir: 'vault' }]]);
-  for (const part of [
-    'profiles removed: 2', 'private memory removed: 1 private layers', 'record files removed: 4', 'archive files removed: 2',
-    'backfill files removed: 1', 'journal: kept (no journal is running)', 'snapshots that lost this server: 0',
-    'errand files removed: 0',
-  ]) {
-    assert.ok(result.includes(part), part);
-  }
-  assert.ok(result.includes('channels removed: 1'));
-  assert.ok(result.includes('lore removed: 3 (kept: 1)'));
-  assert.ok(result.includes('buffer messages cleared: 5'));
-});
-
-test('run: memory.wipe trims the confirmation text but stays case-sensitive', async () => {
-  const rootDir = makeRoot();
-  const client = clientWithGuild('g1', 'The Server');
-  const { admin, store } = makeAdmin(rootDir, { client });
-
-  await admin.run('memory.wipe', { confirm: '  The Server  ' }, { guildId: 'g1' });
-  assert.equal(store.wipeCalls.length, 1);
-
-  await admin.run('memory.wipe', { confirm: 'the server' }, { guildId: 'g1' });
-  assert.equal(store.wipeCalls.length, 1, 'a case mismatch must not run the wipe');
-});
-
-/** A fake live analyzer whose `waitIdle` resolves only when `finish()` is called. */
-function inFlightAnalyzer() {
-  let finish;
-  const idle = new Promise((resolve) => {
-    finish = resolve;
-  });
-  return { waits: 0, waitIdle() { this.waits += 1; return idle; }, finish: () => finish() };
-}
-
-test('memory.forget / memory.private action:forget / memory.wipe: wait for a live-analyzer run in flight before deleting', async () => {
-  const rootDir = makeRoot();
-  const client = clientWithGuild('g1', 'The Server');
-  for (const [key, args, deleted] of [
-    ['memory.forget', { userId: '123' }, (store) => store.forgotten.length],
-    ['memory.private', { action: 'forget', userId: '123' }, (store) => store.forgottenPrivate.length],
-    ['memory.wipe', { confirm: 'The Server' }, (store) => store.wipeCalls.length],
-  ]) {
-    const memory = inFlightAnalyzer();
-    const { admin, store } = makeAdmin(rootDir, { client, memory });
-    const pending = admin.run(key, args, { guildId: 'g1' });
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(memory.waits, 1, key);
-    assert.equal(deleted(store), 0, `${key}: nothing deleted while the analyzer runs`);
-    memory.finish();
-    await pending;
-    assert.equal(deleted(store), 1, `${key}: deleted once it landed`);
-  }
-});
-
-test('memory.forget: a pause that lands while waiting for the analyzer refuses the delete', async () => {
-  const rootDir = makeRoot();
-  const memory = inFlightAnalyzer();
-  const { admin, store } = makeAdmin(rootDir, { memory });
-  const pending = admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-  await new Promise((resolve) => setImmediate(resolve));
-  store.state.data.paused = true;
-  memory.finish();
-  await assert.rejects(pending, /paused -- run \/nep resume first/);
-  assert.deepEqual(store.forgotten, []);
-});
 
 // The following memory.show tests exercise `section: 'raw'` (see
 // src/admin.js#rawMemoryShowView). The other sections are covered further
@@ -1960,7 +1570,6 @@ test('status: the card carries the fields in order and the member variant drops 
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: 'x/extractor' } };
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
@@ -1991,7 +1600,6 @@ test('status: the card carries the fields in order and the member variant drops 
       'core · anthropic/claude-opus-4.6',
       `memory · ${ROLE_DEFAULTS.core}`,
       `analyzer · ${ROLE_DEFAULTS.analyzer}`,
-      'extractor · x/extractor',
       `vision · ${ROLE_DEFAULTS.vision}`,
       `video · ${ROLE_DEFAULTS.video}`,
       `embedding · ${ROLE_DEFAULTS.embedding}`,
@@ -2136,18 +1744,8 @@ function handClock(start) {
 test('status: the memory field shows the coverage of every kind of memory, computed at most once a minute', async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
-  // The record: four day files over two months, the month indexes naming four messages.
-  const recordBase = path.join(rootDir, 'data', 'guilds', 'g1', 'record');
-  const write = (rel, text) => {
-    fs.mkdirSync(path.dirname(path.join(recordBase, rel)), { recursive: true });
-    fs.writeFileSync(path.join(recordBase, rel), text);
-  };
-  write('2026-09/2026-09-30.jsonl', '{}\n');
-  write('2026-09/ids.json', JSON.stringify(['m1:1']));
-  for (const day of ['05', '12', '14']) write(`2026-10/2026-10-${day}.jsonl`, '{}\n');
-  write('2026-10/ids.json', JSON.stringify(['m2:1', 'm2:2', 'm3:1', 'm3:deleted', 'm4:1']));
-  write('2026-10/notes.txt', 'not a day file');
-  const record = { dayFile: (guildId, iso) => path.join(rootDir, 'data', 'guilds', guildId, 'record', iso.slice(0, 7), `${iso.slice(0, 10)}.jsonl`) };
+  // The record: four messages on four days since the first one.
+  const record = { stats: async () => ({ messages: 4, days: 4, first: '2026-09-30' }) };
   const archiveEntries = [
     { event: 'backfill', observedAt: { date: '2026-03-01', precision: 'day' } },
     { event: 'evicted', observedAt: { date: '2026-10-13T10:00:00.000Z', precision: 'time' } },
@@ -2281,8 +1879,8 @@ test('status: the speed field ends with today\'s missed-answer figures from the 
 
 test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
   const rootDir = makeRoot();
-  const journalDir = tempDir('nep-status-journal-');
-  const journal = { dayFile: (guildId, iso) => path.join(journalDir, `${iso.slice(0, 10)}.jsonl`), stalled: () => false };
+  let lastWriteMs = null;
+  const journal = { stats: async () => ({ lastWriteMs }), stalled: () => false };
   const metrics = createMetrics({ dataDir: path.join(rootDir, 'data') });
   const { admin, hot } = makeAdmin(rootDir, { journal, metrics });
   const storage = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields[0].value.split('\n')[1];
@@ -2291,15 +1889,12 @@ test('status: the storage line flags a journal that stopped writing while turns 
   assert.equal(await storage(), 'storage ok', 'no turn in the last hour: nothing to judge');
   metrics.record('reply', 3000);
   assert.equal(await storage(), 'storage: journal not written today while turns happen');
-  const today = journal.dayFile('g1', new Date().toISOString());
-  fs.writeFileSync(today, '{}\n');
-  const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
-  fs.utimesSync(today, twoHoursAgo, twoHoursAgo);
+  lastWriteMs = Date.now() - 2 * 3_600_000;
   assert.match(await storage(), /^storage: journal not written since \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC while turns happen$/);
-  fs.utimesSync(today, new Date(), new Date());
+  lastWriteMs = Date.now();
   assert.equal(await storage(), 'storage ok');
   hot.config.features = { journal: false };
-  fs.utimesSync(today, twoHoursAgo, twoHoursAgo);
+  lastWriteMs = Date.now() - 2 * 3_600_000;
   assert.equal(await storage(), 'storage ok', 'the journal switched off is not expected to write');
 });
 
@@ -2328,7 +1923,6 @@ function probeConfig(hot) {
     base: {
       core: 'anthropic/claude-opus-4.6',
       analyzer: 'x/text',
-      extractor: 'x/extractor',
       vision: 'x/media',
       video: 'x/video',
       embedding: 'x/embed',
@@ -2379,7 +1973,6 @@ test('status: the card lists one item per line in every field, the models one li
     'core · anthropic/claude-opus-4.6',
     `memory · ${ROLE_DEFAULTS.core}`,
     'analyzer · x/text',
-    'extractor · x/extractor',
     'vision · x/media',
     'video · x/video',
     'embedding · x/embed',
@@ -2424,7 +2017,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
   });
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
   probeConfig(hot);
-  const modelOf = { core: 'anthropic/claude-opus-4.6', analyzer: 'x/text', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
+  const modelOf = { core: 'anthropic/claude-opus-4.6', analyzer: 'x/text', vision: 'x/media', video: 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
@@ -2453,7 +2046,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
-  assert.equal(probed[0].ok, 4);
+  assert.equal(probed[0].ok, 3);
   assert.equal(probed[0].failed, 1);
 });
 
@@ -2472,7 +2065,6 @@ test('status: the member card shows the models one line per role without probing
       'core · anthropic/claude-opus-4.6',
       `memory · ${ROLE_DEFAULTS.core}`,
       'analyzer · x/text',
-      'extractor · x/extractor',
       'vision · x/media',
       'video · x/video',
       'embedding · x/embed',
@@ -2498,8 +2090,7 @@ test('status: identical probes are sent once, each role shows its own model, the
   };
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
-  // The extractor on the core's model: one probe for the pair.
-  Object.assign(hot.config.models.base, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media' });
+  Object.assign(hot.config.models.base, { video: 'x/media' });
   hot.config.models.byPurpose = { lookup: 'x/pinned', describe: 'x/seen' };
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
@@ -2512,7 +2103,7 @@ test('status: identical probes are sent once, each role shows its own model, the
     ['core', 'anthropic/claude-opus-4.6'],
     ['video', 'x/media'],
     ['vision', 'x/media'],
-  ], 'one chat probe per (model, route); the extractor shares the core one');
+  ], 'one chat probe per (model, route)');
   assert.deepEqual(embedCalls.map((call) => call.texts), [['Answer with one word: Ωmega']], 'one embedding request of one input');
   assert.equal(embedCalls[0].options.countAgainstDailyCap, false);
   assert.equal(embedCalls[0].options.origin, 'status');
@@ -2521,9 +2112,8 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
   assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'an override of a lookup purpose follows the analyzer');
-  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
-  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
-  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.equal(lines[5], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
+  assert.match(lines[7], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -2645,299 +2235,19 @@ test('run: pause waits for a turn already in flight before dropping caches', asy
   assert.equal(store.dropCachesCalls, 1);
 });
 
-test('run: pause waits for an in-flight live-analyzer run before dropping caches', async () => {
-  const rootDir = makeRoot();
-  let resolveIdle;
-  const idlePromise = new Promise((resolve) => {
-    resolveIdle = resolve;
-  });
-  const memory = { waitIdle: () => idlePromise };
-  const { admin, store } = makeAdmin(rootDir, { memory });
-
-  const pausePromise = admin.run('pause', {}, {});
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(store.dropCachesCalls, 0, 'must not drop caches before the in-flight analyzer run finished');
-
-  resolveIdle();
-  await pausePromise;
-  assert.equal(store.dropCachesCalls, 1);
-});
-
-test('run: pause waits for an in-flight warmup run before dropping caches', async () => {
-  const rootDir = makeRoot();
-  let resolveIdle;
-  const idlePromise = new Promise((resolve) => {
-    resolveIdle = resolve;
-  });
-  const warmup = { waitIdle: () => idlePromise };
-  const { admin, store } = makeAdmin(rootDir, { warmup });
-
-  const pausePromise = admin.run('pause', {}, {});
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(store.dropCachesCalls, 0, 'must not drop caches before the in-flight warmup run finished');
-
-  resolveIdle();
-  await pausePromise;
-  assert.equal(store.dropCachesCalls, 1);
-});
-
-// /nep pause: a live-analyzer run() already in flight when the pause
-// arrives (an LLM call can take 30-90s) must be allowed to finish and apply
-// normally -- its result must land on disk BEFORE the flush + dropCaches, or
-// the eventual applyMemoryUpdate would re-read a profile from disk, mutate it
-// and mark it dirty AFTER the owner started editing files under data/ --
-// exactly the overwrite this feature exists to prevent. Real store + real
-// createMemoryUpdater, only the LLM is faked, so this exercises the actual
-// buffer-shift + flush + running.delete() sequence run() performs internally.
-function minimalMemoryHot() {
-  return {
-    config: {
-      bot: { timezone: 'UTC' },
-      context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-      memory: { batchMessages: 10, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 700, fieldChars: 400 },
-      features: {},
-    },
-    prompts: { memory: 'memory system prompt', labels },
-  };
-}
-
-function slimBufferMessage(overrides = {}) {
-  return {
-    id: 'm1',
-    channelId: 'c1',
-    channelName: 'general',
-    authorId: 'u2',
-    authorName: 'Bob',
-    self: false,
-    bot: false,
-    content: 'hi',
-    ts: Date.now(),
-    replyToId: null,
-    attachments: [],
-    links: [],
-    stickers: [],
-    emojis: [],
-    direct: false,
-    ...overrides,
-  };
-}
-
-test('run: pause waits for an in-flight live-analyzer run to finish -- its result is on disk before pause completes, nothing is written after', async () => {
-  const rootDir = makeRoot();
-  const dataDir = tempDir('nep-admin-data-');
+test('/nep pause: no timer-driven writer (spontaneous.tick, store.flush) writes memory while paused', async () => {
+  const mem = await openTestMemory();
   try {
-    const realStore = createStore({ dataDir });
-    const guildId = 'g1';
-    realStore.pushBuffer(guildId, slimBufferMessage(), 100);
-
-    let resolveLlm;
-    const llm = {
-      complete: () =>
-        new Promise((resolve) => {
-          resolveLlm = () => resolve({ text: JSON.stringify({ guild: { patterns: 'set by the in-flight run' } }), usage: {}, estimated: 1 });
-        }),
-    };
-    const calibrator = { ratio: 1, apply: (n) => n, observe: () => {} };
-    const memory = createMemoryUpdater({ hot: minimalMemoryHot(), store: realStore, llm, calibrator, getSelfName: () => 'Nept' });
-
-    const runPromise = memory.run(guildId); // in flight: the fake LLM has not resolved yet
-    await new Promise((resolve) => setTimeout(resolve, 0)); // let run() reach the pending llm.complete() call
-
-    const { admin } = makeAdmin(rootDir, { store: realStore, memory });
-    let pauseResolved = false;
-    const pausePromise = admin.run('pause', {}, {}).then((r) => {
-      pauseResolved = true;
-      return r;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(pauseResolved, false, 'pause must wait for the in-flight analyzer run, not race ahead of it');
-
-    resolveLlm(); // the LLM resolves late, after pause was already requested
-    await runPromise;
-    await pausePromise;
-
-    assert.equal(pauseResolved, true);
-    assert.equal(realStore.getGuild(guildId).patterns, 'set by the in-flight run', 'the analyzer result was applied');
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'guild.json'), 'utf8'));
-    assert.equal(onDisk.patterns, 'set by the in-flight run', 'and flushed to disk before pause completed');
-    assert.deepEqual(realStore.getBuffer(guildId), [], 'the buffer was shifted by the completed run, not left for a later write');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-// /nep pause and a portrait refresh in flight (src/memory/warmup.js#refreshPortrait, started by
-// src/memory/portrait.js's scheduler, a cue or the owner): pause waits for it through
-// warmup.waitIdle, and a refresh whose answer arrives after the pause writes nothing.
-test('run: pause waits for a portrait refresh in flight and nothing is written after it', async () => {
-  const rootDir = makeRoot();
-  const dataDir = tempDir('nep-admin-portrait-');
-  try {
-    const realStore = createStore({ dataDir });
-    const guildId = 'g1';
-    const t0 = Date.UTC(2026, 9, 1, 12);
-    realStore.touchUser(guildId, 'u1', 'Ἀλκμήνη', t0);
-    realStore.applyProfileOps(guildId, 'u1', { character: 'μιλάει πολύ', style: 'σύντομα' }, { fieldChars: 400 });
-    realStore.flush();
-    const windows = [
-      {
-        id: 'c1',
-        name: 'general',
-        category: null,
-        topic: null,
-        messages: Array.from({ length: 5 }, (_, i) => ({
-          ...slimBufferMessage({ id: `m${i}`, authorId: 'u1', authorName: 'Ἀλκμήνη', content: `γεια ${i}`, ts: t0 + i * 60_000 }),
-          forwarded: [],
-        })),
-      },
-    ];
-
-    let resolveLlm;
-    let sent = 0;
-    const llm = {
-      complete: () => {
-        sent += 1;
-        return new Promise((resolve) => {
-          resolveLlm = () => resolve({ text: JSON.stringify({ character: 'νέος χαρακτήρας', style: 'νέο ύφος' }), usage: {}, estimated: 1, finishReason: 'stop' });
-        });
-      },
-    };
-    const warmupHot = {
-      config: {
-        bot: { timezone: 'UTC' },
-        context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-        models: { base: { core: 'x/y', extractor: 'x/y' } },
-        llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-        memory: { fieldChars: 400, mainChannelIds: [] },
-        warmup: { minMessages: 2, contextBefore: 1, maxChannelShare: 1 },
-      },
-      prompts: { profile: 'PROFILE {{name}}', 'character-card': 'CARD {{name}}', labels },
-    };
-    const warmup = createWarmup({
-      discord: DISCORD,
-      hot: warmupHot,
-      store: realStore,
-      client: { user: { id: 'self' }, guilds: { cache: new Map() } },
-      llm,
-      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-      getSelfName: () => 'Nept',
-      now: () => t0 + 30 * 3_600_000,
-    });
-
-    const refresh = warmup.refreshPortrait(guildId, 'u1', '', { windows });
-    for (let i = 0; i < 50 && sent === 0; i += 1) await Promise.resolve();
-    assert.equal(sent, 1, 'the refresh request is in flight');
-    const onDiskBefore = fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'users', 'u1.json'), 'utf8');
-
-    const { admin } = makeAdmin(rootDir, { store: realStore, warmup });
-    let pauseResolved = false;
-    const pausePromise = admin.run('pause', {}, {}).then((r) => {
-      pauseResolved = true;
-      return r;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(pauseResolved, false, 'pause must wait for the refresh in flight');
-
-    resolveLlm();
-    const outcome = await refresh;
-    await pausePromise;
-
-    assert.equal(pauseResolved, true);
-    assert.deepEqual([outcome.ok, outcome.reason], [false, 'paused']);
-    assert.equal(realStore.getUser(guildId, 'u1').character, 'μιλάει πολύ', 'the answer that came after the pause is not stored');
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'users', 'u1.json'), 'utf8'));
-    assert.equal(onDisk.character, 'μιλάει πολύ');
-    assert.equal(onDisk.portraitRefreshedAt, undefined);
-    assert.notEqual(JSON.stringify(onDisk), onDiskBefore, 'only the attempt stamp written before the pause reached the disk');
-    assert.ok(onDisk.portraitAttemptAt);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-// /nep pause and a voice run in flight (src/memory/update.js#runVoice, the two-stage analyzer's
-// stage B): pause waits for it through memory.waitIdle, and an answer that arrives after the pause
-// writes nothing -- neither the text nor any change to the queued item.
-test('run: pause waits for a voice run in flight and nothing is written after it', async () => {
-  const rootDir = makeRoot();
-  const dataDir = tempDir('nep-admin-voice-');
-  try {
-    const realStore = createStore({ dataDir });
-    const guildId = 'g1';
-    const t0 = Date.UTC(2026, 9, 1, 12);
-    realStore.touchUser(guildId, 'u2', 'Ἀλκμήνη', t0);
-    realStore.updateVoiceQueue(guildId, () => [{ id: 'q-0', kind: 'relationship', userId: 'u2', brief: ['έγιναν φίλοι'], createdAt: t0, attempts: 0, misses: 0, nextAt: t0 }]);
-    realStore.flush();
-    const queueFile = path.join(dataDir, 'guilds', guildId, 'voice.json');
-    const queueBefore = fs.readFileSync(queueFile, 'utf8');
-
-    let resolveLlm;
-    let sent = 0;
-    const llm = {
-      complete: () => {
-        sent += 1;
-        return new Promise((resolve) => {
-          resolveLlm = () => resolve({ text: JSON.stringify({ items: { 1: 'φίλοι πια' } }), usage: {}, estimated: 1, finishReason: 'stop' });
-        });
-      },
-    };
-    const hot = minimalMemoryHot();
-    hot.config.models = { base: { core: 'x/y' } };
-    hot.config.features.memoryTwoStage = true;
-    hot.config.memory.voice = { maxPerDay: 100 };
-    hot.prompts['memory-voice'] = 'VOICE {{name}}';
-    const calibrator = { ratio: 1, apply: (n) => n, observe: () => {} };
-    const memory = createMemoryUpdater({ hot, store: realStore, llm, calibrator, getSelfName: () => 'Nept', now: () => t0 + 60_000 });
-
-    const voice = memory.runVoice(guildId);
-    for (let i = 0; i < 50 && sent === 0; i += 1) await Promise.resolve();
-    assert.equal(sent, 1, 'the voice request is in flight');
-
-    const { admin } = makeAdmin(rootDir, { store: realStore, memory });
-    let pauseResolved = false;
-    const pausePromise = admin.run('pause', {}, {}).then((r) => {
-      pauseResolved = true;
-      return r;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(pauseResolved, false, 'pause must wait for the voice run in flight');
-
-    resolveLlm();
-    const outcome = await voice;
-    await pausePromise;
-
-    assert.equal(pauseResolved, true);
-    assert.equal(outcome.reason, 'paused');
-    assert.equal(fs.readFileSync(queueFile, 'utf8'), queueBefore, 'the queued item is left exactly as it was');
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'users', 'u2.json'), 'utf8'));
-    assert.equal(onDisk.relationship, '', 'the answer that came after the pause is not stored');
-    assert.equal(realStore.getUser(guildId, 'u2').relationship, '');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('/nep pause: no timer-driven writer (spontaneous.tick, memory.tick, store.flush) touches data/ while paused', async () => {
-  const dataDir = tempDir('nep-admin-timers-');
-  try {
-    const realStore = createStore({ dataDir });
+    const writes = [];
+    const memoryDb = { ...mem.memoryDb, writeUnit: (update) => { writes.push(update.owner); return mem.memoryDb.writeUnit(update); } };
+    const realStore = createStore({ dataDir: mem.dataDir, memoryDb });
     const guildId = 'g1';
     realStore.touchUser(guildId, 'u1', 'Alice', 1000);
     realStore.updateGuild(guildId, { patterns: 'x' });
-    realStore.pushBuffer(guildId, slimBufferMessage(), 100);
     realStore.flush();
-
-    const userFile = path.join(dataDir, 'guilds', guildId, 'users', 'u1.json');
-    const guildFile = path.join(dataDir, 'guilds', guildId, 'guild.json');
-    const bufferFile = path.join(dataDir, 'guilds', guildId, 'buffer.json');
-    const before = {
-      user: fs.statSync(userFile).mtimeMs,
-      guild: fs.statSync(guildFile).mtimeMs,
-      buffer: fs.statSync(bufferFile).mtimeMs,
-    };
+    await realStore.flushSettled({});
+    const before = writes.length;
+    assert.ok(before > 0, 'the writes before the pause reached the database');
 
     realStore.state.data.paused = true;
 
@@ -2949,25 +2259,16 @@ test('/nep pause: no timer-driven writer (spontaneous.tick, memory.tick, store.f
       turns: { runTurn: async () => ({ outcome: 'spoke' }), isBusy: () => false, isAnyBusy: () => false, lastPostAt: () => 0 },
       getGuildId: () => guildId,
     });
-    const memory = createMemoryUpdater({
-      hot: { config: {} },
-      store: realStore,
-      llm: { complete: async () => { throw new Error('the analyzer must never be called while paused'); } },
-      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-      getSelfName: () => 'Nept',
-    });
 
-    // Mirrors index.js's three periodic timers firing once, back to back.
+    // Mirrors index.js's periodic timers firing once, back to back.
     await spontaneous.tick();
-    await memory.tick();
     realStore.flush();
+    await new Promise((resolve) => setImmediate(resolve));
 
-    assert.equal(fs.statSync(userFile).mtimeMs, before.user);
-    assert.equal(fs.statSync(guildFile).mtimeMs, before.guild);
-    assert.equal(fs.statSync(bufferFile).mtimeMs, before.buffer);
-    assert.equal(JSON.parse(fs.readFileSync(bufferFile, 'utf8')).length, 1, 'the buffered message is left exactly as it was');
+    assert.deepEqual(writes.slice(before), [], 'nothing was written while paused');
   } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
   }
 });
 
@@ -3024,8 +2325,6 @@ test('run: every command that writes data/ is refused while paused, with a hint 
   await admin.run('pause', {}, {});
 
   const attempts = [
-    ['memory.forget', { userId: '123' }],
-    ['memory.wipe', { confirm: 'The Server' }],
     ['lore.add', { title: 'Y', keys: 'y', text: 'z' }],
     ['lore.remove', { id: loreId }],
     ['message.create', {}],
@@ -3038,8 +2337,6 @@ test('run: every command that writes data/ is refused while paused, with a hint 
     );
   }
 
-  assert.equal(store.forgotten.length, 0);
-  assert.equal(store.wipeCalls.length, 0);
 });
 
 test('run: read-only and config commands keep working while paused', async () => {
@@ -3083,137 +2380,6 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
 
   await admin.run('memory.affinity', { userId: '123' }, { guildId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 4);
-});
-
-// ---------------------------------------------------------------------------
-// memory.refresh -- a member's portrait, a channel's notes, the server notes, through the warmup
-// engine's live paths (src/memory/warmup.js); refused while paused or while a warmup runs.
-// ---------------------------------------------------------------------------
-
-function fakeWarmup(overrides = {}) {
-  const calls = { refreshChannelNotes: 0, refreshServerNotes: 0, refreshPortrait: 0, runChannel: 0, runServer: 0 };
-  return {
-    calls,
-    refreshChannelNotes: async (guildId, channelId) => {
-      calls.refreshChannelNotes += 1;
-      calls.lastChannel = [guildId, channelId];
-      return overrides.refreshChannelNotes ?? { ok: true, changed: true, sample: 160, authors: 12, days: 30 };
-    },
-    refreshServerNotes: async (guildId) => {
-      calls.refreshServerNotes += 1;
-      calls.lastServerGuildId = guildId;
-      return overrides.refreshServerNotes ?? { ok: true, changed: false, sample: 150, authors: 20, days: 30 };
-    },
-    // The warmup passes: a refresh must never take them (whole history, the persona muted).
-    runChannel: async () => {
-      calls.runChannel += 1;
-      return { ok: false };
-    },
-    runServer: async () => {
-      calls.runServer += 1;
-      return { ok: false };
-    },
-    refreshPortrait: async (guildId, userId, reason, opts) => {
-      calls.refreshPortrait += 1;
-      calls.lastRefreshUserId = userId;
-      calls.lastRefreshOpts = opts;
-      return overrides.refreshPortrait ?? { ok: true, userId };
-    },
-  };
-}
-
-test('run: memory.refresh kind:user forces a portrait refresh, ignoring the hours rail', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('memory.refresh', { kind: 'user', userId: '1' }, { guildId: 'g1' });
-  assert.equal(warmup.calls.refreshPortrait, 1);
-  assert.equal(warmup.calls.lastRefreshUserId, '1');
-  assert.deepEqual(warmup.calls.lastRefreshOpts, { force: true });
-  assert.match(body, /refreshed/);
-  await assert.rejects(() => admin.run('memory.refresh', { kind: 'user' }, { guildId: 'g1' }), /a user is required/);
-});
-
-test('run: memory.refresh kind:channel rewrites stored notes from a fresh sample, never through the warmup pass', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin, store } = makeAdmin(rootDir, { warmup });
-  store.channels.set('g1:c1', { id: 'c1', name: 'general', purpose: 'chat', topics: '', tone: '' });
-
-  const body = await admin.run('memory.refresh', { kind: 'channel', channelId: 'c1' }, { guildId: 'g1' });
-  assert.deepEqual(warmup.calls.lastChannel, ['g1', 'c1']);
-  assert.equal(warmup.calls.runChannel + warmup.calls.runServer + warmup.calls.refreshServerNotes, 0);
-  assert.equal(body, 'Channel notes rewritten from a fresh sample (sample: 160 messages, 12 authors, 30 days).');
-  await assert.rejects(() => admin.run('memory.refresh', { kind: 'channel' }, { guildId: 'g1' }), /a channel is required/);
-});
-
-test('run: memory.refresh kind:channel on a channel with no notes points to the tool and sends nothing', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin, store } = makeAdmin(rootDir, { warmup });
-  store.channels.set('g1:c2', { id: 'c2', name: 'quiet', purpose: '', topics: '', tone: '' });
-
-  for (const channelId of ['c2', 'c9']) {
-    const body = await admin.run('memory.refresh', { kind: 'channel', channelId }, { guildId: 'g1' });
-    assert.match(body, /no notes yet/, channelId);
-    assert.match(body, new RegExp(`tools/warmup\\.mjs channels --channel ${channelId}`), channelId);
-  }
-  assert.equal(warmup.calls.refreshChannelNotes + warmup.calls.runChannel, 0);
-});
-
-test('run: memory.refresh relays why a sampled refresh wrote nothing', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup({
-    refreshChannelNotes: { ok: false, reason: 'over-limit', fields: ['topics'] },
-    refreshServerNotes: { ok: false, reason: 'llm-error', detail: 'HTTP 502' },
-  });
-  const { admin, store } = makeAdmin(rootDir, { warmup });
-  store.channels.set('g1:c1', { id: 'c1', name: 'general', purpose: 'chat' });
-
-  assert.equal(await admin.run('memory.refresh', { kind: 'channel', channelId: 'c1' }, { guildId: 'g1' }), 'Refresh not performed: over-limit (topics)');
-  assert.equal(await admin.run('memory.refresh', { kind: 'server' }, { guildId: 'g1' }), 'Refresh not performed: llm-error (HTTP 502)');
-});
-
-test('run: memory.refresh kind:server rewrites the server notes from a fresh sample, never through the warmup pass', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('memory.refresh', { kind: 'server' }, { guildId: 'g1' });
-  assert.equal(warmup.calls.refreshServerNotes, 1);
-  assert.equal(warmup.calls.lastServerGuildId, 'g1');
-  assert.equal(warmup.calls.runServer + warmup.calls.runChannel, 0, 'the lore rebuild stays the tool\'s');
-  assert.equal(body, 'Server notes checked against a fresh sample, nothing to change (sample: 150 messages, 20 authors, 30 days).');
-});
-
-test('run: memory.refresh of every kind is refused while paused, and while a warmup runs', async () => {
-  for (const args of [{ kind: 'user', userId: '1' }, { kind: 'channel', channelId: 'c1' }, { kind: 'server' }]) {
-    const paused = fakeWarmup();
-    const first = makeAdmin(makeRoot(), { warmup: paused });
-    first.store.channels.set('g1:c1', { id: 'c1', purpose: 'chat' });
-    await first.admin.run('pause', {}, {});
-    await assert.rejects(() => first.admin.run('memory.refresh', args, { guildId: 'g1' }), /paused/, args.kind);
-
-    const busy = fakeWarmup();
-    const second = makeAdmin(makeRoot(), { warmup: busy, isWarmingUp: () => true });
-    second.store.channels.set('g1:c1', { id: 'c1', purpose: 'chat' });
-    assert.match(await second.admin.run('memory.refresh', args, { guildId: 'g1' }), /^Refresh not performed: a warmup is running/, args.kind);
-
-    for (const warmup of [paused, busy]) {
-      const { calls } = warmup;
-      assert.equal(calls.refreshChannelNotes + calls.refreshServerNotes + calls.refreshPortrait + calls.runChannel + calls.runServer, 0, args.kind);
-    }
-  }
-});
-
-test('run: memory.wipe is refused while a warmup is in flight', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir, { isWarmingUp: () => true });
-  await assert.rejects(
-    () => admin.run('memory.wipe', { confirm: 'Guild' }, { guildId: 'g1' }),
-    /warmup is running/,
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -3417,7 +2583,7 @@ test('run: access.grant refuses private memory and access management (owner-only
   // refused by name; a group holding only owner-only operations covers nothing.
   const ownerOnly = /is owner-only and cannot be granted/;
   for (const [group, commands, refusal] of [
-    ['memory.private', ['memory.private.read', 'memory.private.forget', 'memory.private.purge'], ownerOnly],
+    ['memory.private', ['memory.private.read'], ownerOnly],
     ['memory.private', ['memory.private'], /covers no grantable read operation/],
     ['access', ['access.grant', 'access.revoke', 'access.list'], ownerOnly],
     ['access', ['access'], /covers no grantable read operation/],
@@ -3702,7 +2868,6 @@ function hotForRoutes(rootDir) {
     base: {
       core: 'anthropic/claude-opus-4.6',
       analyzer: 'google/gemini-3.8-flash',
-      extractor: 'anthropic/claude-opus-4.6',
       vision: 'google/gemini-3.8-flash',
       video: 'google/gemini-3.8-flash',
       embedding: 'openai/text-embedding-x',
@@ -3721,19 +2886,18 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
   const { admin } = makeAdmin(rootDir, { hot });
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
   await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'video' }, {});
-  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'extractor', fallbacks: true, byok: 'true' }, {});
+  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'core', fallbacks: true, byok: 'true' }, {});
 
   const lines = (await admin.run('route.list', {}, {})).split('\n');
 
   assert.deepEqual(lines, [
     'routes:',
-    '  anthropic/ | extractor | only amazon-bedrock, anthropic | fallbacks: on | byok: on',
+    '  anthropic/ | core | only amazon-bedrock, anthropic | fallbacks: on | byok: on',
     '  google/ | any | only google-vertex | fallbacks: off | byok: off',
     '  google/ | video | only google-ai-studio | fallbacks: off | byok: off',
     'by role:',
-    '  core: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
+    '  core: anthropic/claude-opus-4.6 -> anthropic/@core (only amazon-bedrock, anthropic, fallbacks: on, byok)',
     '  analyzer: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on, byok)',
     '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
@@ -3854,10 +3018,11 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
 
 test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
   const rootDir = makeRoot();
-  const dataDir = tempDir('nep-admin-archive-');
+  const mem = await openTestMemory();
+  const dataDir = mem.dataDir;
   const appendStore = createAppendStore({ fsyncMs: 0, log: { info() {}, warn() {}, error() {} } });
-  const archive = createArchive({ appendStore, dataDir, log: { info() {}, warn() {}, error() {} } });
-  const store = createStore({ dataDir, archive });
+  const archive = createArchive({ appendStore, dataDir, log: { info() {}, warn() {}, error() {} }, memoryDb: mem.memoryDb });
+  const store = createStore({ dataDir, archive, memoryDb: mem.memoryDb });
   const { admin } = makeAdmin(rootDir, { store, archive });
   try {
     const opts = { maxEpisodes: 1, maxNew: 3, now: Date.UTC(2026, 9, 12) };
@@ -3893,11 +3058,13 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
     await assert.rejects(admin.run('memory.restore', { itemId: 'ep-none' }, { guildId: 'g1' }), /no archived item/);
   } finally {
     await appendStore.close();
+    await mem.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
 // ---------------------------------------------------------------------------
-// the journal: system records, /nep journal, forget and wipe
+// the journal: system records, /nep journal
 // ---------------------------------------------------------------------------
 
 /** A journal fake: records every write and call; `read` serves `days[day]` filtered like the real one. */
@@ -4018,31 +3185,6 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   assert.equal(granted.isAllowed('memory.journal', { userId: '7' }), false);
 });
 
-test('admin: memory forget rewrites the journal and writes a forget record', async () => {
-  const rootDir = makeRoot();
-  const journal = fakeJournal();
-  const hot = makeHot(rootDir);
-  hot.config.features = { journal: true };
-  const client = clientWithGuild('g1', 'The Server');
-  const { admin, store } = makeAdmin(rootDir, { hot, journal, client });
-  store.profiles.set('g1:123', { id: '123' });
-
-  const result = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-  assert.ok(result.includes('Forgot 123'));
-  assert.deepEqual(store.forgotten, [['g1', '123']]);
-  assert.equal(store.forgetDeps.journal, journal, 'the store runs the journal part under the lock');
-  const forget = journal.calls.find(([name]) => name === 'system');
-  assert.deepEqual([forget[1], forget[2].event, forget[2].by, forget[2].participants], ['g1', 'forget', 'owner', ['123']]);
-  assert.match(result, /journal records: 5/i);
-
-  // The wipe empties the journal, then records itself.
-  const wiped = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
-  assert.ok(journal.calls.some(([name, guildId]) => name === 'removeGuild' && guildId === 'g1'));
-  const wipe = journal.calls.filter(([name]) => name === 'system').at(-1)[2];
-  assert.deepEqual([wipe.event, wipe.by], ['wipe', 'owner']);
-  assert.match(wiped, /journal files removed: 3/);
-});
-
 // ---------------------------------------------------------------------------
 // memory.snapshot
 // ---------------------------------------------------------------------------
@@ -4116,77 +3258,3 @@ test('admin: memory snapshot is owner-only and cannot be granted', async () => {
   assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
 });
 
-// ---------------------------------------------------------------------------
-// memory.forget / memory.wipe: the vault
-// ---------------------------------------------------------------------------
-
-test('admin: memory forget reports the vault path and per-store counts', async () => {
-  const rootDir = makeRoot();
-  const journal = fakeJournal();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { vaultDir: 'κρύπτη' };
-  hot.prompts.labels = { ...hot.prompts.labels, memory: { redaction: 'κάποιος' } };
-  const { admin, store } = makeAdmin(rootDir, { hot, journal });
-  store.forgetResult = {
-    vault: '/data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z',
-    counts: { profile: 1, private: 1, voice: 2, recent: 3, participation: 4, versions: 1, archive: 5, record: 6, journal: 7, requests: 8, snapshots: 9, diary: 10, backfill: 11, errands: 12, errandLines: 13, intentions: 14 },
-  };
-
-  const reply = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-
-  assert.deepEqual([store.forgetDeps.journal, store.forgetDeps.vaultDir, store.forgetDeps.redaction], [journal, 'κρύπτη', 'κάποιος']);
-  assert.ok(reply.includes('Vault: /data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z'));
-  for (const part of [
-    'profile: 1', 'private memory: 1', 'voice items: 2', 'recent lines: 3', 'participation messages: 4', 'version files: 1',
-    'archive entries: 5', 'record lines: 6', 'journal records: 7', 'request dumps: 8', 'snapshots: 9', 'diary posts redacted: 10',
-    'backfill candidates: 11', 'errands: 12, errand lines: 13', 'intentions: 14',
-  ]) {
-    assert.ok(reply.includes(part), part);
-  }
-
-  // A job cut short: the reply says it finishes at the next start and still names the vault.
-  store.forgetUser = () => Promise.reject(Object.assign(new Error('disk full'), { code: 'ENOSPC', vault: '/data/κρύπτη/forget-123-x' }));
-  const cut = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
-  assert.match(cut, /next start/);
-  assert.ok(cut.includes('/data/κρύπτη/forget-123-x'));
-});
-
-test('admin: memory wipe reports the vault path', async () => {
-  const rootDir = makeRoot();
-  const order = [];
-  const journal = {
-    ...fakeJournal(),
-    async withWriterLock(fn) {
-      order.push('lock');
-      try {
-        return await fn();
-      } finally {
-        order.push('unlock');
-      }
-    },
-    removeGuild: async () => {
-      order.push('journal');
-      return { files: 3 };
-    },
-  };
-  const hot = makeHot(rootDir);
-  hot.config.memory = { vaultDir: 'κρύπτη' };
-  const client = clientWithGuild('g1', 'The Server');
-  const { admin, store } = makeAdmin(rootDir, { hot, journal, client });
-  store.vaultGuild = (guildId, opts) => {
-    order.push(['vault', guildId, opts.vaultDir]);
-    return '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z';
-  };
-  const wipeGuild = store.wipeGuild.bind(store);
-  store.wipeGuild = (guildId, opts) => {
-    order.push('wipe');
-    return { ...wipeGuild(guildId, opts), snapshots: 2, vault: opts.vault };
-  };
-
-  const reply = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
-
-  assert.deepEqual(order, ['lock', ['vault', 'g1', 'κρύπτη'], 'journal', 'wipe', 'unlock'], 'the vault before anything is deleted');
-  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z', vaultDir: 'κρύπτη' }]]);
-  assert.ok(reply.includes('Vault: /data/κρύπτη/wipe-2026-10-13T12-00-00-000Z'));
-  assert.ok(reply.includes('snapshots that lost this server: 2'));
-});

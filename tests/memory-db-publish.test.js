@@ -1,9 +1,8 @@
 // Schema v10, stage 4 (spec 2026-10-24-memory-schema-v7, section 11 item 4): publications and grants. An internal draft
 // never becomes publishable without a grant bound to its content hash and destination; an edit voids the grant; a grant
 // for another destination does not count; a crash between queueing and sending sends once; the diary's mirrors become
-// sent publications in the migration (a fixture of 51 mirrors) and on every later sync, idempotently, and a remap keeps
-// the row; `verify` stays byte-equal and `parity` unchanged after the migration and after a resync. Synthetic text only
-// (Greek or accented Latin for non-ASCII); the ids are made up.
+// sent publications in the migration (a fixture of 51 mirrors) and on every later write of the diary, idempotently, and
+// a rewrite keeps the row. Synthetic text only (Greek or accented Latin for non-ASCII); the ids are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,24 +10,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
 import { V10_TABLES } from '../src/memory/db/schema.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import {
   contentHash, deriveAllMirrorPublications, grantPublication, markSent, markUnknown, mirrorPublicationRow, preparePublication, publicationKey,
   publicationOf, recheck, reconcile, revokeGrant, unsettled,
 } from '../src/memory/db/publish.js';
 import { issueContext } from '../src/memory/db/scope.js';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../tools/memory-db.mjs';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
-const run = (...argv) => {
-  const lines = [];
-  const code = main(argv, { out: (line) => lines.push(line), err: (line) => lines.push(line) });
-  return { code, text: lines.join('\n') };
-};
 const GENERAL = 'discord:channel:c-general';
 const OTHER = 'discord:channel:c-other';
 
@@ -194,7 +188,7 @@ function importedAtV9() {
   })));
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 9) });
-  assert.equal(syncOnce(old, data, { log: quiet, now: () => NOW }).errors, 0);
+  assert.equal(seedUnits(old, data, { log: quiet, now: () => NOW }).errors, 0);
   assert.equal(schemaVersion(old.db), 9);
   // The diary media job has fetched the text of the first twenty posts.
   for (let n = 0; n < 20; n += 1) old.db.prepare('UPDATE diary SET text = ? WHERE id = ?').run(`Ημερολόγιο ${n}`, `entry-${n}`);
@@ -250,34 +244,24 @@ test('v10 migration: 51 mirrors become sent publications with their text hashes 
   }
 });
 
-test('v10: verify stays byte-equal and parity unchanged after the migration and after a resync; a remap keeps the publication; database rows survive', () => {
+test('v10: a rewrite of the diary keeps the publication; database rows survive', () => {
   const env = importedAtV9();
   try {
-    openMemoryDb(env.file).close();
-    const first = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(first.code, 0, first.text);
-    assert.match(first.text, /verify ok/);
-    const parity = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parity.code, 0, parity.text);
-    assert.match(parity.text, /differ 0/);
-
     const handle = openMemoryDb(env.file);
     const { db } = handle;
     const before = publicationsOf(db);
-    // Rows the database owns: a grant and a prepared publication; the sync never touches them.
+    // Rows the database owns: a grant and a prepared publication; the diary's writes never touch them.
     const grant = grantPublication(handle, { rowKind: 'diary', rowId: 'entry-0', hash: contentHash('x'), destinations: [`discord:channel:${CHANNEL}`], approvedBy: 'person:owner', now: NOW });
     const ctx = issueContext({ kind: 'group', destination: `discord:channel:${CHANNEL}`, now: () => NOW, newId: () => 'ctx:out:remap' });
     const own = preparePublication(handle, { context: ctx, rowKind: 'diary', rowId: 'entry-0', rendered: 'Une autre fois.', destination: `discord:channel:${CHANNEL}`, producedIn: ctx, now: NOW });
     assert.equal(own.ok, true);
-    // A remap: the diary gains a post and a text arrives for an old one (the hash is filled once, then kept).
+    // A rewrite: the diary gains a post and a text arrives for an old one (the hash is filled once, then kept).
     db.prepare('UPDATE diary SET text = ? WHERE id = ?').run('Ημερολόγιο 30', 'entry-30');
     const file = path.join(guildDir(env.data), 'diary.json');
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
     value.posts.push({ at: 1799000000000, kind: 'day', gist: 'new', picture: null, messageIds: ['5199999999999999'], search: null, itemId: 'entry-new' });
     writeJson(file, value);
-    const later = new Date(Date.now() + 10_000);
-    fs.utimesSync(file, later, later);
-    assert.equal(syncOnce(handle, env.data, { log: quiet, now: () => NOW + 3_600_000 }).errors, 0);
+    assert.equal(seedUnits(handle, env.data, { log: quiet, now: () => NOW + 3_600_000 }).errors, 0);
     const after = publicationsOf(db);
     assert.equal(after.length, before.length + 2, 'the new mirror and the prepared one; nothing doubled');
     for (const row of before) {
@@ -291,23 +275,14 @@ test('v10: verify stays byte-equal and parity unchanged after the migration and 
     assert.equal(after.find((entry) => entry.row_id === 'entry-new').status, 'sent');
     assert.equal(publicationOf(handle, own.publication.id).status, 'queued');
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM publication_grants WHERE id = ?', grant), 1);
-    // A remap of the old diary file (the new post gone) retires only that mirror's publication.
+    // A rewrite of the old diary (the new post gone) retires only that mirror's publication.
     value.posts.pop();
     writeJson(file, value);
-    const latest = new Date(Date.now() + 20_000);
-    fs.utimesSync(file, latest, latest);
-    assert.equal(syncOnce(handle, env.data, { log: quiet, now: () => NOW + 7_200_000 }).errors, 0);
+    assert.equal(seedUnits(handle, env.data, { log: quiet, now: () => NOW + 7_200_000 }).errors, 0);
     assert.ok(publicationsOf(db).find((entry) => entry.row_id === 'entry-new').retired_at, 'the mirror left the file: its publication is retired');
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM publications WHERE retired_at IS NOT NULL'), 1);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
     handle.close();
-
-    const again = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(again.code, 0, again.text);
-    assert.match(again.text, /verify ok/);
-    const parityAgain = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parityAgain.code, 0, parityAgain.text);
-    assert.match(parityAgain.text, /differ 0/);
   } finally {
     env.done();
   }

@@ -17,7 +17,6 @@ import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
-import { slimMessage } from '../src/memory/update.js';
 import { createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -7558,8 +7557,8 @@ test('follow-up: a "yes" classified during the turn is dropped as closed at pick
 
 // ---------------------------------------------------------------------------
 // onMessageUpdate: Discord attaches some embeds (a Tenor link's `gifv` one)
-// after messageCreate, in a messageUpdate. The late embed is folded into the
-// buffered copy of the message and its GIF is counted into the library.
+// after messageCreate, in a messageUpdate. What the message as it was did not
+// carry is counted into the GIF library and prefilled.
 
 const TENOR_LINK = 'https://tenor.com/view/dancing-cat-123';
 const TENOR_GIFV = {
@@ -7583,11 +7582,6 @@ function tenorPost(overrides = {}) {
   return { created: fakeMessage(base), updated: fakeMessage({ ...base, embeds: [TENOR_GIFV] }) };
 }
 
-/** Buffer the created message as observe() would (no URL in the buffer). */
-function bufferCreated(store, created, direct = false) {
-  store.pushBuffer('g1', slimMessage(normalizeMessage(created, 'self1'), direct), 30);
-}
-
 function updateScene({ config, describer } = {}) {
   const store = tmpStore();
   const memory = fakeMemory();
@@ -7601,21 +7595,14 @@ function gifEntries(store) {
   return Object.values(store.getGifs('g1').entries);
 }
 
-test('onMessageUpdate: folds a late gifv embed into the buffered message', async () => {
+test('onMessageUpdate: a late gifv embed is counted into the library and prefilled', async () => {
   const describer = fakeDescriber();
   const scene = updateScene({ config: baseConfig({ features: { mediaDescriptions: true } }), describer });
   const { created, updated } = tenorPost();
-  bufferCreated(scene.store, created, true);
-  assert.deepEqual(scene.store.getBuffer('g1')[0].links, [], 'the create event carried a bare link');
+  assert.deepEqual(normalizeMessage(created, 'self1').links, [], 'the create event carried a bare link');
 
   const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(created, updated));
 
-  const buffered = scene.store.getBuffer('g1');
-  assert.equal(buffered.length, 1, 'no new message was buffered');
-  assert.equal(buffered[0].links.length, 1);
-  assert.equal(buffered[0].links[0].kind, 'gif');
-  assert.equal(buffered[0].links[0].id, 'm1#e0');
-  assert.equal(buffered[0].direct, true, 'the direct mark survives the fold');
   const entries = gifEntries(scene.store);
   assert.equal(entries.length, 1, 'the library gained the Tenor GIF');
   assert.equal(entries[0].url, TENOR_LINK);
@@ -7649,28 +7636,22 @@ test('onMessageUpdate: ignores the persona\'s own messages, other guilds and upd
   ];
   for (const { created, updated } of cases) {
     const scene = updateScene();
-    bufferCreated(scene.store, created);
-    const before = structuredClone(scene.store.getBuffer('g1'));
     const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(created, updated));
-    assert.deepEqual(scene.store.getBuffer('g1'), before);
     assert.equal(gifEntries(scene.store).length, 0);
     assert.equal(logs.some((entry) => entry.msg.startsWith('events: embeds')), false);
   }
 
   const scene = updateScene();
   const { created } = tenorPost();
-  bufferCreated(scene.store, created);
-  const before = structuredClone(scene.store.getBuffer('g1'));
   const edited = fakeMessage({ ...created, cleanContent: 'edited text', content: 'edited text', embeds: [] });
   await scene.handler.onMessageUpdate(created, edited);
-  assert.deepEqual(scene.store.getBuffer('g1'), before, 'an edit without embeds changes nothing');
+  assert.equal(gifEntries(scene.store).length, 0, 'an edit without embeds counts nothing');
 });
 
-test('onMessageUpdate: does nothing when the message is no longer buffered', async () => {
+test('onMessageUpdate: without the message as it was, a late embed is an accepted miss', async () => {
   const scene = updateScene();
-  const { created, updated } = tenorPost();
-  const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(created, updated));
-  assert.deepEqual(scene.store.getBuffer('g1'), []);
+  const { updated } = tenorPost();
+  const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(null, updated));
   assert.equal(gifEntries(scene.store).length, 0, 'an accepted miss: nothing recorded');
   const late = logs.filter((entry) => entry.msg === 'events: embeds late');
   assert.equal(late.length, 1);
@@ -7680,10 +7661,7 @@ test('onMessageUpdate: does nothing when the message is no longer buffered', asy
 test('onMessageUpdate: off with features.embedUpdates false', async () => {
   const scene = updateScene({ config: baseConfig({ features: { embedUpdates: false } }) });
   const { created, updated } = tenorPost();
-  bufferCreated(scene.store, created);
-  const before = structuredClone(scene.store.getBuffer('g1'));
   const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(created, updated));
-  assert.deepEqual(scene.store.getBuffer('g1'), before);
   assert.equal(gifEntries(scene.store).length, 0);
   assert.equal(logs.some((entry) => entry.msg.startsWith('events: embeds')), false);
 });

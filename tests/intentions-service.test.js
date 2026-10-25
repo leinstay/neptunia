@@ -5,7 +5,7 @@
 // its end moves the wait back to pending once (a duplicate end is a no-op), a missing end is found
 // by the reconciliation, a cancel is final, and a restart (a new store over the same files) keeps
 // everything. Candidates from her lines are anchored, de-duplicated, capped and expire.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,6 +21,17 @@ import { createIntentionService } from '../src/intentions/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+
+/** The memory database of each data directory used here, opened once; closed when the file is done. */
+const MEMORY = new Map();
+after(async () => {
+  for (const { close } of MEMORY.values()) await close();
+});
+function memoryOf(dataDir) {
+  if (!MEMORY.has(dataDir)) MEMORY.set(dataDir, openTestMemorySync({ dataDir }));
+  return MEMORY.get(dataDir).memoryDb;
+}
 
 const DISCORD = createDiscordInterface().capabilities;
 const OWNER = '42';
@@ -63,7 +74,8 @@ function makeEnv({ features = { intentions: true }, agents = {}, intentions: set
   const now = () => clock.t;
   const client = fakeClient();
   const dataDir = path.join(rootDir, 'data');
-  const stores = createTaskStores({ dataDir, config: () => hot.config, now });
+  const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, now });
+  const intentionStores = createIntentionStores({ memoryDb: memoryOf(dataDir), now });
   let intentions = null;
   // An errand's end goes the way src/index.js sends it: a task.completed event through the event
   // door, whose handler (the task turns) moves the waiting intentions, then runs her result turn,
@@ -80,12 +92,12 @@ function makeEnv({ features = { intentions: true }, agents = {}, intentions: set
   };
   const gateway = { user: { id: 'self' }, channels: { fetch: async (id) => ({ id, messages: { fetch: async () => null } }) } };
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', now, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId, now)) });
-  intentions = createIntentionService({ stores: createIntentionStores({ dataDir, now }), hot, tasks: errands, journal, getGuildId: () => 'g1', now });
+  intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId: () => 'g1', now });
   const taskTurns = createTaskTurns({ hot, client: gateway, discord: DISCORD, turns, errands, intentions, getGuildId: () => 'g1', now, setTimer: () => null });
   door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
   const store = { state: { data: {}, markDirty() {} } };
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: { channels: { cache: new Map() } }, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', errands, intentions, now });
-  return { env, hot, client, errands, intentions, stores, rootDir, dataDir, clock, door, turnSaw };
+  return { env, hot, client, errands, intentions, stores, intentionStores, rootDir, dataDir, clock, door, turnSaw };
 }
 
 /** Her own call's context in turn `turnId` (an owner asked). */
@@ -120,7 +132,7 @@ test('intent.set: the answer line says the due time in bot.timezone as the inten
 });
 
 test('intent.set: her own intention is pending with its provenance, written to intentions.json', async () => {
-  const { env, intentions, dataDir } = makeEnv();
+  const { env, intentions, intentionStores, dataDir } = makeEnv();
   await withCapturedLogs(async () => {
     const result = await runOp('intent.set', { text: 'φέρε το άρθρο στην Ελένη', due: '3h' }, hers(env, 'T1'));
     assert.equal(result.status, 'ok', result.summary);
@@ -128,7 +140,8 @@ test('intent.set: her own intention is pending with its provenance, written to i
     assert.equal(record.status, 'pending');
     assert.equal(record.dueAt, T0 + 3 * HOUR);
     assert.deepEqual(record.provenance, { kind: 'self', turnId: 'T1', messageId: 'm1', channelId: 'c1', scope: 'group', participants: [OWNER] });
-    const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'intentions.json'), 'utf8'));
+    await intentionStores.get('g1').flush();
+    const file = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/intentions.json'));
     assert.deepEqual(file.intentions.map((r) => r.id), [record.id]);
     assert.equal((await runOp('intent.set', { text: 'x', due: 'soon' }, hers(env, 'T1'))).code, 'bad-time');
   });
@@ -211,14 +224,17 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
     // A wait whose errand the store no longer holds.
     const c = (await runOp('task.run', { agent: 'scout', goal: 'c' }, owner(env))).data.task.id;
     const ic = (await runOp('intent.update', { id: ib, task: c, deadline: '1h' }, owner(env))).data.intention.id;
-    stores.get('g1').wipe();
+    // The store no longer holds the errand.
+    const held = stores.get('g1');
+    const holds = held.get;
+    held.get = (id) => (id === c ? null : holds(id));
     assert.equal(intentions.reconcile('g1').missing, 1);
     assert.equal(intentions.list('g1').find((r) => r.id === ic).note, 'task-missing');
   });
 });
 
 test('intent.cancel: a cancelled intention is final; a restart reads every intention back as it was', async () => {
-  const { env, intentions, rootDir, clock } = makeEnv();
+  const { env, intentions, intentionStores, rootDir, clock } = makeEnv();
   await withCapturedLogs(async () => {
     const first = (await runOp('intent.set', { text: 'ένα', due: '1d', chain: 'k1' }, owner(env))).data.intention.id;
     const second = (await runOp('intent.set', { text: 'δύο' }, owner(env))).data.intention.id;
@@ -226,6 +242,7 @@ test('intent.cancel: a cancelled intention is final; a restart reads every inten
     assert.equal((await runOp('intent.update', { id: second, state: 'pending' }, owner(env))).code, 'terminal');
     assert.equal((await runOp('intent.cancel', { id: second }, owner(env))).code, 'terminal');
     const before = intentions.list('g1', { closed: true });
+    await intentionStores.get('g1').flush();
     const again = makeEnv({ rootDir, clock });
     assert.deepEqual(again.intentions.list('g1', { closed: true }), before);
     assert.equal(again.intentions.list('g1').map((r) => r.id).join(), first);
@@ -340,9 +357,6 @@ test('private chats: her intention in a DM is the DM\'s own -- never in a server
     assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
     assert.equal((await runOp('intent.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
     assert.equal((await runOp('intent.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
-    // A forget of the member takes it out.
-    assert.deepEqual(intentions.forgetUser('g1', OWNER), { removed: 1, copies: 0 });
-    assert.deepEqual(intentions.list('g1', { closed: true, all: true }), []);
   });
 });
 
@@ -606,12 +620,12 @@ test('intent dropped: a drop from a recurring or waiting one ends it; a private 
   });
 });
 
-test('store: a closed record beyond KEEP_CLOSED moves to the archive file, never lost; the forget scrubs the archive too', async () => {
+test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost', async () => {
   const { KEEP_CLOSED } = await import('../src/intentions/store.js');
   const { createIntention } = await import('../src/intentions/model.js');
   const MEMBER = '987654321';
   const dataDir = tempDir('intent-archive');
-  const stores = createIntentionStores({ dataDir, now: () => T0 });
+  const stores = createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 });
   const store = stores.get('g1');
   const make = (i, participants) => {
     const made = createIntention({ purpose: `want ${i}`, provenance: { kind: 'self', turnId: 't', ...(participants ? { participants } : {}) }, now: T0 + i, id: `i${i}`, dropped: true, reason: `why ${i}` });
@@ -619,16 +633,10 @@ test('store: a closed record beyond KEEP_CLOSED moves to the archive file, never
     return made.intention;
   };
   for (let i = 0; i < KEEP_CLOSED + 3; i += 1) assert.equal(store.add(make(i, i === 0 ? [MEMBER] : undefined)).ok, true);
-  assert.equal(store.list().length, KEEP_CLOSED, 'the file keeps the latest ones');
+  assert.equal(store.list().length, KEEP_CLOSED, 'the list keeps the latest ones');
+  await store.flush();
   assert.deepEqual(store.archived().map((r) => r.id), ['i0', 'i1', 'i2'], 'the older three moved, not deleted');
-  const lines = fs.readFileSync(store.archiveFile, 'utf8').trim().split('\n');
+  const lines = unitFile(memoryOf(dataDir), 'guilds/g1/intentions-archive.jsonl').trim().split('\n');
   assert.equal(lines.length, 3);
-  assert.equal(path.basename(store.archiveFile), 'intentions-archive.jsonl');
-  const vault = tempDir('intent-archive-vault');
-  const gone = stores.forgetUser('g1', MEMBER, { vault });
-  assert.deepEqual(gone, { removed: 1, copies: 0 });
-  assert.deepEqual(store.archived().map((r) => r.id), ['i1', 'i2'], 'the member left the archive');
-  assert.ok(fs.existsSync(path.join(vault, 'guilds', 'g1', 'intentions-archive.jsonl')), 'copied to the vault first');
-  assert.equal(stores.wipe('g1').files >= 2, true);
-  assert.equal(fs.existsSync(store.archiveFile), false);
+  assert.deepEqual(createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 }).get('g1').archived().map((r) => r.id), ['i0', 'i1', 'i2'], 'read back from the database');
 });

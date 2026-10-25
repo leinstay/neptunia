@@ -5,13 +5,14 @@
 // leaves out for a tool agent's tasks (born seen, not in the lists, outside agents.maxOpen,
 // no journal line, its own keep list, never mirrored into the ledger). Over a real task store in
 // a temp directory, a fake image client and a fake ledger mirror; no network.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { createTaskStore, createTaskStores, isToolTask, KEEP_FINISHED_TOOL } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 import {
   DRAWING_AGENT,
   DRAW_CODES,
@@ -68,9 +69,25 @@ function toolOf({ images, hot = hotOf(), imageFetcher = fetcherOf() } = {}) {
   return createDrawingTool({ images, hot, client: clientOf(), imageFetcher, now: () => NOW });
 }
 
+/** The memory database of each data directory used here, opened once; closed when the file is done. */
+const MEMORY = new Map();
+after(async () => {
+  for (const { close } of MEMORY.values()) await close();
+});
+function memoryOf(dataDir) {
+  if (!MEMORY.has(dataDir)) MEMORY.set(dataDir, openTestMemorySync({ dataDir }));
+  return MEMORY.get(dataDir).memoryDb;
+}
+
+/** The unit `rel` of `dataDir` as the file it stands for, once `store`'s writes landed. */
+async function fileText(store, dataDir, rel) {
+  await store.flush();
+  return unitFile(memoryOf(dataDir), rel);
+}
+
 function makeService({ hot = hotOf(), journal = null, ledger = null, getGuildId = () => 'g1' } = {}) {
   const dataDir = tempDir('nep-drawing-');
-  const stores = createTaskStores({ dataDir, config: () => hot.config, journal, now: () => NOW });
+  const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, journal, now: () => NOW });
   const mirrored = [];
   const mirror = ledger ?? new Proxy({}, { get: (_t, name) => (...args) => { mirrored.push([name, ...args]); } });
   const errands = createErrandService({ client: { configured: () => true, run: async () => ({ status: 'done' }) }, stores, hot, getGuildId, ledger: mirror, defer: (fn) => fn(), now: () => NOW });
@@ -207,7 +224,7 @@ test('runInline: a picture is a task record (queued, running, done) with the usa
   assert.equal(picture.model, 'm/img');
   assert.equal(referenceMissing, false);
   const store = stores.get('g1');
-  const [task] = [...JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks];
+  const [task] = [...JSON.parse((await fileText(stores.get('g1'), dataDir, 'guilds/g1/tasks.json'))).tasks];
   assert.equal(task.agent, DRAWING_AGENT);
   assert.equal(task.state, 'done');
   assert.equal(task.goal, SCENE);
@@ -218,7 +235,7 @@ test('runInline: a picture is a task record (queued, running, done) with the usa
   assert.equal(task.usage.output, 1000);
   assert.equal(task.error, null);
   // The transitions are in tasks.jsonl, the spend in the store's costs.
-  const lines = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const lines = (await fileText(stores.get('g1'), dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(lines.map((line) => line.state), ['queued', 'running', 'done']);
   assert.deepEqual(store.costs(['drawing']).drawing.today, { runs: 1, input: 40, output: 1000, usd: 0.03 });
   // Out of the persona's views, the lists and the ledger; nothing was told.
@@ -237,7 +254,7 @@ test('runInline: a failure closes the record failed with the code, and reaches t
     const capped = Object.assign(new ImageCapError('userDaily', 'cap'), { key: 'image.maxPerUserPerDay', used: 5, cap: 5 });
     await assert.rejects(() => drawPicture({ tool: toolOf({ images: fakeImages([capped]) }), errands, guildId: 'g1', input: { scene: 'b', selfName: 'Bot' }, requester }), (err) => err instanceof ImageCapError && err.key === 'image.maxPerUserPerDay' && err.used === 5 && err.cap === 5);
   });
-  const tasks = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks;
+  const tasks = JSON.parse((await fileText(stores.get('g1'), dataDir, 'guilds/g1/tasks.json'))).tasks;
   assert.deepEqual(tasks.map((task) => [task.state, task.error, task.seen]), [['failed', 'image-moderation', true], ['failed', 'image-cap-user-daily', true]]);
   assert.equal(stores.get('g1').costs(['drawing']).drawing.today.runs, 2, 'a failed picture is a run too');
   assert.deepEqual(stores.get('g1').unseen(), [], 'a failure is no news for her');
@@ -316,7 +333,7 @@ test('the drawing agent is not an errand: submit refuses it and a task of it can
   const { errands, stores, dataDir } = makeService();
   assert.deepEqual(errands.submit({ guildId: 'g1', agent: 'drawing', goal: 'a', requester, origin: {}, scope: 'group' }), { ok: false, code: 'unknown-agent' });
   await errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'a', requester, run: async () => ({ output: 1 }) });
-  const [done] = stores.get('g1').costs(['drawing']).drawing.today.runs === 1 ? JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks : [];
+  const [done] = stores.get('g1').costs(['drawing']).drawing.today.runs === 1 ? JSON.parse((await fileText(stores.get('g1'), dataDir, 'guilds/g1/tasks.json'))).tasks : [];
   assert.deepEqual(errands.cancel({ guildId: 'g1', id: done.id }), { ok: false, code: 'not-found' }, 'nothing to cancel in a finished picture');
 });
 
@@ -326,7 +343,7 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   const journalLines = [];
   const journal = { action: async (_guild, line) => { journalLines.push(line); } };
   const config = { features: { journal: true }, agents: { maxOpen: 3, scout: { daily: { tasks: 500 } }, drawing: { daily: { tasks: 500 } } } };
-  const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal });
+  const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal, memoryDb: memoryOf(dataDir) });
   const draw = () => {
     clock.t += 1000;
     const { task } = store.add({ agent: 'drawing', goal: 'scene', requester, origin: {}, scope: 'group' });
@@ -342,11 +359,11 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   draw();
   assert.deepEqual(store.unseen().map((task) => task.id), [errand.id], 'only the errand is news');
   assert.deepEqual(store.recent(100).map((task) => task.agent), ['scout']);
-  const kept = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks;
+  const kept = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json'))).tasks;
   assert.equal(kept.filter((task) => task.agent === 'drawing').length, KEEP_FINISHED_TOOL);
   assert.equal(kept.filter((task) => task.agent === 'scout').length, 1);
   // Every picture is still in the spend, kept whole by tasks.jsonl.
-  const reloaded = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config });
+  const reloaded = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, memoryDb: memoryOf(dataDir) });
   assert.equal(reloaded.costs(['drawing']).drawing.today.runs, KEEP_FINISHED_TOOL + 6);
   assert.ok(Math.abs(reloaded.costs(['drawing']).drawing.today.usd - 0.02 * (KEEP_FINISHED_TOOL + 6)) < 1e-9);
   assert.ok(journalLines.length > 0, 'the errand is journaled');
@@ -356,13 +373,4 @@ test('task store: a tool agent\'s tasks are born seen, stay seen, write no journ
   assert.equal(store.failOpen('restarted'), 1);
   assert.equal(store.get(open.id).error, 'restarted');
   assert.deepEqual(store.unseen().map((task) => task.id), [errand.id]);
-});
-
-test('task store: a forget of the member drops their pictures with their other tasks', async () => {
-  const { errands, stores } = makeService();
-  await errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'mine', requester: { userId: 'u9', kind: 'member' }, run: async () => ({ output: 1, usage: { usd: 0.1 } }) });
-  await errands.runInline({ guildId: 'g1', agent: 'drawing', goal: 'hers', requester: { userId: null, kind: 'persona' }, run: async () => ({ output: 1, usage: { usd: 0.1 } }) });
-  assert.equal(stores.get('g1').costs(['drawing']).drawing.today.runs, 2);
-  assert.deepEqual(errands.forgetUser('g1', 'u9'), { removed: 1, lines: 3 });
-  assert.equal(stores.get('g1').costs(['drawing']).drawing.today.runs, 1);
 });

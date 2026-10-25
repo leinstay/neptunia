@@ -1,19 +1,15 @@
 // Custom emoji usage ranking (src/memory/emoji-usage.js), its storage in
-// guild.json (src/memory/store.js) and the analyzer run that feeds it
-// (src/memory/update.js).
+// guild.json (src/memory/store.js, a memory unit in the database) and the live
+// observer that feeds it (src/memory/update.js).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { countEmojiUses, mergeEmojiUsage, normalizeEmojiUsage, rankEmojiUsage } from '../src/memory/emoji-usage.js';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
-import { createCalibrator } from '../src/llm/tokens.js';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1);
@@ -38,19 +34,15 @@ function msg(overrides = {}) {
   };
 }
 
-function withStore(fn) {
-  const dir = tempDir('nep-');
-  const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
-  let result;
+/** `fn(store, memoryDb)` over a store on a fresh memory database, closed and removed after. */
+async function withStore(fn) {
+  const mem = await openTestMemory();
   try {
-    result = fn(createStore({ dataDir: dir }), dir);
-  } catch (err) {
-    cleanup();
-    throw err;
+    return await fn(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }), mem.memoryDb, mem.dataDir);
+  } finally {
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
   }
-  if (result && typeof result.then === 'function') return result.finally(cleanup);
-  cleanup();
-  return result;
 }
 
 // --- pure ranking ------------------------------------------------------------
@@ -126,62 +118,40 @@ test('normalizeEmojiUsage: a missing or broken field reads as empty, bad entries
 
 // --- storage -----------------------------------------------------------------
 
-test('store.getGuild: emojiUsage is normalised on read, missing -> {}', () => {
-  withStore((store, dir) => {
+test('store.getGuild: emojiUsage is normalised on read, missing -> {}', async () => {
+  await withStore(async (store, memoryDb) => {
     assert.deepEqual(store.getGuild('g1').emojiUsage, {});
-    fs.mkdirSync(path.join(dir, 'guilds', 'g2'), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, 'guilds', 'g2', 'guild.json'),
-      JSON.stringify({ patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } }),
-    );
+    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g2/guild.json', value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } } });
     assert.deepEqual(store.getGuild('g2').emojiUsage, { 7: { name: 'ή', count: 4, last: 9 } });
     assert.equal(store.getGuild('g2').patterns, 'p');
   });
 });
 
-test('store.recordEmojiUsage: persists counts; updateGuild never overwrites them', () => {
-  withStore((store, dir) => {
+test('store.recordEmojiUsage: persists counts; updateGuild never overwrites them', async () => {
+  await withStore(async (store, memoryDb, dataDir) => {
     const counted = store.recordEmojiUsage('g1', [msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }] })], { storeMax: 200 });
     assert.equal(counted, 1);
     store.updateGuild('g1', { patterns: 'friendly', emojiUsage: {} });
     store.flush();
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8'));
-    assert.deepEqual(onDisk.emojiUsage, { 10: { name: 'kappa', count: 1, last: T0 } });
-    assert.equal(onDisk.patterns, 'friendly');
+    await store.flushSettled({});
+    const stored = createStore({ dataDir, memoryDb }).getGuild('g1');
+    assert.deepEqual(stored.emojiUsage, { 10: { name: 'kappa', count: 1, last: T0 } });
+    assert.equal(stored.patterns, 'friendly');
   });
 });
 
-test('store: a buffered message keeps its custom emoji ids and names across a restart', () => {
-  withStore((store, dir) => {
-    store.pushBuffer('g1', msg({ emojis: [{ id: '10', name: 'kappa' }] }), 100);
-    store.flush();
-    const reopened = createStore({ dataDir: dir });
-    assert.deepEqual(reopened.getBuffer('g1')[0].emojis, [{ id: '10', name: 'kappa' }]);
-  });
-});
-
-// --- the analyzer run --------------------------------------------------------
+// --- the live observer --------------------------------------------------------
 
 function hotFor(context) {
-  return {
-    config: {
-      bot: { timezone: 'UTC' },
-      context: { gapMarkerMinutes: 20, maxMessageChars: 800, ...context },
-      llm: { model: 'x/y', maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
-      memory: { model: null, batchMessages: 4, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400 },
-    },
-    prompts: { memory: 'memory system prompt', labels },
-  };
+  return { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800, ...context }, memory: { fieldChars: 400 } } };
 }
 
-test('memory run: a consumed batch adds its members\' emoji to guild.emojiUsage', async () => {
+test('observe: a member\'s message adds its emoji to guild.emojiUsage; her own adds nothing', async () => {
   await withStore(async (store) => {
-    store.pushBuffer('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }), 100);
-    store.pushBuffer('g1', msg({ id: 'b', ts: T0 + 1, self: true, emojis: [{ id: '10', name: 'kappa' }] }), 100);
-    store.pushBuffer('g1', msg({ id: 'c', ts: T0 + 2, emojis: [{ id: '10', name: 'kappa' }, { id: '20', name: 'omega' }] }), 100);
-    const llm = { complete: async () => ({ text: '{}' }) };
-    const updater = createMemoryUpdater({ hot: hotFor({}), store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
-    await withCapturedLogs(() => updater.run('g1'));
+    const updater = createMemoryUpdater({ hot: hotFor({}), store });
+    updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }));
+    updater.observe('g1', msg({ id: 'b', ts: T0 + 1, self: true, emojis: [{ id: '10', name: 'kappa' }] }));
+    updater.observe('g1', msg({ id: 'c', ts: T0 + 2, emojis: [{ id: '10', name: 'kappa' }, { id: '20', name: 'omega' }] }));
     assert.deepEqual(store.getGuild('g1').emojiUsage, {
       10: { name: 'kappa', count: 2, last: T0 + 2 },
       20: { name: 'omega', count: 1, last: T0 + 2 },
@@ -189,24 +159,11 @@ test('memory run: a consumed batch adds its members\' emoji to guild.emojiUsage'
   });
 });
 
-test('memory run: a failed batch counts nothing (it is retried later)', async () => {
+test('observe: context.customEmoji.storeMax caps the stored entries', async () => {
   await withStore(async (store) => {
-    store.pushBuffer('g1', msg({ emojis: [{ id: '10', name: 'kappa' }] }), 100);
-    const llm = { complete: async () => ({ text: 'not json at all' }) };
-    const updater = createMemoryUpdater({ hot: hotFor({}), store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
-    await withCapturedLogs(() => updater.run('g1'));
-    assert.deepEqual(store.getGuild('g1').emojiUsage, {});
-  });
-});
-
-test('memory run: context.customEmoji.storeMax caps the stored entries', async () => {
-  await withStore(async (store) => {
-    store.pushBuffer('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '1', name: 'alpha' }] }), 100);
-    store.pushBuffer('g1', msg({ id: 'b', ts: T0 + DAY, emojis: [{ id: '2', name: 'beta' }] }), 100);
-    const llm = { complete: async () => ({ text: '{}' }) };
-    const hot = hotFor({ customEmoji: { storeMax: 1, halfLifeDays: 30 } });
-    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
-    await withCapturedLogs(() => updater.run('g1'));
+    const updater = createMemoryUpdater({ hot: hotFor({ customEmoji: { storeMax: 1, halfLifeDays: 30 } }), store });
+    updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '1', name: 'alpha' }] }));
+    updater.observe('g1', msg({ id: 'b', ts: T0 + DAY, emojis: [{ id: '2', name: 'beta' }] }));
     assert.deepEqual(Object.keys(store.getGuild('g1').emojiUsage), ['2']);
   });
 });

@@ -82,7 +82,7 @@ test('roleApiKey: a name outside OPENROUTER_* or an unset variable falls back to
 
 test('roleKeyGroups: one group per distinct extra key with the roles on it; the main key and unset ones are left out', () => {
   const env = { OPENROUTER_C1: 'one', OPENROUTER_C2: 'two', OPENROUTER_C3: 'main' };
-  const cfg = config({ core: 'OPENROUTER_C1', vision: 'OPENROUTER_C2', video: 'OPENROUTER_C1', analyzer: 'OPENROUTER_C3', extractor: 'OPENROUTER_NOPE_C' });
+  const cfg = config({ core: 'OPENROUTER_C1', vision: 'OPENROUTER_C2', video: 'OPENROUTER_C1', analyzer: 'OPENROUTER_C3', embedding: 'OPENROUTER_NOPE_C' });
   assert.deepEqual(roleKeyGroups(cfg, env, 'main'), [
     { roles: ['core', 'video'], apiKey: 'one' },
     { roles: ['vision'], apiKey: 'two' },

@@ -6,7 +6,7 @@
 // boundary: its calls are asserted byte for byte in tests/draw-parity.test.js, which has no
 // errand service. Fake clock, prompts, labels, avatar and channel; a real task store in a temp
 // directory; no network.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
@@ -22,6 +22,7 @@ import path from 'node:path';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -220,17 +221,22 @@ function runner({ answer, plan = null, images, errands = null, hotValue = hot() 
   });
 }
 
-/** The errand service over a real task store in a temp directory, on `hotValue`'s config. */
+/** The test memory databases opened here; closed when the file is done. */
+const OPENED_MEMORY = [];
+after(async () => {
+  for (const mem of OPENED_MEMORY) await mem.close();
+});
+
+/** The errand service over a real task store on a test memory database, on `hotValue`'s config. */
 function errandsOf(hotValue) {
-  const dataDir = tempDir('nep-draw-agent-');
-  const stores = createTaskStores({ dataDir, config: () => hotValue.config, now: () => NOW });
+  const mem = openTestMemorySync();
+  OPENED_MEMORY.push(mem);
+  const stores = createTaskStores({ memoryDb: mem.memoryDb, config: () => hotValue.config, now: () => NOW });
   const errands = createErrandService({ client: { configured: () => true }, stores, hot: hotValue, getGuildId: () => 'g1', now: () => NOW });
+  // The task list as the database holds it (the writes of a finished call have landed by the time a test reads it).
   const records = () => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')).tasks;
-    } catch {
-      return [];
-    }
+    const text = unitFile(mem.memoryDb, 'guilds/g1/tasks.json');
+    return text ? JSON.parse(text).tasks : [];
   };
   return { errands, records };
 }

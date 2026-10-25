@@ -11,7 +11,6 @@ import path from 'node:path';
 import { collectGifItems, findGif, markOwnGif, mergeGifs, normalizeGifs, rankGifs, resetGifCounts } from '../src/memory/gifs.js';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
-import { createCalibrator } from '../src/llm/tokens.js';
 import { parseOutput } from '../src/llm/parse.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
@@ -380,12 +379,11 @@ function hotFor(features = {}, gifs = undefined) {
   };
 }
 
-test('observe: a member\'s gif joins the library with its url; the buffer still keeps no url', async () => {
+test('observe: a member\'s gif joins the library with its url', async () => {
   await withStore(async (store) => {
-    const updater = createMemoryUpdater({ hot: hotFor(), store, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
+    const updater = createMemoryUpdater({ hot: hotFor(), store });
     const { logs } = await withCapturedLogs(() => updater.observe('g1', msg({ links: [gifLink('m1#e0')] })));
     assert.equal(store.findGif('g1', 'g1').url, TENOR);
-    assert.equal('url' in store.getBuffer('g1')[0].links[0], false);
     const line = logs.find((l) => l.msg === 'memory: gifs recorded');
     assert.equal(line.gifs, 1);
     assert.equal(JSON.stringify(line).includes('tenor'), false);
@@ -394,9 +392,9 @@ test('observe: a member\'s gif joins the library with its url; the buffer still 
 
 test('observe: features.gifs false, a private chat, the persona and paused never feed the library', () => {
   withStore((store) => {
-    const off = createMemoryUpdater({ hot: hotFor({ gifs: false }), store, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
+    const off = createMemoryUpdater({ hot: hotFor({ gifs: false }), store });
     off.observe('g1', msg({ links: [gifLink('m1#e0')] }));
-    const on = createMemoryUpdater({ hot: hotFor(), store, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
+    const on = createMemoryUpdater({ hot: hotFor(), store });
     on.observe('g1', msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: '1' });
     on.observe('g1', msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
     store.state.data.paused = true;
@@ -407,7 +405,7 @@ test('observe: features.gifs false, a private chat, the persona and paused never
 
 test('observe: gifs.storeMax caps the library', () => {
   withStore((store) => {
-    const updater = createMemoryUpdater({ hot: hotFor({}, { storeMax: 1, halfLifeDays: 30 }), store, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
+    const updater = createMemoryUpdater({ hot: hotFor({}, { storeMax: 1, halfLifeDays: 30 }), store });
     updater.observe('g1', msg({ id: 'm1', ts: T0, attachments: [gifAttachment('a1')] }));
     updater.observe('g1', msg({ id: 'm2', ts: T0 + DAY, attachments: [gifAttachment('a2')] }));
     assert.deepEqual(Object.keys(store.getGifs('g1').entries), ['a2']);

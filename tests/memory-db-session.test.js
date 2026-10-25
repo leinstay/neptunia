@@ -43,7 +43,7 @@ const baseConfig = (session = {}, extra = {}) => ({
   models: { base: { memory: 'x/memory' } },
   llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   relationships: { maxDeltaPerUpdate: 5 },
-  memoryDb: { read: true, authority: 'db', session: { mode: 'shadow', minMessages: 1, ...session } },
+  memoryDb: { session: { mode: 'shadow', minMessages: 1, ...session } },
   ...extra,
 });
 
@@ -108,8 +108,7 @@ let clock = 0;
 function ctxOf(env, { llm, config = baseConfig(), promptSet = prompts, envVars = { OPENROUTER_MEMORY_KEY: 'k' }, write } = {}) {
   return {
     db: env.db,
-    // The service stamps the authority of the live config into every write; so does this one.
-    write: write ?? (async (update) => applyMemoryWrite(env.handle, { ...update, authority: config?.memoryDb?.authority ?? 'json' })),
+    write: write ?? (async (update) => applyMemoryWrite(env.handle, update)),
     llm,
     hot: { config, prompts: promptSet },
     env: envVars,
@@ -140,17 +139,13 @@ test('the memory role: its own model key, its own key variable, no other key sta
   assert.equal(roleApiKey({ llm: {} }, {}, 'core', 'main'), 'main', 'other roles keep the main key');
 });
 
-test('refusals: off, no key, apply while the JSON files write, no prompt; the key state names a variable, never a value', () => {
+test('refusals: off, no key, no prompt; the key state names a variable, never a value', () => {
   const env = { OPENROUTER_MEMORY_KEY: 'secret' };
   assert.equal(refusalOf(baseConfig({ mode: 'off' }), env, prompts), CODES.OFF);
   assert.equal(refusalOf(baseConfig(), {}, prompts), CODES.NOT_CONFIGURED);
   assert.equal(refusalOf(baseConfig(), { OPENROUTER_MEMORY_KEY: '  ' }, prompts), CODES.NOT_CONFIGURED);
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: false, authority: 'db', session: { mode: 'apply' } } }), env, prompts), null, 'the read switch is not the authority');
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED, 'reading from the database never unlocks a write');
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, authority: 'json', session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED);
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }, { memoryDb: { read: true, authority: 'bogus', session: { mode: 'apply' } } }), env, prompts), CODES.APPLY_REFUSED, 'any other value is json');
   assert.equal(refusalOf(baseConfig({ mode: 'apply' }), env, prompts), null);
-  assert.equal(refusalOf(baseConfig({ mode: 'shadow' }, { memoryDb: { session: { mode: 'shadow' } } }), env, prompts), null, 'shadow needs no authority');
+  assert.equal(refusalOf(baseConfig({ mode: 'shadow' }), env, prompts), null);
   assert.equal(refusalOf(baseConfig(), env, { ...prompts, 'memory-session': '' }), CODES.NO_PROMPT);
   assert.deepEqual(memoryKeyState(baseConfig(), env), { ok: true, name: 'OPENROUTER_MEMORY_KEY' });
   assert.deepEqual(memoryKeyState({ llm: { keyByRole: { memory: 'sk-or-pasted-key' } } }, env), { ok: false, name: null });
@@ -380,7 +375,7 @@ test('an answer that cannot be read leaves the cursor and writes only its run; a
   }
 });
 
-test('refused before any request: off, no key of its own, apply while the JSON files write, the daily sweep cap', async () => {
+test('refused before any request: off, no key of its own, the daily sweep cap', async () => {
   const env = fixture();
   try {
     chat(env);
@@ -389,8 +384,6 @@ test('refused before any request: off, no key of its own, apply while the JSON f
     assert.deepEqual([off.status, off.code], ['off', 'off']);
     const keyless = await sweep(ctxOf(env, { llm, envVars: { OPENROUTER_CORE_KEY: 'main', OPENROUTER_OTHER_KEY: 'other' } }));
     assert.deepEqual([keyless.status, keyless.code], ['refused', 'not_configured'], 'another key never stands in');
-    const jsonWriter = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply', minMessages: 1 } } }) }));
-    assert.deepEqual([jsonWriter.status, jsonWriter.code], ['refused', 'APPLY_JSON_WRITER']);
     assert.equal(llm.calls.length, 0);
     assert.equal(count(env.db, 'session_runs'), 0);
     const config = baseConfig({ sweepsPerDay: 1 });
@@ -466,7 +459,7 @@ test('private conversations are scopes of their own: one request each, the partn
   }
 });
 
-test('apply on a database that is the writer: claims with versions and sources, episodes, attitude, decisions; disputed stays shown, retired leaves', async () => {
+test('apply: claims with versions and sources, episodes, attitude, decisions; disputed stays shown, retired leaves', async () => {
   const env = fixture();
   try {
     const ids = chat(env);
@@ -535,14 +528,14 @@ test('the status of the session and its line', async () => {
     const envVars = { OPENROUTER_MEMORY_KEY: 'k' };
     assert.equal(sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: envVars, prompts, now: NOW }).state, 'off');
     assert.equal(sessionStatus({ db: env.db, config, env: {}, prompts, now: NOW }).state, 'not_configured');
-    const refused = sessionStatus({ db: env.db, config: baseConfig({ mode: 'apply' }, { memoryDb: { read: true, session: { mode: 'apply' } } }), env: envVars, prompts, now: NOW });
-    assert.deepEqual([refused.state, refused.code], ['refused', 'APPLY_JSON_WRITER']);
+    const refused = sessionStatus({ db: env.db, config, env: envVars, prompts: { ...prompts, 'memory-session': '' }, now: NOW });
+    assert.deepEqual([refused.state, refused.code], ['refused', CODES.NO_PROMPT]);
     await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
     const ready = sessionStatus({ db: env.db, config, env: envVars, prompts, now: NOW });
     assert.deepEqual([ready.state, ready.sweepsToday, ready.sweepsPerDay, ready.last.outcome], ['ready', 1, 4, 'ok']);
     const text = { status: { memorySession: { off: 'OFF', notConfigured: 'NOKEY', refused: 'NO {code}', line: '{mode} {sweeps}/{cap} {outcome}' } } };
     assert.equal(memorySessionStatusLine(ready, text), 'shadow 1/4 ok');
-    assert.equal(memorySessionStatusLine(refused, text), 'NO APPLY_JSON_WRITER');
+    assert.equal(memorySessionStatusLine(refused, text), `NO ${CODES.NO_PROMPT}`);
     assert.equal(memorySessionStatusLine({ state: 'off' }, text), 'OFF');
     assert.equal(memorySessionStatusLine({ state: 'not_configured' }, text), 'NOKEY');
     assert.equal(memorySessionStatusLine(ready, {}), '');
@@ -556,12 +549,12 @@ test('the people block renders a stored profile the way her turns do, from the d
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const { syncOnce } = await import('../src/memory/db/sync.js');
+  const { seedUnits } = await import('./fixtures/memory-db/seed.js');
   const handle = openMemoryDb(path.join(root, 'memory.db'));
   try {
-    assert.equal(syncOnce(handle, data).errors, 0);
+    assert.equal(seedUnits(handle, data).errors, 0);
     const scope = scopesOf(handle.db).find((entry) => entry.key === 'group:discord');
-    assert.ok(scope, 'the synced record has a group scope');
+    assert.ok(scope, 'the stored record has a group scope');
     const batch = batchOf(handle.db, scope.scope, { cursor: 0, since: null, maxMessages: 50, settleBefore: Date.parse('2027-01-01') });
     assert.ok(batch.length >= 2);
     const built = buildSessionRequest({ db: handle.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW });
@@ -586,11 +579,11 @@ test('writes from the main thread go through the worker: a session write lands i
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60 } } };
+  const hot = { config: { memoryDb: { session: { mode: 'off' } } } };
   const service = createMemoryDb({ hot, dataDir: data, log: { info() {}, warn() {}, error() {}, debug() {} }, now: () => NOW });
   try {
     await service.tick();
-    assert.ok(service.database(), 'opened and synced once');
+    assert.ok(service.database(), 'opened');
     const run = { id: 'run:w', sweepId: 'sweep:w', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), cursorFrom: 0, cursorTo: 7, sourcesN: 3, outcome: 'ok', counts: { claims: 1 }, errors: [] };
     const plan = { claims: [{ op: 'add', subjectKind: 'self', subjectId: SELF_PERSON, kind: 'self_fact', text: 'a fact', how: 'saw', sources: [], when: null }], episodes: [], affinity: [], descriptions: [] };
     const counts = await service.memoryWrite({ kind: 'session', mode: 'shadow', run, plan, advance: { key: cursorKey('shadow', 'group:discord'), value: 7 }, now: NOW });
@@ -640,7 +633,7 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
   assert.throws(() => parseSubject('character'), /--review wants/);
 });
 
-// ---------- before any `apply`: authority, idempotent runs, evidence, batches, stored answers ----------
+// ---------- before any `apply`: modes, idempotent runs, evidence, batches, stored answers ----------
 
 const GROUP = { scope_kind: 'group', scope_iface: 'discord', scope_dm: null };
 const DM_ADA = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personId(ADA) };
@@ -649,21 +642,18 @@ const runOf = (extra = {}) => ({
   finishedAt: new Date(NOW).toISOString(), cursorFrom: 0, cursorTo: 9, sourcesN: 1, outcome: 'ok', counts: {}, errors: [], ...extra,
 });
 const emptyPlan = (extra = {}) => ({ claims: [], episodes: [], affinity: [], descriptions: [], ...extra });
-const applyOf = (env, update) => applyMemoryWrite(env.handle, { kind: 'session', mode: 'apply', authority: 'db', run: runOf(), maxDelta: 5, now: NOW, ...update });
+const applyOf = (env, update) => applyMemoryWrite(env.handle, { kind: 'session', mode: 'apply', run: runOf(), maxDelta: 5, now: NOW, ...update });
 
-test('authority: the writer itself refuses apply unless the database is the authority, and any mode but shadow and apply', () => {
+test('modes: the writer itself refuses any mode but shadow and apply', () => {
   const env = fixture();
   try {
     const ids = chat(env);
     const plan = emptyPlan({ claims: [{ op: 'add', subjectKind: 'self', subjectId: SELF_PERSON, kind: 'self_fact', text: 'a fact', how: 'saw', sources: [ids.a], when: null }] });
-    for (const authority of [undefined, 'json', 'bogus']) {
-      assert.throws(() => applyOf(env, { plan, authority }), (error) => error.code === 'APPLY_JSON_WRITER', `authority ${authority}`);
-    }
     for (const mode of ['draft', 'off', undefined]) assert.throws(() => applyOf(env, { plan, mode }), (error) => error.code === 'BAD_MODE', `mode ${mode}`);
     assert.throws(() => applyMemoryWrite(env.handle, { kind: 'other' }), (error) => error.code === 'BAD_UPDATE');
     assert.deepEqual([count(env.db, 'session_runs'), count(env.db, 'claims', "author = 'her'"), count(env.db, 'decisions')], [0, 0, 0], 'a refusal writes nothing');
     assert.equal(applyOf(env, { plan }).added, 1);
-    // shadow needs no authority
+    // shadow proposes
     assert.equal(applyMemoryWrite(env.handle, { kind: 'session', mode: 'shadow', run: runOf({ id: 'run:s', batchKey: 'shadow|x' }), plan, now: NOW }).proposed, 1);
   } finally {
     env.done();

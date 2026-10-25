@@ -60,11 +60,11 @@ test('roleModel: a byPurpose that is not a plain object, or an entry that is not
 
 test('roleModel: an unset role takes its own default, never another role\'s model', () => {
   const config = { models: { base: { core: 'x/core', analyzer: 'x/analyzer', vision: 'x/vision' } } };
-  for (const role of ['extractor', 'video', 'embedding', 'drawing', 'scout', 'writer']) {
+  for (const role of ['video', 'embedding', 'drawing', 'scout', 'writer']) {
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
   }
-  assert.equal(roleModel({ models: { base: { analyzer: null, extractor: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
-  assert.equal(roleModel({ models: { base: { analyzer: null, extractor: '' } } }, 'extractor'), ROLE_DEFAULTS.extractor);
+  assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'video'), ROLE_DEFAULTS.video);
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
   assert.equal(roleModel({ models: { base: { core: { nested: 'x/no' } } } }, 'core'), ROLE_DEFAULTS.core, 'models.base.core is a string, nothing else');
 });
@@ -134,9 +134,9 @@ test('roles: the built-in defaults equal config.json\'s three groups, and every 
 
 test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved like any role, no purpose on them', () => {
   assert.equal(CORE_ROLE, 'core');
-  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
-  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech']);
-  assert.deepEqual([...BASE_ROLES], ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing']);
+  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'vision', 'video', 'embedding', 'speech']);
+  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech']);
+  assert.deepEqual([...BASE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing']);
   assert.deepEqual([...ERRAND_ROLES], ['scout', 'server']);
   assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev', 'writer']);
   assert.deepEqual([...OPENCODE_ROLES], ['scout', 'server', 'thinker', 'dev', 'writer']);

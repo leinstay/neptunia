@@ -437,7 +437,7 @@ test('mergeEpisodes: a candidate is a duplicate exactly when isSameEpisode says 
   }
 });
 
-// ---- the import graph: episodes.js stays a leaf toward voice.js and prompt.js ------------
+// ---- the import graph: episodes.js stays a leaf toward prompt.js ------------
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -452,10 +452,9 @@ function reachableFrom(file, seen = new Set()) {
   return seen;
 }
 
-test('episodes: imports neither voice.js nor prompt.js, directly or through another module', () => {
+test('episodes: does not import prompt.js, directly or through another module', () => {
   const reached = [...reachableFrom(path.join(ROOT, 'src', 'memory', 'episodes.js'))].map((file) => path.relative(ROOT, file).split(path.sep).join('/'));
   assert.ok(reached.includes('src/memory/interests.js'), 'the walk follows imports');
-  assert.equal(reached.includes('src/memory/voice.js'), false);
   assert.equal(reached.includes('src/behavior/prompt.js'), false);
 });
 

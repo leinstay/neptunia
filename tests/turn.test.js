@@ -4,8 +4,9 @@
 // store -- proving the feature switches (reactions, multiMessage,
 // typingSimulation, memory) are applied where this module is responsible for
 // them.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
@@ -40,6 +41,13 @@ import { createErrandService } from '../src/errands/service.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 import { createLocalFacts } from '../src/behavior/inner.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
+
+/** The test memory databases opened here; closed when the file is done. */
+const OPENED_MEMORY = [];
+after(async () => {
+  for (const mem of OPENED_MEMORY) await mem.close();
+});
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -2174,7 +2182,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, ...features },
     {},
     {
-      models: { base: { analyzer: 'x/text', extractor: 'x/extract' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -7400,17 +7408,20 @@ test('runTurn: the model answered log line carries the user message segments, ha
   }
 });
 
-/** A real journal over a fake append store that keeps every line in memory. */
+/** A real journal over a test memory database whose writes also keep every line in memory. */
 function journalOverMemory() {
   const lines = [];
-  const appendStore = {
-    append: async (file, line) => {
-      lines.push({ file, record: JSON.parse(line) });
+  const mem = openTestMemorySync();
+  OPENED_MEMORY.push(mem);
+  const memoryDb = {
+    ...mem.memoryDb,
+    writeUnit: (update) => {
+      for (const line of update.lines ?? []) lines.push({ file: path.join('fake-data', update.owner), record: line });
+      return mem.memoryDb.writeUnit(update);
     },
-    async *iterate() {},
   };
   let n = 0;
-  const journal = createJournal({ appendStore, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
+  const journal = createJournal({ memoryDb, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
   return { journal, lines };
 }
 

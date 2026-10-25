@@ -353,7 +353,7 @@ function serviceEnv({ worker = false } = {}) {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, focus: { enabled: true } }, focus: { size: 3, exploring: 1, exploringShare: 0.25 } } };
+  const hot = { config: { memoryDb: { focus: { enabled: true } }, focus: { size: 3, exploring: 1, exploringShare: 0.25 } } };
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({ hot, dataDir: data, log: quiet, now: () => time, ...(worker ? {} : { worker: false }) });
   return {

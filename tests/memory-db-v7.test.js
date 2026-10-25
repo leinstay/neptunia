@@ -1,6 +1,5 @@
-// Schema v7 (spec 2026-10-24-memory-schema-v7, stage 1): the migration of a database the importer built at v6, the
-// lossless export and parity after it, an importer replay after v7 (the derived columns re-derived, links and DM
-// places kept, nothing nulled), the new ids (canonical keys, node ids, aliases with generations and event time), the
+// Schema v7 (spec 2026-10-24-memory-schema-v7, stage 1): the migration of a database the unit writers filled at v6, a
+// replay of the unit writes after v7 (the derived columns re-derived, links and DM places kept, nothing nulled), the new ids (canonical keys, node ids, aliases with generations and event time), the
 // recorded execution contexts and turn reads, and the access classification of every table (docs/memory-access.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
 import { SCOPED_TABLES } from '../src/memory/db/schema.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { insertTurnReads } from '../src/memory/db/service.js';
@@ -25,7 +24,7 @@ const NEWCOMER = '100000000000000009';
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
 
-/** A data directory imported at schema v6 (the importer of today, on the old schema), with a few rows the files never make. */
+/** A data directory written into a database at schema v6 (the unit writers of today, on the old schema), with a few rows the units never make. */
 function importedAtV6() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v7-'));
   const data = path.join(root, 'data');
@@ -33,7 +32,7 @@ function importedAtV6() {
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 6) });
-  const result = syncOnce(old, data, { log: quiet });
+  const result = seedUnits(old, data, { log: quiet });
   assert.equal(result.errors, 0);
   const db = old.db;
   // An account whose link is not verified, a DM row of a partner no file has a DM place for, malformed triples, and a
@@ -142,46 +141,17 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
   }
 });
 
-test('v7: verify stays byte-equal and parity unchanged, after the migration and after a resync', () => {
+test('v7: the stats after the migration count the audiences of the sources', () => {
   const env = importedAtV6();
   try {
     migrate(env).handle.close();
-    const first = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(first.code, 0, first.text);
-    assert.match(first.text, /verify ok/);
-    const parity = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parity.code, 0, parity.text);
-    assert.match(parity.text, /differ 0/);
-    // Every file read again (a remap of everything), then verify and parity again.
-    for (const file of walkFiles(env.data)) touch(file);
-    const handle = openMemoryDb(env.file);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0);
-    handle.close();
-    const again = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(again.code, 0, again.text);
-    const parityAgain = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parityAgain.code, 0, parityAgain.text);
-    assert.match(parityAgain.text, /differ 0/);
     const stats = run('stats', '--db', env.file);
     assert.equal(stats.code, 0);
-    assert.match(stats.text, /sources .* audience dm=1 \(1 places\) group:discord=5/);
+    assert.match(stats.text, /sources .* audience dm=1 \(1 places\) group:discord=4/);
   } finally {
     env.done();
   }
 });
-
-function walkFiles(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const abs = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkFiles(abs, out);
-    else out.push(abs);
-  }
-  return out;
-}
-const touch = (file, secondsAhead = 5) => {
-  const when = new Date(Date.now() + secondsAhead * 1000);
-  fs.utimesSync(file, when, when);
-};
 
 /** The v7 columns that a remap must keep (or re-derive to the same values). */
 function derivedSnapshot(db) {
@@ -196,7 +166,7 @@ function derivedSnapshot(db) {
   };
 }
 
-test('v7: an importer replay re-derives the new columns, keeps links and DM places, nulls nothing', () => {
+test('v7: a replay of the unit writes re-derives the new columns, keeps links and DM places, nulls nothing', () => {
   const env = importedAtV6();
   const { handle } = migrate(env);
   const { db } = handle;
@@ -204,21 +174,19 @@ test('v7: an importer replay re-derives the new columns, keeps links and DM plac
     // A link the database changed (revoked) is the database's own: a remap never rewrites it.
     db.prepare("UPDATE account_person_links SET state = 'revoked', valid_to_at = '2026-10-24T00:00:00.000Z' WHERE account_id = ?").run(`discord:${MEMBER}`);
     const before = derivedSnapshot(db);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0);
-    for (const file of walkFiles(env.data)) touch(file);
-    const replay = syncOnce(handle, env.data, { log: quiet });
+    assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0);
+    const replay = seedUnits(handle, env.data, { log: quiet });
     assert.equal(replay.errors, 0);
-    assert.ok(replay.upserted > 50, 'every file was mapped again');
+    assert.ok(replay.units > 10, 'every unit was written again');
     assert.deepEqual(derivedSnapshot(db), before, 'the replay over the same files leaves every v7 column as it was');
 
     // A changed file: the profile renames the member and a private record of a new partner arrives.
     const profileFile = path.join(guildDir(env.data), 'users', `${MEMBER}.json`);
     writeJson(profileFile, { ...JSON.parse(fs.readFileSync(profileFile, 'utf8')), names: ['Zoé'] });
-    touch(profileFile, 10);
     writeLines(path.join(guildDir(env.data), 'private', NEWCOMER, 'record', '2026-10', '2026-10-21.jsonl'), [
       seen('400000000000000031', 1, 'a word in private', { by: NEWCOMER, scope: { channel: '200000000000000097' }, direct: true }),
     ]);
-    const changed = syncOnce(handle, env.data, { log: quiet });
+    const changed = seedUnits(handle, env.data, { log: quiet });
     assert.equal(changed.errors, 0);
     assertAudiences(db);
     for (const table of SCOPED_TABLES) assert.equal(count(db, `SELECT COUNT(*) AS n FROM "${table}" WHERE audience_id IS NULL`), 0, `${table}: no audience nulled`);
@@ -257,7 +225,7 @@ test('v7 writers: a given audience that is not the triple\'s is quarantined; her
 
     // Her session answer (internal) and a context write.
     applyMemoryWrite(handle, {
-      kind: 'session', mode: 'shadow', authority: 'json', now: Date.parse('2026-10-24T12:00:00.000Z'),
+      kind: 'session', mode: 'shadow', now: Date.parse('2026-10-24T12:00:00.000Z'),
       run: { id: 'run:1', scopeKey: `dm:discord:${personId('u1')}`, scope: dmScope(personId('u1')), startedAt: 'a', finishedAt: 'b', outcome: 'ok', counts: {}, errors: [] },
       plan: null, answer: { text: '<think>t</think><memory>{}</memory>' },
     });

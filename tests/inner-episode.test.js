@@ -1,20 +1,12 @@
-// Tests for the persona's inner-turn episodes in her memory (src/memory/inner-episode.js and
-// src/memory/update.js#observeInner; docs/inner-life.md, "What she found goes to her memory"):
-// what her reads found and her thinks become lines of hers in the memory buffer, worded only by
-// labels, marked `inner` (shadow or not), a private chat's in that member's private buffer only;
-// the analyzer batch reads them like her other lines, and the record (the chat) never gets them.
-// Over a real store in a temp dir and a fake LLM; no network, no data/.
+// Tests for the lines an inner turn's episode makes (src/memory/inner-episode.js; docs/inner-life.md, "What she
+// found goes to her memory"): what her reads found and her thinks become lines of hers, worded only by labels,
+// marked `inner` (shadow or not). Pure functions; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../src/memory/store.js';
-import { createMemoryUpdater } from '../src/memory/update.js';
-import { createCalibrator } from '../src/llm/tokens.js';
 import { feedbackText, innerEpisodeLines, innerMemorySettings, linksOf, tailChars } from '../src/memory/inner-episode.js';
 import { feedbackFactText } from '../src/behavior/wake.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
 
 const AT = Date.parse('2026-10-19T03:47:00Z');
 const SETTINGS = { enabled: true, thinkChars: 200, resultChars: 300, maxFindings: 3, maxSources: 4, skills: ['web.search', 'web.read', 'memory.search'] };
@@ -98,68 +90,6 @@ test('innerEpisodeLines: a live call that ran is done; nothing without a kept fi
   const cut = innerEpisodeLines(episode({ findings: [{ skill: 'web.read', args: { url: 'https://example.org/p' }, text: 'λέξη '.repeat(500) }] }), { labels, settings: SETTINGS, maxChars: 120 });
   assert.ok(Array.from(cut[1].content).length <= 120, 'a line keeps the analyzer\'s per-line limit');
   assert.deepEqual(cut[1].inner.sources, ['https://example.org/p'], 'the page read is its source');
-});
-
-function hotFor(overrides = {}) {
-  return {
-    config: {
-      bot: { timezone: 'UTC' },
-      context: { gapMarkerMinutes: 20, maxMessageChars: 2000 },
-      models: { base: { core: 'x/y', extractor: 'x/y' } },
-      llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 },
-      memory: { batchMessages: 2, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 },
-      features: { record: true },
-      innerLife: { memory: { ...SETTINGS } },
-      ...overrides,
-    },
-    prompts: { memory: 'sys', labels },
-  };
-}
-
-test('observeInner: a server episode goes to the server buffer, a private one to that member\'s buffer only; nothing while paused', () => {
-  const dir = tempDir('nep-inner-ep-');
-  const store = createStore({ dataDir: dir });
-  const hot = hotFor();
-  const updater = createMemoryUpdater({ hot, store, llm: { complete: async () => ({ text: '{}' }) }, calibrator: createCalibrator(), getSelfName: () => 'Bot', now: () => AT });
-  return withCapturedLogs(async () => {
-    assert.equal(updater.observeInner('g1', episode()), 2);
-    assert.deepEqual(store.getBuffer('g1').map((line) => line.inner?.kind), ['inner', 'inner']);
-    assert.equal(updater.observeInner('g1', episode({ turnId: 't-2', channelId: 'dm1', privateUserId: 'u7' })), 2);
-    assert.equal(store.getBuffer('g1').length, 2, 'a private finding never reaches the server buffer');
-    assert.deepEqual(store.getPrivateBuffer('g1', 'u7').map((line) => line.channelId), ['dm1', 'dm1']);
-    hot.config.innerLife.memory.enabled = false;
-    assert.equal(updater.observeInner('g1', episode({ turnId: 't-3' })), 0);
-    hot.config.innerLife.memory.enabled = true;
-    store.state.data.paused = true;
-    assert.equal(updater.observeInner('g1', episode({ turnId: 't-4' })), 0);
-    assert.equal(store.getBuffer('g1').length, 2);
-  }).then(({ logs }) => {
-    const buffered = logs.filter((entry) => entry.msg === 'memory: inner episode buffered');
-    assert.equal(buffered.length, 2);
-    assert.deepEqual([buffered[0].lines, buffered[0].sources, buffered[0].shadow], [2, 2, true]);
-    assert.equal(buffered[1].private, true);
-    assert.ok(!JSON.stringify(buffered).includes('Φάσμα'), 'counts only, never the text');
-  });
-});
-
-test('memory batch: the analyzer reads her episode as her own lines; the record (the chat) never gets them', async () => {
-  const dir = tempDir('nep-inner-ep-');
-  const store = createStore({ dataDir: dir });
-  const hot = hotFor({ memory: { ...hotFor().config.memory, batchMessages: 3 } });
-  const requests = [];
-  const llm = { complete: async (messages) => (requests.push(messages), { text: '{}' }) };
-  const appended = [];
-  const record = { append: async (guildId, lines) => (appended.push(...lines), { written: lines.length, duplicates: 0 }) };
-  const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Bot', now: () => AT + 60_000, record });
-  store.pushBuffer('g1', { id: 'm1', channelId: 'c1', channelName: 'general', authorId: 'u1', authorName: 'Zoë', self: false, bot: false, content: 'καλημέρα', ts: AT - 1000, replyToId: null, attachments: [], stickers: [] }, 100);
-  updater.observeInner('g1', episode());
-  await withCapturedLogs(() => updater.run('g1'));
-  assert.equal(requests.length, 1);
-  const user = JSON.stringify(requests[0][1].content);
-  assert.ok(user.includes('Ο κόσμος λέγεται Φάσμα'), 'the finding is in the batch transcript');
-  assert.ok(user.includes(fill(labels.self, { name: 'Bot' })), 'as a line of hers');
-  assert.deepEqual(appended.map((line) => line.messageId), ['m1'], 'only the chat line is recorded');
-  assert.deepEqual(store.getBuffer('g1'), [], 'the batch consumed her episode');
 });
 
 test('innerEpisodeLines: the feedback facts of the turn join the first line in her voice; with no finding they are the one line; nothing without their label', () => {

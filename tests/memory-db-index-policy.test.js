@@ -2,7 +2,7 @@
 // the stored lines, vector eviction in exactly the owner's classes (raw lines 90 days, then cited, pinned, touched and
 // consolidated memory), eviction never touching a text or a vector row's metadata, recall ignoring an evicted vector, a
 // touch re-embedding through the embed path (a fake embedder) and expiring, her diary media marked present or missing,
-// the dry-run tool, and `verify` / `parity` unchanged after the migration to v11 and after a resync. Synthetic text only
+// the dry-run tool, and the migration to v11 keeping every row. Synthetic text only
 // (Greek or accented Latin for non-ASCII); the ids are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { checkMedia, classify, pendingReembed, reembedTouched, touch, applyReembed } from '../src/memory/db/index-policy.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { search, dbSettings } from '../src/memory/db/recall.js';
@@ -200,7 +200,7 @@ test('media availability: her diary media is present or missing by its file; for
   }
 });
 
-// ---------- the migration to v11 on an imported database, and the tools ----------
+// ---------- the migration to v11, and the tools ----------
 
 function importedAtV10() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v11-'));
@@ -209,13 +209,13 @@ function importedAtV10() {
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 10) });
-  assert.equal(syncOnce(old, data, { log: quiet, now: () => NOW }).errors, 0);
+  assert.equal(seedUnits(old, data, { log: quiet, now: () => NOW }).errors, 0);
   assert.equal(schemaVersion(old.db), 10);
   old.close();
   return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('v11: verify stays byte-equal and parity unchanged after the migration and after a resync; foreign keys and integrity hold', () => {
+test('v11: the migration keeps every row; rows the database owns survive a rewrite of the units; foreign keys and integrity hold', () => {
   const env = importedAtV10();
   try {
     const handle = openMemoryDb(env.file);
@@ -225,32 +225,20 @@ test('v11: verify stays byte-equal and parity unchanged after the migration and 
     assert.equal(handle.db.prepare('SELECT COUNT(*) AS n FROM sources WHERE tier IS NOT NULL').get().n, 0);
     assert.deepEqual(handle.db.prepare('PRAGMA foreign_key_check').all(), []);
     assert.equal(handle.db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
-    // Rows the database owns (a wake run, a tier) survive a resync.
+    // Rows the database owns (a wake run, a tier) survive a rewrite of the units.
     applyMemoryWrite(handle, { kind: 'wake', op: 'start', run: { id: 'run-1', kind: 'heartbeat', startedAt: NOW } });
     classify(handle, { now: NOW, config: config({ vectorEviction: false }), apply: true });
     handle.close();
-    for (const command of ['verify', 'parity']) {
-      const result = run(command, '--data', env.data, '--db', env.file);
-      assert.equal(result.code, 0, result.text);
-    }
     const file = path.join(guildDir(env.data), 'diary.json');
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
     value.posts.push({ at: 1799000000000, kind: 'day', gist: 'new', picture: null, messageIds: ['5199999999999999'], search: null, itemId: 'entry-new' });
     writeJson(file, value);
-    const later = new Date(Date.now() + 10_000);
-    fs.utimesSync(file, later, later);
     const again = openMemoryDb(env.file);
-    assert.equal(syncOnce(again, env.data, { log: quiet, now: () => NOW + 3_600_000 }).errors, 0);
+    assert.equal(seedUnits(again, env.data, { log: quiet, now: () => NOW + 3_600_000 }).errors, 0);
     assert.equal(again.db.prepare("SELECT status FROM wake_runs WHERE id = 'run-1'").get().status, 'running');
     assert.ok(again.db.prepare('SELECT COUNT(*) AS n FROM index_policy').get().n > 0);
     assert.deepEqual(again.db.prepare('PRAGMA foreign_key_check').all(), []);
     again.close();
-    const verify = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(verify.code, 0, verify.text);
-    assert.match(verify.text, /verify ok/);
-    const parity = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parity.code, 0, parity.text);
-    assert.match(parity.text, /differ 0/);
   } finally {
     env.done();
   }

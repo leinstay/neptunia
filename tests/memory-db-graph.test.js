@@ -1,7 +1,7 @@
 // Schema v9 (spec 2026-10-24-memory-schema-v7, stage 3): the graph projection and its manifest, the four traversal
 // examples on a fixture of two interfaces with a group, a thread, a DM and a private link between two public nodes,
 // truncation reports, cycles, re-projection after an edit, a link revocation and a retirement, the three contracts
-// (legacy verify / parity, the VACUUM round trip, rebuildability), version-level evidence and the compare-and-set on
+// (a replay of the unit writes re-projects to the same rows, the VACUUM round trip, rebuildability), version-level evidence and the compare-and-set on
 // claim edits. Synthetic text only (Greek or accented Latin for non-ASCII); the ids and handles are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
 import { V9_TABLES } from '../src/memory/db/schema.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.js';
 import { applyMemoryWrite, newestClaimVersion } from '../src/memory/db/session-write.js';
@@ -315,7 +315,7 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
     }, { log: quiet });
     const scope = groupScope();
     const write = (runId, claims) => applyMemoryWrite(handle, {
-      kind: 'session', mode: 'apply', authority: 'db', now: NOW,
+      kind: 'session', mode: 'apply', now: NOW,
       run: { id: runId, scopeKey: 'group:discord', scope, batchKey: `apply|${runId}`, startedAt: at(0), finishedAt: at(1), outcome: 'ok', counts: {}, errors: [] },
       plan: { claims, episodes: [], affinity: [], descriptions: [], people: [] },
     });
@@ -358,7 +358,7 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
 
 // ---------- the migration and the three contracts ----------
 
-/** A data directory imported at schema v8, with claim links the files never make (one to a line nobody stored). */
+/** A data directory written into a database at schema v8, with claim links the units never make (one to a line nobody stored). */
 function importedAtV8() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v9-'));
   const data = path.join(root, 'data');
@@ -366,7 +366,7 @@ function importedAtV8() {
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 8) });
-  assert.equal(syncOnce(old, data, { log: quiet }).errors, 0);
+  assert.equal(seedUnits(old, data, { log: quiet }).errors, 0);
   assert.equal(schemaVersion(old.db), 8);
   const db = old.db;
   const source = db.prepare("SELECT id FROM sources WHERE kind = 'seen' ORDER BY rowid LIMIT 1").get().id;
@@ -378,19 +378,6 @@ function importedAtV8() {
   old.close();
   return { root, data, file, source, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
-
-function walkFiles(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const abs = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkFiles(abs, out);
-    else out.push(abs);
-  }
-  return out;
-}
-const touch = (file, secondsAhead = 5) => {
-  const when = new Date(Date.now() + secondsAhead * 1000);
-  fs.utimesSync(file, when, when);
-};
 
 test('v9 migration: durable ids, legacy evidence marked, the projection pending then done; foreign keys and integrity; timings', (t) => {
   const env = importedAtV8();
@@ -430,7 +417,7 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
       assert.equal(count(db, "SELECT COUNT(*) AS n FROM graph_nodes n JOIN sources s ON s.id = n.row_id WHERE n.kind = 'source'"), sources, 'every line is a node');
       assert.deepEqual({ ...db.prepare("SELECT kind, created_at FROM graph_nodes WHERE id = 'source:src:discord:never-stored:1:seen'").get() }, { kind: 'source', created_at: '1970-01-01T00:00:00.000Z' },
         'a line a claim names but nobody stored is a placeholder node');
-      assert.ok(count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'located_in'") > 5);
+      assert.equal(count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'located_in'"), sources, 'every line is in its place');
       assert.equal(count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'derived_from' AND src = 'claim_version:kv-2'"), 1);
       assert.equal(count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'derived_from' AND src = 'claim:k-v9'"), 2, 'claim-level: the stored line and the one nobody stored');
       assert.equal(count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'account_of' AND retired_at IS NULL AND audience_id = 'aud:group:discord'"), count(db, "SELECT COUNT(*) AS n FROM account_person_links WHERE state = 'verified'"));
@@ -445,27 +432,21 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
   }
 });
 
-test('v9 contracts: verify byte-equal and parity unchanged after the migration and a resync; reproject idempotent; rebuild equal; the VACUUM round trip', () => {
+test('v9 contracts: a replay of the unit writes projects the same rows; reproject idempotent; rebuild equal; the VACUUM round trip', () => {
   const env = importedAtV8();
   try {
     const handle = openMemoryDb(env.file);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0, 'a full pass also finishes the pending projection');
+    assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0, 'a full pass also finishes the pending projection');
     assert.equal(graphPending(handle), false);
     handle.close();
-    for (const command of ['verify', 'parity']) {
-      const out = run(command, '--data', env.data, '--db', env.file);
-      assert.equal(out.code, 0, out.text);
-    }
-    assert.match(run('parity', '--data', env.data, '--db', env.file).text, /differ 0/);
 
-    // Every file read again: the projection the writers keep is the same rows as before.
+    // Every unit written again: the projection the writers keep is the same rows as before.
     const writer = openMemoryDb(env.file);
     const before = hashesOf(writer.db, GRAPH);
-    for (const file of walkFiles(env.data)) touch(file);
-    const replay = syncOnce(writer, env.data, { log: quiet });
+    const replay = seedUnits(writer, env.data, { log: quiet });
     assert.equal(replay.errors, 0);
-    assert.ok(replay.upserted > 50);
-    assert.deepEqual(hashesOf(writer.db, GRAPH), before, 'a remap re-projects to the same rows');
+    assert.ok(replay.units > 10);
+    assert.deepEqual(hashesOf(writer.db, GRAPH), before, 'a replay re-projects to the same rows');
     // Reproject twice: the same hashes; rebuild: every derived table equal.
     reproject(writer);
     assert.deepEqual(hashesOf(writer.db, GRAPH), before);
@@ -481,10 +462,6 @@ test('v9 contracts: verify byte-equal and parity unchanged after the migration a
     assert.deepEqual(hashesOf(reader.db, derived), beforeRebuild);
     assert.deepEqual(reader.db.prepare('PRAGMA foreign_key_check').all(), []);
     reader.close();
-    for (const command of ['verify', 'parity']) {
-      const out = run(command, '--data', env.data, '--db', env.file);
-      assert.equal(out.code, 0, out.text);
-    }
 
     // The round trip: a VACUUM INTO copy hashes like its source, table by table.
     const copy = path.join(env.root, 'copy.db');

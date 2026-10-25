@@ -1,5 +1,5 @@
-// The memory database service (src/memory/db/service.js): the switch, the sync passes, the sliced first import, the
-// shutdown, the per-turn record and the status line. Synthetic data directories only; the clock and the loop are injected.
+// The memory database service (src/memory/db/service.js): the open and the writer lock, the shutdown, the per-turn
+// record, the session writes and the status line. Synthetic data directories only; the clock and the loop are injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,10 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createMemoryDb, turnReadRows } from '../src/memory/db/service.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { memoryDbStatusLine } from '../src/ops/status.js';
-import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
+import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.js';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));
 
@@ -20,14 +20,16 @@ function logs() {
   return { out, info: add('info'), warn: add('warn'), error: add('error'), debug: add('debug') };
 }
 
-/** A data directory, a switchable config and a service whose loop is stepped by hand when `manual` is set. */
-function setup({ features = { memoryDb: true }, memoryDb = {}, manual = false, ...rest } = {}) {
-  // These tests drive the passes on the calling thread; tests/memory-db-worker.test.js covers the worker.
+/** A data directory whose units are in its database, a config and a service whose loop is stepped by hand when `manual` is set. */
+function setup({ memoryDb = {}, manual = false, ...rest } = {}) {
+  // These tests run the service on the calling thread; tests/memory-db-worker.test.js covers the worker.
   const root = tmpRoot();
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = { config: { features, memoryDb: { syncSeconds: 60, ...memoryDb } } };
+  const seeded = openMemoryDb(path.join(data, 'memory.db'));
+  try { seedUnits(seeded, data, { now: Date.UTC(2026, 9, 24, 11, 0, 0) }); } finally { seeded.close(); }
+  const hot = { config: { memoryDb: { session: { mode: 'off' }, ...memoryDb } } };
   const log = logs();
   const queue = [];
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
@@ -48,141 +50,18 @@ const counts = (env) => {
   try { return Object.fromEntries(['files', 'sources', 'claims', 'turn_reads'].map((t) => [t, reader.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n])); } finally { reader.close(); }
 };
 
-test('the switch: off opens nothing, on opens the database and imports, off again closes it and frees the lock', async () => {
-  const env = setup({ features: { memoryDb: false } });
+test('the first tick opens the database and takes the writer lock; close frees it', async () => {
+  const env = setup();
   try {
-    await env.service.tick();
-    assert.equal(fs.existsSync(env.dbFile()), false);
     assert.equal(env.service.status().open, false);
-    env.hot.config.features.memoryDb = true;
+    assert.equal(env.service.readHandle(), null);
     await env.service.tick();
     assert.equal(env.service.status().open, true);
-    assert.equal(env.service.status().importDone, true);
     assert.ok(fs.existsSync(`${env.dbFile()}.lock`));
-    assert.ok(counts(env).files > 5);
-    env.hot.config.features.memoryDb = false;
-    await env.service.tick();
+    assert.ok(env.service.status().files > 5);
+    await env.service.close();
     assert.equal(env.service.status().open, false);
     assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
-  } finally { await env.done(); }
-});
-
-test('the first pass is sliced: several syncOnce calls, the loop given back between them, the import marked done', async () => {
-  const calls = [];
-  const sync = (handle, dataDir, opts) => { calls.push(Object.keys(opts)); return syncOnce(handle, dataDir, opts); };
-  let yields = 0;
-  const env = setup({ sync, defer: (fn) => { yields += 1; setImmediate(fn); }, clock: () => 0 });
-  try {
-    await env.service.tick();
-    assert.ok(calls.length >= 3, `the import went in ${calls.length} slices`);
-    assert.ok(calls.every((keys) => keys.includes('filter')));
-    assert.ok(yields >= calls.length, 'the loop is given back after each slice');
-    assert.equal(env.service.status().lastPass.first, true);
-    assert.ok(env.service.status().lastPass.slices >= 3);
-    calls.length = 0;
-    env.advance(61_000);
-    await env.service.tick();
-    assert.equal(calls.length, 1, 'later passes are one syncOnce');
-    assert.equal(calls[0].includes('filter'), false);
-    assert.equal(env.service.status().lastPass.first, false);
-  } finally { await env.done(); }
-});
-
-test('the sliced import equals a whole pass: the same rows', async () => {
-  const sliced = setup();
-  const whole = setup();
-  try {
-    await sliced.service.tick();
-    const handle = openMemoryDb(path.join(whole.root, 'whole.db'));
-    syncOnce(handle, whole.data);
-    const a = openMemoryDb(sliced.dbFile(), { readOnly: true });
-    try {
-      for (const table of ['files', 'sources', 'claims', 'episodes', 'vectors', 'operational', 'day', 'diary', 'descriptions']) {
-        const rowsOf = (db) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
-        assert.equal(rowsOf(a.db), rowsOf(handle.db), table);
-      }
-    } finally { a.close(); handle.close(); }
-  } finally { await sliced.done(); await whole.done(); }
-});
-
-test('a slice grows while the last one was quick and drops to one unit when it was slow', async () => {
-  const sizes = [];
-  let time = 0;
-  const sync = (handle, dataDir, opts) => {
-    const result = syncOnce(handle, dataDir, opts);
-    sizes.push(result.seen);
-    time += sizes.length <= 2 ? 0 : 1_000_000;
-    return result;
-  };
-  const env = setup({ sync, clock: () => time });
-  try {
-    await env.service.tick();
-    assert.ok(sizes[1] > sizes[0], `quick slices grow: ${sizes.slice(0, 3)}`);
-    assert.ok(sizes[2] > sizes[1]);
-    assert.equal(sizes[3], 1, 'a slow slice leaves room for one unit only');
-  } finally { await env.done(); }
-});
-
-test('a pass never runs concurrently with itself', async () => {
-  let active = 0;
-  let peak = 0;
-  const sync = (handle, dataDir, opts) => {
-    active += 1; peak = Math.max(peak, active);
-    try { return syncOnce(handle, dataDir, opts); } finally { active -= 1; }
-  };
-  const env = setup({ sync });
-  try {
-    await Promise.all([env.service.tick(), env.service.tick(), env.service.tick()]);
-    env.service.requestSync();
-    env.service.requestSync();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(peak, 1);
-  } finally { await env.done(); }
-});
-
-test('requestSync runs a pass off the caller, soon; a pass is also due after syncSeconds', async () => {
-  const env = setup({ manual: true });
-  try {
-    const first = env.service.tick();
-    while (env.queue.length) { env.queue.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
-    await first;
-    const before = counts(env);
-    writeJson(path.join(env.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
-    env.service.requestSync();
-    assert.equal(counts(env).files, before.files, 'nothing ran on the caller');
-    assert.equal(env.queue.length, 1, 'one deferred tick');
-    await env.flushQueue();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(counts(env).files, before.files + 1);
-    // Within syncSeconds and not dirty: no pass.
-    const passes = env.log.out.filter((e) => e.message === 'memory db: pass').length;
-    await env.service.tick();
-    assert.equal(env.log.out.filter((e) => e.message === 'memory db: pass').length, passes);
-    env.advance(61_000);
-    await env.service.tick();
-    assert.equal(env.log.out.filter((e) => e.message === 'memory db: pass').length, passes + 1);
-  } finally { await env.done(); }
-});
-
-test('a pass logs counts at debug and nothing at info; a failing pass warns with a code only and is retried', async () => {
-  let fail = true;
-  const sync = (handle, dataDir, opts) => {
-    if (fail) throw Object.assign(new Error('secret path /x/y'), { code: 'EIO' });
-    return syncOnce(handle, dataDir, opts);
-  };
-  const env = setup({ sync });
-  try {
-    await env.service.tick();
-    const warn = env.log.out.find((e) => e.message === 'memory db: pass failed');
-    assert.deepEqual(Object.keys(warn).sort(), ['code', 'level', 'message', 'reason']);
-    assert.equal(warn.code, 'EIO');
-    assert.equal(env.service.status().lastSyncAt, null);
-    fail = false;
-    await env.service.tick();
-    assert.ok(env.service.status().lastSyncAt !== null, 'the next tick retried');
-    const debug = env.log.out.find((e) => e.level === 'debug' && e.message === 'memory db: pass');
-    assert.ok(debug && Number.isInteger(debug.seen) && Number.isInteger(debug.upserted));
-    assert.equal(env.log.out.filter((e) => e.level === 'info' && /pass/.test(e.message)).length, 0);
   } finally { await env.done(); }
 });
 
@@ -200,35 +79,18 @@ test('a locked database is not an error of the bot: one warning with a code, ret
   } finally { try { holder.close(); } catch { /* closed */ } await env.done(); }
 });
 
-test('close: a last pass picks up what the last flush wrote, then the lock is released', async () => {
+test('close: a unit write under way lands, then the lock is released', async () => {
   const env = setup();
   try {
     await env.service.tick();
     const before = counts(env);
-    writeJson(path.join(env.g, 'users', '100000000000000088.json'), { id: '100000000000000088', names: ['Late'] });
+    const write = env.service.writeUnit({ op: 'value', owner: `guilds/${GUILD}/users/100000000000000088.json`, value: { id: '100000000000000088', names: ['Late'] } });
     await env.service.close();
+    await write;
     assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
     assert.equal(counts(env).files, before.files + 1);
     assert.equal(env.service.status().open, false);
-  } finally { await env.done(); }
-});
-
-test('close during the first import stops the slices and leaves the import to the next start', async () => {
-  const env = setup({ manual: true });
-  try {
-    const first = env.service.tick();
-    for (let i = 0; i < 1 && env.queue.length; i += 1) { env.queue.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
-    const closing = env.service.close();
-    while (env.queue.length) { env.queue.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
-    await Promise.all([first, closing]);
-    assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
-    const reader = openMemoryDb(env.dbFile(), { readOnly: true });
-    try { assert.equal(reader.db.prepare("SELECT value FROM meta WHERE key = 'service_import_done'").get(), undefined); } finally { reader.close(); }
-    // The next start takes the import up again, to the same rows.
-    const again = createMemoryDb({ hot: env.hot, dataDir: env.data, log: env.log, now: () => 1 });
-    await again.tick();
-    assert.equal(again.status().importDone, true);
-    await again.close();
+    await assert.rejects(() => env.service.writeUnit({ op: 'value', owner: `guilds/${GUILD}/lore.json`, value: [] }), (error) => error.code === 'DB_CLOSED');
   } finally { await env.done(); }
 });
 
@@ -271,7 +133,7 @@ test('turn reads are resolved when the request is assembled: block, order and th
       turnId: 'turn-A', step: 's1',
       reads: [{ kind: 'claim', id: HOT_ITEM, block: 'people', ord: 4 }, { kind: 'source', id: '400000000000000002', block: 'retrieved', ord: 9 }],
     });
-    // the sync, or her session, writes a newer version before the deferred insert runs
+    // her session writes a newer version before the deferred insert runs
     writer.prepare("INSERT INTO claim_versions (id, claim_id, text, recorded_at, event, by, origin) VALUES ('cv-late', ?, 'late', '2099-12-31T00:00:00.000Z', 'revise', 'her', 'session')").run(HOT_ITEM);
     writer.close();
     writer = null;
@@ -287,94 +149,19 @@ test('turn reads are resolved when the request is assembled: block, order and th
   } finally { writer?.close(); await env.done(); }
 });
 
-/** Every start check of authority db met (src/memory/db/authority.js). */
-const DB_WRITER = { authority: 'db', read: true, observeLive: true };
-
-test('authority is fixed for the process: a live change to db leaves the sync on and is logged once', async () => {
-  const env = setup();
-  try {
-    await env.service.tick();
-    const before = counts(env);
-    assert.ok(before.files > 0);
-    env.hot.config.memoryDb.authority = 'db';
-    writeJson(path.join(env.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
-    env.service.requestSync();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    env.advance(300_000);
-    await env.service.tick();
-    assert.equal(counts(env).files, before.files + 1, 'the sync still runs');
-    assert.deepEqual([env.service.status().authority, env.service.status().syncOff, env.service.authority()], ['json', false, 'json']);
-    assert.equal(env.log.out.filter((e) => e.message === 'memory db: authority change needs a restart').length, 1);
-  } finally { await env.done(); }
-});
-
-test('authority db (a new service): the sync is off (ticks, flushes and the shutdown pass) and the status says so', async () => {
-  const first = setup();
-  try {
-    await first.service.tick();
-    await first.service.close();
-    const before = counts(first);
-    const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, ...DB_WRITER }, recall: { backend: 'db' } } };
-    const service = createMemoryDb({ hot, dataDir: first.data, log: first.log, worker: false, now: () => Date.UTC(2026, 9, 24, 12), defer: (fn) => setImmediate(fn) });
-    const passes = () => first.log.out.filter((e) => e.message === 'memory db: pass').length;
-    const ran = passes();
-    try {
-      await service.tick();
-      writeJson(path.join(first.g, 'users', '100000000000000077.json'), { id: '100000000000000077', names: ['Zed'] });
-      service.requestSync();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await service.tick();
-      assert.equal(passes(), ran, 'no pass');
-      const status = service.status();
-      assert.deepEqual([status.authority, status.syncOff, status.lagSeconds, status.open, status.refused], ['db', true, null, true, null]);
-    } finally { await service.close(); }
-    assert.equal(counts(first).files, before.files, 'no pass, not even the last one');
-  } finally { await first.done(); }
-});
-
-test('authority db from the first open: nothing is imported, the database counts as in step, no pass is ever run', async () => {
-  const env = setup({ memoryDb: DB_WRITER });
-  env.hot.config.recall = { backend: 'db' };
-  try {
-    await env.service.tick();
-    await env.service.tick();
-    const status = env.service.status();
-    assert.deepEqual([status.open, status.syncOff, status.lastPass, status.lagSeconds], [true, true, null, null]);
-    assert.equal(env.log.out.filter((e) => e.message === 'memory db: pass').length, 0);
-    assert.equal(counts(env).files, 0);
-  } finally { await env.done(); }
-});
-
-test('memoryWrite: the service stamps its own authority (fixed for the process); the caller cannot claim it', async () => {
+test('memoryWrite: a session apply is written; a mode the writer does not know is refused', async () => {
   const run = { id: 'run:svc', sweepId: 'sweep:svc', scopeKey: 'group:discord', scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, batchKey: 'apply|svc', startedAt: '2026-10-24T12:00:00.000Z', finishedAt: '2026-10-24T12:00:00.000Z', outcome: 'ok', counts: {}, errors: [] };
   const plan = { claims: [], episodes: [], affinity: [], descriptions: [] };
-  const env = setup();
-  try {
-    await env.service.tick();
-    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'db', run, plan, now: 1 }), (error) => error.code === 'APPLY_JSON_WRITER');
-    env.hot.config.memoryDb.authority = 'db';
-    await assert.rejects(() => env.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'db', run, plan, now: 1 }), (error) => error.code === 'APPLY_JSON_WRITER', 'a live change does not unlock it');
-    assert.equal(env.service.database().prepare('SELECT COUNT(*) AS n FROM session_runs').get().n, 0);
-  } finally { await env.done(); }
-  const db = setup({ memoryDb: DB_WRITER });
-  db.hot.config.recall = { backend: 'db' };
+  const db = setup();
   try {
     await db.service.tick();
-    await db.service.memoryWrite({ kind: 'session', mode: 'apply', authority: 'json', run, plan, now: 1 });
+    await db.service.memoryWrite({ kind: 'session', mode: 'apply', run, plan, now: 1 });
     assert.deepEqual({ ...db.service.readHandle().db.prepare('SELECT mode, applied FROM session_runs').get() }, { mode: 'apply', applied: 1 });
     await assert.rejects(() => db.service.memoryWrite({ kind: 'session', mode: 'other', run: { ...run, id: 'run:2' }, plan, now: 1 }), (error) => error.code === 'BAD_MODE');
   } finally { await db.done(); }
 });
 
-test('status line: while the database is the writer the sync-off line replaces the sync line, when its label is filled', () => {
-  const status = { on: true, open: true, rows: 7, files: 3, lastSyncAt: Date.UTC(2026, 9, 24, 12), lagSeconds: null, read: true, reads: {}, syncOff: true };
-  const labels = { status: { memoryDb: { line: 'rows {rows}', syncOff: 'OFF {rows} {files}', readOn: 'on', readOff: 'off' } } };
-  assert.equal(memoryDbStatusLine(status, labels), 'OFF 7 3');
-  assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { ...labels.status.memoryDb, syncOff: '' } } }), 'rows 7', 'a label not filled yet leaves the usual line');
-  assert.equal(memoryDbStatusLine({ ...status, syncOff: false }, labels), 'rows 7');
-});
-
-test('turn reads: nothing without the switch, the setting, a turn id or reads', async () => {
+test('turn reads: nothing without the setting, a turn id or reads', async () => {
   const env = setup({ memoryDb: { turnReads: false } });
   try {
     await env.service.tick();
@@ -382,8 +169,6 @@ test('turn reads: nothing without the switch, the setting, a turn id or reads', 
     env.hot.config.memoryDb.turnReads = true;
     env.service.recordTurnReads({ turnId: '', reads: [{ kind: 'claim', id: 'x' }] });
     env.service.recordTurnReads({ turnId: 't', reads: [] });
-    env.hot.config.features.memoryDb = false;
-    env.service.recordTurnReads({ turnId: 't', reads: [{ kind: 'claim', id: 'x' }] });
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(counts(env).turn_reads, 0);
   } finally { await env.done(); }
@@ -410,40 +195,37 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
 test('status: the state of the database for the card, and its line from the labels', async () => {
   const env = setup();
   try {
+    const labels = { status: { memoryDb: { unavailable: 'DOWN', syncOff: 'rows {rows} files {files}' } } };
     assert.equal(env.service.status().open, false);
+    assert.equal(memoryDbStatusLine(env.service.status(), labels), 'DOWN');
     await env.service.tick();
     const status = env.service.status();
-    assert.equal(status.on, true);
+    assert.equal(status.open, true);
     assert.ok(status.rows > 0 && status.files > 0);
-    assert.equal(status.read, false);
-    assert.equal(status.lagSeconds, 0);
-    const labels = { status: { memoryDb: { off: 'OFF', unavailable: 'DOWN', notSynced: 'NEW {files}', line: 'rows {rows} files {files} at {at} lag {lag} read {read} fallbacks {fallbacks}', readOn: 'on', readOff: 'off' } } };
-    assert.match(memoryDbStatusLine(status, labels, Date.now()), /^rows \d+ files \d+ at 2026-10-24 12:00 UTC lag 0 read off fallbacks 0$/);
-    assert.equal(memoryDbStatusLine({ on: false }, labels), 'OFF');
-    assert.equal(memoryDbStatusLine({ on: true, open: false }, labels), 'DOWN');
-    assert.equal(memoryDbStatusLine({ on: true, open: true, lastSyncAt: null, files: 3 }, labels), 'NEW 3');
+    assert.equal(memoryDbStatusLine(status, labels), `rows ${status.rows} files ${status.files}`);
     // A label the writer has not filled yet leaves the line out.
-    assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { line: '' } } }), null);
+    assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { syncOff: '' } } }), null);
     assert.equal(memoryDbStatusLine(status, {}), null);
   } finally { await env.done(); }
 });
 
-test('a logger without debug (the engine logger has none): passes succeed and warn about nothing', async () => {
+test('a logger without debug (the engine logger has none): ticks and turn reads warn about nothing', async () => {
   const env = setup();
   delete env.log.debug;
   try {
     await env.service.tick();
+    env.service.recordTurnReads({ turnId: 'turn-D', reads: [{ kind: 'channel', id: CHANNEL }] });
     env.advance(61_000);
     await env.service.tick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
     assert.deepEqual(env.log.out.filter((line) => line.level === 'warn'), []);
-    assert.notEqual(env.service.status().lastPass?.failed, true);
   } finally {
     await env.done();
   }
 });
 
 test('issued contexts: recorded while the database is open, a pure object when it is not; turn reads carry the context id', async () => {
-  const closed = setup({ features: { memoryDb: false } });
+  const closed = setup();
   try {
     const ctx = closed.service.issueContext({ kind: 'group' });
     assert.match(ctx.id, /^ctx:/);

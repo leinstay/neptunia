@@ -90,7 +90,7 @@ test('skills registry: one skill per operation, of the same name, kind and owner
   // the old interface-only skills are gone; their abilities are operations behind commands
   for (const gone of ['draw', 'memory.read', 'message.send', 'skills.list', 'access.request', 'talk.interject', 'skill.allow']) assert.equal(registry.has(gone), false, gone);
   for (const name of ['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create', 'memory.profile.read', 'status.show']) assert.ok(registry.has(name), name);
-  assert.equal(registry.get('memory.wipe').ownerOnly, true);
+  assert.equal(registry.get('memory.restore').ownerOnly, true);
   assert.equal(registry.get('draw.create').costClass, 'paid');
 });
 
@@ -98,12 +98,12 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   for (const op of listOps()) assert.ok(EFFECT_CLASSES.includes(OP_EFFECTS[op.name]), `${op.name} has no effect class`);
   assert.deepEqual(Object.keys(OP_EFFECTS).sort(), listOps().map((op) => op.name).sort(), 'no row for an operation that does not exist');
   const of = (effect) => Object.keys(OP_EFFECTS).filter((name) => OP_EFFECTS[name] === effect).sort();
-  assert.deepEqual(of('destructive'), ['alias.remove', 'learning.remove', 'lore.remove', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'message.delete', 'rule.remove']);
+  assert.deepEqual(of('destructive'), ['alias.remove', 'learning.remove', 'lore.remove', 'memory.restore', 'message.delete', 'rule.remove']);
   for (const name of ['config.set', 'config.unset', 'model.set', 'route.set', 'route.remove', 'access.grant', 'access.revoke', 'bot.pause', 'bot.resume']) assert.equal(OP_EFFECTS[name], 'administrative', name);
   assert.deepEqual(of('paid'), ['draw.create', 'task.run', 'voice.say']);
   for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(OP_EFFECTS[op.name], 'read', op.name);
   // a skill carries its operation's class
-  assert.equal(skillRegistry().get('memory.wipe').effects, 'destructive');
+  assert.equal(skillRegistry().get('memory.restore').effects, 'destructive');
 });
 
 test('skills registry: a definition is checked at load; an owner-only operation loads with ownerOnly', () => {
@@ -122,7 +122,7 @@ test('skills registry: the texts come from prompts/skills.json by operation name
   const skill = skillRegistry().get('message.edit');
   const texts = { 'message.edit': { title: 'Διόρθωση', whenToUse: 'όταν', whenNotToUse: 'ποτέ' } };
   assert.deepEqual(['title', 'whenToUse', 'whenNotToUse'].map((key) => describeSkill(skill, texts)[key]), ['Διόρθωση', 'όταν', 'ποτέ']);
-  assert.deepEqual(['title', 'whenToUse', 'whenNotToUse'].map((key) => describeSkill(skillRegistry().get('memory.wipe'), {})[key]), ['', '', '']);
+  assert.deepEqual(['title', 'whenToUse', 'whenNotToUse'].map((key) => describeSkill(skillRegistry().get('memory.restore'), {})[key]), ['', '', '']);
   assert.equal(describeSkill(skill, undefined).title, '');
 });
 
@@ -217,13 +217,13 @@ test('skills access: default deny; only a grant naming her user id opens a skill
 });
 
 test('skills access: the irreversible and administrative operations are never open to her, whatever is stored', () => {
-  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'inner.start', 'inner.stop', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'model.set', 'route.remove', 'route.set', 'rule.remove']);
+  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'inner.start', 'inner.stop', 'memory.restore', 'model.set', 'route.remove', 'route.set', 'rule.remove']);
   assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
     // The inner life's switch on, so its kill switch exists to be refused (src/skills/access.js#FEATURE_SKILLS).
     assert.deepEqual(skillAccess({ skill: skillRegistry().get(name), config: granting([name], config({ features: { innerLife: true } })), selfId: SELF }), { allowed: false, reason: 'not-grantable' }, name);
   }
-  assert.deepEqual(check({ skill: 'memory.wipe', args: { confirm: 'Σπίτι' }, granted: ['memory.wipe'] }), { ok: false, code: 'not-grantable', reason: 'memory.wipe' });
+  assert.deepEqual(check({ skill: 'memory.restore', args: { id: 'ep-1' }, granted: ['memory.restore'] }), { ok: false, code: 'not-grantable', reason: 'memory.restore' });
 });
 
 test('skills access: her reply tags are carried over in the current conversation, without a grant, even in safe mode', () => {
@@ -404,7 +404,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
 // ---- the catalogue view -----------------------------------------------------------------
 
 test('skills list: one row per skill with its texts, allowed or not and why', () => {
-  const cfg = granting(['message.edit', 'memory.wipe', 'draw.create', 'memory.private.read']);
+  const cfg = granting(['message.edit', 'memory.restore', 'draw.create', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
   // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
@@ -416,7 +416,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, { name: 'text', required: false }, { name: 'file', required: false }, { name: 'gif', required: false }, { name: 'media', required: false }, { name: 'item', required: false, minimum: 1, maximum: 20 }] });
   assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed', args: [message, body, channel] });
   assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed', args: [message, channel] });
-  assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] });
+  assert.deepEqual(byName.get('memory.restore'), { name: 'memory.restore', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'id', required: true }] });
   // an owner-only skill: allowed for an owner who asks, not for a member -- unless it is her own
   const row = (name, requester) => listSkills({ config: cfg, selfId: SELF, texts: {}, requester, audience }).find((entry) => entry.name === name);
   assert.deepEqual([row('memory.private.read', { id: OWNER }).allowed, row('memory.private.read', { id: OWNER }).reason], [true, 'allowed']);
@@ -453,8 +453,8 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
     }
     const access = t.stored();
     for (const name of ['memory.private.read', 'message.edit', 'lore.add']) assert.deepEqual(access[name].users, [SELF], name);
-    const forgetPrivate = skillRegistry().get('memory.private.read');
-    assert.deepEqual(skillAccess({ skill: forgetPrivate, config: config({ access }), selfId: SELF }), { allowed: true, reason: 'allowed' });
+    const privateRead = skillRegistry().get('memory.private.read');
+    assert.deepEqual(skillAccess({ skill: privateRead, config: config({ access }), selfId: SELF }), { allowed: true, reason: 'allowed' });
     // for a person the owner-only operation stays closed, as before
     const person = await runOp('access.grant', { command: 'memory.private.read', userId: MEMBER }, owner);
     assert.deepEqual([person.status, person.summary], ['invalid', 'memory.private.read is owner-only and cannot be granted']);
@@ -462,7 +462,7 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
     const list = (await runOp('access.list', {}, owner)).summary.split('\n');
     for (const name of ['memory.private.read', 'message.edit', 'lore.add']) assert.ok(list.includes(`${name}: user id:${SELF}`), name);
     assert.equal((await runOp('access.revoke', { command: 'memory.private.read', userId: SELF }, owner)).status, 'ok');
-    assert.equal(skillAccess({ skill: forgetPrivate, config: config({ access: t.stored() }), selfId: SELF }).allowed, false);
+    assert.equal(skillAccess({ skill: privateRead, config: config({ access: t.stored() }), selfId: SELF }).allowed, false);
     const unknown = await runOp('access.grant', { command: 'message.pin', userId: SELF }, owner);
     assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill']);
   } finally {
@@ -494,13 +494,13 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
     const reads = [...skillRegistry().values()].filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name)).map((skill) => skill.name);
     assert.deepEqual(Object.keys(access).sort(), [...reads].sort());
     for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'intent.list']) assert.ok(access[name], name);
-    for (const name of ['message.edit', 'lore.add', 'memory.wipe', 'draw.create']) assert.equal(access[name], undefined, name);
+    for (const name of ['message.edit', 'lore.add', 'memory.restore', 'draw.create']) assert.equal(access[name], undefined, name);
     assert.deepEqual(access['lore.list'], { everyone: false, roles: [], users: [SELF], via: { [`user:${SELF}`]: '*' } });
     const t2 = makeEnv();
     try {
       await runOp('access.grant', { command: 'memory', userId: SELF }, { ...owner, env: t2.env });
       assert.ok(t2.stored()['memory.server.read']);
-      assert.equal(t2.stored()['memory.wipe'], undefined);
+      assert.equal(t2.stored()['memory.restore'], undefined);
     } finally {
       t2.cleanup();
     }
@@ -582,7 +582,7 @@ test('persona grants: no /nep skill command; the access autocomplete offers her 
       return responses[0].map((choice) => choice.value);
     };
     assert.deepEqual(await ask(OWNER, 'MESSAGE.RE'), ['message.react.add', 'message.react.remove']);
-    assert.deepEqual(await ask(OWNER, 'private'), ['memory.private.read', 'memory.private.forget', 'memory.private.purge']);
+    assert.deepEqual(await ask(OWNER, 'private'), ['memory.private.read']);
     assert.deepEqual(await ask(MEMBER, 'message'), []);
   } finally {
     t.cleanup();

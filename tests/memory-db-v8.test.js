@@ -1,7 +1,7 @@
-// Schema v8 (spec 2026-10-24-memory-schema-v7, stage 2): the migration of a database the importer built at v7 (the
-// Discord replies backfilled into `source_relations`, the native kind of every line), a relation to an unfetched
-// message resolved when it arrives without changing its key, the sync deriving relations for new lines, the lossless
-// export and parity after the migration and after a resync, the author combination check of the one writer path, the
+// Schema v8 (spec 2026-10-24-memory-schema-v7, stage 2): the migration of a database the unit writers filled at v7
+// (the Discord replies backfilled into `source_relations`, the native kind of every line), a relation to an unfetched
+// message resolved when it arrives without changing its key, the unit writes deriving relations for new lines, the
+// author combination check of the one writer path, the
 // append-only and fixed-key guards, the participant tuple constraints and the people merges.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,12 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
 import { V8_TABLES } from '../src/memory/db/schema.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { mergePeople } from '../src/memory/db/session-write.js';
 import { externalTargetKey, messageSourceId, survivorOf } from '../src/memory/db/ids.js';
 import { groupScope } from '../src/memory/db/scope.js';
-import { main } from '../tools/memory-db.mjs';
 import { buildDataDir, guildDir, seen, writeLines } from './fixtures/memory-db/datadir.js';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
@@ -25,7 +24,7 @@ const TO_LOST = '400000000000000012';
 const LOST = '400000000000000077';
 const replyKey = (messageId) => externalTargetKey({ authority: 'discord/global', kind: 'message', key: messageId, generation: 1, revision: null });
 
-/** A data directory with two replies (one to a stored message, one to a message never fetched), imported at v7. */
+/** A data directory with two replies (one to a stored message, one to a message never fetched), written at v7. */
 function importedAtV7() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v8-'));
   const data = path.join(root, 'data');
@@ -37,30 +36,11 @@ function importedAtV7() {
   ]);
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 7) });
-  assert.equal(syncOnce(old, data, { log: quiet }).errors, 0);
+  assert.equal(seedUnits(old, data, { log: quiet }).errors, 0);
   assert.equal(schemaVersion(old.db), 7);
   old.close();
   return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
-
-const run = (...argv) => {
-  const lines = [];
-  const code = main(argv, { out: (line) => lines.push(line), err: (line) => lines.push(line) });
-  return { code, text: lines.join('\n') };
-};
-
-function walkFiles(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const abs = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkFiles(abs, out);
-    else out.push(abs);
-  }
-  return out;
-}
-const touch = (file, secondsAhead = 5) => {
-  const when = new Date(Date.now() + secondsAhead * 1000);
-  fs.utimesSync(file, when, when);
-};
 
 const relationsOf = (db) => db.prepare('SELECT id, source_id, predicate, target_key, target_source_id, resolved_at IS NOT NULL AS resolved FROM source_relations ORDER BY source_id').all().map((row) => ({ ...row }));
 
@@ -90,18 +70,18 @@ test('v8 migration: replies backfilled into source_relations, native kinds fille
   }
 });
 
-test('v8: a relation to an unfetched message resolves when it arrives; the key never changes; a remap and new replies go through the same path', () => {
+test('v8: a relation to an unfetched message resolves when it arrives; the key never changes; a rewrite and new replies go through the same path', () => {
   const env = importedAtV7();
   const handle = openMemoryDb(env.file);
   const { db } = handle;
   try {
     const before = relationsOf(db);
-    // The lost message arrives, and a new reply that the sync (not the migration) derives.
+    // The lost message arrives, and a new reply that the unit writes (not the migration) derive.
     writeLines(path.join(guildDir(env.data), 'record', '2026-10', '2026-10-22.jsonl'), [
       seen(LOST, 1, 'the line that was missing'),
       seen('400000000000000013', 1, 'another reply', { replyTo: '400000000000000002' }),
     ]);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0);
+    assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0);
     const after = relationsOf(db);
     const lost = after.find((row) => row.source_id === messageSourceId(TO_LOST, 1, 'seen'));
     const was = before.find((row) => row.source_id === messageSourceId(TO_LOST, 1, 'seen'));
@@ -110,39 +90,12 @@ test('v8: a relation to an unfetched message resolves when it arrives; the key n
     assert.deepEqual([fresh.target_key, fresh.target_source_id, fresh.resolved], [replyKey('400000000000000002'), messageSourceId('400000000000000002', 1, 'seen'), 1]);
     assert.equal(after.length, 3);
 
-    // Every file read again: the relations stay as they are, none is added twice.
-    for (const file of walkFiles(env.data)) touch(file);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0);
+    // Every unit written again: the relations stay as they are, none is added twice.
+    assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0);
     assert.deepEqual(relationsOf(db), after);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   } finally {
     handle.close();
-    env.done();
-  }
-});
-
-test('v8: verify stays byte-equal and parity unchanged, after the migration and after a resync', () => {
-  const env = importedAtV7();
-  try {
-    openMemoryDb(env.file).close();
-    const first = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(first.code, 0, first.text);
-    assert.match(first.text, /verify ok/);
-    const parity = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parity.code, 0, parity.text);
-    assert.match(parity.text, /differ 0/);
-    for (const file of walkFiles(env.data)) touch(file);
-    const handle = openMemoryDb(env.file);
-    assert.equal(syncOnce(handle, env.data, { log: quiet }).errors, 0);
-    assert.deepEqual(handle.db.prepare('PRAGMA foreign_key_check').all(), []);
-    handle.close();
-    const again = run('verify', '--data', env.data, '--db', env.file);
-    assert.equal(again.code, 0, again.text);
-    assert.match(again.text, /verify ok/);
-    const parityAgain = run('parity', '--data', env.data, '--db', env.file);
-    assert.equal(parityAgain.code, 0, parityAgain.text);
-    assert.match(parityAgain.text, /differ 0/);
-  } finally {
     env.done();
   }
 });

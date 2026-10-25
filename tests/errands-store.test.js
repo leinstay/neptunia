@@ -1,9 +1,9 @@
-// Tests for src/errands/store.js: the persona's errand tasks on disk, per guild, in a temp
-// data/ directory. A task moves queued -> running -> done | failed | cancelled, tasks.json holds
-// the list and tasks.jsonl one line per transition, the caps refuse with their codes (open at
+// Tests for src/errands/store.js: the persona's errand tasks, per guild, in the memory database of a
+// temp data/ directory. A task moves queued -> running -> done | failed | cancelled, the unit
+// tasks.json holds the list and tasks.jsonl one line per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
 // only, and a file handle resolves only to a file the task's result lists.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,12 +11,29 @@ import path from 'node:path';
 import { createTaskStore, fileHandle, parseFileHandle } from '../src/errands/store.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = Date.parse('2026-10-17T10:00:00Z');
 
 function tempDataDir() {
   return tempDir('errands-store-');
+}
+
+/** The memory database of each data directory used here, opened once; closed when the file is done. */
+const MEMORY = new Map();
+after(async () => {
+  for (const { close } of MEMORY.values()) await close();
+});
+function memoryOf(dataDir) {
+  if (!MEMORY.has(dataDir)) MEMORY.set(dataDir, openTestMemorySync({ dataDir }));
+  return MEMORY.get(dataDir).memoryDb;
+}
+
+/** The unit `rel` of `dataDir` as the file it stands for, once `store`'s writes landed. */
+async function fileText(store, dataDir, rel) {
+  await store.flush();
+  return unitFile(memoryOf(dataDir), rel);
 }
 
 function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, journal = null, journalOn = true } = {}) {
@@ -30,14 +47,14 @@ function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, jo
     },
   };
   let n = 0;
-  const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal, uuid: () => `${(n += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd` });
+  const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal, memoryDb: memoryOf(dataDir), uuid: () => `${(n += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd` });
   return { store, dataDir, clock, config };
 }
 
 const asked = { agent: 'scout', goal: 'find the release notes', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm1' }, scope: 'group' };
 
 test('task store: a new task is queued and written to tasks.json and tasks.jsonl', async () => {
-  await withCapturedLogs(() => {
+  await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const added = store.add(asked);
     assert.equal(added.ok, true);
@@ -52,19 +69,19 @@ test('task store: a new task is queued and written to tasks.json and tasks.jsonl
     assert.equal(task.createdAt, T0);
     assert.equal(task.seen, false);
     assert.equal(task.result, null);
-    const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8'));
+    const file = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
     assert.equal(file.tasks.length, 1);
-    const lines = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n');
+    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n');
     assert.equal(lines.length, 1);
     assert.equal(JSON.parse(lines[0]).state, 'queued');
     // A second store over the same directory reads the list back.
-    const again = createTaskStore({ dataDir, guildId: 'g1', now: () => T0 });
+    const again = createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 });
     assert.equal(again.get(task.id).goal, 'find the release notes');
   });
 });
 
 test('task store: queued -> running -> done; the end is written once, a late one ignored', async () => {
-  await withCapturedLogs(() => {
+  await withCapturedLogs(async () => {
     const { store, dataDir, clock } = makeStore();
     const { task } = store.add(asked);
     clock.t += 1000;
@@ -85,7 +102,7 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(store.markSeen(task.id).seen, true);
     assert.deepEqual(store.unseen(), []);
     assert.equal(store.today('scout').usd, 0.25);
-    const states = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).state);
+    const states = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n').map((line) => JSON.parse(line).state);
     assert.deepEqual(states, ['queued', 'running', 'done']);
   });
 });
@@ -234,7 +251,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 });
 
 test('task store: a finished task\'s files expire once the runner removed its directory; the handle then names nothing', async () => {
-  await withCapturedLogs(() => {
+  await withCapturedLogs(async () => {
     const out = tempDir('errands-out-');
     const { store, dataDir } = makeStore({ agents: { maxOpen: 5, scout: { daily: { tasks: 5 }, out } } });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
@@ -253,7 +270,7 @@ test('task store: a finished task\'s files expire once the runner removed its di
     assert.equal(store.fileOf(fileHandle(gone.id, 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(kept.id, 'meme.png')));
     assert.ok(store.unseen().find((t) => t.id === gone.id).filesExpired);
-    const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8'));
+    const saved = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
     assert.equal(saved.tasks.find((t) => t.id === gone.id).filesExpired, true, 'written to tasks.json');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, kept.id), { recursive: true });
@@ -271,31 +288,8 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
   });
 });
 
-test('task store: forgetUser drops the member\'s tasks and transition lines atomically; wipe deletes both files', async () => {
-  await withCapturedLogs(() => {
-    const { store, dataDir } = makeStore({ agents: { maxOpen: 5 } });
-    const mine = store.add(asked).task;
-    const theirs = store.add({ ...asked, requester: { userId: 'u2', kind: 'member' } }).task;
-    store.start(mine.id);
-    const logFile = path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl');
-    fs.appendFileSync(logFile, 'not json u1\nnot json u9\n');
-    const vault = path.join(dataDir, 'vault', 'forget-u1');
-    assert.deepEqual(store.forgetUser('u1', { vault }), { removed: 1, lines: 3 });
-    assert.deepEqual(store.recent(10).map((t) => t.id), [theirs.id]);
-    const left = fs.readFileSync(logFile, 'utf8').trim().split('\n');
-    assert.deepEqual(left.slice(-1), ['not json u9']);
-    assert.equal(JSON.parse(left[0]).id, theirs.id);
-    assert.equal(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'tasks.jsonl.dropped.jsonl'), 'utf8').trim().split('\n').length, 3);
-    assert.deepEqual(store.forgetUser('u1'), { removed: 0, lines: 0 });
-    assert.deepEqual(store.wipe(), { files: 2 });
-    assert.equal(fs.existsSync(logFile), false);
-    assert.deepEqual(store.recent(10), []);
-    assert.deepEqual(store.wipe(), { files: 0 });
-  });
-});
-
 test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json written, the later transition lines carry it); none for an unknown task', async () => {
-  await withCapturedLogs(() => {
+  await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const { task } = store.add(asked);
     assert.equal(Object.hasOwn(task, 'ledgerId'), false, 'optional: absent until the ledger answers');
@@ -305,17 +299,17 @@ test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json wri
     assert.equal(store.setLedgerId('tnone', 'L8'), null);
     assert.equal(store.setLedgerId(task.id, ''), null);
     store.start(task.id);
-    const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8'));
+    const file = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
     assert.equal(file.tasks[0].ledgerId, 'L7');
-    const lines = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(lines.map((line) => [line.state, line.ledgerId ?? null]), [['queued', null], ['running', 'L7']]);
     // A second store over the same directory reads it back.
-    assert.equal(createTaskStore({ dataDir, guildId: 'g1', now: () => T0 }).get(task.id).ledgerId, 'L7');
+    assert.equal(createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 }).get(task.id).ledgerId, 'L7');
   });
 });
 
-test('task store: costs and the daily caps read the same spend records, rebuilt from tasks.jsonl after a restart; a forget and a wipe drop theirs', async () => {
-  await withCapturedLogs(() => {
+test('task store: costs and the daily caps read the same spend records, rebuilt from tasks.jsonl after a restart', async () => {
+  await withCapturedLogs(async () => {
     const dataDir = tempDataDir();
     const clock = { t: T0 };
     const { store, config } = makeStore({ dataDir, clock });
@@ -337,16 +331,10 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
 
     // A restart: the list file carries no counters; tasks.jsonl gives the same numbers back.
-    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')), 'daily'), false);
-    const again = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config });
+    assert.equal(Object.hasOwn(JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json'))), 'daily'), false);
+    const again = createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => clock.t, config: () => config });
     assert.deepEqual(again.costs(), store.costs());
 
-    // The member's tasks leave the spend with their lines.
-    again.forgetUser('u2');
-    assert.equal(again.costs().scout.today.runs, 2);
-    assert.equal(again.add(asked).ok, true, 'under the task cap');
-    again.wipe();
-    assert.deepEqual(again.costs(), {});
   });
 });
 

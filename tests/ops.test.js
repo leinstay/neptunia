@@ -32,9 +32,9 @@ const AGREED = new Set([
   'alias.add', 'alias.remove',
   'learning.add', 'learning.remove',
   'lore.add', 'lore.list', 'lore.show', 'lore.remove',
-  'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh.user', 'memory.refresh.channel', 'memory.refresh.server', 'memory.forget',
-  'memory.affinity.read', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
-  'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
+  'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read',
+  'memory.affinity.read', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
+  'memory.snapshot', 'memory.private.read',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
   'task.run', 'task.status', 'task.cancel', 'task.list', 'task.read', 'task.resolve',
   'web.search', 'web.read', 'media.look', 'media.find', 'memory.search',
@@ -48,8 +48,8 @@ const AGREED = new Set([
 /** Owner-only per the plan: no grant ever opens them. */
 const OWNER_ONLY = [
   'access.grant', 'access.revoke', 'access.list',
-  'memory.private.read', 'memory.private.forget', 'memory.private.purge',
-  'memory.journal.read', 'memory.snapshot', 'memory.forget', 'memory.wipe', 'memory.archive.read', 'memory.restore',
+  'memory.private.read',
+  'memory.journal.read', 'memory.snapshot', 'memory.archive.read', 'memory.restore',
   'inner.stop', 'inner.start', 'inner.status',
 ];
 
@@ -150,8 +150,8 @@ test('ops: an exception becomes failed with its code', async () => {
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
   // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'], 'task.inner': ['stop', 'start', 'status'] };
-  const KINDS = { 'memory.refresh': ['user', 'channel', 'server'] };
+  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'], 'task.inner': ['stop', 'start', 'status'] };
+  const KINDS = {};
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
     const variants = Object.hasOwn(ACTIONS, key)
@@ -175,23 +175,17 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
 });
 
-test('ops: no warmup operation is left; memory refresh is one operation per kind, write rights', () => {
+test('ops: no warmup and no memory refresh, forget, wipe or purge operation is left', () => {
   const ops = listOps();
-  assert.deepEqual(ops.filter((op) => op.name.startsWith('warmup')), [], 'the warmup is tools/warmup.mjs');
+  assert.deepEqual(ops.filter((op) => op.name.startsWith('warmup')), []);
   for (const key of Object.keys(COMMAND_TO_OP)) assert.ok(!key.startsWith('warmup'), key);
-  const byName = new Map(ops.map((op) => [op.name, op]));
-  for (const kind of ['user', 'channel', 'server']) {
-    const name = `memory.refresh.${kind}`;
-    assert.equal(resolveCommand('memory.refresh', { kind }).op, name);
-    assert.equal(byName.get(name).rights.kind, 'write', name);
-    assert.notEqual(byName.get(name).rights.ownerOnly, true, `${name} keeps today's rights: owner unless granted`);
-  }
-  assert.equal(byName.has('memory.refresh'), false);
-  assert.match(resolveCommand('memory.refresh', {}).invalid, /kind must be one of: user, channel, server/);
-  assert.deepEqual(legacyGrantOps('memory.refresh'), { from: null, names: ['memory.refresh.user'] });
+  const gone = ['memory.refresh', 'memory.forget', 'memory.wipe', 'memory.private.forget', 'memory.private.purge'];
+  assert.deepEqual(ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name), []);
+  for (const key of ['memory.refresh', 'memory.forget', 'memory.wipe']) assert.equal(Object.hasOwn(COMMAND_TO_OP, key), false, key);
   assert.equal(legacyGrantOps('warmup.run'), null);
   assert.equal(legacyGrantOps('warmup'), null);
 });
+
 
 test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {
   for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run']) assert.equal(legacyGrantOps(key), null, key);

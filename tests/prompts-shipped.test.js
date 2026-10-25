@@ -7,9 +7,9 @@
 // its labels head; together the requests load every tracked prompt file. A placeholder added to
 // a prompt without a filler, a filler dropped from a builder, a prompt file no builder sends or
 // a label key missing from labels.json fails here instead of reaching the model as literal text.
-// The switches a request needs (the web lookup, video vision, two-stage memory) are
+// The switches a request needs (the web lookup, video vision) are
 // turned on per test; every number comes from the shipped config.json.
-import { after, test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,14 +30,9 @@ import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { canSend, createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
-import { buildMemoryRequest, characterText } from '../src/memory/update.js';
-import { buildVoiceRequest } from '../src/memory/voice.js';
-import { createWarmup } from '../src/memory/warmup.js';
-import { createStore } from '../src/memory/store.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';
 import { createLookup } from '../src/web/lookup.js';
-import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
 import { CATALOGUE } from '../src/skills/codes.js';
@@ -79,15 +74,6 @@ const SHIPPED = {
   },
 };
 const LABELS = SHIPPED.prompts.labels;
-
-// One temp root for the stores the warm-up writes through, removed once the file is done.
-const TEMP_ROOT = tempDir('nep-prompts-shipped-');
-after(() => fs.rmSync(TEMP_ROOT, { recursive: true, force: true }));
-
-/** A real store over a fresh directory under TEMP_ROOT. */
-function tempStore(name) {
-  return createStore({ dataDir: path.join(TEMP_ROOT, name) });
-}
 
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
@@ -133,7 +119,6 @@ const PENDING_LABELS = {
 };
 
 const SYSTEM = ['system-prompt', 'character-card', 'rules', 'format'];
-const CHARACTER = ['character-card', 'rules'];
 
 /** The prompt files each request below must carry whole, by request. */
 const LOADS = {
@@ -151,15 +136,6 @@ const LOADS = {
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
   diaryPlan: ['diary-plan', 'world'],
-  memory: ['memory', ...CHARACTER],
-  memoryDecide: ['memory-decide', ...CHARACTER],
-  memoryIntentions: ['memory', 'memory-intentions', ...CHARACTER],
-  voice: ['memory-voice', ...CHARACTER],
-  warmupChannel: ['channel'],
-  warmupPerson: ['profile', ...CHARACTER],
-  warmupServer: ['server', ...CHARACTER],
-  portraitSingle: ['profile', ...CHARACTER],
-  portraitStageA: ['portrait', ...CHARACTER],
   describe: ['describe'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
@@ -179,7 +155,6 @@ const LOADS = {
   missed: ['missed'],
   gifPick: ['gif-pick'],
   turn:[...SYSTEM, 'reply'],
-  backfill: ['backfill'],
 };
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
@@ -872,103 +847,7 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
   assertFilled(request.messages, { files: LOADS.diaryPlan, blocks: ['now', 'server', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] }, 'diary plan');
 });
 
-// ---- the stream analyzer --------------------------------------------------------------
-
-/** One guild batch of the analyzer over the #général chat, at `stage`. */
-async function memoryRequest(stage, overrides = {}) {
-  const history = await generalHistory();
-  const { descriptions, videos, reads } = mediaMaps(history);
-  const config = shippedConfig({ memory: { mainChannelIds: [GENERAL] }, ...overrides });
-  return buildMemoryRequest({
-    prompts: SHIPPED.prompts,
-    config,
-    calibrator: createCalibrator(),
-    profiles: { [ANA]: PROFILES[ANA], [NIKOS]: PROFILES[NIKOS], [BJORN]: PROFILES[BJORN] },
-    guildMemory: GUILD_MEMORY,
-    channels: { [GENERAL]: CHANNELS[0] },
-    messages: history,
-    selfName: SELF_NAME,
-    loreEntries: LORE,
-    descriptions,
-    videos,
-    reads,
-    nameOf,
-    rosterProfiles: Object.values(PROFILES),
-    recentLines: RECENT_LINES,
-    now: NOW,
-    stage,
-  });
-}
-
-const MEMORY_BLOCKS = ['character', 'existing_profiles', 'existing_lore', 'existing_guild', 'existing_channels', 'known_members', 'recent_notes', 'new_messages'];
-
-test('buildMemoryRequest: the single stage fills memory.md', async () => {
-  const request = await memoryRequest('single');
-  assertFilled(request.messages, { files: LOADS.memory, blocks: MEMORY_BLOCKS }, 'memory single');
-});
-
-test('buildMemoryRequest: the decide stage fills memory-decide.md', async () => {
-  const request = await memoryRequest('decide');
-  const text = assertFilled(request.messages, { files: LOADS.memoryDecide, blocks: MEMORY_BLOCKS }, 'memory decide');
-  assert.ok(!carries(text, 'memory'), 'stage A sends its own prompt, not memory.md');
-});
-
-test('buildMemoryRequest: with features.intentions on, a guild batch also fills memory-intentions.md', async () => {
-  const request = await memoryRequest('single', { features: { intentions: true } });
-  assertFilled(request.messages, { files: LOADS.memoryIntentions, blocks: MEMORY_BLOCKS }, 'memory intentions');
-});
-
-test('buildMemoryRequest: a private batch fills memory.md with the private blocks', async () => {
-  const dm = { id: 'dm1', name: null, category: null, topic: null };
-  const messages = normalize([
-    rawMessage(dm, { ts: NOW - 6 * MINUTE_MS, author: PEOPLE[ANA], content: 'je commence un nouveau travail lundi' }),
-    rawMessage(dm, { ts: NOW - 5 * MINUTE_MS, author: PEOPLE[SELF_ID], content: 'bravo !' }),
-  ]);
-  const request = buildMemoryRequest({
-    prompts: SHIPPED.prompts,
-    config: shippedConfig(),
-    calibrator: createCalibrator(),
-    profiles: { [ANA]: { relationship: 'a quiet confidante', affinity: { score: 30, reason: 'shared a secret', history: [] }, details: [], interests: [], episodes: [] } },
-    guildMemory: GUILD_MEMORY,
-    messages,
-    selfName: SELF_NAME,
-    nameOf,
-    privateChat: { publicProfile: PROFILES[ANA], now: NOW },
-  });
-  assertFilled(request.messages, { files: LOADS.memory, blocks: ['private', 'character', 'public_profile', 'new_messages'] }, 'memory private');
-});
-
-test('buildVoiceRequest: memory-voice.md is filled for every kind of item', () => {
-  const brief = (text) => [text];
-  const items = [
-    { id: 'v1', kind: 'relationship', userId: ANA, brief: brief('closer since the meetup'), payload: {}, createdAt: NOW - HOUR_MS },
-    { id: 'v2', kind: 'reason', userId: ANA, brief: brief('brought crêpes'), payload: { delta: 4 }, createdAt: NOW - HOUR_MS },
-    { id: 'v3', kind: 'feeling', userId: ANA, brief: brief('pleased'), payload: { what: 'taught a card trick', quote: 'regarde bien' }, createdAt: NOW - HOUR_MS },
-    { id: 'v4', kind: 'learned', brief: brief('say bonjour first'), payload: { from: `<@${ANA}>` }, createdAt: NOW - HOUR_MS },
-    { id: 'v5', kind: 'self', brief: brief('likes rain'), payload: {}, createdAt: NOW - HOUR_MS },
-    { id: 'v6', kind: 'patterns', brief: brief('more emoji lately'), payload: {}, createdAt: NOW - HOUR_MS },
-    { id: 'v7', kind: 'starters', brief: brief('photos of lunch'), payload: {}, createdAt: NOW - HOUR_MS },
-    { id: 'v8', kind: 'character', userId: NIKOS, brief: brief('dry humour, kind underneath'), payload: {}, createdAt: NOW - HOUR_MS },
-    { id: 'v9', kind: 'relationship', userId: ANA, layer: 'private', brief: brief('trusts the persona'), payload: {}, createdAt: NOW - HOUR_MS },
-  ];
-  // One request per item: the shipped output budget holds only some kinds together.
-  for (const item of items) {
-    const request = buildVoiceRequest({
-      prompts: SHIPPED.prompts,
-      config: shippedConfig(),
-      calibrator: createCalibrator(),
-      items: [item],
-      selfName: SELF_NAME,
-      character: characterText(SHIPPED.prompts, SELF_NAME),
-      nameOf,
-      oldTextOf: (queued) => (queued.kind === 'patterns' ? GUILD_MEMORY.patterns : queued.userId ? PROFILES[queued.userId]?.relationship : ''),
-    });
-    assert.deepEqual(request.sent, [item.id], `${item.kind}: the item is sent`);
-    assertFilled(request.messages, { files: LOADS.voice, blocks: ['character', 'items'] }, `voice (${item.kind}${item.layer ? `, ${item.layer}` : ''})`);
-  }
-});
-
-// ---- the warm-up and the portrait refresh ---------------------------------------------------
+// ---- the Discord fakes ---------------------------------------------------------------------
 
 /** A discord.js-shaped text channel of `guild`: its history newest first on fetch, every permission granted. */
 function discordChannel(guild, info, raws) {
@@ -1018,18 +897,6 @@ function discordClient(guild) {
   };
 }
 
-/** A month of Ana's and Nikos' lines in #général, the persona answering now and then. */
-function warmupRaws() {
-  const raws = [];
-  for (let i = 0; i < 36; i += 1) {
-    const ts = NOW - (36 - i) * 6 * HOUR_MS;
-    raws.push(rawMessage(GENERAL_INFO, { ts, author: PEOPLE[ANA], content: `les tomates du balcon, jour ${i + 1}` }));
-    if (i % 3 === 0) raws.push(rawMessage(GENERAL_INFO, { ts: ts + MINUTE_MS, author: PEOPLE[NIKOS], content: `l'ail pousse, jour ${i + 1}` }));
-    if (i % 6 === 0) raws.push(rawMessage(GENERAL_INFO, { ts: ts + 2 * MINUTE_MS, author: PEOPLE[SELF_ID], content: `bravo pour le jour ${i + 1}` }));
-  }
-  return raws;
-}
-
 /** A fake `llm.complete` recording every request and answering `answer(messages, options)`. */
 function recordingLlm(answer) {
   const calls = [];
@@ -1042,56 +909,6 @@ function recordingLlm(answer) {
     },
   };
 }
-
-/** The recorded requests whose system message carries prompt `name` whole. */
-function callsCarrying(llm, name) {
-  return llm.calls.filter((call) => carries(contentText(call.messages[0].content), name));
-}
-
-test('createWarmup: the channel, person and server requests fill channel.md, profile.md and server.md', async () => {
-  const guild = discordGuild([[GENERAL_INFO, warmupRaws()]]);
-  const store = tempStore('warmup');
-  const llm = recordingLlm(() => '{}');
-  const hot = shippedHot({ memory: { mainChannelIds: [GENERAL] } });
-  const warmup = createWarmup({ discord: DISCORD, hot, store, client: discordClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
-
-  await withCapturedLogs(async () => {
-    await warmup.runChannel(GUILD, GENERAL);
-    await warmup.runPerson(GUILD, ANA);
-    await warmup.runServer(GUILD);
-  });
-
-  const [channel] = callsCarrying(llm, 'channel');
-  assertFilled(channel?.messages, { files: LOADS.warmupChannel, blocks: ['channel', 'messages'] }, 'warmup channel');
-  const [person] = callsCarrying(llm, 'profile');
-  assertFilled(person?.messages, { files: LOADS.warmupPerson, blocks: ['character', 'member', 'snippets'] }, 'warmup person');
-  const [server] = callsCarrying(llm, 'server');
-  assertFilled(server?.messages, { files: LOADS.warmupServer, blocks: ['character', 'members', 'messages'] }, 'warmup server');
-});
-
-test('createWarmup: a portrait refresh fills profile.md, and portrait.md in two-stage mode', async () => {
-  const store = tempStore('portrait');
-  store.touchUser(GUILD, ANA, 'Ana', NOW - 30 * DAY_MS);
-  store.applyProfileOps(GUILD, ANA, { character: 'curious and warm', style: 'short lines' }, { fieldChars: SHIPPED.config.memory.fieldChars });
-  const windows = [{ ...GENERAL_INFO, messages: normalize(warmupRaws()) }];
-  const llm = recordingLlm(() => '{}');
-  const hot = shippedHot();
-  const client = { user: { id: SELF_ID, username: SELF_NAME }, guilds: { cache: new Map() } };
-  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
-  const hint = `<@${ANA}> said she moved to the coast`;
-
-  await withCapturedLogs(() => warmup.refreshPortrait(GUILD, ANA, hint, { force: true, windows }));
-  hot.config.features.memoryTwoStage = true;
-  await withCapturedLogs(() => warmup.refreshPortrait(GUILD, ANA, hint, { force: true, windows }));
-
-  assert.equal(llm.calls.length, 2, 'one request per refresh');
-  const [single, stageA] = llm.calls;
-  assertFilled(single.messages, { files: LOADS.portraitSingle, blocks: ['character', 'member', 'draft', 'hint', 'snippets'] }, 'portrait single');
-  const text = assertFilled(stageA.messages, { files: LOADS.portraitStageA, blocks: ['character', 'member', 'draft', 'hint', 'snippets'] }, 'portrait stage A');
-  assert.ok(!carries(text, 'profile'), 'stage A sends portrait.md, not profile.md');
-});
-
-// ---- the helpers of a turn: describer, re-watch, link reader, search --------------------------
 
 test('createTurnRunner: a reply turn fills the describer, re-watch, link, search, recall and turn requests', async () => {
   const hot = shippedHot({ features: { webLookup: true, videoDescriptions: true } });
@@ -1479,24 +1296,6 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   assertFilled(llm.calls[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
   assert.equal(llm.calls[0].options.purpose, 'merge');
   assert.equal(folded.length, 1, 'folded into the waiting part');
-});
-
-test('backfill: the extract request of tools/backfill.mjs carries prompts/backfill.md whole', () => {
-  const at = (minutes) => new Date(NOW + minutes * MINUTE_MS).toISOString();
-  const lines = [
-    { kind: 'seen', messageId: '1', occurredAt: at(0), scope: { channel: '700000000000000001' }, by: ANA, replyTo: null, text: 'Καλημέρα', media: [], mentions: [] },
-    { kind: 'said', messageId: '2', occurredAt: at(1), scope: { channel: '700000000000000001' }, replyTo: '1', text: 'Γεια', media: [], mentions: [] },
-  ];
-  const [window] = windowsOf(lines, { gapMinutes: shippedConfig().recall.clusterGapMinutes });
-  const messages = buildExtractRequest({
-    prompts: SHIPPED.prompts,
-    selfName: SELF_NAME,
-    selfId: SELF_ID,
-    window,
-    roster: rosterOf(window, { selfId: SELF_ID, selfName: SELF_NAME, namesOf: () => ['Ana'] }),
-    channelName: 'général',
-  });
-  assertFilled(messages, { files: LOADS.backfill, blocks: ['roster', 'window'] }, 'backfill extract');
 });
 
 test('createAvatarQueue: the avatar describer fills avatar.md', async () => {

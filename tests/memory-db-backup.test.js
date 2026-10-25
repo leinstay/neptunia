@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { startRun } from '../src/memory/db/wakes.js';
 import { backupDatabase, main, restoreDatabase, tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
@@ -32,7 +32,7 @@ function imported() {
   fs.writeFileSync(path.join(data, 'media', 'diary', 'd-1-2.ogg'), Buffer.from('Ωδή'));
   const file = path.join(data, 'memory.db');
   const handle = openMemoryDb(file);
-  assert.equal(syncOnce(handle, data, { log: quiet, now: () => NOW }).errors, 0);
+  assert.equal(seedUnits(handle, data, { log: quiet, now: () => NOW }).errors, 0);
   startRun(handle, { id: 'run-1', kind: 'heartbeat', startedAt: NOW });
   handle.close();
   return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
@@ -106,7 +106,7 @@ test('restore: a backup whose file does not match its manifest is refused before
 /** The scratch folders `restore-test` leaves under TMPDIR (it must leave none). */
 const restoreScratch = () => fs.readdirSync(process.env.TMPDIR || os.tmpdir()).filter((name) => name.startsWith('restore-test-'));
 
-test('restore-test: the backup restored into an isolated db service reads and exports as the backup itself, then the scratch goes', async () => {
+test('restore-test: the backup restored into an isolated db service hashes as the backup itself, then the scratch goes', async () => {
   const env = imported();
   try {
     const to = path.join(env.root, 'backup');
@@ -117,11 +117,7 @@ test('restore-test: the backup restored into an isolated db service reads and ex
     const text = lines.join('\n');
     assert.equal(code, 0, text);
     assert.match(text, /restored: schema \d+, 3 files checked/);
-    assert.match(text, /record\.iterate +compared [1-9]\d* +equal [1-9]\d* +differ 0/);
-    assert.match(text, /journal\.read +compared [1-9]\d* +equal [1-9]\d* +differ 0/);
-    assert.match(text, /intentions\.list +compared 1 +equal 1 +differ 0/);
-    assert.match(text, /export user +equal 1 +differs 0 +missing 0 +extra 0/);
-    assert.match(text, /restore-test ok: reads equal, the restored export equals the backup's/);
+    assert.match(text, /restore-test ok: every table of the restored database equals the backup's \(\d+ tables/);
     assert.deepEqual(restoreScratch(), scratchBefore, 'the temporary data directory is removed');
     // The backup itself is unchanged: it still restores and matches its manifest.
     const target = path.join(env.root, 'again', 'memory.db');

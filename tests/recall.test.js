@@ -37,12 +37,12 @@ import {
   snowflakeAt,
 } from '../src/behavior/recall.js';
 import { estimateTokens } from '../src/llm/tokens.js';
-import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import fs, { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
@@ -1089,33 +1089,25 @@ test('matchRecord: a link title or description matches as topic text and the win
   assert.deepEqual(old.windows.map((w) => w.messages[0].links), [[]], 'a line without links reads as before');
 });
 
-test('recall: a record line outside the range is not scanned', async () => {
-  const dataDir = tempDir('nep-recall-record-');
+test('recall: a record line outside the range is not read: each read asks the record for the days of its range', async () => {
+  const mem = await openTestMemory();
   const quiet = { info() {}, warn() {} };
   try {
-    const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
-    const opened = [];
-    const watched = {
-      ...appendStore,
-      iterate: (file, opts) => {
-        opened.push(path.basename(file));
-        return appendStore.iterate(file, opts);
-      },
-    };
-    const record = createRecord({ appendStore: watched, dataDir, log: quiet, now: () => NOW });
-    await record.append('g1', [rec('new', NOW - 24 * HOUR, { text: 'το κουνέλι today' }), rec('old', NOW - 5 * 24 * HOUR, { text: 'το κουνέλι back then' })]);
-    await appendStore.close();
+    const stored = createRecord({ dataDir: mem.dataDir, log: quiet, now: () => NOW, memoryDb: mem.memoryDb });
+    await stored.append('g1', [rec('new', NOW - 24 * HOUR, { text: 'το κουνέλι today' }), rec('old', NOW - 5 * 24 * HOUR, { text: 'το κουνέλι back then' })]);
+    const asked = [];
+    const record = { ...stored, iterate: (guildId, query) => { asked.push(query); return stored.iterate(guildId, query); } };
     const base = { record, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 3, recordContext: 3, now: NOW, maxWindows: 5 };
-    opened.length = 0;
     const recent = await matchRecord('g1', { ...base, range: { from: null, to: null } });
     assert.deepEqual(recent.windows.flatMap((w) => [...w.hitIds]), ['new']);
-    assert.ok(!opened.includes('2026-09-30.jsonl'), `the old day file is never opened: ${opened}`);
-    opened.length = 0;
+    assert.ok(asked.length > 0 && asked.every((query) => Date.parse(query.from) >= NOW - 4 * 24 * HOUR), `the old day is never asked for: ${JSON.stringify(asked)}`);
+    asked.length = 0;
     const back = await matchRecord('g1', { ...base, range: { from: NOW - 6 * 24 * HOUR, to: NOW - 4 * 24 * HOUR } });
     assert.deepEqual(back.windows.flatMap((w) => [...w.hitIds]), ['old'], 'an older range reads its own days');
-    assert.ok(!opened.includes('2026-10-04.jsonl'), `${opened}`);
+    assert.ok(asked.every((query) => Date.parse(query.to) <= NOW - 3 * 24 * HOUR), `${JSON.stringify(asked)}`);
   } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
   }
 });
 

@@ -1,25 +1,61 @@
-// Tests for src/memory/store.js: JSON-file persistence for profiles, guild
-// memory, the observation buffer and scheduler state.
-import { test } from 'node:test';
+// Tests for src/memory/store.js: the cache over the memory units (profiles, guild memory, channels, lore and the
+// rest, kept in the memory database) and the operational state files.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createStore, readLedger, writeJsonAtomic } from '../src/memory/store.js';
-import { createAppendStore } from '../src/memory/append-store.js';
-import { createRecord, toRecordLine } from '../src/memory/record.js';
-import { archiveEntry, createArchive } from '../src/memory/archive.js';
-import { createJournal } from '../src/memory/journal.js';
+import { createStore, writeJsonAtomic } from '../src/memory/store.js';
 import { applyDelta } from '../src/memory/affinity.js';
 import { mergeEpisodes } from '../src/memory/episodes.js';
-import { applyMemoryUpdate, MEMORY_LIMIT_DEFAULTS } from '../src/memory/update.js';
-import { FEELING_CHARS, REASON_CHARS, SELF_CHARS, applyVoiceItems, mergeIntoQueue, removeItems, splitDecision } from '../src/memory/voice.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
+import { createMemoryDb } from '../src/memory/db/service.js';
+import { unitValue } from '../src/memory/db/readers/common.js';
+import { MEMORY_LIMIT_DEFAULTS, SELF_CHARS } from '../src/memory/text-limits.js';
 
 function tmpDataDir() {
   return tempDir('nep-store-');
+}
+
+const SILENT = { info() {}, debug() {}, warn() {}, error() {} };
+/** The memory databases opened here, by data directory; closed once the file is done. */
+const MEMORY_OF = new Map();
+after(async () => {
+  for (const memoryDb of MEMORY_OF.values()) await memoryDb.close();
+});
+
+/**
+ * A temporary data directory with its memory database open on the calling thread (the first tick opens it at once):
+ * `{ dir, memoryDb }`, the `memoryDb` the store takes.
+ */
+function memDataDir() {
+  const dir = tmpDataDir();
+  const memoryDb = createMemoryDb({ hot: { config: { memoryDb: { session: { mode: 'off' } } } }, dataDir: dir, log: SILENT, worker: false });
+  memoryDb.tick();
+  if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
+  MEMORY_OF.set(dir, memoryDb);
+  return { dir, memoryDb };
+}
+
+/** One turn of the event loop: the unit writes a flush handed to the database have run. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+/** The value the database holds for the memory unit `rel` (its path under data/), or undefined. */
+function unitOf(memoryDb, rel) {
+  return unitValue(memoryDb.readHandle().db, rel)?.value;
+}
+
+/** The value of the unit `rel` as JSON text (a byte check of "nothing was written"). */
+function unitText(memoryDb, rel) {
+  return JSON.stringify(unitOf(memoryDb, rel));
+}
+
+/** Writes `value` as the memory unit `rel`, as a hand edit or an older engine left it. */
+function putUnit(memoryDb, rel, value) {
+  return memoryDb.writeUnit({ op: 'value', owner: rel, value });
 }
 
 test('touchUser: puts the current name first, keeps previous names after, deduplicated', () => {
@@ -114,39 +150,28 @@ test('updateUser: cannot set interests or details via raw LLM fields', () => {
   assert.equal(profile.details[0].text, 'likes tea');
 });
 
-test('forgetUser: removes the profile from cache and disk', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', 'u1', 'Alice', 1000);
-  store.flush();
-  store.forgetUser('g1', 'u1');
-  assert.equal(store.getUser('g1', 'u1'), null);
-  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
-  assert.equal(fs.existsSync(file), false);
-});
-
 // ---- guild.learned: things people taught the persona --------------------------
 
 const LEARNED_CFG = { maxLearned: 20, maxLearnedStored: 60, learnedChars: 160, learnedHalfLifeDays: 720, confirmGapHours: 12 };
 const TEACH_AT = Date.UTC(2026, 8, 21, 12, 0, 0);
 
-test('getGuild: an old guild.json without learned loads it as empty, every other field and the file untouched', () => {
-  const dir = tmpDataDir();
+test('getGuild: an old guild.json without learned loads it as empty, every other field and the file untouched', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const old = { patterns: 'μιμίδια', starters: 'καλημέρα', injokes: ['ο βράχος'], self: ['likes tea'], custom: 7, updatedAt: '2026-01-01T00:00:00.000Z' };
-  const raw = JSON.stringify(old, null, 2);
-  fs.writeFileSync(file, raw);
+  writeRaw(file, old);
+  const raw = readRaw(file);
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const guild = store.getGuild('g1');
   assert.deepEqual(guild, { ...old, learned: [], learnedNextId: 1, emojiUsage: {}, emojiBackfill: null, pingsOff: [], notesUpdatedAt: null, notesCheckedAt: null, notesFlaggedAt: null, notesSampleReviewedAt: null, notesAttemptAt: null });
-  store.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), raw, 'reading alone never rewrites the file');
+  store.flush(); await store.flushSettled({});
+  assert.equal(readRaw(file), raw, 'reading alone never rewrites the file');
 });
 
-test('getGuild: the keys of the removed variety pass are dropped on read, every other field kept, gone from disk at the next write', () => {
-  const dir = tmpDataDir();
+test('getGuild: the keys of the removed variety pass are dropped on read, every other field kept, gone from disk at the next write', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const stale = {
@@ -158,9 +183,9 @@ test('getGuild: the keys of the removed variety pass are dropped on read, every 
     ownMessageCount: 12,
   };
   const kept = { patterns: 'μιμίδια', self: ['likes tea'], custom: 7, pingsOff: ['u1'] };
-  fs.writeFileSync(file, JSON.stringify({ ...kept, ...stale }, null, 2));
+  writeRaw(file, { ...kept, ...stale });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const guild = store.getGuild('g1');
   for (const key of Object.keys(stale)) assert.equal(key in guild, false, key);
   assert.equal(guild.patterns, 'μιμίδια');
@@ -169,22 +194,19 @@ test('getGuild: the keys of the removed variety pass are dropped on read, every 
   assert.deepEqual(guild.pingsOff, ['u1']);
 
   store.updateGuild('g1', { starters: 'γεια' });
-  store.flush();
-  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  store.flush(); await store.flushSettled({});
+  const onDisk = JSON.parse(readRaw(file));
   for (const key of Object.keys(stale)) assert.equal(key in onDisk, false, key);
   assert.equal(onDisk.custom, 7);
   assert.equal(onDisk.starters, 'γεια');
 });
 
-test('getGuild: a hand-edited learned list is validated, ids assigned off learnedNextId', () => {
-  const dir = tmpDataDir();
+test('getGuild: a hand-edited learned list is validated, ids assigned off learnedNextId', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    JSON.stringify({ patterns: '', learned: [{ id: 4, text: 'Café closes at nine', weight: 2, from: '<@322222222222222222>' }, { text: 'Friday is τυρόπιτα day' }, 'garbage', { text: '' }], learnedNextId: 3 }),
-  );
-  const guild = createStore({ dataDir: dir }).getGuild('g1');
+  writeRaw(file, { patterns: '', learned: [{ id: 4, text: 'Café closes at nine', weight: 2, from: '<@322222222222222222>' }, { text: 'Friday is τυρόπιτα day' }, 'garbage', { text: '' }], learnedNextId: 3 });
+  const guild = createStore({ dataDir: dir, memoryDb }).getGuild('g1');
   assert.deepEqual(guild.learned.map((i) => [i.id, i.text, i.from]), [
     [4, 'Café closes at nine', '<@322222222222222222>'],
     [5, 'Friday is τυρόπιτα day', undefined],
@@ -192,20 +214,20 @@ test('getGuild: a hand-edited learned list is validated, ids assigned off learne
   assert.equal(guild.learnedNextId, 6);
 });
 
-test('getGuild: learned that is not an array or a garbage learnedNextId never throws', () => {
-  const dir = tmpDataDir();
+test('getGuild: learned that is not an array or a garbage learnedNextId never throws', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ patterns: 'x', learned: 'nope', learnedNextId: -3 }));
-  const guild = createStore({ dataDir: dir }).getGuild('g1');
+  writeRaw(file, { patterns: 'x', learned: 'nope', learnedNextId: -3 });
+  const guild = createStore({ dataDir: dir, memoryDb }).getGuild('g1');
   assert.deepEqual(guild.learned, []);
   assert.equal(guild.learnedNextId, 1);
   assert.equal(guild.patterns, 'x');
 });
 
-test('pingsOff: empty on a fresh guild; setPingsOff adds and removes once, returns the state, survives a flush and reload', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('pingsOff: empty on a fresh guild; setPingsOff adds and removes once, returns the state, survives a flush and reload', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.getGuild('g1').pingsOff, []);
   assert.equal(store.isPingsOff('g1', 'u1'), false);
 
@@ -214,23 +236,24 @@ test('pingsOff: empty on a fresh guild; setPingsOff adds and removes once, retur
   assert.equal(store.setPingsOff('g1', 'u2', true), true);
   assert.deepEqual(store.getGuild('g1').pingsOff, ['u1', 'u2']);
   assert.equal(store.isPingsOff('g1', 'u1'), true);
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const again = createStore({ dataDir: dir });
+  const again = createStore({ dataDir: dir, memoryDb });
   assert.equal(again.isPingsOff('g1', 'u1'), true);
   assert.equal(again.isPingsOff('g1', 'u3'), false);
   assert.equal(again.setPingsOff('g1', 'u1', false), false);
   assert.equal(again.setPingsOff('g1', 'u1', false), false);
-  again.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getGuild('g1').pingsOff, ['u2']);
+  again.flush(); await again.flushSettled({});
+  assert.deepEqual(createStore({ dataDir: dir, memoryDb }).getGuild('g1').pingsOff, ['u2']);
 });
 
-test('pingsOff: a change is on disk at once, with no flush, and survives dropped caches', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('pingsOff: a change is written at once, with no flush, and survives dropped caches', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.setPingsOff('g1', 'u1', true);
+  await settle();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).pingsOff, ['u1']);
+  assert.deepEqual(JSON.parse(readRaw(file)).pingsOff, ['u1']);
   store.dropCaches();
   assert.equal(store.isPingsOff('g1', 'u1'), true);
 });
@@ -242,19 +265,19 @@ test('pingsOff: updateGuild from the analyzer never overwrites it', () => {
   assert.deepEqual(store.getGuild('g1').pingsOff, ['u1']);
 });
 
-test('pingsOff: a hand-broken field reads as [], junk entries dropped, duplicates kept once', () => {
+test('pingsOff: a hand-broken field reads as [], junk entries dropped, duplicates kept once', async () => {
   for (const [stored, expected] of [['u1', []], [{ u1: true }, []], [['u1', 7, null, '', 'u1', { id: 'u2' }, 'u3'], ['u1', 'u3']]]) {
-    const dir = tmpDataDir();
+    const { dir, memoryDb } = memDataDir();
     const file = path.join(dir, 'guilds', 'g1', 'guild.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ patterns: '', pingsOff: stored }));
-    assert.deepEqual(createStore({ dataDir: dir }).getGuild('g1').pingsOff, expected, JSON.stringify(stored));
+    writeRaw(file, { patterns: '', pingsOff: stored });
+    assert.deepEqual(createStore({ dataDir: dir, memoryDb }).getGuild('g1').pingsOff, expected, JSON.stringify(stored));
   }
 });
 
-test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new list, persists across a restart', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir, newId: counterIds() });
+test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new list, persists across a restart', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const learned = store.applyLearnedOps(
     'g1',
     { add: [{ text: 'Café closes at nine', from: '<@322222222222222222>' }, 'Friday is τυρόπιτα day'] },
@@ -265,9 +288,9 @@ test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new
     { id: 2, text: 'Friday is τυρόπιτα day', weight: 1, firstSeen: new Date(TEACH_AT).toISOString(), lastSeen: new Date(TEACH_AT).toISOString(), itemId: 'ln-u2' },
   ]);
   assert.equal(store.getGuild('g1').learnedNextId, 3);
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const again = createStore({ dataDir: dir }).getGuild('g1');
+  const again = createStore({ dataDir: dir, memoryDb }).getGuild('g1');
   assert.deepEqual(again.learned, learned);
   assert.equal(again.learnedNextId, 3);
 });
@@ -418,14 +441,14 @@ test('markNotesChecked: guild false leaves the guild alone; a channel never seen
   assert.equal(store.getGuild('g1').notesCheckedAt, null);
 });
 
-test('markNotesChecked: a guild never written gets its check stamp, and the stamps survive a restart', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+test('markNotesChecked: a guild never written gets its check stamp, and the stamps survive a restart', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.touchChannel('g1', 'c1', { name: 'αγορά', category: null, topic: null }, 1000);
   storeA.markNotesChecked('g1', { channels: ['c1'], guild: true }, NOTES_CHECK_AT);
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const at = new Date(NOTES_CHECK_AT).toISOString();
   assert.equal(storeB.getGuild('g1').notesCheckedAt, at);
   assert.equal(storeB.getGuild('g1').notesUpdatedAt, null, 'checked, never written');
@@ -457,13 +480,13 @@ test('markNotesSampled: reviewed clears the attempt, attempt leaves the review s
   assert.equal(store.markNotesSampled('g1', 'ghost', Date.UTC(2026, 9, 8), { outcome: 'attempt' }), false, 'an unknown channel writes nothing');
 });
 
-test('store: files without the notes stamps read back with nulls', () => {
-  const dir = tmpDataDir();
+test('store: files without the notes stamps read back with nulls', async () => {
+  const { dir, memoryDb } = memDataDir();
   const base = path.join(dir, 'guilds', 'g1');
   fs.mkdirSync(path.join(base, 'channels'), { recursive: true });
-  fs.writeFileSync(path.join(base, 'channels', 'c1.json'), JSON.stringify({ id: 'c1', purpose: 'alpha', notesFlaggedAt: 'yesterday' }));
-  fs.writeFileSync(path.join(base, 'guild.json'), JSON.stringify({ patterns: 'x' }));
-  const store = createStore({ dataDir: dir });
+  writeRaw(path.join(base, 'channels', 'c1.json'), { id: 'c1', purpose: 'alpha', notesFlaggedAt: 'yesterday' });
+  writeRaw(path.join(base, 'guild.json'), { patterns: 'x' });
+  const store = createStore({ dataDir: dir, memoryDb });
   const channel = store.getChannel('g1', 'c1');
   const guild = store.getGuild('g1');
   for (const item of [channel, guild]) {
@@ -472,13 +495,13 @@ test('store: files without the notes stamps read back with nulls', () => {
   assert.equal(channel.purpose, 'alpha');
 });
 
-test('getGuild: notes stamps a hand edit broke read as never stamped', () => {
-  const dir = tmpDataDir();
+test('getGuild: notes stamps a hand edit broke read as never stamped', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ patterns: 'μιμίδια', notesUpdatedAt: 'χθες', notesCheckedAt: 1759654800000 }));
+  writeRaw(file, { patterns: 'μιμίδια', notesUpdatedAt: 'χθες', notesCheckedAt: 1759654800000 });
 
-  const guild = createStore({ dataDir: dir }).getGuild('g1');
+  const guild = createStore({ dataDir: dir, memoryDb }).getGuild('g1');
   assert.deepEqual([guild.notesUpdatedAt, guild.notesCheckedAt], [null, null]);
   assert.equal(guild.patterns, 'μιμίδια');
 });
@@ -506,103 +529,39 @@ test('writeJsonAtomic: a refused rename falls back to an in-place write, and say
   assert.equal(warning.error.code, 'EPERM');
 });
 
-test('pushBuffer: returns how many oldest entries the cap dropped, 0 while under it', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const dropped = [];
-  for (let i = 0; i < 5; i += 1) dropped.push(store.pushBuffer('g1', { i }, 3));
-  assert.deepEqual(dropped, [0, 0, 0, 1, 1]);
-  // A cap lowered by a hot config edit drops several at once.
-  assert.equal(store.pushBuffer('g1', { i: 5 }, 1), 3);
-  assert.deepEqual(store.getBuffer('g1').map((m) => m.i), [5]);
+test('flush + a new store instance over the same database: profiles and guild memory survive a "restart"; no memory file is written', async () => {
+  const mem = await openTestMemory();
+  try {
+    const storeA = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
+    storeA.touchUser('g1', 'u1', 'Alice', 1000);
+    storeA.updateUser('g1', 'u1', { character: 'τολμηρή' });
+    storeA.updateGuild('g1', { patterns: 'μιμίδια' });
+    storeA.flush();
+    await storeA.flushSettled({});
+
+    const storeB = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
+    const profile = storeB.getUser('g1', 'u1');
+    assert.equal(profile.character, 'τολμηρή');
+    assert.deepEqual(profile.names, ['Alice']);
+    assert.equal(storeB.getGuild('g1').patterns, 'μιμίδια');
+    assert.equal(fs.existsSync(path.join(mem.dataDir, 'guilds', 'g1', 'users', 'u1.json')), false, 'the profile is a database unit');
+    assert.equal(fs.existsSync(path.join(mem.dataDir, 'guilds', 'g1', 'guild.json')), false, 'the guild memory too');
+  } finally {
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
+  }
 });
 
-test('shiftBuffer: drops exactly the consumed messages, by id; later arrivals and untaken ones stay', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  for (let i = 0; i < 5; i += 1) store.pushBuffer('g1', { id: `m${i}`, i }, 100);
-  const consumed = store.getBuffer('g1').slice(0, 2);
-  store.pushBuffer('g1', { id: 'm5', i: 5 }, 100); // arrived while the batch was in flight
-  store.shiftBuffer('g1', consumed);
-  assert.deepEqual(store.getBuffer('g1').map((m) => m.id), ['m2', 'm3', 'm4', 'm5']);
-});
-
-test('shiftBuffer: consumed messages already trimmed off the front never cost a newer message its place', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  for (let i = 0; i < 5; i += 1) store.pushBuffer('g1', { id: `m${i}` }, 5);
-  const consumed = store.getBuffer('g1').slice(0, 3);
-  // Two arrivals during the call push m0 and m1 out of the capped buffer.
-  store.pushBuffer('g1', { id: 'm5' }, 5);
-  store.pushBuffer('g1', { id: 'm6' }, 5);
-  store.shiftBuffer('g1', consumed);
-  assert.deepEqual(store.getBuffer('g1').map((m) => m.id), ['m3', 'm4', 'm5', 'm6']);
-});
-
-test('shiftBuffer: an entry without an id goes only up to and including the last consumed entry', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const fill = () => {
-    for (const m of [{ i: 0 }, { id: 'm1', i: 1 }, { i: 2 }, { id: 'm3', i: 3 }]) store.pushBuffer('g1', m, 100);
-  };
-  fill();
-  store.shiftBuffer('g1', store.getBuffer('g1').slice(0, 2));
-  assert.deepEqual(store.getBuffer('g1').map((m) => m.i), [2, 3]);
-
-  store.wipeGuild('g1');
-  fill();
-  const consumed = store.getBuffer('g1').slice(0, 3); // the last consumed entry has no id
-  store.pushBuffer('g1', { i: 4 }, 100); // arrived while the batch was in flight, no id either
-  store.shiftBuffer('g1', consumed);
-  assert.deepEqual(store.getBuffer('g1').map((m) => m.i), [3, 4]);
-});
-
-test('flush + a new store instance: profiles, guild memory and buffer survive a "restart"', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
-  storeA.touchUser('g1', 'u1', 'Alice', 1000);
-  storeA.updateUser('g1', 'u1', { character: 'τολμηρή' });
-  storeA.updateGuild('g1', { patterns: 'μιμίδια' });
-  storeA.pushBuffer('g1', { text: 'hi' }, 100);
-  storeA.flush();
-
-  const storeB = createStore({ dataDir: dir });
-  const profile = storeB.getUser('g1', 'u1');
-  assert.equal(profile.character, 'τολμηρή');
-  assert.deepEqual(profile.names, ['Alice']);
-  assert.equal(storeB.getGuild('g1').patterns, 'μιμίδια');
-  assert.deepEqual(storeB.getBuffer('g1'), [{ text: 'hi' }]);
-});
-
-test('flush: only writes files that are dirty', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('flush: only writes the units that are dirty', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const writes = [];
+  const counted = { ...memoryDb, writeUnit: (update) => { writes.push(update.owner); return memoryDb.writeUnit(update); } };
+  const store = createStore({ dataDir: dir, memoryDb: counted });
   store.touchUser('g1', 'u1', 'Alice', 1000);
-  store.flush();
-  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
-  const mtimeBefore = fs.statSync(file).mtimeMs;
-  store.flush(); // nothing changed since -> should be a no-op
-  const mtimeAfter = fs.statSync(file).mtimeMs;
-  assert.equal(mtimeBefore, mtimeAfter);
-});
-
-test('listGuilds: lists guild ids that exist on disk after a flush', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
-  storeA.touchUser('g1', 'u1', 'Alice', 1000);
-  storeA.updateGuild('g2', { patterns: 'x' });
-  storeA.flush();
-
-  const storeB = createStore({ dataDir: dir });
-  const guilds = storeB.listGuilds().sort();
-  assert.deepEqual(guilds, ['g1', 'g2']);
-});
-
-test('listGuilds: also includes a guild that is only cached, not yet flushed', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g3', 'u1', 'Alice', 1000); // not flushed yet
-  assert.ok(store.listGuilds().includes('g3'));
+  store.flush(); await store.flushSettled({});
+  assert.deepEqual(writes, ['guilds/g1/users/u1.json']);
+  store.flush(); await store.flushSettled({}); // nothing changed since -> should be a no-op
+  assert.deepEqual(writes, ['guilds/g1/users/u1.json']);
 });
 
 test('state: data persists across restarts via flush + markDirty', () => {
@@ -630,14 +589,14 @@ test('countUsers: counts a profile not flushed yet, like every other lister', ()
 
 // --- affinity ---------------------------------------------------------------
 
-test('adjustAffinity: creates the affinity object for a profile written before this feature existed', () => {
-  const dir = tmpDataDir();
+test('adjustAffinity: creates the affinity object for a profile written before this feature existed', async () => {
+  const { dir, memoryDb } = memDataDir();
   const guildDir = path.join(dir, 'guilds', 'g1', 'users');
   fs.mkdirSync(guildDir, { recursive: true });
   // A pre-relationships profile on disk: no `affinity` key at all.
-  fs.writeFileSync(path.join(guildDir, 'u1.json'), JSON.stringify({ id: 'u1', names: ['Alice'], messageCount: 3 }));
+  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'], messageCount: 3 });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const before = store.getUser('g1', 'u1');
   assert.equal(before.affinity, undefined);
 
@@ -770,14 +729,14 @@ test('updateChannel: a re-send identical to what is stored leaves updatedAt alon
   assert.equal(store.updateChannel('g1', 'c1', {}).updatedAt, EARLIER_STAMP, 'no field at all is no change either');
 });
 
-test('flush + a new store instance: channels survive a "restart"', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+test('flush + a new store instance: channels survive a "restart"', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.touchChannel('g1', 'c1', { name: 'general', category: 'Text', topic: 'chat' }, 1000);
   storeA.updateChannel('g1', 'c1', { purpose: 'chatter' });
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const channel = storeB.getChannel('g1', 'c1');
   assert.equal(channel.name, 'general');
   assert.equal(channel.purpose, 'chatter');
@@ -816,9 +775,8 @@ function writeOldChannelFile(dir, channelId, fields = {}) {
     updatedAt: '2026-06-01T00:00:00.000Z',
     ...fields,
   };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(old, null, 2));
-  return { file, old, raw: fs.readFileSync(file, 'utf8') };
+  writeRaw(file, old);
+  return { file, old, raw: readRaw(file) };
 }
 
 test('touchChannel: a newcomer who keeps writing enters topWriters past five stored writers', () => {
@@ -941,10 +899,10 @@ test('setChannelFacts: writers the window counts equal keep their order at the n
   assert.deepEqual(channel.topWriters.map((writer) => writer.id), ['άλφα', 'βήτα', 'γάμα', 'δέλτα']);
 });
 
-test('getChannel: an old channel file without a tally seeds it from the stored topWriters, the file untouched', () => {
-  const dir = tmpDataDir();
+test('getChannel: an old channel file without a tally seeds it from the stored topWriters, the file untouched', async () => {
+  const { dir, memoryDb } = memDataDir();
   const { file, old, raw } = writeOldChannelFile(dir, 'c1');
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
 
   const channel = store.getChannel('g1', 'c1');
   const last = old.lastMessageAt;
@@ -957,14 +915,14 @@ test('getChannel: an old channel file without a tally seeds it from the stored t
     writers: { 'άλφα': { count: 9, last }, 'βήτα': { count: 7, last }, 'γάμα': { count: 5, last }, 'δέλτα': { count: 3, last }, 'έψιλον': { count: 1, last } },
   });
   assert.deepEqual(store.listChannels('g1'), [channel]);
-  store.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), raw, 'reading alone never rewrites the file');
+  store.flush(); await store.flushSettled({});
+  assert.equal(readRaw(file), raw, 'reading alone never rewrites the file');
 });
 
-test('touchChannel: a sixth writer enters the frozen top five of an old channel file, stored counts kept', () => {
-  const dir = tmpDataDir();
+test('touchChannel: a sixth writer enters the frozen top five of an old channel file, stored counts kept', async () => {
+  const { dir, memoryDb } = memDataDir();
   writeOldChannelFile(dir, 'c1');
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
 
   const first = writeLines(store, 'c1', 'ζήτα', 1, WRITERS_T0 + 6000);
   assert.deepEqual(first.topWriters, [{ id: 'άλφα', count: 9 }, { id: 'βήτα', count: 7 }, { id: 'γάμα', count: 5 }, { id: 'δέλτα', count: 3 }, { id: 'ζήτα', count: 1 }], 'the stored order holds; the newest of two single lines is shown');
@@ -972,13 +930,13 @@ test('touchChannel: a sixth writer enters the frozen top five of an old channel 
   assert.deepEqual(channel.topWriters.slice(0, 2), [{ id: 'ζήτα', count: 10 }, { id: 'άλφα', count: 9 }]);
   assert.deepEqual(writeLines(store, 'c1', 'έψιλον', 1, WRITERS_T0 + 8000).writers['έψιλον'], { count: 2, last: WRITERS_T0 + 8000 });
 
-  store.flush();
-  const reloaded = createStore({ dataDir: dir }).getChannel('g1', 'c1');
+  store.flush(); await store.flushSettled({});
+  const reloaded = createStore({ dataDir: dir, memoryDb }).getChannel('g1', 'c1');
   assert.deepEqual(reloaded.writers, store.getChannel('g1', 'c1').writers, 'the tally is stored with the next write');
 });
 
-test('getChannel: a tally or a check stamp a hand edit broke is made safe to read', () => {
-  const dir = tmpDataDir();
+test('getChannel: a tally or a check stamp a hand edit broke is made safe to read', async () => {
+  const { dir, memoryDb } = memDataDir();
   writeOldChannelFile(dir, 'c1', {
     notesCheckedAt: 7,
     writers: {
@@ -990,7 +948,7 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
     },
   });
   writeOldChannelFile(dir, 'c2', { writers: ['άλφα'], topWriters: [{ id: 'άλφα', count: 2 }, { id: 'βήτα' }, null, { count: 4 }] });
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
 
   const channel = store.getChannel('g1', 'c1');
   assert.equal(channel.notesCheckedAt, null);
@@ -1021,15 +979,15 @@ test('media cache: persists across store instances', () => {
   assert.deepEqual(storeB.getMediaCache('g1'), { a1: { text: 'a dog', ts: 2000 } });
 });
 
-test('adjustAffinity: persists across store instances', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+test('adjustAffinity: persists across store instances', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.touchUser('g1', 'u1', 'Alice', 1000);
-  storeA.flush(); // the profile is on disk and clean: only the adjustment itself can mark it dirty again
+  storeA.flush(); await storeA.flushSettled({}); // the profile is on disk and clean: only the adjustment itself can mark it dirty again
   storeA.adjustAffinity('g1', 'u1', 12, 'nice chat', { maxDelta: 15, historySize: 10, now: 1000 });
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const affinity = storeB.getUser('g1', 'u1').affinity;
   assert.equal(affinity.score, 12);
   assert.equal(affinity.reason, 'nice chat');
@@ -1051,15 +1009,15 @@ test('addEpisodes: tolerates a profile written before this feature existed', () 
   assert.equal(store.getUser('g1', 'u1').episodes.length, 1);
 });
 
-test('addEpisodes: persists across store instances', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+test('addEpisodes: persists across store instances', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.touchUser('g1', 'u1', 'Alice', 1000);
-  storeA.flush(); // the profile is on disk and clean: only the new episode itself can mark it dirty again
+  storeA.flush(); await storeA.flushSettled({}); // the profile is on disk and clean: only the new episode itself can mark it dirty again
   storeA.addEpisodes('g1', 'u1', [{ what: 'shared a secret', quote: 'do not tell anyone' }], { maxEpisodes: 20, maxNew: 3, now: 1000 });
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const episodes = storeB.getUser('g1', 'u1').episodes;
   assert.equal(episodes.length, 1);
   assert.equal(episodes[0].quote, 'do not tell anyone');
@@ -1081,16 +1039,13 @@ test('updateUser: never overwrites episodes even if the field is present in fiel
 
 // --- interests / details (applyProfileOps) ----------------------------------
 
-test('getUser: a hand-edited details array missing valid ids gets fresh ones assigned, advancing detailsSeq', () => {
-  const dir = tmpDataDir();
+test('getUser: a hand-edited details array missing valid ids gets fresh ones assigned, advancing detailsSeq', async () => {
+  const { dir, memoryDb } = memDataDir();
   const guildDir = path.join(dir, 'guilds', 'g1', 'users');
   fs.mkdirSync(guildDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(guildDir, 'u1.json'),
-    JSON.stringify({ id: 'u1', names: ['Alice'], details: [{ text: 'Owns a cat' }, { text: 'Plays guitar' }] }),
-  );
+  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'], details: [{ text: 'Owns a cat' }, { text: 'Plays guitar' }] });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const profile = store.getUser('g1', 'u1');
   assert.deepEqual(profile.details, [
     { id: 1, text: 'Owns a cat', weight: 1, firstSeen: null, lastSeen: null },
@@ -1162,16 +1117,13 @@ test('applyProfileOps: a first write of a prose field is clamped tolerantly to o
   assert.equal(rewritten.character, '0123456789abcdef');
 });
 
-test('applyProfileOps: normalizes a hand-edited interests array before applying ops', () => {
-  const dir = tmpDataDir();
+test('applyProfileOps: normalizes a hand-edited interests array before applying ops', async () => {
+  const { dir, memoryDb } = memDataDir();
   const guildDir = path.join(dir, 'guilds', 'g1', 'users');
   fs.mkdirSync(guildDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(guildDir, 'u1.json'),
-    JSON.stringify({ id: 'u1', names: ['Alice'], interests: [{ topic: 'Chess' }, { topic: 'Anime' }] }),
-  );
+  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'], interests: [{ topic: 'Chess' }, { topic: 'Anime' }] });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const profile = store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'Cooking', note: '' }] } }, {
     maxInterests: 12,
     topicChars: 40,
@@ -1270,16 +1222,13 @@ test('applyProfileOps: tolerates garbage ops without throwing, leaves the profil
   assert.deepEqual(profile.details, []);
 });
 
-test('applyProfileOps: persists across store instances', () => {
-  const dir = tmpDataDir();
+test('applyProfileOps: persists across store instances', async () => {
+  const { dir, memoryDb } = memDataDir();
   const guildDir = path.join(dir, 'guilds', 'g1', 'users');
   fs.mkdirSync(guildDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(guildDir, 'u1.json'),
-    JSON.stringify({ id: 'u1', names: ['Alice'], interests: [{ topic: 'Chess', note: 'weekly club', weight: 1, firstSeen: null, lastSeen: null }] }),
-  );
+  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'], interests: [{ topic: 'Chess', note: 'weekly club', weight: 1, firstSeen: null, lastSeen: null }] });
 
-  const storeA = createStore({ dataDir: dir });
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'Anime', note: '' }] }, details: { add: ['owns a cat'] } }, {
     maxInterests: 12,
     topicChars: 40,
@@ -1287,9 +1236,9 @@ test('applyProfileOps: persists across store instances', () => {
     maxDetails: 15,
     now: 1000,
   });
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const profile = storeB.getUser('g1', 'u1');
   assert.deepEqual(profile.interests.map((i) => i.topic), ['Chess', 'Anime']);
   assert.deepEqual(profile.details.map((d) => d.text), ['owns a cat']);
@@ -1325,13 +1274,13 @@ test('setLore: an identical analyzer re-send returns 0 and keeps updatedAt; a ch
   assert.equal(store.getLore('g1')[0].updatedAt, new Date(3000).toISOString());
 });
 
-test('lore: persists across store instances', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+test('lore: persists across store instances', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const storeA = createStore({ dataDir: dir, memoryDb });
   storeA.setLore('g1', [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], { source: 'analyzer', now: 1000 });
-  storeA.flush();
+  storeA.flush(); await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   const entries = storeB.getLore('g1');
   assert.equal(entries.length, 1);
   assert.equal(entries[0].title, 'The Flood');
@@ -1362,112 +1311,15 @@ function seedGuild(store) {
   store.state.markDirty();
 }
 
-test('wipeGuild: removes profiles, guild memory, channels, buffer and analyzer lore; keeps owner lore, media cache and other state.json keys', () => {
-  const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
-  seedGuild(storeA);
-  storeA.flush();
-
-  const { vault, ...counts } = storeA.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0, intentionFiles: 0 });
-  assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
-
-  // cache is immediately usable
-  assert.equal(storeA.getUser('g1', 'u1'), null);
-  assert.equal(storeA.getUser('g1', 'u2'), null);
-  assert.deepEqual([storeA.getGuild('g1').patterns, storeA.getGuild('g1').learned, storeA.getGuild('g1').self, storeA.getGuild('g1').updatedAt], ['', [], [], null]);
-  assert.deepEqual(storeA.listChannels('g1'), []);
-  assert.deepEqual(storeA.getBuffer('g1'), []);
-  const lore = storeA.getLore('g1');
-  assert.equal(lore.length, 1);
-  assert.equal(lore[0].title, 'Founders Day');
-  assert.equal(lore[0].source, 'owner');
-  assert.deepEqual(storeA.getMediaCache('g1'), { a1: { text: 'a cat', ts: 1000 } });
-  assert.equal(storeA.state.data.warmup, undefined);
-  assert.equal(storeA.state.data.llmDay, '2026-09-20');
-  assert.equal(storeA.state.data.llmCount, 7);
-
-  // disk agrees, verified with a fresh store instance on the same temp dir
-  const storeB = createStore({ dataDir: dir });
-  assert.equal(storeB.getUser('g1', 'u1'), null);
-  assert.equal(storeB.getUser('g1', 'u2'), null);
-  assert.deepEqual([storeB.getGuild('g1').patterns, storeB.getGuild('g1').learned, storeB.getGuild('g1').self, storeB.getGuild('g1').updatedAt], ['', [], [], null]);
-  assert.deepEqual(storeB.listChannels('g1'), []);
-  assert.deepEqual(storeB.getBuffer('g1'), []);
-  const loreB = storeB.getLore('g1');
-  assert.equal(loreB.length, 1);
-  assert.equal(loreB[0].title, 'Founders Day');
-  assert.deepEqual(storeB.getMediaCache('g1'), { a1: { text: 'a cat', ts: 1000 } });
-  assert.equal(storeB.state.data.warmup, undefined);
-  assert.equal(storeB.state.data.llmDay, '2026-09-20');
-  assert.equal(storeB.state.data.llmCount, 7);
-});
-
-test('wipeGuild: the store stays fully usable afterwards without a restart', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.flush();
-  store.wipeGuild('g1');
-
-  const profile = store.touchUser('g1', 'u3', 'Carol', 2000);
-  assert.equal(profile.messageCount, 1);
-  const guild = store.getGuild('g1');
-  assert.equal(guild.patterns, '');
-  store.flush();
-
-  const storeB = createStore({ dataDir: dir });
-  assert.equal(storeB.getUser('g1', 'u3').names[0], 'Carol');
-});
-
-test('wipeGuild: keepOwnerLore false also removes owner lore', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.flush();
-
-  const counts = store.wipeGuild('g1', { keepOwnerLore: false });
-  assert.equal(counts.loreRemoved, 2);
-  assert.equal(counts.loreKept, 0);
-  assert.deepEqual(store.getLore('g1'), []);
-});
-
-test('wipeGuild: keepMediaCache false also clears the media cache, on disk too', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.flush();
-
-  store.wipeGuild('g1', { keepMediaCache: false });
-  assert.deepEqual(store.getMediaCache('g1'), {});
-
-  const storeB = createStore({ dataDir: dir });
-  assert.deepEqual(storeB.getMediaCache('g1'), {});
-});
-
-test('wipeGuild: does not touch another guild\'s memory', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.touchUser('g2', 'u9', 'Eve', 1000);
-  store.flush();
-
-  store.wipeGuild('g1');
-
-  assert.ok(store.getUser('g2', 'u9'));
-  const storeB = createStore({ dataDir: dir });
-  assert.ok(storeB.getUser('g2', 'u9'));
-});
-
 // --- aliases (applyProfileOps) ------------------------------------------------
 
-test('getUser: a profile with no aliases key at all is tolerated, gets []', () => {
-  const dir = tmpDataDir();
+test('getUser: a profile with no aliases key at all is tolerated, gets []', async () => {
+  const { dir, memoryDb } = memDataDir();
   const guildDir = path.join(dir, 'guilds', 'g1', 'users');
   fs.mkdirSync(guildDir, { recursive: true });
-  fs.writeFileSync(path.join(guildDir, 'u1.json'), JSON.stringify({ id: 'u1', names: ['Alice'] }));
+  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'] });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const profile = store.getUser('g1', 'u1');
   assert.deepEqual(profile.aliases, []);
 });
@@ -1515,14 +1367,14 @@ test('applyProfileOps: an alias equal (case-insensitively) to the member\'s OWN 
 
 // --- listUserProfiles -----------------------------------------------------------
 
-test('listUserProfiles: every stored profile of a guild, cached or on disk', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('listUserProfiles: every stored profile of a guild, cached or on disk', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Alice', 1000);
   store.touchUser('g1', 'u2', 'Bob', 1000);
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   storeB.touchUser('g1', 'u3', 'Carl', 1000); // cached only, not yet flushed
 
   const profiles = storeB.listUserProfiles('g1');
@@ -1531,23 +1383,20 @@ test('listUserProfiles: every stored profile of a guild, cached or on disk', () 
 
 // --- dropCaches / reloadState / validate (/nep pause, /nep resume) ------------
 
-test('dropCaches: forgets every cached file except state.json, so the next read is a fresh disk read', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('dropCaches: forgets every cached unit except state.json, so the next read is a fresh database read', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Alice', 1000);
   store.updateGuild('g1', { patterns: 'x' });
   store.state.data.llmCount = 3;
   store.state.markDirty();
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
   const dropped = store.dropCaches();
   assert.ok(dropped >= 2, 'dropped the user profile and the guild memory, at least');
 
   // A hand-edit made right after the drop is picked up on the very next read.
-  fs.writeFileSync(
-    path.join(dir, 'guilds', 'g1', 'users', 'u1.json'),
-    JSON.stringify({ id: 'u1', names: ['Edited'], firstSeen: null, lastSeen: null, messageCount: 0 }),
-  );
+  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), { id: 'u1', names: ['Edited'], firstSeen: null, lastSeen: null, messageCount: 0 });
   const profile = store.getUser('g1', 'u1');
   assert.equal(profile.names[0], 'Edited');
 
@@ -1571,18 +1420,19 @@ test('reloadState: re-reads state.json from disk, discarding the cached in-memor
   assert.deepEqual(store.state.data.warmup, { done: false });
 });
 
-test('validate: names every unparsable *.json file, path relative to dataDir and forward-slash separated', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('validate: names every unparsable operational *.json file, path relative to dataDir and forward-slash separated', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Alice', 1000);
-  store.touchUser('g1', 'u2', 'Bob', 1000);
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
+  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'users'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), '{ not json');
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'inner.json'), '{ not json either');
   fs.writeFileSync(path.join(dir, 'state.json'), '{ also not json');
 
   const bad = store.validate();
-  assert.deepEqual(bad.sort(), ['guilds/g1/users/u1.json', 'state.json'].sort());
+  assert.deepEqual(bad.sort(), ['guilds/g1/inner.json', 'state.json'], 'a memory unit is in the database, never checked as a file');
 });
 
 // --- private memory layer (data/guilds/<id>/private/<userId>.json) -----------
@@ -1613,25 +1463,23 @@ test('getPrivate: null when no private file exists, and nothing is created', () 
   assert.deepEqual(store.listPrivate('g1'), []);
 });
 
-test('applyPrivateOps: a first private write creates the empty shape, persists it on flush and survives a restart', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('applyPrivateOps: a first private write creates the empty shape, persists it on flush and survives a restart', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.applyPrivateOps('g1', 'u1', {}), EMPTY_PRIVATE);
-  store.flush();
-  assert.equal(fs.existsSync(privateFile(dir, 'g1', 'u1')), true);
+  store.flush(); await store.flushSettled({});
+  assert.equal(existsRaw(privateFile(dir, 'g1', 'u1')), true);
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(storeB.getPrivate('g1', 'u1'), EMPTY_PRIVATE);
   assert.deepEqual(storeB.listPrivate('g1'), ['u1']);
 });
 
-test('getPrivate: a hand-edited file is normalised on read: defaults filled, detail ids assigned', () => {
-  const dir = tmpDataDir();
+test('getPrivate: a hand-edited file is normalised on read: defaults filled, detail ids assigned', async () => {
+  const { dir, memoryDb } = memDataDir();
   const file = privateFile(dir, 'g1', 'u1');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    JSON.stringify({
+  writeRaw(file, {
       relationship: 'Κάτι μυστικό',
       interests: 'not a list',
       details: [{ text: 'Owns a cat' }, { text: 'Plays guitar' }],
@@ -1639,10 +1487,9 @@ test('getPrivate: a hand-edited file is normalised on read: defaults filled, det
       replies: { day: '2026-09-29' },
       buffer: 'garbage',
       episodes: null,
-    }),
-  );
+    });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const priv = store.getPrivate('g1', 'u1');
   assert.equal(priv.relationship, 'Κάτι μυστικό');
   assert.deepEqual(priv.interests, []);
@@ -1659,41 +1506,9 @@ test('getPrivate: a hand-edited file is normalised on read: defaults filled, det
   assert.equal(priv.lastSeen, '');
 });
 
-test('getPrivate: a private file that parses to a non-object is replaced by the empty shape, with a count-only warning', async () => {
-  for (const [label, raw] of [
-    ['null', 'null'],
-    ['array', '[1, 2]'],
-    ['string', '"ψίθυρος"'],
-    ['number', '42'],
-  ]) {
-    const dir = tmpDataDir();
-    const file = privateFile(dir, 'g1', 'u1');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, raw);
-
-    const store = createStore({ dataDir: dir });
-    const { result, logs } = await withCapturedLogs(() => {
-      const priv = structuredClone(store.getPrivate('g1', 'u1'));
-      // every private operation works on the replacement, none throws
-      store.bumpPrivateReplies('g1', 'u1', '2026-09-29');
-      store.pushPrivateBuffer('g1', 'u1', { id: 'm1', content: 'γεια' });
-      return priv;
-    });
-    assert.deepEqual(result, EMPTY_PRIVATE, label);
-    assert.deepEqual(store.getPrivateBuffer('g1', 'u1').map((m) => m.id), ['m1'], label);
-
-    const warnings = logs.filter((l) => l.msg === 'store: private file replaced');
-    assert.equal(warnings.length, 1, `${label}: warned once`);
-    assert.equal(warnings[0].guildId, 'g1');
-    assert.equal(warnings[0].reason, 'malformed');
-    assert.equal(warnings[0].userId, undefined, `${label}: no member id in the log`);
-    assert.deepEqual(store.validate(), [], `${label}: still valid JSON, validate() unchanged`);
-  }
-});
-
-test('applyPrivateOps: relationship, interests and details land in the private file; character/style/aliases/portrait are ignored', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('applyPrivateOps: relationship, interests and details land in the private file; character/style/aliases/portrait are ignored', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Alice', 1000);
   const priv = store.applyPrivateOps(
     'g1',
@@ -1724,8 +1539,8 @@ test('applyPrivateOps: relationship, interests and details land in the private f
   assert.deepEqual(pub.details, []);
   assert.deepEqual(pub.aliases, []);
 
-  store.flush();
-  const storeB = createStore({ dataDir: dir });
+  store.flush(); await store.flushSettled({});
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.equal(storeB.getPrivate('g1', 'u1').relationship, 'Confides in the persona');
 });
 
@@ -1776,132 +1591,36 @@ test('addPrivateEpisodes: appends via mergeEpisodes to the private file only', (
   assert.equal(store.addPrivateEpisodes('g1', 'u1', [], { maxEpisodes: 20, now: 2000 }), 0);
 });
 
-test('bumpPrivateReplies: counts within a day, rolls over on a new day, persists', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('bumpPrivateReplies: counts within a day, rolls over on a new day, persists', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-29'), { day: '2026-09-29', count: 1 });
   assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-29'), { day: '2026-09-29', count: 2 });
   assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-30'), { day: '2026-09-30', count: 1 });
-  store.flush();
-  const storeB = createStore({ dataDir: dir });
+  store.flush(); await store.flushSettled({});
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(storeB.getPrivate('g1', 'u1').replies, { day: '2026-09-30', count: 1, noticedDay: '' });
 });
 
-test('markPrivateNoticed: records the day the cap notice was posted, keeps the reply count', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('markPrivateNoticed: records the day the cap notice was posted, keeps the reply count', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.bumpPrivateReplies('g1', 'u1', '2026-09-29');
   store.markPrivateNoticed('g1', 'u1', '2026-09-29');
   assert.deepEqual(store.getPrivate('g1', 'u1').replies, { day: '2026-09-29', count: 1, noticedDay: '2026-09-29' });
-  store.flush();
-  const storeB = createStore({ dataDir: dir });
+  store.flush(); await store.flushSettled({});
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.equal(storeB.getPrivate('g1', 'u1').replies.noticedDay, '2026-09-29');
 });
 
-test('private buffer: push, info, consume empties it; info on a missing file creates nothing', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  assert.deepEqual(store.privateBufferInfo('g1', 'u1'), { size: 0 });
-  assert.deepEqual(store.getPrivateBuffer('g1', 'u1'), []);
-  assert.equal(store.getPrivate('g1', 'u1'), null);
-
-  store.pushPrivateBuffer('g1', 'u1', { id: 'm1', content: 'γεια', ts: 1000 });
-  store.pushPrivateBuffer('g1', 'u1', { id: 'm2', content: 'hello', ts: 2000 });
-  assert.deepEqual(store.privateBufferInfo('g1', 'u1'), { size: 2 });
-
-  store.flush();
-  const storeB = createStore({ dataDir: dir });
-  const taken = storeB.getPrivateBuffer('g1', 'u1');
-  assert.deepEqual(taken.map((m) => m.id), ['m1', 'm2']);
-  storeB.shiftPrivateBuffer('g1', 'u1', taken);
-  assert.deepEqual(storeB.privateBufferInfo('g1', 'u1'), { size: 0 });
-  storeB.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getPrivate('g1', 'u1').buffer, []);
-});
-
-test('pushPrivateBuffer: returns how many oldest entries the cap dropped, 0 under it or without one', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const dropped = [];
-  for (let i = 1; i <= 5; i += 1) dropped.push(store.pushPrivateBuffer('g1', 'u1', { id: `m${i}`, ts: i }, 3));
-  assert.deepEqual(dropped, [0, 0, 0, 1, 1]);
-  assert.equal(store.pushPrivateBuffer('g1', 'u2', { id: 'm1', ts: 1 }), 0);
-});
-
-test('forgetPrivate: deletes the private file from cache and disk, the public profile stays', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', 'u1', 'Alice', 1000);
-  store.applyPrivateOps('g1', 'u1', { relationship: 'secret' }, { fieldChars: 300 });
-  store.flush();
-  store.forgetPrivate('g1', 'u1');
-  assert.equal(store.getPrivate('g1', 'u1'), null);
-  assert.equal(fs.existsSync(privateFile(dir, 'g1', 'u1')), false);
-  assert.notEqual(store.getUser('g1', 'u1'), null);
-  assert.doesNotThrow(() => store.forgetPrivate('g1', 'never'));
-});
-
-test('forgetUser: also deletes the private file', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', 'u1', 'Alice', 1000);
-  store.applyPrivateOps('g1', 'u1', { relationship: 'secret' }, { fieldChars: 300 });
-  store.applyPrivateOps('g1', 'u2', {});
-  store.flush();
-  store.forgetUser('g1', 'u1');
-  assert.equal(store.getUser('g1', 'u1'), null);
-  assert.equal(store.getPrivate('g1', 'u1'), null);
-  assert.equal(fs.existsSync(privateFile(dir, 'g1', 'u1')), false);
-  assert.deepEqual(store.listPrivate('g1'), ['u2']);
-});
-
-test('wipeGuild: removes the private directory, cache and disk, leaves other guilds alone', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.applyPrivateOps('g1', 'u1', { relationship: 'secret' }, { fieldChars: 300 });
-  store.flush();
-  store.pushPrivateBuffer('g1', 'u2', { id: 'm1', ts: 1000 }); // only cached, never flushed
-  store.applyPrivateOps('g2', 'u9', {});
-
-  const { vault, ...counts } = store.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0, intentionFiles: 0 });
-  assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
-  assert.equal(store.getPrivate('g1', 'u1'), null);
-  assert.equal(store.getPrivate('g1', 'u2'), null);
-  assert.deepEqual(store.listPrivate('g1'), []);
-  assert.notEqual(store.getPrivate('g2', 'u9'), null);
-
-  store.flush();
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
-  assert.deepEqual(createStore({ dataDir: dir }).listPrivate('g1'), []);
-  assert.deepEqual(createStore({ dataDir: dir }).listPrivate('g2'), ['u9']);
-});
-
-test('shiftPrivateBuffer: drops the consumed entries by id and persists; a missing layer is left alone', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.shiftPrivateBuffer('g1', 'nobody', [{ id: 'm1' }]);
-  assert.equal(store.getPrivate('g1', 'nobody'), null, 'no file is created');
-
-  for (let i = 1; i <= 4; i += 1) store.pushPrivateBuffer('g1', 'u1', { id: `m${i}`, ts: i });
-  store.flush();
-  const consumed = store.getPrivateBuffer('g1', 'u1').slice(0, 3);
-  store.pushPrivateBuffer('g1', 'u1', { id: 'm5', ts: 5 }, 4); // an arrival trims m1 off the front
-  store.shiftPrivateBuffer('g1', 'u1', consumed);
-  store.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getPrivateBuffer('g1', 'u1').map((m) => m.id), ['m4', 'm5']);
-});
-
-test('touchPrivateSeen: stamps lastSeen every time, firstSeen only while empty; never touches the public profile', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('touchPrivateSeen: stamps lastSeen every time, firstSeen only while empty; never touches the public profile', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Zoé', 500);
   store.touchPrivateSeen('g1', 'u1', Date.UTC(2026, 0, 1));
   store.touchPrivateSeen('g1', 'u1', Date.UTC(2026, 0, 5));
-  store.flush();
-  const priv = createStore({ dataDir: dir }).getPrivate('g1', 'u1');
+  store.flush(); await store.flushSettled({});
+  const priv = createStore({ dataDir: dir, memoryDb }).getPrivate('g1', 'u1');
   assert.equal(priv.firstSeen, new Date(Date.UTC(2026, 0, 1)).toISOString());
   assert.equal(priv.lastSeen, new Date(Date.UTC(2026, 0, 5)).toISOString());
   assert.equal(store.getUser('g1', 'u1').lastSeen, new Date(500).toISOString());
@@ -1913,25 +1632,52 @@ const DECAY_DAY_MS = 24 * 60 * 60 * 1000;
 const DECAY_NOW = Date.UTC(2026, 9, 3, 12, 0, 0);
 const DECAY_CFG = { decayPerDay: 0.04, decayPower: 1 };
 
+/** The data directory with a database that `file` lies in, as `[dir, memoryDb, rel]`, else null. */
+function memoryFileOf(file) {
+  for (const [dir, memoryDb] of MEMORY_OF) {
+    if (file.startsWith(dir + path.sep)) {
+      const rel = path.relative(dir, file).split(path.sep).join('/');
+      if (!/^(?:state|usage|metrics)\.json$/.test(rel) && !/\/(?:participation|gifs|media|inner|missed)\.json$/.test(rel)) return [dir, memoryDb, rel];
+    }
+  }
+  return null;
+}
+
+/** `file` as text: a memory unit as its value's JSON, any other file from the disk. */
+function readRaw(file) {
+  const found = memoryFileOf(file);
+  return found ? unitText(found[1], found[2]) : fs.readFileSync(file, 'utf8');
+}
+
+/** Whether `file` is there: a memory unit in the database, any other file on the disk. */
+function existsRaw(file) {
+  const found = memoryFileOf(file);
+  return found ? unitOf(found[1], found[2]) !== undefined : fs.existsSync(file);
+}
+
+/** `value` as `file`: a memory unit of a data directory with a database goes into it, any other file to the disk. */
 function writeRaw(file, value) {
+  const found = memoryFileOf(file);
+  if (found) return putUnit(found[1], found[2], value);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value)); // compact: a flush would rewrite it pretty-printed
+  return null;
 }
 
 function userFileOf(dir, guildId, userId) {
   return path.join(dir, 'guilds', guildId, 'users', `${userId}.json`);
 }
 
-test('decayAffinities: decays public and private profiles, marks only the changed ones dirty', () => {
-  const dir = tmpDataDir();
+test('decayAffinities: decays public and private profiles, marks only the changed ones dirty', async () => {
+  const { dir, memoryDb } = memDataDir();
   const dayAgo = new Date(DECAY_NOW - DECAY_DAY_MS).toISOString();
   const hourAgo = new Date(DECAY_NOW - 3600_000).toISOString();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', names: ['Zoé'], affinity: { score: 100, reason: 'r', history: [], decayedAt: dayAgo } });
   writeRaw(userFileOf(dir, 'g1', 'u2'), { id: 'u2', names: ['Ἄννα'], affinity: { score: 50, reason: '', history: [], decayedAt: hourAgo } });
   writeRaw(privateFile(dir, 'g1', 'u1'), { relationship: '', affinity: { score: -64, reason: '', history: [], decayedAt: dayAgo } });
-  const untouchedRaw = fs.readFileSync(userFileOf(dir, 'g1', 'u2'), 'utf8');
+  const untouchedRaw = readRaw(userFileOf(dir, 'g1', 'u2'));
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   const counts = store.decayAffinities('g1', DECAY_NOW, DECAY_CFG);
   assert.deepEqual(counts, { profiles: 3, decayed: 2 });
   assert.equal(store.getUser('g1', 'u1').affinity.score, 96);
@@ -1939,58 +1685,58 @@ test('decayAffinities: decays public and private profiles, marks only the change
   assert.equal(store.getPrivate('g1', 'u1').affinity.score, -62.36);
   assert.equal(store.getUser('g1', 'u2').affinity.score, 50);
 
-  store.flush();
-  assert.equal(fs.readFileSync(userFileOf(dir, 'g1', 'u2'), 'utf8'), untouchedRaw, 'an unchanged profile is not rewritten');
-  const storeB = createStore({ dataDir: dir });
+  store.flush(); await store.flushSettled({});
+  assert.equal(readRaw(userFileOf(dir, 'g1', 'u2')), untouchedRaw, 'an unchanged profile is not rewritten');
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.equal(storeB.getUser('g1', 'u1').affinity.score, 96, 'the decayed public score was flushed');
   assert.equal(storeB.getPrivate('g1', 'u1').affinity.score, -62.36, 'the decayed private score was flushed');
 });
 
-test('decayAffinities: the first sweep only stamps the baseline -- persisted, but nothing counts as decayed', () => {
-  const dir = tmpDataDir();
+test('decayAffinities: the first sweep only stamps the baseline -- persisted, but nothing counts as decayed', async () => {
+  const { dir, memoryDb } = memDataDir();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', names: ['Zoé'], affinity: { score: 80, reason: '', history: [] } });
   writeRaw(privateFile(dir, 'g1', 'u1'), { relationship: '', affinity: { score: 20, reason: '', history: [] } });
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.decayAffinities('g1', DECAY_NOW, DECAY_CFG), { profiles: 2, decayed: 0 });
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore({ dataDir: dir, memoryDb });
   assert.equal(storeB.getUser('g1', 'u1').affinity.score, 80);
   assert.equal(storeB.getUser('g1', 'u1').affinity.decayedAt, new Date(DECAY_NOW).toISOString());
   assert.equal(storeB.getPrivate('g1', 'u1').affinity.decayedAt, new Date(DECAY_NOW).toISOString());
   assert.deepEqual(storeB.decayAffinities('g1', DECAY_NOW + DECAY_DAY_MS, DECAY_CFG), { profiles: 2, decayed: 2 });
 });
 
-test('decayAffinities: decay off writes nothing; no profiles -> zero counts', () => {
-  const dir = tmpDataDir();
+test('decayAffinities: decay off writes nothing; no profiles -> zero counts', async () => {
+  const { dir, memoryDb } = memDataDir();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', affinity: { score: 80, reason: '', history: [] } });
-  const raw = fs.readFileSync(userFileOf(dir, 'g1', 'u1'), 'utf8');
-  const store = createStore({ dataDir: dir });
+  const raw = readRaw(userFileOf(dir, 'g1', 'u1'));
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.decayAffinities('g1', DECAY_NOW, { decayPerDay: 0 }), { profiles: 1, decayed: 0 });
-  store.flush();
-  assert.equal(fs.readFileSync(userFileOf(dir, 'g1', 'u1'), 'utf8'), raw);
+  store.flush(); await store.flushSettled({});
+  assert.equal(readRaw(userFileOf(dir, 'g1', 'u1')), raw);
   assert.deepEqual(store.decayAffinities('empty-guild', DECAY_NOW, DECAY_CFG), { profiles: 0, decayed: 0 });
 });
 
-test('adjustAffinity / adjustPrivateAffinity: keep decayedAt when they fold a delta', () => {
-  const dir = tmpDataDir();
+test('adjustAffinity / adjustPrivateAffinity: keep decayedAt when they fold a delta', async () => {
+  const { dir, memoryDb } = memDataDir();
   const stamp = new Date(DECAY_NOW).toISOString();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', affinity: { score: 10, reason: '', history: [], decayedAt: stamp } });
   writeRaw(privateFile(dir, 'g1', 'u1'), { affinity: { score: 10, reason: '', history: [], decayedAt: stamp } });
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.equal(store.adjustAffinity('g1', 'u1', 5, 'x', { maxDelta: 15, historySize: 10, now: DECAY_NOW }).decayedAt, stamp);
   assert.equal(store.adjustPrivateAffinity('g1', 'u1', 5, 'x', { maxDelta: 15, historySize: 10, now: DECAY_NOW }).decayedAt, stamp);
   assert.equal(store.getUser('g1', 'u1').affinity.decayedAt, stamp);
   assert.equal(store.getPrivate('g1', 'u1').affinity.decayedAt, stamp);
 });
 
-test('normalisation on read keeps decayedAt and relationshipScore, public and private', () => {
-  const dir = tmpDataDir();
+test('normalisation on read keeps decayedAt and relationshipScore, public and private', async () => {
+  const { dir, memoryDb } = memDataDir();
   const stamp = new Date(DECAY_NOW).toISOString();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', relationship: 'x', relationshipScore: 42, affinity: { score: 10, reason: '', history: [], decayedAt: stamp } });
   writeRaw(privateFile(dir, 'g1', 'u1'), { relationship: 'y', relationshipScore: -9, affinity: { score: 10, decayedAt: stamp } });
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.equal(store.getUser('g1', 'u1').relationshipScore, 42);
   assert.equal(store.getUser('g1', 'u1').affinity.decayedAt, stamp);
   assert.equal(store.getPrivate('g1', 'u1').relationshipScore, -9);
@@ -2079,335 +1825,37 @@ test('applyPrivateOps: a written private relationship is stamped relationshipWri
   assert.equal(rewritten.relationship, LONG_RELATIONSHIP);
 });
 
-test('store: relationshipWrittenAt and relationshipScore survive a restart, public and private', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('store: relationshipWrittenAt and relationshipScore survive a restart, public and private', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser('g1', 'u1', 'Zoé', 1000);
   store.applyProfileOps('g1', 'u1', { relationship: 'Παλιοί φίλοι.' }, { fieldChars: 400, relationshipScore: 31, now: WRITTEN_NOW });
   store.applyPrivateOps('g1', 'u1', { relationship: 'Μου εμπιστεύεται μυστικά.' }, { fieldChars: 400, relationshipScore: 44, now: WRITTEN_NOW + 60_000 });
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const restarted = createStore({ dataDir: dir });
+  const restarted = createStore({ dataDir: dir, memoryDb });
   assert.equal(restarted.getUser('g1', 'u1').relationshipWrittenAt, new Date(WRITTEN_NOW).toISOString());
   assert.equal(restarted.getUser('g1', 'u1').relationshipScore, 31);
   assert.equal(restarted.getPrivate('g1', 'u1').relationshipWrittenAt, new Date(WRITTEN_NOW + 60_000).toISOString());
   assert.equal(restarted.getPrivate('g1', 'u1').relationshipScore, 44);
 });
 
-test('getUser / getPrivate: a profile written before relationshipWrittenAt existed loads without one and gets none on read', () => {
-  const dir = tmpDataDir();
+test('getUser / getPrivate: a profile written before relationshipWrittenAt existed loads without one and gets none on read', async () => {
+  const { dir, memoryDb } = memDataDir();
   writeRaw(userFileOf(dir, 'g1', 'u1'), { id: 'u1', relationship: 'x', relationshipScore: 42, affinity: { score: 10, reason: '', history: [] } });
   writeRaw(privateFile(dir, 'g1', 'u1'), { relationship: 'y', relationshipScore: -9, affinity: { score: 10 } });
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.equal(store.getUser('g1', 'u1').relationshipWrittenAt, undefined);
   assert.equal(store.getPrivate('g1', 'u1').relationshipWrittenAt, undefined);
 });
 
-// --- the voice queue (src/memory/voice.js), self facts, filling voice texts ----
+// --- self facts ----
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VOICE_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const VOICE_AT = new Date(VOICE_NOW).toISOString();
 const ELENI = '111111111111111111';
 const NIKOS = '222222222222222222';
-const VOICE_CONFIG = {
-  features: {},
-  memory: { maxNewEpisodes: 3, clampTolerance: 1.25, voice: { maxItems: 24, maxOutputTokens: 3000, retryMinutes: 15, maxAttempts: 4, queueMax: 100, queueHours: 24 } },
-  relationships: { maxDeltaPerUpdate: 15, textChars: 600 },
-};
-
-function voiceFileOf(dir, guildId) {
-  return path.join(dir, 'guilds', guildId, 'voice.json');
-}
-
-/** One item as src/memory/voice.js#splitDecision hands it to mergeIntoQueue, queued at `at`. */
-function voiceItem(kind, fields = {}, at = VOICE_NOW) {
-  return { kind, brief: ['σημείωση'], createdAt: at, attempts: 0, misses: 0, nextAt: at, ...fields };
-}
-
-function queueItems(store, guildId, items, nowMs = VOICE_NOW) {
-  return store.updateVoiceQueue(guildId, (queue) => mergeIntoQueue(queue, items, nowMs, VOICE_CONFIG));
-}
-
-const briefsOf = (store, guildId) => store.getVoiceQueue(guildId).map((queued) => queued.brief[0]);
-
-test('voice queue: written atomically to guilds/<id>/voice.json on flush and read back after a restart', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const outcome = queueItems(store, 'g1', [voiceItem('self', { brief: ['μου αρέσει ο καφές'] }), voiceItem('relationship', { userId: ELENI })]);
-  assert.equal(outcome.added, 2, 'updateVoiceQueue returns what the change returned');
-  assert.equal(fs.existsSync(voiceFileOf(dir, 'g1')), false, 'written by the flush, like every other file');
-
-  store.flush();
-  assert.deepEqual(JSON.parse(fs.readFileSync(voiceFileOf(dir, 'g1'), 'utf8')), store.getVoiceQueue('g1'));
-  assert.deepEqual(fs.readdirSync(path.join(dir, 'guilds', 'g1')).filter((name) => name.endsWith('.tmp')), []);
-
-  const restarted = createStore({ dataDir: dir });
-  assert.deepEqual(restarted.getVoiceQueue('g1'), store.getVoiceQueue('g1'));
-  assert.deepEqual(restarted.getVoiceQueue('g1').map((queued) => [queued.kind, queued.userId ?? null]), [['self', null], ['relationship', ELENI]]);
-});
-
-test('updateVoiceQueue: replaces the queue with what the change returns, normalised; the file is written on flush', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const good = { id: 'k1', kind: 'self', brief: 'μία', createdAt: VOICE_NOW };
-  store.updateVoiceQueue('g1', () => [good, { ...good }, { id: 'k2', kind: 'relationship', brief: ['χωρίς μέλος'], createdAt: VOICE_NOW }]);
-  const expected = [{ id: 'k1', kind: 'self', brief: ['μία'], createdAt: VOICE_NOW, attempts: 0, misses: 0, nextAt: VOICE_NOW }];
-  assert.deepEqual(store.getVoiceQueue('g1'), expected);
-  store.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getVoiceQueue('g1'), expected);
-
-  store.updateVoiceQueue('g1', () => []);
-  assert.deepEqual(store.getVoiceQueue('g1'), [], 'an explicit empty list empties the queue');
-});
-
-test('getVoiceQueue: normalised on read -- not a list is empty, broken items and repeated ids are dropped', () => {
-  const dir = tmpDataDir();
-  writeRaw(voiceFileOf(dir, 'g1'), { items: [] });
-  assert.deepEqual(createStore({ dataDir: dir }).getVoiceQueue('g1'), []);
-
-  writeRaw(voiceFileOf(dir, 'g1'), [
-    { id: 'k1', kind: 'self', brief: 'μία', createdAt: VOICE_NOW, attempts: -2 },
-    { id: 'k2', kind: 'relationship', brief: ['χωρίς μέλος'], createdAt: VOICE_NOW },
-    { id: 'k1', kind: 'self', brief: ['διπλό'], createdAt: VOICE_NOW },
-    'σκουπίδι',
-  ]);
-  const raw = fs.readFileSync(voiceFileOf(dir, 'g1'), 'utf8');
-  const store = createStore({ dataDir: dir });
-  assert.deepEqual(store.getVoiceQueue('g1'), [{ id: 'k1', kind: 'self', brief: ['μία'], createdAt: VOICE_NOW, attempts: 0, misses: 0, nextAt: VOICE_NOW }]);
-  store.flush();
-  assert.equal(fs.readFileSync(voiceFileOf(dir, 'g1'), 'utf8'), raw, 'reading never rewrites the file');
-});
-
-test('getVoiceQueue: items left out on load are logged once as a count, never by content; a value that is not a list too', async () => {
-  const dir = tmpDataDir();
-  writeRaw(voiceFileOf(dir, 'g2'), [
-    { id: 'k1', kind: 'self', brief: ['μένει'], createdAt: VOICE_NOW },
-    { id: 'k2', kind: 'reason', userId: ELENI, brief: ['χωρίς διεύθυνση'], payload: { delta: 3 }, createdAt: VOICE_NOW },
-    { id: 'k3', kind: 'character', userId: ELENI, brief: {}, createdAt: VOICE_NOW },
-  ]);
-  const store = createStore({ dataDir: dir });
-  const { result, logs } = await withCapturedLogs(() => [store.getVoiceQueue('g2'), store.getVoiceQueue('g2')]);
-  assert.deepEqual(result[0].map((queued) => queued.id), ['k1']);
-  const dropped = logs.filter((line) => line.msg === 'store: voice items dropped');
-  assert.equal(dropped.length, 1, 'logged on the read that loads the file only');
-  assert.equal(dropped[0].level, 'warn');
-  assert.equal(dropped[0].guildId, 'g2');
-  assert.equal(dropped[0].dropped, 2);
-  assert.ok(!JSON.stringify(logs).includes('διεύθυνση') && !JSON.stringify(logs).includes('μένει'), 'counts only');
-
-  const { logs: quiet } = await withCapturedLogs(() => {
-    queueItems(store, 'g2', [voiceItem('self', { brief: ['νέο'] })]);
-    return store.getVoiceQueue('g2');
-  });
-  assert.deepEqual(quiet.filter((line) => line.msg.startsWith('store: voice')), [], 'a write and a cached read log nothing');
-
-  writeRaw(voiceFileOf(dir, 'g3'), { items: [] });
-  writeRaw(voiceFileOf(dir, 'g4'), [{ id: 'k1', kind: 'self', brief: ['καλό'], createdAt: VOICE_NOW }]);
-  const { logs: more } = await withCapturedLogs(() => [store.getVoiceQueue('g3'), store.getVoiceQueue('g4'), store.getVoiceQueue('g5')]);
-  assert.deepEqual(
-    more.filter((line) => line.msg.startsWith('store: voice')).map((line) => [line.msg, line.guildId, line.reason ?? line.dropped]),
-    [['store: voice queue replaced', 'g3', 'malformed']],
-    'a clean file and a missing one log nothing',
-  );
-});
-
-test('getVoiceQueue: an unparsable file reads as empty with a warning; a cached queue keeps its last good value', async () => {
-  const dir = tmpDataDir();
-  fs.mkdirSync(path.join(dir, 'guilds', 'g2'), { recursive: true });
-  fs.writeFileSync(voiceFileOf(dir, 'g2'), '[{ not json');
-  const { result, logs } = await withCapturedLogs(() => createStore({ dataDir: dir }).getVoiceQueue('g2'));
-  assert.deepEqual(result, []);
-  assert.equal(logs.filter((line) => line.msg === 'store: unreadable file, using fallback').length, 1);
-
-  const store = createStore({ dataDir: dir });
-  queueItems(store, 'g1', [voiceItem('self', { brief: ['ἕνα'] })]);
-  store.flush();
-  fs.writeFileSync(voiceFileOf(dir, 'g1'), '{ broken by hand');
-  assert.deepEqual(briefsOf(store, 'g1'), ['ἕνα'], 'a cached file is read once; the cache is the last good value');
-  assert.ok(store.validate().includes('guilds/g1/voice.json'), '/nep resume refuses to come back over the broken file');
-});
-
-test('getVoiceQueue: returns a copy; changing it never changes the stored queue', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  queueItems(store, 'g1', [voiceItem('self')]);
-  const copy = store.getVoiceQueue('g1');
-  copy[0].brief.push('ξένο');
-  copy.pop();
-  assert.deepEqual(store.getVoiceQueue('g1').map((queued) => queued.brief), [['σημείωση']]);
-});
-
-test('updateVoiceQueue: an item queued while a request is awaited survives; the write after the await removes only the applied ids', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  queueItems(store, 'g1', [voiceItem('self', { brief: ['α'] }), voiceItem('self', { brief: ['β'] })]);
-
-  const voiceRun = async () => {
-    const sent = store.getVoiceQueue('g1').map((queued) => queued.id); // read before the request
-    await new Promise((resolve) => setImmediate(resolve)); // the awaited request
-    // After the await: read the queue again and remove only what was applied.
-    store.updateVoiceQueue('g1', (queue) => removeItems(queue, [sent[0]]));
-  };
-  const running = voiceRun();
-  // A stage A batch lands while the request is in flight.
-  queueItems(store, 'g1', [voiceItem('self', { brief: ['γ'] }, VOICE_NOW + 1000)], VOICE_NOW + 1000);
-  await running;
-
-  assert.deepEqual(briefsOf(store, 'g1'), ['β', 'γ']);
-  store.flush();
-  assert.deepEqual(briefsOf(createStore({ dataDir: dir }), 'g1'), ['β', 'γ']);
-});
-
-test('updateVoiceQueue: a change that is not synchronous, throws or returns no queue leaves the queue as it was', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  queueItems(store, 'g1', [voiceItem('self')]);
-  const before = store.getVoiceQueue('g1');
-  assert.throws(() => store.updateVoiceQueue('g1', async () => []), { name: 'TypeError', message: /synchronous/ });
-  for (const result of [undefined, null, {}, 'όχι λίστα', 7, { queue: 'x' }, { queue: undefined }]) {
-    assert.throws(() => store.updateVoiceQueue('g1', () => result), { name: 'TypeError', message: /return a queue/ }, String(JSON.stringify(result)));
-  }
-  const cyclic = [];
-  cyclic.push(cyclic);
-  assert.throws(() => store.updateVoiceQueue('g1', () => cyclic), TypeError, 'a queue that cannot be written as JSON');
-  assert.throws(
-    () =>
-      store.updateVoiceQueue('g1', (queue) => {
-        queue.length = 0; // the change works on a copy
-        throw new Error('half way');
-      }),
-    /half way/,
-  );
-  assert.deepEqual(store.getVoiceQueue('g1'), before);
-});
-
-test('updateVoiceQueue: an async change that rejects is refused and its rejection never goes unhandled', async () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  queueItems(store, 'g1', [voiceItem('self')]);
-  const unhandled = [];
-  const listener = (reason) => unhandled.push(reason);
-  process.on('unhandledRejection', listener);
-  try {
-    assert.throws(
-      () =>
-        store.updateVoiceQueue('g1', async () => {
-          throw new Error('ἀπορρίφθηκε');
-        }),
-      { name: 'TypeError', message: /synchronous/ },
-    );
-    // Unhandled rejections are reported once the microtask queue drains, before setImmediate runs.
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
-  } finally {
-    process.off('unhandledRejection', listener);
-  }
-  assert.deepEqual(unhandled, []);
-  assert.equal(store.getVoiceQueue('g1').length, 1);
-});
-
-test('updateVoiceQueue: the stored queue shares nothing with what the change returned', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  const portrait = voiceItem('character', { userId: ELENI, brief: { keep: ['ήρεμη'] } });
-  const outcome = queueItems(store, 'g1', [portrait]);
-  outcome.queue[0].brief.keep.push('ξένο');
-  outcome.queue[0].attempts = 9;
-  outcome.queue.length = 0;
-  portrait.brief.keep.push('άλλο');
-
-  const mine = store.getVoiceQueue('g1');
-  store.updateVoiceQueue('g1', () => mine);
-  mine[0].brief.keep.push('τρίτο');
-
-  const [stored] = store.getVoiceQueue('g1');
-  assert.deepEqual(stored.brief, { keep: ['ήρεμη'] });
-  assert.equal(stored.attempts, 0);
-});
-
-test('updateVoiceQueue: a change that changes nothing does not rewrite the file', () => {
-  const dir = tmpDataDir();
-  writeRaw(voiceFileOf(dir, 'g1'), [{ id: 'k1', kind: 'self', brief: ['μία'], createdAt: VOICE_NOW, attempts: 0, misses: 0, nextAt: VOICE_NOW }]);
-  const raw = fs.readFileSync(voiceFileOf(dir, 'g1'), 'utf8');
-  const store = createStore({ dataDir: dir });
-  assert.deepEqual(store.updateVoiceQueue('g1', (queue) => ({ queue, note: 7 })).note, 7);
-  store.flush();
-  assert.equal(fs.readFileSync(voiceFileOf(dir, 'g1'), 'utf8'), raw);
-});
-
-test('voice queue: survives a pause and a restart; nothing but forget and wipe removes items', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  store.touchUser('g1', NIKOS, 'Νίκος', 1000);
-  queueItems(store, 'g1', [voiceItem('relationship', { userId: ELENI }), voiceItem('self', { brief: ['ἐγώ'] })]);
-  queueItems(store, 'g2', [voiceItem('self')]);
-  store.flush();
-
-  store.dropCaches(); // /nep pause
-  assert.equal(store.getVoiceQueue('g1').length, 2);
-  store.reloadState(); // /nep resume
-  store.forgetPrivate('g1', NIKOS);
-  store.forgetUser('g1', NIKOS);
-  store.wipeGuild('g2');
-  store.decayAffinities('g1', VOICE_NOW, { decayPerDay: 0.04, decayPower: 1 });
-  store.removeLore('g1', 'κανένα');
-  store.shiftBuffer('g1', []);
-  store.flush();
-
-  const restarted = createStore({ dataDir: dir });
-  assert.deepEqual(restarted.getVoiceQueue('g1').map((queued) => queued.kind), ['relationship', 'self']);
-  assert.deepEqual(restarted.getVoiceQueue('g2'), []);
-});
-
-test('store: forgetUser removes the member\'s queued voice items, wipeGuild removes the queue', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  queueItems(store, 'g1', [
-    voiceItem('relationship', { userId: ELENI }),
-    voiceItem('relationship', { userId: ELENI, layer: 'private' }),
-    voiceItem('learned', { brief: ['μάθημα'], payload: { from: `<@${ELENI}>` } }),
-    voiceItem('relationship', { userId: NIKOS }),
-    voiceItem('self', { brief: ['ἐγώ'] }),
-  ]);
-  queueItems(store, 'g2', [voiceItem('self', { brief: ['ἄλλος'] })]);
-  store.flush();
-
-  store.forgetUser('g1', ELENI);
-  const left = (s) => s.getVoiceQueue('g1').map((queued) => [queued.kind, queued.userId ?? null]);
-  assert.deepEqual(left(store), [['relationship', NIKOS], ['self', null]], 'items about them and the lessons they taught');
-  assert.deepEqual(left(createStore({ dataDir: dir })), [['relationship', NIKOS], ['self', null]], 'on disk at once, no flush needed');
-
-  queueItems(store, 'g1', [voiceItem('self', { brief: ['μόνο στη μνήμη'] }, VOICE_NOW + 1)], VOICE_NOW + 1); // cached, never flushed
-  store.wipeGuild('g1');
-  assert.deepEqual(store.getVoiceQueue('g1'), []);
-  assert.equal(fs.existsSync(voiceFileOf(dir, 'g1')), false);
-  store.flush();
-  assert.equal(fs.existsSync(voiceFileOf(dir, 'g1')), false, 'a wiped queue is not written back');
-  assert.deepEqual(createStore({ dataDir: dir }).getVoiceQueue('g1'), []);
-  assert.deepEqual(briefsOf(createStore({ dataDir: dir }), 'g2'), ['ἄλλος'], 'another guild keeps its queue');
-});
-
-test('forgetPrivate: removes only the member\'s private voice items, on disk at once; no queue file is created', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const payload = { at: VOICE_AT, date: '2026-10-05', what: 'μυστικό', quote: '' };
-  queueItems(store, 'g1', [
-    voiceItem('relationship', { userId: ELENI }),
-    voiceItem('relationship', { userId: ELENI, layer: 'private' }),
-    voiceItem('feeling', { userId: ELENI, layer: 'private', brief: [], payload }),
-    voiceItem('relationship', { userId: NIKOS, layer: 'private' }),
-  ]);
-  store.flush();
-
-  store.forgetPrivate('g1', ELENI);
-  const left = (s) => s.getVoiceQueue('g1').map((queued) => [queued.userId, queued.layer ?? null]);
-  assert.deepEqual(left(store), [[ELENI, null], [NIKOS, 'private']]);
-  assert.deepEqual(left(createStore({ dataDir: dir })), [[ELENI, null], [NIKOS, 'private']]);
-
-  store.forgetUser('g3', ELENI);
-  store.forgetPrivate('g3', ELENI);
-  store.flush();
-  assert.equal(fs.existsSync(voiceFileOf(dir, 'g3')), false);
-});
 
 test('applySelfOps: adds, removes exact items, keeps at most maxSelfFacts', () => {
   const store = createStore({ dataDir: tmpDataDir() });
@@ -2428,36 +1876,36 @@ test('applySelfOps: adds, removes exact items, keeps at most maxSelfFacts', () =
   assert.deepEqual(store.getGuild('g1').self, ['παίζω κιθάρα', 'α', 'β']);
 });
 
-test('applySelfOps: stamps updatedAt only when the list changes; garbage, a repeat or a miss changes nothing', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('applySelfOps: stamps updatedAt only when the list changes; garbage, a repeat or a miss changes nothing', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(store.applySelfOps('g1', { add: ['α'] }, { maxSelfFacts: 20, now: VOICE_NOW }), { added: 1, removed: 0, evicted: 0 });
   assert.equal(store.getGuild('g1').updatedAt, VOICE_AT);
-  store.flush();
-  const raw = fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8');
+  store.flush(); await store.flushSettled({});
+  const raw = unitText(memoryDb, 'guilds/g1/guild.json');
 
   for (const ops of [null, 'α', [], { add: 'β' }, { add: ['α'] }, { remove: ['ω'] }, { remove: [7] }]) {
     assert.deepEqual(store.applySelfOps('g1', ops, { maxSelfFacts: 20, now: VOICE_NOW + 1 }), { added: 0, removed: 0, evicted: 0 }, JSON.stringify(ops));
   }
-  store.flush();
-  assert.equal(fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8'), raw);
+  store.flush(); await store.flushSettled({});
+  assert.equal(unitText(memoryDb, 'guilds/g1/guild.json'), raw);
 });
 
-test('applySelfOps: maxSelfFacts is required, the store keeps no copy of its default; a fraction is floored', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('applySelfOps: maxSelfFacts is required, the store keeps no copy of its default; a fraction is floored', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.applySelfOps('g1', { add: ['α'] }, { maxSelfFacts: 20, now: VOICE_NOW });
-  store.flush();
-  const raw = fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8');
+  store.flush(); await store.flushSettled({});
+  const raw = unitText(memoryDb, 'guilds/g1/guild.json');
 
   for (const opts of [undefined, {}, { maxSelfFacts: undefined }, { maxSelfFacts: null }, { maxSelfFacts: -1 }, { maxSelfFacts: NaN }, { maxSelfFacts: Infinity }, { maxSelfFacts: '20' }]) {
     assert.throws(() => store.applySelfOps('g1', { add: ['β'], remove: ['α'] }, opts), TypeError, String(opts && opts.maxSelfFacts));
   }
   assert.throws(() => store.applySelfOps('g1', null), TypeError, 'checked before the ops');
-  store.flush();
-  assert.equal(fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8'), raw, 'nothing changed');
+  store.flush(); await store.flushSettled({});
+  assert.equal(unitText(memoryDb, 'guilds/g1/guild.json'), raw, 'nothing changed');
 
-  // The caller's resolved cap: src/memory/update.js#MEMORY_LIMIT_DEFAULTS holds config.json's fallback.
+  // The caller's resolved cap: src/memory/text-limits.js#MEMORY_LIMIT_DEFAULTS holds config.json's fallback.
   const cap = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).memory.maxSelfFacts;
   assert.equal(MEMORY_LIMIT_DEFAULTS.maxSelfFacts, cap);
   const facts = Array.from({ length: cap + 2 }, (_, i) => `γεγονός ${i}`);
@@ -2466,22 +1914,6 @@ test('applySelfOps: maxSelfFacts is required, the store keeps no copy of its def
 
   assert.deepEqual(store.applySelfOps('g3', { add: ['α', 'β', 'γ'] }, { maxSelfFacts: 2.9 }), { added: 3, removed: 0, evicted: 1 });
   assert.deepEqual(store.getGuild('g3').self, ['β', 'γ']);
-});
-
-test('applySelfOps: a fact is clamped exactly as the single-stage analyzer clamps its self list', () => {
-  const text = 'λέξη '.repeat(100);
-  for (const clampTolerance of [1, undefined]) {
-    let analyzerSelf;
-    const fake = { getUser: () => null, getGuild: () => ({}), updateGuild: (_guildId, fields) => ((analyzerSelf = fields.self), fields) };
-    applyMemoryUpdate(fake, 'g', { self: [text] }, { clampTolerance, maxSelfFacts: 20 }, new Set());
-
-    const store = createStore({ dataDir: tmpDataDir() });
-    store.applySelfOps('g1', { add: [text] }, { maxSelfFacts: 20, clampTolerance });
-    const [stored] = store.getGuild('g1').self;
-    assert.equal(stored, analyzerSelf[0], `tolerance ${clampTolerance}`);
-    assert.ok([...stored].length < [...text.trim()].length, 'the text was cut');
-    if (clampTolerance === 1) assert.ok([...stored].length <= SELF_CHARS, `at most ${SELF_CHARS}, got ${[...stored].length}`);
-  }
 });
 
 test('applySelfOps: a call that only removes or only repeats never cuts a list stored above a lowered cap', () => {
@@ -2495,184 +1927,6 @@ test('applySelfOps: a call that only removes or only repeats never cuts a list s
 
   assert.deepEqual(store.applySelfOps('g1', { add: ['ζ'] }, { maxSelfFacts: 2 }), { added: 1, removed: 0, evicted: 3 }, 'an add trims to the cap');
   assert.deepEqual(store.getGuild('g1').self, ['ε', 'ζ']);
-});
-
-test('applySelfOps and the voice queue tell a repeated self fact the same way', () => {
-  const pairs = [
-    ['μου αρέσει το τσάι', '  ΜΟΥ  αρέσει\tτο τσάι\n', true],
-    ['Zoë παίζει', 'zoë   παίζει', true],
-    ['μου αρέσει το τσάι', 'μου αρέσει ο καφές', false],
-  ];
-  for (const [first, second, same] of pairs) {
-    const queued = mergeIntoQueue([], [voiceItem('self', { brief: [first] })], VOICE_NOW, VOICE_CONFIG).queue;
-    const { added: queueAdded } = mergeIntoQueue(queued, [voiceItem('self', { brief: [second] })], VOICE_NOW, VOICE_CONFIG);
-
-    const store = createStore({ dataDir: tmpDataDir() });
-    store.applySelfOps('g1', { add: [first] }, { maxSelfFacts: 20 });
-    const { added: storeAdded } = store.applySelfOps('g1', { add: [second] }, { maxSelfFacts: 20 });
-    const { removed } = store.applySelfOps('g1', { remove: [second] }, { maxSelfFacts: 20 });
-
-    assert.equal(queueAdded, same ? 0 : 1, `${first} / ${second}: queue`);
-    assert.equal(storeAdded, same ? 0 : 1, `${first} / ${second}: store add`);
-    assert.equal(removed, 1, `${first} / ${second}: store remove`);
-    assert.deepEqual(store.getGuild('g1').self, same ? [] : [first]);
-  }
-});
-
-test('fillAffinityReason: fills the reason of the history entry stamped at, and affinity.reason while it is the newest', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  const opts = { maxDelta: 15, historySize: 10 };
-  store.adjustAffinity('g1', ELENI, 5, 'παλιός λόγος', { ...opts, now: VOICE_NOW - 1000 });
-  store.adjustAffinity('g1', ELENI, 4, '', { ...opts, now: VOICE_NOW }); // stage A: the score moves now, the reason later
-  assert.equal(store.getUser('g1', ELENI).affinity.reason, 'παλιός λόγος');
-
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'με βοήθησε'), true);
-  let { affinity } = store.getUser('g1', ELENI);
-  assert.equal(affinity.reason, 'με βοήθησε');
-  assert.deepEqual(affinity.history.map((entry) => entry.reason), ['παλιός λόγος', 'με βοήθησε']);
-  assert.equal(affinity.score, 9, 'the score is never touched');
-
-  store.adjustAffinity('g1', ELENI, 3, 'νεότερος', { ...opts, now: VOICE_NOW + 1000 });
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'αργότερα'), true);
-  ({ affinity } = store.getUser('g1', ELENI));
-  assert.equal(affinity.history[1].reason, 'αργότερα');
-  assert.equal(affinity.reason, 'νεότερος', 'a newer move keeps its own reason');
-
-  store.adjustPrivateAffinity('g1', ELENI, 2, '', { ...opts, now: VOICE_NOW });
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'ιδιωτικά', { layer: 'private' }), true);
-  assert.equal(store.getPrivate('g1', ELENI).affinity.reason, 'ιδιωτικά');
-  assert.equal(store.getUser('g1', ELENI).affinity.history[1].reason, 'αργότερα', 'the public layer is not touched');
-});
-
-test('fillAffinityReason / fillEpisodeFeeling: no such entry, no profile or an empty text change nothing and create no file', () => {
-  const dir = tmpDataDir();
-  writeRaw(userFileOf(dir, 'g1', ELENI), {
-    id: ELENI,
-    names: ['Ελένη'],
-    affinity: { score: 4, reason: '', history: [{ ts: VOICE_AT, delta: 4, appliedDelta: 4, score: 4, reason: '' }] },
-    episodes: [{ date: '2026-10-05', what: 'κέρδισε', quote: '', feeling: '', weight: 3, addedAt: VOICE_AT }],
-  });
-  const raw = fs.readFileSync(userFileOf(dir, 'g1', ELENI), 'utf8');
-  const store = createStore({ dataDir: dir });
-  const episode = { at: VOICE_AT, date: '2026-10-05', what: 'κέρδισε' };
-
-  assert.equal(store.fillAffinityReason('g1', 'nobody', VOICE_AT, 'λόγος'), false);
-  assert.equal(store.fillAffinityReason('g1', ELENI, new Date(VOICE_NOW + 1).toISOString(), 'λόγος'), false);
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, '   '), false);
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'λόγος', { layer: 'private' }), false);
-  assert.equal(store.fillEpisodeFeeling('g1', 'nobody', episode, 'χαρά'), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, { ...episode, date: '2026-10-04' }, 'χαρά'), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, { ...episode, what: 'κέρδισε ξανά' }, 'χαρά'), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, { ...episode, at: new Date(VOICE_NOW + 1).toISOString() }, 'χαρά'), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, episode, ''), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, episode, 'χαρά', { layer: 'private' }), false);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, null, 'χαρά'), false);
-
-  store.flush();
-  assert.equal(fs.readFileSync(userFileOf(dir, 'g1', ELENI), 'utf8'), raw);
-  assert.equal(store.getUser('g1', 'nobody'), null);
-  assert.equal(store.getPrivate('g1', ELENI), null);
-});
-
-test('fillAffinityReason / fillEpisodeFeeling: any layer but private or none refuses; the public and the private file stay byte-identical', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const moves = { maxDelta: 15, historySize: 10, now: VOICE_NOW };
-  const episodes = { maxEpisodes: 20, maxNew: 3, now: VOICE_NOW };
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  store.adjustAffinity('g1', ELENI, 4, '', moves);
-  store.addEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'κέρδισε', feeling: '' }], episodes);
-  store.adjustPrivateAffinity('g1', ELENI, 2, '', moves);
-  store.addPrivateEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'κέρδισε', feeling: '' }], episodes);
-  store.flush();
-  const files = [userFileOf(dir, 'g1', ELENI), path.join(dir, 'guilds', 'g1', 'private', `${ELENI}.json`)];
-  const before = files.map((file) => fs.readFileSync(file, 'utf8'));
-  const address = { at: VOICE_AT, date: '2026-10-05', what: 'κέρδισε' };
-
-  for (const layer of ['public', 'Private', 'PRIVATE', 'dm', 'secret', '', 0, false, {}]) {
-    assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'λόγος', { layer }), false, `reason, layer ${JSON.stringify(layer)}`);
-    assert.equal(store.fillEpisodeFeeling('g1', ELENI, address, 'χαρά', { layer }), false, `feeling, layer ${JSON.stringify(layer)}`);
-  }
-  store.flush();
-  assert.deepEqual(files.map((file) => fs.readFileSync(file, 'utf8')), before);
-
-  // The two layers a write may name, for contrast: the same address is found in each.
-  assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, 'λόγος', { layer: undefined }), true);
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, address, 'χαρά', { layer: 'private' }), true);
-});
-
-test('fillAffinityReason / fillEpisodeFeeling: a long text is cut exactly as applyDelta and the episode merge cut it', () => {
-  const text = 'λέξη '.repeat(100);
-  for (const clampTolerance of [1, undefined]) {
-    const store = createStore({ dataDir: tmpDataDir() });
-    store.touchUser('g1', ELENI, 'Ελένη', 1000);
-    store.adjustAffinity('g1', ELENI, 4, '', { maxDelta: 15, historySize: 10, now: VOICE_NOW });
-    store.addEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'κέρδισε', feeling: '' }], { maxEpisodes: 20, maxNew: 3, now: VOICE_NOW });
-
-    assert.equal(store.fillAffinityReason('g1', ELENI, VOICE_AT, text, { clampTolerance }), true);
-    assert.equal(store.fillEpisodeFeeling('g1', ELENI, { at: VOICE_AT, date: '2026-10-05', what: 'κέρδισε' }, text, { clampTolerance }), true);
-    const profile = store.getUser('g1', ELENI);
-
-    const reason = applyDelta(undefined, 4, text, { maxDelta: 15, historySize: 10, clampTolerance }).reason;
-    const [episode] = mergeEpisodes([], [{ date: '2026-10-05', what: 'κέρδισε', feeling: text }], { maxEpisodes: 20, clampTolerance }).episodes;
-    assert.equal(profile.affinity.reason, reason, `reason, tolerance ${clampTolerance}`);
-    assert.equal(profile.affinity.history.at(-1).reason, reason);
-    assert.equal(profile.episodes[0].feeling, episode.feeling, `feeling, tolerance ${clampTolerance}`);
-    assert.ok([...reason].length < [...text.trim()].length && [...episode.feeling].length < [...reason].length, 'both were cut');
-    if (clampTolerance === 1) {
-      assert.ok([...profile.affinity.reason].length <= REASON_CHARS);
-      assert.ok([...profile.episodes[0].feeling].length <= FEELING_CHARS);
-    }
-  }
-});
-
-test('fillEpisodeFeeling: fills the feeling of the episode stored at that stamp with that date and what; private with layer private', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  const opts = { maxEpisodes: 20, maxNew: 3 };
-  store.addEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'κέρδισε στο σκάκι', quote: '', feeling: '', weight: 3 }], { ...opts, now: VOICE_NOW });
-  store.addEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'έχασε', feeling: '' }], { ...opts, now: VOICE_NOW + 1 });
-
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, { at: VOICE_AT, date: '2026-10-05', what: 'κέρδισε στο σκάκι' }, 'χάρηκα'), true);
-  assert.deepEqual(store.getUser('g1', ELENI).episodes.map((ep) => [ep.what, ep.feeling]), [['κέρδισε στο σκάκι', 'χάρηκα'], ['έχασε', '']]);
-
-  store.addPrivateEpisodes('g1', ELENI, [{ date: '2026-10-05', what: 'μυστικό', feeling: '' }], { ...opts, now: VOICE_NOW });
-  assert.equal(store.fillEpisodeFeeling('g1', ELENI, { at: VOICE_AT, date: '2026-10-05', what: 'μυστικό' }, 'το κράτησα', { layer: 'private' }), true);
-  assert.equal(store.getPrivate('g1', ELENI).episodes[0].feeling, 'το κράτησα');
-  assert.equal(store.getUser('g1', ELENI).episodes.some((ep) => ep.what === 'μυστικό'), false);
-});
-
-test('voice writes: a reason and a feeling land on what stage A stored, and applying them twice equals once', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  const decision = { users: { [ELENI]: { affinity: { delta: 4, event: 'βοήθησε' }, episodes: [{ date: '2026-10-05', what: 'κέρδισε', quote: '', weight: 3, tone: 'χαρά' }] } } };
-  const { neutral, items } = splitDecision(decision, { config: VOICE_CONFIG, nowMs: VOICE_NOW });
-  // Stage A's neutral apply, on the same clock.
-  const entry = neutral.users[ELENI];
-  store.adjustAffinity('g1', ELENI, entry.affinity.delta, entry.affinity.reason, { maxDelta: 15, historySize: 10, now: VOICE_NOW });
-  store.addEpisodes('g1', ELENI, entry.episodes, { maxEpisodes: 20, maxNew: 3, now: VOICE_NOW });
-  queueItems(store, 'g1', items);
-
-  const queued = store.getVoiceQueue('g1');
-  const worded = new Map(queued.map((item) => [item.id, item.kind === 'reason' ? 'με βοήθησε' : 'χάρηκα']));
-  const { writes, applied } = applyVoiceItems(worded, queued, { config: VOICE_CONFIG });
-  const run = () =>
-    writes.map((write) =>
-      write.kind === 'reason'
-        ? store.fillAffinityReason('g1', write.userId, write.at, write.text, { layer: write.layer })
-        : store.fillEpisodeFeeling('g1', write.userId, write, write.text, { layer: write.layer }),
-    );
-  assert.deepEqual(run(), [true, true]);
-  const once = structuredClone(store.getUser('g1', ELENI));
-  run(); // a restart between the writes and the queue's removal applies them again
-  assert.deepEqual(store.getUser('g1', ELENI), once);
-  store.updateVoiceQueue('g1', (queue) => removeItems(queue, applied));
-
-  assert.equal(once.affinity.score, 4);
-  assert.equal(once.affinity.reason, 'με βοήθησε');
-  assert.deepEqual(once.episodes.map((ep) => ep.feeling), ['χάρηκα']);
-  assert.deepEqual(store.getVoiceQueue('g1'), []);
 });
 
 // --- the recent store (data/guilds/<id>/recent.json, src/memory/recent.js) ------
@@ -2708,16 +1962,15 @@ test('store: getRecent on a fresh guild creates no file, nor does a write that c
   assert.equal(fs.existsSync(recentFileOf(dir, 'g1')), false);
 });
 
-test('store: recent lines are written atomically, survive a restart and read back normalised', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir, newId: counterIds() });
+test('store: recent lines survive a restart and read back normalised', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const counts = store.applyRecentOps('g1', [recentAdd(`<@${ELENI}> έφερε σύκα`, { weight: 3 }), recentAdd('βράδυ με βροχή')], { now: RECENT_NOW });
   assert.deepEqual(counts, recentCounts({ added: 2 }));
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
   const file = recentFileOf(dir, 'g1');
-  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((name) => name.startsWith('recent')), ['recent.json'], 'no temp file left behind');
-  const restarted = createStore({ dataDir: dir });
+  const restarted = createStore({ dataDir: dir, memoryDb });
   assert.deepEqual(restarted.getRecent('g1'), {
     nextId: 3,
     lines: [
@@ -2725,107 +1978,44 @@ test('store: recent lines are written atomically, survive a restart and read bac
       { id: 2, at: RECENT_NOW - RECENT_HOUR, addedAt: new Date(RECENT_NOW).toISOString(), channelId: AGORA, text: 'βράδυ με βροχή', who: [], weight: 2, itemId: 'rc-u2' },
     ],
   });
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), restarted.getRecent('g1'));
+  assert.deepEqual(JSON.parse(readRaw(file)), restarted.getRecent('g1'));
 });
 
-test('store: applyRecentOps marks the file dirty only when a line was added, removed or expired', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('store: applyRecentOps marks the file dirty only when a line was added, removed or expired', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.applyRecentOps('g1', [recentAdd('μία'), recentAdd('δύο')], { now: RECENT_NOW });
-  store.flush();
+  store.flush(); await store.flushSettled({});
   const file = recentFileOf(dir, 'g1');
-  const raw = fs.readFileSync(file, 'utf8');
+  const raw = readRaw(file);
 
   assert.deepEqual(
     store.applyRecentOps('g1', [recentAdd('ΜΙΑ'), recentAdd('τρία', { channelId: null })], { now: RECENT_NOW, removeIds: [7] }),
     recentCounts({ duplicate: 1, noChannel: 1 }),
   );
-  store.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), raw);
+  store.flush(); await store.flushSettled({});
+  assert.equal(readRaw(file), raw);
 
   assert.equal(store.applyRecentOps('g1', [], { now: RECENT_NOW, removeIds: [1] }).removed, 1);
-  store.flush();
-  assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g1'), ['δύο']);
+  store.flush(); await store.flushSettled({});
+  assert.deepEqual(recentTexts(createStore({ dataDir: dir, memoryDb }), 'g1'), ['δύο']);
 
   // a lowered cap and a new line it takes at once: nothing added, yet stored lines were evicted
   store.applyRecentOps('g1', [recentAdd('τρία'), recentAdd('τέσσερα')], { now: RECENT_NOW });
-  store.flush();
+  store.flush(); await store.flushSettled({});
   assert.deepEqual(
     store.applyRecentOps('g1', [recentAdd('ελαφριά', { weight: 1 })], { now: RECENT_NOW, maxStored: 1 }),
     recentCounts({ evicted: 2, overCap: 1 }),
   );
-  store.flush();
-  assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g1'), ['τέσσερα'], 'written: the evictions alone mark the file dirty');
-});
-
-test('store: forgetUser drops the member\'s recent lines with the profile', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', ELENI, 'Ελένη', 1000);
-  store.applyProfileOps('g1', ELENI, { aliases: { add: ['Λενιώ'] } }, { maxAliases: 5, maxAliasesStored: 15, now: 1000 });
-  store.applyRecentOps(
-    'g1',
-    [recentAdd(`<@${ELENI}> χάρισε ένα κοχύλι`), recentAdd('η ελενη άργησε'), recentAdd('η Λενιώ τραγούδησε'), recentAdd(`<@${NIKOS}> έφτιαξε τσάι`)],
-    { now: RECENT_NOW, maxNew: 10 },
-  );
-  store.applyRecentOps('g2', [recentAdd(`<@${ELENI}> σε άλλο σπίτι`)], { now: RECENT_NOW });
-  store.flush();
-
-  assert.equal((await store.forgetUser('g1', ELENI)).counts.recent, 3);
-  assert.equal(store.getUser('g1', ELENI), null);
-  assert.deepEqual(recentTexts(store, 'g1'), [`<@${NIKOS}> έφτιαξε τσάι`]);
-  assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g1'), [`<@${NIKOS}> έφτιαξε τσάι`], 'on disk at once, no flush needed');
-  assert.deepEqual(recentTexts(store, 'g2'), [`<@${ELENI}> σε άλλο σπίτι`], 'another guild is not touched');
-
-  assert.equal((await store.forgetUser('g1', ELENI)).counts.recent, 0, 'a second forget finds nothing');
-  assert.equal((await store.forgetUser('g3', ELENI)).counts.recent, 0);
-  store.flush();
-  assert.equal(fs.existsSync(recentFileOf(dir, 'g3')), false, 'a forget creates no recent file');
-});
-
-test('store: wipeGuild removes recent.json', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.applyRecentOps('g1', [recentAdd('μία'), recentAdd('δύο')], { now: RECENT_NOW });
-  store.applyRecentOps('g2', [recentAdd('τρία')], { now: RECENT_NOW });
-  store.flush();
-  store.applyRecentOps('g1', [recentAdd('μόνο στη μνήμη')], { now: RECENT_NOW }); // cached, never flushed
-
-  assert.equal(store.wipeGuild('g1').recentLines, 3);
-  assert.equal(fs.existsSync(recentFileOf(dir, 'g1')), false);
-  assert.deepEqual(store.getRecent('g1'), { nextId: 1, lines: [] });
-  store.flush();
-  assert.equal(fs.existsSync(recentFileOf(dir, 'g1')), false, 'a wiped store is not written back');
-  assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g2'), ['τρία'], 'another guild keeps its lines');
-});
-
-test('store: recent lines survive a pause and a restart; nothing but a write, a forget or a wipe takes them', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', NIKOS, 'Νίκος', 1000);
-  store.applyRecentOps('g1', [recentAdd('μία'), recentAdd('δύο', { at: RECENT_NOW - 70 * RECENT_HOUR })], { now: RECENT_NOW });
-  store.flush();
-
-  store.dropCaches(); // /nep pause
-  assert.deepEqual(recentTexts(store, 'g1'), ['μία', 'δύο']);
-  store.reloadState(); // /nep resume
-  store.forgetPrivate('g1', NIKOS);
-  store.wipeGuild('g2');
-  store.decayAffinities('g1', RECENT_NOW + 200 * RECENT_HOUR, { decayPerDay: 0.04, decayPower: 1 });
-  store.removeLore('g1', 'κανένα');
-  store.shiftBuffer('g1', []);
-  store.updateGuild('g1', { patterns: 'ήσυχα' });
-  store.flush();
-
-  const restarted = createStore({ dataDir: dir });
-  assert.deepEqual(recentTexts(restarted, 'g1'), ['μία', 'δύο'], 'long past the window, still stored until a write');
+  store.flush(); await store.flushSettled({});
+  assert.deepEqual(recentTexts(createStore({ dataDir: dir, memoryDb }), 'g1'), ['τέσσερα'], 'written: the evictions alone mark the file dirty');
 });
 
 // ---- version history of prose fields ---------------------------------------
 
 function withStore(fn) {
-  const dir = tmpDataDir();
-  return fn(createStore({ dataDir: dir }), dir);
+  const { dir, memoryDb } = memDataDir();
+  return fn(createStore({ dataDir: dir, memoryDb }), dir, memoryDb);
 }
 
 test('store: a prose rewrite records the previous text with who wrote and a sentence diff; a first write records nothing', () => withStore((store) => {
@@ -2850,7 +2040,7 @@ test('store: versions are capped per field at versions.kept, oldest dropped; a c
   assert.equal(v[0].by, 'unknown');
 }));
 
-test('store: applyProfileOps and setLore record user and lore versions; versions off records nothing', () => withStore((store, dir) => {
+test('store: applyProfileOps and setLore record user and lore versions; versions off records nothing', () => withStore(async (store, dir, memoryDb) => {
   store.applyProfileOps('g1', 'u1', { character: 'Calme. Précis.', relationship: 'Amical.' }, { fieldChars: 1000, by: 'analyzer' });
   assert.deepEqual(store.listVersions('g1', 'users', 'u1'), {}, 'first write');
   store.applyProfileOps('g1', 'u1', { character: 'Calme. Bavard.', relationship: 'Très amical.' }, { fieldChars: 1000, by: 'voice' });
@@ -2893,39 +2083,12 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
   store.updateUser('g1', 'u1', { style: 'Court et net.' }, { by: 'owner' });
   assert.equal(store.listVersions('g1', 'users', 'u1').style[0].text, 'Court.', 'updateUser records too');
 
-  store.flush();
-  const fresh = createStore({ dataDir: dir });
+  store.flush(); await store.flushSettled({});
+  const fresh = createStore({ dataDir: dir, memoryDb });
   assert.equal(fresh.listVersions('g1', 'users', 'u1').character[0].text, 'Calme. Précis.', 'versions survive a restart');
 }));
 
-test('store: forgetting a member and wiping a guild remove their version files', () => withStore((store, dir) => {
-  const versionsDir = path.join(dir, 'guilds', 'g1', 'versions');
-  for (const text of ['Un.', 'Deux.']) {
-    store.applyProfileOps('g1', 'u1', { character: text }, { fieldChars: 1000 });
-    store.applyProfileOps('g1', 'u2', { character: text }, { fieldChars: 1000 });
-    store.updateChannel('g1', 'c1', { purpose: text });
-    store.updateGuild('g1', { patterns: text });
-  }
-  store.flush();
-  assert.ok(fs.existsSync(path.join(versionsDir, 'users', 'u1.json')));
-
-  store.forgetUser('g1', 'u1');
-  assert.equal(fs.existsSync(path.join(versionsDir, 'users', 'u1.json')), false);
-  assert.deepEqual(store.listVersions('g1', 'users', 'u1'), {});
-  assert.equal(store.listVersions('g1', 'users', 'u2').character.length, 1, 'another member keeps theirs');
-  store.flush();
-  assert.equal(fs.existsSync(path.join(versionsDir, 'users', 'u1.json')), false, 'a flush does not bring it back');
-
-  store.wipeGuild('g1');
-  assert.equal(fs.existsSync(versionsDir), false);
-  for (const [kind, id] of [['users', 'u2'], ['channels', 'c1'], ['guild', 'guild']]) {
-    assert.deepEqual(store.listVersions('g1', kind, id), {}, kind);
-  }
-  store.flush();
-  assert.equal(fs.existsSync(versionsDir), false, 'a flush does not bring it back');
-}));
-
-test('store: version files are not mistaken for channel or user ids', () => withStore((store, dir) => {
+test('store: version files are not mistaken for channel or user ids', () => withStore(async (store, dir, memoryDb) => {
   for (const text of ['Un.', 'Deux.']) {
     store.applyProfileOps('g1', 'u1', { character: text }, { fieldChars: 1000 });
     store.updateChannel('g1', 'c1', { purpose: text });
@@ -2937,11 +2100,10 @@ test('store: version files are not mistaken for channel or user ids', () => with
   const check = (s) => {
     assert.deepEqual(s.listChannels('g1').map((c) => c.id), ['c1']);
     assert.deepEqual(s.listUserProfiles('g1').map((p) => p.id), ['u1']);
-    assert.deepEqual(s.listGuilds(), ['g1']);
   };
   check(store);
-  store.flush();
-  check(createStore({ dataDir: dir }));
+  store.flush(); await store.flushSettled({});
+  check(createStore({ dataDir: dir, memoryDb }));
 }));
 
 // ---- the participation store (src/memory/participation.js) ---------------------
@@ -2956,13 +2118,13 @@ function partState(state, { channelId, minute, authorId = 'u1' }) {
   return recordOwnLine(state, { channelId, own, before }, PARTICIPATION_DEFAULTS, PART_AT + minute * PART_MIN);
 }
 
-test('store: participation round trip, a copy on read, nothing created by reading', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir, newId: counterIds() });
+test('store: participation round trip, a copy on read, nothing created by reading', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const file = path.join(dir, 'guilds', 'g1', 'participation.json');
   assert.deepEqual(store.getParticipation('g1'), { episodes: [], nextId: 1 });
-  store.flush();
-  assert.equal(fs.existsSync(file), false);
+  store.flush(); await store.flushSettled({});
+  assert.equal(existsRaw(file), false);
 
   const state = partState(emptyParticipation(), { channelId: 'c1', minute: 0 });
   store.setParticipation('g1', state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT });
@@ -2971,8 +2133,8 @@ test('store: participation round trip, a copy on read, nothing created by readin
   assert.deepEqual(copy, stored);
   copy.episodes.length = 0;
   assert.equal(store.getParticipation('g1').episodes.length, 1);
-  store.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getParticipation('g1'), stored);
+  store.flush(); await store.flushSettled({});
+  assert.deepEqual(createStore({ dataDir: dir, memoryDb }).getParticipation('g1'), stored);
 });
 
 test('store: participation expires on every write', () => {
@@ -3008,28 +2170,9 @@ test('store: a broken participation file reads as a store and is logged once', a
   );
 });
 
-test('store: forgetUser takes the member out of the participation store at once, wipeGuild deletes it', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  let state = partState(emptyParticipation(), { channelId: 'c1', minute: 0, authorId: 'u1' });
-  state = partState(state, { channelId: 'c2', minute: 60, authorId: 'u2' });
-  store.setParticipation('g1', state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT + 60 * PART_MIN });
-  store.forgetUser('g1', 'u1');
-  const fresh = createStore({ dataDir: dir }).getParticipation('g1');
-  assert.deepEqual(fresh.episodes.map((ep) => ep.messages.map((m) => m.authorId)), [['bot'], ['u2', 'bot']], 'written at once');
-
-  store.wipeGuild('g1');
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'participation.json')), false);
-  assert.deepEqual(store.getParticipation('g1'), { episodes: [], nextId: 1 });
-
-  const other = createStore({ dataDir: tmpDataDir() });
-  other.forgetUser('g1', 'u1');
-  assert.deepEqual(other.getParticipation('g1'), { episodes: [], nextId: 1 }, 'no store, no file');
-});
-
-test('markRelationshipRewrite: sets and clears the flag on a profile with a text, false without one', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('markRelationshipRewrite: sets and clears the flag on a profile with a text, false without one', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   assert.equal(store.markRelationshipRewrite('g1', 'u1'), false, 'no profile');
   assert.equal(store.getUser('g1', 'u1'), null, 'no profile is created');
 
@@ -3040,8 +2183,8 @@ test('markRelationshipRewrite: sets and clears the flag on a profile with a text
   store.applyProfileOps('g1', 'u1', { relationship: 'Παλιοί φίλοι.' }, { fieldChars: 400, now: WRITTEN_NOW });
   assert.equal(store.markRelationshipRewrite('g1', 'u1'), true);
   assert.equal(store.getUser('g1', 'u1').relationshipRewrite, true);
-  store.flush();
-  assert.equal(createStore({ dataDir: dir }).getUser('g1', 'u1').relationshipRewrite, true, 'the flag survives a restart');
+  store.flush(); await store.flushSettled({});
+  assert.equal(createStore({ dataDir: dir, memoryDb }).getUser('g1', 'u1').relationshipRewrite, true, 'the flag survives a restart');
 
   assert.equal(store.markRelationshipRewrite('g1', 'u1', false), true);
   assert.equal(store.getUser('g1', 'u1').relationshipRewrite, undefined, 'cleared');
@@ -3074,8 +2217,8 @@ function counterIds() {
 
 const ID_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 
-test('store: an item without itemId gets one on write and old items load unchanged', () => {
-  const dir = tmpDataDir();
+test('store: an item without itemId gets one on write and old items load unchanged', async () => {
+  const { dir, memoryDb } = memDataDir();
   const old = {
     id: 'u1',
     names: ['Zoé'],
@@ -3086,8 +2229,8 @@ test('store: an item without itemId gets one on write and old items load unchang
     episodes: [{ date: '2026-09-01', what: 'έπαιξε σκάκι', quote: '', feeling: '', weight: 3, addedAt: '2026-09-01T00:00:00.000Z', itemId: 'ep-kept' }],
     affinity: { score: 1, reason: 'café', history: [{ ts: '2026-09-01T00:00:00.000Z', delta: 1, appliedDelta: 1, score: 1, reason: 'café' }] },
   };
-  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), old);
-  const store = createStore({ dataDir: dir, newId: counterIds() });
+  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), old);
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
 
   const loaded = store.getUser('g1', 'u1');
   assert.deepEqual(loaded.interests, old.interests, 'an old interest loads without an itemId');
@@ -3107,9 +2250,9 @@ test('store: an item without itemId gets one on write and old items load unchang
   const ownLine = { id: 'o1', ts: ID_NOW, authorId: 'bot', name: 'persona', self: true, text: 'γεια' };
   const part = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: ownLine }, PARTICIPATION_DEFAULTS, ID_NOW);
   store.setParticipation('g1', part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
-  store.flush();
+  store.flush(); await store.flushSettled({});
 
-  const reread = createStore({ dataDir: dir, newId: () => 'never' });
+  const reread = createStore({ dataDir: dir, memoryDb, newId: () => 'never' });
   const profile = reread.getUser('g1', 'u1');
   const ids = (list) => list.map((item) => item.itemId);
   const every = (list, prefix) => Array.isArray(list) && list.length > 0 && list.every((item) => typeof item.itemId === 'string' && item.itemId.startsWith(prefix));
@@ -3180,54 +2323,6 @@ test('store: eviction returns the dropped items with their itemId', () => {
   assert.deepEqual(dropped.map((ep) => ep.itemId), [episodeId]);
 });
 
-// ---- the record (src/memory/record.js): feelings as felt lines ----
-
-test('store: a stored feeling writes a felt line', async () => {
-  const appended = [];
-  let on = true;
-  const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
-  let n = 0;
-  const store = createStore({ dataDir: tmpDataDir(), newId: () => `id${(n += 1)}`, record, recordOn: () => on });
-  store.touchUser('g1', 'u1', 'Ελένη', Date.UTC(2026, 9, 12));
-  const opts = { maxEpisodes: 10, maxNew: 3, now: Date.UTC(2026, 9, 12, 22, 0, 0) };
-
-  // Single stage: an episode stored with its feeling.
-  assert.equal(store.addEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'won the match', feeling: 'χαρά', weight: 3 }], opts), 1);
-  // Two stage: stored without one, the feeling filled in later.
-  store.addEpisodes('g1', 'u1', [{ date: '2026-10-11', what: 'lost the bet', weight: 2 }], opts);
-  assert.equal(appended.length, 1, 'an episode without a feeling writes nothing');
-  const [stored, later] = store.getUser('g1', 'u1').episodes;
-  assert.equal(store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'λύπη'), true);
-  assert.equal(appended.length, 2);
-
-  const [first, second] = appended.map((call) => call.lines[0]);
-  assert.equal(appended[0].guildId, 'g1');
-  assert.equal(first.kind, 'felt');
-  assert.equal(first.itemId, stored.itemId);
-  assert.equal(first.text, 'χαρά');
-  assert.equal(first.occurredAt, '2026-10-12T00:00:00.000Z');
-  assert.deepEqual(first.scope, { user: 'u1' });
-  assert.deepEqual(first.participants, ['u1']);
-  assert.deepEqual(first.sourceMessageIds, []);
-  assert.match(first.revisionId, /^rv-[0-9a-f]{12}$/);
-  assert.match(first.feltId, /^f-/);
-  assert.equal(second.itemId, store.getUser('g1', 'u1').episodes[1].itemId);
-  assert.equal(second.text, 'λύπη');
-  assert.notEqual(second.feltId, first.feltId);
-  assert.notEqual(second.revisionId, first.revisionId);
-
-  // The same text again changes nothing and writes nothing; the switch off writes nothing.
-  store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'λύπη');
-  on = false;
-  store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'ντροπή');
-  assert.equal(appended.length, 2);
-
-  // The private layer's feelings go to the member's private record.
-  on = true;
-  store.addPrivateEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'a secret', feeling: 'ζεστασιά', weight: 3 }], opts);
-  assert.deepEqual(appended[2].opts, { privateUserId: 'u1' });
-});
-
 // ---- the archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
 
 /** An archive stand-in: what was appended or queued; with `manual`, `append` resolves when released. */
@@ -3268,26 +2363,27 @@ function fakeArchive({ manual = false, fail = false } = {}) {
 const whats = (episodes) => episodes.map((ep) => ep.what);
 
 test('store: an evicted episode is archived before the hot file on disk loses it', async () => {
-  const dir = tmpDataDir();
+  const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ manual: true });
-  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
   const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
   // Every write of the member's file, in order with the archive's answer.
-  const write = () => {
+  const write = async () => {
     store.flush();
-    const onDisk = whats(JSON.parse(fs.readFileSync(file, 'utf8')).episodes);
+    await settle();
+    const onDisk = whats(JSON.parse(readRaw(file)).episodes);
     archive.events.push(onDisk.includes('παλιό') ? 'write-with' : 'write-without');
   };
   const opts = { maxEpisodes: 1, maxNew: 3, now: ID_NOW };
   store.touchUser('g1', 'u1', 'Zoé', ID_NOW);
   store.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
-  write();
+  await write();
 
   const from = store.archiveMark('g1');
   store.addEpisodes('g1', 'u1', [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
   const to = store.archiveMark('g1');
   assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['παλιό', 'νέο'], 'the victim stays hot, over the cap');
-  write();
+  await write();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(archive.appended.length, 1, 'the append runs in the background');
   const [{ guildId, entries, opts: appendOpts }] = archive.appended;
@@ -3295,13 +2391,13 @@ test('store: an evicted episode is archived before the hot file on disk loses it
   assert.deepEqual(appendOpts, {});
   assert.deepEqual(entries.map((entry) => [entry.itemKind, entry.event, entry.text.what, entry.scope]), [['episode', 'evicted', 'παλιό', { user: 'u1' }]]);
   assert.equal(entries[0].itemId, store.getUser('g1', 'u1').episodes[0].itemId, 'the hot copy carries the archived id');
-  write();
+  await write();
 
   archive.releases.shift()();
   const settled = await store.settleArchive('g1', { from, to });
   assert.deepEqual(settled, { archived: [{ itemId: entries[0].itemId, revisionId: entries[0].revisionId, itemKind: 'episode', event: 'evicted' }], deferred: 0 });
   assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['νέο'], 'trimmed once confirmed');
-  write();
+  await write();
 
   const resolved = archive.events.indexOf('append-resolved');
   assert.ok(resolved > 0, JSON.stringify(archive.events));
@@ -3319,9 +2415,9 @@ test('store: an evicted episode is archived before the hot file on disk loses it
 });
 
 test('store: a failing archive keeps every victim hot and queues them; drainPending archives and trims', async () => {
-  const dir = tmpDataDir();
+  const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ fail: true });
-  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
   const opts = { maxEpisodes: 3, maxNew: 3, now: ID_NOW };
   store.touchUser('g1', 'u1', 'Zoé', ID_NOW);
   store.addEpisodes('g1', 'u1', [1, 2, 3].map((n) => ({ date: `2026-10-0${n}`, what: `στιγμή ${n}`, weight: 1 })), opts);
@@ -3338,9 +2434,9 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
   assert.equal(store.getUser('g1', 'u1').episodes.length, 5, 'every victim stays hot');
   assert.deepEqual(store.getGuild('g1').self, ['α', 'β', 'γ']);
   assert.deepEqual(archive.pending.map((item) => `${item.entry.itemKind} ${item.entry.event}`).sort(), ['episode evicted', 'episode evicted', 'selfFact evicted']);
-  store.flush();
+  store.flush(); await store.flushSettled({});
   const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).episodes.length, 5, 'on disk too');
+  assert.equal(JSON.parse(readRaw(file)).episodes.length, 5, 'on disk too');
 
   // A later write drops the same victims again: nothing is queued twice.
   store.addEpisodes('g1', 'u1', [{ date: '2026-10-06', what: 'βαριά τρία', weight: 3 }], opts);
@@ -3351,8 +2447,8 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
   assert.deepEqual(drained, { archived: 4, left: 0 });
   assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['βαριά', 'βαριά δύο', 'βαριά τρία']);
   assert.deepEqual(store.getGuild('g1').self, ['β', 'γ']);
-  store.flush();
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).episodes.length, 3);
+  store.flush(); await store.flushSettled({});
+  assert.equal(JSON.parse(readRaw(file)).episodes.length, 3);
 });
 
 test('store: a replace op archives the previous version with event replaced', async () => {
@@ -3377,30 +2473,34 @@ test('store: a replace op archives the previous version with event replaced', as
 });
 
 test('store: a replaced note is not flushed to disk before its old version is archived', async () => {
-  const dir = tmpDataDir();
+  const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ manual: true });
-  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
   const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
-  const noteOnDisk = () => JSON.parse(fs.readFileSync(file, 'utf8')).interests[0].note;
+  const noteOnDisk = () => JSON.parse(readRaw(file)).interests[0].note;
   store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } }, { now: ID_NOW });
   assert.equal(store.flush().held, 0);
+  await settle();
   assert.equal(noteOnDisk(), 'παίζει τα βράδια');
 
   store.applyProfileOps('g1', 'u1', { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } }, { now: ID_NOW + 1000 });
   assert.equal(store.flush().held, 1, 'the member file waits for the archive');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(store.flush().held, 1, 'still waiting while the append is in flight');
+  await settle();
   assert.equal(noteOnDisk(), 'παίζει τα βράδια', 'the old note stays on disk until its copy is archived');
 
   archive.releases.shift()();
   await store.settleArchive('g1');
   assert.equal(store.flush().held, 0);
+  await settle();
   assert.equal(noteOnDisk(), 'παίζει online');
 
   // A hold that never clears: the shutdown flush waits holdMaxMs, then writes anyway and logs it.
   store.applyProfileOps('g1', 'u1', { interests: { update: [{ topic: 'σκάκι', note: 'παίζει σπάνια' }] } }, { now: ID_NOW + 2000 });
   const { logs, result } = await withCapturedLogs(() => store.flushSettled({ holdMaxMs: 20 }));
   assert.equal(result.held, 0);
+  await settle();
   assert.equal(noteOnDisk(), 'παίζει σπάνια');
   assert.ok(logs.some((entry) => entry.msg === 'store: flushed held' && entry.files === 1), JSON.stringify(logs));
 });
@@ -3424,286 +2524,6 @@ test('store: closed items are capped and archived as replaced', async () => {
   assert.equal(entry.text.topic, 'α');
   assert.deepEqual(store.getUser('g1', 'u1').closed.map((item) => [item.kind, item.topic]), [['interest', 'β'], ['interest', 'γ']]);
   assert.equal(store.getUser('g1', 'u1').closed[1].supersededBy, profile.interests[0].itemId);
-});
-
-// ---- deletion: one rule across every copy, a vault before, a ledger after ----
-
-const GONE = '348100000000000101';
-const STAYS = '348100000000000202';
-const FORGET_AT = Date.UTC(2026, 9, 13, 12, 0, 0);
-const quietLog = { info() {}, warn() {}, error() {} };
-
-/** A store over `dir` with a real record, archive and journal, each on its own append store. */
-function durableKit(dir, now = () => FORGET_AT) {
-  const stores = [0, 1, 2].map(() => createAppendStore({ fsyncMs: 0, log: quietLog }));
-  const journal = createJournal({ appendStore: stores[0], dataDir: dir, now, log: quietLog });
-  const record = createRecord({ appendStore: stores[1], dataDir: dir, now, log: quietLog });
-  const archive = createArchive({ appendStore: stores[2], dataDir: dir, now, log: quietLog });
-  const store = createStore({ dataDir: dir, record, recordOn: () => false, archive, archiveOn: () => false });
-  // A process exit: every append store closed, so another instance may rewrite the files.
-  const close = () => Promise.all(stores.map((appendStore) => appendStore.close()));
-  return { journal, record, archive, store, close };
-}
-
-/** Every file under `dir`, as forward-slash paths relative to it. */
-function filesUnder(dir) {
-  const out = [];
-  const walk = (at) => {
-    for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
-      const full = path.join(at, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else out.push(path.relative(dir, full).split(path.sep).join('/'));
-    }
-  };
-  if (fs.existsSync(dir)) walk(dir);
-  return out.sort();
-}
-
-/** The parsed lines of the JSONL files under `dir` whose path matches `re`. */
-function linesUnder(dir, re) {
-  return filesUnder(dir)
-    .filter((rel) => re.test(rel))
-    .flatMap((rel) => fs.readFileSync(path.join(dir, rel), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)));
-}
-
-/** Seed one guild with the member to forget and another one, in every store a forget reaches. */
-async function seedForget(dir, kit) {
-  const { store, record, archive, journal } = kit;
-  store.touchUser('g1', GONE, 'Ελένη', Date.UTC(2026, 9, 1));
-  store.applyProfileOps('g1', GONE, { aliases: { add: ['Λενιώ'] } }, { maxAliases: 5, maxAliasesStored: 15, now: Date.UTC(2026, 9, 1) });
-  store.applyProfileOps('g1', GONE, { character: 'Πρώτα.' }, { fieldChars: 1000 });
-  store.applyProfileOps('g1', GONE, { character: 'Μετά.' }, { fieldChars: 1000 });
-  store.applyPrivateOps('g1', GONE, { relationship: 'μυστικό' }, { fieldChars: 300 });
-  store.touchUser('g1', STAYS, 'Νίκος', Date.UTC(2026, 9, 1));
-  queueItems(store, 'g1', [voiceItem('relationship', { userId: GONE }), voiceItem('relationship', { userId: STAYS })]);
-  store.appendDiaryPost('g1', { at: Date.UTC(2026, 9, 2), kind: 'news', gist: `A walk with <@${GONE}>, Λενιώ laughed` }, { now: Date.UTC(2026, 9, 2) });
-  store.appendDiaryPost('g1', { at: Date.UTC(2026, 9, 3), kind: 'mood', gist: 'Rain.' }, { now: Date.UTC(2026, 9, 3) });
-  store.flush();
-  const ts = Date.UTC(2026, 9, 10, 9, 0, 0);
-  await record.append('g1', [
-    toRecordLine({ id: 'm1', channelId: 'c1', authorId: GONE, content: 'γεια', ts }),
-    toRecordLine({ id: 'm2', channelId: 'c1', authorId: STAYS, content: 'καλημέρα', ts }),
-  ]);
-  await record.append('g1', [toRecordLine({ id: 'p1', channelId: 'dm', authorId: GONE, content: 'μυστικό', ts })], { privateUserId: GONE });
-  await archive.append('g1', [
-    archiveEntry({ what: 'sang by the sea', date: '2026-10-02' }, { itemKind: 'episode', event: 'evicted', scope: { user: GONE }, now: () => ts }),
-    archiveEntry({ what: 'made tea', date: '2026-10-02' }, { itemKind: 'episode', event: 'evicted', scope: { user: STAYS }, now: () => ts }),
-  ]);
-  await journal.memory('g1', { participants: [GONE, STAYS], occurredAt: new Date(ts).toISOString() });
-  await journal.memory('g1', { participants: [STAYS], occurredAt: new Date(ts).toISOString() });
-  const requests = path.join(dir, 'guilds', 'g1', 'journal', 'requests', '2026-10-10');
-  fs.mkdirSync(requests, { recursive: true });
-  fs.writeFileSync(path.join(requests, 't-1-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: `<@${GONE}> γεια` }] }));
-  fs.writeFileSync(path.join(requests, 't-2-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: 'καλημέρα' }] }));
-  const backfill = path.join(dir, 'guilds', 'g1', 'backfill');
-  fs.mkdirSync(backfill, { recursive: true });
-  fs.writeFileSync(
-    path.join(backfill, 'candidates.jsonl'),
-    [
-      { kind: 'episode', userId: GONE, what: 'sang by the sea', sourceRefs: [{ channelId: 'c1', messageId: 'm1' }], participants: [GONE] },
-      { kind: 'lesson', text: 'tea first', from: null, sourceRefs: [{ channelId: 'c1', messageId: 'm2', by: GONE }], participants: [STAYS] },
-      { kind: 'episode', userId: STAYS, what: 'made tea', sourceRefs: [{ channelId: 'c1', messageId: 'm2' }], participants: [STAYS] },
-    ].map((line) => `${JSON.stringify(line)}\n`).join(''),
-  );
-  const snapshotUsers = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1', 'users');
-  fs.mkdirSync(snapshotUsers, { recursive: true });
-  fs.writeFileSync(path.join(snapshotUsers, `${GONE}.json`), JSON.stringify({ id: GONE, names: ['Ελένη'] }));
-  fs.writeFileSync(path.join(snapshotUsers, `${STAYS}.json`), JSON.stringify({ id: STAYS, names: ['Νίκος'] }));
-}
-
-test('store: forgetUser copies everything it will remove into data/vault before touching it', async () => {
-  const dir = tmpDataDir();
-  const kit = durableKit(dir);
-  await seedForget(dir, kit);
-  const guild = path.join(dir, 'guilds', 'g1');
-  const vaultRoot = path.join(dir, 'vault');
-
-  // What the vault held when the first module started removing lines.
-  let vaultAtFirstRemoval = null;
-  const archive = {
-    forgetUser: async (...args) => {
-      vaultAtFirstRemoval = filesUnder(vaultRoot);
-      return kit.archive.forgetUser(...args);
-    },
-  };
-  const { vault, counts } = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, archive, vaultDir: 'vault', redaction: 'κάποιος', now: () => FORGET_AT });
-
-  assert.equal(vault, path.join(vaultRoot, `forget-${GONE}-2026-10-13T12-00-00-000Z`));
-  const prefix = path.relative(vaultRoot, vault).split(path.sep).join('/');
-  const g = `${prefix}/guilds/g1`;
-  const kept = filesUnder(vaultRoot);
-  for (const rel of [
-    `${g}/users/${GONE}.json`,
-    `${g}/private/${GONE}.json`,
-    `${g}/versions/users/${GONE}.json`,
-    `${g}/voice.extract.json`,
-    `${g}/diary.before.json`,
-    `${g}/journal/requests/2026-10-10/t-1-1.json`,
-    `${prefix}/snapshots/2026-10-11T00-00-00-000Z/guilds/g1/users/${GONE}.json`,
-  ]) {
-    assert.ok(kept.includes(rel), rel);
-  }
-  assert.ok(kept.some((rel) => rel.startsWith(`${g}/private/${GONE}/record/`)), 'the private directory, whole');
-  assert.ok(!kept.some((rel) => rel.includes(STAYS)), 'nothing of the member who stays');
-  assert.ok(!kept.includes(`${g}/journal/requests/2026-10-10/t-2-1.json`));
-  assert.deepEqual(vaultAtFirstRemoval, kept, 'the vault was complete before the first line went');
-
-  // The dropped lines, by each module's rule, under their own paths.
-  const dropped = (re) => linesUnder(vault, re);
-  assert.deepEqual(dropped(/archive\/.*\.dropped\.jsonl$/).map((entry) => entry.text.what), ['sang by the sea']);
-  assert.deepEqual(dropped(/record\/.*\.dropped\.jsonl$/).map((line) => line.messageId), ['m1']);
-  assert.deepEqual(dropped(/journal\/[^/]*\.dropped\.jsonl$/).map((rec) => rec.participants), [[GONE, STAYS]]);
-  assert.deepEqual(dropped(/backfill\/candidates\.jsonl\.dropped\.jsonl$/).map((candidate) => candidate.what ?? candidate.text), ['sang by the sea', 'tea first'], 'a participant or a cited author');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'diary.before.json'), 'utf8')).posts[0].gist, `A walk with <@${GONE}>, Λενιώ laughed`);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'voice.extract.json'), 'utf8')).map((item) => item.userId), [GONE]);
-
-  // Then everything went, and nothing of the other member.
-  assert.equal(kit.store.getUser('g1', GONE), null);
-  assert.ok(kit.store.getUser('g1', STAYS));
-  assert.equal(fs.existsSync(path.join(guild, 'private', GONE)), false);
-  assert.deepEqual(linesUnder(path.join(guild, 'record'), /\.jsonl$/).map((line) => line.messageId), ['m2']);
-  assert.deepEqual(linesUnder(path.join(guild, 'archive'), /\.jsonl$/).map((entry) => entry.text.what), ['made tea']);
-  assert.deepEqual(linesUnder(path.join(guild, 'journal'), /^[^/]*\.jsonl$/).map((rec) => rec.participants), [[STAYS]]);
-  assert.deepEqual(kit.store.getDiary('g1').posts.map((post) => post.gist), ['A walk with κάποιος, κάποιος laughed', 'Rain.']);
-  assert.deepEqual(filesUnder(path.join(guild, 'journal', 'requests')), ['2026-10-10/t-2-1.json']);
-  assert.deepEqual(linesUnder(path.join(guild, 'backfill'), /\.jsonl$/).map((candidate) => candidate.what), ['made tea']);
-  assert.deepEqual(filesUnder(path.join(dir, 'snapshots')), ['2026-10-11T00-00-00-000Z/guilds/g1/forgotten.json', `2026-10-11T00-00-00-000Z/guilds/g1/users/${STAYS}.json`]);
-  assert.deepEqual(counts, { profile: 1, private: 1, voice: 1, recent: 0, participation: 0, versions: 1, diary: 1, snapshots: 1, archive: 1, record: 1, journal: 1, requests: 1, backfill: 2 });
-});
-
-test('store: forgetUser writes the marker first and the ledger last; a crash mid-way is finished on the next start', async () => {
-  const dir = tmpDataDir();
-  const kit = durableKit(dir);
-  await seedForget(dir, kit);
-  const marker = path.join(dir, 'guilds', 'g1', 'forgetting', `${GONE}.json`);
-  const seen = [];
-  const archive = {
-    forgetUser: async (...args) => {
-      seen.push({ marker: fs.existsSync(marker), ledger: readLedger(dir, 'g1').length });
-      return kit.archive.forgetUser(...args);
-    },
-  };
-  const crashing = {
-    forgetUser: async () => {
-      throw new Error('killed');
-    },
-  };
-  const failed = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, archive, record: crashing, now: () => FORGET_AT }).catch((error) => error);
-  assert.match(failed.message, /killed/);
-  assert.deepEqual(seen, [{ marker: true, ledger: 0 }], 'the marker is there before the steps, the ledger is not');
-  const left = JSON.parse(fs.readFileSync(marker, 'utf8'));
-  assert.deepEqual([left.userId, left.owner, left.startedAt], [GONE, 'store', new Date(FORGET_AT).toISOString()]);
-  assert.deepEqual(Object.keys(left.steps), ['vault', 'hot', 'diary', 'snapshots', 'archive']);
-  assert.equal(failed.vault, path.resolve(dir, left.vault));
-  assert.deepEqual(readLedger(dir, 'g1'), []);
-  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'record'), /\.jsonl$/).map((line) => line.messageId), ['m1', 'm2'], 'the record step never ran');
-
-  // The next start: a new store over the same directory finishes the job from the marker.
-  await kit.close();
-  const restarted = durableKit(dir, () => FORGET_AT + 60_000);
-  assert.equal(restarted.store.getUser('g1', GONE), null);
-  assert.deepEqual(await restarted.store.resumeForgets('g1', { journal: restarted.journal, now: () => FORGET_AT + 60_000 }), { finished: 1 });
-  assert.equal(fs.existsSync(marker), false, 'the marker goes last');
-  assert.deepEqual(readLedger(dir, 'g1'), [{ userId: GONE, at: new Date(FORGET_AT + 60_000).toISOString() }]);
-  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'record'), /\.jsonl$/).map((line) => line.messageId), ['m2']);
-  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'journal'), /^[^/]*\.jsonl$/).map((rec) => rec.participants), [[STAYS]]);
-  assert.ok(fs.existsSync(path.join(path.resolve(dir, left.vault), 'guilds', 'g1', 'users', `${GONE}.json`)), 'the vault of the first run stays the vault');
-  assert.deepEqual(await restarted.store.resumeForgets('g1', { journal: restarted.journal, now: () => FORGET_AT + 60_000 }), { finished: 0 });
-});
-
-test('store: wipeGuild copies the guild directory into data/vault first, then deletes the record, the archive and the backfill files', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  seedGuild(store);
-  store.flush();
-  store.touchUser('g1', 'u3', 'Ζωή', 2000); // only cached: the vault flushes first
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'forgotten.json'), JSON.stringify([{ userId: 'u9', at: '2026-10-01T00:00:00.000Z' }]));
-  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'record', '2026-10'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'record', '2026-10', '2026-10-12.jsonl'), '{"kind":"seen","messageId":"m1"}\n');
-  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'archive'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'archive', '2026-10.jsonl'), '{"kind":"archive","itemId":"ep-1"}\n');
-  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'backfill'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'backfill', 'candidates.jsonl'), '{"kind":"episode"}\n');
-  const snapshotGuild = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1');
-  fs.mkdirSync(path.join(snapshotGuild, 'users'), { recursive: true });
-  fs.writeFileSync(path.join(snapshotGuild, 'users', 'u1.json'), '{"id":"u1"}');
-  const live = filesUnder(path.join(dir, 'guilds', 'g1'));
-
-  store.applyPrivateOps('g1', 'u1', { relationship: 'μυστικό' }, { fieldChars: 300 });
-  const { vault, snapshots, privateLayers, recordFiles, archiveFiles, backfillFiles } = store.wipeGuild('g1', { now: () => FORGET_AT });
-  assert.deepEqual({ privateLayers, recordFiles, archiveFiles, backfillFiles }, { privateLayers: 1, recordFiles: 1, archiveFiles: 1, backfillFiles: 1 }, 'the counts the reply lists');
-
-  assert.equal(vault, path.join(dir, 'vault', 'wipe-2026-10-13T12-00-00-000Z'));
-  const copied = filesUnder(path.join(vault, 'guilds', 'g1'));
-  for (const rel of [...live, 'users/u3.json']) assert.ok(copied.includes(rel), rel);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'users', 'u3.json'), 'utf8')).names[0], 'Ζωή');
-  assert.ok(fs.existsSync(path.join(vault, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1', 'users', 'u1.json')));
-  assert.equal(snapshots, 1);
-  assert.equal(fs.existsSync(snapshotGuild), false, 'the snapshot loses the guild');
-  assert.deepEqual(readLedger(dir, 'g1'), [], 'the ledger goes with the rest');
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u3.json')), false);
-  for (const rel of ['record/2026-10/2026-10-12.jsonl', 'archive/2026-10.jsonl']) assert.ok(copied.includes(rel), `${rel} is in the vault`);
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'record')), false, 'the record goes after its copy');
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'archive')), false, 'the archive goes after its copy');
-  assert.ok(copied.includes('backfill/candidates.jsonl'));
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'backfill')), false, 'the backfill scratch files go too');
-});
-
-test('store: applyLedger removes a reappeared profile and lines of a forgotten user', async () => {
-  const dir = tmpDataDir();
-  const kit = durableKit(dir);
-  await seedForget(dir, kit);
-  const { vault } = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, now: () => FORGET_AT });
-  const guild = path.join(dir, 'guilds', 'g1');
-
-  // A backup from before the forget is put back by hand: the profile, a record line and an
-  // archive entry; after the forget the member spoke again (a new line, a new profile elsewhere).
-  fs.copyFileSync(path.join(vault, 'guilds', 'g1', 'users', `${GONE}.json`), path.join(guild, 'users', `${GONE}.json`));
-  for (const rel of filesUnder(vault).filter((name) => /(record|archive)\/.*\.dropped\.jsonl$/.test(name))) {
-    const target = path.join(guild, rel.replace(/^guilds\/g1\//, '').replace(/\.dropped\.jsonl$/, ''));
-    fs.appendFileSync(target, fs.readFileSync(path.join(vault, rel)));
-  }
-  const after = Date.UTC(2026, 9, 14, 9, 0, 0);
-  await kit.close();
-  const restarted = durableKit(dir, () => after);
-  await restarted.record.append('g1', [toRecordLine({ id: 'm3', channelId: 'c1', authorId: GONE, content: 'πάλι εδώ', ts: after })]);
-
-  const { result: counts, logs } = await withCapturedLogs(() => restarted.store.applyLedger('g1', { journal: restarted.journal }));
-  assert.deepEqual(counts, { users: 1, profiles: 1, private: 0, archive: 1, record: 1, journal: 0, diary: 0, requests: 0 });
-  assert.equal(restarted.store.getUser('g1', GONE), null);
-  assert.equal(fs.existsSync(path.join(guild, 'users', `${GONE}.json`)), false);
-  assert.deepEqual(linesUnder(path.join(guild, 'record'), /\.jsonl$/).map((line) => line.messageId).sort(), ['m2', 'm3'], 'what they said after the forget stays');
-  assert.deepEqual(linesUnder(path.join(guild, 'archive'), /\.jsonl$/).map((entry) => entry.text.what), ['made tea']);
-  const applied = logs.find((entry) => entry.msg === 'memory: ledger applied');
-  assert.deepEqual([applied.guildId, applied.profiles, applied.record], ['g1', 1, 1]);
-
-  const again = await restarted.store.applyLedger('g1', { journal: restarted.journal });
-  assert.deepEqual(again, { users: 1, profiles: 0, private: 0, archive: 0, record: 0, journal: 0, diary: 0, requests: 0 }, 'idempotent');
-});
-
-test('store: a user under a forgetting marker is hidden from getUser', async () => {
-  const dir = tmpDataDir();
-  const first = createStore({ dataDir: dir });
-  first.touchUser('g1', 'u1', 'Ζωή', 1000);
-  first.applyPrivateOps('g1', 'u1', { relationship: 'μυστικό' }, { fieldChars: 300 });
-  first.touchUser('g1', 'u2', 'Νίκος', 1000);
-  first.flush();
-  // A forget a crash left half done.
-  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'forgetting'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'forgetting', 'u1.json'), JSON.stringify({ userId: 'u1', owner: 'journal', startedAt: '2026-10-13T00:00:00.000Z' }));
-
-  const store = createStore({ dataDir: dir });
-  assert.equal(store.getUser('g1', 'u1'), null);
-  assert.equal(store.getPrivate('g1', 'u1'), null);
-  assert.deepEqual(store.listUserProfiles('g1').map((profile) => profile.id), ['u2']);
-  assert.ok(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json')), 'hidden, not yet deleted');
-
-  assert.deepEqual(await store.resumeForgets('g1', { now: () => FORGET_AT }), { finished: 1 });
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json')), false);
-  assert.ok(fs.existsSync(path.join(dir, 'vault', 'forget-u1-2026-10-13T12-00-00-000Z', 'guilds', 'g1', 'users', 'u1.json')), 'a marker another module left still gets its vault');
-  assert.deepEqual(readLedger(dir, 'g1').map((entry) => entry.userId), ['u1']);
-  store.touchUser('g1', 'u1', 'Ζωή', FORGET_AT + 1000);
-  assert.ok(store.getUser('g1', 'u1'), 'after the forget a member who speaks again is seen again');
 });
 
 // ---- the real name and the names people use (src/memory/addressed.js) ----
@@ -3756,18 +2576,18 @@ test('applyProfileOps: a realName that supersedes the stored one closes it into 
   assert.deepEqual(store.getUser('g1', 'u1').closed.map((item) => [item.kind, item.name]), [['realName', 'Théo']]);
 });
 
-test('getUser: addressedAs and realName are normalised on read, absent stays absent', () => {
-  const dir = tmpDataDir();
+test('getUser: addressedAs and realName are normalised on read, absent stays absent', async () => {
+  const { dir, memoryDb } = memDataDir();
   const last = new Date(ID_NOW).toISOString();
-  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), {
+  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), {
     id: 'u1',
     names: ['Ana'],
     addressedAs: { Ana: { score: 2, last }, broken: { score: 'x' }, worse: 1 },
     realName: { name: 'Anaïs', from: 'never', to: '2020-01-01', itemId: 'rn-1', junk: true },
   });
-  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u2.json'), { id: 'u2', names: ['Bo'], realName: { name: '' }, addressedAs: [1] });
-  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u3.json'), { id: 'u3', names: ['Cy'] });
-  const store = createStore({ dataDir: dir });
+  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u2.json'), { id: 'u2', names: ['Bo'], realName: { name: '' }, addressedAs: [1] });
+  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u3.json'), { id: 'u3', names: ['Cy'] });
+  const store = createStore({ dataDir: dir, memoryDb });
   const one = store.getUser('g1', 'u1');
   assert.deepEqual(one.addressedAs, { Ana: { score: 2, last } });
   assert.deepEqual(one.realName, { name: 'Anaïs', from: null, to: null, itemId: 'rn-1' });
@@ -3787,164 +2607,4 @@ test('recordAddressUses: folds uses into an existing profile only, with the half
   store.recordAddressUses('g1', 'u1', [{ name: 'Ana', at: ID_NOW }], { halfLifeDays: 30 });
   store.recordAddressUses('g1', 'u1', [{ name: 'ana', at: ID_NOW + 30 * 86_400_000 }], { halfLifeDays: 30 });
   assert.deepEqual(store.getUser('g1', 'u1').addressedAs, { Ana: { score: 1.5, last: new Date(ID_NOW + 30 * 86_400_000).toISOString() } });
-});
-
-// ---- the errands step of a forget, and the wipe of the errands' files ----------
-
-/** A task store over `dir` (src/errands/store.js) with two tasks of `u1` and one of `u2`, one of u1's still running. */
-async function seedErrands(dir) {
-  const { createTaskStores } = await import('../src/errands/store.js');
-  let n = 0;
-  const stores = createTaskStores({ dataDir: dir, config: () => ({ agents: { maxOpen: 5 } }), log: { info() {}, warn() {} } });
-  const tasks = stores.get('g1');
-  const ask = (userId) => tasks.add({ agent: 'scout', goal: `errand ${(n += 1)}`, requester: { userId, kind: 'member' }, origin: { channelId: 'c1', messageId: null }, scope: 'group' }).task.id;
-  const a = ask('u1');
-  const b = ask('u2');
-  const c = ask('u1');
-  tasks.start(a);
-  tasks.finish(a, { status: 'done', result: { text: 'ok' } });
-  tasks.start(c);
-  return { stores, tasks, ids: { a, b, c } };
-}
-
-test('forgetUser: the errands step removes the member\'s tasks and lines, the vault keeps them, the store\'s copy follows', async () => {
-  await withCapturedLogs(async () => {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    store.touchUser('g1', 'u1', 'Alice', 1000);
-    store.flush();
-    const { stores, tasks, ids } = await seedErrands(dir);
-    const listFile = path.join(dir, 'guilds', 'g1', 'tasks.json');
-    const logFile = path.join(dir, 'guilds', 'g1', 'tasks.jsonl');
-    const linesBefore = fs.readFileSync(logFile, 'utf8').trim().split('\n').length;
-    const { vault, counts } = await store.forgetUser('g1', 'u1', { errands: stores });
-    assert.equal(counts.errands, 2);
-    assert.equal(counts.errandLines, 5, 'two queued, two running, one done');
-    assert.deepEqual(JSON.parse(fs.readFileSync(listFile, 'utf8')).tasks.map((t) => t.id), [ids.b]);
-    const left = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(left.length, linesBefore - 5);
-    assert.ok(left.every((line) => line.requester.userId === 'u2'));
-    assert.ok(!fs.readdirSync(path.join(dir, 'guilds', 'g1')).some((name) => name.endsWith('.tmp')), 'no temp file left');
-    // The store's own copy: a late end of the forgotten running task writes nothing back.
-    assert.equal(tasks.get(ids.c), null);
-    assert.equal(tasks.finish(ids.c, { status: 'done', result: { text: 'late' } }), null);
-    assert.deepEqual(JSON.parse(fs.readFileSync(listFile, 'utf8')).tasks.map((t) => t.id), [ids.b]);
-    // The vault holds what went.
-    const vaulted = path.join(vault, 'guilds', 'g1');
-    assert.equal(JSON.parse(fs.readFileSync(path.join(vaulted, 'tasks.json'), 'utf8')).tasks.length, 3);
-    assert.equal(fs.readFileSync(path.join(vaulted, 'tasks.jsonl.dropped.jsonl'), 'utf8').trim().split('\n').length, 5);
-    // A second forget finds nothing.
-    assert.deepEqual(stores.forgetUser('g1', 'u1'), { removed: 0, lines: 0 });
-  });
-});
-
-test('forgetUser: the errands step is recorded in the marker with removed and lines, and is not run again on resume', async () => {
-  await withCapturedLogs(async () => {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    store.touchUser('g1', 'u1', 'Alice', 1000);
-    store.flush();
-    const { stores } = await seedErrands(dir);
-    const marker = path.join(dir, 'guilds', 'g1', 'forgetting', 'u1.json');
-    let calls = 0;
-    const errands = {
-      forgetUser: (...args) => {
-        calls += 1;
-        return stores.forgetUser(...args);
-      },
-    };
-    const crashing = { forgetUser: async () => { throw new Error('killed'); } };
-    const failed = await store.forgetUser('g1', 'u1', { errands, journal: crashing }).catch((error) => error);
-    assert.match(failed.message, /killed/);
-    const left = JSON.parse(fs.readFileSync(marker, 'utf8'));
-    assert.deepEqual(left.steps.errands, { removed: 2, lines: 5 });
-    await store.resumeForgets('g1', { errands });
-    assert.equal(calls, 1, 'the done step is skipped on resume');
-    assert.equal(fs.existsSync(marker), false);
-  });
-});
-
-test('wipeGuild: the errands\' files go, through the errand stores when given, else directly', async () => {
-  await withCapturedLogs(async () => {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    const { stores, tasks } = await seedErrands(dir);
-    const counts = store.wipeGuild('g1', { errands: stores });
-    assert.equal(counts.taskFiles, 2);
-    for (const name of ['tasks.json', 'tasks.jsonl']) assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', name)), false, name);
-    assert.deepEqual(tasks.recent(10), [], 'the store\'s copy is empty too');
-    assert.ok(fs.existsSync(path.join(counts.vault, 'guilds', 'g1', 'tasks.jsonl')), 'the vault copy holds them');
-
-    const other = tmpDataDir();
-    await seedErrands(other);
-    const plain = createStore({ dataDir: other });
-    assert.equal(plain.wipeGuild('g1').taskFiles, 2);
-    assert.equal(fs.existsSync(path.join(other, 'guilds', 'g1', 'tasks.json')), false);
-  });
-});
-
-// ---- the intentions step of a forget, and the wipe of the intentions' file ------
-
-/**
- * An intention store over `dir` (src/intentions/store.js) with five of the persona's intentions:
- * one from a conversation with u1, one meant for u1, one naming Alice (u1's name), one whose span
- * quotes a line of a talk with u1 and is already closed, and one about u2 only.
- */
-async function seedIntentions(dir) {
-  const { createIntentionStores } = await import('../src/intentions/store.js');
-  const { createIntention, transition } = await import('../src/intentions/model.js');
-  const stores = createIntentionStores({ dataDir: dir, log: { info() {}, warn() {} } });
-  const intentions = stores.get('g1');
-  const T = Date.parse('2026-10-18T10:00:00Z');
-  const make = (id, purpose, provenance, extra = {}) => createIntention({ purpose, provenance: { kind: 'self', ...provenance }, now: T, id, ...extra }).intention;
-  intentions.add(make('i1', 'φέρε το παιχνίδι', { participants: ['u1', 'u2'] }));
-  intentions.add(make('i2', 'πες καλημέρα', { participants: ['u2'] }, { destination: 'u1' }));
-  intentions.add(make('i3', 'ρώτα την Alice για το βίντεο', { participants: ['u2'] }));
-  const closed = transition(make('i4', 'κάτι', { kind: 'candidate', span: 'θα σου πω, Alice', participants: [] }), 'cancelled', { now: T }).intention;
-  intentions.add(closed);
-  intentions.add(make('i5', 'στείλε τον σύνδεσμο', { participants: ['u2'] }));
-  return { stores, intentions };
-}
-
-test('forgetUser: the intentions step removes every intention concerning the member, whatever its status; the vault keeps the file', async () => {
-  await withCapturedLogs(async () => {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    store.touchUser('g1', 'u1', 'Alice', 1000);
-    store.flush();
-    const { stores, intentions } = await seedIntentions(dir);
-    const file = path.join(dir, 'guilds', 'g1', 'intentions.json');
-    fs.writeFileSync(`${file}.unreadable-1`, '{"intentions":[{"destination":"u1"');
-    fs.writeFileSync(`${file}.unreadable-2`, '{"intentions":[{"destination":"u2"');
-    const { vault, counts } = await store.forgetUser('g1', 'u1', { intentions: stores });
-    assert.equal(counts.intentions, 4);
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).intentions.map((r) => r.id), ['i5']);
-    assert.deepEqual(intentions.list().map((r) => r.id), ['i5'], 'the store\'s copy follows');
-    assert.equal(fs.existsSync(`${file}.unreadable-1`), false, 'an unreadable copy naming them goes');
-    assert.equal(fs.existsSync(`${file}.unreadable-2`), true, 'one that does not stays');
-    const vaulted = path.join(vault, 'guilds', 'g1');
-    assert.equal(JSON.parse(fs.readFileSync(path.join(vaulted, 'intentions.json'), 'utf8')).intentions.length, 5);
-    assert.ok(fs.existsSync(path.join(vaulted, 'intentions.json.unreadable-1')));
-    assert.deepEqual(stores.forgetUser('g1', 'u1'), { removed: 0, copies: 0 }, 'a second forget finds nothing');
-  });
-});
-
-test('wipeGuild: the intentions\' file goes, through the intention stores when given, else directly', async () => {
-  await withCapturedLogs(async () => {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    const { stores, intentions } = await seedIntentions(dir);
-    const counts = store.wipeGuild('g1', { intentions: stores });
-    assert.equal(counts.intentionFiles, 1);
-    assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'intentions.json')), false);
-    assert.deepEqual(intentions.list(), [], 'the store\'s copy is empty too');
-    assert.ok(fs.existsSync(path.join(counts.vault, 'guilds', 'g1', 'intentions.json')), 'the vault copy holds them');
-
-    const other = tmpDataDir();
-    await seedIntentions(other);
-    fs.writeFileSync(path.join(other, 'guilds', 'g1', 'intentions.json.unreadable-1'), 'x');
-    const plain = createStore({ dataDir: other });
-    assert.equal(plain.wipeGuild('g1').intentionFiles, 2);
-    assert.deepEqual(fs.readdirSync(path.join(other, 'guilds', 'g1')).filter((name) => name.startsWith('intentions')), []);
-  });
 });

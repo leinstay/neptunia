@@ -170,7 +170,7 @@ test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skil
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
     lore: ['add', 'list', 'show', 'remove'],
-    memory: ['show', 'channel', 'server', 'recent', 'refresh', 'forget', 'affinity', 'wipe', 'journal', 'archive', 'restore', 'snapshot', 'private', 'search'],
+    memory: ['show', 'channel', 'server', 'recent', 'affinity', 'journal', 'archive', 'restore', 'snapshot', 'private', 'search'],
   });
   const choices = (option) => option.choices.map((c) => c.value);
   const message = findOption(command.options, 'message');
@@ -184,11 +184,8 @@ test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skil
   assert.deepEqual([findOption(media.options, 'days').required, findOption(media.options, 'days').min_value, findOption(media.options, 'days').max_value], [false, 1, 60]);
   assert.deepEqual(choices(findOption(media.options, 'action')), ['status', 'rescan', 'recache']);
   const privateMemory = findOption(findOption(command.options, 'memory').options, 'private');
-  assert.deepEqual(choices(findOption(privateMemory.options, 'action')), ['show', 'forget', 'purge']);
+  assert.deepEqual(privateMemory.options.map((o) => o.name), ['user'], 'it only reads');
   assert.equal(findOption(privateMemory.options, 'user').required, true);
-  const refresh = findOption(findOption(command.options, 'memory').options, 'refresh');
-  assert.deepEqual(refresh.options.map((o) => [o.name, o.required]), [['kind', true], ['user', false], ['channel', false]]);
-  assert.deepEqual(choices(findOption(refresh.options, 'kind')), ['user', 'channel', 'server']);
 });
 
 test('buildCommandTree: option names are lowercase and no name carries a hyphen', () => {
@@ -597,9 +594,9 @@ test('interaction handler: /nep memory private stays owner-only even with a gran
   // [granted keys, the calls of a granted member, the owner's own call]
   for (const [keys, calls, ownerCall] of [
     [
-      ['memory', 'memory.private', 'memory.private.read', 'memory.private.forget', 'memory.private.purge'],
-      ['show', 'forget', 'purge'].map((action) => ({ group: 'memory', subcommand: 'private', optionValues: { action, user } })),
-      { group: 'memory', subcommand: 'private', optionValues: { action: 'show', user } },
+      ['memory', 'memory.private', 'memory.private.read'],
+      [{ group: 'memory', subcommand: 'private', optionValues: { user } }],
+      { group: 'memory', subcommand: 'private', optionValues: { user } },
     ],
   ]) {
     const access = { '*': open, ...Object.fromEntries(keys.map((key) => [key, open])) };
@@ -712,22 +709,6 @@ test('interaction handler: media kind:emoji action:status replies at once, actio
   assert.equal(rescan.edits.length, 1);
 });
 
-test('interaction handler: memory forget, memory wipe and memory private action:forget are deferred (they wait for the analyzer)', async () => {
-  const admin = fakeAdmin();
-  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
-
-  for (const [group, subcommand, optionValues] of [
-    ['memory', 'forget', { user: { id: 'target1' } }],
-    ['memory', 'wipe', { confirm: 'The Server' }],
-    ['memory', 'private', { action: 'forget', user: { id: 'target1' } }],
-  ]) {
-    const interaction = fakeInteraction({ group, subcommand, optionValues });
-    await handler(interaction);
-    assert.ok(interaction.replies.some((r) => r.deferred), `${group}.${subcommand}`);
-    assert.equal(interaction.edits.length, 1, `${group}.${subcommand}`);
-  }
-});
-
 test('interaction handler: media kind:gifs action:recache replies at once, its work goes on in the background', async () => {
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
@@ -764,20 +745,6 @@ test('interaction handler: memory.recent runs the memory.recent handler with no 
   assert.deepEqual(admin.runCalls[0][1], {});
 });
 
-test('interaction handler: memory private action:purge defers, maps the user option to userId and edits the reply', async () => {
-  const admin = fakeAdmin({ runImpl: () => 'purged' });
-  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
-
-  const interaction = fakeInteraction({ group: 'memory', subcommand: 'private', optionValues: { action: 'purge', user: { id: 'target1' } } });
-  await handler(interaction);
-
-  assert.equal(admin.runCalls[0][0], 'memory.private');
-  assert.deepEqual(admin.runCalls[0][1], { action: 'purge', userId: 'target1' });
-  assert.equal(interaction.deferred, true);
-  assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
-  assert.equal(interaction.edits[0].content, 'purged');
-});
-
 test('interaction handler: lore.add defaults always to false when omitted', async () => {
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
@@ -790,28 +757,6 @@ test('interaction handler: lore.add defaults always to false when omitted', asyn
   await handler(interaction);
 
   assert.equal(admin.runCalls[0][1].always, false);
-});
-
-test('interaction handler: memory refresh picks its operation by kind and defers every one', async () => {
-  const admin = fakeAdmin({ runImpl: () => 'refresh result' });
-  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
-
-  for (const [kind, optionValues, op] of [
-    ['user', { kind: 'user', user: { id: 'target1' } }, 'memory.refresh.user'],
-    ['channel', { kind: 'channel', channel: { id: 'chan1' } }, 'memory.refresh.channel'],
-    ['server', { kind: 'server' }, 'memory.refresh.server'],
-  ]) {
-    const interaction = fakeInteraction({ group: 'memory', subcommand: 'refresh', optionValues });
-    await handler(interaction);
-    assert.equal(interaction.deferred, true, kind);
-    assert.equal(interaction.edits[0].content, 'refresh result', kind);
-    assert.equal(admin.operationFor('memory.refresh', admin.runCalls.at(-1)[1]), op, kind);
-  }
-  assert.deepEqual(admin.runCalls.map(([, args]) => args), [
-    { kind: 'user', userId: 'target1', channelId: undefined },
-    { kind: 'channel', userId: undefined, channelId: 'chan1' },
-    { kind: 'server', userId: undefined, channelId: undefined },
-  ]);
 });
 
 test('interaction handler: defers then edits for a slow command (memory snapshot)', async () => {
@@ -830,7 +775,7 @@ test('interaction handler: defers then edits for a slow command (memory snapshot
 test('commands: an interaction retry with the same id does not run the op twice', async () => {
   let clock = 1_000_000;
   for (const [group, subcommand, optionValues] of [
-    ['memory', 'refresh', { kind: 'server' }],
+    ['memory', 'restore', { id: 'ep-1' }],
     ['memory', 'snapshot', {}],
   ]) {
     const admin = fakeAdmin({ runImpl: () => 'started' });
@@ -863,7 +808,7 @@ test('commands: every reply is ephemeral', async () => {
     { group: 'message', subcommand: 'create', optionValues: {} },
     { group: 'message', subcommand: 'create', optionValues: { channel: { id: 'chan1' } } },
     { subcommand: 'draw', optionValues: { text: 'a lighthouse' } },
-    { group: 'memory', subcommand: 'wipe', optionValues: { confirm: 'x' } },
+    { group: 'memory', subcommand: 'restore', optionValues: { id: 'x' } },
   ]) {
     const interaction = fakeInteraction(call);
     await handler(interaction);
@@ -1019,9 +964,12 @@ test('autocomplete: command-option choices for /nep access grant|revoke -- every
   assert.ok(choices.every((c) => c.name.toLowerCase().includes('mem')));
   assert.ok(choices.some((c) => c.name === 'memory'));
   assert.ok(choices.some((c) => c.name === 'memory.profile.read'));
-  assert.ok(choices.some((c) => c.name === 'memory.refresh.user'), 'a write is offered by its name');
   assert.ok(!choices.some((c) => c.name === 'memory.affinity.set'), 'no operation sets the attitude');
   assert.ok(!choices.some((c) => c.name === 'memory.show'), 'never an old command key');
+
+  const lore = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand: 'grant', focused: { name: 'command', value: 'lore' } });
+  await handler(lore);
+  assert.ok(lore.respondCalls[0].some((c) => c.name === 'lore.add'), 'a write is offered by its name');
 });
 
 test('autocomplete: command-option choices never offer the owner-only private memory commands', async () => {
@@ -1284,7 +1232,7 @@ test('autocomplete: the route model option offers the route prefixes and the mod
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
-      models: { base: { core: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x', drawing: 'openai/gpt-image-x' } },
+      models: { base: { core: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x', drawing: 'openai/gpt-image-x' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });

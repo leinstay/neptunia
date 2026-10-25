@@ -1,8 +1,8 @@
 // The daily backup of the memory database (spec 2026-10-24-memory-authority, section 6 items 4 and 8; stage W4):
-// under authority `db` with `memoryDb.backup.enabled`, the service takes one backup a UTC day from
+// with `memoryDb.backup.enabled`, the service takes one backup a UTC day from
 // `memoryDb.backup.hour` through the writer (`VACUUM INTO`), with a manifest naming the schema, the engine commit and
 // the config's hash, keeps the newest `keep`, and surfaces a failure (a warning, the status, her fact once a day).
-// Under `json` nothing runs. Synthetic data only; the ids are made up.
+// Switched off, nothing runs. Synthetic data only; the ids are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { backupName, backupSettings, configHash, restoreDatabase } from '../src/memory/db/backup.js';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 
@@ -38,18 +38,16 @@ function prepared() {
   fs.writeFileSync(path.join(data, 'media', 'diary', 'd-1-2.ogg'), Buffer.from('Ωδή'));
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
-    assert.equal(syncOnce(handle, data, { log: quiet, now: () => DAY1 - DAY }).errors, 0);
+    assert.equal(seedUnits(handle, data, { log: quiet, now: () => DAY1 - DAY }).errors, 0);
   } finally {
     handle.close();
   }
   return { root, data, backups: path.join(root, 'backups', 'memory'), done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-/** A config with every start check of `db` met (or `json`), and the backup settings given. */
-const configOf = (authority, backup) => ({
-  features: { memoryDb: true },
-  memoryDb: { authority, read: true, observeLive: true, ...(backup ? { backup } : {}) },
-  recall: { backend: 'db' },
+/** A config with the backup settings given. */
+const configOf = (backup) => ({
+  memoryDb: { ...(backup ? { backup } : {}) },
 });
 
 /** The service over `data` on a clock the test moves; `tickAt(ms)` ticks at that time and waits for the backup. */
@@ -79,7 +77,7 @@ test('backup settings: the defaults put the backups beside data/, never inside i
 
 test('the schedule under db: once a UTC day from the hour, through the writer, with the manifest; the newest `keep` stay', async () => {
   const env = prepared();
-  const config = configOf('db', { enabled: true, hour: 3, keep: 2 });
+  const config = configOf({ enabled: true, hour: 3, keep: 2 });
   const { service, log, tickAt } = serviceOf(env.data, config);
   try {
     await tickAt(DAY1 + 2 * HOUR);
@@ -130,7 +128,7 @@ test('the schedule: a failed backup is a warning, the status and one fact a day 
   // The backups folder cannot be made: its parent is a file.
   fs.writeFileSync(path.join(env.root, 'blocked'), 'x');
   const told = [];
-  const { service, log, tickAt } = serviceOf(env.data, configOf('db', { enabled: true, hour: 3, dir: '../blocked/memory' }), { onBackupFailure: (failure) => told.push(failure) });
+  const { service, log, tickAt } = serviceOf(env.data, configOf({ enabled: true, hour: 3, dir: '../blocked/memory' }), { onBackupFailure: (failure) => told.push(failure) });
   try {
     await tickAt(DAY1 + 4 * HOUR);
     const failures = () => log.out.filter((entry) => entry.message === 'memory db: backup failed');
@@ -154,15 +152,14 @@ test('the schedule: a failed backup is a warning, the status and one fact a day 
   }
 });
 
-test('the schedule: under json, or switched off, nothing runs', async () => {
-  for (const [authority, backup] of [['json', { enabled: true, hour: 0 }], ['db', { enabled: false, hour: 0 }], ['db', null]]) {
+test('the schedule: switched off, nothing runs', async () => {
+  for (const backup of [{ enabled: false, hour: 0 }, null]) {
     const env = prepared();
-    const { service, tickAt } = serviceOf(env.data, configOf(authority, backup));
+    const { service, tickAt } = serviceOf(env.data, configOf(backup));
     try {
       await tickAt(DAY1 + 12 * HOUR);
-      assert.equal(service.status().open, true, authority);
-      assert.equal(fs.existsSync(path.join(env.root, 'backups')), false, `${authority} ${JSON.stringify(backup)}`);
-      if (authority === 'json') assert.equal(service.status().backup, null);
+      assert.equal(service.status().open, true);
+      assert.equal(fs.existsSync(path.join(env.root, 'backups')), false, JSON.stringify(backup));
     } finally {
       await service.close();
       env.done();
@@ -172,7 +169,7 @@ test('the schedule: under json, or switched off, nothing runs', async () => {
 
 test('the schedule with the writer thread: the worker takes the backup on its own connection', async () => {
   const env = prepared();
-  const { service, tickAt } = serviceOf(env.data, configOf('db', { enabled: true, hour: 3 }), { worker: true });
+  const { service, tickAt } = serviceOf(env.data, configOf({ enabled: true, hour: 3 }), { worker: true });
   try {
     await tickAt(DAY1 + 6 * HOUR);
     assert.equal(service.status().open, true);

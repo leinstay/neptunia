@@ -1,12 +1,13 @@
-// Tests for src/memory/archive.js: the archive of every memory item that left a hot list, as JSON
-// lines through a real append store over a temporary directory (never the deployment's data/).
+// Tests for src/memory/archive.js: the archive of every memory item that left a hot list, written to the memory
+// database of a temporary directory (never the deployment's data/); the entries waiting for it are JSON lines
+// through a real append store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { archiveEntry, createArchive } from '../src/memory/archive.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);
@@ -17,11 +18,23 @@ function counter(prefix) {
   return () => `${prefix}${(n += 1)}`;
 }
 
-function scene() {
-  const dataDir = tempDir('nep-archive-');
+async function scene() {
+  const mem = await openTestMemory();
+  const dataDir = mem.dataDir;
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
-  const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('a-') });
-  return { dataDir, appendStore, archive };
+  const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('a-'), memoryDb: mem.memoryDb });
+  const done = async () => {
+    await appendStore.close();
+    await mem.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  };
+  return { dataDir, appendStore, archive, memoryDb: mem.memoryDb, done };
+}
+
+/** The lines the database holds for the archive unit `rel`. */
+function unitLines(memoryDb, rel) {
+  const text = unitFile(memoryDb, rel);
+  return text ? text.split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [];
 }
 
 function readLines(file) {
@@ -97,29 +110,26 @@ test('archive: archiveEntry builds the three ids and never guesses sourceRefs', 
 });
 
 test('archive: append dedupes by itemId+revisionId and writes to the month of recordedAt', async () => {
-  const { dataDir, appendStore, archive } = scene();
+  const { dataDir, appendStore, archive, memoryDb, done } = await scene();
   const october = archiveEntry(episode(), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) });
   const november = archiveEntry(episode({ itemId: 'ep-2', what: 'Κέρδισε στο σκάκι' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(NOV) });
   assert.deepEqual(await archive.append('g1', [october, november]), { written: 2, duplicates: 0 });
   // The same item and revision again, under another event id: refused.
   const again = archiveEntry(episode(), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) });
   assert.deepEqual(await archive.append('g1', [again]), { written: 0, duplicates: 1 });
-  await appendStore.flush();
 
-  const base = path.join(dataDir, 'guilds', 'g1', 'archive');
-  assert.deepEqual(readLines(path.join(base, '2026-10.jsonl')).map((e) => [e.itemId, e.guildId]), [['ep-1', 'g1']]);
-  assert.deepEqual(readLines(path.join(base, '2026-11.jsonl')).map((e) => e.itemId), ['ep-2']);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(base, '2026-10.ids.json'), 'utf8')), [`ep-1:${october.revisionId}`]);
+  assert.deepEqual(unitLines(memoryDb, 'guilds/g1/archive/2026-10.jsonl').map((e) => [e.itemId, e.guildId]), [['ep-1', 'g1']]);
+  assert.deepEqual(unitLines(memoryDb, 'guilds/g1/archive/2026-11.jsonl').map((e) => e.itemId), ['ep-2']);
+  assert.equal(fs.existsSync(path.join(dataDir, 'guilds', 'g1', 'archive', '2026-10.jsonl')), false, 'no archive file');
 
-  // A fresh instance reads the index from disk and still refuses it.
-  const reopened = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('b-') });
+  // A fresh instance reads the database and still refuses it.
+  const reopened = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('b-'), memoryDb });
   assert.deepEqual(await reopened.append('g1', [again]), { written: 0, duplicates: 1 });
 
   // A private entry lands under the member's private archive, scoped to them.
   const secret = archiveEntry(episode({ itemId: 'ep-3', what: 'Ένα μυστικό' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) });
   await archive.append('g1', [secret], { privateUserId: 'u1' });
-  await appendStore.flush();
-  const privateLines = readLines(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'archive', '2026-10.jsonl'));
+  const privateLines = unitLines(memoryDb, 'guilds/g1/private/u1/archive/2026-10.jsonl');
   assert.deepEqual(privateLines.map((e) => [e.itemId, e.scope]), [['ep-3', { user: 'u1', private: true }]]);
 
   // The readers: iterate by range and kind, find by item id (the private copy included).
@@ -127,11 +137,11 @@ test('archive: append dedupes by itemId+revisionId and writes to the month of re
   assert.deepEqual((await collect(archive.iterate('g1', { from: '2026-11-01T00:00:00.000Z' }))).map((e) => e.itemId), ['ep-2']);
   assert.deepEqual((await archive.find('g1', 'ep-3')).map((e) => e.scope.private), [true]);
   assert.deepEqual(await archive.find('g1', 'ep-9'), []);
-  await appendStore.close();
+  await done();
 });
 
 test('archive: queuePending and drainPending round-trip and compact', async () => {
-  const { dataDir, appendStore, archive } = scene();
+  const { dataDir, appendStore, archive, memoryDb, done } = await scene();
   const entries = [1, 2, 3].map((n) => archiveEntry(episode({ itemId: `ep-${n}`, what: `στιγμή ${n}` }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) }));
   await archive.queuePending('g1', entries.slice(0, 2));
   await archive.queuePending('g1', entries.slice(2), { privateUserId: 'u1' });
@@ -146,52 +156,18 @@ test('archive: queuePending and drainPending round-trip and compact', async () =
   await appendStore.flush();
 
   const base = path.join(dataDir, 'guilds', 'g1', 'archive');
-  assert.deepEqual(readLines(path.join(base, '2026-10.jsonl')).map((e) => e.itemId), ['ep-1', 'ep-2'], 'written once each');
-  assert.deepEqual(readLines(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'archive', '2026-10.jsonl')).map((e) => e.itemId), ['ep-3']);
+  assert.deepEqual(unitLines(memoryDb, 'guilds/g1/archive/2026-10.jsonl').map((e) => e.itemId), ['ep-1', 'ep-2'], 'written once each');
+  assert.deepEqual(unitLines(memoryDb, 'guilds/g1/private/u1/archive/2026-10.jsonl').map((e) => e.itemId), ['ep-3']);
   assert.deepEqual(readLines(path.join(base, 'pending.jsonl')), [], 'compacted');
   assert.deepEqual(readLines(path.join(base, 'pending-done.jsonl')), [], 'compacted');
 
   // Nothing queued: nothing to do.
   assert.deepEqual(await archive.drainPending('g1'), { archived: 0, left: 0, confirmed: [] });
-  await appendStore.close();
-});
-
-test('archive: forgetUser drops the user\'s entries under the marker', async () => {
-  const { dataDir, appendStore, archive } = scene();
-  const own = archiveEntry(episode({ itemId: 'ep-1' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) });
-  const named = archiveEntry({ id: 1, at: OCT, channelId: 'c1', text: 'μίλησε με <@348100000000000001>', weight: 1, itemId: 'rc-1' }, { itemKind: 'recent', event: 'expired', scope: { channel: 'c1' }, ...at(OCT) });
-  const other = archiveEntry(episode({ itemId: 'ep-2', what: 'άλλη' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u2' }, ...at(OCT) });
-  await archive.append('g1', [own, other]);
-  await archive.append('g1', [archiveEntry(episode({ itemId: 'ep-3' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) })], { privateUserId: 'u1' });
-  await archive.queuePending('g1', [archiveEntry(episode({ itemId: 'ep-4', what: 'σε αναμονή' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) })]);
-  const namedArchive = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('n-') });
-  await namedArchive.append('g1', [named]);
-  await appendStore.flush();
-
-  const marker = path.join(dataDir, 'guilds', 'g1', 'forgetting', '348100000000000001.json');
-  const rewrite = appendStore.rewrite;
-  const markerSeen = [];
-  appendStore.rewrite = (file, keep) => {
-    markerSeen.push(fs.existsSync(marker));
-    return rewrite(file, keep);
-  };
-  assert.deepEqual(await archive.forgetUser('g1', '348100000000000001'), { dropped: 1 });
-  assert.ok(markerSeen.length > 0 && markerSeen.every(Boolean), 'the marker is written first');
-  assert.equal(fs.existsSync(marker), false, 'the marker is removed last');
-
-  appendStore.rewrite = rewrite;
-  assert.deepEqual(await archive.forgetUser('g1', 'u1'), { dropped: 2 }, 'its own entry and the pending one');
-  const left = await collect(archive.iterate('g1'));
-  assert.deepEqual(left.map((e) => e.itemId), ['ep-2']);
-  assert.equal(fs.existsSync(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'archive')), false, 'the private archive is gone');
-  assert.deepEqual(archive.stats('g1'), { pending: 0 });
-  const ids = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'archive', '2026-10.ids.json'), 'utf8'));
-  assert.deepEqual(ids, [`ep-2:${other.revisionId}`], 'the index forgets the dropped entries');
-  await appendStore.close();
+  await done();
 });
 
 test('archive: a DM memory file under private/ is not a private archive layer', async () => {
-  const { dataDir, archive } = scene();
+  const { dataDir, archive, done } = await scene();
   // The private directory holds the DM memory files (`<userId>.json`) next to the layers' directories.
   const privateDir = path.join(dataDir, 'guilds', 'g1', 'private');
   fs.mkdirSync(privateDir, { recursive: true });
@@ -201,4 +177,5 @@ test('archive: a DM memory file under private/ is not a private archive layer', 
 
   const drained = await archive.drainPending('g1');
   assert.deepEqual([drained.archived, drained.left], [1, 0], 'the file is skipped, the layer directory is drained');
+  await done();
 });

@@ -80,12 +80,12 @@ test('parseScenarios: a malformed file or scenario is refused, naming the scenar
 });
 
 test('scenarioGrants: expanded as /nep access grant expands them for her; a not-grantable name kept; an unknown one refused', () => {
-  const names = scenarioGrants({ id: 's', grants: ['rule.add', '*', 'memory.wipe', 'rule.add'] }, expandPersonaGrant);
+  const names = scenarioGrants({ id: 's', grants: ['rule.add', '*', 'memory.restore', 'rule.add'] }, expandPersonaGrant);
   assert.equal(names[0], 'rule.add');
   assert.equal(names.filter((name) => name === 'rule.add').length, 1, 'de-duplicated');
   assert.ok(names.includes('rule.list'), '`*` is her read skills');
   assert.ok(!names.includes('rule.remove'), '`*` opens no write');
-  assert.ok(names.includes('memory.wipe'), 'kept, so the gateway refuses it as live');
+  assert.ok(names.includes('memory.restore'), 'kept, so the gateway refuses it as live');
   assert.throws(() => scenarioGrants({ id: 's', grants: ['files.wipe'] }, expandPersonaGrant), /scenario s: grants names no skill: files.wipe/);
   const registryNames = [...skillRegistry().keys()];
   assert.deepEqual(scenarioDiscovery({ id: 's', discovery: ['rule.add'] }, registryNames), ['rule.add']);
@@ -99,12 +99,12 @@ test('personaGrantsConfig: her grants are exactly the given ones; people\'s gran
     bot: { owners: [OWNER], access: { 'rule.list': { everyone: false, roles: [], users: [SELF, MEMBER] }, 'lore.add': { everyone: false, roles: [], users: [SELF] } } },
   };
   const before = structuredClone(live);
-  const copy = personaGrantsConfig(live, SELF, ['rule.add', 'memory.wipe']);
+  const copy = personaGrantsConfig(live, SELF, ['rule.add', 'memory.restore']);
   assert.deepEqual(live, before, 'the live config is never written');
   assert.deepEqual(copy.bot.access['rule.list'].users, [MEMBER]);
   assert.equal(copy.bot.access['lore.add'], undefined, 'an entry left empty is gone');
   assert.deepEqual(copy.bot.access['rule.add'].users, [SELF]);
-  assert.deepEqual(copy.bot.access['memory.wipe'].users, [SELF]);
+  assert.deepEqual(copy.bot.access['memory.restore'].users, [SELF]);
   assert.deepEqual(copy.bot.owners, [OWNER]);
   assert.deepEqual(personaGrantsConfig({}, SELF, []).bot.access, {});
 });
@@ -155,8 +155,8 @@ test('simulateCall: not granted, not grantable, or a requester without the right
   const notGranted = simulate({ skill: 'rule.add', args: { text: 'κανόνας' } });
   assert.deepEqual([notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed], ['gateway', 'not-allowed', 'denied', null]);
 
-  assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('memory.wipe'));
-  const wipe = simulate({ skill: 'memory.wipe', args: {} }, { grants: ['memory.wipe'] });
+  assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('memory.restore'));
+  const wipe = simulate({ skill: 'memory.restore', args: { id: 'ep-1' } }, { grants: ['memory.restore'] });
   assert.deepEqual([wipe.verdict.code, wipe.result.status, wipe.executed], ['not-grantable', 'denied', null]);
 
   // Her grant does not lend a member a right they lack; a member granted it may have it run.

@@ -1,26 +1,27 @@
 // The fixture of the database reader tests (stage W1): the synthetic data directory of datadir.js, a second guild,
-// and, in the first guild only, a few more files so every read path has something to return (a second record day with every line kind, a
-// member under a forget marker, a private journal and archive, a vector month of a private layer, an archived
-// intention), imported into a database with tools/memory-db.mjs. Synthetic text only; the ids are made up.
+// and, in the first guild only, a few more units so every read path has something to return (a second record day with
+// every line kind, a private journal and archive, a vector month of a private layer, an archived intention), written
+// into a database through its own writers (seed.js; the vectors through src/memory/vectors.js on the service), then
+// opened read only. Synthetic text only; the ids are made up.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { main } from '../../../tools/memory-db.mjs';
 import { openMemoryDb } from '../../../src/memory/db/open.js';
 import { createVectors } from '../../../src/memory/vectors.js';
+import { openTestMemory } from './service.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.js';
 
 export { CHANNEL, GUILD, MEMBER };
 export { GUILD_2 } from './datadir.js';
-/** A member under a forget marker: every line naming them is hidden from every read. */
+/** A third member, named by a few lines. */
 export const HIDDEN = '100000000000000003';
 export const OTHER = '100000000000000002';
 export const CHANNEL_B = '200000000000000005';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
-/** The extra files, written before the import. */
-async function addExtra(data) {
+/** The extra files, written before the database is filled. */
+function addExtra(data) {
   const g = guildDir(data);
   writeLines(path.join(g, 'record', '2026-10', '2026-10-21.jsonl'), [
     seen('400000000000000011', 1, 'Χαίρετε, a second day', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:00:01.000Z' }),
@@ -37,7 +38,6 @@ async function addExtra(data) {
     },
     seen('400000000000000011', 2, 'Χαίρετε, a second day (edited)', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:10:01.000Z' }),
   ]);
-  writeJson(path.join(g, 'forgetting', `${HIDDEN}.json`), { userId: HIDDEN, at: '2026-10-21T09:00:00.000Z', step: 'record' });
   writeLines(path.join(g, 'journal', '2026-10-21.jsonl'), [
     envelope('turn.start', { id: 'j2-start', turnId: 'turn-2', attemptId: 1, mode: 'reply', occurredAt: '2026-10-21T08:06:30.000Z', recordedAt: '2026-10-21T08:06:30.000Z' }),
     envelope('action', { id: 'j2-a1', turnId: 'turn-2', opId: 'op-2', name: 'post', by: 'persona', phase: 'started', intent: { replyTo: '400000000000000011', text: 'Ναι' }, occurredAt: '2026-10-21T08:06:40.000Z', recordedAt: '2026-10-21T08:06:40.000Z' }),
@@ -76,8 +76,11 @@ async function addExtra(data) {
     id: 'i0', purpose: 'an old plan', status: 'done', createdAt: 1791000000000, updatedAt: 1791000001000, dueAt: null,
     provenance: { kind: 'self', turnId: 't-0', channelId: CHANNEL, scope: 'group' }, history: [],
   }]);
-  // Vector months written by the engine itself: a private layer's, and a second guild month.
-  const vectors = createVectors({ dataDir: data, log: silent });
+}
+
+/** Vector months written by the engine itself: a private layer's, and a second guild month. */
+async function addVectors(data, memoryDb) {
+  const vectors = createVectors({ dataDir: data, log: silent, memoryDb });
   const row = (id, occurredAt, vector, extra = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, channelId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
   await vectors.append(GUILD, [row('400000000000000005', '2026-10-20T09:00:00.000Z', [0.5, -0.2, 0.1, 0.9])], { privateUserId: MEMBER, model: 'test/embedder' });
   await vectors.append(GUILD, [
@@ -89,8 +92,7 @@ async function addExtra(data) {
 
 /**
  * The data directory and its database: `data`, `dbFile`, `handle` (read-only), `memoryDb` (a service-shaped object
- * with authority `db` over `handle`), `closedDb` (authority `db`, nothing open), `jsonDb` (authority `json`, with a
- * handle that must never be asked), `log` (warns collected in `warns`), `done()`.
+ * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`.
  */
 export async function readerEnv() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-readers-'));
@@ -98,21 +100,21 @@ export async function readerEnv() {
   fs.mkdirSync(data);
   buildDataDir(data);
   buildSecondGuild(data);
-  await addExtra(data);
-  const dbFile = path.join(root, 'memory.db');
-  const out = [];
-  const code = main(['import', '--data', data, '--db', dbFile], { out: (line) => out.push(line), err: (line) => out.push(line) });
-  if (code !== 0) throw new Error(`import failed: ${out.join('\n')}`);
+  addExtra(data);
+  const dbFile = path.join(data, 'memory.db');
+  const writer = await openTestMemory({ dataDir: data, seed: true });
+  try {
+    await addVectors(data, writer.memoryDb);
+  } finally {
+    await writer.close();
+  }
   const handle = openMemoryDb(dbFile, { readOnly: true });
   const warns = [];
   const log = { info() {}, debug() {}, error() {}, warn: (message, fields) => warns.push({ message, ...fields }) };
-  let asked = 0;
   return {
     root, data, dbFile, handle, warns, log,
-    memoryDb: { authority: () => 'db', readHandle: () => handle },
-    closedDb: { authority: () => 'db', readHandle: () => null },
-    jsonDb: { authority: () => 'json', readHandle: () => { asked += 1; return handle; } },
-    handleAsked: () => asked,
+    memoryDb: { readHandle: () => handle, database: () => handle.db },
+    closedDb: { readHandle: () => null, database: () => null },
     done: () => { try { handle.close(); } catch { /* closed */ } fs.rmSync(root, { recursive: true, force: true }); },
   };
 }
@@ -124,5 +126,5 @@ export async function all(iterable) {
   return out;
 }
 
-/** An fs (promises) whose every call fails: proof that a read under `db` never touches the files. */
+/** An fs (promises) whose every call fails: proof that a read never touches the files. */
 export const noFs = new Proxy({}, { get: () => () => { throw Object.assign(new Error('the files were read'), { code: 'FILE_READ' }); } });
