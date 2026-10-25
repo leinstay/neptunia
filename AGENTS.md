@@ -87,12 +87,19 @@ The defaults, for documentation, comments, commit messages, pull request text an
 
 ## Tests
 
-- One test file per module, `tests/<module>.test.js`, using `node:test` and `node:assert/strict`. A test name says what happens and when.
-- A test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network. I/O goes through fakes; `rng` and `now` are injected.
-- Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs once, before the pull request is opened. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace.
-- Pipe long output through `tail`. Never paste a test log into a commit, an issue or a document.
-- Add or update tests for the code you change, even when nobody asked. Never weaken, skip or delete a test to make a run pass; report real counts.
-- No snapshots, and no test for what nothing sane could break.
+Tests are written by agents, so the quality lives in the method, not in a reviewer's eye: a test is written before the code and fails first, it tests behaviour through the public exports, and a test nobody can name a bug for is deleted.
+
+- One test file per module, `tests/<module>.test.js`, using `node:test` and `node:assert/strict`. A test name says what happens and when: `refuses an expired token when the lease has lapsed`.
+- Write the test before the code, run it, and see it fail for the right reason. A test that is green before the code exists checks nothing.
+- Test behaviour through the module's public exports. No import of a private function, no reaching into internals.
+- One scenario per test, fixed inputs, an assertion on the concrete result. Every module gets its boundary case, its empty input and its error path.
+- Assert the fact that matters. `deepEqual` on a whole object is for a value whose whole shape is the point; an assertion on a type, on "not undefined", or on a mock returning what it was told to return proves nothing.
+- No mock for code that can be called directly. I/O goes through fakes; `rng` and `now` are injected; a test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network.
+- For every bug you find, a regression test that reproduces it, in the same change as the fix.
+- Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
+- No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
+- For a change that adds behaviour, the tests and the code are written by different agents: one writes the tests from the brief and the signatures without seeing the code, the other makes them green without touching them, and the reviewer answers one question per test: which real bug it catches.
+- Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs once, before the pull request is opened. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
 ## The agents' folder
 
