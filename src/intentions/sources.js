@@ -1,5 +1,5 @@
 // Where a line of the persona's came from, for the injection guard of her intentions
-// (docs/intentions.md "Where a candidate's words came from"). A goal planted in a web page, a
+// (docs/inner-life.md). A goal planted in a web page, a
 // memory result or a tool's output can reach her own words -- she quotes or paraphrases it in a
 // line of hers -- and then the analyzer's quote check (src/intentions/model.js#candidatesFromAnswer)
 // passes, because nobody else's line holds those words. So each line she posts is noted with what

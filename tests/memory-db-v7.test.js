@@ -1,6 +1,6 @@
 // Schema v7 (spec 2026-10-24-memory-schema-v7, stage 1): the migration of a database the unit writers filled at v6, a
 // replay of the unit writes after v7 (the derived columns re-derived, links and DM places kept, nothing nulled), the new ids (canonical keys, node ids, aliases with generations and event time), the
-// recorded execution contexts and turn reads, and the access classification of every table (docs/memory-access.md).
+// recorded execution contexts and turn reads, and the access classification of every table (docs/memory.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -310,8 +310,8 @@ test('resolveAlias: event time picks the generation; overlapping windows and tim
   }
 });
 
-test('access classification: every table of the schema is in docs/memory-access.md, in one of the four classes', () => {
-  const doc = fs.readFileSync(new URL('../docs/memory-access.md', import.meta.url), 'utf8');
+test('access classification: every table of the schema is in docs/memory.md, in one of the four classes', () => {
+  const doc = fs.readFileSync(new URL('../docs/memory.md', import.meta.url), 'utf8');
   const classified = new Map();
   for (const match of doc.matchAll(/^\| `([a-z0-9_]+)` \| ([^|]+?) \|/gm)) classified.set(match[1], match[2].trim());
   const handle = openMemoryDb(':memory:');

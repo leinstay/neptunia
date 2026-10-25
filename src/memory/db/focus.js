@@ -36,7 +36,7 @@
 //   - exploring: the best scored people outside the close set with at least one meaningful exchange, a non-negative
 //     affinity, not excluded and not bots; recomputed freely.
 // `focus_members` holds the sets only; `focus_events` (append-only) holds every change of bucket with its reason and the
-// challenges. Both are internal-only (docs/memory-access.md): no outward reader selects from them.
+// challenges. Both are internal-only (docs/memory.md): no outward reader selects from them.
 
 import { DAY_MS, HOUR_MS, utcDay } from '../../time.js';
 import { nativeAuthorityOf, survivorOf } from './ids.js';

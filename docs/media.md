@@ -1,111 +1,144 @@
 # Media
 
-What the persona can see, hear and read, and the helpers that make it happen.
+What the persona perceives from the chat and what she can produce.
 
-Transcript lines carry media markers in brackets: pictures, GIFs, videos, stickers, custom emoji, voice messages, audio files, links, text file previews and forwarded messages. What the persona actually perceives depends on the features below. A `<senses>` block in the user message tells the persona what is on and what is off under the current config; they trust this block and never claim to have seen, heard or opened anything beyond it.
+Transcript lines carry media in brackets: pictures, GIFs, videos, stickers, custom emoji, voice messages, audio files, links. A `<senses>` block in each request tells the persona what is on and what is off under the current config; she trusts this block and never claims to have seen or heard anything beyond it.
 
-## Pictures
+## What she perceives
 
-No picture ever goes into the persona's own request as an image: her eyes are the vision helper model. A picture reaches her as the describer's one-line caption in the transcript line, and, when she is asked about it, through a second look that answers the question (below). Pictures larger than `context.vision.maxBytes` or slower than `context.vision.fetchTimeoutMs` are skipped by those downloads.
+### Pictures
 
-When `features.imageRelook` is on (the default) and someone addresses the persona with a question or a concrete claim about a picture, the re-watch classifier offers recent pictures alongside videos and the vision model looks at the picture again with that question. The answer appears in the transcript under the picture's line. Picture relooks share the daily `media.video.rewatch.maxPerDay` counter with video re-watches. Retry applies to videos only.
+The persona does not receive images directly in her own request. A picture reaches her as a one-line caption in the transcript, written by a vision-capable model on the `vision` role (`models.base.vision`, default `google/gemini-3.8-flash`). The prompt is `prompts/describe.md`.
 
-`features.mediaDescriptions` (on by default) runs the `vision` role's model to write a one-line description for pictures, GIF frames, video posters, stickers, custom emoji and link thumbnails. Each attachment is described once and cached in `data/guilds/<id>/media.json`. Descriptions feed the chat transcript, the memory analyzer and the warmup. The describer's prompt is `prompts/describe.md`.
+Each attachment or embed is described once and cached in `data/guilds/<id>/media.json`, trimmed by LRU to `media.cacheEntries` (default 5000) entries. A repost costs nothing. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
 
-Stickers and custom emoji recur constantly, so they are cached by id and cost nearly nothing after the first description. Discord's built-in animated stickers are Lottie animations, not images, so they are never more than a name.
+The picture is downloaded first (`src/media/fetch-image.js`) and sent to the model as a `data:` URL, because some providers get a 403 from Discord's CDN. Downloads are cached in a small in-memory LRU (about 50 entries, 10 minutes), keyed by the URL without its query string (Discord's CDN query params rotate between fetches of the same file).
 
-When `features.customEmoji` is on (the default), an `<emoji>` block lists the server's most-used custom emoji ranked by how often members use them (at most `context.customEmoji.max`, default 30). The persona can write `:name:` in a message or a reaction, and the engine turns known names into real emoji. Unknown names stay as plain text. At first startup the engine seeds the ranking by reading the last `context.customEmoji.backfillMessages` (default 500) messages of every readable channel (no model calls); `/nep media kind:emoji action:rescan` clears the ranking and recounts from scratch.
+When someone asks about a picture the persona has already seen, a re-look happens. With `features.imageRelook` on (default `true`), the rewatch classifier offers recent pictures alongside videos and the vision model looks at the picture again with the person's question. The answer appears in the transcript alongside the original caption. Picture re-looks share the daily counter `media.video.rewatch.maxPerDay` (default 20) with video rewatches.
 
-When `features.gifs` is on (the default), a `<gifs>` block lists the GIFs members share most, ranked by recency-weighted use (at most `gifs.max`, default 40). Each GIF gets a short handle (`g1`, `g2`, …) and three caption fields from the describer when cached: a reaction label (capped at `gifs.reactionChars`, default 40), a visible action (capped at `gifs.actionChars`, default 70) and on-screen text. The caps apply wherever the fields are shown, in the list and in a library GIF's transcript line; the cache stores them whole under `media.descriptionChars`. Entries without fields use a single-line caption cut at a word boundary. The persona can post a GIF by writing its handle in a `<gif>` tag; one per turn; an unknown handle does nothing. A GIF is any embed of type `gifv` whatever its provider, or a page on a known GIF host (Tenor, Giphy, Klipy); GIF pages are never read as links. Uses are counted as each message arrives (members only, bots and the persona excluded). When Discord attaches the embed after the message (Tenor GIFs arrive this way), the bot folds it into the buffer so the library and the analyzer still see it (`features.embedUpdates`, on by default). At first startup the engine reads the last `gifs.backfillMessages` (default 500) messages of every readable channel to seed the library, and the top `gifs.backfillDescribe` (default 20) get captions right away. In the transcript, a GIF that is in the library carries its handle so the persona can reuse what they just saw. `/nep media kind:gifs action:status` shows the library size and top entries; `/nep media kind:gifs action:rescan` resets use counts to zero and recounts from channel history, keeping handles stable.
+With `features.coreTools` on, the persona can look at a picture herself by calling the `media.look` skill with a message reference and her own question (at most `media.look.maxPerTurn` per turn, default 2).
 
-When `media.gif.watch` is on (the default, needs video vision on as well), a GIF is watched as a short silent clip: the animation is converted to an mp4 of at most `media.gif.maxSeconds` (default 8) seconds and sent to the `video` role's model through `prompts/describe-gif.md` (falling back to `describe-video.md` when absent). The watched caption replaces the old single-frame description. A GIF that cannot be watched (no animation, a spent daily cap `media.gif.maxPerDay`, a failed conversion or request) keeps the one-frame description instead. `/nep media kind:gifs action:recache` drops stale one-frame captions outside the library and re-watches up to `gifs.recachePerRun` (default 50) library entries in the background, oldest first.
+Switch: `features.mediaDescriptions` (default `true`).
 
-When `features.gifPicker` is on (the default, needs `features.gifs` on and a non-empty library), a classifier on the `analyzer` role picks a GIF from the full library to replace a short first message. The picker runs when the persona's first outgoing message is at most `gifs.pick.maxChars` (default 160) characters and she chose no GIF herself; it sees the last few chat lines, that first message and every library entry with its caption. On a match the GIF replaces the first message and replies where it would have; the remaining messages follow in order. When the GIF fails to send, every message goes as written.
+### Avatars
 
-Settings: `context.vision.*` for the picture downloads and the rail's image estimate, `media.*` for the describer, `gifs.*` for the GIF library. See [Configuration](configuration.md#media) for every key.
+When `features.avatars` is on (default `false`), each member's Discord avatar is described by the `vision` role's model and stored in their profile as `avatar: { hash, text, describedAt }`. The avatar used is the server avatar when the member set one, otherwise the account avatar. Discord's default avatar (no upload) is recorded as `{ hash: null, default: true }`. A new version replaces the old one; no history is kept.
 
-## Video
+Avatars are queued (`src/memory/avatar-queue.js`) and described at `avatars.intervalMs` (default 20000 ms) with at most `avatars.maxPerDay` (default 60) per day. The caption is at most `avatars.descriptionChars` (default 200) characters. It appears in the `<people>` prompt block.
 
-`features.videoDescriptions` is off by default; turn it on in `config.local.json`, with `mediaDescriptions` on as well. It adds the `video` role's model, which watches short clips: Discord video attachments, video links pasted from the Discord CDN, and links to known video sites (YouTube, TikTok, VK, X, Reddit, Twitch). The model must accept both video and audio input through OpenRouter.
+Switch: `features.avatars` (default `false`).
+Model role: `vision`.
 
-### Caps
+### Reactions
 
-Attachments and downloaded site videos are capped at `media.video.maxSeconds` (default 180 s) and `media.video.maxBytes` (over-size files are re-encoded to 360p at a capped bitrate first; only a clip still too large after re-encoding is refused). In agentic mode (`urlProcessing`, the default), public-URL videos (YouTube and other `directUrlSites`) up to `directUrlMaxSeconds` (default 3600 s, one hour) are sent by URL to the pinned provider; in other modes the effective cap is the smaller of this value and `maxRequestTokens / tokensPerSecond` (500 s with the defaults). Longer videos take the download route (first `maxSeconds` via yt-dlp), which YouTube often blocks with a bot check on servers. At most `maxPerTurn` new videos per turn (every attempt counts, failed or not) and `maxPerDay` per day. Results are cached alongside picture descriptions; a repost costs nothing.
+When `features.seeReactions` is on (default `true`), reactions on the persona's messages are visible to her. The reactor store (`interfaces/discord/reactors.js`) tracks who reacted (in-process, never persisted, gone at restart). Reactions appear in the transcript; `features.reactionNames` (default `true`) shows the reactor's name alongside the emoji.
 
-### Tools
+### Video
 
-Everything beyond attachments within the caps is downloaded with `yt-dlp` and trimmed with `ffmpeg`, both optional system binaries. Without them, attachments within the caps still work (sent as-is). Longer attachments and all site links fall back to a still frame. A video link from the Discord CDN has no duration metadata, so it always goes through ffmpeg; without ffmpeg it falls back to a still frame. For YouTube, when `yt-dlp` cannot probe the duration, an optional `YOUTUBE_API_KEY` in `.env` (free, from the Google Cloud console's YouTube Data API v3) or a watch-page scrape provides it. `/nep status` reports the API key status.
+A video attached to a message, or a link to a known video site, is watched by a model on the `video` role (`models.base.video`, default `google/gemini-3.8-flash`). The model must accept both video and audio input through OpenRouter. The prompt is `prompts/describe-video.md`.
 
-### Re-watch
+The known video sites (from `media.video.sites`): YouTube, TikTok, VK, X/Twitter, Reddit, Twitch.
 
-When someone directly addresses the persona (not an overheard or spontaneous turn) with a question about a video they have already watched, a classifier (`prompts/rewatch.md`, on the `analyzer` role) decides whether a second look is needed. If so, the video model watches the clip again with `prompts/rewatch-answer.md` and the answer appears in the transcript alongside the original summary. The same classifier can retry a video that failed to load when the person asks about it again. At most one re-watch or retry per turn; answers are cached for one hour. Switch `features.videoRewatch` (default on).
+Attachments and downloaded site videos are capped at `media.video.maxSeconds` (default 300 s) and `media.video.maxBytes` (default about 14.5 MB). Over-size files are re-encoded to 360p at a capped bitrate; a clip still too large after re-encoding is refused. In agentic mode (`media.video.urlProcessing`, the default value `agentic`), public-URL videos (YouTube and other `media.video.directUrlSites`) up to `media.video.directUrlMaxSeconds` (default 3600 s) are sent by URL to the pinned provider. Longer videos take the download route (the first `maxSeconds` via yt-dlp).
 
-### Looking again herself (`media.look`)
+At most `media.video.maxPerTurn` (default 5) new videos per turn and `media.video.maxPerDay` (default 40) per day. Results are cached alongside picture descriptions.
 
-With `features.coreTools` on, no classifier decides on a second look for the persona. She calls `media.look` herself (granted by name: `/nep access grant media.look user:@bot`) with a message she sees (`message="#N"`), her own question, and `item="2"` when the message holds several pictures or videos (1 is the first). The describer looks again exactly as above, with her question as she wrote it: a picture through the `vision` role, a GIF or a video through the video model, each with `prompts/rewatch-answer.md`. The answer comes back in the same turn, labelled as the image or video model's observation, with the item's name and the question. The same daily caps apply (`media.video.rewatch.maxPerDay` for every second look, plus `media.video.maxPerDay` for a video and `media.gif.maxPerDay` for a GIF), and at most `media.look.maxPerTurn` (default 2) per turn. A retry of a video that did not load is not part of it. The owner can run the same look with `/nep task look message:<id or link> question:<text> [item]` in the message's channel.
+Everything beyond attachments within the caps is downloaded with `yt-dlp` and trimmed with `ffmpeg`, both optional system binaries. Without them, attachments within the caps still work (sent as-is); longer attachments and all site links fall back to a still frame. For YouTube, when yt-dlp cannot probe the duration, an optional `YOUTUBE_API_KEY` in `.env` or a watch-page scrape provides it.
 
-The video prompt is `prompts/describe-video.md`. Settings live under `media.video`. See [Configuration](configuration.md#mediavideo) for every key and a cost comparison table.
+An optional proxy (`media.video.proxy`) routes yt-dlp downloads for sites listed in `media.video.proxySites`. When a proxied run fails, a plain TCP connect test tells whether the proxy is dead or the video itself is the problem. A dead proxy is skipped for `media.video.proxyRetryMinutes` (default 10) and the run retried directly.
 
-## Links
+#### The audio map
 
-`features.webLookup` (off by default; unlike other features, a missing key counts as off) lets the persona open links posted in the chat and read them.
+A video model told nothing about the sound tends to invent it for a silent clip. To prevent this, the fetcher measures each clip with a read-only ffmpeg `silencedetect` pass (`src/media/audio-map.js`) and the describer adds a measured note to the video model's system prompt:
 
-When the feature is on and `web.links.enabled` is not false, a link in the transcript (http/https only, private addresses refused, video-site links excluded, `web.links.skipSites` excluded) is fetched through an SSRF-guarded page fetcher (size capped at `web.links.maxBytes`, timeout `web.links.fetchTimeoutMs`, at most 3 redirects, html and plain text only). The page text is condensed by the `analyzer` role's model through `prompts/read-link.md` into an excerpt of at most `web.links.summaryChars` characters. The excerpt is appended to the link's transcript tag as `transcript.linkRead` and appears as first-hand: the persona opened and read the page themselves, within that excerpt. Unreadable pages (paywalls, consent screens, login gates, empty content) are detected and cached as a miss. Links whose URL path ends with an image, video, audio or archive extension (png, jpg, jpeg, gif, webp, avif, svg, mp4, webm, mov, mkv, mp3, ogg, wav, zip, rar, 7z, pdf) are never read regardless of the host, and `web.links.skipSites` (subdomains included) skips Discord CDN, Tenor, Giphy, Klipy, Imgur, Reddit media and Twitter images by default.
+- `none`: no audio stream, or the entire track is silence.
+- `map`: a list of audible stretches in `m:ss-m:ss` format.
+- `full`: sound throughout.
 
-With `web.links.prefill` on (the default), links are read as soon as they arrive so the next turn finds them cached. The prefill is capped at `web.links.prefillPerUserPerDay` (default 10) per member per day; the turn path is not limited by it. Each fetch attempt during a turn counts against `web.links.maxPerTurn` (default 2). Link reads and searches share a daily counter capped at `web.maxPerDay` (default 60). Once `llm.maxRequestsPerDay` is spent, nothing new is downloaded or cached as a miss.
+The note uses the label from `labels.videoAudio.none` or `labels.videoAudio.map`. A failed measurement is logged and the note omitted, never treated as a failed fetch. GIF clips are silent by design and skip the audio measurement.
 
-Read results are cached in the media cache: `read:<link.id>` holds the excerpt or a miss (skipped for 6 hours). The `<senses>` block includes `senses.linksRead` when the feature is on, telling the persona that a link may come with a read excerpt.
+Settings: `media.video.audioMap.noiseDb` (default -50), `media.video.audioMap.minSilenceSeconds` (default 0.5), `media.video.audioMap.mapBelowShare` (default 0.8, a clip with less than 80% audible time gets a map instead of `full`).
 
-With `features.coreTools` on, no helper reads for the persona. A posted link is shown with the opening of its page's own extracted text, cut at `web.links.previewChars` (default 700), like a link preview: no model request, so `llm.maxRequestsPerDay` does not stop it (the daily `web.maxPerDay` still does); cached as `preview:<link.id>`. To read further she calls her own `web.read` (granted by name): one page by its link, or the first link of a message `#N`, comes back as its extracted main text with its title and final link, cut at `web.links.readChars` (default 4000), one daily web slot per fetch, cached for `web.links.readCacheHours` (default 6). Her `web.search` returns the engine's results as they are (title, link, site, date when known, snippet), no summary.
+#### Re-watch
 
-## Search
+When someone directly addresses the persona with a question about a video she already watched, a classifier (`analyzer` role) decides whether a second look is needed. If so, the video model watches the clip again with her question and the answer appears in the transcript alongside the original summary. The classifier can also retry a video that failed to load. At most one re-watch or retry per turn; answers are cached. Switch: `features.videoRewatch` (default `true`).
 
-When the persona is directly addressed (not an overheard or spontaneous turn) and the trigger message needs facts the chat does not have, a classifier (`prompts/lookup.md`, on the `analyzer` role) decides what to look up. The classifier can ask for a web search, a server-history search, or both.
+Switch: `features.videoDescriptions` (default `false`). `features.mediaDescriptions` must also be on.
+Model role: `video`.
 
-The classifier fires when the `lookup.md` prompt exists and either `features.webLookup` or `features.recall` is on. Its answer is up to four labelled lines: `web:` phrases a web query, `server:` lists word forms to search the server's own messages, `who:` lists name forms to find a person, `when:` gives a date range. A single unlabelled line (the old format) is still read as a web query.
+### Links
 
-A web search needs `features.webLookup` on, `web.search.enabled` not false, `web.search.maxPerTurn` at least 1 and a `BRAVE_SEARCH_API_KEY` in `.env` (free tier: 2,000 queries/month, then $5 per 1,000). The results are condensed by the `analyzer` role through `prompts/search-summary.md` and appear in the `<lookup>` block. Without a Brave key, link reading still works but web search does not.
+When `features.webLookup` is on (default `false`; unlike other features, a missing key counts as off) and `web.links.enabled` is not false, links in the transcript are fetched and condensed.
 
-A server search needs `features.recall` on (the default). The engine searches the server's message history through Discord's search API, groups the hits into time clusters, fetches a window of messages around each cluster, and asks a summary helper (`prompts/recall-summary.md` on the `analyzer` role) what the history answers. The classifier's word forms and name forms are also matched against stored memory (episodes, lore, lessons, recent lines, never the private layer; at most `recall.memoryItems`, default 6), and matching items go to the summary as a `<memory>` block so the helper has context even when no old chat was found. The summary may single out one stretch that the persona then gets verbatim in the `<lookup>` block. When the summary finds nothing, no server part appears. The recall run is capped at `recall.maxPerDay` (default 100) per day and `recall.timeoutMs` (default 10 s) per run. Windows from channels the audience rule refuses are excluded. See [Configuration](configuration.md#recall) for every key.
+A link (http/https, private addresses refused, video-site and `web.links.skipSites` excluded) is fetched through an SSRF-guarded page fetcher (at most `web.links.maxBytes`, timeout `web.links.fetchTimeoutMs`). The page text is condensed by the `analyzer` role through `prompts/read-link.md` into an excerpt of at most `web.links.summaryChars` (default 700) characters, appended to the link's transcript tag. Unreadable pages (paywalls, consent screens, login gates) are cached as a miss.
 
-When both searches ran, the `<lookup>` block carries separate headings and a note between them. At most one web search and one server search per turn. The classifier, the web condenser and the recall summary each count against `llm.maxRequestsPerDay`. Web results are cached for `web.search.cacheHours` (default 24) hours per normalised query. The `<senses>` block includes `senses.search` when a Brave key is configured. `senses.recall` is included on server turns when the server-history search is available.
+With `web.links.prefill` on (default `true`), links are read as messages arrive so the next turn finds them cached. The prefill is capped at `web.links.prefillPerUserPerDay` (default 10) per member per day. During a turn, at most `web.links.maxPerTurn` (default 2) fetches. Link reads and web searches share a daily counter capped at `web.maxPerDay` (default 60).
 
-Settings for the web side live under `web`, for the server side under `recall`. See [Configuration](configuration.md#web) and [Configuration](configuration.md#recall) for every key. The contract between the prompt files and the code is in [Prompt contract](prompt-contract.md).
+With `features.coreTools` on, posted links show an opening of the page's extracted text (cut at `web.links.previewChars`, default 700), no model request. The persona reads further by calling her own `web.read` skill.
 
-## Drawing
+Model role: `analyzer`.
 
-`features.imageGeneration` (off by default; a missing key counts as on) lets the persona draw pictures. Turn it on in `config.local.json`. When the model calls the `draw.create` tool (natively, or as a `<tool_call>` block on the text transport, per `skills.transport`), the engine generates one picture through OpenRouter's Images API (`image.model`, default `openai/gpt-image-2.5-flare`) and posts it as a separate message; the call runs before her speech goes out, and the speech goes out after it only when the picture worked. Whether to draw is the model's own decision; the persona can refuse. In a channel where the bot lacks Attach Files permission, the drawing sense is not shown and a `draw.create` call is refused before anything is generated, so nothing is billed.
+## What she produces
 
-### Caps
+### GIFs
 
-At most `image.maxPerDay` (default 50) pictures per day for the instance and `image.maxPerUserPerDay` (default 50) per member. Both are checked before the request and counted only when it is sent. Each `draw.create` call makes one picture and counts once; calls past `skills.loop.maxCallsPerStep` get a `loop-cap` result. The scene text of the call is clamped to `image.maxPromptChars` (default 1600), cut at the last sentence or word boundary. When the persona is in the picture (`self` true) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference.
+The persona builds a library of GIFs from the chat. Every GIF a member posts (a `gifv` embed from any site, a page from Tenor, Giphy or Klipy, or an attached .gif file) is counted deterministically (no model call) into `data/guilds/<id>/gifs.json`. Each entry gets a stable handle (`g1`, `g2`, etc.) that never changes and is never reused.
 
-### Cost
+A `<gifs>` block in the prompt lists the most-used GIFs ranked by recency-weighted use (at most `gifs.max`, default 25). Each GIF has three caption fields from the describer: a reaction label (capped at `gifs.reactionChars`, default 40 characters), a visible action (capped at `gifs.actionChars`, default 70 characters) and on-screen text. The persona posts a GIF by writing its handle in a `<gif>` tag. One GIF per turn; an unknown handle does nothing. At most `gifs.maxPerDay` (default 40) GIF posts per day.
 
-Pricing is per output token, not per picture. The provider's `usage.cost` is reported by `/nep draw` and logged. A request refused by the engine before it is sent (daily or per-member cap, unsupported model family) costs nothing; a generation the provider rejects is usually not billed; a timeout, or an upload that fails after the picture was generated, may still be billed. Image requests do not count against `llm.maxRequestsPerDay`.
+When `media.gif.watch` is on (default `true`, needs video descriptions on), a GIF is watched as a short silent clip: the animation is converted to an mp4 of at most `media.gif.maxSeconds` (default 15 s) and sent to the `video` role through `prompts/describe-gif.md`. The watched caption replaces the old single-frame description. GIFs that cannot be watched keep the one-frame description. At most `media.gif.maxPerDay` (default 200) watches per day.
 
-### Privacy
+When `features.gifPicker` is on (default `true`, needs `features.gifs` on), a classifier on the `analyzer` role picks a GIF from the library to replace a short first message. The picker runs when the persona's first outgoing message is at most `gifs.pick.maxChars` (default 160) characters and she chose no GIF herself.
 
-The drawing prompt may quote members (it includes the scene text the model wrote, which can reference the conversation). Only counts are logged — never the prompt itself. In dry-run, the full image prompt is logged and mirrored to the dry-run channel, but nothing is generated.
+At first startup the engine reads the last `gifs.backfillMessages` (default 500) messages of every readable channel to seed the library; the top `gifs.backfillDescribe` (default 20) get captions right away.
 
-### Failure
+Switch: `features.gifs` (default `true`).
+Model roles: `video` (GIF watch), `analyzer` (GIF picker).
 
-A failed picture is a result of the `draw.create` call, with its code (`image-cap-daily`, `image-cap-user-daily`, `image-moderation`, `image-timeout`, `image-error`, a refused upload with the gateway's code), and she reads it in the next request of the turn. Her speech of that step is held, so a claim of a picture that does not exist is not posted. No second turn is fired and no limit notice is posted for a drawing; on a turn nobody waits for the failure is also a fact for her next turn.
+### Custom emoji
 
-Settings live under `image`. See [Configuration](configuration.md#image) for every key and [Configuration: Pictures out](configuration.md#pictures-out-imagemodel) for the supported models.
+When `features.customEmoji` is on (default `true`), an `<emoji>` block lists the server's most-used custom emoji ranked by how often members use them. Uses are counted deterministically from each message. The persona writes `:name:` in a message or a reaction, and the engine turns known names into real Discord emoji markup (`<:name:id>`). Unknown names stay as plain text.
 
-## Voice messages
+At first startup the engine reads the last `context.customEmoji.backfillMessages` (default 500) messages to seed the ranking.
 
-`features.speech` (on by default; needs the system `ffmpeg`) lets the persona say a thing aloud instead of typing it. When the model calls the `voice.say` tool (usable in the current conversation like `draw.create`, granted for other channels), the text goes through a preparation pass on the analyzer (dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short English audio tags), then through OpenRouter's speech endpoint with the `speech` model and `speech.voice`, then to OGG/Opus, and is posted as a Discord voice message with no text. The pass may add marks and rewrite what sits in brackets and nothing else: when its answer differs by a single word, the text is spoken as she wrote it and the result says `prepared: no` (code `speech-prepare-failed`, status `partial`). The result tells her the duration, the characters, the estimated cost and the text as voiced. At most `speech.maxPerDay` (default 100) messages a day. A diary turn may send one; the diary post then keeps its message id among `messageIds` and a `voice` field with the id, the text as voiced and the length in seconds. Settings: [`speech`](configuration.md#speech).
+### Stickers
+
+Stickers appear in the transcript as their name. Frequently used stickers are described once by the `vision` role and cached by id. Discord's built-in animated stickers are Lottie animations, which cannot be described; they appear as a name only.
+
+### Edits and deletes
+
+The persona can edit and delete her own messages through her skills (`message.edit`, `message.delete`). She can only touch her own messages; the adapter returns `forbidden` for anyone else's. On Discord, an edited message shows Discord's "edited" marker.
+
+### Drawings
+
+When `features.imageGeneration` is on (default `false`; a missing key counts as on), the persona can draw pictures. She calls the `draw.create` skill with a scene description, and the engine generates one picture through OpenRouter's Images API on the `drawing` role (`models.base.drawing`, default `openai/gpt-image-2.5-flare`). The picture is posted as a file attachment in a separate message before her speech goes out. If the picture fails, her speech for that step is held so she does not claim a picture that does not exist.
+
+The drawing prompt is `prompts/draw.md`. The scene text is clamped to `image.maxPromptChars` (default 1600) characters. When the persona is in the picture (`self: true` in the call) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference so the model knows what she looks like.
+
+At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPerDay` (default 50) per requesting member. Both are checked before the request and counted only when it is sent. Image requests do not count against `llm.maxRequestsPerDay`.
+
+Pricing depends on the provider. The provider's `usage.cost` is reported by `/nep draw` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing. In dry-run, the full prompt is logged but nothing is generated.
+
+Switch: `features.imageGeneration` (default `false`).
+Model role: `drawing`.
+
+### Voice messages
+
+When `features.speech` is on (default `true`; needs the system `ffmpeg`), the persona can send a voice message. She calls the `voice.say` skill with text, and the engine runs a three-step pipeline:
+
+1. A preparation pass on the `analyzer` role (`prompts/speech-prepare.md`): dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short audio tags. The pass may add marks and rewrite brackets, never touch a word. When its answer changes even one word (checked by `sameWords`), the original text is spoken unchanged.
+
+2. Synthesis through OpenRouter's speech endpoint on the `speech` role (`models.base.speech`, default `elevenlabs/eleven-v4`) with the voice named in `speech.voice` (default `jessica`). The key is the one `llm.keyByRole.speech` names (the main key without one).
+
+3. Conversion to OGG/Opus at 48 kHz mono with ffmpeg, producing the audio file, its duration in seconds and the 256-byte waveform Discord draws.
+
+The result is posted as a Discord voice message (no text, with the voice flag). At most `speech.maxPerDay` (default 100) messages per day, counted only when the synthesis request is sent. At most `speech.maxChars` (default 1500) characters per message.
+
+The result tells her the duration, the characters, the estimated cost and the text as spoken. A diary turn may send one; the diary post keeps a `voice` field with the id, the text as voiced and the length.
+
+Switch: `features.speech` (default `true`).
+Model roles: `analyzer` (pronunciation pass), `speech` (synthesis).
 
 ## Blind spots
 
-Voice messages show only duration. Audio files show a name and duration. The persona cannot hear either. How they handle a blind spot is the character card's call.
-
-## Cost
-
-Each turn is one LLM request; a memory update adds a second. Video descriptions add one request per watched clip to the `video` role (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads, web searches and server searches add requests to the `analyzer` role, capped by `web.maxPerDay` (shared, web side), `recall.maxPerDay` (server side) and `llm.maxRequestsPerDay` (global). Web search additionally needs a Brave Search key; the free tier handles a low-traffic server. Server search uses Discord's built-in search API and costs no money, only LLM requests for the classifier and the summary. Image generation bills per output token through `models.base.drawing`; `image.maxPerDay` caps the daily count separately from chat requests.
-
-## Privacy
-
-With `features.webLookup` on, the bot makes outbound HTTP requests to read pages and to the Brave Search API. Pages are fetched directly from the host; private addresses (loopback, link-local, private ranges) are refused. Page content is sent to the `analyzer` role's model through the LLM endpoint for condensation (not with `features.coreTools` on: see below); neither the page text nor the search query is logged. `data/` holds the cached excerpts and search results on your machine, gitignored, sent to the LLM as context only.
+Voice messages from other people show only their duration. Audio files show a name and duration. The persona cannot hear either. How she handles a blind spot is the character card's call.

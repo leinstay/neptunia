@@ -1,105 +1,102 @@
 # Commands
 
-One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep` (the name is `bot.commandName`), with the top-level entries listed below. Every reply is ephemeral (only the caller sees it). The command name must be lowercase `a-z 0-9 _ -`, at most 32 characters; it re-registers when changed.
 
 ## Access
 
-`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`.
+`/nep` is visible to every member. Access is gated per operation at the moment a command runs, not through Discord's visibility.
 
-Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
+Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation.
 
-Owner-only operations (`access.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+`/nep access grant <operation> [role] [user]` opens one operation to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` stores the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from.
 
-**Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
+Owner-only operations are never opened by any grant, `*` included: `access.*`, `memory.private.read`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore`, `inner.*`.
 
-## Status
+Operations with `member: true` are open to every member while `features.memberCommands` is on, without needing a grant: `pings.*`, `task.run`, `task.status`, `task.cancel`, `task.list`, `task.read`, `task.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list`, `skills.describe`.
 
-`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when, plus a storage line, then the gateway connection and the uptime), long-running tasks (the emoji and GIF backfills, the GIF recache, the archive drain), then the three groups -- base (her core and organs), errands (delegated agents) and development (outside her): `models.base` (one line each: core, memory, analyzer, extractor, vision, video, embedding, speech, drawing, with the model, provider and latency; memory and speech are named, never probed, and drawing is checked against the provider's listing; `byPurpose` overrides listed under their role), `keys.base` (for the main key, the simulator key and each `llm.keyByRole` key in that order -- the development agents' `OPENROUTER_DEV_KEY` as `development`, when the bot's `.env` carries it; the errand agents' `OPENROUTER_ERRAND_KEY` has no line, their spend is in `costs.errands`: its limit with its spend, reset and whether BYOK counts, or "no limit" with the total used, followed by its usage: today, then the last 7 and 30 days from the bot's own figures -- for the simulator key, whose spend the bot never sees, this week and this month as the key reports them -- or, with `OPENROUTER_MANAGEMENT_KEY` set, from OpenRouter's activity records for every key), `costs.base` (today's requests per model role since 00:00 UTC, by cost: requests, prompt tokens with the cached part, completion tokens, cost and the average per request; the per-role figures persist in `data/usage.json`; drawing has its own row), `models.errands` (scout and server with their OpenCode model), `costs.errands` (per errand agent -- scout, server -- its runs, input and output tokens and USD today, over the last 7 and the last 30 days, from the task records in `data/guilds/<id>/tasks.jsonl`, a run counting on the day it was queued, its tokens and USD on the day it ended; the USD are OpenCode's estimate at each agent's price), `models.development` (thinker, dev and writer with their OpenCode model) and `costs.development` (the same figures for thinker, dev and writer, from the ledger (`agents.ledger.socket`, its `costs.agents` read: the thinker's turns, dev's and writer's attempts on development tasks, a run counting on the UTC day it started, its tokens and USD on the day it ended), with one more line under the thinker for its latest wave: its turns, its context mean and peak, its USD; with no ledger socket set, or a ledger that refuses or does not answer within 3 seconds, they show no runs and the rest of the field is unchanged), daily limits (requests, images, videos, recall, lookups, then `search: <engine>`: the `web.search.engine` in use, or `off` when no search can run), memory coverage per type (record, index, archive, profiles, server notes, channels, recent lines, participation: counts, span, percent), and speed over the last 24 hours (median, mean and count for reply with and without recall, recall steps, planner, analyzer batch, embedding flush; samples in `data/metrics.json`). Each role shows its own model (never another role's); no role falls back to another. The embedding role is probed with a one-input embedding request (using the `status.probe` text); without an embedding client the line says it was not checked. The `field` option (it autocompletes the field names) shows that one field alone and runs only its checks (`field:limits` probes no model and reads no key). The `keys.base` field reads each key with one free GET request (one more per key for its activity with the management key) (`llm.probeTimeoutMs`, never counted against `llm.maxRequestsPerDay`); a failed read says why. Its costs are the ones OpenRouter reports: a BYOK request is billed by the provider and shows at OpenRouter's list price. The owner's `inner` field, after `costs.development` and only while `features.innerLife` is on, shows the inner life in up to eight lines: the mode (`shadow` or `live`) and whether it runs or is stopped (and since when); the day's inner turns, with the chains they belong to; the day's real dollars spent; the next wake (the earliest queued wake, intention due time or wait deadline, or the day's review time, UTC) or that none is known; the last inner turn's outcome and time; when the last inner turn failed, `lastError` with its error code and time (`labels.status.inner.lastErrorLine`); the open intentions by status (pending, waiting, proposed); her attention today (attentions open, attend wakes listed, run, spoken, skipped, waiting on a cap); and the core role's tokens of the day (prompt, cached, completion, from the same accumulator as `costs.base`). It is the data `/nep task inner action:status` reads. `field:inner` shows it alone; it is absent from the card with the feature off. A member granted `status.show` sees the card without `keys.base`, `costs.base`, `costs.errands`, `costs.development`, `inner`, memory and speed.
+## The operations layer
+
+Every `/nep` command runs one named operation through `src/ops/`. The same operations are the persona's skills when granted to her (`/nep access grant <operation> user:@bot`). A skill call from the persona passes the same rights check, the same arguments and the same gateway. See the granting rules in the table notes.
+
+Each operation has a kind (`read` or `write`) and an effect (`src/ops/effects.js`): the kind gates access (a `*` or group grant stores only the reads), the effect governs cooldowns and cost labels.
 
 ## Command table
 
-The table is generated from the command table (`src/ops/catalog.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and what it does. An interaction Discord delivers twice runs once.
+The table follows the command tree in `src/ops/catalog.js`. Options that autocomplete are marked (ac). Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id`, `route set`/`route remove` autocomplete `model`, `memory restore` autocompletes `id`.
 
-| Command | Operation | Reply | What it does |
+| Command | Operation | Kind | What it does |
 |---|---|---|---|
-| `/nep status [field]` | `status.show` | ephemeral | What the bot is doing now: one card |
-| `/nep set <path> <value>` | `config.set` | ephemeral | Override a config value in config.local.json; `path` autocompletes |
-| `/nep unset <path>` | `config.unset` | ephemeral | Remove a config override; `path` autocompletes |
-| `/nep pause` | `bot.pause` | ephemeral, deferred | Pause the persona and flush memory so data/ can be hand-edited |
-| `/nep resume` | `bot.resume` | ephemeral, deferred | Resume after a pause; refused if a data/ file is invalid |
-| `/nep draw <text> [self:true\|false] [channel]` | `draw.create` | ephemeral, deferred | Draw one picture. Spends balance. With `channel`, posts it there as the persona |
-| `/nep media <kind:emoji\|gifs\|pictures> <action:status\|rescan\|recache> [days]` | `media.status`, `media.rescan`, `media.recache` | ephemeral, deferred for `media.rescan` | The custom emoji ranking and the GIF library. `kind:pictures` works with `recache` only: it describes again, in the background, the cached descriptions of pictures (GIFs, stickers and emoji included) used in the last `days` days (default 7, from 1 to 60) that an older model wrote, and replies at once with how many are queued; `days` is read by this action only |
-| `/nep model show` | `model.show` | ephemeral | Show every role's model, grouped as the status card is: the base roles (core, analyzer, extractor, vision, video, embedding, speech, drawing) under a `base:` line, then the errand agents (scout, server) under `errands:` and the development agents (thinker, dev, writer) under `development:` |
-| `/nep model set <role:core\|analyzer\|extractor\|vision\|video\|embedding\|speech\|drawing\|scout\|server\|thinker\|dev\|writer> <id>` | `model.set` | ephemeral | Set the model for one role (written to `models.<group>.<role>`); `id` autocompletes. A new `vision` or `video` model also sets `media.recacheBefore` to the moment of the change, so descriptions written before it are described again when they come up; the reply says so. The OpenCode roles (`scout`, `server`: the [errand agents](agents.md); `thinker`, `dev`, `writer`: the development agents) take an OpenCode model id, `openrouter/<vendor>/<model>`; an errand agent takes a new model from its next task. `drawing` takes a bare OpenRouter image model id |
-| `/nep route list` | `route.list` | ephemeral | Every route, then each role's current model and route; the OpenCode roles (scout, server, thinker, dev, writer) last, without a route (OpenCode routes them itself) |
-| `/nep route set <model> <providers> [role:core\|analyzer\|extractor\|vision\|video\|embedding\|drawing] [fallbacks:true\|false] [byok:true\|false]` | `route.set` | ephemeral | Route a model prefix, for one role or any, to these providers only; `model` autocompletes. `byok:true` marks the route as served by your own provider keys: an answer OpenRouter served from its own capacity on it fails (see `llm.providerByModel` in configuration.md) |
-| `/nep route remove <model> [role:core\|analyzer\|extractor\|vision\|video\|embedding\|drawing]` | `route.remove` | ephemeral | Remove a model prefix's route, for one role or any; `model` autocompletes |
-| `/nep rule add <text>` | `rule.add` | ephemeral | Append a rule |
-| `/nep rule list` | `rule.list` | ephemeral | List the rules, numbered |
-| `/nep rule remove <number>` | `rule.remove` | ephemeral | Remove a rule by number |
-| `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | Open an operation, group or * to everyone, a role or a user; `command` autocompletes |
-| `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | Revoke an operation, group or * from everyone, a role or a user; `command` autocompletes |
-| `/nep access list` | `access.list` | ephemeral | List every access grant |
-| `/nep message create [channel] [reply]` | `message.create` | ephemeral, deferred | Give the persona a turn now, in her own words. With `reply`, she answers that message |
-| `/nep message edit <message> <text> [channel]` | `message.edit` | ephemeral | Replace the text of one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
-| `/nep message delete <message> [channel]` | `message.delete` | ephemeral | Delete one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
-| `/nep message react <action:add\|remove> <message> <emoji> [channel]` | `message.react.add`, `message.react.remove` | ephemeral | Put or take back the persona's reaction on a message |
-| `/nep alias add <user> <name>` | `alias.add` | ephemeral | Add or strengthen a member's alias |
-| `/nep alias remove <user> <name>` | `alias.remove` | ephemeral | Remove a member's alias |
-| `/nep learning add <text>` | `learning.add` | ephemeral | Add or strengthen a learned item |
-| `/nep learning remove <number>` | `learning.remove` | ephemeral | Delete a learned item |
-| `/nep lore add <title> <keys> <text> [always:true\|false]` | `lore.add` | ephemeral | Add or overwrite an entry (it becomes an owner entry) |
-| `/nep lore list [query]` | `lore.list` | ephemeral | List entries, optionally filtered |
-| `/nep lore show <id>` | `lore.show` | ephemeral | Show one entry in full |
-| `/nep lore remove <id>` | `lore.remove` | ephemeral | Delete one entry |
-| `/nep memory show <user> [section:summary\|character\|style\|relationship\|affinity\|aliases\|interests\|details\|episodes\|raw] [limit] [order:rank\|recent]` | `memory.profile.read` | ephemeral | Show a member's stored profile |
-| `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | Show a channel's note, or a table of all stored channels |
-| `/nep memory server` | `memory.server.read` | ephemeral | Show server notes: patterns, starters, in-jokes, self facts |
-| `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
-| `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | Show a member's attitude score and its history |
-| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|answer\|inner\|all] [n] [message]` | `memory.journal.read` | ephemeral | Journal records |
-| `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral, deferred | Archived items |
-| `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
-| `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
-| `/nep memory private <user>` | `memory.private.read` | ephemeral | A member's private memory: what they said in DMs |
-| `/nep memory search <question> [people] [channel] [when] [terms]` | `memory.search` | ephemeral, deferred | Search this server's message history the way the persona's own `memory.search` does: the question's long words, the stored names it holds, `people` and `terms` (comma-separated) and `when` (`YYYY-MM-DD` or `A..B`, either side open) go to the recall runner with no helper model, and the messages come back quoted with their time and author, no summary. Open to every member (see [Member commands](#member-commands)) |
+| `/nep status [field]` | `status.show` | read | The bot's state, models, keys, costs, limits, memory and speed in one card. `field` (ac) shows one field alone. A member granted `status.show` sees the card without keys, costs, inner, memory and speed |
+| `/nep set <path> <value>` | `config.set` | write | Override a config value in `config.local.json`. `path` (ac) is a dotted config path; `value` is JSON or a plain string |
+| `/nep unset <path>` | `config.unset` | write | Remove a config override. `path` (ac) |
+| `/nep pause` | `bot.pause` | write | Pause the persona and flush memory so `data/` can be hand-edited. Deferred |
+| `/nep resume` | `bot.resume` | write | Resume after a pause; refused if a `data/` file is invalid. Deferred |
+| `/nep draw <text> [self] [channel]` | `draw.create` | write | Draw one picture. Spends balance. `self`: the persona is in it. `channel`: post it there as the persona. Deferred |
+| `/nep pings [mode]` | `pings.get` / `pings.set` | read/write | Without `mode`: your current setting. `on`/`off`: set whether the persona's messages notify you. Member command |
+| `/nep media <kind> <action> [days]` | `media.status` / `media.rescan` / `media.recache` | read/write | `kind`: `emoji`, `gifs` or `pictures` (recache only). `action`: `status`, `rescan` or `recache`. `days` (pictures recache only): days of cached descriptions to redo, 1 to 60, default 7 |
+| `/nep model show` | `model.show` | read | Show every role's model, grouped as the status card is |
+| `/nep model set <role> <id>` | `model.set` | write | Set the model for one role. `role`: `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `scout`, `server`, `thinker`, `dev`, `writer`. `id` (ac). Setting `vision` or `video` also sets `media.recacheBefore` |
+| `/nep route list` | `route.list` | read | Every route, then each role's model and route |
+| `/nep route set <model> <providers> [role] [fallbacks] [byok]` | `route.set` | write | Route a model prefix to these providers. `model` (ac). `role`: `core`, `analyzer`, `vision`, `video`, `embedding`, `drawing`. `byok:true` refuses answers from OpenRouter's own capacity |
+| `/nep route remove <model> [role]` | `route.remove` | write | Remove a route. `model` (ac) |
+| `/nep rule add <text>` | `rule.add` | write | Append a rule to `prompts.local/rules.md` |
+| `/nep rule list` | `rule.list` | read | List the rules, numbered |
+| `/nep rule remove <number>` | `rule.remove` | write | Remove a rule by number |
+| `/nep access grant <command> [role] [user]` | `access.grant` | write | Open an operation, group or `*`. `command` (ac). Owner-only |
+| `/nep access revoke <command> [role] [user]` | `access.revoke` | write | Revoke an operation, group or `*`. `command` (ac). Owner-only |
+| `/nep access list` | `access.list` | read | List every access grant. Owner-only |
+| `/nep message create [channel] [reply]` | `message.create` | write | Give the persona a turn now, in her own words. `reply`: a message id or link to answer. Deferred |
+| `/nep message edit <message> <text> [channel]` | `message.edit` | write | Replace the text of one of the persona's messages. `message:last` picks her most recent in the channel |
+| `/nep message delete <message> [channel]` | `message.delete` | write | Delete one of the persona's messages |
+| `/nep message react <action> <message> <emoji> [channel]` | `message.react.add` / `message.react.remove` | write | Put or take back a reaction. `action`: `add` or `remove` |
+| `/nep alias add <user> <name>` | `alias.add` | write | Add or strengthen a member's alias |
+| `/nep alias remove <user> <name>` | `alias.remove` | write | Remove a member's alias |
+| `/nep learning add <text>` | `learning.add` | write | Add or strengthen a learned item |
+| `/nep learning remove <number>` | `learning.remove` | write | Delete a learned item |
+| `/nep lore add <title> <keys> <text> [always]` | `lore.add` | write | Add or overwrite a lorebook entry |
+| `/nep lore list [query]` | `lore.list` | read | List entries, optionally filtered |
+| `/nep lore show <id>` | `lore.show` | read | Show one entry in full |
+| `/nep lore remove <id>` | `lore.remove` | write | Delete one entry |
+| `/nep memory show <user> [section] [limit] [order]` | `memory.profile.read` | read | A member's stored profile. `section`: `summary`, `character`, `style`, `relationship`, `affinity`, `aliases`, `interests`, `details`, `episodes`, `raw` |
+| `/nep memory channel [channel]` | `memory.channel.read` | read | A channel's note, or a table of all stored channels |
+| `/nep memory server` | `memory.server.read` | read | Server notes: patterns, starters, in-jokes, self-facts |
+| `/nep memory recent` | `memory.recent.read` | read | The live recent lines, newest first |
+| `/nep memory affinity <user>` | `memory.affinity.read` | read | A member's attitude score and its history |
+| `/nep memory journal [day] [kind] [n] [message]` | `memory.journal.read` | read | Journal records for a UTC day. `kind`: `turn`, `action`, `memory`, `system`, `answer`, `inner`, `all`. `message`: the turn that posted it. Owner-only |
+| `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | read | Archived items. Deferred. Owner-only |
+| `/nep memory restore <id>` | `memory.restore` | write | Restore an archived item. `id` (ac). Deferred. Owner-only |
+| `/nep memory snapshot` | `memory.snapshot` | write | Copy `data/` for the tools. Deferred. Owner-only |
+| `/nep memory private <user>` | `memory.private.read` | read | A member's private DM memory. Owner-only |
+| `/nep memory search <question> [people] [channel] [when] [terms]` | `memory.search` | read | Search this server's message history. The messages come back quoted, no summary. Member command |
+| `/nep task run <agent> <goal>` | `task.run` | write | Hand an errand to `scout` or `server`. `server` is owner-only. Member command |
+| `/nep task status [id]` | `task.status` | read | One task, or the open ones. Member command |
+| `/nep task cancel <id>` | `task.cancel` | write | Cancel an open task (its requester or an owner). Member command |
+| `/nep task list` | `task.list` | read | The latest ten tasks. Member command |
+| `/nep task intent <action> [text] [id] [due] [every] [expires] [task] [deadline] [state] [chain] [condition] [channel] [attend] [people] [settle] [perday]` | `intent.set` / `intent.update` / `intent.cancel` / `intent.list` | write/read | The persona's intentions (`features.intentions`). `add` sets one, `update` changes one by `id`, `cancel` drops one, `list` shows the open ones. `attend` makes it an attention on a channel. Times: `30m`, `6h`, `2d`, `21:00`, `mon 20:00` or ISO |
+| `/nep task places [filter] [sort] [page]` | `places.list` | read | The places the interface publishes. `sort`: `recent`, `name` or `lines` |
+| `/nep task inner <action>` | `inner.stop` / `inner.start` / `inner.status` | write/read | The kill switch of the persona's inner life. `stop`, `start` or `status`. Owner-only |
+| `/nep task search <query> [goal]` | `web.search` | read | One quick web search. Member command |
+| `/nep task read [url]` | `web.read` | read | Read one web page. Member command |
+| `/nep task look <message> <question> [item]` | `media.look` | read | Look again at a picture or video. Member command |
+
+## Persona-only operations
+
+These operations have no slash command (the Discord command tree is at its size limit). They exist only as the persona's skills, granted by name.
+
+| Operation | Kind | What it does |
+|---|---|---|
+| `voice.say` | write | Speak her text aloud as a voice message. Needs `features.speech` and the `speech` model configured |
+| `conversation.read` | read | Read a channel in order. `around`, `before`, `after`, `since`, `last` parameters |
+| `skills.describe` | read | Describe one skill or a family |
+| `media.find` | read | Search the GIF library by stored descriptions |
+| `task.read` | read | Read a finished task's result in pages |
+| `task.resolve` | write | Close a finished task |
 
 ## Granting skills to the persona
 
-The persona's skills are the same operations behind `/nep` commands. Every skill is closed until the owner grants it with `/nep access grant <operation> user:@bot`, where `@bot` is the bot's own user. `/nep access revoke <operation> user:@bot` takes it back. `/nep access list` shows the persona's grants alongside everyone else's. A "yes" in chat never grants a skill: only the owner's command, authenticated by Discord, changes access.
+The persona's skills are the same operations behind `/nep` commands. Every skill is closed until the owner grants it with `/nep access grant <operation> user:@bot`.
 
-A group name or `*` stores the read operations under it, one entry each, the same rule as for people. A write must be granted by its exact name.
-
-**Carried over (current conversation only):** the persona's normal reply (the speech tags `<msg>` and `<react>`, and the `message.create`, `message.react.add` and `draw.create` tools) counts in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
-
-**Not grantable to the persona:** `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop`, `inner.start`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
-
-**In-turn tools:** `web.search`, `web.read`, `media.look`, `memory.search` and `conversation.read` are reads (`conversation.read`, a channel read in order, has no slash command: it is hers alone); with `features.coreTools` on, the persona's call of any of them runs inside her turn and its result comes back in the same turn (see [the tool loop](prompt-contract.md#the-tool-loop-featurescoretools)). None is open to her until granted by name (`/nep access grant web.search user:@bot`, `/nep access grant web.read user:@bot`, `/nep access grant media.look user:@bot`, `/nep access grant memory.search user:@bot`, `/nep access grant conversation.read user:@bot`); `media.look` exists for her only while `features.coreTools` is on. A `*` or `memory` grant stored before they existed does not cover them.
-
-**Self-owned operations:** `message.create`, `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`, `draw.create` and the intention operations need only her own grant, not the requester's right (messages and drawings are hers). The bundled-author rule and the no-requester restriction still apply: no write when a turn answers several people, only a read when nobody asked.
-
-## Memory commands
-
-`/nep memory show` reads a member's stored profile: the compact summary or a specific section (character, style, relationship, affinity, aliases, interests, details, episodes, or the raw JSON). `/nep memory channel` shows a channel's stored notes or a table of all stored channels. `/nep memory server` shows the server-wide patterns, starters, in-jokes and self-facts.
-
-`/nep memory journal` shows the persona's journal records for a UTC day, optionally filtered by kind (turn, action, memory, system, answer, inner). With `message` (a message id or link), it shows the full record of the turn that posted that message: trigger, outcome, posted ids, skill calls and the stored think. The other options are ignored when `message` is given. `/nep memory archive` shows archived items, optionally for one member or one kind. `/nep memory restore` puts an archived item back into hot memory (the `id` autocompletes from the newest entries). `/nep memory snapshot` copies `data/` to a timestamped directory for the measurement tools.
-
-`/nep memory private` reads a member's private DM memory.
-
-## Member commands
-
-`/nep pings`, the `/nep task` group (but `/nep task intent` and `/nep task inner`, owner commands) and `/nep memory search` are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
-
-| Command | What it does |
-|---|---|
-| `/nep pings [mode]` | Show or change whether the persona's messages notify you. Without `mode`: your current setting. `on` / `off`: set the preference. When off, replies to your messages carry no reply ping and @mentions of you in the persona's text still render but send no notification. The wording is the same either way. Ephemeral reply: `Pings: on` or `Pings: off`. Stored per server, survives restarts, cleared by `/nep memory wipe` |
-| `/nep task run <agent:scout\|server> <goal>` | Hand an errand to one of the persona's agents ([Errand agents](agents.md)): `scout` searches the internet, reads pages and downloads files; `server` reads this machine and is for owners only (`owner-only` for anyone else). Answers at once with the task id and `queued`; the errand runs in the background, and when it ends the persona gets her own turn where it was asked, with the result. Refused when a cap is reached: `cap-open` (`agents.maxOpen`), `cap-tasks` (`agents.<agent>.daily`), or `not-configured` when the agent is not enabled. Operation `task.run` (paid) |
-| `/nep task status [id]` | One task (state, age, goal, the size of its result, its usage), or every open one. A task asked in a private chat is shown only to its requester and owners. Operation `task.status` |
-| `/nep task cancel <id>` | Cancel an open task; only its requester or an owner (`not-requester` otherwise). Operation `task.cancel` |
-| `/nep task list` | The latest ten tasks, newest first. Operation `task.list` |
-| `/nep task intent <action:add\|update\|cancel\|list> [text] [id] [due] [every] [expires] [task] [deadline] [state:pending\|done] [chain] [condition] [channel] [attend] [people] [settle] [perday]` | The persona's intentions ([Intentions](intentions.md)), only with `features.intentions` on (`feature-off` otherwise). `add` sets one with `text` as its purpose (`intent.set`); `attend` (a channel) makes it an attention on that place ([Inner life](inner-life.md#her-attention)) with `people` (member ids, comma-separated; her own call gives `@handle`s), `settle` (quiet seconds before a wake) and `perday` (its own daily bound), no `due` or `every` on it (`attend-with-due`, `attend-with-every`); `update` changes those three on an attention too; `update` changes the one named by `id` (`intent.update`): `state:pending` accepts a proposed candidate, `state:done` closes it (on a repeating intention, closes one occurrence; `cancel` ends it for good), `task` (an errand id) and `deadline` set it waiting for that errand; `cancel` drops it or rejects a candidate (`intent.cancel`); `list` shows the open ones (`intent.list`). `every` makes it repeat: day, week, a count of hours or days; none on update clears it. Times (`due`, `expires`, `deadline`) are `30m`, `6h`, `2d` from now, a clock time (`21:00`), a weekday and time (`mon 20:00`) or an ISO date-time. Owner operations, grantable; granted to the persona they run on her grant alone, as her messages do |
-| `/nep task places [filter] [sort:recent\|name\|lines] [page]` | The places the interface publishes for the server, writable or read-only alike ([Inner life](inner-life.md#her-attention)): per place its address, name, whether the persona can write there, the lines and distinct people since her last look there (from the record, within `innerLife.attention.lookbackHours`), its newest line and whether she attends it; `filter` keeps the names containing it, `sort` orders (`recent` by default), `page` turns pages of `innerLife.attention.pageSize`; the total and how many more follow are always said. Operation `places.list` (read, grantable; her own read skill, listed among her tools) |
-| `/nep task inner <action:stop\|start\|status>` | The kill switch of the persona's inner life ([Inner life](inner-life.md)). `stop` stops it: kept across restarts, every queued wake dropped (journalled), and an inner turn already running has each further action refused right before it would happen (`inner-stopped`); `start` releases it; `status` shows the switch (`features.innerLife`), the mode, whether it is stopped, the queued wakes, the day's review and what is used of each cap today. Owner-only operations `inner.stop`, `inner.start` (never grantable to the persona) and `inner.status` |
-| `/nep task search <query> [goal]` | One quick web search through the bot's search engines (`features.webLookup`, `web.search.engine` and its fallbacks, the cache and the daily `web.maxPerDay`), the same the persona's own `web.search` runs: the results as the engine returned them (title, link, site, date when known, snippet, cut by `web.search.snippetChars` and `web.search.resultsChars`), no summary; the pages are not opened. Operation `web.search` (read) |
-| `/nep task read [url]` | Read one web page through the SSRF-guarded page fetcher (`features.webLookup`, the daily `web.maxPerDay`, cached for `web.links.readCacheHours`), the same the persona's own `web.read` runs: the page's extracted main text with its title and final link, cut at `web.links.readChars`, no summary. The persona's call may name a message (`message="#N"`) instead of a link: its first link is read. Operation `web.read` (read) |
-| `/nep task look message question [item]` | Look again at a picture or a video of a message in this channel (`message`: its id or link; `item`: which one, default the first) with a question, through the describer's second look (the `vision` role for a picture, the video model for a video or a GIF, `prompts/rewatch-answer.md`), under the daily `media.video.rewatch.maxPerDay` and the video / GIF caps; the answer, labelled as that model's observation. The persona's own call (`features.coreTools`) names a message `#N` she sees. Operation `media.look` (read) |
+- A group name or `*` stores the read operations under it, one entry each, the same rule as for people. A write must be granted by its exact name.
+- The persona's normal reply (speech, reactions, drawings aimed at the current conversation) counts without a grant.
+- Not grantable to the persona: `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop`, `inner.start`. A grant naming one of them skips it.
+- In-turn tools (`web.search`, `web.read`, `media.look`, `memory.search`, `conversation.read`) run inside her turn with `features.coreTools` on and return results in the same turn. None is open until granted by name.

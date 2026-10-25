@@ -757,7 +757,7 @@ function V10(db) {
 //    graph, which may be pending;
 //  - `sources.tier` (the same tier on the row), `vectors.evicted_at` (an evicted vector keeps its row, `model`,
 //    `dims`, `norm` and `context`; only `bytes` is dropped), `media.availability` (`present` | `missing` | `unknown`).
-// Spelt out in one place so the tests and docs/memory-access.md can list them.
+// Spelt out in one place so the tests and docs/memory.md can list them.
 
 /** Every table schema v11 adds. */
 export const V11_TABLES = ['wake_runs', 'wake_actions', 'skills', 'skill_versions', 'skill_evaluations', 'index_policy'];
