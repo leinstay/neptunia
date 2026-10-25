@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { createDrawingTool, drawPicture } from '../errands/tools.js';
+import { drawPicture } from '../media/draw.js';
 import { imageFileName } from '../behavior/turn.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { roleModel } from '../llm/roles.js';
@@ -12,10 +12,10 @@ import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
-  const { hot, client, discord, images, imageFetcher, errands, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, client, discord, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
 
   /**
-   * `/nep draw`: one picture through the drawing agent (src/errands/tools.js), the same prompt
+   * `/nep draw`: one picture (src/media/draw.js), the same prompt
    * a turn builds (prompts read now, the request clamped to `image.maxPromptChars`, the avatar as
    * reference for `self` when `image.reference` is `'avatar'`; no local time), counted
    * against `image.maxPerDay` only (no member). Answers `{ text, files }`:
@@ -52,14 +52,12 @@ const handlers = perEnv((env) => {
     let picture;
     let referenceMissing = false;
     try {
-      const tool = createDrawingTool({ images, hot, client, imageFetcher });
       ({ picture, referenceMissing } = await drawPicture({
-        tool,
-        errands,
-        guildId,
+        images,
+        hot,
+        client,
+        imageFetcher,
         input: { scene: request, selfName, self, withTime: false, userId: null },
-        requester: { userId: null, kind: 'owner' },
-        origin: { channelId: context?.channelId ? String(context.channelId) : null },
       }));
       if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {

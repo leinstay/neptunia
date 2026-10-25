@@ -44,7 +44,7 @@ import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
-import { PROFILES, TOOL_PROFILES } from '../agent-runner/profiles.js';
+import { PROFILES } from '../agent-runner/profiles.js';
 import { isPlainObject } from '../config.js';
 import { fill } from '../format.js';
 import { innerOn } from '../behavior/inner.js';
@@ -73,9 +73,9 @@ export const PART_FIELDS = Object.freeze({
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'costs.development', 'inner', 'memory', 'speed']);
 
-/** The model roles of the errand agents and the tool agents (src/agent-runner/profiles.js): a key
- * only they use is the errands' key, which `keys.base` leaves out. */
-const ERRAND_KEY_ROLES = new Set([...Object.values(PROFILES), ...Object.values(TOOL_PROFILES)].map((profile) => profile.modelRole));
+/** The model roles of the errand agents (src/agent-runner/profiles.js) and `drawing`, which shares
+ * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
+const ERRAND_KEY_ROLES = new Set([...Object.values(PROFILES).map((profile) => profile.modelRole), 'drawing']);
 
 /**
  * The `models.base` field's groups before drawing, in order: one line per role, then the

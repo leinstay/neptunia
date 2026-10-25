@@ -11,7 +11,7 @@ import path from 'node:path';
 import { createTaskStore, fileHandle, parseFileHandle } from '../src/errands/store.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = Date.parse('2026-10-17T10:00:00Z');
@@ -359,4 +359,23 @@ test('task store: the persona\'s call keeps its turn and its brief as written; t
     assert.deepEqual(plain.origin, { channelId: 'c1', messageId: 'm1' });
     assert.equal('idempotencyKey' in plain, false);
   });
+});
+
+test('task store: a stored record of an agent with no profile is dropped once at load, the others stay', async () => {
+  const dataDir = tempDataDir();
+  const record = (id, agent) => ({ id, agent, goal: 'g', requester: { userId: null, kind: 'persona' }, origin: {}, scope: 'group', state: 'done', createdAt: T0, startedAt: T0, endedAt: T0, usage: null, result: null, error: null, seen: true, readAt: T0, resolvedAt: null });
+  fs.mkdirSync(path.join(dataDir, 'guilds', 'g1'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), JSON.stringify({ tasks: [record('pic-1', 'drawing'), record('scout-1', 'scout'), record('pic-2', 'drawing')] }));
+  const memory = await openTestMemory({ dataDir, seed: true });
+  try {
+    const { result, logs } = await withCapturedLogs(async () => createTaskStore({ dataDir, guildId: 'g1', memoryDb: memory.memoryDb, now: () => T0 }));
+    assert.equal(result.get('scout-1').agent, 'scout');
+    assert.equal(result.get('pic-1'), null);
+    assert.equal(result.get('pic-2'), null);
+    const dropped = logs.filter((entry) => entry.msg === 'errands: tasks of unknown agents dropped at load');
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].count, 2);
+  } finally {
+    await memory.close();
+  }
 });

@@ -115,7 +115,7 @@ When `features.imageGeneration` is on (default `false`; a missing key counts as 
 
 The drawing prompt is `prompts/draw.md`. The scene text is clamped to `image.maxPromptChars` (default 1600) characters. When the persona is in the picture (`self: true` in the call) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference so the model knows what she looks like.
 
-At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPerDay` (default 50) per requesting member. Both are checked before the request and counted only when it is sent. Image requests do not count against `llm.maxRequestsPerDay`.
+At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPerDay` (default 50) per requesting member. Both are checked before the request and counted only when it is sent. Image requests do not count against `llm.maxRequestsPerDay`. They are paid with the key `llm.keyByRole.drawing` names and show in the `costs.base` row of `/nep status`. A single request is cut off after `image.timeoutMs`.
 
 Pricing depends on the provider. The provider's `usage.cost` is reported by `/nep draw` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing. In dry-run, the full prompt is logged but nothing is generated.
 

@@ -954,15 +954,6 @@ The persona's errand agents. See [Errands](errands.md).
 | `limits` | `{ "steps": 20, "seconds": 120 }` | Per-task caps |
 | `daily` | `{ "tasks": 40 }` | Per-day task cap |
 
-### `agents.drawing`
-
-The drawing agent: the core runs it, no runner.
-
-| Key | Default | What it does |
-|---|---|---|
-| `limits` | `{ "seconds": 300 }` | How long one picture may take |
-| `daily` | `{ "tasks": 100 }` | Per-day picture cap |
-
 ### `agents.thinker`, `agents.dev`
 
 Development agents. They run outside the engine; the bot only shows their spend on the status card.

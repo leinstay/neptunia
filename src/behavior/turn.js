@@ -58,7 +58,7 @@ import {
   lateVideoStates,
 } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
-import { createDrawingTool, drawPicture, drawPromptOf } from '../errands/tools.js';
+import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
 import { callReason, fill, formatTranscript, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
@@ -1901,9 +1901,6 @@ export function createTurnRunner({
     draft.memoryContext = ctx;
     return ctx;
   }
-  // The drawing agent's tool over the injected image client (src/errands/tools.js): every picture
-  // of a turn, a diary post or a diary set is made through it.
-  const drawing = images ? createDrawingTool({ images, hot, client, imageFetcher, now: clock }) : null;
   // Per guild: what the stable part of the reply showed from memory in the current cache bucket
   // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
   const stableFreezes = new Map();
@@ -3636,8 +3633,8 @@ export function createTurnRunner({
   }
 
   /**
-   * The image prompt for `draw` (a `draw.create` call's `{ text, self }`), as the drawing agent builds it
-   * (src/errands/tools.js#drawPromptOf): prompts read now, the request clamped to
+   * The image prompt for `draw` (a `draw.create` call's `{ text, self }`), as the core builds it
+   * (src/media/draw.js#drawPromptOf): prompts read now, the request clamped to
    * image.maxPromptChars, the local date and time now (`bot.timezone`, read now) as its
    * `{{when}}` -- every picture, so its light and season follow the clock. Only the dry run
    * shows it; a live picture is made by `makePicture`.
@@ -3647,24 +3644,13 @@ export function createTurnRunner({
   }
 
   /**
-   * One picture through the drawing agent (src/errands/tools.js#drawPicture): her scene verbatim
-   * into the drawing prompt, the avatar reference for a picture she is in, one generation. A task
-   * record of the agent when the errand service is there. `userId` is the member whose rail
-   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through;
-   * `guildId` the served guild of a private chat (a DM channel has none), whose task store
-   * records the picture as it does her errands from that chat.
+   * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the
+   * avatar reference for a picture she is in, one generation. `userId` is the member whose rail
+   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through.
    * Throws what the image client throws (ImageCapError, ImageGenError).
    */
-  function makePicture({ channel, guildId = null, scene, self, selfName, userId = null, avatar = null, messageId = null }) {
-    return drawPicture({
-      tool: drawing,
-      errands,
-      guildId: channel.guild?.id ?? guildId ?? null,
-      input: { scene, selfName, self, withTime: true, userId, avatar },
-      requester: { userId, kind: userId ? 'member' : 'persona' },
-      origin: { channelId: channel.id, messageId },
-      scope: channel.guild ? 'group' : 'dm',
-    });
+  function makePicture({ scene, self, selfName, userId = null, avatar = null }) {
+    return drawPicture({ images, hot, client, imageFetcher, now: clock, input: { scene, selfName, self, withTime: true, userId, avatar } });
   }
 
   /**
@@ -3688,7 +3674,7 @@ export function createTurnRunner({
   async function drawTool(args, { channel, guildId = null, trigger = null, triggerKind = null, selfName, draft = null, mode = null, plain = false }) {
     const none = { text: '' };
     const failed = (status, code, extra = {}) => ({ status, code, ...extra, data: none });
-    if (!drawing) return failed('not_configured', CODE.NOT_CONFIGURED);
+    if (!images) return failed('not_configured', CODE.NOT_CONFIGURED);
     if (hot.config.features?.imageGeneration === false) return failed('denied', CODE.FEATURE_OFF);
     const self = args?.self === true;
     const scene = String(args?.text ?? '');
@@ -3718,7 +3704,7 @@ export function createTurnRunner({
       if (!before.ok) return failed(refusalStatus(before.code), before.code, { reason: before.reason });
       let made;
       try {
-        made = await makePicture({ channel, guildId, scene, self, selfName, userId: asked ? (trigger.authorId ?? null) : null, messageId: trigger?.id ?? null, ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}) });
+        made = await makePicture({ scene, self, selfName, userId: asked ? (trigger.authorId ?? null) : null, ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}) });
       } catch (err) {
         if (err instanceof ImageCapError) {
           const limit = limitOf(err);

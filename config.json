@@ -494,10 +494,6 @@
       "limits": { "steps": 20, "seconds": 120 },
       "daily": { "tasks": 40 }
     },
-    "drawing": {
-      "limits": { "seconds": 300 },
-      "daily": { "tasks": 100 }
-    },
     "thinker": {
       "cost": { "input": 4, "output": 20 },
       "limits": { "steps": 400, "minutes": 60 },

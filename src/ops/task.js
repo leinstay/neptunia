@@ -20,7 +20,7 @@ import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
-import { fileHandle, isOpenState, isToolTask } from '../errands/store.js';
+import { fileHandle, isOpenState } from '../errands/store.js';
 import { DEFAULT_RESULT_MAX_CHARS } from '../errands/blocks.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
 import { CODE } from '../skills/codes.js';
@@ -123,7 +123,7 @@ const handlers = perEnv((env) => {
     const id = String(args?.id ?? '').trim();
     if (id) {
       const task = store.get(id);
-      if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+      if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
       const lines = [taskLine(task)];
       if (task.state === 'done' && task.result) {
         lines.push(`result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`);
@@ -138,14 +138,14 @@ const handlers = perEnv((env) => {
     return listed.length > 0 ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n') : 'no open tasks';
   }
 
-  /** A finished task of the caller's view, or an `invalid` error: not found, a tool agent's, not viewable, still open. */
+  /** A finished task of the caller's view, or an `invalid` error: not found, not viewable, still open. */
   function finishedTask(args, context) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const id = String(args?.id ?? '').trim();
     if (!id) throw invalid('an id is required');
     const task = store.get(id);
-    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+    if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     if (isOpenState(task.state)) throw invalid(`task ${id} is still ${task.state}`);
     return { store, task };
   }
@@ -194,7 +194,7 @@ const handlers = perEnv((env) => {
     const service = errands();
     const store = service.store(resolvedGuildId(context));
     const task = store?.get(id) ?? null;
-    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+    if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);

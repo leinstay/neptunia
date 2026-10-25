@@ -24,7 +24,7 @@
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { DAY_MS, HOUR_MS, zonedDay } from '../time.js';
-import { isToolTask, isOpenState } from '../errands/store.js';
+import { isOpenState } from '../errands/store.js';
 import { createLineSources } from './sources.js';
 import {
   acceptRefusal,
@@ -96,11 +96,11 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return hot.config?.bot?.timezone ?? 'UTC';
   }
 
-  /** The errand `id` of the guild's task store (a tool agent's record is no errand), or null. */
+  /** The errand `id` of the guild's task store, or null. */
   function taskOf(guildId, id) {
     const store = tasks?.store?.(guildId) ?? null;
     const task = id && store ? store.get(String(id)) : null;
-    return task && !isToolTask(task) ? task : null;
+    return task ?? null;
   }
 
   /** The latest errand of turn `turnId` in the guild's task store, or null. */

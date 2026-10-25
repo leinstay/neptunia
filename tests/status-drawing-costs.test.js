@@ -37,15 +37,10 @@ function setup() {
   const config = {
     bot: { owners: ['42'] },
     llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' } },
-    agents: { maxOpen: 3, drawing: { daily: { tasks: 100 } } },
+    agents: { maxOpen: 3 },
   };
   const hot = { config, prompts: { labels: { status: { costs: COSTS } } }, promptSources: {}, rootDir: tempDir('nep-status-drawing-') };
   const tasks = createTaskStore({ dataDir: tempDir('nep-status-drawing-data-'), guildId: 'g1', now: () => NOW, config: () => config });
-  for (const usd of [0.03, 0.02]) {
-    const { task } = tasks.add({ agent: 'drawing', goal: 'a scene', requester: { userId: null, kind: 'persona' }, origin: {}, scope: 'group' });
-    tasks.start(task.id);
-    tasks.finish(task.id, { status: 'done', result: { text: '' }, usage: { input: 40, output: 1000, usd, steps: 1, seconds: 3 } });
-  }
   // The accumulator the status card reads: a voice request and a picture's `images: generated` line.
   const usage = createUsage({ dataDir: tempDir('nep-status-drawing-usage-'), now: () => NOW });
   const tap = usageTap(usage);

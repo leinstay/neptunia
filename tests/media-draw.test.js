@@ -1,11 +1,8 @@
-// The drawing agent at its call sites, with the errand service in place (stage 3b): the turn's
-// draw.create call, a diary set and `/nep draw` each make their pictures through `errands.runInline` as
-// task records of the drawing agent (src/errands/tools.js), and the agent's daily caps refuse a
-// picture with the limit behaviour of an image cap (the notice for a member who asked, the end of
-// a set's generation, `draw failed` for the command). The image client stays the injected
-// boundary: its calls are asserted byte for byte in tests/draw-parity.test.js, which has no
-// errand service. Fake clock, prompts, labels, avatar and channel; a real task store in a temp
-// directory; no network.
+// Drawing, the core's built-in ability (src/media/draw.js): the prompt builder, the direct
+// generation (her scene verbatim, the avatar reference, the failure left as the image client threw
+// it) and the call sites: the turn's draw.create call, a diary set and `/nep draw`. The image
+// client stays the injected boundary: its calls are asserted byte for byte in
+// tests/draw-parity.test.js. Fake clock, prompts, labels, avatar and channel; no network.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -17,12 +14,8 @@ import { createDiscordAdapter, createDiscordInterface } from '../src/interface/d
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
-import fs from 'node:fs';
-import path from 'node:path';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { drawPicture, drawPromptOf } from '../src/media/draw.js';
+import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -161,8 +154,8 @@ function imageFetcher() {
   return { fetchAsDataUrl: async () => ({ dataUrl: AVATAR, bytes: 6, contentType: 'image/png' }) };
 }
 
-/** The image client boundary: every generate() call's arguments, as given. */
-function recordingImages() {
+/** The image client boundary: every generate() call's arguments, as given; the calls past `capAfter` throw the daily cap. */
+function recordingImages({ capAfter = Infinity } = {}) {
   const calls = [];
   return {
     calls,
@@ -170,6 +163,7 @@ function recordingImages() {
     quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
     generate: async (args) => {
       calls.push(structuredClone(args));
+      if (calls.length > capAfter) throw Object.assign(new ImageCapError('daily', 'cap'), { key: 'image.maxPerDay', used: capAfter, cap: capAfter });
       return { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0, usage: {}, model: 'openai/image-model' };
     },
   };
@@ -203,12 +197,11 @@ function llm(post, plan = null) {
   };
 }
 
-function runner({ answer, plan = null, images, errands = null, hotValue = hot() }) {
+function runner({ answer, plan = null, images, hotValue = hot() }) {
   return createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
     hot: hotValue,
-    errands,
     store: store(),
     llm: llm(answer, plan),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
@@ -221,26 +214,6 @@ function runner({ answer, plan = null, images, errands = null, hotValue = hot() 
   });
 }
 
-/** The test memory databases opened here; closed when the file is done. */
-const OPENED_MEMORY = [];
-after(async () => {
-  for (const mem of OPENED_MEMORY) await mem.close();
-});
-
-/** The errand service over a real task store on a test memory database, on `hotValue`'s config. */
-function errandsOf(hotValue) {
-  const mem = openTestMemorySync();
-  OPENED_MEMORY.push(mem);
-  const stores = createTaskStores({ memoryDb: mem.memoryDb, config: () => hotValue.config, now: () => NOW });
-  const errands = createErrandService({ client: { configured: () => true }, stores, hot: hotValue, getGuildId: () => 'g1', now: () => NOW });
-  // The task list as the database holds it (the writes of a finished call have landed by the time a test reads it).
-  const records = () => {
-    const text = unitFile(mem.memoryDb, 'guilds/g1/tasks.json');
-    return text ? JSON.parse(text).tasks : [];
-  };
-  return { errands, records };
-}
-
 function memberTrigger() {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Eléna', content: 'draw a lighthouse', ts: NOW - 1000 });
   const trigger = {
@@ -250,75 +223,60 @@ function memberTrigger() {
   return { raw, trigger };
 }
 
-test('draw agent: a diary set is recorded picture by picture; the avatar is fetched once; the caps end the set like an image cap and the rest is posted', async () => {
-  const images = recordingImages();
+test('diary set: the avatar is fetched once; a cap ends the set like an image cap and the rest is posted', async () => {
+  const images = recordingImages({ capAfter: 2 });
   const hotValue = hot();
-  hotValue.config.agents = { drawing: { daily: { tasks: 2 } } };
-  const { errands, records } = errandsOf(hotValue);
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
   const answer = [
     toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]),
     '<msg>a walk, two pictures</msg>',
   ];
   const target = channel('d1', 'journal');
-  const { result, logs } = await withCapturedLogs(() => runner({ answer, plan, images, errands, hotValue }).runTurn({ channel: target, mode: 'diary', diary: { kind: null, forced: false } }));
+  const { result, logs } = await withCapturedLogs(() => runner({ answer, plan, images, hotValue }).runTurn({ channel: target, mode: 'diary', diary: { kind: null, forced: false } }));
   assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 2, 'the third picture was refused before it started');
-  assert.deepEqual(images.calls.map((call) => call.reference), [AVATAR, null]);
-  assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester.kind]), [['drawing', 'done', 'persona'], ['drawing', 'done', 'persona']]);
+  assert.equal(images.calls.length, 3, 'the third picture reached the client and was refused');
+  assert.deepEqual(images.calls.map((call) => call.reference), [AVATAR, null, null]);
   const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.asked], ['agents.drawing.daily.tasks', false]);
+  assert.deepEqual([refused.key, refused.asked], ['image.maxPerDay', false]);
   assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
 });
 
-test('draw agent: /nep draw is recorded as the owner\'s picture; a cap makes the command fail with the image cap\'s words', async () => {
-  const images = recordingImages();
+test('/nep draw: one picture for the owner; a cap makes the command fail with the image cap\'s words', async () => {
+  const images = recordingImages({ capAfter: 1 });
   const hotValue = hot();
-  const { errands, records } = errandsOf(hotValue);
-  const admin = (value, service) => createAdmin({
-    discord: DISCORD, hot: value, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images, imageFetcher: imageFetcher(), errands: service, now: () => NOW,
+  const admin = (value) => createAdmin({
+    discord: DISCORD, hot: value, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images, imageFetcher: imageFetcher(), now: () => NOW,
   });
   const ctx = { guildId: 'g1', userId: '42' };
-  const { result } = await withCapturedLogs(() => admin(hotValue, errands).run('draw', { text: 'me reading by the window', self: true }, ctx));
+  const { result } = await withCapturedLogs(() => admin(hotValue).run('draw', { text: 'me reading by the window', self: true }, ctx));
   assert.equal(result.files.length, 1);
   assert.equal(images.calls[0].prompt, 'A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\nScene: me reading by the window');
-  assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester.kind, task.seen]), [['drawing', 'done', 'owner', true]]);
 
-  const capped = hot();
-  capped.config.agents = { drawing: { daily: { tasks: 0 } } };
-  const refused = errandsOf(capped);
   const { result: outcome } = await withCapturedLogs(async () => {
     try {
-      return await admin(capped, refused.errands).run('draw', { text: 'again' }, ctx);
+      return await admin(hotValue).run('draw', { text: 'again' }, ctx);
     } catch (err) {
       return err;
     }
   });
   assert.match(String(outcome?.message ?? outcome?.summary ?? JSON.stringify(outcome)), /draw failed \(daily\)/);
-  assert.equal(images.calls.length, 1, 'nothing was generated');
+  assert.equal(images.calls.length, 2, 'the second call reached the client and was refused');
 });
 
-test('draw agent: a member\'s draw.create call is made by the turn itself and recorded as a task of the drawing agent, the member as its requester; a cap comes back as a result, with no notice', async () => {
+test('draw.create from a member\'s mention: the picture is charged to the member; a cap comes back as a result, with no notice', async () => {
   const hotValue = hot();
   hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
   hotValue.config.skills = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
-  const make = (agents) => {
+  for (const [capAfter, expected] of [[Infinity, 'ok'], [0, 'image-cap-daily']]) {
+    const images = recordingImages({ capAfter });
     const hotCase = structuredClone(hotValue);
     hotCase.prompts = { ...PROMPTS };
-    if (agents) hotCase.config.agents = agents;
-    return hotCase;
-  };
-  for (const [agents, expected] of [[null, 'ok'], [{ drawing: { daily: { tasks: 0 } } }, 'image-cap-daily']]) {
-    const images = recordingImages();
-    const hotCase = make(agents);
-    const { errands, records } = errandsOf(hotCase);
     const { raw, trigger } = memberTrigger();
     const target = channel('c1', 'general', [raw]);
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
       hot: hotCase,
-      errands,
       store: store(),
       llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
       calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
@@ -329,7 +287,7 @@ test('draw agent: a member\'s draw.create call is made by the turn itself and re
       rng: () => 0.5,
       now: () => NOW,
       skills: skillRegistry(),
-      runOp: createAdmin({ discord: DISCORD, hot: hotCase, store: store(), client: client(), getGuildId: () => 'g1', errands }).runSkillOp,
+      runOp: createAdmin({ discord: DISCORD, hot: hotCase, store: store(), client: client(), getGuildId: () => 'g1' }).runSkillOp,
     });
     const { logs } = await withCapturedLogs(() => turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' }));
     const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
@@ -338,22 +296,20 @@ test('draw agent: a member\'s draw.create call is made by the turn itself and re
     if (expected === 'ok') {
       assert.equal(images.calls[0].userId, 'u1');
       assert.ok(target.sent.some((payload) => payload.files?.length === 1), 'the picture was posted');
-      assert.deepEqual(records().map((task) => [task.agent, task.state, task.requester]), [['drawing', 'done', { userId: 'u1', kind: 'member' }]]);
     } else {
-      assert.equal(images.calls.length, 0);
+      assert.ok(images.calls.length >= 1, 'the client refused it');
       assert.equal(target.sent.length, 0, 'no limit notice');
     }
   }
 });
 
-test('draw agent: the draw.create operation quotes the message it replies to, in that message\'s channel (a link) and refuses a channel that disagrees', async () => {
+test('draw.create operation quotes the message it replies to, in that message\'s channel (a link) and refuses a channel that disagrees', async () => {
   const { createFakeAdapter } = await import('../src/interface/fake.js');
   const hotValue = hot();
-  const { errands } = errandsOf(hotValue);
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });
   const admin = createAdmin({
-    discord: DISCORD, hot: hotValue, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images: recordingImages(), imageFetcher: imageFetcher(), errands, now: () => NOW, port,
+    discord: DISCORD, hot: hotValue, store: store(), client: client(), spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', images: recordingImages(), imageFetcher: imageFetcher(), now: () => NOW, port,
   });
   const ctx = { guildId: 'g1', channelId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
   const quoted = (await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))).result;
@@ -363,4 +319,89 @@ test('draw agent: the draw.create operation quotes the message it replies to, in
   const refused = await admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'https://discord.com/channels/g1/c1/m9', channelId: 'c2' }, ctx);
   assert.equal(refused.status, 'invalid');
   assert.equal(refused.code, 'unknown-message');
+});
+
+// The builder and the direct generation, over a bare image client.
+
+const SCENE = 'a lighthouse at dusk; keep every word,  even the odd   spacing';
+
+function plainHot(extra = {}) {
+  return {
+    config: { bot: { timezone: TZ }, image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 }, ...extra },
+    prompts: {
+      draw: 'DRAW by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
+      appearance: '{{name}} has a green scarf.',
+      labels: { draw: { when: 'At {when}.' } },
+    },
+  };
+}
+
+/** A fake image client: records each call, answers `answers` in turn (an Error is thrown). */
+function fakeImages(answers = []) {
+  const calls = [];
+  return {
+    calls,
+    async generate(args) {
+      calls.push(structuredClone(args));
+      const next = answers.length > 0 ? answers.shift() : null;
+      if (next instanceof Error) throw next;
+      return next ?? { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 2, cost: 0.03, model: 'm/img' };
+    },
+  };
+}
+
+const deps = (images, hotValue = plainHot(), fetcher = imageFetcher()) => ({ images, hot: hotValue, client: client(), imageFetcher: fetcher, now: () => NOW });
+
+test('drawPicture: her scene goes into the draw prompt verbatim, with the appearance and the time, and the avatar as reference', async () => {
+  const images = fakeImages();
+  const { picture, referenceMissing } = await drawPicture({ ...deps(images), input: { scene: SCENE, selfName: 'Bot', self: true, withTime: true, userId: 'u1' } });
+  assert.deepEqual(images.calls, [{
+    prompt: `DRAW by Bot.\n\nBot has a green scarf.\n\n${WHEN}\n\nScene: ${SCENE}`,
+    reference: AVATAR,
+    userId: 'u1',
+  }]);
+  assert.equal(picture.model, 'm/img');
+  assert.equal(referenceMissing, false);
+});
+
+test('drawPicture: no time for the owner\'s command, no appearance and no reference for a picture she is not in, a long scene cut at a boundary', async () => {
+  const images = fakeImages();
+  const hotValue = plainHot();
+  hotValue.config.image.maxPromptChars = 20;
+  await drawPicture({ ...deps(images, hotValue), input: { scene: 'boats in the harbour, a very long scene', selfName: 'Bot', self: false, withTime: false } });
+  assert.equal(images.calls[0].reference, null);
+  assert.ok(!images.calls[0].prompt.includes('green scarf'));
+  assert.ok(!images.calls[0].prompt.includes('At '));
+  assert.ok(images.calls[0].prompt.endsWith('Scene: boats in the'), images.calls[0].prompt);
+  assert.equal(drawPromptOf({ hot: hotValue, selfName: 'Bot', scene: 'x', self: false, withTime: false }), 'DRAW by Bot.\n\nScene: x');
+});
+
+test('drawPicture: the avatar is fetched once into a shared holder; a missing avatar is reported once and the picture still goes', async () => {
+  const images = fakeImages();
+  let fetched = 0;
+  const fetcher = { fetchAsDataUrl: async () => { fetched += 1; throw new Error('down'); } };
+  const avatar = {};
+  const first = await drawPicture({ ...deps(images, plainHot(), fetcher), input: { scene: 'a', selfName: 'Bot', self: true, avatar } });
+  const second = await drawPicture({ ...deps(images, plainHot(), fetcher), input: { scene: 'b', selfName: 'Bot', self: true, avatar } });
+  assert.equal(fetched, 1);
+  assert.equal(first.referenceMissing, true);
+  assert.equal(second.referenceMissing, false, 'told once per set');
+  assert.deepEqual(images.calls.map((call) => call.reference), [null, null]);
+  const off = plainHot();
+  off.config.image.reference = 'none';
+  const plain = fakeImages();
+  await drawPicture({ ...deps(plain, off), input: { scene: 'c', selfName: 'Bot', self: true } });
+  assert.equal(plain.calls[0].reference, null);
+});
+
+test('drawPicture: a failure is the image client\'s own error, unwrapped', async () => {
+  const errors = [
+    Object.assign(new ImageCapError('daily'), { key: 'image.maxPerDay', used: 1, cap: 1 }),
+    new ImageGenError('moderation', 'refused', { statusCode: 400 }),
+    new UnsupportedImageModelError('x/y'),
+    new RangeError('odd'),
+  ];
+  for (const error of errors) {
+    await assert.rejects(() => drawPicture({ ...deps(fakeImages([error])), input: { scene: 'a', selfName: 'Bot' } }), (err) => err === error);
+  }
 });
