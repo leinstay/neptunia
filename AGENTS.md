@@ -61,7 +61,7 @@ This applies to documentation, comments, commit messages, pull request text and 
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
 - Length: about 100 words for a direct answer, 250 for an explanation or a work report, 500 for a plan or a review. A document is as long as its rules need.
-- Before handing in a text, read it once against the patterns of model prose (staged openers, forced triads, dashes as connectors, inflated words, closers) and remove them. Only the final text goes into a file.
+- Before handing in a text, review it against `docs/writing.md` and hand in the corrected text; only the final text goes into a file.
 
 ## Documentation
 
