@@ -322,7 +322,7 @@ Link other documents with a relative link, and use a bare URL only for something
 
 Name the module that implements the behaviour a document describes.
 
-Name no real person, server or character in the public documentation. This is the one place where that rule belongs.
+Name no real person, server or character in the public documentation.
 
 Generate a reference table from the code where a script can do it, and say so in the table's first line. `docs/configuration.md` and the codes table in `docs/prompt-contract.md` are generated.
 
