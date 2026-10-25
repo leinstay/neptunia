@@ -14,6 +14,8 @@ Each agent has its own folder under `agents/` with two files:
 - **`profile.json`** describes the agent. It never authorizes anything; permissions and security stay in the code.
 - **`prompt.md`** is a generic, public system prompt. A deployment adds its own rules where it runs the agents (see [Run paths](#the-two-run-paths) below).
 
+Both agents follow the [style guide](style-guide.md) when they write code.
+
 ### Profile fields (development kind)
 
 | Key | What it holds |
