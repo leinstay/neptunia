@@ -380,7 +380,7 @@
     },
     "memoryDb": {
       "unavailable": "db: on, not open",
-      "ok": "db · {rows} rows · {files} files · the database writes · sync off"
+      "ok": "db · {rows} rows · {files} files"
     },
     "memorySession": {
       "off": "session: off",
