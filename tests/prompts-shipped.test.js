@@ -109,13 +109,13 @@ function withoutLiterals(text) {
 
 /**
  * Label keys the code renders that the tracked labels.json does not carry yet, each with the
- * reason. Until the writer adds them, the block they head is simply left out of the request.
+ * reason. Until the dev agent adds them, the block they head is simply left out of the request.
  */
 const PENDING_LABELS = {
-  'recent.header': 'the <recent> view (spec-recall R3): its wording is the writer\'s next task',
-  'recent.line': 'the <recent> view (spec-recall R3): its wording is the writer\'s next task',
-  'recent.lineIn': 'the <recent> view (spec-recall R3): its wording is the writer\'s next task',
-  'recent.episode': 'the <recent> view (spec-recall R3): its wording is the writer\'s next task',
+  'recent.header': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
+  'recent.line': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
+  'recent.lineIn': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
+  'recent.episode': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
 };
 
 const SYSTEM = ['system-prompt', 'character-card', 'rules', 'format'];

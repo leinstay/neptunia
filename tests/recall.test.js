@@ -806,7 +806,7 @@ test('recallContext: the last lines before the question, the question itself lef
   assert.deepEqual(recallContext(null, history[4], 3), []);
 });
 
-/** The fixture labels with the two stretch flags (the shipped wording is the writer's). */
+/** The fixture labels with the two stretch flags (the shipped wording is the dev agent's). */
 const flagged = { ...labels, lookup: { ...labels.lookup, stretchSelf: '[SELF]', stretchCurrent: '[CURRENT]' } };
 
 test('buildRecallRequest: the context block sits right before the question, own lines marked with labels.self', () => {

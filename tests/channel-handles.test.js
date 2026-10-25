@@ -38,7 +38,7 @@ const GENERAL = '800000000000000101';
 const NEWS = '800000000000000202';
 const KITCHEN = '800000000000000303';
 
-// Terse test wording for the keys under test (the shipped wording is the writer's).
+// Terse test wording for the keys under test (the shipped wording is the dev agent's).
 const labels = {
   ...fixtureLabels,
   transcript: { ...fixtureLabels.transcript, channel: '{name} [{handle}]' },

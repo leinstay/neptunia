@@ -158,8 +158,7 @@ An object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summar
 | Key | Default | What it does |
 |---|---|---|
 | `thinker` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator |
-| `dev` | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding worker |
-| `writer` | `"openrouter/anthropic/claude-opus-4.6"` | OpenCode model id of the text writer |
+| `dev` | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker |
 
 Errand and development roles run on OpenCode, not the bot's client. They take OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the base roles' bare OpenRouter ids. `/nep status` does not probe them and `/nep route` cannot route them.
 
@@ -179,7 +178,7 @@ Errand and development roles run on OpenCode, not the bot's client. They take Op
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim |
 | `providerByModel` | `{}` | Per-model provider routing. See the resolution order below |
-| `keyByRole` | `{ "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key |
+| `keyByRole` | `{ "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key |
 | `cache.ttl` | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"1h"` | Cache TTL for the profiles marker: `"1h"`, `"5m"`, or `null`/`false` for none. Never longer than `cache.ttl` |
 | `cache.roles` | `["core"]` | Roles whose requests get the cache marker. Add `analyzer` to cache helpers too |
@@ -964,14 +963,14 @@ The drawing agent: the core runs it, no runner.
 | `limits` | `{ "seconds": 300 }` | How long one picture may take |
 | `daily` | `{ "tasks": 100 }` | Per-day picture cap |
 
-### `agents.thinker`, `agents.dev`, `agents.writer`
+### `agents.thinker`, `agents.dev`
 
 Development agents. They run outside the engine; the bot only shows their spend on the status card.
 
 | Key | Default | What it does |
 |---|---|---|
-| `cost` | thinker `{ "input": 4, "output": 20 }`, dev `{ "input": 2, "output": 10 }`, writer `{ "input": 5, "output": 25 }` | Model price for OpenCode's estimate |
-| `limits` | thinker `{ "steps": 400, "minutes": 60 }`, dev `{ "steps": 300, "minutes": 60 }`, writer `{ "steps": 150, "minutes": 45 }` | Caps of one run |
+| `cost` | thinker `{ "input": 4, "output": 20 }`, dev `{ "input": 2, "output": 10 }` | Model price for OpenCode's estimate |
+| `limits` | thinker `{ "steps": 400, "minutes": 60 }`, dev `{ "steps": 300, "minutes": 60 }` | Caps of one run |
 | `contextLimit` | `350000` | Thinker only: context size for OpenCode |
 | `contextHard` | `400000` | Thinker only: context above which a handover is forced |
 

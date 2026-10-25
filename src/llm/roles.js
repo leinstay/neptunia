@@ -26,8 +26,8 @@
 // models.errands
 // - `scout`, `server`  the persona's errand agents (src/agent-runner/, profiles `scout` and `server`);
 // models.development
-// - `thinker`, `dev`, `writer`  the development agents (outside this repository): `thinker` picks
-//                up and steers the tasks, `dev` writes the code, `writer` writes the texts.
+// - `thinker`, `dev`  the development agents (outside this repository): `thinker` picks up and
+//                steers the tasks, `dev` writes the code and the texts.
 // No request of the bot goes out on an errand or development role (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
 // (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base roles.
@@ -61,7 +61,7 @@ export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 export const ERRAND_ROLES = Object.freeze(['scout', 'server']);
 
 /** The development roles: their models sit under `models.development`. */
-export const DEVELOPMENT_ROLES = Object.freeze(['thinker', 'dev', 'writer']);
+export const DEVELOPMENT_ROLES = Object.freeze(['thinker', 'dev']);
 
 /** The roles whose model an OpenCode worker runs on, never the bot's own client. */
 export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
@@ -82,7 +82,6 @@ export const ROLE_DEFAULTS = Object.freeze({
   server: 'openrouter/openai/gpt-6.1-sol',
   thinker: 'openrouter/anthropic/claude-opus-5.5',
   dev: 'openrouter/anthropic/claude-sonnet-5.5',
-  writer: 'openrouter/anthropic/claude-opus-4.6',
 });
 
 /**

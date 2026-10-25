@@ -7,7 +7,7 @@
 // on OpenCode; or `tool`, an agent with no model loop and no process, whose
 // one tool the core runs in its own process (`drawing`: the Images pipeline,
 // src/errands/tools.js): the runner skips the last three), its model role
-// (`scout`, `server`, `thinker`, `dev`, `writer`, `drawing`: the key of its model under `models.<group>`), its prompt and the deployment's override
+// (`scout`, `server`, `thinker`, `dev`, `drawing`: the key of its model under `models.<group>`), its prompt and the deployment's override
 // name under `prompts.local/`, the OpenCode tools it asks for, the name of
 // its shell class, its default limits, daily caps, socket and out dir, and
 // the environment variable names its run may fall back on (the core sends

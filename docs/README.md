@@ -37,7 +37,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Inner life](inner-life.md) | Heartbeat, daily review, intentions, inner turns, caps, the kill switch, the virtual-week harness |
 | [Diary](diary.md) | The diary feature |
 | [Errands](errands.md) | task.run, errand agents, the runner, sandbox users, results returning as a turn |
-| [Development agents](development-agents.md) | The dev, writer and thinker agents, profiles, the two run paths |
+| [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |
 | [Configuration reference](configuration.md) | Every key in config.json |

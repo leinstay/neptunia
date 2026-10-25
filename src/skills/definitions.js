@@ -267,7 +267,7 @@ const ENTRIES = [
   def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
-    params: obj({ role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev', 'writer']), id: str() }, ['role', 'id']),
+    params: obj({ role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev']), id: str() }, ['role', 'id']),
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),

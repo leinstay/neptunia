@@ -769,7 +769,7 @@ function developmentProfile(id, changes = {}) {
 }
 
 test('development profiles: listed by listAgents, skipped by loadProfiles; roles are the development agents of OPENCODE_ROLES', () => {
-  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev', 'writer']);
+  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev']);
   for (const role of DEVELOPMENT_ROLES) assert.ok(OPENCODE_ROLES.includes(role), role);
   assert.ok(!DEVELOPMENT_TOOLS.includes('task'), 'no subagents');
   withAgentsTree({ build: developmentProfile('build'), probe: workerProfile('probe') }, (rootDir) => {
@@ -812,7 +812,7 @@ test('the development agents\' folders hold no absolute server path and no Cyril
   }
 });
 
-test('the real agents/ folder: scout and server workers, three development agents, the drawing tool agent, no advice consultation, each prompt tracked beside its profile', () => {
+test('the real agents/ folder: scout and server workers, two development agents, the drawing tool agent, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
   assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [
     ['dev', 'development', 'dev'],
@@ -820,7 +820,6 @@ test('the real agents/ folder: scout and server workers, three development agent
     ['scout', 'worker', 'scout'],
     ['server', 'worker', 'server'],
     ['thinker', 'development', 'thinker'],
-    ['writer', 'development', 'writer'],
   ]);
   for (const agent of agents.filter((one) => one.kind !== 'tool')) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
   assert.deepEqual(Object.keys(PROFILES).sort(), ['scout', 'server']);

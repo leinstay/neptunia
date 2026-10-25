@@ -100,7 +100,7 @@ function choicesOf(values) {
 }
 
 /** The choices of `/nep route`: the `/nep model set` roles but the OpenCode ones (`scout`,
- * `server`, `thinker`, `dev`, `writer`), whose workers never read `llm.providerByModel`, and `speech`,
+ * `server`, `thinker`, `dev`), whose workers never read `llm.providerByModel`, and `speech`,
  * whose one model is routed by its own prefix (the command tree is at Discord's size limit). */
 export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
 

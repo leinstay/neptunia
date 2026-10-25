@@ -14,7 +14,7 @@ const NOW = Date.UTC(2026, 9, 15, 10, 0, 0);
 const MIN = 60_000;
 const SELF_ID = '900000000000000001';
 
-// Terse test wording for the keys under test (the shipped wording is the writer's).
+// Terse test wording for the keys under test (the shipped wording is the dev agent's).
 const labels = {
   ...fixtureLabels,
   transcript: { ...fixtureLabels.transcript, author: '{name} [{handle}]' },

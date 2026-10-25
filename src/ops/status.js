@@ -8,7 +8,7 @@
 // `costs.errands`: the delegated agents) and the development agents (`models.development`,
 // `costs.development`: outside her). The models sit in three fields, one line per role, `<role> · <model> ...`:
 // `models.base` (core, memory, then the helpers analyzer, vision, video, embedding, speech, then drawing),
-// `models.errands` (scout, server) and `models.development` (thinker, dev, writer), which an OpenCode worker runs,
+// `models.errands` (scout, server) and `models.development` (thinker, dev), which an OpenCode worker runs,
 // so they are never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
@@ -22,8 +22,8 @@
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/ops/usage.js, drawing's row included); `costs.errands` the errand records' spend
 // per agent (src/errands/costs.js through the guild's task store); `costs.development` the development agents'
-// (thinker, dev, writer) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
-// context), those three shown with no runs when the ledger does not answer. The owner's `inner`
+// (thinker, dev) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
+// context), both shown with no runs when the ledger does not answer. The owner's `inner`
 // field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.js#status,
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
@@ -600,8 +600,8 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.development` field (src/ops/usage.js#agentCostsLines): thinker, dev and
-   * writer from the ledger (src/errands/ledger.js#costs; the thinker's last wave adds its context
+  /** The owner's `costs.development` field (src/ops/usage.js#agentCostsLines): thinker and dev
+   * from the ledger (src/errands/ledger.js#costs; the thinker's last wave adds its context
    * line). An agent with no figures shows no runs: a ledger that is not configured, refuses, fails
    * or does not answer in time never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {

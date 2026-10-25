@@ -481,7 +481,6 @@ const LEDGER_COSTS = {
     last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 },
   },
   dev: { today: window(1, 50_000, 4_000, 0.4), last7: window(1, 50_000, 4_000, 0.4), last30: window(1, 50_000, 4_000, 0.4) },
-  writer: { today: window(0, 0, 0, 0), last7: window(0, 0, 0, 0), last30: window(0, 0, 0, 0) },
 };
 
 test('ledger costs: one costs.agents request with now, no idempotency key, nothing queued; the answer kept as the card reads it', async () => {
@@ -540,11 +539,11 @@ test('ledger costs: null with no socket, a missing socket, a refusal or a silent
   assert.equal(await mirror.costs(), null, 'closed');
 });
 
-test('agentCostsOf: the three agents with every window, odd numbers as 0, the last wave or null; not an object gives null', () => {
+test('agentCostsOf: the two agents with every window, odd numbers as 0, the last wave or null; not an object gives null', () => {
   assert.equal(agentCostsOf(null), null);
   assert.equal(agentCostsOf([1]), null);
   const totals = agentCostsOf({ thinker: { today: { runs: 'x', usd: 1 }, last_wave: { wave: 'w', context_peak: 9 } }, other: {} });
-  assert.deepEqual(Object.keys(totals), ['thinker', 'dev', 'writer']);
+  assert.deepEqual(Object.keys(totals), ['thinker', 'dev']);
   assert.deepEqual(totals.thinker.today, { runs: 0, input: 0, output: 0, usd: 1 });
   assert.deepEqual(totals.dev.last30, { runs: 0, input: 0, output: 0, usd: 0 });
   assert.deepEqual(totals.thinker.last_wave, { wave: 'w', turns: 0, usd: 0, context_mean: null, context_peak: 9 });

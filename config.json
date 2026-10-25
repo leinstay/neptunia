@@ -100,8 +100,7 @@
     },
     "development": {
       "thinker": "openrouter/anthropic/claude-opus-5.5",
-      "dev": "openrouter/anthropic/claude-sonnet-5.5",
-      "writer": "openrouter/anthropic/claude-opus-4.6"
+      "dev": "openrouter/anthropic/claude-sonnet-5.5"
     }
   },
   "llm": {
@@ -117,7 +116,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "keyByRole": { "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" },
+    "keyByRole": { "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["core"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
@@ -508,10 +507,6 @@
     "dev": {
       "cost": { "input": 2, "output": 10 },
       "limits": { "steps": 300, "minutes": 60 }
-    },
-    "writer": {
-      "cost": { "input": 5, "output": 25 },
-      "limits": { "steps": 150, "minutes": 45 }
     }
   },
   "intentions": {

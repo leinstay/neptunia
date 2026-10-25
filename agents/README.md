@@ -7,9 +7,8 @@ Each agent has its own folder here with a `profile.json` and, for workers and de
 | `scout/` | worker | Internet errands: web searches, reading pages, downloading files through a proxy. |
 | `server/` | worker | Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API. |
 | `drawing/` | tool | Draws the persona's pictures. No model loop and no separate process; the core runs the Images pipeline with the persona's scene. |
-| `thinker/` | development | Picks up development tasks, writes briefs, reviews the work, runs the tests and merges. Never deploys. |
-| `dev/` | development | Writes code within one development task. |
-| `writer/` | development | Writes prompt and documentation text within one development task. |
+| `thinker/` | development | Picks up development tasks, writes briefs, reviews the work (text included), runs the tests and merges. Never deploys. |
+| `dev/` | development | Writes code and text (prompts, documentation) within one development task. |
 
 ## Kinds
 

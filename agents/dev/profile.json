@@ -7,5 +7,5 @@
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill"],
   "effort": "medium",
   "limits": { "steps": 300, "minutes": 60 },
-  "description": "Writes code within one development task."
+  "description": "Writes code and text (prompts, documentation) within one development task."
 }
