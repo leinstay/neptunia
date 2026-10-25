@@ -1448,7 +1448,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       if (quotes) {
         const db = dbOf();
         if (!db) {
-          if (op) await op.failed('not-configured');
+          if (op) await op.failed(CODE.NOT_CONFIGURED);
           return finish(empty({ outcome: { kind: 'not-configured' } }));
         }
         const found = await runDbQuotes({ db, config, settings, guild, guildId, channel, partner, selfName, history, candidate, server, decorate, started, memoryContext });

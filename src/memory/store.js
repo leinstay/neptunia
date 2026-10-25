@@ -2261,7 +2261,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         item.value.pingsOff = item.value.pingsOff.filter((other) => other !== id);
         item.dirty = true;
       }
+      // Written at once: the guild unit goes to the database now, not at the next flush.
       flushEntry(guildFile(guildId), item);
+      if (outbox) outbox.push();
       return item.value.pingsOff.includes(id);
     },
 

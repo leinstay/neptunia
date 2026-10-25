@@ -114,7 +114,7 @@ test('updateUser: the prose fields are stored without links; a link alone does n
   assert.equal(profile.portraitDueAt, '2026-10-14T00:00:00.000Z');
 });
 
-test('addEpisodes / fillEpisodeFeeling: episodes are stored without links; one that is only a link is not added', () => {
+test('addEpisodes: episodes are stored without links; one that is only a link is not added', () => {
   const store = tmpStore();
   const now = Date.UTC(2026, 9, 14);
   const added = store.addEpisodes('g1', 'u1', [
@@ -124,23 +124,15 @@ test('addEpisodes / fillEpisodeFeeling: episodes are stored without links; one t
   assert.equal(added, 1);
   const [episode] = store.getUser('g1', 'u1').episodes;
   assert.deepEqual([episode.what, episode.quote, episode.feeling], ['Έστειλε ένα βίντεο', 'κοίτα', 'χαρά']);
-  const address = { at: episode.addedAt, date: episode.date, what: episode.what };
-  assert.equal(store.fillEpisodeFeeling('g1', 'u1', address, URL), false, 'a feeling that is only a link is not written');
-  assert.equal(store.fillEpisodeFeeling('g1', 'u1', address, `γέλιο ${URL}`), true);
-  assert.equal(store.getUser('g1', 'u1').episodes[0].feeling, 'γέλιο');
 });
 
-test('adjustAffinity / fillAffinityReason: a move reason is stored without links', () => {
+test('adjustAffinity: a move reason is stored without links', () => {
   const store = tmpStore();
   const affinity = store.adjustAffinity('g1', 'u1', 3, `βοήθησε ${URL}`, { maxDelta: 5, historySize: 10, now: 1000 });
   assert.equal(affinity.reason, 'βοήθησε');
   assert.equal(affinity.history.at(-1).reason, 'βοήθησε');
   const next = store.adjustAffinity('g1', 'u1', 2, URL, { maxDelta: 5, historySize: 10, now: 2000 });
   assert.equal(next.history.at(-1).reason, '', 'a reason that is only a link is no reason');
-  const at = next.history.at(-1).ts;
-  assert.equal(store.fillAffinityReason('g1', 'u1', at, URL), false);
-  assert.equal(store.fillAffinityReason('g1', 'u1', at, `ευγενική ${URL}`), true);
-  assert.equal(store.getUser('g1', 'u1').affinity.history.at(-1).reason, 'ευγενική');
 });
 
 // ---- the private layer ----

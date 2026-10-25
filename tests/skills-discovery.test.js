@@ -233,8 +233,8 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   assert.deepEqual(grantedSkillNames({ config, selfId: null, registry }), []);
   assert.deepEqual(grantedSkillNames({ config: { ...config, skills: { safeMode: true } }, selfId: 'self-1', registry }), []);
   assert.deepEqual(grantedSkillNames({ config: { ...config, features: { skills: false } }, selfId: 'self-1', registry }), []);
-  const wipe = loadSkills([{ name: 'memory.wipe', op: null, argsSchema: { type: 'object' }, effects: 'destructive', costClass: 'free', targets: null }]);
-  assert.deepEqual(grantedSkillNames({ config: granting(['memory.wipe'], { features: {} }), selfId: 'self-1', registry: wipe }), []);
+  const restore = loadSkills([{ name: 'memory.restore', op: null, argsSchema: { type: 'object' }, effects: 'destructive', costClass: 'free', targets: null }]);
+  assert.deepEqual(grantedSkillNames({ config: granting(['memory.restore'], { features: {} }), selfId: 'self-1', registry: restore }), []);
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
 });
 
