@@ -27,6 +27,7 @@ Both agents follow the [style guide](../STYLEGUIDE.md) when they write code.
 | `override` | `null` for development agents: the deployment's rules come from its dispatcher, not from `prompts.local/`. |
 | `description` | One sentence saying what the agent does. |
 | `tools` | The OpenCode tools the agent asks for, from a fixed list: `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `websearch`, `todowrite`, `skill`, `external_directory`. Never `task` (subagents) or `question` (a headless run cannot answer it). |
+| `permission` | Rules that narrow the tools above: a tool mapped to `allow`, `ask` or `deny`, or to an object of command patterns and actions (OpenCode wildcards `*` and `?`, the last matching pattern wins). Only tools from `tools` may appear. The shipped profiles use it on `bash` to refuse a whole-suite test run: `node --test` without a test file and `npm test` are denied, `node --test --test-reporter=dot tests/<module>.test.js` is allowed, and the thinker alone may run the whole suite with the prefix `FULL_SUITE=1`. |
 | `effort` | The reasoning effort, OpenCode's `--variant` (`low`, `medium`, `high`, `max`). |
 | `limits` | Default per-run caps `{ steps, minutes }`, overridden by `agents.<id>.limits` in config. |
 

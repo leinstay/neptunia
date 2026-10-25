@@ -5,6 +5,15 @@
   "prompt": "prompt.md",
   "override": null,
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill"],
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "*node --test*": "deny",
+      "*npm test*": "deny",
+      "*npm run test*": "deny",
+      "*node --test --test-reporter=dot* tests/*.test.*": "allow"
+    }
+  },
   "effort": "medium",
   "limits": { "steps": 300, "minutes": 60 },
   "description": "Writes code and text (prompts, documentation) within one development task."
