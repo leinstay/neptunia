@@ -8,7 +8,7 @@ cd neptunia && npm install
 npm test
 ```
 
-Node.js 26 (the major version is pinned: `engines` in `package.json`, `.nvmrc`). No build step, no TypeScript, no `dotenv`. Tests run with `node --test` and need no network, Discord connection or LLM calls.
+Node.js 26 (the major version is pinned: `engines` in `package.json`, `.nvmrc`). No build step (TypeScript runs natively on Node 26), no `dotenv`. Tests run with `node --test` and need no network, Discord connection or LLM calls.
 
 ## Before you start
 
@@ -26,15 +26,7 @@ Fork the repository, branch from `main`, make the change, open a pull request ba
 
 **Tests.** Every pull request must pass `npm test`, and CI runs it automatically. Tests use `node:test` and `node:assert/strict`. Name tests `subject: behaviour`. Tests never read a real `prompts.local/` or `data/`; I/O goes through fakes. When a test needs non-Latin text, use Greek or accented Latin.
 
-**Code conventions:**
-
-- 2-space indent, single quotes, semicolons.
-- Every module starts with a header comment saying why it exists; JSDoc on exports.
-- Comments and logs say "the persona" or "the bot", never a character name.
-- Pure core, thin I/O: decisions are pure functions with injected `rng` / `now`; discord.js and `fetch` stay at the edges.
-- Hot values (`hot.config`, `hot.prompts`) are read at the moment of use, never cached in a long-lived variable.
-- The model's output is data: only the tags in the output contract are acted on.
-- Logs carry counts, never message contents.
+**Code conventions.** [`STYLEGUIDE.md`](STYLEGUIDE.md) says how code and documentation are written.
 
 **Every behaviour has a config setting.** A new behaviour needs its switch or number in `config.json` (`features.*` for on/off) and a row in the [configuration reference](docs/configuration.md).
 
