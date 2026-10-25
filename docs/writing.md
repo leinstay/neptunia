@@ -112,7 +112,7 @@ Avoid
 - Test data is English, Greek or accented Latin, never Cyrillic
 
 Use
-Write English in code, comments, documentation, commit messages and test data; non-Latin test data is Greek or accented Latin.
+Write English in code, comments, documentation, commit messages and test data. Test data that has to be non-Latin is Greek or accented Latin.
 ```
 
 Three bullets that said one thing became one line.
