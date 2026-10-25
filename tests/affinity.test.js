@@ -690,3 +690,25 @@ test('affinity: eviction returns the dropped items with their itemId', () => {
   const roomy = applyDelta({ score: 3, reason: '', history: [first] }, 1, '', { maxDelta: 5, historySize: 5 });
   assert.deepEqual(roomy.droppedMoves, []);
 });
+
+test('decayAffinity: time she was not running (skipMs) does not count; the stamp moves forward, never past now', () => {
+  const day = 86_400_000;
+  const stamp = Date.UTC(2026, 9, 1);
+  const affinity = { score: 50, reason: 'r', history: [], decayedAt: new Date(stamp).toISOString() };
+  const cfg = { decayPerDay: 0.04, decayPower: 1 };
+  // A week passed, all of it downtime but one hour: nothing decays, the stamp moves by the downtime.
+  const week = decayAffinity(affinity, stamp + 7 * day, { ...cfg, skipMs: 7 * day - 3_600_000 });
+  assert.equal(week.days, 0);
+  assert.equal(week.affinity.score, 50);
+  assert.equal(week.affinity.decayedAt, new Date(stamp + 7 * day - 3_600_000).toISOString());
+  // Three days passed, one of them downtime: two days decay.
+  const three = decayAffinity(affinity, stamp + 3 * day, { ...cfg, skipMs: day });
+  assert.equal(three.days, 2);
+  assert.equal(three.affinity.score, decayAffinity(affinity, stamp + 2 * day, cfg).affinity.score);
+  // A skip longer than the gap stops at now.
+  const over = decayAffinity(affinity, stamp + day, { ...cfg, skipMs: 10 * day });
+  assert.equal(over.days, 0);
+  assert.equal(over.affinity.decayedAt, new Date(stamp + day).toISOString());
+  // No skip: as before.
+  assert.equal(decayAffinity(affinity, stamp + 3 * day, cfg).days, 3);
+});
