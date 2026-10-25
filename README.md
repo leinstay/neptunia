@@ -6,7 +6,7 @@ Memory is close to unlimited. Recall works by full-text search over learned word
 
 The tools focus on making a believable companion. Out of the box, the persona can write and later edit or delete its own messages (with emoji, including custom server emoji on Discord), see pictures and short videos, search the web and the server's own message history, read pages behind links, find information, images and files on the internet through an errand agent, record voice messages, and draw itself in different outfits while keeping a consistent look and a consistent world. Something in the space of [Hermes Agent](https://github.com/NousResearch/hermes-agent), [SillyTavern](https://github.com/SillyTavern/SillyTavern) and [OpenViking](https://github.com/volcengine/OpenViking).
 
-<p align="center"><img src="docs/assets/hero.webp" width="720" alt="A pink-haired girl in a purple hoodie tending potted plants on a night rooftop"></p>
+<p align="center"><img src=".github/assets/hero.webp" width="720" alt="A pink-haired girl in a purple hoodie tending potted plants on a night rooftop"></p>
 
 ## Documentation
 
