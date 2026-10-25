@@ -944,7 +944,6 @@ catalogue, the labels and the table disagree.
 | `redirects` | failed | - | `skills.result.reasons.redirects` |
 | `turn-cap` | failed | - | `skills.result.reasons.turn-cap` |
 | `runner-down` | failed | - | `skills.result.reasons.runner-down` |
-| `warmup-running` | failed | - | `skills.result.reasons.warmup-running` |
 | `write-failed` | failed | - | `skills.result.reasons.write-failed` |
 | `file-unreadable` | failed | - | `skills.result.reasons.file-unreadable` |
 | `attachment-too-large` | failed | - | `skills.result.reasons.attachment-too-large` |

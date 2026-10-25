@@ -207,9 +207,6 @@ function mediaIdsOf(message) {
  * @param {() => string | null} deps.getGuildId  the single guild this instance serves, or null before it resolves
  * @param {(guildId: string) => string} [deps.getSelfName]  The persona's display name in a guild
  *   (src/index.js). Default: the client's cached guild member, else the bot user's name.
- * @param {() => boolean} [deps.isWarmingUp]  true while the memory warmup runner
- *   (src/memory/warmup.js) is in flight: messages are still observed, but no
- *   trigger, turn, eavesdrop or pending-ping drain happens. Default: never warming up.
  * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
  *   absent, or features.mediaDescriptions is off, no description request is ever made from this
  *   pipeline. When present, every observed human message's pictures (up to
@@ -283,7 +280,6 @@ export function createMessageHandler({
   tagHistory,
   getGuildId,
   getSelfName = (guildId) => client.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client.user?.username ?? 'bot',
-  isWarmingUp = () => false,
   describer,
   llm,
   lookup,
@@ -657,12 +653,11 @@ export function createMessageHandler({
   /**
    * Why the persona is mute right now, as onMessage sees it before any
    * classifier (and a settle wait when it is over): `'paused'` (`/nep
-   * pause`), `'warmup'` (a memory warmup run in flight) or null.
-   * @returns {'paused'|'warmup'|null}
+   * pause`) or null.
+   * @returns {'paused'|null}
    */
   function followUpMuted() {
-    if (store?.state?.data?.paused) return 'paused';
-    return isWarmingUp() ? 'warmup' : null;
+    return store?.state?.data?.paused ? 'paused' : null;
   }
 
   /**
@@ -781,7 +776,7 @@ export function createMessageHandler({
           log.info('follow-up: held message dropped', { channel: channelId, message: held.normalized.id, reason: 'turn' });
           return;
         }
-        // As if it had just arrived: paused or warming up, onMessage would
+        // As if it had just arrived: paused, onMessage would
         // never reach the classifier (and pause forbids marking the store dirty).
         const muted = followUpMuted();
         const gate = muted ? { kind: 'skip', reason: muted } : followUpGate(held.message, held.normalized, held.selfId);
@@ -829,7 +824,7 @@ export function createMessageHandler({
    * Start the overheard line that waited on the held messages (settleFollowUp)
    * once they are worked off. That took at least one more classifier call,
    * so the gate's checks that do not depend on the window are read again
-   * now: paused, a warmup run, the follow-up or mention switch off, or no
+   * now: paused, the follow-up or mention switch off, or no
    * Send Messages drop the line (`follow-up: dropped` with that reason); a
    * turn running drops it as busy (startFollowUpTurn). A window closed
    * meanwhile does not: the line was classified while it was open. The kind
@@ -1457,7 +1452,7 @@ export function createMessageHandler({
    * taken (startFollowUpTurn): held in the pending queue like a direct call,
    * answered by drainPending once the turn frees up, after the window check
    * (followUpStale) and the "already answered" one (spokeAfterSeeing) there. Read now: muted
-   * (paused, a warmup run), features.followUp / features.mentions off, or its
+   * (paused), features.followUp / features.mentions off, or its
    * own channel busy with mention.pendingSameChannel off -- not held, dropped
    * with that reason (`busy` for the last two, as before). An `overheard`
    * line (`kind`, startFollowUpTurn) is held the same way. One of them per
@@ -1827,9 +1822,7 @@ export function createMessageHandler({
    * features.followUp is off now. Guarded against re-entrancy:
    * the turn this function itself starts also frees the channel through the very same `onIdle`,
    * which would otherwise start a second overlapping drain. A no-op while
-   * `isWarmingUp()` is true -- the queue is left untouched for a later
-   * call once the warmup run ends -- and while paused (`/nep pause` clears
-   * the queue itself); a pause that lands during the switch pause drops the
+   * paused (`/nep pause` clears the queue itself); a pause that lands during the switch pause drops the
    * ping in hand and ends the pass. A server ping is also dropped when its
    * switch (features.mentions / features.replies / features.nameTriggers) was turned
    * off while it waited (callSwitchOff).
@@ -1861,7 +1854,7 @@ export function createMessageHandler({
    * looked and the pass goes on instead of stopping.
    */
   async function drainPending() {
-    if (draining || isWarmingUp() || store?.state?.data?.paused) return;
+    if (draining || store?.state?.data?.paused) return;
     draining = true;
     try {
       while (pendingList.length > 0) {
@@ -2265,7 +2258,7 @@ export function createMessageHandler({
    * The settle wait of `sourceId` is over (`elsewhere: settled`): the waiting
    * call takes the ordinary call path (answerCall) toward the destination
    * resolved again now. It is dropped instead, and stays unanswered in the
-   * ring, while paused or warming up and when the route no longer holds
+   * ring, while paused and when the route no longer holds
    * (`elsewhere: dropped` with that code), or, as at the pending drain
    * (heldCallState): when the ring already holds it as answered (`mention:
    * already answered`, reason `ring`: a turn that showed it answered it --
@@ -2280,7 +2273,7 @@ export function createMessageHandler({
    * ring: skipSeenCalls); when its kind's switch was turned off
    * (`mention: dropped`, `off`). The calls it carries (`superseded`) go with it to
    * answerCall. A noticed wait (no call) goes to fireNoticed instead once
-   * the pause / warmup check passed. A timer whose wait already ended (or
+   * the pause check passed. A timer whose wait already ended (or
    * was removed) does nothing. Never rejects: it runs from a timer.
    */
   async function fireSettle(sourceId, entry) {
@@ -2382,13 +2375,12 @@ export function createMessageHandler({
       return;
     }
 
-    // Observed like a direct call; during a memory warmup run, never answered.
+    // Observed like a direct call.
     if (memoryOn) {
       memory.observe(guildId, normalized, { direct: true, private: authorId });
       const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
       if (observing) await observing;
     }
-    if (isWarmingUp()) return;
 
     // One attention: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
@@ -2632,19 +2624,6 @@ export function createMessageHandler({
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
       noteFollowingLine(guildId, normalized, config);
-
-      // 7. A memory warmup run is in flight: the persona stays mute (no
-      // trigger, no turn, no eavesdrop), but the message still feeds the
-      // memory buffer like any other observed message.
-      if (isWarmingUp()) {
-        warmMediaCache(guildId, normalized);
-        if (memoryOn) {
-          memory.observe(guildId, normalized, { direct: false });
-          const observing = observeLine(event, false, { guildId });
-          if (observing) await observing;
-        }
-        return 'observed';
-      }
 
       // 8. Detect how (if at all) the persona was called, masking each input
       // by its own feature switch so detectTrigger itself stays pure. Done

@@ -332,11 +332,9 @@ function makeAdmin(rootDir, extra = {}) {
     spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
     getGuildId: extra.getGuildId ?? (() => 'g1'),
-    isWarmingUp: extra.isWarmingUp,
     turns: extra.turns,
     memory: extra.memory,
     pending: extra.pending,
-    warmup: extra.warmup,
     images: extra.images,
     imageFetcher: extra.imageFetcher,
     emojiBackfill: extra.emojiBackfill,
@@ -1569,7 +1567,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const journal = { dayFile: () => dayFile, stalled: () => true };
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
-  const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
+  const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client });
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
@@ -1593,7 +1591,7 @@ test('status: the card carries the fields in order and the member variant drops 
   ], 'the state, then the connection');
   assert.match(stateLines[4], /^uptime (\d+d )?(\d+h )?\d+m$/, 'the uptime last');
   assert.equal(stateLines.length, 5);
-  assert.equal(value('tasks'), 'archive drain: 3 pending', 'a warmup is not a long task of the card');
+  assert.equal(value('tasks'), 'archive drain: 3 pending');
   assert.equal(
     value('models.base'),
     [
@@ -1944,7 +1942,7 @@ test('status: the card lists one item per line in every field, the models one li
   const gifBackfill = { isRunning: () => true };
   const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
   const client = { ws: { ping: 12 }, guilds: { cache: new Map() } };
-  const { admin, hot } = makeAdmin(rootDir, { journal, archive, emojiBackfill, gifBackfill, isWarmingUp: () => true, images: fakeImages({ quota: { used: 2, cap: 5 } }), llm, client });
+  const { admin, hot } = makeAdmin(rootDir, { journal, archive, emojiBackfill, gifBackfill, images: fakeImages({ quota: { used: 2, cap: 5 } }), llm, client });
   probeConfig(hot);
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };

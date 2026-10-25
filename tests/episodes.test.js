@@ -230,8 +230,7 @@ test('mergeEpisodes: with keepNewest, a later position in one call counts as new
 });
 
 test("mergeEpisodes: a call's own moments are the newest even when stored stamps are later than now", () => {
-  // A caller whose clock is behind the store (the warmup's person run stamps with the member's
-  // last sampled message): 17 heavy moments from weeks ago, 3 stored at 10:10, the call at 10:00.
+  // A caller whose clock is behind the store (it stamps with the last message it read): 17 heavy moments from weeks ago, 3 stored at 10:10, the call at 10:00.
   const existing = [
     ...heavyList(17),
     ...stored([

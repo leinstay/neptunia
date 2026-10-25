@@ -148,10 +148,10 @@ function newestIndices(list, count, storedLength) {
  * brings more than `K`: then only its last `K` are spared), whatever the
  * caller's `now`. It then stays safe while fewer than `K` entries rank newer
  * (a later call's own, or a later `addedAt`); from then on it ranks by weight
- * then age with the rest. Its `addedAt` is the caller's `now`: the warmup's
- * person run stamps with the member's last sampled message, so its moments can
- * rank below stream moments stored after that message and live shorter than the
- * survival below once they have arrived. Expected survival: a light
+ * then age with the rest. Its `addedAt` is the caller's `now`: a caller that
+ * passes the time of the last message it read instead of the clock stores
+ * moments that can rank below moments stored after that message and live
+ * shorter than the survival below once they have arrived. Expected survival: a light
  * moment of a member at the cap whose stored moments are all heavier lives for
  * exactly `K` later moments and goes in the merge that stores the `K`-th -- at
  * `memory.keepNewestEpisodes` 5 and `memory.maxNewEpisodes` 3, at least two

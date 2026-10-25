@@ -35,8 +35,8 @@
 // the same window, read from the profiles by reference and never copied here.
 // It only ranks; the request builder renders, caps and re-orders by time. A
 // stored moment has no time of its own, only its `date` (the day the model
-// wrote, in the server's zone) and `addedAt` (when the analyzer stored it, or
-// the last sampled message for the warmup): both have to fall in the window
+// wrote, in the server's zone) and `addedAt` (when the analyzer stored it):
+// both have to fall in the window
 // (see `momentAt`).
 
 import { isPlainObject } from '../config.js';
@@ -400,8 +400,7 @@ export function episodeKey(profileId, ep) {
  *     `clock`. Every moment stored by src/memory/episodes.js#mergeEpisodes
  *     carries one: the analyzer's clock at the batch, a little after the
  *     moment, so a moment leaves the window by its time, not by its calendar
- *     day. The date still has to qualify: the warmup stamps old moments with a
- *     recent `addedAt` (the member's last sampled message).
+ *     day. The date has to qualify as well.
  * A moment without a parsable `addedAt` (written before the field existed, or by
  * hand) is judged by its date alone.
  */

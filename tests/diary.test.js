@@ -596,7 +596,7 @@ function diaryChannelFake({ send = true, attach = true, guildId = 'g1' } = {}) {
   };
 }
 
-function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channel = diaryChannelFake(), outcomes = [], backfill = null, warming = false, turnsExtra = {}, delay } = {}) {
+function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channel = diaryChannelFake(), outcomes = [], backfill = null, turnsExtra = {}, delay } = {}) {
   let clock = D_NOW;
   const turnCalls = [];
   const hot = {
@@ -642,7 +642,6 @@ function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channe
     client,
     turns,
     getGuildId: () => 'g1',
-    isWarmingUp: () => warming,
     backfill,
     rng: () => 0.5,
     now: () => clock,
@@ -651,12 +650,11 @@ function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channe
   return { hot, store, turnCalls, diary: diaryFactory, setNow: (t) => (clock = t) };
 }
 
-test('tick: no-op without a channel id, with features.diary false, when paused or warming up', async () => {
+test('tick: no-op without a channel id, with features.diary false, when paused', async () => {
   const cases = [
     ['no-channel', { diary: { channelId: '' } }],
     ['off', { features: { diary: false } }],
     ['paused', { data: { paused: true } }],
-    ['warmup', { warming: true }],
   ];
   for (const [reason, setup] of cases) {
     const h = diaryHarness(setup);

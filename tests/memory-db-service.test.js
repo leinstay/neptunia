@@ -195,7 +195,7 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
 test('status: the state of the database for the card, and its line from the labels', async () => {
   const env = setup();
   try {
-    const labels = { status: { memoryDb: { unavailable: 'DOWN', syncOff: 'rows {rows} files {files}' } } };
+    const labels = { status: { memoryDb: { unavailable: 'DOWN', ok: 'rows {rows} files {files}' } } };
     assert.equal(env.service.status().open, false);
     assert.equal(memoryDbStatusLine(env.service.status(), labels), 'DOWN');
     await env.service.tick();
@@ -204,7 +204,7 @@ test('status: the state of the database for the card, and its line from the labe
     assert.ok(status.rows > 0 && status.files > 0);
     assert.equal(memoryDbStatusLine(status, labels), `rows ${status.rows} files ${status.files}`);
     // A label the writer has not filled yet leaves the line out.
-    assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { syncOff: '' } } }), null);
+    assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { ok: '' } } }), null);
     assert.equal(memoryDbStatusLine(status, {}), null);
   } finally { await env.done(); }
 });

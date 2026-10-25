@@ -1705,10 +1705,6 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `getSelfName` (src/index.js) is the persona's display name in a guild;
  * default: the client's cached guild member, else the bot user's name.
  *
- * `isWarmingUp` (src/memory/warmup.js, wired in src/index.js; default: never)
- * ends a chain of parts before its next part (runChain): a warmup mutes the
- * persona, as a pause does.
- *
  * A call whose text passes the splitter's pre-filter (src/behavior/split.js)
  * asks the splitter (prompts/split.md) beside the turn's preparation, under
  * its deadline. `one`, a late, failed or unparsable answer, a missing prompt
@@ -1859,7 +1855,6 @@ export function createTurnRunner({
   routeChannels,
   now: clock = Date.now,
   schedule = scheduleTimer,
-  isWarmingUp = () => false,
   activity = null,
   journal = null,
   record = null,
@@ -5883,14 +5878,9 @@ export function createTurnRunner({
       .catch((err) => log.warn('turn: onTurnEnd failed', { error: err }));
   }
 
-  /** Why a chain ends before its next part: `paused` (/nep pause), `warmup` (a warmup run), or null. */
+  /** Why a chain ends before its next part: `paused` (/nep pause), or null. */
   function chainStop() {
-    if (store.state.data.paused) return 'paused';
-    try {
-      return isWarmingUp() ? 'warmup' : null;
-    } catch {
-      return null;
-    }
+    return store.state.data.paused ? 'paused' : null;
   }
 
   /**
@@ -5907,7 +5897,7 @@ export function createTurnRunner({
    * does not stop the next. The attention stays the chain's from the
    * whole message's turn to the end -- nothing else starts in between
    * (pending calls keep queueing) -- and the idle notifications fire once, at
-   * the end. A pause or a warmup ends the chain before its next part (`turn:
+   * the end. A pause ends the chain before its next part (`turn:
    * chain stopped`). While it runs, the parts not started yet are the
    * author's waiting items (waitingParts); a later message of the author
    * folded into one of them (addToPart) reaches that part's request as
@@ -6035,8 +6025,8 @@ export function createTurnRunner({
   }
 
   /**
-   * What an inner turn (`args.inner`) did and found, for her memory (src/memory/inner-episode.js,
-   * src/memory/update.js#observeInner): her thinks, what her reads found (`draft.innerFindings`:
+   * What an inner turn (`args.inner`) did and found, for her memory (src/memory/inner-episode.js):
+   * her thinks, what her reads found (`draft.innerFindings`:
    * skill, arguments, result text), her other calls with how each went, where it happened and
    * whether it was shadow. Null when the turn found nothing and has nothing to answer for (no
    * read found anything, no call other than a read, every call ended ok,

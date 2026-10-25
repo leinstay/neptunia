@@ -286,7 +286,6 @@ export const labels = {
     when: 'Local time: {when}',
   },
   memory: {
-    privateNote: 'Private batch: judge only this person.',
     privateChannel: 'direct chat',
     redaction: 'someone',
     inner: {
@@ -337,10 +336,6 @@ export const labels = {
       agentContext: '{agent} wave {wave}: {turns} turns, ctx {mean}/{peak}, {usd} USD',
       agentEstimate: 'USD estimated',
     },
-  },
-  warmup: {
-    ownMark: '[own] ',
-    contextMark: '[ctx] ',
   },
   limits: {
     notice: 'limit reached ({limit}, {used}/{cap})',

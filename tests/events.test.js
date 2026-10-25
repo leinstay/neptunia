@@ -201,7 +201,6 @@ function makeHandler({
   client,
   store,
   getGuildId,
-  isWarmingUp,
   describer,
   prompts,
   llm,
@@ -223,7 +222,6 @@ function makeHandler({
     memory: memory ?? fakeMemory(),
     tagHistory: tagHistory ?? createTagHistory(),
     getGuildId: getGuildId ?? (() => 'g1'),
-    isWarmingUp,
     describer,
     llm,
     lookup,
@@ -822,71 +820,6 @@ test('features.relationships=false: affinityScore is never looked up or passed',
 });
 
 // ---------------------------------------------------------------------------
-// isWarmingUp: the persona is mute while a memory warmup run is in
-// flight.
-
-test('events: while warming up a plain message is observed but no turn or eavesdrop happens', async () => {
-  const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns();
-  const handler = makeHandler({ memory, spontaneous, turns, isWarmingUp: () => true });
-
-  const message = fakeMessage({ cleanContent: 'ένα απλό μήνυμα' });
-  await handler(message);
-
-  assert.equal(memory.observeCalls.length, 1);
-  assert.deepEqual(memory.observeCalls[0][2], { direct: false });
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-});
-
-test('events: while warming up a mention never runs a turn, even though it would normally trigger', async () => {
-  let called = false;
-  const turns = fakeTurns({ runTurn: async () => { called = true; return { outcome: 'spoke' }; } });
-  const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ turns, memory, spontaneous, isWarmingUp: () => true, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(called, false);
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-  assert.equal(memory.observeCalls.length, 1);
-  assert.deepEqual(memory.observeCalls[0][2], { direct: false });
-});
-
-test('events: while warming up, a pending ping already queued is left for a later drain', async () => {
-  let muted = false;
-  let seenArgs = null;
-  const turns = fakeTurns({
-    isBusy: () => false,
-    isAnyBusy: () => true,
-    runTurn: async (args) => {
-      seenArgs = args;
-      return { outcome: 'spoke' };
-    },
-  });
-  const handler = makeHandler({ turns, isWarmingUp: () => muted, rng: scripted([0.5, 0.99]) });
-
-  const guild = fakeGuild();
-  const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  const message = directPingMessage({ guild, channel, channelId: 'c1' });
-  await handler(message);
-
-  muted = true;
-  await handler.drainPending();
-  assert.equal(seenArgs, null, 'the queue is left untouched while warming up');
-
-  muted = false;
-  await handler.drainPending();
-  assert.ok(seenArgs, 'and answered once warming up ends');
-});
-
-// ---------------------------------------------------------------------------
 // bot.dryRunChannelId: the dry-run mirror channel (src/behavior/turn.js)
 // carries the persona's own rehearsal output and is the owner's private test
 // room. It goes back to being ignored entirely: nothing there is observed or
@@ -1108,17 +1041,6 @@ test('events: the dry-run mirror channel never triggers a describer call, even w
   await handler(message);
 
   assert.equal(describer.calls.length, 0);
-});
-
-test('events: while warming up, an observed human message with a picture still warms the describer cache', async () => {
-  const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, describer, isWarmingUp: () => true });
-
-  const message = fakeMessage({ cleanContent: 'look', attachments: pictureAttachments(1) });
-  await handler(message);
-
-  assert.equal(describer.calls.length, 1);
 });
 
 test('events: the persona\'s own message never triggers a describer call', async () => {
@@ -3350,17 +3272,6 @@ test('private: another bot in a DM is ignored', async () => {
   assert.equal(turns.notePostCalls.length, 0);
 });
 
-test('private: while warming up a DM is observed privately but never answered', async () => {
-  const turns = recordingTurns();
-  const memory = fakeMemory();
-  const handler = makeDmHandler({ turns, memory, isWarmingUp: () => true });
-  await handler(fakeDmMessage());
-  await settle();
-  assert.equal(turns.calls.length, 0);
-  assert.equal(memory.observeCalls.length, 1);
-  assert.deepEqual(memory.observeCalls[0][2], { direct: true, private: 'u1' });
-});
-
 // --- Limit notices on triggered guild turns ---------------------------------
 
 function refusedTurns() {
@@ -4009,10 +3920,10 @@ test('follow-up: pendingOverheard off drops it as before', async () => {
 // persona said to someone else or to the room (mention.followUpOverheard).
 
 /** Opens a follow-up window in c1 and returns the pieces an overheard test needs. */
-async function overheardScene({ config, turns = recordingTurns(), tagHistory, channelOverrides, store, isWarmingUp, now } = {}) {
+async function overheardScene({ config, turns = recordingTurns(), tagHistory, channelOverrides, store, now } = {}) {
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ config, turns, spontaneous, tagHistory, llm, store, isWarmingUp, now, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, turns, spontaneous, tagHistory, llm, store, now, prompts: fakeAddressPrompts() });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, [], channelOverrides);
   await openFollowUpWindow(handler, { guild, channel, ts: (now ?? Date.now)() });
@@ -4287,14 +4198,6 @@ const WAITING_LINE_BLOCKERS = [
     () => {
       const store = fakeStateStore();
       return { options: { store }, block: () => (store.state.data.paused = true) };
-    },
-  ],
-  [
-    'a warmup run started',
-    'warmup',
-    () => {
-      let warming = false;
-      return { options: { isWarmingUp: () => warming }, block: () => (warming = true) };
     },
   ],
   [
@@ -4945,7 +4848,6 @@ function routeScene({
   sourceViewers = ['g1', 'r1'],
   mainCanSend = true,
   store = fakeStateStore(),
-  isWarmingUp,
   rng = () => 0.5,
   prompts,
   tagHistory,
@@ -4958,7 +4860,7 @@ function routeScene({
   const main = routeChannel(guild, 'd1', { send: mainCanSend });
   const clock = mutableNow(ROUTE_T0);
   const timers = fakeTimers();
-  const handler = makeHandler({ config, turns, store, now: clock, timers, rng, isWarmingUp, prompts, tagHistory, spontaneous, sleep: async () => {} });
+  const handler = makeHandler({ config, turns, store, now: clock, timers, rng, prompts, tagHistory, spontaneous, sleep: async () => {} });
   return { config, guild, source, source2, main, sourceViewers, clock, timers, handler, turns, store };
 }
 
@@ -5484,34 +5386,20 @@ test('events: context.pull.sameAudience false lets a ping from a narrower channe
   assert.equal(scene.turns.calls[0].channel, scene.main);
 });
 
-for (const [reason, makeScene, mute] of [
-  ['paused', () => routeScene(), (scene) => (scene.store.state.data.paused = true)],
-  [
-    'warmup',
-    () => {
-      let warming = false;
-      const scene = routeScene({ isWarmingUp: () => warming });
-      scene.startWarmup = () => (warming = true);
-      return scene;
-    },
-    (scene) => scene.startWarmup(),
-  ],
-]) {
-  test(`events: a settle that fires while ${reason === 'paused' ? 'paused' : 'a warmup runs'} drops the call (${reason})`, async () => {
-    const scene = makeScene();
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    mute(scene);
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
+test('events: a settle that fires while paused drops the call (paused)', async () => {
+  const scene = routeScene();
+  await routeSend(scene, scene.source, 0, { id: 'm1' });
+  scene.store.state.data.paused = true;
+  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
-    assert.equal(scene.turns.calls.length, 0);
-    const dropped = byMsg(logs, 'elsewhere: dropped');
-    assert.equal(dropped.length, 1);
-    assert.equal(dropped[0].source, 's1');
-    assert.equal(dropped[0].reason, reason);
-    assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-    assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null, 'the call stays unanswered in the ring');
-  });
-}
+  assert.equal(scene.turns.calls.length, 0);
+  const dropped = byMsg(logs, 'elsewhere: dropped');
+  assert.equal(dropped.length, 1);
+  assert.equal(dropped[0].source, 's1');
+  assert.equal(dropped[0].reason, 'paused');
+  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
+  assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null, 'the call stays unanswered in the ring');
+});
 
 for (const [reason, change] of [
   ['off', (scene) => (scene.config.features.elsewhere = false)],
@@ -6426,17 +6314,16 @@ test('events: a call arriving during a noticed settle takes its place', async ()
   assert.deepEqual(scene.store.state.data.elsewherePings.map((entry) => entry.messageId), ['m2'], 'only the call is in the ring');
 });
 
-test('events: a noticed settle that ends while warming up runs nothing', async () => {
-  let warming = false;
+test('events: a noticed settle that ends while paused runs nothing', async () => {
   const spontaneous = noticingSpontaneous();
-  const scene = routeScene({ spontaneous, isWarmingUp: () => warming });
+  const scene = routeScene({ spontaneous });
   await routeSend(scene, scene.source, 0, plainLine('m1'));
-  warming = true;
+  scene.store.state.data.paused = true;
   const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
   assert.equal(spontaneous.runCalls.length, 0);
   assert.deepEqual(
     byMsg(logs, 'elsewhere: dropped').map(({ kind, reason }) => [kind, reason]),
-    [['noticed', 'warmup']],
+    [['noticed', 'paused']],
   );
 });
 

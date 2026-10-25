@@ -569,9 +569,9 @@ function writable(channel, { canSend, canAttach }) {
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
  * src/index.js) does nothing while `features.diary` is false (a missing key
- * counts as on), no `diary.channelId` is set, the bot is paused or a warmup
- * runs (`diary: skip` with `reason` `off`, `no-channel`, `paused`, `warmup`,
- * once per local day and reason). Otherwise it keeps the day plan of the
+ * counts as on), no `diary.channelId` is set or the bot is paused (`diary:
+ * skip` with `reason` `off`, `no-channel`, `paused`, once per local day and
+ * reason). Otherwise it keeps the day plan of the
  * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
@@ -596,7 +596,7 @@ function writable(channel, { canSend, canAttach }) {
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
  * @param {{ hot: object, store: object, client: object, discord: object, turns: object, getGuildId: () => (string|null),
- *   isWarmingUp?: () => boolean, backfill?: ((args: object) => Promise<number>)|null,
+ *   backfill?: ((args: object) => Promise<number>)|null,
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
  *   `discord`: the Discord interface's capabilities object (src/index.js injects it): `canSend`,
@@ -607,7 +607,7 @@ function writable(channel, { canSend, canAttach }) {
  *   status: () => { channelId: string, day: string|null, slots: number[], done: number[], quiet: boolean,
  *   hunger: number[], quietStreak: number, posts: number, pictures: number, history: number }, stop: () => void }}
  */
-export function createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp = () => false, backfill = null, rng = Math.random, now = Date.now, delay = unrefDelay }) {
+export function createDiary({ hot, store, client, discord, turns, getGuildId, backfill = null, rng = Math.random, now = Date.now, delay = unrefDelay }) {
   let stopped = false;
   let inFlight = false;
   // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
@@ -621,20 +621,11 @@ export function createDiary({ hot, store, client, discord, turns, getGuildId, is
     log.info('diary: skip', { reason, ...extra });
   }
 
-  function warming() {
-    try {
-      return isWarmingUp() === true;
-    } catch {
-      return false;
-    }
-  }
-
   /** Why no post may run now, before any channel is looked at, or null. */
   function gate(config) {
     if (config.features?.diary === false) return 'off';
     if (!config.diary?.channelId) return 'no-channel';
     if (store.state.data.paused) return 'paused';
-    if (warming()) return 'warmup';
     return null;
   }
 

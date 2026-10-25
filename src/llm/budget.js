@@ -58,7 +58,7 @@ export function safetyMarginOf(config) {
  * `fitSections` accepts.
  * @param {object} config  The live config; `config.llm` may be missing.
  * @param {number} [maxRequestTokens]  The token cap to use instead of `config.llm.maxRequestTokens`
- *   (the warmup has its own).
+ *   (a caller with a cap of its own).
  * @returns {number}  A finite integer >= 0.
  */
 export function requestTokenLimit(config, maxRequestTokens = config?.llm?.maxRequestTokens) {

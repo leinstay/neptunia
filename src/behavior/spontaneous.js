@@ -290,9 +290,6 @@ function hasElsewherePrompt(prompts) {
  *   injects it): the readable channels, the send and write checks, the last activity, the route.
  * @param {ReturnType<import('./turn.js').createTurnRunner>} params.turns
  * @param {() => string | null} params.getGuildId  the single guild this instance serves, or null before it resolves
- * @param {() => boolean} [params.isWarmingUp]  true while the memory warmup runner
- *   (src/memory/warmup.js) is in flight: no tick and no eavesdrop scheduling happens.
- *   Default: never warming up.
  * @param {() => number} [params.rng]
  * @param {() => number} [params.now]
  */
@@ -303,7 +300,6 @@ export function createSpontaneous({
   discord,
   turns,
   getGuildId,
-  isWarmingUp = () => false,
   rng = Math.random,
   now = Date.now,
 }) {
@@ -466,8 +462,6 @@ export function createSpontaneous({
     // /nep pause: the owner is editing data/ by hand -- no spontaneous
     // activity, and nothing here (not even the schedule) may become dirty.
     if (store.state.data.paused) return;
-    // A memory warmup run is in flight: the persona stays mute, same as a pause.
-    if (isWarmingUp()) return;
 
     const config = hot.config;
     const cfg = config.spontaneous;
@@ -546,16 +540,15 @@ export function createSpontaneous({
 
   /**
    * Whether an eavesdrop may happen now, `config` read by the caller now:
-   * not warming up, both switches on (eavesdropping is a form of spontaneous
-   * speech) and inside active hours. A pause is checked by runTurn itself.
+   * both switches on (eavesdropping is a form of spontaneous speech) and
+   * inside active hours. A pause is checked by runTurn itself.
    */
   function eavesdropAllowed(config, t) {
     return eavesdropBlock(config, t) === null;
   }
 
-  /** Why eavesdropAllowed says no: `warmup`, `off` (a switch) or `asleep` (outside active hours); null when it says yes. */
+  /** Why eavesdropAllowed says no: `off` (a switch) or `asleep` (outside active hours); null when it says yes. */
   function eavesdropBlock(config, t) {
-    if (isWarmingUp()) return 'warmup';
     const features = config.features ?? {};
     if (features.spontaneous === false || features.eavesdrop === false) return 'off';
     return isActiveHour(localHour(t, config.bot.timezone), config.spontaneous.activeHours) ? null : 'asleep';
@@ -570,7 +563,7 @@ export function createSpontaneous({
   function eavesdropRails(channel, config, t) {
     // /nep pause: no eavesdrop scheduling while paused.
     if (store.state.data.paused) return false;
-    // A memory warmup run, a switch off or the persona asleep: no eavesdrop scheduling.
+    // A switch off or the persona asleep: no eavesdrop scheduling.
     if (!eavesdropAllowed(config, t)) return false;
     if (channel.guild?.id !== getGuildId()) return false;
     return passesFilters(channel, config, config.spontaneous, t);
@@ -666,7 +659,7 @@ export function createSpontaneous({
    * schedule is left as it is. Never rejects.
    * @param {object} source  The discord.js channel the persona read.
    * @returns {Promise<{ outcome: string, reason?: string }>}  A rail that refused gives `not-now`
-   *   (`paused` while paused) with its code in `reason`: `paused`, `warmup`, `off`, `asleep`, `channel`,
+   *   (`paused` while paused) with its code in `reason`: `paused`, `off`, `asleep`, `channel`,
    *   `no-destination`, `audience`, `no-prompt`, `cannot-send`, `gap`, `busy` or `seen`. Otherwise the
    *   turn's own result.
    */

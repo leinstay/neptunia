@@ -11,9 +11,8 @@
 // from their message, re-read over the Discord
 // API for a fresh animation URL. A failed watch keeps the old caption, marked
 // `watchFailed`, which sends it to the back of the queue. One run at a time;
-// refused while paused, during a warmup or while GIFs are not watched; a run
-// stops before the next GIF once the bot is paused, a warmup starts or a
-// daily rail is spent. Logs carry counts only.
+// refused while paused or while GIFs are not watched; a run stops before the
+// next GIF once the bot is paused or a daily rail is spent. Logs carry counts only.
 //
 // The media recache (`/nep media kind:pictures action:recache days:<n>`,
 // startMedia) re-describes by the current models the cached descriptions of
@@ -288,7 +287,6 @@ function realSleep(ms) {
  *   `pictureBlocker`. Absent -> never runs.
  * @param {object|null} [deps.record]  src/memory/record.js (`iterate`), where the media recache finds the
  *   messages of the pictures it re-describes. Absent -> only emoji and library GIFs are found.
- * @param {() => boolean} [deps.isWarmingUp]  True while the memory warmup runs.
  * @param {() => number} [deps.now]
  * @param {(ms: number) => Promise<void>} [deps.sleep]  The media recache's pause between two descriptions.
  * @param {object} [deps.log]      src/log.js-shaped logger.
@@ -300,7 +298,6 @@ export function createGifRecache({
   discord,
   describer = null,
   record = null,
-  isWarmingUp = () => false,
   now = Date.now,
   sleep = realSleep,
   log = defaultLog,
@@ -341,17 +338,13 @@ export function createGifRecache({
     return picture ? { ...picture, itemId: entry.itemId } : null;
   }
 
-  /** Watch every queued entry in turn; stops on pause, a warmup or a spent rail. */
+  /** Watch every queued entry in turn; stops on pause or a spent rail. */
   async function work(guildId, queue) {
     const counts = { watched: 0, failed: 0 };
     let stopped = null;
     for (const entry of queue) {
       if (store.state?.data?.paused) {
         stopped = 'paused';
-        break;
-      }
-      if (isWarmingUp()) {
-        stopped = 'warmup';
         break;
       }
       const item = (await pictureOf(entry)) ?? { itemId: entry.itemId, kind: 'gif' };
@@ -372,7 +365,7 @@ export function createGifRecache({
    * library (oneFrameGifKeys) at once, then watches up to
    * `gifs.recachePerRun` library entries (recacheQueue) in the background.
    * Resolves at once, never throws for a skip: `{ ok: false, reason }` --
-   * `running`, `paused`, `warmup`, `unavailable` (no describer), or why GIFs
+   * `running`, `paused`, `unavailable` (no describer), or why GIFs
    * are not watched (`off`, `video-off`, `no-prompt`) -- else `{ ok: true,
    * dropped, queued }`.
    * @param {string} guildId
@@ -380,7 +373,6 @@ export function createGifRecache({
   function start(guildId) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
-    if (isWarmingUp()) return { ok: false, reason: 'warmup' };
     if (typeof describer?.watchGif !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.gifWatchBlocker === 'function' ? describer.gifWatchBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
@@ -410,11 +402,9 @@ export function createGifRecache({
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : DEFAULT_INTERVAL_MS;
   }
 
-  /** Why a run must stop before its next step (`paused`, `warmup`), or null. */
+  /** Why a run must stop before its next step (`paused`), or null. */
   function stopReason() {
-    if (store.state?.data?.paused) return 'paused';
-    if (isWarmingUp()) return 'warmup';
-    return null;
+    return store.state?.data?.paused ? 'paused' : null;
   }
 
   /** Re-describe the picked keys: emoji, then library GIFs, then the rest through the record; see startMedia. */
@@ -493,7 +483,7 @@ export function createGifRecache({
    * keys at once (pickStaleDescriptions, under the live media.recacheBefore
    * and the current vision and video models), then re-describes them in the
    * background. Resolves at once, never throws for a skip: `{ ok: false,
-   * reason }` -- `running` (this or a GIF run), `paused`, `warmup`,
+   * reason }` -- `running` (this or a GIF run), `paused`,
    * `unavailable` (no describer), or why pictures are not described (`off`,
    * `no-prompt`) -- else `{ ok: true, picked, days }`.
    * @param {string} guildId
@@ -502,7 +492,6 @@ export function createGifRecache({
   function startMedia(guildId, { days = RECACHE_DAYS.default } = {}) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
-    if (isWarmingUp()) return { ok: false, reason: 'warmup' };
     if (typeof describer?.redescribe !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.pictureBlocker === 'function' ? describer.pictureBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };

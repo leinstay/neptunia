@@ -738,14 +738,13 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {(event: object) => Promise<object>} [options.submit]  The event door's submit (src/index.js).
  * @param {{ state: { data: object } }|null} [options.store]  The memory store (its pause).
  * @param {() => string|null} [options.getGuildId]
- * @param {() => boolean} [options.isWarmingUp]
  * @param {() => boolean} [options.peopleWaiting]  Calls queued for the attention (people first).
  * @param {() => Promise<unknown>} [options.ready]  Resolves once the journal's start-up reconciliation is done (src/index.js);
  *   a turn that a restart cut off is resolved from the journal only after it.
  * @param {() => string} [options.uuid]  Ids for the turns this life starts (the in-flight mark names the turn before it runs).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
  * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
- *   turn did and found (its result's `inner.episode`), for her memory (src/memory/update.js#observeInner).
+ *   turn did and found (its result's `inner.episode`), for her memory (src/memory/inner-episode.js); src/index.js does not set it.
  * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null, focusPeople?: (guildId: string) => object|null }} [options.heartbeat]
  *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
  * @param {{ recordWake?: (update: object) => Promise<unknown>|null }|null} [options.memoryDb]  The memory database
@@ -769,7 +768,6 @@ export function createInnerLife({
   submit = null,
   store = null,
   getGuildId = () => null,
-  isWarmingUp = () => false,
   peopleWaiting = () => false,
   ready = () => Promise.resolve(),
   uuid = randomUUID,
@@ -872,7 +870,7 @@ export function createInnerLife({
 
   function paused() {
     try {
-      return store?.state?.data?.paused === true || isWarmingUp() === true;
+      return store?.state?.data?.paused === true;
     } catch {
       return false;
     }

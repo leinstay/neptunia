@@ -6661,25 +6661,21 @@ test('runTurn: the chain holds the one attention to its end and notifies idle on
   assert.equal(turnsRef.isAnyBusy(), false);
 });
 
-test('runTurn: a pause or a warmup ends the chain before its next part', async () => {
-  for (const reason of ['paused', 'warmup']) {
-    const store = fakeStore();
-    let warming = false;
-    const talk = () => {
-      if (reason === 'paused') store.state.data.paused = true;
-      else warming = true;
-      return '<msg>ok</msg>';
-    };
-    const llm = splitLlm({ talk });
-    const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
-    const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule(), isWarmingUp: () => warming });
-    const { logs, result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
-    assert.equal(llm.calls.talk.length, 1, reason);
-    assert.deepEqual(logs.filter((line) => line.msg === 'turn: chain stopped').map(({ reason: why, index, total }) => [why, index, total]), [[reason, 2, 3]]);
-    assert.equal(result.outcome, 'spoke');
-    assert.equal(turns.isAnyBusy(), false);
-  }
+test('runTurn: a pause ends the chain before its next part', async () => {
+  const store = fakeStore();
+  const talk = () => {
+    store.state.data.paused = true;
+    return '<msg>ok</msg>';
+  };
+  const llm = splitLlm({ talk });
+  const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
+  const { logs, result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  assert.equal(llm.calls.talk.length, 1);
+  assert.deepEqual(logs.filter((line) => line.msg === 'turn: chain stopped').map(({ reason: why, index, total }) => [why, index, total]), [['paused', 2, 3]]);
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(turns.isAnyBusy(), false);
 });
 
 test('runTurn: a dry run mirrors each part with its number in the header', async () => {

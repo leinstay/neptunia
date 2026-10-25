@@ -2,8 +2,8 @@
 // entries a run re-describes and in what order, which one-frame captions of
 // the media cache it drops, the caption counts of `/nep gifs status`, and the
 // run itself on a real store, a fake describer and a fake discord.js client:
-// the per-run cap, watched entries skipped, one run at a time, pause and
-// warmup respected.
+// the per-run cap, watched entries skipped, one run at a time, the pause
+// respected.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -319,15 +319,11 @@ test('gif recache: one run at a time', async () => {
   });
 });
 
-test('gif recache: refused while paused, during a warmup, without a describer or while GIFs are not watched -- nothing dropped', async () => {
+test('gif recache: refused while paused, without a describer or while GIFs are not watched -- nothing dropped', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1)], { 'x9#e0': { text: 'a stray still', ts: 1, gif: true } });
     const base = { hot: fakeHot(), store, client: fakeClient([]), log: silentLog() };
 
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store), isWarmingUp: () => true }).start('g1'), {
-      ok: false,
-      reason: 'warmup',
-    });
     assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).start('g1'), { ok: false, reason: 'unavailable' });
     for (const blocker of ['off', 'video-off', 'no-prompt']) {
       assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), { ok: false, reason: blocker });
@@ -338,15 +334,13 @@ test('gif recache: refused while paused, during a warmup, without a describer or
   });
 });
 
-test('gif recache: a run stops before the next GIF once paused, a warmup starts or a daily rail is spent', async () => {
-  for (const stop of ['paused', 'warmup', 'daily']) {
+test('gif recache: a run stops before the next GIF once paused or a daily rail is spent', async () => {
+  for (const stop of ['paused', 'daily']) {
     await withStore(async (store) => {
       seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)]);
-      let warming = false;
       const describer = fakeDescriber(store, {
         outcome: (item) => {
           if (stop === 'paused') store.state.data.paused = true;
-          if (stop === 'warmup') warming = true;
           if (stop === 'daily') return { state: 'unavailable', reason: 'daily' };
           return { state: 'watched', text: `watched ${item.itemId}` };
         },
@@ -358,7 +352,6 @@ test('gif recache: a run stops before the next GIF once paused, a warmup starts 
         store,
         client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
         describer,
-        isWarmingUp: () => warming,
         log,
       });
       recache.start('g1');
@@ -580,7 +573,7 @@ test('media recache: a spent daily request cap stops the run; a failure is count
   });
 });
 
-test('media recache: refused while running (either run), paused, during a warmup, without a describer or with pictures off', async () => {
+test('media recache: refused while running (either run), paused, without a describer or with pictures off', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1)], { 'emoji:1': { text: 'a', ts: NOW - DAY } });
     const clock = fakeTime();
@@ -597,7 +590,6 @@ test('media recache: refused while running (either run), paused, during a warmup
     release();
     await busy.waitIdle();
 
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock), isWarmingUp: () => true }).startMedia('g1', {}), { ok: false, reason: 'warmup' });
     assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).startMedia('g1', {}), { ok: false, reason: 'unavailable' });
     assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock, { blocker: 'off' }) }).startMedia('g1', {}), { ok: false, reason: 'off' });
     store.state.data.paused = true;

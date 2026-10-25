@@ -802,7 +802,7 @@ test('complete: a non-finite or non-positive options.videoTokensPerSecond falls 
 });
 
 // options.signal -- an external AbortController cancels the in-flight
-// request (for /nep warmup stop), and is never retried afterwards.
+// request, and is never retried afterwards.
 test('complete: options.signal aborts the in-flight fetch and rejects without retrying', async () => {
   let calls = 0;
   let seenSignal;

@@ -85,14 +85,14 @@ test('touchUser: an empty/falsy name does not touch the names list', () => {
   assert.deepEqual(profile.names, ['Alice']);
 });
 
-// ---- out-of-order touches (the memory warmup feeding old history after a live touch today) ----
+// ---- out-of-order touches (old history fed after a live touch today) ----
 
 test('touchUser: firstSeen is min(existing, at) and lastSeen is max(existing, at), regardless of arrival order', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   // Live touch today...
   store.touchUser('g1', 'u1', 'Alice', 5_000_000);
-  // ...then the warmup feeds four years of older history.
+  // ...then four years of older history arrive.
   const profile = store.touchUser('g1', 'u1', 'Alice', 1000);
   assert.equal(profile.firstSeen, new Date(1000).toISOString(), 'firstSeen widens to the older message');
   assert.equal(profile.lastSeen, new Date(5_000_000).toISOString(), 'lastSeen does NOT regress to the older message');
@@ -1305,7 +1305,7 @@ function seedGuild(store) {
   const cache = store.getMediaCache('g1');
   cache.a1 = { text: 'a cat', ts: 1000 };
   store.markMediaCacheDirty('g1');
-  store.state.data.warmup = { done: false, channels: { c1: { batchesDone: 2 } } };
+  store.state.data.job = { done: false, channels: { c1: { batchesDone: 2 } } };
   store.state.data.llmDay = '2026-09-20';
   store.state.data.llmCount = 7;
   store.state.markDirty();
@@ -1411,13 +1411,13 @@ test('reloadState: re-reads state.json from disk, discarding the cached in-memor
   store.state.markDirty();
   store.flush();
 
-  // A hand-edit to state.json itself, e.g. warmup progress, made while paused.
-  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ llmCount: 99, warmup: { done: false } }));
+  // A hand-edit to state.json itself, made while paused.
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ llmCount: 99, job: { done: false } }));
 
   assert.equal(store.state.data.llmCount, 1, 'still the stale cached value before reloadState');
   store.reloadState();
   assert.equal(store.state.data.llmCount, 99);
-  assert.deepEqual(store.state.data.warmup, { done: false });
+  assert.deepEqual(store.state.data.job, { done: false });
 });
 
 test('validate: names every unparsable operational *.json file, path relative to dataDir and forward-slash separated', async () => {
@@ -2019,7 +2019,7 @@ function withStore(fn) {
 }
 
 test('store: a prose rewrite records the previous text with who wrote and a sentence diff; a first write records nothing', () => withStore((store) => {
-  store.updateChannel('g1', 'c1', { purpose: 'Ένα. Δύο.' }, { by: 'warmup' });
+  store.updateChannel('g1', 'c1', { purpose: 'Ένα. Δύο.' }, { by: 'owner' });
   assert.deepEqual(store.listVersions('g1', 'channels', 'c1'), {}, 'first write');
   store.updateChannel('g1', 'c1', { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
   const v = store.listVersions('g1', 'channels', 'c1');

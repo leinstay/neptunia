@@ -1712,9 +1712,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     /**
      * Record that a member spoke: names, counters, timestamps. Creates the
-     * profile. Messages do not always arrive in chronological order (the
-     * memory warmup, src/memory/warmup.js, can feed months of history
-     * after the live pipeline already touched a profile today) -- `firstSeen`/`lastSeen` are therefore
+     * profile. Messages do not always arrive in chronological order (older
+     * history can be fed after the live pipeline already touched a profile
+     * today) -- `firstSeen`/`lastSeen` are therefore
      * min/max'd against `at`, never just overwritten, so a late/backdated
      * touch can only widen the known range, never regress `lastSeen` to an
      * older message. `names`' order is meant to read "most recent display
@@ -2626,7 +2626,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     /**
      * SET (never add) a channel entry's Discord facts and counters from a
-     * fetched history window (the warmup, src/memory/warmup.js#processChannel):
+     * fetched history window counted whole by the caller:
      * unlike `touchChannel` (the live pipeline's one-message-at-a-time
      * increments), a redo of the same window lands on the same numbers
      * instead of doubling them -- mirrors `touchUserFromWindows`' SET-not-ADD
@@ -3218,7 +3218,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     /**
      * Force `state.json` to be re-read from disk right now, discarding
      * whatever was cached (`/nep resume`): the owner may have
-     * hand-edited it (e.g. warmup progress) while paused. Any unflushed
+     * hand-edited it while paused. Any unflushed
      * in-memory change is lost, the same guarantee every other cached file
      * already has once dropped.
      */

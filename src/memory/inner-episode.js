@@ -1,6 +1,8 @@
 // What the persona did and found on her own in an inner turn (docs/inner-life.md), as lines of
-// her memory buffer, so the existing analyzer batch (src/memory/update.js) builds memory from it
-// the way it builds memory from chat: no new model role, no request of its own. The inner turn
+// her memory buffer. No engine path consumes these lines: src/behavior/inner.js hands each
+// episode to its `onEpisode` option, which src/index.js does not set, and the memory session
+// (src/memory/db/session.js) reads no inner-turn lines; tools/lib/inner-week.mjs uses only
+// INNER_MEMORY_DEFAULTS. No model role, no request of its own. The inner turn
 // (src/behavior/turn.js#innerEpisodeOf) hands what her reads found (web.search, web.read,
 // memory.search, her errands' results through task.status / task.list, ...), her thinks and how
 // her other calls went; this module turns that into first-person buffer lines of hers, every
