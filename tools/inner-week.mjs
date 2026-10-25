@@ -39,6 +39,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, runCli, simKey, spendGate } from './lib/cli.mjs';
+import { readOnlyMemory } from './lib/memory-read.mjs';
 import { computeGates, gatesTable, loadFixtures, parseDays, parseFixture, renderReport, reportOf, runWeek, turnsOnDays, withChannelMap } from './lib/inner-week.mjs';
 import { onLog } from '../src/log.js';
 import '../src/ops/index.js';
@@ -224,7 +225,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
   });
   let client = null;
   try {
-    const { store, state } = replay.unflushedStore(mods.createStore({ dataDir }));
+    const { store, state } = replay.unflushedStore(mods.createStore({ dataDir, memoryDb: readOnlyMemory(dataDir).memoryDb }));
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls = [];
     const llm = replay.recordingLlm(mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }), calls, { noCache: true });

@@ -149,10 +149,11 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
       }
       // The rest from the messages the record says may hold them, newest first.
       if (wanted.size > 0) {
-        const { createAppendStore } = await import('../src/memory/append-store.js');
         const { createRecord } = await import('../src/memory/record.js');
-        // Iteration only: the append store never gets an append, so it never opens a file for writing.
-        const record = createRecord({ appendStore: createAppendStore(), dataDir });
+        const { readOnlyMemory } = await import('./lib/memory-read.mjs');
+        // Iteration only: the memory database read only.
+        const memory = readOnlyMemory(dataDir);
+        const record = createRecord({ dataDir, memoryDb: memory.memoryDb });
         const finder = recordFinder([...wanted.values()].map((p) => p.itemId), lookupSince(picked, nowMs));
         const refs = new Map();
         for await (const line of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {

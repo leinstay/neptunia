@@ -793,7 +793,8 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   }
 
   function build() {
-    stores = createIntentionStores({ dataDir, now: clock.now, log });
+    // The intention stores outlive a restart, as the memory database keeps the intentions across one.
+    stores ??= createIntentionStores({ now: clock.now, log });
     intentions = createIntentionService({ stores, hot, tasks: { store: () => taskStore }, getGuildId: () => guildId, now: clock.now, uuid: world.uuid ?? (world.uuid = counterUuid()), log });
     let life;
     const door = createEventDoor({ handlers: { 'inner.wake': (event) => life.onWake(event) }, log });
