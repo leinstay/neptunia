@@ -48,3 +48,28 @@ test('schema v12 on a new database: no publication to wait for, no mark', () => 
     } finally { handle.close(); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// Schema v13 (2026-10-25): the rows of the removed drawing errand agent leave `work` and `work_events` once.
+test('schema v13: work rows of agent drawing and their events are dropped, the others stay, one decision is written', () => {
+  const root = tmpRoot();
+  const file = path.join(root, 'memory.db');
+  try {
+    const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 12) });
+    try {
+      const work = old.db.prepare('INSERT INTO work (id, kind, state, record) VALUES (?, ?, ?, ?)');
+      work.run('pic-1', 'errand', 'done', JSON.stringify({ id: 'pic-1', agent: 'drawing' }));
+      work.run('scout-1', 'errand', 'done', JSON.stringify({ id: 'scout-1', agent: 'scout' }));
+      const event = old.db.prepare('INSERT INTO work_events (id, work_id, at_ms, record) VALUES (?, ?, ?, ?)');
+      event.run('pic-1:1:0', 'pic-1', 1, '{}');
+      event.run('pic-1:2:1', 'pic-1', 2, '{}');
+      event.run('scout-1:1:2', 'scout-1', 1, '{}');
+    } finally { old.close(); }
+    const handle = openMemoryDb(file);
+    try {
+      assert.deepEqual(handle.db.prepare('SELECT id FROM work').all().map((row) => row.id), ['scout-1']);
+      assert.deepEqual(handle.db.prepare('SELECT id FROM work_events').all().map((row) => row.id), ['scout-1:1:2']);
+      const decisions = handle.db.prepare("SELECT action, json_extract(extra, '$.rows') AS rows FROM decisions WHERE action = 'migration:drawing_work_dropped'").all();
+      assert.deepEqual(decisions.map((row) => [row.action, row.rows]), [['migration:drawing_work_dropped', 1]]);
+    } finally { handle.close(); }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

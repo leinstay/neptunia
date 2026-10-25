@@ -44,7 +44,7 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 12 (`src/memory/db/schema.js`; migrations appended, never edited).
+Schema version 13 (`src/memory/db/schema.js`; migrations appended, never edited).
 
 ### Identity
 

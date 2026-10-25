@@ -848,9 +848,22 @@ function V12(db, context = {}) {
   finishDiaryDestination(db, context);
 }
 
+// Version 13 (2026-10-25): a data step, no table. The `drawing` errand agent was removed (drawing is a core ability), but
+// databases made before that still hold its pictures as `work` rows (kind errand, the agent inside the JSON `record`)
+// with their `work_events` lines. Both go, once, and one `decisions` row `migration:drawing_work_dropped` records how many
+// work rows left (none written when there was nothing to drop).
+const V13 = [
+  `INSERT OR IGNORE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
+    SELECT 'migration:v13:drawing_work_dropped', ${NOW_SQL}, 'migration', 'table', 'work', 'migration:drawing_work_dropped',
+      'the drawing errand agent was removed on 2026-10-25', json_object('rows', COUNT(*)), NULL, NULL, NULL
+    FROM work WHERE kind = 'errand' AND json_extract(record, '$.agent') = 'drawing' HAVING COUNT(*) > 0;`,
+  "DELETE FROM work WHERE kind = 'errand' AND json_extract(record, '$.agent') = 'drawing';",
+  'DELETE FROM work_events WHERE work_id NOT IN (SELECT id FROM work);',
+].join('\n');
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
 
 /** Every table schema v7 adds. */
 export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];
