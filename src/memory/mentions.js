@@ -22,9 +22,7 @@
 // triggers, lore keys and the `<people>` name scan, with its ending-tolerant
 // variant (`occursAsWordStem`) used by recall's forms. And the lesson teacher
 // rule (`teacherToken`, `TEACHER_TOKEN_RE`): which member taught the persona a
-// thing, one rule for both analyzer modes (src/memory/update.js#parseLearnedOps
-// and src/memory/voice.js#splitDecision), so switching modes never changes a
-// lesson's teacher.
+// thing (src/memory/archive.js and src/behavior/recall.js read it).
 //
 // Channels go the same way back out: `linkChannels` turns the `#handle` (exactly, from the
 // request's channel directory) or else the `#name` the
@@ -535,7 +533,7 @@ export function linkMessageNumbers(text, resolve) {
 const MIN_REDACT_NAME = 3;
 
 /**
- * `text` with one member taken out of it (a forget, src/memory/store.js#forgetUser): every
+ * `text` with one member taken out of it (a forget): every
  * `<@id>` / `<@!id>` token of `userId` and every one of `names` occurring as a whole word
  * (case-insensitive, any script; the longest first; a name with fewer than three word characters
  * is left alone) replaced by `token`. Anything that is not a string comes back unchanged.

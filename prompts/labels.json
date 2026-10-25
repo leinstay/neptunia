@@ -379,12 +379,8 @@
       "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
     },
     "memoryDb": {
-      "off": "db: off",
       "unavailable": "db: on, not open",
-      "readOn": "on",
-      "readOff": "off",
-      "ok": "db · {rows} rows · {files} files · the database writes · sync off",
-      "refused": "db: writer refused ({code})"
+      "ok": "db · {rows} rows · {files} files · the database writes · sync off"
     },
     "memorySession": {
       "off": "session: off",
@@ -417,16 +413,7 @@
   },
   "memory": {
     "privateChannel": "private chat",
-    "redaction": "someone",
-    "inner": {
-      "think": "[on my own, nobody saw this] I thought: {text}",
-      "done": "I called: {skills}",
-      "notDone": "I considered but did not call (never ran, no outcome from these): {skills}",
-      "found": "[on my own, nobody saw this] I called {skill}{asked} and got: {text}",
-      "asked": " ({text})",
-      "sources": "Sources: {links}"
-    },
-    "innerFeedback": "[on my own, nobody saw this] Not everything went through: {facts}"
+    "redaction": "someone"
   },
   "limits": {
     "notice": "...but nobody came ({limit}, {used}/{cap})",

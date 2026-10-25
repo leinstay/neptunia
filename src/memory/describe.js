@@ -372,8 +372,8 @@ function urlProcessingMode(videoCfg) {
  * `media.video.errorRetryMinutes`, see describeVideo), or a `length` miss whose duration is
  * unknown or fits the length cap that applies to `item` now (a raised cap retries it). `item`
  * (a collectVideos candidate) only decides the cap: a pinnable direct-URL link has its own; without
- * one (a buffered message keeps no URL) the cap is `media.video.maxSeconds`. Pure. Shared by the
- * describer's cache lookup and the live analyzer (src/memory/update.js).
+ * one (a buffered message keeps no URL) the cap is `media.video.maxSeconds`. Pure. Used by the
+ * describer's cache lookup.
  * @param {object|undefined} entry
  * @param {object} config  Live config (`media.video`, `llm`).
  * @param {object} [item]

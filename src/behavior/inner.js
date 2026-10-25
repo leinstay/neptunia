@@ -41,7 +41,6 @@
 // carrying them -- unless the turn's own wakes come back for a retry, which carries them. The
 // feedback wake is never held by a cap, never coalesced with another wake and does not count
 // against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
-// The same facts ride the turn's memory episode (`episode.feedback`).
 //
 // A recurring intention (`every`, src/intentions/model.js) is advanced to its next occurrence
 // whenever a wake naming it is marked handled -- her turn ended (whatever its outcome), or the
@@ -743,8 +742,6 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  *   a turn that a restart cut off is resolved from the journal only after it.
  * @param {() => string} [options.uuid]  Ids for the turns this life starts (the in-flight mark names the turn before it runs).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
- * @param {((guildId: string, episode: object) => unknown)|null} [options.onEpisode]  What an inner
- *   turn did and found (its result's `inner.episode`), for her memory (src/memory/inner-episode.js); src/index.js does not set it.
  * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null, focusPeople?: (guildId: string) => object|null }} [options.heartbeat]
  *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
  * @param {{ recordWake?: (update: object) => Promise<unknown>|null }|null} [options.memoryDb]  The memory database
@@ -772,7 +769,6 @@ export function createInnerLife({
   ready = () => Promise.resolve(),
   uuid = randomUUID,
   meter = null,
-  onEpisode = null,
   heartbeat: heartbeatSources = {},
   memoryDb = null,
   rng = Math.random,
@@ -1756,15 +1752,6 @@ export function createInnerLife({
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
       for (const item of expired.items) intentions.markExpiredShown(guildId, item.id);
-    }
-    // What she did and found goes to her memory, shadow or live: her reads really ran; the
-    // feedback facts ride the same episode (src/memory/inner-episode.js).
-    if (result.inner?.episode && typeof onEpisode === 'function') {
-      try {
-        onEpisode(String(guildId), feedback.length > 0 ? { ...result.inner.episode, feedback } : result.inner.episode);
-      } catch (err) {
-        log.warn('inner: episode not handed to memory', { guildId, error: err });
-      }
     }
     const actions = result.inner?.actions ?? [];
     if (anchor.kind === 'heartbeat') logHeartbeatOutcome(guildId, { outcome, actions });

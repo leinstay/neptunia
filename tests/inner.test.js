@@ -102,7 +102,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, service = null, log = SILENT } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, service = null, log = SILENT } = {}) {
   const journal = [];
   const intentions = service ?? fakeIntentions(records);
   let inner;
@@ -123,7 +123,6 @@ function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = t
     meter: meter ?? { run: async (fn) => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
     rng,
     now: () => clock.t,
-    onEpisode,
     log,
   });
   return { inner, turns, journal, intentions, dataDir, door, hot };
@@ -481,22 +480,6 @@ test('inner: a state file that cannot be read is moved aside, journalled and tol
   // A missing file is a first start, not a loss.
   const fresh = setup({ dataDir: tempDir('nep-inner-fresh-') });
   assert.deepEqual(fresh.inner.state(GUILD).facts ?? [], []);
-});
-
-test('inner: what a turn did and found is handed to her memory, shadow or not; a turn without an episode hands nothing', async () => {
-  const episode = { turnId: 't-1', shadow: true, channelId: 'c1', findings: [{ skill: 'web.search', args: {}, text: 'x' }] };
-  const handed = [];
-  const turns = fakeTurns({ answer: () => ({ outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-1', episode } }) });
-  const run = setup({ records: [intention('i1'), intention('i2', { channelId: 'c2' })], turns, onEpisode: (guildId, given) => handed.push({ guildId, given }) });
-  await run.inner.tick();
-  assert.deepEqual(handed, [{ guildId: GUILD, given: episode }]);
-  const quiet = setup({ records: [intention('i3')], onEpisode: (guildId, given) => handed.push({ guildId, given }) });
-  await quiet.inner.tick();
-  assert.equal(handed.length, 1);
-  // A memory that throws never breaks the inner life.
-  const broken = setup({ records: [intention('i4')], turns: fakeTurns({ answer: () => ({ outcome: 'skip', inner: { actions: [], turnId: 't-2', episode } }) }), onEpisode: () => { throw new Error('boom'); } });
-  const result = await broken.inner.tick();
-  assert.equal(result.ran, true);
 });
 
 /** A real cost meter over its own listeners, and `emit` to log a line into it. */
@@ -990,10 +973,8 @@ test('feedbackFacts: a call that did not go ok, an intention closed with nothing
 });
 
 test('inner: a turn that lost something queues one feedback wake in its chain and conversation, due at the next tick, with the facts; the feedback turn gets none of its own (journalled only)', async () => {
-  const handed = [];
-  const episode = { turnId: 't-1', shadow: false, channelId: 'c1', findings: [], actions: [] };
-  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
-  const run = setup({ records: [intention('i1', { purpose: 'send a cat meme' })], turns, hot: hotWith({ innerLife: { mode: 'live' } }), onEpisode: (guildId, given) => handed.push(given) });
+  const turns = fakeTurns({ answer: () => lostTurn() });
+  const run = setup({ records: [intention('i1', { purpose: 'send a cat meme' })], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
   const first = await run.inner.tick();
   assert.equal(first.drained.feedback, 'inner.wake:feedback:t-1');
   assert.equal(run.turns.calls.length, 1);
@@ -1004,8 +985,6 @@ test('inner: a turn that lost something queues one feedback wake in its chain an
   assert.equal(queued[0].channelId, 'c1');
   assert.equal(queued[0].dueAt, NOW);
   assert.deepEqual(queued[0].facts.map((fact) => fact.kind), ['callFailed', 'callFailed', 'doneWithoutDelivery', 'loopCut']);
-  // The same facts rode the turn's episode to her memory.
-  assert.deepEqual(handed[0].feedback.map((fact) => fact.kind), ['callFailed', 'callFailed', 'doneWithoutDelivery', 'loopCut']);
   // The next tick runs the feedback turn: the same chain and channel, the facts on its wake item.
   clock.t = NOW + MINUTE_MS;
   await run.inner.tick();
@@ -1081,8 +1060,7 @@ test('inner: the turn is given the current channel and the wake says where and w
   assert.equal(review.turns.calls[0].inner.currentChannel, null);
   assert.equal(review.turns.calls[0].inner.wake.here, null);
   // A feedback wake keeps the reported turn's current channel, and the next turn is given it.
-  const episode = { turnId: 't-1', shadow: false, channelId: 'c2', findings: [], actions: [] };
-  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
+  const turns = fakeTurns({ answer: () => lostTurn() });
   const again = setup({ records: [{ ...dest }], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
   await again.inner.tick();
   assert.equal(again.inner.state(GUILD).queue[0].here, 'c2');

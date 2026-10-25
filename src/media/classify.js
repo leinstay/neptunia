@@ -383,9 +383,9 @@ export function mediaProxyUrl(url, { width, height, format, animated } = {}) {
 
 /**
  * Rebuild a sticker's picture URL from just its id/format -- the only two
- * fields the slim memory buffer keeps for a sticker (see src/memory/update.js
- * `observe()`), so the live analyzer never needs a stored URL to look up a
- * description-cache entry. `null` for a Lottie sticker (format 3) or any
+ * fields a slim message keeps for a sticker (see src/memory/update.js
+ * #slimMessage), so no stored URL is needed to look up a description-cache
+ * entry. `null` for a Lottie sticker (format 3) or any
  * other non-picture format: it is never a picture, name only.
  * @param {string} id
  * @param {number} format
@@ -397,8 +397,7 @@ export function stickerUrl(id, format) {
 
 /**
  * Rebuild a custom emoji's picture URL from just its id -- the only field the
- * slim memory buffer keeps for an emoji (see src/memory/update.js
- * `observe()`). The same URL serves a static and an animated emoji alike
+ * slim message keeps for an emoji (see src/memory/update.js#slimMessage). The same URL serves a static and an animated emoji alike
  * (image/webp either way).
  * @param {string} id
  */

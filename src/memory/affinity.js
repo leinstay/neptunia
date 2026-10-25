@@ -8,8 +8,7 @@
 // when the stored relationship text no longer matches the score or was
 // flagged for a forced rewrite (`relationshipStaleOf`). See
 // docs/prompt-contract.md, "The analyzer".
-// It is also the one home of the two attitude rules the two-stage analyzer
-// (src/memory/voice.js) must apply as the store does: the reason's length
+// It is also the one home of two attitude rules: the reason's length
 // (`REASON_CHARS`) and the reading of the delta cap (`deltaCapOf`).
 
 import { clampText, stripUrls } from './clamp.js';
@@ -109,7 +108,7 @@ function movesSince(history, writtenAt) {
 
 /**
  * Whether a member's stored relationship text is due for a rewrite, and why: the
- * `relationshipStale` marker the analyzer sees (src/memory/update.js#buildMemoryRequest), or null.
+ * `relationshipStale` marker of a stored profile (src/memory/store.js), or null.
  * First match wins:
  *   - `rewrite`: the text is non-empty and the profile is flagged for a forced rewrite
  *     (`view.rewrite === true`, the profile's `relationshipRewrite`, set by the owner): the stored
@@ -133,7 +132,7 @@ function movesSince(history, writtenAt) {
  * `bandHysteresis`, or `rewriteOnBandChange` off.
  * `rewriteOnBandChange: false` turns off `band` AND `first`, the reach that switch always had;
  * `drift` and `moves` have their own 0.
- * A private view (src/memory/update.js#analyzePrivate) passes the effective score and the private
+ * A private view passes the effective score and the private
  * layer's OWN history, stamped on the private batch clock like its `relationshipWrittenAt`: the
  * private text counts its own moves, while a public move reaches it only through the effective
  * score (`band`, `drift`).
@@ -287,8 +286,7 @@ export function roundScore(score) {
  * @param {object} affinity           Current `{ score, reason, history }`, or malformed/undefined.
  * @param {number} delta              Raw delta from the model; coerced to an integer (unless `opts.truncate` is false).
  * @param {string} reason             One-line reason for this change, trimmed and clamped. The new
- *   history entry records it as given (`''` when there is none, e.g. a two-stage move whose
- *   reason the voice run fills in later through src/memory/store.js#fillAffinityReason). It also
+ *   history entry records it as given (`''` when there is none). It also
  *   becomes `affinity.reason`; with none, `affinity.reason` keeps the previous one. The newest
  *   entry's reason is therefore not always the stored one: a reader that restores an earlier
  *   state from the history (src/behavior/sandbox.js#momentView) has to look past the entries

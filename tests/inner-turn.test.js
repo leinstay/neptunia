@@ -5,8 +5,7 @@
 // cap refuses, her output tags (<msg>, <gif>, <draw>, <react to>) are lowered into the calls they
 // stand for in the current channel (a refusal when there is none or a reaction names no line),
 // and an ordinary turn's request is unchanged by
-// the switch; a refusal in shadow reaches her within the turn; what her reads found comes back as
-// the turn's episode for her memory. The loop's inner rules: the loop runs under innerLife.loop's
+// the switch; a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under innerLife.loop's
 // own bounds (a generous budget: nobody waits), the open-intentions line lists what she woke for
 // and has not touched, her last step still runs one post or intention change, and a post that
 // leaves nothing to show while a woken intention is untouched gets one open follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
@@ -450,23 +449,6 @@ test('inner turn, shadow: a lore.add with an argument it does not take is refuse
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
 });
 
-test('inner turn: what her reads found, her thinks and her other calls come back as the turn\'s episode, shadow marked', async () => {
-  const run = await innerTurn({ answers: [toolAnswer('<think>θα κοιτάξω τα λήμματα</think>', [call('lore.list'), call('message.create', { text: 'καλημέρα' })]), '<think>τίποτα καινούριο</think><skip/>'] });
-  const episode = run.result.inner.episode;
-  assert.ok(episode, 'an episode');
-  assert.equal(episode.shadow, true);
-  assert.equal(episode.channelId, 'c1');
-  assert.equal(episode.privateUserId, null);
-  assert.equal(episode.selfId, 'self-id');
-  assert.equal(episode.turnId, run.result.inner.turnId);
-  assert.deepEqual(episode.thinks, ['θα κοιτάξω τα λήμματα', 'τίποτα καινούριο']);
-  assert.deepEqual(episode.findings.map((f) => f.skill), ['lore.list']);
-  assert.ok(episode.findings[0].text.length > 0);
-  assert.deepEqual(episode.actions, [{ skill: 'message.create', status: 'proposed' }], 'reads are findings, not actions');
-  const silent = await innerTurn({ answers: ['<skip/>'] });
-  assert.equal(silent.result.inner.episode, null, 'nothing found: no episode');
-});
-
 test('inner turn, live: errands she hands off are queued like any call, with no hold and no dollar check', async () => {
   const run = await innerTurn({ answers: [toolAnswer('', [call('task.run', { agent: 'scout', goal: 'βρες τον πρώτο πίνακα' }), call('task.run', { agent: 'scout', goal: 'βρες τον δεύτερο πίνακα' })]), '<skip/>'], shadow: false, allowed: ['task.run'], withErrands: true });
   assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`), ['task.run:executed:', 'task.run:executed:']);
@@ -646,8 +628,8 @@ test('inner turn, open follow-up: on the last request the open line comes with t
   assert.equal(read.result.inner.openFollowUp, undefined);
 });
 
-test('inner turn: the result carries the loop\'s end state, a refused post as the episode\'s fact, and the intention an intent.update closed with its state', async () => {
-  // A refused post (no current channel) is an action the episode and the feedback facts carry; a speech tag has no result to read, so it is a fact.
+test('inner turn: the result carries the loop\'s end state, a refused post as a feedback fact, and the intention an intent.update closed with its state', async () => {
+  // A refused post (no current channel) is an action the feedback facts carry; a speech tag has no result to read, so it is a fact.
   const refused = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<skip/>'], shadow: false, gate: { currentChannel: null } });
   assert.deepEqual(refused.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}`), ['message.create:refused:destination-required']);
   assert.equal(refused.llm.calls.length, 1);
@@ -658,7 +640,6 @@ test('inner turn: the result carries the loop\'s end state, a refused post as th
   assert.equal(last.llm.calls.length, 2, 'nothing follows the last request');
   assert.equal(last.result.inner.actions.at(-1).presented, undefined);
   assert.deepEqual(feedbackFacts(last.result).filter((fact) => fact.kind === 'callFailed'), [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]);
-  assert.ok(refused.result.inner.episode, 'a turn with a refused post has an episode for the feedback facts to ride');
   // No loop at all: zeros.
   const silent = await innerTurn({ answers: ['<skip/>'] });
   assert.deepEqual(silent.result.inner.loop, { steps: 0, cut: null, droppedCalls: 0 });
@@ -670,8 +651,6 @@ test('inner turn: the result carries the loop\'s end state, a refused post as th
   assert.equal(action.skill, 'intent.update');
   assert.equal(action.intentionId, 'i1');
   assert.equal(action.state, 'done');
-  assert.ok(done.result.inner.episode, 'a turn with a call other than a read has an episode');
-  assert.deepEqual(done.result.inner.episode.actions, [{ skill: 'intent.update', status: 'proposed' }]);
 });
 
 test('wakeBlockText: the current channel and why, or that there is none, follow the wake lines; nothing without the labels', () => {

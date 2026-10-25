@@ -3,21 +3,17 @@
 // and evicted by weight then age once the per-person cap is exceeded, the
 // newest few (`memory.keepNewestEpisodes`) spared so a light moment of a busy
 // member is not thrown out the moment it arrives. See
-// docs/prompt-contract.md ("episodes" in "The analyzer") and
-// src/memory/update.js#applyMemoryUpdate, which routes the model's
-// `users.<id>.episodes` through this module via src/memory/store.js#addEpisodes.
+// docs/prompt-contract.md ("episodes" in "The analyzer"); src/memory/store.js#addEpisodes
+// routes a member's new episodes through this module.
 // Plus the display order (`sortEpisodesForDisplay`, also behind the owner's
 // view in src/admin.js) and the top-N choice for a member asked about
 // (`topEpisodes`), both used by src/behavior/prompt.js.
 //
-// It is also the one home of the episode rules the two-stage analyzer
-// (src/memory/voice.js#splitDecision) must apply exactly as the store does, so
-// a feeling item's address equals the stored episode: the text limits
+// It is also the one home of the episode rules: the text limits
 // (`EPISODE_CHARS`), the date rule (`episodeDate`, to store a date or, with
-// no clock, to test one) and the duplicate rule
-// (`isSameEpisode`). This module therefore stays a leaf toward voice.js and
-// src/behavior/prompt.js: importing either would close an import cycle
-// (prompt.js imports this module, voice.js imports prompt.js).
+// no clock, to test one) and the duplicate rule (`isSameEpisode`). This
+// module stays a leaf toward src/behavior/prompt.js: importing it would close
+// an import cycle (prompt.js imports this module).
 
 import { clampText, stripUrls } from './clamp.js';
 import { normalizeTopic } from './interests.js';
@@ -162,7 +158,7 @@ function newestIndices(list, count, storedLength) {
  * @param {object[]|undefined} existing  Stored episodes, oldest-appended order.
  * @param {unknown} incoming             Untrusted, model-extracted episodes.
  * @param {{ maxEpisodes: number, maxNew: number, now?: number, clampTolerance?: number, keepNewest?: number }} opts
- *   `keepNewest`: `memory.keepNewestEpisodes` (see src/memory/update.js#episodeOptions);
+ *   `keepNewest`: `memory.keepNewestEpisodes` (see episodeOptions);
  *   omitted, negative or not a number = 0.
  * @returns {{ episodes: object[], added: number, dropped: object[] }}  `added` counts every
  *   accepted entry, one evicted again by the same merge included. `dropped`: every entry the

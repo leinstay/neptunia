@@ -288,15 +288,6 @@ export const labels = {
   memory: {
     privateChannel: 'direct chat',
     redaction: 'someone',
-    inner: {
-      think: '[inner] thinking: {text}',
-      done: 'done: {skills}',
-      notDone: 'not done: {skills}',
-      found: '[inner] {skill}{asked} found: {text}',
-      asked: ' ({text})',
-      sources: 'sources: {links}',
-    },
-    innerFeedback: '[inner] not through: {facts}',
   },
   status: {
     probe: 'Reply with one word: pong',

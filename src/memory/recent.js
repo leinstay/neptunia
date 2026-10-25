@@ -1,7 +1,6 @@
 // The recent store, pure: short dated lines about the last few days that fit
 // no long-term kind of memory (an episode, lore, a self fact, a lesson) yet
-// matter for the next days. The analyzer writes them (src/memory/update.js);
-// src/memory/store.js keeps them in data/guilds/<id>/recent.json and runs every
+// matter for the next days. src/memory/store.js keeps them in data/guilds/<id>/recent.json and runs every
 // write through `mergeRecent`. The clock is passed in (`now`); only a missing
 // one falls back to the wall clock.
 //
@@ -418,8 +417,7 @@ function momentAt(ep, cutoff, clock) {
  * An id (a member's, a profile's, a channel's, a message's) as a string: a
  * finite number as its decimal form, a non-empty string as it is, anything
  * else null. The one copy for the recent view, the request builder
- * (src/behavior/prompt.js) and src/behavior/elsewhere.js (which cannot be its
- * home: it imports src/memory/update.js, which imports this module).
+ * (src/behavior/prompt.js) and src/behavior/elsewhere.js.
  * @param {unknown} raw
  * @returns {string|null}
  */
