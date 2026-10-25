@@ -172,7 +172,11 @@ test('errands service: a task carries context.recent, the origin channel\'s last
     { channelId: 'c1', authorName: 'Ελένη', content: 'τελευταία' },
     { channelId: 'dm1', authorName: 'Ελένη', content: 'ιδιωτικό' },
   ];
-  const memory = { getBuffer: (guildId) => (guildId === 'g1' ? buffer : []) };
+  // The channel's newest lines with text, oldest first, as src/index.js reads them from the memory database.
+  const memory = {
+    recentLines: (guildId, channelId, count) => (guildId === 'g1' ? buffer : [])
+      .filter((line) => line.channelId === channelId && line.content).map((line) => ({ author: line.authorName, text: line.content })).slice(-count),
+  };
   const client = fakeClient();
   const deferred = [];
   const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log: fakeLog() });

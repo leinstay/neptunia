@@ -18,7 +18,7 @@
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
 // `recent`: the last `agents.recentLines` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
-// (`store.getBuffer`) at the moment the task is queued and kept in memory only until it is sent;
+// (the memory database's newest lines of the channel) at the moment the task is queued and kept in memory only until it is sent;
 // a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
 // Every errand is also mirrored into the ledger (src/errands/ledger.js, `agents.ledger.socket`,
 // disabled while null): at its queuing (with its limits, for the ledger's triage), its start (with its limits and the model of its agent's
@@ -66,8 +66,8 @@ export const RUNNER_RECHECK_MS = 10_000;
  * @param {{ config: object }} options.hot
  * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
  *   the keys and the proxy a run carries.
- * @param {{ getBuffer(guildId: string): object[] }|null} [options.memory]  The memory store
- *   (src/memory/store.js): its buffer gives a task's `context.recent`.
+ * @param {{ recentLines(guildId: string, channelId: string, count: number): Array<{ author: string, text: string }> }|null} [options.memory]
+ *   The channel's newest lines, oldest first (src/index.js reads them from the memory database): a task's `context.recent`.
  * @param {() => string|null} [options.getGuildId]  The served guild, when a caller gives none.
  * @param {(task: object, guildId: string) => unknown} [options.onFinished]
  * @param {{ info: Function, warn: Function }} [options.log]
@@ -198,23 +198,21 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    * out). [] for a `dm` scope, without a channel or a buffer.
    */
   function recentOf(guildId, channelId, scope) {
-    if (scope === 'dm' || !channelId || typeof memory?.getBuffer !== 'function') return [];
+    if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
     const set = hot.config?.agents?.recentLines;
     const count = Math.min(MAX_RECENT_ENTRIES, Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES);
     if (count === 0) return [];
-    let buffer;
+    let lines;
     try {
-      buffer = memory.getBuffer(guildId);
+      lines = memory.recentLines(guildId, channelId, count);
     } catch (err) {
-      log.warn('errands: buffer unreadable', { guildId: String(guildId), error: err });
+      log.warn('errands: recent lines unreadable', { guildId: String(guildId), code: err?.code ?? null });
       return [];
     }
-    const lines = (Array.isArray(buffer) ? buffer : [])
-      // Her inner-turn lines (src/memory/inner-episode.js) are no chat: never an errand's context.
-      .filter((message) => message && !message.inner && String(message.channelId ?? '') === String(channelId))
-      .map((message) => ({ author: clampChars(oneLine(message.authorName ?? ''), RECENT_CHARS), text: clampChars(oneLine(message.content ?? ''), RECENT_CHARS) }))
-      .filter((line) => line.text);
-    return lines.slice(-count);
+    return (Array.isArray(lines) ? lines : [])
+      .map((line) => ({ author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS), text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS) }))
+      .filter((line) => line.text)
+      .slice(-count);
   }
 
   /** One queued task sent to its runner and closed with its end. Never throws. */

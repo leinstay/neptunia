@@ -78,6 +78,7 @@ import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
 import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
+import { channelPlaceId } from './memory/db/ids.js';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createIntentionStores } from './intentions/store.js';
@@ -372,7 +373,25 @@ const taskStores = createTaskStores({ config: () => hot.config, journal, log, me
 // An errand's end is a `task.completed` event through the event door (`door`, created below with
 // the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
 // intentions waiting on it back to pending, then opens her turn, which shows them with the outcome.
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
+// A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
+function recentChannelLines(guildId, channelId, count) {
+  const db = memoryDb.database();
+  if (!db || !channelId || !(count > 0)) return [];
+  const rows = db.prepare(
+    `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
+      WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`,
+  ).all(channelPlaceId(String(channelId)), count);
+  const lines = [];
+  for (const row of rows) {
+    let name = '';
+    if (row.kind === 'said') name = hot.config?.bot?.name ?? '';
+    else { try { const names = JSON.parse(row.names ?? '[]'); name = Array.isArray(names) && typeof names[0] === 'string' ? names[0] : ''; } catch { name = ''; } }
+    lines.push({ author: name, text: row.text ?? '' });
+    if (lines.length >= count) break;
+  }
+  return lines.reverse();
+}
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: { recentLines: recentChannelLines }, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
 // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
 // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
 // Both stores send their writes to the database; `flush` is their retry and shutdown step.
