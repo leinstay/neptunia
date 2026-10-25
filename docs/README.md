@@ -43,3 +43,4 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Configuration reference](configuration.md) | Every key in config.json |
 | [Owner commands](owner-commands.md) | The /nep command tree and the access model |
 | [Prompt contract](prompt-contract.md) | The contract between prompt files and code: files, placeholders, labels, output tags |
+| [Style guide](style-guide.md) | How the code is written: TypeScript on Node 26, the lint and format rules, naming, the terminology, comments, tests |
