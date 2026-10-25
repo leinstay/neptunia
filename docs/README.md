@@ -43,5 +43,5 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Configuration reference](configuration.md) | Every key in config.json |
 | [Owner commands](owner-commands.md) | The /nep command tree and the access model |
 | [Prompt contract](prompt-contract.md) | The contract between prompt files and code: files, placeholders, labels, output tags |
-| [Writing](writing.md) | How prose is written here: the habits of model text and what to do instead, documentation, prompts, commits, replies, the accepted examples |
+| [Writing](../WRITING.md) | How prose is written here: the habits of model text and what to do instead, documentation, prompts, commits, replies, the accepted examples |
 | [Style guide](../STYLEGUIDE.md) | How code and documentation are written |

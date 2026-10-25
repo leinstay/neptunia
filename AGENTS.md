@@ -6,7 +6,7 @@ For the coding agents that work on this repository: where things are, how to run
 
 1. Read this file whole.
 2. Read `docs/README.md` for how the parts fit, then the doc of the part you touch.
-3. Read `STYLEGUIDE.md` before writing code, and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
+3. Read `STYLEGUIDE.md` before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
 4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "The agents' folder").
 
 ## Structure
@@ -50,7 +50,7 @@ Set `TMPDIR` to a scratch folder before running tests. Never start the engine (`
 
 ## Writing
 
-This applies to documentation, comments, commit messages, pull request text and your replies.
+The defaults, for documentation, comments, commit messages, pull request text and replies. The full guide, with the habits of model prose, the rules per kind of text and the accepted examples, is `WRITING.md`: read it before writing and review the changed text against it before handing in.
 
 - Say the thing first. A reply opens with the answer, a report with the outcome (what changed, how it was checked, what is open), a diagnosis with the likely cause, a plan with the proposal and why, a question with what you need to know and the real options.
 - Plain English in full sentences. A bullet list only for a genuine list, a table only for a reference. One point per paragraph, no closing summary, no run-up before the point.
@@ -61,7 +61,7 @@ This applies to documentation, comments, commit messages, pull request text and 
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
 - Length: about 100 words for a direct answer, 250 for an explanation or a work report, 500 for a plan or a review. A document is as long as its rules need.
-- Before handing in a text, review it against `docs/writing.md` and hand in the corrected text; only the final text goes into a file.
+- Before handing in a text, review it against `WRITING.md` and hand in the corrected text; only the final text goes into a file.
 
 ## Documentation
 
