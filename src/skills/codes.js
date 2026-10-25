@@ -152,7 +152,7 @@ export const CATALOGUE = Object.freeze({
   'image-empty': skill('failed'),
   'unsupported-model': skill('failed'),
   'speech-cap-daily': skill('failed'),
-  'speech-prepare-failed': skill('partial'),
+  'speech-prepare-failed': skill('failed'),
   'speech-synth-failed': skill('failed'),
   'speech-convert-failed': skill('failed'),
   'speech-not-configured': skill('not_configured'),

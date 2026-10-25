@@ -2,7 +2,8 @@
 // (prompts/speech-prepare.md) to get dropped letters back, stress marks on ambiguous words and
 // her bracketed directions as short audio tags. The pass may add marks and rewrite what sits in
 // brackets, never touch a word: `sameWords` compares the answer with the original and any
-// difference sends the original on unchanged (nothing rewrites her speech after the fact).
+// difference is a failed pass (`prepared: false`, the original returned) and the caller fails the
+// voice message instead of speaking the original (nothing rewrites her speech after the fact).
 //
 // Logs carry the reason a pass was dropped, never the text.
 

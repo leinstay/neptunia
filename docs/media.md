@@ -126,7 +126,7 @@ Model role: `drawing`.
 
 When `features.speech` is on (default `true`; needs the system `ffmpeg`), the persona can send a voice message. She calls the `voice.say` skill with text, and the engine runs a three-step pipeline:
 
-1. A preparation pass on the `analyzer` role (`prompts/speech-prepare.md`): dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short audio tags. The pass may add marks and rewrite brackets, never touch a word. When its answer changes even one word (checked by `sameWords`), the original text is spoken unchanged.
+1. A preparation pass on the `analyzer` role (`prompts/speech-prepare.md`): dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short audio tags. The pass may add marks and rewrite brackets, never touch a word. When its answer changes even one word (checked by `sameWords`), or the pass times out, errors or answers nothing, the call fails with `speech-prepare-failed` (the reason is in the result): nothing is synthesized, sent or counted against the daily limit, and she learns of it in her turn.
 
 2. Synthesis through OpenRouter's speech endpoint on the `speech` role (`models.base.speech`, default `elevenlabs/eleven-v4`) with the voice named in `speech.voice` (default `jessica`). The key is the one `llm.keyByRole.speech` names (the main key without one).
 

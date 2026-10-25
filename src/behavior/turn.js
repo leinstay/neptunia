@@ -2275,7 +2275,7 @@ export function createTurnRunner({
     }
     const args = plan.resolved?.args ?? {};
     // A text that went out with its GIF failing (`partial`) was said all the same.
-    const posted = (result.status === 'ok' || (result.status === 'partial' && (result.code === CODE.GIF_FAILED || result.code === CODE.SPEECH_PREPARE_FAILED))) && (skill === 'message.create' || skill === 'draw.create' || skill === 'voice.say') && result.ref ? postedOf(result) : null;
+    const posted = (result.status === 'ok' || (result.status === 'partial' && result.code === CODE.GIF_FAILED)) && (skill === 'message.create' || skill === 'draw.create' || skill === 'voice.say') && result.ref ? postedOf(result) : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
