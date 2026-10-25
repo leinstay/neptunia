@@ -69,7 +69,7 @@ TypeScript runs directly on Node 26 through type stripping. There is no build st
 
 - `camelCase` for variables, functions and properties.
 - `PascalCase` for types.
-- `CONSTANT_CASE` for module-level constants. An object or array constant is named in the singular (`WAKE_KIND`).
+- `CONSTANT_CASE` for module-level constants.
 - Booleans start with `is`, `has`, `can`, `should`, `did` or `will`.
 - Generic parameters are `T` plus a word: `TEvent`. Never a single letter.
 - Acronyms are words: `fetchUrl`, `httpCode`, `parseJson`.
@@ -96,7 +96,7 @@ The engine's vocabulary is binding in identifiers, comments, labels and config k
 | `intention` | Something the persona decided to do later. |
 | `wake` | A turn the persona starts herself. Kinds: `heartbeat`, `selfreflection`, `selfimprovement`, `intention_due`, `errand_done`, `review`, `attend`, `feedback`. Wake kinds are one word, never hyphenated. |
 | `memory` | What the persona keeps between turns. |
-| `labels` | The wording of what code inserts into a prompt. |
+| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
 | `config`, `local layer` | The shipped settings and the private files that override them. |
 | `lease` | A time-limited claim on a resource. |
 
