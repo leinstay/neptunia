@@ -1,8 +1,8 @@
 // The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
 // accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
-// server from the errand records, src/errands/costs.js); `costs.development`, thinker, dev and writer
-// from the ledger (src/errands/ledger.js#costs); both rendered here by agentCostsLines. The
+// server from the errand records, src/errands/costs.js); `costs.development`, thinker and dev from
+// the ledger (src/errands/ledger.js#costs); both rendered here by agentCostsLines. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no

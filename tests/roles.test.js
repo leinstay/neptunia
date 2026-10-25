@@ -60,7 +60,7 @@ test('roleModel: a byPurpose that is not a plain object, or an entry that is not
 
 test('roleModel: an unset role takes its own default, never another role\'s model', () => {
   const config = { models: { base: { core: 'x/core', analyzer: 'x/analyzer', vision: 'x/vision' } } };
-  for (const role of ['video', 'embedding', 'drawing', 'scout', 'writer']) {
+  for (const role of ['video', 'embedding', 'drawing', 'scout', 'dev']) {
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
   }
   assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
@@ -138,13 +138,12 @@ test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved li
   assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech']);
   assert.deepEqual([...BASE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing']);
   assert.deepEqual([...ERRAND_ROLES], ['scout', 'server']);
-  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev', 'writer']);
-  assert.deepEqual([...OPENCODE_ROLES], ['scout', 'server', 'thinker', 'dev', 'writer']);
+  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev']);
+  assert.deepEqual([...OPENCODE_ROLES], ['scout', 'server', 'thinker', 'dev']);
   assert.equal(ROLE_DEFAULTS.scout, 'openrouter/openai/gpt-6.1-sol');
   assert.equal(ROLE_DEFAULTS.server, 'openrouter/openai/gpt-6.1-sol');
   assert.equal(ROLE_DEFAULTS.thinker, 'openrouter/anthropic/claude-opus-5.5');
   assert.equal(ROLE_DEFAULTS.dev, 'openrouter/anthropic/claude-sonnet-5.5');
-  assert.equal(ROLE_DEFAULTS.writer, 'openrouter/anthropic/claude-opus-4.6');
   assert.equal(ROLE_DEFAULTS.drawing, 'openai/gpt-image-2.5-flare', 'drawing: a bare OpenRouter image model id');
   for (const role of OPENCODE_ROLES) assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
   for (const role of ROLES) assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);

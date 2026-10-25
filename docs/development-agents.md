@@ -1,12 +1,11 @@
 # Development agents
 
-Three agents work on the engine's code and text. They are not part of the persona: the engine describes them (a profile and a generic prompt each), but it never starts them.
+Two agents work on the engine's code and text. They are not part of the persona: the engine describes them (a profile and a generic prompt each), but it never starts them.
 
 | Agent | What it does |
 |---|---|
-| `thinker` | Picks up development tasks, writes the brief for each, hands it to `dev` or `writer`, reviews what comes back, runs the tests and merges. Never deploys. |
-| `dev` | Writes code within one development task. |
-| `writer` | Writes prompt and documentation text within one development task. |
+| `thinker` | Picks up development tasks, writes the brief for each, hands it to `dev`, reviews what comes back (code and text), runs the tests and merges. Never deploys. |
+| `dev` | Writes code and text (prompts, documentation) within one development task. |
 
 ## The `agents/<name>/` folder
 
@@ -21,7 +20,7 @@ Each agent has its own folder under `agents/` with two files:
 |---|---|
 | `id` | The folder name (e.g. `dev`). |
 | `kind` | Always `development`. |
-| `role` | The model role whose model sits under `models.development` (`thinker`, `dev`, `writer`). |
+| `role` | The model role whose model sits under `models.development` (`thinker`, `dev`). |
 | `prompt` | The prompt file inside the folder (`prompt.md`). |
 | `override` | `null` for development agents: the deployment's rules come from its dispatcher, not from `prompts.local/`. |
 | `description` | One sentence saying what the agent does. |
@@ -35,7 +34,6 @@ Each agent has its own folder under `agents/` with two files:
 |---|---|---|---|---|
 | `thinker` | `high` | 400 | 60 | `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `todowrite`, `skill`, `external_directory` |
 | `dev` | `medium` | 300 | 60 | `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `todowrite`, `skill` |
-| `writer` | `high` | 150 | 45 | `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `todowrite`, `skill` |
 
 ## Models
 
@@ -45,8 +43,7 @@ Each agent's model sits under `models.development.<name>` in config:
 "models": {
   "development": {
     "thinker": "openrouter/anthropic/claude-opus-5.5",
-    "dev": "openrouter/anthropic/claude-sonnet-5.5",
-    "writer": "openrouter/anthropic/claude-opus-4.6"
+    "dev": "openrouter/anthropic/claude-sonnet-5.5"
   }
 }
 ```
@@ -79,10 +76,10 @@ The `/nep status` card reads the development agents' spend from the ledger. With
 
 Development agent settings live under `agents.<name>` in `config.json`:
 
-| Key | Default (thinker / dev / writer) | What it does |
+| Key | Default (thinker / dev) | What it does |
 |---|---|---|
-| `agents.<name>.cost` | `{ input: 4, output: 20 }` / `{ input: 2, output: 10 }` / `{ input: 5, output: 25 }` | USD per million tokens, for OpenCode's cost estimate. |
-| `agents.<name>.limits.steps` | 400 / 300 / 150 | Maximum model steps per run. |
-| `agents.<name>.limits.minutes` | 60 / 60 / 45 | Maximum wall-clock minutes per run. |
+| `agents.<name>.cost` | `{ input: 4, output: 20 }` / `{ input: 2, output: 10 }` | USD per million tokens, for OpenCode's cost estimate. |
+| `agents.<name>.limits.steps` | 400 / 300 | Maximum model steps per run. |
+| `agents.<name>.limits.minutes` | 60 / 60 | Maximum wall-clock minutes per run. |
 | `agents.<name>.contextLimit` | 350000 (thinker only) | Soft context-window limit in tokens. Read by the external dispatcher, not by the engine. |
 | `agents.<name>.contextHard` | 400000 (thinker only) | Hard context-window limit. Read by the external dispatcher, not by the engine. |

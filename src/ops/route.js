@@ -62,7 +62,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
    * then each role with the model it uses now and the routing that applies to it; the OpenCode
-   * agents' roles (`scout`, `server`, `thinker`, `dev`, `writer`) last, which the bot never routes: their workers never
+   * agents' roles (`scout`, `server`, `thinker`, `dev`) last, which the bot never routes: their workers never
    * read `llm.providerByModel` (no route resolved). */
   function cmdRouteList() {
     const cfg = hot.config;

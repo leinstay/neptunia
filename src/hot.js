@@ -73,7 +73,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'intentions.droppedDays', use: null, read: (config) => config?.intentions?.droppedDays },
   { key: 'innerLife.heartbeat.droppedDays', use: null, read: (config) => config?.innerLife?.heartbeat?.droppedDays },
   { key: 'innerLife.heartbeat.droppedShown', use: 'innerLife.heartbeat.closedShown', read: (config) => config?.innerLife?.heartbeat?.droppedShown },
-  ...['scout', 'server', 'drawing', 'thinker', 'dev', 'writer'].flatMap((agent) => [
+  ...['scout', 'server', 'drawing', 'thinker', 'dev'].flatMap((agent) => [
     { key: `agents.${agent}.daily.usd`, use: null, read: (config) => config?.agents?.[agent]?.daily?.usd },
     { key: `agents.${agent}.limits.usd`, use: null, read: (config) => config?.agents?.[agent]?.limits?.usd },
   ]),

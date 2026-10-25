@@ -573,10 +573,9 @@ test('run: model.show lists each role with its own model; an unset role shows it
     `scout: ${ROLE_DEFAULTS.scout}`,
     `server: ${ROLE_DEFAULTS.server}`,
   ]);
-  assert.deepEqual(lines.slice(12, 15), [
+  assert.deepEqual(lines.slice(12, 14), [
     `thinker: ${ROLE_DEFAULTS.thinker}`,
     `dev: ${ROLE_DEFAULTS.dev}`,
-    `writer: ${ROLE_DEFAULTS.writer}`,
   ]);
 });
 
@@ -651,7 +650,7 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
+  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'thinker', 'dev', 'drawing']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -671,10 +670,10 @@ test('run: model.set rejects an unknown role and a role name that is no longer o
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'web', 'voice', 'memory', 'byPurpose']) {
+  for (const role of ['bogus', 'web', 'voice', 'writer', 'memory', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server, thinker, dev, writer\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server, thinker, dev\\)`),
       role,
     );
   }
@@ -1613,7 +1612,7 @@ test('status: the card carries the fields in order and the member variant drops 
   );
   assert.equal(
     value('models.development'),
-    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`].join('\n'),
+    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`].join('\n'),
     'one line per development role with its own model',
   );
   assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
@@ -1978,7 +1977,7 @@ test('status: the card lists one item per line in every field, the models one li
     'drawing · openai/gpt-image-1',
   ], 'each line starts with its role and its model, drawing last');
   assert.deepEqual(lines('models.errands').map(head), [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`]);
-  assert.deepEqual(lines('models.development').map(head), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`]);
+  assert.deepEqual(lines('models.development').map(head), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`]);
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
 
@@ -2038,9 +2037,9 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.match(lines[2], /^analyzer · x\/text · Prov · ok \d+ ms$/);
   assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
   assert.deepEqual(errands, [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`], 'just role and model');
-  assert.deepEqual(development, [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`], 'just role and model');
+  assert.deepEqual(development, [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`], 'just role and model');
   assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
-  assert.ok(!llm.calls.some((call) => ['scout', 'server', 'thinker', 'dev', 'writer'].includes(call.options.role)), 'no request goes out on an OpenCode role');
+  assert.ok(!llm.calls.some((call) => ['scout', 'server', 'thinker', 'dev'].includes(call.options.role)), 'no request goes out on an OpenCode role');
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
@@ -2071,7 +2070,7 @@ test('status: the member card shows the models one line per role without probing
     ].join('\n'),
   );
   assert.equal(valueOf('models.errands'), [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n'));
-  assert.equal(valueOf('models.development'), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`, `writer · ${ROLE_DEFAULTS.writer}`].join('\n'));
+  assert.equal(valueOf('models.development'), [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`].join('\n'));
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
@@ -2805,7 +2804,6 @@ test('run: route.set validates the prefix, the providers and the role, writing n
     [{ model: 'openrouter/', providers: 'openai', role: 'scout' }, /unknown role: scout/],
     [{ model: 'openrouter/', providers: 'openai', role: 'dev' }, /unknown role: dev/],
     [{ model: 'openrouter/', providers: 'openai', role: 'thinker' }, /unknown role: thinker/],
-    [{ model: 'openrouter/', providers: 'openai', role: 'writer' }, /unknown role: writer/],
     [{ model: 'google/', providers: 'google-vertex', byok: 'yes' }, /byok must be true or false/],
     [{ model: 'google/', providers: 'google-vertex', byok: 'TRUE' }, /byok must be true or false/],
     [{ model: 'google/', providers: 'google-vertex', byok: 1 }, /byok must be true or false/],
@@ -2905,7 +2903,6 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     `  server: ${ROLE_DEFAULTS.server} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  thinker: ${ROLE_DEFAULTS.thinker} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  dev: ${ROLE_DEFAULTS.dev} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  writer: ${ROLE_DEFAULTS.writer} -> OpenCode's own routing (llm.providerByModel not read)`,
   ]);
 });
 

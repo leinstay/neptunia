@@ -874,7 +874,7 @@ function chatAnswers(route, query) {
   return { total_results: 0, messages: [] };
 }
 
-/** The fixture labels with the two stretch flags (the shipped wording is the writer's). */
+/** The fixture labels with the two stretch flags (the shipped wording is the dev agent's). */
 const FLAGGED = { ...labels, lookup: { ...labels.lookup, stretchSelf: '[SELF]', stretchCurrent: '[CURRENT]' } };
 
 test('recall: hits shown in the chat are dropped and counted; a window reaching into the chat and one with the persona\'s line are flagged', async () => {

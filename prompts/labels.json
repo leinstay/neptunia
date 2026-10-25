@@ -307,8 +307,7 @@
         "scout": "errands",
         "server": "errands",
         "thinker": "development",
-        "dev": "development",
-        "writer": "development"
+        "dev": "development"
       },
       "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
       "keyLimitPlain": "{lead}: {spent} / {limit} USD",

@@ -23,7 +23,7 @@
 // Logs carry the core id, the op and codes, never a goal, a result or a member's id.
 //
 // One read besides the mirror: `costs()`, the development agents' spend (the ledger's read op
-// `costs.agents`: thinker, dev and writer over today, the last 7 and the last 30 UTC days, and the
+// `costs.agents`: thinker and dev over today, the last 7 and the last 30 UTC days, and the
 // thinker's last wave with its context), asked on a connection of its own (one request, no
 // idempotency key, never queued nor replayed) and answered within COSTS_TIMEOUT_MS. With no
 // socket, a refusal, a bad answer or no answer in time it resolves null (logged once per
@@ -56,7 +56,7 @@ export const REPLY_TIMEOUT_MS = 10_000;
 /** How long `costs()` waits for the ledger's answer (ms). */
 export const COSTS_TIMEOUT_MS = 3000;
 /** The agents whose spend the ledger's `costs.agents` counts, in order. */
-export const LEDGER_AGENTS = Object.freeze(['thinker', 'dev', 'writer']);
+export const LEDGER_AGENTS = Object.freeze(['thinker', 'dev']);
 /** The windows of `costs.agents`, in order. */
 const COST_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
 /** The time cap of a task without `limits.seconds` (s), as the errand client waits for it. */
@@ -170,7 +170,7 @@ function numberOrNull(value) {
 }
 
 /**
- * The answer of `costs.agents` reduced to what the status card reads: `{ thinker, dev, writer }`,
+ * The answer of `costs.agents` reduced to what the status card reads: `{ thinker, dev }`,
  * each `{ today, last7, last30 }` of `{ runs, input, output, usd }` (a missing or odd number 0),
  * the thinker with `last_wave` (`{ wave, turns, usd, context_mean, context_peak }`, the context
  * figures null when absent) or null. An agent the answer lacks counts zero; null for an answer

@@ -137,7 +137,7 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const values = (option) => option.choices.map((c) => c.value);
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  const agents = ['scout', 'server', 'thinker', 'dev', 'writer'];
+  const agents = ['scout', 'server', 'thinker', 'dev'];
   assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing', ...agents], 'the base roles (models.base: the core, the helpers, drawing), then the errand and development roles');
   assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
   assert.ok(MODEL_ROLES.includes('core') && !MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));

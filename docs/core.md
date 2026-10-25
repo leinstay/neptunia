@@ -81,7 +81,7 @@ Every LLM request goes out on a named role, and each role has its own model. The
 |---|---|---|
 | `models.base` | `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing` | The persona's own requests: the core speaks, the helpers classify, describe, embed, speak and draw |
 | `models.errands` | `scout`, `server` | The errand agents, run asynchronously through a separate runner |
-| `models.development` | `thinker`, `dev`, `writer` | Development agents (outside the engine, working on the repository) |
+| `models.development` | `thinker`, `dev` | Development agents (outside the engine, working on the repository) |
 
 A role never borrows another role's model. An unset role uses its own default (the same value `config.json` ships). `models.byPurpose` can pin a single purpose to a model of its own regardless of its role.
 

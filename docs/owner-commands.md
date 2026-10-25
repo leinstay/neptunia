@@ -35,7 +35,7 @@ The table follows the command tree in `src/ops/catalog.js`. Options that autocom
 | `/nep pings [mode]` | `pings.get` / `pings.set` | read/write | Without `mode`: your current setting. `on`/`off`: set whether the persona's messages notify you. Member command |
 | `/nep media <kind> <action> [days]` | `media.status` / `media.rescan` / `media.recache` | read/write | `kind`: `emoji`, `gifs` or `pictures` (recache only). `action`: `status`, `rescan` or `recache`. `days` (pictures recache only): days of cached descriptions to redo, 1 to 60, default 7 |
 | `/nep model show` | `model.show` | read | Show every role's model, grouped as the status card is |
-| `/nep model set <role> <id>` | `model.set` | write | Set the model for one role. `role`: `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `scout`, `server`, `thinker`, `dev`, `writer`. `id` (ac). Setting `vision` or `video` also sets `media.recacheBefore` |
+| `/nep model set <role> <id>` | `model.set` | write | Set the model for one role. `role`: `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `scout`, `server`, `thinker`, `dev`. `id` (ac). Setting `vision` or `video` also sets `media.recacheBefore` |
 | `/nep route list` | `route.list` | read | Every route, then each role's model and route |
 | `/nep route set <model> <providers> [role] [fallbacks] [byok]` | `route.set` | write | Route a model prefix to these providers. `model` (ac). `role`: `core`, `analyzer`, `vision`, `video`, `embedding`, `drawing`. `byok:true` refuses answers from OpenRouter's own capacity |
 | `/nep route remove <model> [role]` | `route.remove` | write | Remove a route. `model` (ac) |
