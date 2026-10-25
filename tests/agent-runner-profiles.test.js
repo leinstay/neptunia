@@ -759,6 +759,7 @@ function developmentProfile(id, changes = {}) {
     prompt: 'prompt.md',
     override: null,
     tools: ['bash', 'read', 'edit'],
+    permission: { bash: { '*': 'allow', '*node --test*': 'deny' }, edit: 'allow' },
     effort: 'medium',
     limits: { steps: 50, minutes: 30 },
     description: 'A test development agent.',
@@ -776,7 +777,7 @@ test('development profiles: listed by listAgents, skipped by loadProfiles; roles
     assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
     const all = listAgents({ rootDir });
     assert.deepEqual(all.map((agent) => [agent.id, agent.kind]), [['build', 'development'], ['probe', 'worker']]);
-    assert.deepEqual({ ...all[0], tools: [...all[0].tools], limits: { ...all[0].limits } }, developmentProfile('build'));
+    assert.deepEqual({ ...all[0], tools: [...all[0].tools], limits: { ...all[0].limits }, permission: structuredClone(all[0].permission) }, developmentProfile('build'));
   });
 });
 
@@ -787,6 +788,12 @@ test('development profiles: a bad key is refused with AgentProfileError naming t
     [{ tools: ['bash', 'task'] }, 'tools'],
     [{ tools: [] }, 'tools'],
     [{ tools: ['read', 'read'] }, 'tools'],
+    [{ permission: undefined }, 'permission'],
+    [{ permission: 'allow' }, 'permission'],
+    [{ permission: { write: 'allow' } }, 'permission.write'],
+    [{ permission: { bash: 'maybe' } }, 'permission.bash'],
+    [{ permission: { bash: {} } }, 'permission.bash'],
+    [{ permission: { bash: { '*node --test*': 'block' } } }, 'permission.bash.*node --test*'],
     [{ effort: 'extreme' }, 'effort'],
     [{ effort: undefined }, 'effort'],
     [{ limits: { steps: 50 } }, 'limits.minutes'],

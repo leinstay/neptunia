@@ -5,6 +5,16 @@
   "prompt": "prompt.md",
   "override": null,
   "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill", "external_directory"],
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "*node --test*": "deny",
+      "*npm test*": "deny",
+      "*npm run test*": "deny",
+      "*node --test --test-reporter=dot* tests/*.test.*": "allow",
+      "*FULL_SUITE=1*node --test*": "allow"
+    }
+  },
   "effort": "high",
   "limits": { "steps": 400, "minutes": 60 },
   "description": "Orchestrates the development tasks of the ledger: writes briefs, reviews the work, runs the tests and merges; never deploys."

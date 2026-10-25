@@ -434,10 +434,10 @@ const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchP
 
 /**
  * The keys only a development profile carries: the OpenCode tools it asks for (DEVELOPMENT_TOOLS),
- * its reasoning effort (DEVELOPMENT_EFFORTS, OpenCode's `--variant`) and its default per-run caps
- * `{ steps, minutes }`.
+ * the permission rules that narrow them (PERMISSION_ACTIONS), its reasoning effort
+ * (DEVELOPMENT_EFFORTS, OpenCode's `--variant`) and its default per-run caps `{ steps, minutes }`.
  */
-const DEVELOPMENT_KEYS = Object.freeze(['tools', 'effort', 'limits']);
+const DEVELOPMENT_KEYS = Object.freeze(['tools', 'permission', 'effort', 'limits']);
 
 /**
  * The keys only a tool profile carries: the name of its tool (TOOL_NAMES), its per-run cap
@@ -470,6 +470,14 @@ const KEYS_BY_KIND = Object.freeze({
  * and `execute`.
  */
 export const DEVELOPMENT_TOOLS = Object.freeze(['bash', 'read', 'grep', 'glob', 'list', 'edit', 'write', 'patch', 'webfetch', 'websearch', 'todowrite', 'skill', 'external_directory']);
+
+/**
+ * The OpenCode permission actions a development profile's `permission` rules may name. `permission`
+ * maps a tool of the profile's `tools` to one action or to an object of command patterns (OpenCode
+ * wildcards: `*`, `?`; the last matching pattern wins) and their actions. It can only narrow what the
+ * dispatcher grants, never widen it.
+ */
+export const PERMISSION_ACTIONS = Object.freeze(['allow', 'ask', 'deny']);
 
 /** The reasoning efforts a development profile may name (OpenCode's `--variant`). */
 export const DEVELOPMENT_EFFORTS = Object.freeze(['low', 'medium', 'high', 'max']);
@@ -543,6 +551,24 @@ function checkTools(agent, tools, allowed, where) {
   if (new Set(tools).size !== tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
 }
 
+/** Checks a development profile's `permission`: tool -> action, or tool -> { pattern: action }, tools from `tools`. */
+function checkPermission(agent, permission, tools) {
+  if (!isObject(permission)) throw new AgentProfileError(agent, 'permission', 'must be an object of tool -> action or tool -> { pattern: action }');
+  const actions = `must be one of ${PERMISSION_ACTIONS.join(', ')}`;
+  for (const [tool, rules] of Object.entries(permission)) {
+    if (!tools.includes(tool)) throw new AgentProfileError(agent, `permission.${tool}`, 'names a tool the profile does not ask for');
+    if (typeof rules === 'string') {
+      if (!PERMISSION_ACTIONS.includes(rules)) throw new AgentProfileError(agent, `permission.${tool}`, actions);
+      continue;
+    }
+    if (!isObject(rules) || Object.keys(rules).length === 0) throw new AgentProfileError(agent, `permission.${tool}`, 'must be an action or a non-empty object of pattern -> action');
+    for (const [pattern, action] of Object.entries(rules)) {
+      if (!pattern.trim()) throw new AgentProfileError(agent, `permission.${tool}`, 'has an empty pattern');
+      if (!PERMISSION_ACTIONS.includes(action)) throw new AgentProfileError(agent, `permission.${tool}.${pattern}`, actions);
+    }
+  }
+}
+
 /** Checks an absolute path default (`socket`, `out`). */
 function checkAbsolute(agent, key, value) {
   if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0')) throw new AgentProfileError(agent, key, 'must be an absolute path');
@@ -580,6 +606,7 @@ function validateProfile(agent, raw) {
   if (typeof raw.description !== 'string' || !raw.description.trim()) throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
   if (development) {
     checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
+    checkPermission(agent, raw.permission, raw.tools);
     if (!DEVELOPMENT_EFFORTS.includes(raw.effort)) throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
     checkNumbers(agent, 'limits', raw.limits, { steps: true, minutes: false });
     return;
