@@ -51,16 +51,12 @@ Set them in the process environment (for example with `Environment=` in the syst
 | `channelPull` | `true` | Pull another channel into a turn's request when the recent messages or the trigger contain a real channel mention. A missing key counts as on. See `context.pull.*` |
 | `pullSeenMarker` | `true` | Show a line under a pulled channel view's header saying how many of its messages are new since the persona was last shown that channel in this destination, how many of those are older than what it saw then, or that they are the same and no older ones were loaded. Messages are compared by id and content; an edited message counts as new. The comparison is remembered in process memory only, not across a restart. A missing key counts as on. See `context.pull.seenTtlMinutes` |
 | `elsewhere` | `true` | Answer a call (@mention, reply, name) from a channel where the bot can read but not send. The answer goes to the first usable channel in `memory.mainChannelIds`. A missing key counts as on |
-| `portraitRefresh` | `true` | Refresh a member's portrait by message counters on a periodic schedule. A missing key counts as on |
-| `notesRefresh` | `true` | Periodically re-examine channel and server notes from a spread sample of recent messages. A missing key counts as on. See `memory.notesRefreshDays*` and [Warmup: Keeping the notes current](warmup.md#keeping-the-notes-current) |
 | `versions` | `true` | Keep a version history of every prose memory field when its text is replaced. Previous texts are stored in `data/guilds/<id>/versions/`. `/nep memory forget` and `/nep memory wipe` delete version files. A missing key counts as on |
-| `memoryTwoStage` | `false` | Split the memory analyzer into two stages: a neutral GPT model decides what changed (stage A), then the voice model words the persona's texts (stage B). Must be exactly `true` to enable; a missing key counts as off. See `memory.voice.*` |
 | `promptCache` | `true` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
 | `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`models.base.embedding`) reachable. See `recall.meaningCandidates` |
 | `embedIndex` | `false` | Keep the vector index current while the bot runs: every message the record takes is queued, and a batch is embedded every `embed.flushSeconds` seconds or once `embed.batch` lines wait. Must be exactly `true` to enable; a missing key counts as off. Needs `features.meaningSearch` on. Without this switch, the index is built only by `tools/embed-index.mjs` |
-| `memoryDb` | `false` | Keep the memory database (`data/<memoryDb.file>`) equal to the JSON memory files while the bot runs: it is opened with a writer lock when the switch turns on and closed when it turns off, filled by a first full import in slices, then synced after each store flush and at least every `memoryDb.syncSeconds`. The JSON files stay the writer. Must be exactly `true` to enable; a missing key counts as off. See `memoryDb` |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `offPeriods` | `true` | `<now>` lists the periods of the last `journal.offWindowHours` hours when the persona was paused by the owner or the service was off, newest first, at most 3, from the journal's system records. Nothing is posted to any channel. A missing key counts as on. Needs `features.journal` |
 | `record` | `true` | Keep the record: every message the memory buffer took (written before the batch is analyzed; a batch the disk refuses stays in the buffer and is retried), every edit as a new line with the next revision, every deletion, each message the persona posted and each feeling she stored on a moment, one line each, in `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` by UTC day. Only ids, time, channel, author, reply target, text, media kinds, mentions and, for a posted link with a preview, the link's URL, title, description (cut to 200 characters) and site (at most 3 links) are kept, never the URL of a file. A private chat's lines go to `data/guilds/<id>/private/<userId>/record/` instead. Never trimmed. Must be exactly `true` to enable; a missing key counts as off. See [`record`](#record) |
@@ -143,7 +139,6 @@ The models sit in three groups, the same three the `/nep status` card shows. Eac
 | `core` | `"anthropic/claude-opus-4.6"` | The persona's model, a string. Purposes: `reply`, `memory-voice` (the memory texts worded in its voice) |
 | `memory` | `"anthropic/claude-opus-4.6"` | The model of her memory session and description review (`memoryDb.session`), a string. Purposes: `memory-session`, `description-draft`, `description-check`. It is her voice like the core, but a role of its own: the same default as `core`, not a copy of it, and `/nep model` does not list it. Provider reasoning is never used on it. Its key is `llm.keyByRole.memory` and never falls back to another key |
 | `analyzer` | `"openai/gpt-6.1-sol"` | The core's helper model. Picks one of a few given options (address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick, missed), plans a search and turns sources into notes (lookup, planner, recall-summary, search-summary, read-link, diary-plan), and runs the persona's own `web.search` on the `openrouter` engine (web-search). Pin one purpose to another model with `byPurpose` |
-| `extractor` | `"openai/gpt-6.1-sol"` | Turns conversations into stored memory: analyzer batches, portraits, channel and server notes, warmup, backfill |
 | `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook, avatar) |
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
@@ -223,10 +218,7 @@ The memory database (`features.memoryDb`). One SQLite file holding the memory in
 | Key | Default | Meaning |
 |---|---|---|
 | `file` | `"memory.db"` | The database file under `data/`. Only the bot writes it (a lock file `<file>.lock` names the process); the tools open it read-only |
-| `syncSeconds` | `60` | The longest gap between sync passes. A pass also runs soon after each store flush. A pass reads only the files that changed since the last one (a month of vectors that only grew reads just its new rows). The first pass on an empty database is the full import |
 | `closeTimeoutMs` | `10000` | At shutdown (or when the switch turns off), how long to wait for the pass under way and for the worker to close the database before the worker is terminated. A pass cut short is safe: the next start takes it up again |
-| `read` | `false` | Needs `features.memoryDb`. The store takes a memory file's first load, and the list of ids under a directory, from the database instead of the JSON files, once the process has synced. A file the database does not hold, or holds behind the disk, is read from the disk as before. Writes are unchanged. Must be exactly `true` to enable |
-| `authority` | `"json"` | Who writes the memory: `json` (the JSON files; the default) or `db` (the database). Separate from `read`: the read switch never unlocks a write. `session.mode` `apply` and the description review's `apply` need `db` (otherwise the status code `APPLY_JSON_WRITER`, and the writer refuses inside its transaction). While `json`, the JSON-to-database sync runs; while `db`, the sync is off (no tick pass, no pass after a flush, no pass at shutdown) and the status says so. Any other value counts as `json`. The readers' side is fixed for the process: the value when the bot starts chooses the readers of the record, the archive, the journal, the meaning index, the intention and task stores, the store's directory listings and the embedding catch-up (`db`: they read the database, see [memory-readers.md](memory-readers.md); a failed or closed database is an error to the caller, never a file read; `/nep resume` then checks only the operational JSON files); a later change is logged (`memory db: authority change needs a restart`) and the bot keeps the value it started with: the sync, the status and the write guards above follow it too. Under `db` the memory does not start (the database is not opened, the log says `memory db: start refused` with a code and the status card's `refused` field says why) unless `read` is `true` (`READ_OFF`), `recall.backend` is `db` (`RECALL_NOT_DB`), `observeLive` is `true` (`OBSERVE_OFF`) and `session.mode` is `apply` or `off` (`SESSION_SHADOW`: a shadow session would read a store nobody else writes); every tick checks again. Under `db` the record, the journal, the meaning index, the diary and the participation episodes are written to the database and their files are no longer written (`participation.json` still is; the request dumps and the journal's `.running` marker stay files): the record's lines as the record maps them (a line the live observation wrote first is taken over), the journal's lines as the journal maps them, the vectors with their model, dims, scale and norm, a diary post with its `sent` publication (the diary channel as its destination); the diary backfill from the channel does not run, and the database finishes its own graph projection and word stems at each tick. The store's other units (profiles, private layers, channels, the guild, lore, recent, versions, the voice queue, the buffer), the intention and task stores and the archive are written to the database too, and read from it alone: their files are neither read nor written (`media.json` and `gifs.json` stay files, `media.json` also sending its rows; the archive's pending queue stays a file). A write that fails is tried again at the next flush; at shutdown what still fails is kept in `data/memory-pending/` (an error in the log with the count) and replayed before anything reads the database at the next start; a replay that fails keeps the database closed (`memory db: open failed`, `PENDING_REPLAY`). There is no forget path under `db`: the start's unfinished forgets and deletion ledger are not run. The offline tools that write memory files (`tools/backfill.mjs`, `tools/warmup.mjs`, `tools/embed-index.mjs build`, `tools/import-turns.mjs --write`) refuse to run under `db`. Under `db` her memory session is the memory writer (`session`, below): the analyzer's memory path is off (no buffer, no batch, no `memory-decide` / `memory-voice` request, no voice run; the counters of first and last seen, messages, emoji and the names people use stay, counted per line), the extractor role is retired (the warmup run and its one-off targets, the portrait refresh and the channel and server notes refresh refuse with `authority-db`), and the analyzer's other purposes (the gates) run as before. At the first start under `db` the analyzer's boundary becomes the session's cursors (one transaction, once: the `meta` marker `memory_session.handoff`; the lines still in the analyzer's buffer are read by the session, the ones it had consumed are not; `buffer.json` is left on disk), and the log names the effective model and key variable of the session, the description review and every remaining purpose (`memory db: effective models`). Forget, purge and wipe are refused under `db` (`NO_FORGET` in the store, `refused` for `/nep memory forget|wipe` and `/nep private forget|purge`) |
 | `diaryMedia` | `false` | Needs `features.memoryDb`, the first import done and `diary.channelId`. The core keeps its own copy of the diary: for every diary post that has Discord message ids and no text yet, it fetches those messages through the interface (at most one fetch a second), stores the post's text in the database and saves each picture under `data/media/diary/` (size cap `image.referenceMaxBytes`, timeout `context.vision.fetchTimeoutMs`), with a `media` row that carries the post's scope. The diary in the database is the one truth: a post whose messages are all gone keeps what the database holds, with an empty text, and is not asked for again. A failure leaves the post for the next start. New posts are picked up after the next sync. Must be exactly `true` to enable |
 | `session` | see below | Her memory session and description review, an object (below). Needs `features.memoryDb`, the first import done and the key `OPENROUTER_MEMORY_KEY` |
 | `diaryAudioMaxBytes` | `8388608` | Size cap for an audio attachment (a voice message, mp3, m4a, wav) of a diary post that the `diaryMedia` job saves next to the pictures under `data/media/diary/` (same numbering and timeout). The `media` row's `extra` carries `voice`, the voiced text and the duration when known. A post saved before audio was kept is fetched again once if it has a `voice` field and no audio row |
@@ -234,7 +226,6 @@ The memory database (`features.memoryDb`). One SQLite file holding the memory in
 | `turnReads` | `true` | Needs `features.memoryDb`. After a turn's request is built, record which memory rows it carried (profile items, channel and guild notes, lore, recent lines, participation episodes, retrieved sources) in the database, one transaction per turn step. Each row is resolved when the request is assembled, not later: the block it was rendered in, its order in the request, the exact claim or description version and the source revision. Only the write is deferred. A missing key counts as on |
 | `wakeRuns` | `false` | Needs `features.memoryDb`. Each inner turn is recorded as a wake run (`wake_runs`, schema 11): its kind, what its view showed (ids with their versions), the envelope's policy version, each of its actions once by its number (a restarted run records nothing twice) and how it ended (`succeeded` or `failed` with the outcome). At each open of the database, a run left `running` for longer than `innerLife.loop.timeBudgetMs` becomes `interrupted`. The journal and the inner state file are unchanged. Must be exactly `true` to enable |
 | `skillsRegistry` | `false` | Needs `features.memoryDb`. At each open of the database every skill is registered (`skills`, `skill_versions`, schema 11) with the hash of its definition and of its operation's source file, the hash of its manifest (what it may reach: tools, destinations, network, file access, capabilities) and the engine commit (`git rev-parse HEAD`, else `unknown`). A skill's first version is active; a later one is a candidate until its evaluations allow it. Nothing reads the registry yet. Must be exactly `true` to enable |
-| `observeLive` | `false` | Needs `features.memoryDb`. Every message memory observes (her own, the server's and a private chat's) and every edit the record writes is also written to the database as an observation (the interface's account, place and line, with its replies and mentions), through the database's writer and never on the message's path. While the JSON files are the writer the observation lands on the rows the sync writes: a line the sync already holds is that line, and a line written first by the observation is taken over by the sync when its file brings it. An edit's revision is counted by the database. The record's own `said`, `deleted` and `felt` lines are sent the same way (their shadow, taken over by the sync when the file brings it). Under `authority` `db` the observation is the line's record: it is written into the line's record day, the message handler waits for it (at most `observeTimeoutMs`), and a write that failed waits for the next tick, never for a file. `tools/memory-db.mjs observe-check --db <file> --since <iso>` lists the lines of every kind only one side wrote. Must be exactly `true` to enable |
 | `observeTimeoutMs` | `5000` | Under `authority` `db`: how long the message handler waits for an observation's commit before it goes on (the observation itself stays queued until it is written) |
 | `backup.enabled` | `false` | Under `authority` `db` only: the daily backup of the memory. Once per UTC day, at the first tick at or after `backup.hour`, when `backup.dir` holds no finished backup of that day, the database's writer copies the database with `VACUUM INTO` (a consistent copy; no WAL file is copied) beside a copy of `data/media/diary/` and a `manifest.json` (the schema version, the engine commit, the SHA-256 of the live config, the row count of every table, and the size and SHA-256 of the database file and of every diary media file) into `<backup.dir>/<YYYY-MM-DD-HHMMSS>-memory/` (written as `<name>.partial/` and renamed once whole). Then all but the newest `backup.keep` backups, and every unfinished one, are deleted. A failed backup is a warning (`memory db: backup failed` with a code), the database status's `backup.lastFailure`, and is tried again an hour later. Under `json` nothing runs. `tools/memory-db.mjs restore-test --from <backup>` proves a backup restores. Must be exactly `true` to enable |
 | `backup.hour` | `3` | The UTC hour (0-23) from which the day's backup is taken |
@@ -248,7 +239,7 @@ Her memory session (`src/memory/db/session.js`): she reads the new chat lines of
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"off"` | `off`: nothing runs. `shadow`: every proposed change is written as a `decisions` row (`by` `her`, `action` `proposed:<op>`, the whole op in `extra`) and one `session_runs` row per request; no claim, episode or attitude is touched. `apply`: the changes are written to the database (claims with their versions and sources, episodes, attitude events, decisions); refused with the status code `APPLY_JSON_WRITER` while `memoryDb.authority` is not `db`, because the JSON files are still the writer then; under `memoryDb.authority` `db`, `shadow` keeps the memory from starting (`SESSION_SHADOW`). A run is applied once: a retried batch returns the first result and changes nothing; the cursor moves in the same transaction as the last write, by compare-and-set. Her whole answer, `<think>` included, is stored as a `sources` row of kind `memory_session` (scope internal). Any mode other than `shadow` and `apply` is refused by the writer |
+| `mode` | `"off"` | `off`: nothing runs. `shadow`: every proposed change is written as a `decisions` row (`by` `her`, `action` `proposed:<op>`, the whole op in `extra`) and one `session_runs` row per request; no claim, episode or attitude is touched. `apply`: the changes are written to the database (claims with their versions and sources, episodes, attitude events, decisions). A run is applied once: a retried batch returns the first result and changes nothing; the cursor moves in the same transaction as the last write, by compare-and-set. Her whole answer, `<think>` included, is stored as a `sources` row of kind `memory_session` (scope internal). Any mode other than `shadow` and `apply` is refused by the writer |
 | `maxMessages` | `200` | The most lines in one request |
 | `minMessages` | `5` | A scope with fewer new lines waits for more |
 | `sweepsPerScopePerDay` | `24` | The most sweeps that reach one scope per UTC day; a sweep whose every scope with new lines is at this cap is refused (`sweep_cap`). The old key `sweepsPerDay` is read in its place while this one is missing |
@@ -532,7 +523,6 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `locatorBonus` | `2` | When the question's date only helps find the event (`when-role: locator`, or a `when:` beside word or name forms without a role), the record, the archive and the vector index search past that date, and each stretch, cluster or memory item near it gets up to this much added to its score (in topic points: one matched form; scaled to one top rank when the score is fused with the meaning search). The full bonus inside the date's range, less with distance. `0` = the date gives no bonus |
 | `locatorDecayDays` | `7` | The bonus above falls linearly to nothing at this many days away from the date's range. Also how far before the date the record must reach for the extra broad Discord page to be skipped. `0` = a bonus only inside the range |
 | `locatorBroadShare` | `0.5` | Share of the kept stretches, clusters and memory items (rounded up) chosen by content alone, regardless of the date, so a misremembered date cannot crowd out the right event; the rest are chosen with the bonus. From `0` (all by the bonus) to `1` (all by content: the date changes nothing) |
-| `backend` | `"discord"` | Where the persona's own `memory.search` and the memory prefetch read the server's history. `"discord"`: Discord's search, the record, the record index and the vector files, as before. `"db"`: the memory database (`features.memoryDb` on, the database open and synced once; until then the old way is used), inside the read scope of the turn: a channel turn reads what a group may see, a private chat what its partner may. Read at the moment of use. See `recall.db` |
 
 ### `recall.db`
 
@@ -798,55 +788,22 @@ The messages posted while the bot was down (a deploy, a restart), read once at s
 
 | Key | Default | Meaning |
 |---|---|---|
-| `temperature` | `0.3` | Sampling temperature of every extractor-role request: stream analyzer batches (server and private), the warmup's channel, profile and server requests and the portrait refresh |
 | `mainChannelIds` | `[]` | Channels where people talk to each other; the portrait of a member's character and style is drawn from them; empty means every channel counts. Also the destination for answers to calls from read-only channels (`features.elsewhere`): the first usable channel in the list is used |
-| `portraitRefreshHours` | `24` | Min hours between portrait refreshes triggered by the analyzer's cue per member |
-| `portraitRefreshMessages` | `300` | Own messages since the last portrait before a code-triggered refresh is due. Also the sample size for the refresh |
-| `portraitRefreshDays` | `3` | Days since the last successful refresh before a code-triggered refresh is due |
-| `portraitRefreshPerDay` | `3` | Max portrait refreshes per server per day (code-triggered, analyzer cue and `/nep memory refresh` share this cap). The day counter lives in `state.json` as `portraitDay` / `portraitCount` and survives `tools/warmup.mjs reset` |
-| `portraitRetryHours` | `24` | Hours to wait after a failed refresh attempt before trying the same member again |
-| `portraitCheckMinutes` | `60` | How often the portrait scheduler checks for members due a refresh |
-| `analyzerEpisodes` | `8` | Episodes shown per author in the analyzer's `<existing_profiles>`. Only the top by weight and recency are sent; the stored list keeps every episode. `0` sends none |
 | `keepNewestEpisodes` | `5` | The newest episodes (by when they were added) are exempt from eviction. `0` uses the previous rule: evict lightest first, then oldest |
 | `recentHours` | `72` | Hours of recent notes kept and shown in the `<recent>` block. Lowering it narrows the view at once and deletes older lines at the next write |
 | `maxRecentStored` | `150` | Lines kept on disk. When a write adds lines past this cap, the lightest, then the oldest are evicted |
 | `maxNewRecent` | `3` | Lines the analyzer may add per batch |
 | `recentChars` | `160` | Max characters per recent line |
 | `recentShown` | `12` | Live recent lines the analyzer is shown in `<existing_recent>` so it does not repeat them |
-| `notesStaleDays` | `7` | Days since the last valid review or text change before a channel's or the server's notes are flagged for a stale-note review in the next qualifying batch. The flag is sent only when enough messages have accumulated since then (`notesMinMessages` for a channel, `notesGuildMinMessages` for the server) and the batch carries at least `notesBatchLines` lines from that channel. `0` turns the flag off |
-| `notesBatchLines` | `8` | Messages from a channel in the current batch for its stale flag to be considered. The batch provides local evidence; the accumulated count (`notesMinMessages`) tracks whether enough activity happened since the last review |
-| `notesMinMessages` | `30` | Messages tallied in a channel since the later of its last text change and last valid review before that channel's notes become eligible for a stale-note flag |
-| `notesGuildMinMessages` | `100` | Messages tallied across all stored channels since the later of the server notes' last text change and last valid review before the server notes become eligible for a stale flag |
-| `notesRetryHours` | `24` | Hours before the same channel or server is flagged again after a flag was sent. Covers both the stream analyzer flag and the sample refresh attempt |
-| `notesRefreshDaysMain` | `7` | Days since the last text change or sample review before a channel in `mainChannelIds` is due for a sample refresh (`features.notesRefresh`) |
-| `notesRefreshDays` | `21` | Same as `notesRefreshDaysMain`, for channels not in `mainChannelIds` |
-| `notesServerRefreshDays` | `7` | Days since the last text change or sample review before the server notes are due for a sample refresh. The server goes after the channels in a cycle and is outside the daily cap |
-| `notesRefreshPerDay` | `4` | Successful channel note refreshes per UTC day. A failed request does not take a slot. The day counter lives in `state.json` as `notesRefreshDay` / `notesRefreshCount` |
-| `notesCheckMinutes` | `60` | How often the notes refresh scheduler checks for overdue channels and the server. Last check time is stored in `state.json` as `notesRefreshLookAt` |
-| `notesSampleDays` | `30` | Days of channel history read for a sample refresh |
-| `notesSampleMessages` | `160` | Target number of messages in the spread sample. Messages are spread over the days (newest day first, one message per day per round) to avoid sampling only the latest conversation |
-| `notesSampleMaxAuthorShare` | `0.35` | One author may hold at most this share of the sample; excess messages from a dominant author are replaced with other authors' lines |
-| `versionsKept` | `20` | Previous texts kept per field in the version history. When a field accumulates more, the oldest entry is dropped. Only prose fields are versioned: member `character`, `style`, `relationship`; channel `purpose`, `topics`, `tone`; server `patterns`, `starters`; lore `text` |
 | `vaultDir` | `"vault"` | Directory, relative to `data/` (or absolute), where `/nep memory forget` and `/nep memory wipe` put a plain copy of everything they are about to delete or rewrite: `forget-<userId>-<UTC time>/` and `wipe-<UTC time>/`, with each file under its path below `data/`. The engine never reads it back and `/nep memory snapshot` never copies it; putting a member back means copying files by hand and removing their entry from `data/guilds/<id>/forgotten.json`. Read at each forget or wipe |
-| `overLimitRetries` | `1` | Retries when a model answer for a prose field exceeds its character limit. The retry sends the model's own answer back with the exact field name, character count and limit, and asks for a shorter version. `0` turns the retry off; any positive value means exactly one retry. Applies to the voice model, the portrait refresh and the notes refresh. The stream analyzer never retries (the overflowing field is dropped from that batch) |
-| `portraitMaxAgeDays` | `21` | A portrait older than this (with at least `portraitMinMessages` own messages since) is due for a refresh even if it has not reached `portraitRefreshMessages` |
-| `portraitMinMessages` | `60` | Own messages since the last portrait for the age-based due path (`portraitMaxAgeDays`) |
-| `privateMaxAgeMinutes` | `360` | Minutes before a quiet private buffer is analyzed even though it has not reached `minBatchMessages` |
 | `channelWritersStored` | `20` | Top writers kept per channel, ranked by a decayed tally |
 | `channelWritersHalfLifeDays` | `30` | Half-life of the per-channel writer tally (days); a writer who stopped writing sinks below active ones |
-| `reasoning` | `null` | OpenRouter `reasoning` object sent on the analyzer's stage A requests and the warmup's neutral route. `null` omits the field. Example: `{ "effort": "low" }` |
-| `batchMessages` | `60` | Ideal batch size |
-| `minBatchMessages` | `15` | Min messages before update |
-| `maxBatchAgeMinutes` | `180` | Force update after (min) |
-| `maxOutputTokens` | `20000` | Max analyzer output tokens |
 | `fieldChars` | `1000` | Character limit for profile prose fields (`character`, `style`) and channel note fields (`purpose`, `topics`, `tone`). Server-level `patterns` and `starters` use `fieldChars * 2`. A rewrite that exceeds the limit is refused and the stored text stays; only the first write of an empty field is cut to the limit (see `clampTolerance`) |
 | `clampTolerance` | `1.25` | How far past the limit a first write may go before it is cut. Applies only when the field was empty: the text is accepted up to `limit * clampTolerance`, cut at a sentence or word boundary, never inside a member reference. On a rewrite (the field already has text), tolerance is not applied: the text must fit within the exact limit or it is refused |
 | `maxDetails` | `15` | Detail items shown to the persona and analyzer per profile |
 | `maxDetailsStored` | `40` | Detail items kept per profile; the top by frequency and recency are shown |
 | `maxInterests` | `12` | Interest items shown to the persona and analyzer per profile |
 | `maxInterestsStored` | `40` | Interest items kept per profile; the top by frequency and recency are shown |
-| `interestTopicChars` | `40` | Max chars for an interest topic |
-| `interestNoteChars` | `120` | Max chars for an interest note |
 | `confirmAfter` | `2` | Sightings before an interest or detail is confirmed |
 | `confirmGapHours` | `12` | Hours between sightings to count as a new occasion |
 | `interestStaleDays` | `90` | Days without sighting before an interest is marked old (checked against the start of the current UTC day, so the mark changes only once a day) |
@@ -858,35 +815,16 @@ The messages posted while the bot was down (a deploy, a restart), read once at s
 | `learnedHalfLifeDays` | `720` | Weight half-life for lessons (days) |
 | `maxAliases` | `5` | Aliases shown to the persona and analyzer per profile |
 | `maxAliasesStored` | `15` | Aliases kept per profile; the top by frequency and recency are shown |
-| `aliasRosterSize` | `40` | Members carried in the `<known_members>` block of a guild analyzer batch: stored profiles not present as authors, so the analyzer can record an alias for one of them. `0` turns the roster off. Private batches never carry it |
 | `aliasHalfLifeDays` | `365` | Weight half-life for aliases (days) |
 | `addressHalfLifeDays` | `30` | Days for a name use to lose half its weight in the "called most often" order |
 | `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail, alias or real name the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
 | `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded, checked against the start of the current UTC day). Read at each request |
-| `maxInjokes` | `15` | Max server in-jokes |
 | `maxSelfFacts` | `20` | Max self-claims |
 | `maxEpisodes` | `20` | Max episodes kept per person |
-| `maxNewEpisodes` | `3` | Max new episodes per person per batch |
-| `timeoutMs` | `900000` | Analyzer timeout (ms), separate from `llm.timeoutMs` |
 
 The analyzer prompt reads these limits as placeholders, so raising a value takes effect on the next batch. Bigger profiles cost context tokens (`context.caps.people`, `context.caps.interlocutor`) and analyzer output (`memory.maxOutputTokens`).
 
 **Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `models.base.core`.
-
-### `memory.voice`
-
-Settings for stage B of the two-stage analyzer (`features.memoryTwoStage`). Stage B takes the neutral briefs queued by stage A and words them in the persona's voice. The queue is persisted in `data/guilds/<id>/voice.json` and survives restarts.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `maxItems` | `24` | Items per voice request, fitted under the 50k token rail |
-| `maxPerDay` | `100` | Voice requests per UTC day. `0` prevents sending (useful for stage-A-only simulation runs) |
-| `maxOutputTokens` | `3000` | Max output tokens per voice request |
-| `retryMinutes` | `15` | Back-off after a voice answer that left an item out; the delay doubles on each miss |
-| `maxAttempts` | `4` | Answers that left an item out before it takes the degraded path. A failed request (bad JSON, timeout) does not count toward this |
-| `queueMax` | `100` | Items kept in the queue; the oldest non-character items overflow to the degraded path |
-| `queueHours` | `24` | Hours before a queued item expires to the degraded path. Character items never expire |
-| `timeoutMs` | `120000` | Request timeout for voice requests (ms) |
 
 ## `relationships`
 
@@ -1058,28 +996,8 @@ Settings for private chat (`features.privateMessages`). All hot-reloaded. The ga
 | `minAffinity` | `5` | Minimum public attitude score to answer a DM; owners bypass this check |
 | `maxPerUserPerDay` | `20` | DM turns per member per day that reached the model (answered or silent); a cap hit posts a limit notice once per day |
 | `maxPerOwnerPerDay` | `200` | DM turns per day for bot owners that reached the model (answered or silent) |
-| `purgeMaxMessages` | `5000` | Max DM messages `/nep memory private purge` scans (newest first) in one run |
 
 With `features.relationships` off, public scores stay at 0, so with the default `minAffinity` only owners can DM.
-
-## `warmup`
-
-| Key | Default | Meaning |
-|---|---|---|
-| `lookbackDays` | `60` | How far back to sample (days) |
-| `minMessages` | `30` | Own messages for a member to qualify |
-| `maxPeople` | `40` | Members processed, most active first |
-| `messagesPerPerson` | `2000` | Own messages sampled per member |
-| `contextBefore` | `1` | Context lines before each sampled message |
-| `maxChannelShare` | `0.5` | Max share of samples from one channel |
-| `messagesPerChannel` | `200` | Newest messages a channel is described from |
-| `serverSampleMessages` | `600` | Recent main-channel messages for the server request |
-| `fetchLimitPerChannel` | `15000` | Messages fetched per channel for the sample pool |
-| `maxOutputTokens` | `6000` | Max output tokens per warmup request |
-| `maxRequestTokens` | `120000` | Max tokens per warmup request (input + output) |
-| `maxTokens` | `6000000` | Total token budget for the run |
-| `rateLimitWaitMinutes` | `10` | Minutes to wait on a rate limit |
-| `rateLimitMaxWaits` | `36` | Consecutive waits before the run aborts |
 
 ## `agents`
 
@@ -1228,21 +1146,12 @@ The persona's journal: one record per turn (what of the chat went into the reque
 | `keepRequests` | `3` | Days the request dumps are kept. Each turn writes a full dump of the model request and its raw answer to `requests/<day>/<turnId>-<attempt>.json` in the journal directory, and each later request of the turn (the tool loop's steps, the follow-up after a call) beside it as `<turnId>-<attempt>-s<step>.json` with the same fields and its `step` (a private chat's under its partner's private journal): the system prompt, the message parts as sent (pictures reduced to their size) and the raw answer with its token usage (`prompt`, `cached`: read from the prompt cache, `cacheWrite`: written to it, `completion`; the turn record carries the same). Day directories older than this many days are deleted at start and then daily. `0` writes no dump and deletes none. Needs `features.journal` |
 | `offWindowHours` | `24` | How far back the journal is read for the persona's time away. See `features.offPeriods` |
 
-## `record`
-
-The witnessed record: every message the memory buffer takes, every message the persona posts and every feeling stored on an episode, written by UTC day to `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`. Never trimmed. Needs `features.record` (on by default).
-
-| Key | Default | Meaning |
-|---|---|---|
-| `fsyncMs` | `500` | The record's files are flushed to disk (fsync) at most this long (ms) after a write. Read at startup |
-
 ## `archive`
 
 Before anything leaves hot memory (an episode, interest, detail, alias, real name, lesson, attitude move, recent line, participation episode, diary gist or old version past its cap), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. The item stays in memory, over its cap, until the archive confirms the write. Never trimmed. Needs `features.archive` (on by default).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `pendingMax` | `500` | Copies waiting in the archive's pending queue (the disk refused them) before memory updates stop: past it no analyzer batch and no voice run is applied, the messages stay in the buffer, `memory: archive stalled` is logged and one status line goes to `bot.dryRunChannelId`. Updates resume by themselves once the queue is back at or under the limit. Read at each batch |
 | `drainMs` | `30000` | How often (ms) the copies waiting in the pending queue are retried; once archived, their items leave memory. Read before each wait |
 | `holdMaxMs` | `5000` | A memory file whose item was rewritten in place is not written to disk until the old version is in the archive (or its pending queue). On shutdown and on `/nep pause` the bot waits up to this long (ms) for that, then writes the file anyway and logs `store: flushed held`. Read at that moment |
 
@@ -1259,10 +1168,6 @@ Default: `anthropic/claude-opus-4.6`. A cheaper option: `anthropic/claude-sonnet
 ### Analyzer
 
 Picks one option from a short list (address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick), plans searches and turns sources into notes (lookup, planner, recall-summary, search-summary, read-link, diary-plan). A cheap model that follows structured prompts reliably. Default: `openai/gpt-6.1-sol`.
-
-### Extractor
-
-Turns conversations into stored memory: the memory analyzer's batches, portraits, channel and server notes, warmup, backfill. Reasons over long transcripts and returns strict JSON. In two-stage mode (`features.memoryTwoStage`), this model runs stage A (neutral decisions). Default: `openai/gpt-6.1-sol`.
 
 ### Embedding
 

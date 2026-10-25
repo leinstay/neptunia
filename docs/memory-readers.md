@@ -1,5 +1,7 @@
 # Memory readers: the file and database contract
 
+<!-- writer: the JSON memory is gone; the intro, the "under `db`" phrasing and the files-or-database cells below still describe two backends and need rewording for the database alone. -->
+
 The memory modules read either their JSON files or the memory database, chosen by `memoryDb.authority` (see
 [configuration.md](configuration.md)). Under `json` (the default) every read below is the file read it always was.
 Under `db` the same functions answer from the database through `src/memory/db/readers/`, and return what the file
@@ -17,12 +19,6 @@ directory's path, sorted as bytes (the order of a sorted listing of ASCII names)
 
 ## Rules that hold for every function
 
-- **Authority.** Fixed for the process: the service reads `memoryDb.authority` once at start and the modules ask it
-  (`memoryDb.authority()`), never the config. A later change is logged as `memory db: authority change needs a
-  restart` and ignored by the readers, the writers, the sync and the status alike. Under `db` the service opens the
-  database only when `memoryDb.read`, `recall.backend: db` and `memoryDb.observeLive` are on and her memory
-  session is `apply` or `off` (otherwise `memory db: start refused` with a code, and every read is `DB_CLOSED`).
-  While it replays the unit writes a shutdown left in `memory-pending/`, nothing reads it.
 - **No fallback under `db`.** A closed database (`DB_CLOSED`) or a failed query is an error to the caller, logged
   once as `memory db: read failed` with the reader's name and the code. No function reads a file then.
 - **Read-after-write.** Database writes go through the service's writer thread. A write is visible to the next read
@@ -31,8 +27,6 @@ directory's path, sorted as bytes (the order of a sorted listing of ASCII names)
   "The writers under `db`" below), so a read after an awaited write finds it. The store's cache and the intention
   and task stores keep their values in memory and hand their writes to an outbox: what they read back is their own
   value, never an older one from the database or a file.
-- **Forgets.** Members under a forget marker (`forgetting/<id>.json`) are hidden by the same rule on both sides;
-  under `db` the markers and the deletion ledger are read from their operational rows.
 - **Logs.** Codes and counts only, never a path, a name or a text.
 
 ## Record (`src/memory/record.js`)
@@ -111,18 +105,18 @@ Every row the writers make is the row their unit's mapper derives, through the s
 (`src/memory/db/unit-write.js`), with the unit's path as `owner_file` and the next `position` of the unit; the unit's
 `files` row is kept, so the export and the directory ids list it.
 
-| Writer | Under `db` | Under `json` |
-|---|---|---|
-| `record.append` | each line as the record maps it in its day's unit; a revision (or deletion) the month already holds is a duplicate, as the id index says; a line the live observation wrote first is taken over in its place | the day files and id indexes, plus the shadow of `said`, `deleted` and `felt` lines (an observation-shaped row the sync adopts) |
-| the live observation (`memoryDb.observe`) | written into the line's record day (the handler waits for it), so a seen line is in the record before the analyzer's batch; an edit's revision is the database's | no owner; the sync adopts it |
-| `journal.write` (every journal writer) | `day`, `decisions`, her answers' `sources` and `affinity_events` as the journal maps the line | the day file; the sync mirrors it |
-| `vectors.append`, `rewrite`, `replace` | the month's rows (appended to the stored month, or a new generation whole) | the month's files |
-| `store.setParticipation` | the file as always, and its episodes from each flush | the file |
-| `store.appendDiaryPost` | the diary flushed at once: the whole diary the store holds, with its mirror's `sent` publication (destination: the diary channel); `diary.json` is not written and its first load is the database's | the file |
-| every other cache entry of the store (its mutators unchanged) | a flush hands the entry's whole value to the outbox (op `value`), mapped as a sync maps the file, the rows it no longer holds retired; `media.json` is written as a file and also sent (the `media` rows) | the files; the sync mirrors them |
-| the archive (`archive.append`, the store's queued appends) | the month's lines (op `lines`), with the retired `historical` claim of an item hot memory does not hold; the month's keys come from the database's lines; no segment and no id index is written; a failed write goes to the pending queue (`archive/pending.jsonl`, still a file) | the segments and id indexes |
-| the intention store | `intentions.json` whole (op `value`) and the records moved out (`intentions-archive.jsonl`, op `lines`), through the outbox | the files |
-| the task store | `tasks.json` whole (op `value`) and each transition line (`tasks.jsonl`, op `lines`), through the outbox | the files |
+| Writer | Writes |
+|---|---|
+| `record.append` | each line as the record maps it in its day's unit; a revision (or deletion) the month already holds is a duplicate, as the id index says; a line the live observation wrote first is taken over in its place |
+| the live observation (`memoryDb.observe`) | written into the line's record day (the handler waits for it), so a seen line is in the record before the analyzer's batch; an edit's revision is the database's |
+| `journal.write` (every journal writer) | `day`, `decisions`, her answers' `sources` and `affinity_events` as the journal maps the line |
+| `vectors.append`, `rewrite`, `replace` | the month's rows (appended to the stored month, or a new generation whole) |
+| `store.setParticipation` | the file as always, and its episodes from each flush |
+| `store.appendDiaryPost` | the diary flushed at once: the whole diary the store holds, with its mirror's `sent` publication (destination: the diary channel); `diary.json` is not written and its first load is the database's |
+| every other cache entry of the store (its mutators unchanged) | a flush hands the entry's whole value to the outbox (op `value`), mapped as a sync maps the file, the rows it no longer holds retired; `media.json` is written as a file and also sent (the `media` rows) |
+| the archive (`archive.append`, the store's queued appends) | the month's lines (op `lines`), with the retired `historical` claim of an item hot memory does not hold; the month's keys come from the database's lines; no segment and no id index is written; a failed write goes to the pending queue (`archive/pending.jsonl`, still a file) |
+| the intention store | `intentions.json` whole (op `value`) and the records moved out (`intentions-archive.jsonl`, op `lines`), through the outbox |
+| the task store | `tasks.json` whole (op `value`) and each transition line (`tasks.jsonl`, op `lines`), through the outbox |
 
 The outbox (`src/memory/db/unit-outbox.js`) keeps a unit until its write resolved: a newer value replaces the one
 waiting, lines keep their order, a failed write goes again at the next flush (the store's 30 s flush, the module
@@ -131,16 +125,3 @@ what still fails is written to `data/memory-pending/<sha1 of the unit's path>.js
 logged as an error with the count), and the next start replays each file through the writer before anything reads
 the database, deleting it once its write resolved. A replay that fails keeps its file and the database is not opened
 (`PENDING_REPLAY`).
-
-## Known differences on the same snapshot
-
-- `record.stats` and the journal's `stats` are not compared: the files count from the id indexes and modification
-  times, the database from the lines it holds, and the sync never imports the lines of a member under a forget
-  marker or in the ledger.
-
-## Checking parity
-
-`node tools/memory-db.mjs reader-parity --data <dir> --db <file> [--days N]` creates every module over the files and
-over the database of one frozen snapshot and compares the reads above with fixed parameters, per guild and private
-layer. It prints `compared / equal / differ` per function and the first differences as key paths, and exits 1 on any
-difference. It refuses data a live process holds unless `--live`.

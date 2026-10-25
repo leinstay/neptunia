@@ -147,8 +147,7 @@ closed until the partner becomes a person.
 - `sources.tier`: empty until the index policy runs; then `a` (hers, addressed to her, in a DM, cited, pinned or
   touched), `b` (seen) or `c` (captured from a foreign place), the same tier `index_policy` holds.
 - `vectors.evicted_at`: empty. An evicted vector keeps its row, `model`, `dims`, `scale`, `norm` and `context`; only
-  `bytes` is dropped, and recall does not read it. Under `memoryDb.authority: json` the vector month files keep the
-  bytes, so `verify` reports an evicted row's month as different.
+  `bytes` is dropped, and recall does not read it.
 - `media.availability`: `unknown` for every row; `tools/memory-db.mjs media-check` sets her diary media to `present`
   or `missing`.
 
@@ -161,6 +160,8 @@ closed until the partner becomes a person.
   destination when it is written.
 
 ## Files under `data/` when the database is the writer
+
+<!-- writer: the database is the only writer now; this section and the "sync" and "under `memoryDb.authority`" phrases above need rewording. -->
 
 Under `memoryDb.authority: db` the database (with `data/media/diary/`) is the memory, and the JSON memory files are no
 longer written. `src/memory/db/paths.js` lists, by exact pattern, what is still written as a file and what retires;
@@ -191,6 +192,5 @@ Retire at the switch (memory, `MEMORY_PATTERNS`), leftovers and the operational 
   (no forget runs under `db`);
 - `guilds/*/intentions*.json`, `intentions*.jsonl`, `tasks*.json`, `tasks*.jsonl`.
 
-`tools/memory-db.mjs retire-check --data <dir> --since <switch time>` lists the memory files per pattern with their
-newest time and exits 1 when one was modified after the switch. The exact restore is a backup (`memoryDb.backup`,
+The exact restore is a backup (`memoryDb.backup`,
 `tools/memory-db.mjs backup`), proven by `tools/memory-db.mjs restore-test --from <backup>`.
