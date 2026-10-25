@@ -2,7 +2,7 @@
 // expiry, dedupe, caps and remove; the live view; the purge of a member; the
 // fold) and src/memory/mentions.js#tokenIds, plus the store's read path where a
 // rule is about "on read" versus "at the next write".
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +25,7 @@ import { createStore } from '../src/memory/store.js';
 import { HOUR_MS } from '../src/time.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
@@ -44,18 +45,41 @@ function stored(lines, nextId) {
   return { nextId: nextId ?? Math.max(0, ...lines.map((l) => l.id)) + 1, lines };
 }
 
+/** The memory database of each data directory made here; closed when the file is done. */
+const MEMORY = new Map();
+after(async () => {
+  for (const { close } of MEMORY.values()) await close();
+});
+
+/** A temporary data directory with its memory database open: the store's units live there. */
 function tmpDataDir() {
-  return tempDir('nep-recent-');
+  const dir = tempDir('nep-recent-');
+  MEMORY.set(dir, openTestMemorySync({ dataDir: dir }));
+  return dir;
 }
+
+const memoryOf = (dir) => MEMORY.get(dir).memoryDb;
+const unitOf = (file) => [...MEMORY.keys()].find((dir) => file.startsWith(dir + path.sep));
+const relOf = (dir, file) => path.relative(dir, file).split(path.sep).join('/');
 
 function recentFileOf(dir, guildId) {
   return path.join(dir, 'guilds', guildId, 'recent.json');
 }
 
+/** `value` as the unit `file` stands for, written into its data directory's database (a hand edit). */
 function writeRaw(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  const dir = unitOf(file);
+  return memoryOf(dir).writeUnit({ op: 'value', owner: relOf(dir, file), value });
 }
+
+/** The unit `file` stands for, as the text of that file, from the database. */
+function readRaw(file) {
+  const dir = unitOf(file);
+  return unitFile(memoryOf(dir), relOf(dir, file));
+}
+
+/** One turn of the event loop: the writes a flush handed to the database have run. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Every count `mergeRecent` returns, without the value and the dropped lines. */
 function countsOf(result) {
@@ -178,7 +202,7 @@ test('recent: a line with the same folded text as a live one is not stored twice
   assert.deepEqual(result.value.lines.map((l) => l.text), ['Η Ελένη έφερε καφέ', 'Ο Νίκος έχασε το κλειδί']);
 });
 
-test('recent: lines older than recentHours go at the next write, never on read', () => {
+test('recent: lines older than recentHours go at the next write, never on read', async () => {
   const old = line(1, { at: NOW - 73 * HOUR_MS, text: 'παλιά' });
   const edge = line(2, { at: NOW - 72 * HOUR_MS, text: 'στο όριο' });
   const fresh = line(3, { at: NOW - HOUR_MS, text: 'φρέσκια' });
@@ -197,18 +221,20 @@ test('recent: lines older than recentHours go at the next write, never on read',
   // the store: reading keeps every line, the next write drops the old one
   const dir = tmpDataDir();
   const file = recentFileOf(dir, 'g1');
-  writeRaw(file, stored([old, edge, fresh]));
-  const raw = fs.readFileSync(file, 'utf8');
-  const store = createStore({ dataDir: dir });
+  await writeRaw(file, stored([old, edge, fresh]));
+  const raw = readRaw(file);
+  const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
   assert.deepEqual(store.getRecent('g1').lines.map((l) => l.id), [1, 2, 3]);
   assert.deepEqual(liveRecent(store.getRecent('g1').lines, { now: NOW, hours: 24 }).map((l) => l.id), [3]);
   store.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), raw, 'a read rewrites nothing');
+  await settle();
+  assert.equal(readRaw(file), raw, 'a read rewrites nothing');
 
   const counts = store.applyRecentOps('g1', [], { now: NOW, hours: 72 });
   assert.equal(counts.expired, 1);
   store.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getRecent('g1').lines.map((l) => l.id), [2, 3]);
+  await settle();
+  assert.deepEqual(createStore({ dataDir: dir, memoryDb: memoryOf(dir) }).getRecent('g1').lines.map((l) => l.id), [2, 3]);
 });
 
 test('recent: past maxStored the lightest, then the oldest lines go first', () => {
@@ -326,7 +352,7 @@ test('recent: settings follow config.json and features.recent missing counts as 
 
 // --- normalizeRecent -------------------------------------------------------------
 
-test('recent: a hand-edited file with a broken line is healed on read and not rewritten', () => {
+test('recent: a hand-edited unit with a broken line is healed on read and not rewritten', async () => {
   const dir = tmpDataDir();
   const file = recentFileOf(dir, 'g1');
   writeRaw(file, {
@@ -342,9 +368,9 @@ test('recent: a hand-edited file with a broken line is healed on read and not re
       'σκουπίδι',
     ],
   });
-  const raw = fs.readFileSync(file, 'utf8');
+  const raw = readRaw(file);
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
   const value = store.getRecent('g1');
   assert.deepEqual(value, {
     nextId: 9,
@@ -355,7 +381,8 @@ test('recent: a hand-edited file with a broken line is healed on read and not re
     ],
   });
   store.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), raw, 'healed in memory, the file is left as written');
+  await settle();
+  assert.equal(readRaw(file), raw, 'healed in memory, the unit is left as written');
 
   // pure: garbage reads as empty, a healed value heals to itself
   for (const garbage of [null, 'x', { lines: 'x' }]) assert.deepEqual(normalizeRecent(garbage), emptyRecent());
@@ -382,7 +409,7 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   writeRaw(recentFileOf(dir, 'g2'), [line(1)]);
   writeRaw(recentFileOf(dir, 'g3'), { nextId: 2, lines: 'καμία' });
   writeRaw(recentFileOf(dir, 'g4'), stored([line(1), line(1, { text: 'ίδιο αριθμό' })]));
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
 
   const { result, logs } = await withCapturedLogs(() => [store.getRecent('g1'), store.getRecent('g1'), store.applyRecentOps('g1', [], { now: NOW })]);
   assert.deepEqual(result[0].lines.map((l) => l.text), ['μένει']);

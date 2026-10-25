@@ -141,19 +141,12 @@ export const API_NAMES = Object.freeze({
   'memory.channel.read': 'memory_channel_read',
   'memory.server.read': 'memory_server_read',
   'memory.recent.read': 'memory_recent_read',
-  'memory.refresh.user': 'memory_refresh_user',
-  'memory.refresh.channel': 'memory_refresh_channel',
-  'memory.refresh.server': 'memory_refresh_server',
-  'memory.forget': 'memory_forget',
   'memory.affinity.read': 'memory_affinity_read',
-  'memory.wipe': 'memory_wipe',
   'memory.journal.read': 'memory_journal_read',
   'memory.archive.read': 'memory_archive_read',
   'memory.restore': 'memory_restore',
   'memory.snapshot': 'memory_snapshot',
   'memory.private.read': 'memory_private_read',
-  'memory.private.forget': 'memory_private_forget',
-  'memory.private.purge': 'memory_private_purge',
   'message.create': 'message_create',
   'message.edit': 'message_edit',
   'message.delete': 'message_delete',
@@ -184,7 +177,7 @@ export const API_NAMES = Object.freeze({
 
 const NO_REFS = Object.freeze({});
 const JOBS = Object.freeze(['task.run', 'media.recache']);
-const ROUTE_ROLES = ['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing'];
+const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const MEDIA_PARAMS = (kinds) => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), channel: ref() }, ['message', 'emoji']);
@@ -209,7 +202,6 @@ function def(name, { params, refs = NO_REFS, body = null, effects, feature = nul
 }
 
 const mediaArgs = (action) => (a) => ({ kind: val(a, 'kind'), action, ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }) });
-const refreshArgs = (kind) => (a) => ({ kind, userId: idOf(a, 'user'), channelId: idOf(a, 'channel') });
 const accessArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), userId: idOf(a, 'user') });
 const reactArgs = (action) => (a) => ({ action, messageId: val(a, 'message'), emoji: val(a, 'emoji'), channelId: idOf(a, 'channel') });
 const taskStatusArgs = (action) => (a) => ({ id: opt(a, 'id'), action, from: opt(a, 'from') });
@@ -275,7 +267,7 @@ const ENTRIES = [
   def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
-    params: obj({ role: oneOf(['core', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev', 'writer']), id: str() }, ['role', 'id']),
+    params: obj({ role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev', 'writer']), id: str() }, ['role', 'id']),
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),
@@ -374,25 +366,11 @@ const ENTRIES = [
   }),
   def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('memory.refresh.user', { params: USER_ONLY(), refs: { user: 'user' }, effects: 'write', toArgs: refreshArgs('user') }),
-  def('memory.refresh.channel', { params: obj({ channel: ref() }, ['channel']), refs: { channel: 'channel' }, effects: 'write', toArgs: refreshArgs('channel') }),
-  def('memory.refresh.server', { params: EMPTY(), effects: 'write', toArgs: refreshArgs('server') }),
-  def('memory.forget', {
-    params: USER_ONLY(),
-    refs: { user: 'user' },
-    effects: 'destructive',
-    toArgs: forMember((userId) => ({ userId })),
-  }),
   def('memory.affinity.read', {
     params: USER_ONLY(),
     refs: { user: 'user' },
     effects: 'read',
     toArgs: forMember((userId) => ({ userId })),
-  }),
-  def('memory.wipe', {
-    params: obj({ confirm: str() }, ['confirm']),
-    effects: 'destructive',
-    toArgs: (a) => ({ confirm: val(a, 'confirm') }),
   }),
   def('memory.journal.read', {
     params: obj({ day: str(), kind: oneOf(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']), n: int(1, 50), message: str() }),
@@ -415,19 +393,7 @@ const ENTRIES = [
     params: USER_ONLY(),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((userId) => ({ action: 'show', userId })),
-  }),
-  def('memory.private.forget', {
-    params: USER_ONLY(),
-    refs: { user: 'user' },
-    effects: 'destructive',
-    toArgs: forMember((userId) => ({ action: 'forget', userId })),
-  }),
-  def('memory.private.purge', {
-    params: USER_ONLY(),
-    refs: { user: 'user' },
-    effects: 'destructive',
-    toArgs: forMember((userId) => ({ action: 'purge', userId })),
+    toArgs: forMember((userId) => ({ userId })),
   }),
   def('message.create', {
     params: obj({ channel: ref(), reply: str(), text: str(2000), file: str(300), gif: str(40), media: str(300), item: int(1, 20) }, []),

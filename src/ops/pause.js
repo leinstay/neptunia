@@ -6,15 +6,12 @@ import { log } from '../log.js';
 import { defineOp, perEnv } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, turns, memory, pending, warmup, gifRecache, slash, resolvedGuildId, journalSystem, embedQueue } = env;
+  const { hot, store, turns, pending, gifRecache, slash, resolvedGuildId, journalSystem, embedQueue } = env;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
-   * mid-pause comes back paused), then waits out a turn already running, AND
-   * a live-analyzer `run()` or voice run already in flight (its LLM call can take
-   * 30-90s; `tick()`/`observe()` are already no-ops from the moment `paused`
-   * is set, so no NEW run can start -- this only waits out one that started
-   * before the pause), a warmup run or portrait refresh, and a GIF recache in flight. Only once
+   * mid-pause comes back paused), then waits out a turn already running and a
+   * GIF recache in flight. Only once
    * all are idle does it clear the pending-ping
    * queue, flush everything and drop every cache except state.json itself, so
    * nothing stale (or a late in-flight write) can land in data/ after the
@@ -40,21 +37,6 @@ const handlers = perEnv((env) => {
 
     if (turns && typeof turns.waitIdle === 'function') {
       await turns.waitIdle();
-    }
-
-    // The live analyzer's own in-flight run (if any) must land on disk
-    // BEFORE the flush + dropCaches below -- see the header comment above.
-    // Its waitIdle also covers a voice run in flight, which writes nothing
-    // once it sees `paused`.
-    if (memory && typeof memory.waitIdle === 'function') {
-      await memory.waitIdle();
-    }
-
-    // A warmup run/one-off target or a portrait refresh already in flight:
-    // same rule. The run's loop stops after the request in flight once
-    // `paused` is seen; a refresh whose answer arrives now writes nothing.
-    if (warmup && typeof warmup.waitIdle === 'function') {
-      await warmup.waitIdle();
     }
 
     // A GIF recache in flight writes the media cache: it stops before its

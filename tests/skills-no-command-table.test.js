@@ -1,7 +1,7 @@
 // Her skills without the owner's slash-command tree. A child process runs with module hooks
 // (tests/fixtures/no-command-table-hooks.mjs) that export COMMAND_TABLE empty and make
-// `resolveCommand` throw; it proves the registry still holds all 73 skills, the gateway passes her
-// 53 live grants, and calls resolve and run by operation name (tests/fixtures/no-command-table-child.mjs).
+// `resolveCommand` throw; it proves the registry still holds all 67 skills, the gateway passes her
+// 50 live grants, and calls resolve and run by operation name (tests/fixtures/no-command-table-child.mjs).
 // Plus a static guard: nothing under src/skills/ or src/behavior/ reads the tree or the old derivation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

@@ -205,7 +205,7 @@ test('service: recordWake writes only with memoryDb.wakeRuns on; an open interru
     const before = openMemoryDb(path.join(data, 'memory.db'));
     startRun(before, { id: 'left', kind: 'heartbeat', startedAt: NOW - 30 * MINUTE });
     before.close();
-    const hot = { config: { features: { memoryDb: true }, memoryDb: { syncSeconds: 60, wakeRuns: false }, innerLife: { loop: { timeBudgetMs: 3 * MINUTE } } } };
+    const hot = { config: { memoryDb: { wakeRuns: false }, innerLife: { loop: { timeBudgetMs: 3 * MINUTE } } } };
     let service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
     await service.tick();
     await settle();

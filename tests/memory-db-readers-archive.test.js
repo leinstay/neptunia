@@ -1,21 +1,15 @@
-// The archive's reads from the database (stage W1): under authority `db` iterate and find equal the file reads of
-// the same data, touch no file, and fail with a code (never a file read) when the database cannot answer.
+// The archive's reads from the database (stage W1): iterate and find answer from the database for every guild, layer,
+// range, kind and scope, and fail with a code when the database cannot answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createArchive } from '../src/memory/archive.js';
-import { createAppendStore } from '../src/memory/append-store.js';
-import { GUILD, GUILD_2, MEMBER, all, noFs, readerEnv } from './fixtures/memory-db/readers.js';
+import { GUILD, GUILD_2, MEMBER, all, readerEnv } from './fixtures/memory-db/readers.js';
 import { HOT_ITEM } from './fixtures/memory-db/datadir.js';
 
-const silent = { info() {}, debug() {}, warn() {}, error() {} };
-const noAppendStore = { iterate() { throw Object.assign(new Error('the files were read'), { code: 'FILE_READ' }); } };
-
-test('archive db reader: iterate equals the files for every guild, layer, range, kind and scope, with no file read', async () => {
+test('archive db reader: iterate answers every guild, layer, range, kind and scope from the database', async () => {
   const env = await readerEnv();
-  const appendStore = createAppendStore({ log: silent });
   try {
-    const files = createArchive({ appendStore, dataDir: env.data, log: silent });
-    const db = createArchive({ appendStore: noAppendStore, dataDir: env.data, log: env.log, fs: noFs, memoryDb: env.memoryDb });
+    const archive = createArchive({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
     const queries = [
       {},
       { from: '2026-10-02T00:00:00.000Z' },
@@ -26,47 +20,39 @@ test('archive db reader: iterate equals the files for every guild, layer, range,
       { privateUserId: MEMBER },
       { privateUserId: MEMBER, from: '2026-11-01T00:00:00.000Z' },
     ];
-    let entries = 0;
+    const pair = (suffix) => [`ar-1${suffix}`, `ar-2${suffix}`];
+    const expected = {
+      [GUILD]: [pair(''), pair(''), [], pair(''), [], pair(''), ['arp-1'], []],
+      [GUILD_2]: [pair('.g2'), pair('.g2'), [], pair('.g2'), [], pair('.g2'), [], []],
+    };
     for (const guildId of [GUILD, GUILD_2]) {
-      for (const query of queries) {
-        const expected = await all(files.iterate(guildId, query));
-        assert.deepEqual(await all(db.iterate(guildId, query)), expected, JSON.stringify(query));
-        entries += expected.length;
+      for (const [index, query] of queries.entries()) {
+        assert.deepEqual((await all(archive.iterate(guildId, query))).map((entry) => entry.id), expected[guildId][index], `${guildId} ${JSON.stringify(query)}`);
       }
     }
-    assert.ok(entries > 5, 'the fixture has entries to compare');
     assert.deepEqual(env.warns, []);
-  } finally { await appendStore.close(); env.done(); }
+  } finally { env.done(); }
 });
 
-test('archive db reader: find gathers an item from the guild and the private archives, oldest first, as the files do', async () => {
+test('archive db reader: find gathers an item from the guild and the private archives, oldest first', async () => {
   const env = await readerEnv();
-  const appendStore = createAppendStore({ log: silent });
   try {
-    const files = createArchive({ appendStore, dataDir: env.data, log: silent });
-    const db = createArchive({ appendStore: noAppendStore, dataDir: env.data, log: env.log, fs: noFs, memoryDb: env.memoryDb });
-    for (const itemId of ['gone-item', HOT_ITEM, 'no-such-item']) {
-      assert.deepEqual(await db.find(GUILD, itemId), await files.find(GUILD, itemId), itemId);
-    }
-    const gone = await db.find(GUILD, 'gone-item');
-    assert.deepEqual(gone.map((entry) => entry.id), ['arp-1', 'ar-2']);
-  } finally { await appendStore.close(); env.done(); }
+    const archive = createArchive({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
+    assert.deepEqual((await archive.find(GUILD, 'gone-item')).map((entry) => entry.id), ['arp-1', 'ar-2']);
+    assert.deepEqual((await archive.find(GUILD, HOT_ITEM)).map((entry) => entry.id), ['ar-1']);
+    assert.deepEqual(await archive.find(GUILD, 'no-such-item'), []);
+  } finally { env.done(); }
 });
 
-test('archive db reader: a closed database is an error with a code, logged, never a file read; json never asks the service', async () => {
+test('archive db reader: a closed database is an error with a code, logged', async () => {
   const env = await readerEnv();
-  const appendStore = createAppendStore({ log: silent });
   try {
-    const closed = createArchive({ appendStore: noAppendStore, dataDir: env.data, log: env.log, fs: noFs, memoryDb: env.closedDb });
+    const closed = createArchive({ dataDir: env.data, log: env.log, memoryDb: env.closedDb });
     await assert.rejects(() => all(closed.iterate(GUILD)), (error) => error.code === 'DB_CLOSED');
     await assert.rejects(() => closed.find(GUILD, 'gone-item'), (error) => error.code === 'DB_CLOSED');
     assert.deepEqual(env.warns.map((warn) => [warn.message, warn.reader, warn.code]), [
       ['memory db: read failed', 'archive', 'DB_CLOSED'],
       ['memory db: read failed', 'archive', 'DB_CLOSED'],
     ]);
-    const files = createArchive({ appendStore, dataDir: env.data, log: silent });
-    const json = createArchive({ appendStore, dataDir: env.data, log: silent, memoryDb: env.jsonDb });
-    assert.deepEqual(await json.find(GUILD, 'gone-item'), await files.find(GUILD, 'gone-item'));
-    assert.equal(env.handleAsked(), 0);
-  } finally { await appendStore.close(); env.done(); }
+  } finally { env.done(); }
 });

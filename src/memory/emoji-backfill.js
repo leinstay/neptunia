@@ -1,7 +1,7 @@
-// The custom emoji history backfill: the analyzer counts members' custom emoji
-// only from the batches it consumes (src/memory/update.js), so on a server
+// The custom emoji history backfill: the live observer counts members' custom emoji
+// only from the lines it sees (src/memory/update.js), so on a server
 // with a long history the `<emoji>` block would show the server's first emoji
-// in server order until enough batches pass. This reads the last
+// in server order until enough lines pass. This reads the last
 // `context.customEmoji.backfillMessages` messages of every readable channel
 // over the Discord API -- no LLM, no token budget -- and counts them into
 // guild.json's `emojiUsage` at once (src/memory/emoji-usage.js), starting from
@@ -114,13 +114,11 @@ export function createEmojiBackfill({ hot, store, client, discord, log = default
       const channels = history.channels;
       const collected = history.messages.map((message) => ({ id: message.id, ts: message.ts, emojis: message.emojis ?? [] }));
 
-      // From here on nothing awaits: the analyzer cannot consume a batch in between.
       if (store.state?.data?.paused) return skipped('paused');
-      const buffered = new Set(store.getBuffer(guildId).map((message) => message?.id));
-      const members = collected.filter((message) => !buffered.has(message.id)).sort((a, b) => a.ts - b.ts);
+      const members = [...collected].sort((a, b) => a.ts - b.ts);
       const opts = emojiUsageOpts(hot.config);
 
-      // Always from a cleared ranking: the window already holds what the analyzer counted so far.
+      // Always from a cleared ranking: the window already holds what the live counting counted so far.
       store.clearEmojiUsage(guildId);
       let emoji = 0;
       for (let i = 0; i < members.length; i += CHUNK) {

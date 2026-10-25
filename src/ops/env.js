@@ -30,9 +30,7 @@ export function createOpsEnv({
   getGuildId,
   isWarmingUp = () => false,
   turns,
-  memory,
   pending,
-  warmup,
   images,
   speech = null,
   imageFetcher,
@@ -107,8 +105,7 @@ export function createOpsEnv({
   /**
    * `/nep pause`: refuse a command that would write under `data/` while
    * paused, with a hint to resume first. Guards interject, initiate,
-   * alias.add, alias.remove, memory.forget, private.forget, private.purge, memory.wipe,
-   * memory.refresh.*, lore.add, lore.remove, learned.add,
+   * alias.add, alias.remove, lore.add, lore.remove, learned.add,
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */
@@ -158,13 +155,6 @@ export function createOpsEnv({
     } catch (err) {
       log.warn('admin: journal record failed', { code: err?.code ?? null, guildId });
     }
-  }
-
-  /** Waits out a live-analyzer run already in flight -- its answer lands after its model call and
-   * would re-create what a delete just removed -- then refuses if a pause landed meanwhile. */
-  async function waitForAnalyzer() {
-    await memory?.waitIdle?.();
-    assertNotPaused();
   }
 
   /** config.local.json in the private directory the live config reads it from (`hot.privateDir`,
@@ -224,9 +214,7 @@ export function createOpsEnv({
     getGuildId,
     isWarmingUp,
     turns,
-    memory,
     pending,
-    warmup,
     images,
     speech,
     imageFetcher,
@@ -275,7 +263,6 @@ export function createOpsEnv({
     requireGuildId,
     tokenResolver,
     journalSystem,
-    waitForAnalyzer,
     localConfigFile,
     editLocalConfig,
     writeLocalPath,

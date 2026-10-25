@@ -7,7 +7,7 @@
 // times out, a call fails on the last step, a state file is corrupt. One test per row of the
 // spec's table, each titled with its row number; every scenario ends in assertNoSilentFailure,
 // which checks the invariant from the fakes' records. No network, no Discord, no bot start.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,10 +18,7 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createJournal } from '../src/memory/journal.js';
-import { createAppendStore } from '../src/memory/append-store.js';
 import { createStore } from '../src/memory/store.js';
-import { createMemoryUpdater } from '../src/memory/update.js';
-import { createCalibrator } from '../src/llm/tokens.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { RESULT_ATTEMPTS, createTaskTurns } from '../src/errands/turns.js';
@@ -34,6 +31,17 @@ import { labels } from './fixtures/labels.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
+
+/** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
+const MEMORY = new Map();
+after(async () => {
+  for (const { close } of MEMORY.values()) await close();
+});
+function memoryOf(dataDir) {
+  if (!MEMORY.has(dataDir)) MEMORY.set(dataDir, openTestMemorySync({ dataDir }));
+  return MEMORY.get(dataDir).memoryDb;
+}
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW0 = Date.parse('2026-10-19T12:00:00Z');
@@ -313,7 +321,7 @@ function boot(chat, {
   const runOp = failOps.length === 0 ? admin.runSkillOp : async (op, args, context) => (failOps.includes(op) ? { status: 'failed', code: 'error', summary: 'it did not work', data: null } : admin.runSkillOp(op, args, context));
 
   // The errand service over the real task store; its runner is a fake that ends at once.
-  const stores = createTaskStores({ dataDir, config: () => hot.config, log: SILENT });
+  const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: SILENT });
   let taskTurns = null;
   const errands = createErrandService({
     client: { configured: () => true, run: async (task) => (runErrand ? runErrand(task) : { status: 'done', result: { text: 'found it' }, usage: { usd: 0.01 } }), cancel: () => true },
@@ -502,7 +510,7 @@ test('row 1: the process dies right after a wake is queued -- the wake runs afte
 test('row 2: the process dies right after a message was sent -- the journal closes the post as said, and nothing is sent again', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const makeJournal = () => createJournal({ appendStore: createAppendStore({ fsyncMs: 0, log: SILENT }), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const makeJournal = () => createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
   const hot = hotWith({ features: { journal: true } });
   const before = boot(chat, { dataDir, hot, journal: makeJournal() });
   chat.script = ['<msg>καλημέρα</msg>'];
@@ -522,7 +530,7 @@ test('row 2: the process dies right after a message was sent -- the journal clos
 
 /** A journal over the scenario's data directory, and the start-up reconciliation of its open operations from the chat (src/index.js). */
 function journalFor(chat, dataDir) {
-  const journal = createJournal({ appendStore: createAppendStore({ fsyncMs: 0, log: SILENT }), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const journal = createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
   const ready = () => journal.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
   return { journal, ready };
 }
@@ -563,7 +571,7 @@ test('row 2: the process dies after an inner turn sent a message and before the 
 test('row 2: the process dies after a tool call\'s send reached the chat and before its result was recorded -- the journal closes the call as unknown from the restart, and nothing is sent again', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const makeJournal = () => createJournal({ appendStore: createAppendStore({ fsyncMs: 0, log: SILENT }), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const makeJournal = () => createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
   const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
   const before = boot(chat, { dataDir, hot, journal: makeJournal() });
   chat.script = [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλημέρα' })])];
@@ -636,6 +644,8 @@ test('row 3: the process dies after an errand\'s result was stored and before it
   const submitted = before.errands.submit({ guildId: GUILD, agent: 'scout', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
   assert.equal(submitted.ok, true);
   await before.errands.idle();
+  // The result is stored: its write reached the database before the process died.
+  await before.errands.store(GUILD).flush();
   const id = submitted.task.id;
   assert.equal(before.errands.store(GUILD).get(id).state, 'done');
   assert.equal(chat.llm.calls.length, 0, 'the result turn never ran');
@@ -934,113 +944,6 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   assert.equal(read.status, 'ok');
   assert.ok(read.summary.includes(text), 'task.read returns the result');
   assertNoSilentFailure(run);
-});
-
-test('row 12: a memory write fails -- the failure is logged, nothing is consumed, and her next request does not carry the unsaved fact', async () => {
-  const dir = tempDir('nep-fault-');
-  const store = createStore({ dataDir: dir });
-  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { base: { core: 'x/y', extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
-  const llm = { complete: async () => ({ text: JSON.stringify({ users: { 1: { relationship: 'a secret the persona must not claim to know' } } }), usage: {}, estimated: 10 }) };
-  const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => clock.t });
-  store.applyProfileOps = () => {
-    throw new Error('disk refused');
-  };
-  const line = (id) => ({ id, channelId: 'c1', channelName: 'general', authorId: '1', authorName: 'Alice', self: false, bot: false, content: 'hello there', ts: clock.t, replyToId: null, attachments: [], stickers: [] });
-  for (let i = 0; i < 20; i += 1) store.pushBuffer(GUILD, line(`m${i}`), 100);
-  const { logs } = await withCapturedLogs(() => updater.run(GUILD));
-  assert.ok(logs.some((entry) => entry.reason === 'apply-error'), 'the failure is logged');
-  assert.equal(store.getBuffer(GUILD).length, 20, 'nothing was consumed');
-  assert.equal(store.getUser(GUILD, '1')?.relationship ?? null, null, 'nothing was written');
-
-  // Her next request, over the same store, carries nothing of it.
-  const chat = makeChat();
-  const run = boot(chat, { dataDir: tempDir('nep-fault-'), store: Object.assign(store, { getGuild: () => ({}), getMediaCache: () => ({}), listChannels: () => [], getLore: () => [], listUserProfiles: () => [], countUsers: () => 0, getPrivate: () => null }) });
-  await run.ask('c1', 'do you remember me?');
-  assert.ok(!requestText(chat, 0).includes('a secret the persona must not claim'));
-  assertNoSilentFailure(run);
-});
-
-/** A memory updater over a store whose profile writes fail, with `lines` buffered lines of `channelId` (a DM when `privateUserId` is given). */
-function failingMemory({ lines = 20, privateUserId = null, channelId = 'c1' } = {}) {
-  const store = createStore({ dataDir: tempDir('nep-fault-') });
-  const hot = { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800 }, models: { base: { core: 'x/y', extractor: 'x/y' } }, llm: { temperature: 1, maxOutputTokens: 700, maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000, retries: 0, maxRequestsPerDay: 100 }, memory: { batchMessages: 15, minBatchMessages: 1, maxBatchAgeMinutes: 180, maxOutputTokens: 4000, fieldChars: 400, maxDetails: 15, maxInjokes: 15, maxSelfFacts: 20 } }, prompts: { memory: 'sys', labels } };
-  const llm = { complete: async () => ({ text: JSON.stringify({ users: { [privateUserId ?? '1']: { relationship: 'something to keep' } } }), usage: {}, estimated: 10 }) };
-  const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => clock.t });
-  const broken = () => {
-    throw new Error('disk refused');
-  };
-  store.applyProfileOps = broken;
-  store.applyPrivateOps = broken;
-  const line = (id) => ({ id, channelId, channelName: 'general', authorId: privateUserId ?? '1', authorName: 'Alice', self: false, bot: false, content: 'hello there', ts: clock.t, replyToId: null, attachments: [], stickers: [] });
-  for (let i = 0; i < lines; i += 1) {
-    if (privateUserId) store.pushPrivateBuffer(GUILD, privateUserId, line(`m${i}`), 100);
-    else store.pushBuffer(GUILD, line(`m${i}`), 100);
-  }
-  return { store, updater };
-}
-
-test('row 12: a memory write fails -- she is told, in the turn where she can read it, that what she was to remember was not kept, once per failing batch', async () => {
-  const { store, updater } = failingMemory();
-  const chat = makeChat();
-  const run = boot(chat, { dataDir: tempDir('nep-fault-') });
-  updater.setFactsSource(run.inner.facts);
-  const failed = () => run.state().facts.filter((fact) => fact.kind === 'memoryFailed');
-
-  await withCapturedLogs(async () => {
-    await updater.run(GUILD);
-    await updater.run(GUILD); // the back-off retry of the same batch
-  });
-  assert.equal(store.getBuffer(GUILD).length, 20, 'nothing was consumed');
-  assert.equal(failed().length, 1, 'one fact for the failing batch, not one per retry');
-  const [fact] = failed();
-  assert.deepEqual([fact.code, fact.waiting, fact.channelId, fact.privateChat, fact.told], ['apply-error', 20, null, false, false]);
-
-  // The next turn of hers, anywhere in the server, carries it; the fact is told once.
-  await run.ask('c1', 'did you keep that?');
-  assert.ok(requestText(chat, 0).includes('memory not kept apply-error 20 waiting'), requestText(chat, 0));
-  assert.equal(failed()[0].told !== false, true);
-  await run.ask('c1', 'and again');
-  assert.ok(!requestText(chat, 1).includes('memory not kept'), 'told once');
-
-  // The same batch failing again is not told again; once it is applied, a later failure is a new one.
-  await withCapturedLogs(() => updater.run(GUILD));
-  assert.equal(failed().length, 1);
-  store.applyProfileOps = () => ({});
-  await withCapturedLogs(() => updater.run(GUILD));
-  assert.equal(store.getBuffer(GUILD).length < 20, true, 'the batch was applied');
-  store.applyProfileOps = () => {
-    throw new Error('disk refused');
-  };
-  for (let i = 0; i < 20; i += 1) store.pushBuffer(GUILD, { id: `n${i}`, channelId: 'c1', channelName: 'general', authorId: '1', authorName: 'Alice', self: false, bot: false, content: 'hello again', ts: clock.t, replyToId: null, attachments: [], stickers: [] }, 100);
-  await withCapturedLogs(() => updater.run(GUILD));
-  assert.equal(failed().length, 2, 'a failure after a success is a new fact');
-  assertNoSilentFailure(run);
-});
-
-test('row 12: with no fact ledger (or the inner life off) a failed memory write stays a log line and the batch is kept', async () => {
-  const { store, updater } = failingMemory();
-  const { logs } = await withCapturedLogs(() => updater.run(GUILD));
-  assert.ok(logs.some((entry) => entry.reason === 'apply-error'));
-  updater.setFactsSource({ enabled: () => false, add: () => assert.fail('a disabled ledger takes nothing') });
-  await withCapturedLogs(() => updater.run(GUILD));
-  assert.equal(store.getBuffer(GUILD).length, 20);
-});
-
-test('row 12: a private layer write fails -- she is told in that private chat only', async () => {
-  const mark = 'PRIVATE-LAYER-MARK';
-  const { updater } = failingMemory({ lines: 20, privateUserId: 'u1', channelId: 'd1' });
-  const chat = makeChat();
-  const run = boot(chat, { dataDir: tempDir('nep-fault-') });
-  updater.setFactsSource(run.inner.facts);
-  await withCapturedLogs(() => updater.runPrivate(GUILD, 'u1'));
-  const [fact] = run.state().facts;
-  assert.deepEqual([fact.kind, fact.code, fact.channelId, fact.privateChat, fact.told], ['memoryFailed', 'apply-error', 'd1', true, false]);
-
-  await run.ask('c1', 'hello');
-  assert.ok(!requestText(chat, 0).includes('memory not kept'), 'not in a server channel');
-  await run.ask('d1', 'hello in private', { dm: true });
-  assert.ok(requestText(chat, 1).includes('memory not kept apply-error 20 waiting'), requestText(chat, 1));
-  assertNoSilentFailure(run, { privateMarks: [mark], privateChats: ['d1'] });
 });
 
 test('row 13: a fact born in a DM is not shown in a server channel, and is shown in the next DM turn', async () => {

@@ -631,24 +631,6 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return out;
   }
 
-  /**
-   * A forget of member `userId` (src/memory/store.js#forgetUser's `intentions` step): every
-   * intention concerning them out of the guild's store (src/intentions/store.js#forgetUser),
-   * `names` their known names, `vault` the forget's vault. Throws on a write error.
-   */
-  function forgetUser(guildId, userId, options = {}) {
-    if (typeof stores.forgetUser === 'function') return stores.forgetUser(guildId, userId, options);
-    const store = storeOf(guildId);
-    return store ? store.forgetUser(userId, options) : { removed: 0, copies: 0 };
-  }
-
-  /** A wipe of the guild (src/memory/store.js#wipeGuild's `intentions`): its intentions and their file gone. */
-  function wipe(guildId) {
-    if (typeof stores.wipe === 'function') return stores.wipe(guildId);
-    const store = storeOf(guildId);
-    return store ? store.wipe() : { files: 0 };
-  }
-
   /** Note where her posted line `messageId` came from (src/intentions/sources.js#lineSourcesOf's note). */
   function noteLine(messageId, sources) {
     lineSources?.note?.(String(messageId ?? ''), sources);
@@ -659,5 +641,5 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, forgetUser, wipe, store: storeOf };
+  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, store: storeOf };
 }

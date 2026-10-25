@@ -204,37 +204,12 @@
     "title": "Read recent events",
     "whenToUse": "Recent notes."
   },
-  "memory.refresh.user": {
-    "title": "Refresh a portrait",
-    "whenToUse": "Rewrite from messages. One request.",
-    "whenNotToUse": "Overwrites stored text."
-  },
-  "memory.refresh.channel": {
-    "title": "Refresh channel notes",
-    "whenToUse": "Rewrite from messages. One request.",
-    "whenNotToUse": "Overwrites stored text."
-  },
-  "memory.refresh.server": {
-    "title": "Refresh server notes",
-    "whenToUse": "Rewrite from summaries. One request.",
-    "whenNotToUse": "Overwrites stored text."
-  },
-  "memory.forget": {
-    "title": "Forget a member",
-    "whenToUse": "Delete a member's profile, private memory, versions and record entries; a vault copy is saved first.",
-    "whenNotToUse": "Destructive, not grantable to you."
-  },
   "memory.affinity.read": {
     "title": "Read attitude",
     "whenToUse": "Attitude toward a member.",
     "args": {
       "user": "@handle or name."
     }
-  },
-  "memory.wipe": {
-    "title": "Wipe all memory",
-    "whenToUse": "Delete every stored profile, channel note, habit, lore entry and private memory for the whole server; a vault copy is saved first.",
-    "whenNotToUse": "Destructive, not grantable to you."
   },
   "memory.journal.read": {
     "title": "Read journal",
@@ -268,16 +243,6 @@
     "title": "Read private memory",
     "whenToUse": "DM memory for a member.",
     "whenNotToUse": "Owner sees reply."
-  },
-  "memory.private.forget": {
-    "title": "Forget private memory",
-    "whenToUse": "Delete a member's private DM memory; the public profile stays.",
-    "whenNotToUse": "Destructive, not grantable to you."
-  },
-  "memory.private.purge": {
-    "title": "Purge private chat",
-    "whenToUse": "Delete a member's private memory and bulk-delete your DM messages to them.",
-    "whenNotToUse": "Destructive, irreversible for the messages, not grantable to you."
   },
   "message.create": {
     "title": "Post a message",

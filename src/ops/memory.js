@@ -1,4 +1,4 @@
-// Operations: `/nep memory` and `/nep private`: what the persona remembers -- one member's profile and private layer, the channel map, the server notes, the recent lines, the archive and the journal -- and the only deletes of stored memory (store.forgetUser, store.forgetPrivate, store.wipeGuild).
+// Operations: `/nep memory` and `/nep private`: what the persona remembers -- one member's profile and private layer, the channel map, the server notes, the recent lines, the archive and the journal. Nothing here deletes stored memory.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -14,7 +14,6 @@ import {
   archiveEntry,
   journalLine,
   turnView,
-  DEFAULT_REDACTION,
   DEFAULT_VAULT_DIR,
   SNAPSHOTS_DIR,
 } from '../memory/index.js';
@@ -26,19 +25,12 @@ import { clampAtBoundary } from '../memory/clamp.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
-import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
-import { OpError, defineOp, perEnv, invalid } from './registry.js';
+import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
+import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
-  /**
-   * Under memoryDb.authority `db` (the memory database service's fixed value) there is no forget, purge or wipe of the
-   * memory (stage W3, the owner; the commands go at the split): refused with the code `refused` before anything runs.
-   */
-  function refuseUnderDb(what) {
-    if (env.memoryDb?.authority?.() === 'db') throw new OpError('denied', CODE.REFUSED, `${what}: memoryDb.authority is db, there is no forget`);
-  }
-  const { hot, store, client, discord, isWarmingUp, warmup, archive, journal, dataDir, slash, warmupBusyText, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, journalSystem, waitForAnalyzer, requireProfile } = env;
+  const { hot, store, discord, archive, journal, dataDir, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, requireProfile } = env;
 
   /**
    * Sectioned, human-readable view of one member's profile — see
@@ -129,14 +121,14 @@ const handlers = perEnv((env) => {
   }
 
   /** `hot.config.memory.mainChannelIds`, normalized to a string Set -- mirrors
-   * src/memory/update.js#mainChannelSet and src/memory/warmup.js's own copies. */
+   * src/memory/update.js#mainChannelSet. */
   function mainChannelIdSet() {
     return new Set((hot.config?.memory?.mainChannelIds ?? []).map(String));
   }
 
   /**
    * `/nep memory channel [channel]`: with a channel, that channel's full stored note (Discord
-   * facts, the analyzer/warmup-written purpose/topics/tone, counters, activity verdict and top
+   * facts, the stored purpose/topics/tone, counters, activity verdict and top
    * writers); without one, a compact table of every stored channel, sorted by last message desc.
    * `<@id>` tokens in `purpose`/`topics`/`tone` are resolved the same way `memory.show` resolves
    * free-text fields (`fromTokens(..., 'analyzer')`).
@@ -271,8 +263,8 @@ const handlers = perEnv((env) => {
   /**
    * `/nep memory restore <itemId>`: the item's newest archived version back into its hot list
    * (store.restoreArchived: under its own id, not pinned), then a `restored` line in the archive
-   * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Waits for
-   * a running analyzer batch first; refused while paused.
+   * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Refused
+   * while paused.
    */
   async function cmdMemoryRestore(args, context) {
     assertNotPaused();
@@ -280,7 +272,6 @@ const handlers = perEnv((env) => {
     const itemId = String(args?.itemId ?? '').trim();
     if (!itemId) throw invalid('an item id is required');
     if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
-    await waitForAnalyzer();
     const versions = (await archive.find(guildId, itemId)).filter((entry) => entry.event !== 'restored');
     if (versions.length === 0) throw invalid(`no archived item ${itemId}`, CODE.NOT_FOUND);
     const latest = versions.at(-1);
@@ -299,47 +290,6 @@ const handlers = perEnv((env) => {
       return `restored ${latest.itemKind} ${itemId}; the archive line failed (${error?.code ?? 'error'})`;
     }
     return `restored ${latest.itemKind} ${itemId}`;
-  }
-
-  /** `/nep memory forget`: one member everywhere (store.forgetUser: the vault copy first, then the
-   * profile and private layer, the voice items, versions, archive, record and journal lines, the
-   * diary redacted, request dumps, snapshots; the ledger last), once a live-analyzer run in flight
-   * has landed, under the journal's writer lock. The reply names the vault and the counts per
-   * store. A job cut short keeps its marker and finishes at the next start. Refused while paused. */
-  async function cmdMemoryForget(args, context) {
-    refuseUnderDb('memory forget');
-    assertNotPaused();
-    const userId = args?.userId;
-    if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
-
-    await waitForAnalyzer();
-    let result;
-    try {
-      result = await store.forgetUser(guildId, userId, {
-        journal: journal ?? null,
-        // The errands they asked for (src/errands/service.js#forgetUser), when the errands run.
-        ...(typeof env.errands?.forgetUser === 'function' ? { errands: env.errands } : {}),
-        // Her intentions that concern them (src/intentions/service.js#forgetUser), when they run.
-        ...(typeof env.intentions?.forgetUser === 'function' ? { intentions: env.intentions } : {}),
-        vaultDir: hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR,
-        redaction: hot.prompts?.labels?.memory?.redaction ?? DEFAULT_REDACTION,
-      });
-    } catch (err) {
-      log.warn('admin: forget unfinished', { code: err?.code ?? null, guildId });
-      return `The forget of ${userId} is not finished (see the log): it finishes at the next start, and until then the member is hidden. Vault: ${err?.vault ?? '-'}`;
-    }
-    await journalSystem(guildId, { event: 'forget', by: 'owner', participants: [String(userId)] });
-    const n = (key) => result?.counts?.[key] ?? 0;
-    return [
-      `Forgot ${userId} (public profile and private memory).`,
-      `Vault: ${result?.vault ?? '-'}`,
-      `profile: ${n('profile')}, private memory: ${n('private')}, voice items: ${n('voice')}, recent lines: ${n('recent')}, ` +
-        `participation messages: ${n('participation')}, version files: ${n('versions')}`,
-      `archive entries: ${n('archive')}, record lines: ${n('record')}, journal records: ${n('journal')}, request dumps: ${n('requests')}, ` +
-        `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}, backfill candidates: ${n('backfill')}`,
-      `errands: ${n('errands')}, errand lines: ${n('errandLines')}, intentions: ${n('intentions')}`,
-    ].join('\n');
   }
 
   /**
@@ -406,8 +356,7 @@ const handlers = perEnv((env) => {
    * name (the user id when there is none). Adds the private and the effective
    * attitude (src/behavior/private.js#effectiveAffinity -- what the persona
    * feels in the DM), today's DM reply count against the member's cap (the
-   * numbers the gate decides on, src/behavior/private.js#privateRepliesToday) and the
-   * buffer SIZE -- never the buffered messages themselves. No "shown cap"
+   * numbers the gate decides on, src/behavior/private.js#privateRepliesToday). No "shown cap"
    * divider: in a DM the private items are ranked together with the public
    * ones. No private layer -> a plain answer, not an error.
    */
@@ -437,7 +386,6 @@ const handlers = perEnv((env) => {
       replies: priv.replies,
       today: todayUtc(),
     });
-    const bufferSize = Array.isArray(priv.buffer) ? priv.buffer.length : 0;
 
     const section = (title, items, lines) => [`${title} (${items.length} stored):`, ...lines.map((line) => `  ${line}`)];
     const interests = priv.interests ?? [];
@@ -449,7 +397,6 @@ const handlers = perEnv((env) => {
       `private affinity: ${roundScore(privateAffinity.score ?? 0)} (${affinityBand(privateAffinity.score ?? 0)})${privateReason ? ` — ${privateReason}` : ''}`,
       `effective affinity: ${roundScore(effective.score)} (${affinityBand(effective.score)})`,
       `replies today: ${replies.used} / ${replies.cap}`,
-      `buffer: ${bufferSize} messages`,
       `first seen: ${priv.firstSeen ? priv.firstSeen.slice(0, 10) : '-'} · last seen: ${priv.lastSeen ? priv.lastSeen.slice(0, 10) : '-'}`,
       `relationship: ${resolve(priv.relationship) || '(empty)'}`,
       ...section(
@@ -484,167 +431,6 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep private forget`: deletes one member's private layer only (store.forgetPrivate), once a
-   * live-analyzer run in flight has landed; the public profile stays. Refused while paused, like
-   * `memory forget`. */
-  async function cmdPrivateForget(args, context) {
-    refuseUnderDb('private forget');
-    assertNotPaused();
-    const userId = args?.userId;
-    if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
-
-    await waitForAnalyzer();
-    store.forgetPrivate(guildId, userId);
-    return `Forgot the private memory of ${userId}; the public profile is kept.`;
-  }
-
-  /**
-   * `/nep private purge`: deletes the bot's own messages in the direct-message chat with one
-   * member, then that member's private layer (store.forgetPrivate). Pages back through the DM
-   * `PAGE` (100) at a time until a short page or `private.purgeMaxMessages` scanned messages (default
-   * 5000), deleting sequentially; a failed delete is counted, never thrown. The member's own
-   * messages cannot be deleted by a bot and stay. A user that cannot be fetched or a DM that
-   * cannot be opened, or a first history page that cannot be read, throws before anything is
-   * deleted; a later page fetch that fails stops the scan and the purge finishes with what it
-   * had. Refused while paused; a pause that lands mid-run keeps the private layer.
-   */
-  async function cmdPrivatePurge(args, context) {
-    refuseUnderDb('private purge');
-    assertNotPaused();
-    const userId = args?.userId;
-    if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
-
-    const selfId = client?.user?.id;
-    if (!selfId) throw new Error('the bot is not logged in yet');
-
-    let dm;
-    try {
-      const user = await client.users.fetch(userId);
-      dm = await user.createDM();
-    } catch (err) {
-      log.warn('admin: private purge could not open the dm', { error: err });
-      throw new Error(`cannot open the private chat with ${userId}; nothing was deleted`);
-    }
-
-    const configured = hot.config?.private?.purgeMaxMessages;
-    const maxScanned = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 5000;
-
-    let scanned = 0;
-    let deleted = 0;
-    let failed = 0;
-    let before;
-    while (scanned < maxScanned) {
-      let page;
-      try {
-        page = await dm.messages.fetch(before ? { limit: discord.PAGE, before } : { limit: discord.PAGE });
-      } catch (err) {
-        log.warn('admin: private purge page fetch failed', { scanned, error: err });
-        if (!before) throw new Error(`cannot read the private chat with ${userId}; nothing was deleted`);
-        break;
-      }
-      const batch = [...page.values()];
-      if (batch.length === 0) break;
-
-      for (const message of batch) {
-        if (scanned >= maxScanned) break;
-        scanned += 1;
-        if (message.author?.id !== selfId) continue;
-        try {
-          await message.delete();
-          deleted += 1;
-        } catch {
-          failed += 1;
-        }
-      }
-
-      before = oldestMessageId(batch);
-      if (batch.length < discord.PAGE) break;
-    }
-
-    // A `/nep pause` that landed during a long purge: data/ must not be written any more.
-    const pausedMidway = Boolean(store.state.data.paused);
-    if (!pausedMidway) store.forgetPrivate(guildId, userId);
-    log.info('admin: private purged', { deleted, failed, scanned });
-    const capped = scanned >= maxScanned ? `; stopped at the ${maxScanned}-message scan cap, run again for older ones` : '';
-    const memoryPart = pausedMidway ? `private memory kept (paused meanwhile, run again after ${slash('resume')})` : 'private memory removed';
-    return [
-      `Purged ${deleted} own messages in the private chat (${failed} failed, ${scanned} scanned${capped}); ${memoryPart}.`,
-      "The member's own messages stay; only they can delete those.",
-    ].join('\n');
-  }
-
-  /**
-   * A deliberate, owner-only clean start: wipes this guild's whole stored
-   * memory (store.wipeGuild) once a live-analyzer run in flight has landed, under the journal's
-   * writer lock: the guild directory is copied into the vault first (store.vaultGuild) and the reply
-   * names it.
-   * Runs only when `confirm` matches the served guild's name exactly
-   * (trimmed, case-sensitive) — otherwise nothing changes and the reply says
-   * what it deletes and what to type.
-   */
-  async function cmdMemoryWipe(args, context) {
-    refuseUnderDb('memory wipe');
-    assertNotPaused();
-    const guildId = requireGuildId(context);
-    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: CODE.WARMUP_RUNNING });
-
-    const guildName = client?.guilds?.cache?.get(guildId)?.name || guildId;
-    const confirm = String(args?.confirm ?? '').trim();
-    if (confirm !== guildName) {
-      return (
-        'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, the errand tasks and their log, the intentions, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
-        `To confirm, run again with confirm: ${guildName}`
-      );
-    }
-
-    await waitForAnalyzer();
-    if (isWarmingUp()) throw Object.assign(new Error(warmupBusyText()), { code: CODE.WARMUP_RUNNING });
-    const vaultDir = hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR;
-    const wipe = async () => {
-      // The vault first, then the journal (its files are closed before the store deletes the
-      // private directories), then the rest.
-      const vault = store.vaultGuild(guildId, { vaultDir });
-      let journalLines = ['journal: kept (no journal is running)'];
-      if (journal) {
-        try {
-          const removed = await journal.removeGuild(guildId);
-          journalLines = [`journal files removed: ${removed?.files ?? 0}`];
-        } catch (err) {
-          log.warn('admin: journal wipe failed', { code: err?.code ?? null, guildId });
-          journalLines = ['journal: not removed (a disk error, see the log)'];
-        }
-      }
-      const errands = typeof env.errands?.wipe === 'function' ? { errands: env.errands } : {};
-      const intentions = typeof env.intentions?.wipe === 'function' ? { intentions: env.intentions } : {};
-      return { counts: store.wipeGuild(guildId, { vault, vaultDir, ...errands, ...intentions }), journalLines, vault };
-    };
-    const { counts, journalLines, vault } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(wipe) : await wipe();
-    log.info('admin: memory wiped', { users: counts.users, channels: counts.channels, loreRemoved: counts.loreRemoved, snapshots: counts.snapshots ?? 0 });
-    await journalSystem(guildId, { event: 'wipe', by: 'owner' });
-
-    return [
-      `Memory wiped for ${guildName}.`,
-      `Vault: ${counts.vault ?? vault}`,
-      `profiles removed: ${counts.users ?? 0}`,
-      `private memory removed: ${counts.privateLayers ?? 0} private layers, with every private directory`,
-      `record files removed: ${counts.recordFiles ?? 0}`,
-      `archive files removed: ${counts.archiveFiles ?? 0}`,
-      `backfill files removed: ${counts.backfillFiles ?? 0}`,
-      `errand files removed: ${counts.taskFiles ?? 0}`,
-      `intention files removed: ${counts.intentionFiles ?? 0}`,
-      ...journalLines,
-      `snapshots that lost this server: ${counts.snapshots ?? 0}`,
-      `channels removed: ${counts.channels}`,
-      `lore removed: ${counts.loreRemoved} (kept: ${counts.loreKept})`,
-      `buffer messages cleared: ${counts.bufferMessages}`,
-      'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines, the participation store, the recall trace, the profile versions, the deletion ledger and the warmup progress.',
-      'Kept: owner lore, the GIF library, the media description cache, token calibration, the daily request counts and the spontaneous schedule.',
-    ].join('\n');
-  }
-
   /** `/nep memory affinity`: the attitude view (`affinityView`) of a member who has a profile.
    * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
   function cmdMemoryAffinity(args, context) {
@@ -656,76 +442,7 @@ const handlers = perEnv((env) => {
     return affinityView(profile.affinity, tokenResolver(guildId).resolve);
   }
 
-  /** `/nep memory refresh kind:user user:<member>`: forces a portrait refresh (character/style
-   * only), ignoring the hours rail, not the daily request cap. No hint is sent with it: the profile
-   * prompt then has no `<hint>` block. Refused while paused or while a warmup runs. */
-  async function cmdMemoryRefreshUser(args, context) {
-    if (!warmup) return 'warmup is not available';
-    assertNotPaused();
-    const userId = args?.userId;
-    if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
-    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
-
-    const result = await warmup.refreshPortrait(guildId, userId, '', { force: true });
-    if (!result.ok) {
-      const why = result.reason === 'warming-up' ? warmupBusyText() : outcomeText(result, 'unknown reason');
-      return `Refresh not performed: ${why}`;
-    }
-    if (result.characterQueued) {
-      return `Portrait refreshed for ${userId}; its character text lands after the next voice run.`;
-    }
-    return `Portrait refreshed for ${userId}.`;
-  }
-
-  /** A sampled notes refresh's outcome (src/memory/warmup.js#refreshChannelNotes /
-   * #refreshServerNotes) as the owner reads it: changed or reviewed with the sample's size, or why
-   * nothing was written (its reason, the over-limit fields, the provider detail). */
-  function notesRefreshText(what, result) {
-    if (result.ok) {
-      const sample = `sample: ${result.sample} messages, ${result.authors} authors, ${result.days} days`;
-      return result.changed ? `${what} rewritten from a fresh sample (${sample}).` : `${what} checked against a fresh sample, nothing to change (${sample}).`;
-    }
-    const why = result.reason === 'running' ? warmupBusyText() : result.reason;
-    const fields = Array.isArray(result.fields) && result.fields.length > 0 ? ` (${result.fields.join(', ')})` : '';
-    const detail = result.detail ? ` (${result.detail})` : '';
-    return `Refresh not performed: ${why}${fields}${detail}`;
-  }
-
-  /** `/nep memory refresh kind:channel channel:<channel>`: rewrites that channel's notes from a
-   * fresh sample spread over recent days (src/memory/warmup.js#refreshChannelNotes: the live rails,
-   * the 50k request cap and the daily request cap, no persona mute, no whole-history read). A
-   * channel with no notes yet is left to tools/warmup.mjs, and the reply says so. Refused while
-   * paused or while a warmup runs. */
-  async function cmdMemoryRefreshChannel(args, context) {
-    if (!warmup) return 'warmup is not available';
-    assertNotPaused();
-    const channelId = args?.channelId;
-    if (!channelId) throw invalid('a channel is required');
-    const guildId = requireGuildId(context);
-    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
-    const stored = store.getChannel(guildId, channelId);
-    if (!stored || !(stored.purpose || stored.topics || stored.tone)) {
-      return `Refresh not performed: this channel has no notes yet; describe it first with tools/warmup.mjs channels --channel ${channelId} (bot stopped).`;
-    }
-
-    return notesRefreshText('Channel notes', await warmup.refreshChannelNotes(guildId, channelId));
-  }
-
-  /** `/nep memory refresh kind:server`: rewrites the server notes (patterns, starters, in-jokes)
-   * from a fresh sample of the main channels (src/memory/warmup.js#refreshServerNotes, the same live
-   * rails). Lore is not rebuilt here: that is tools/warmup.mjs `server`. Refused while paused or
-   * while a warmup runs. */
-  async function cmdMemoryRefreshServer(_args, context) {
-    if (!warmup) return 'warmup is not available';
-    assertNotPaused();
-    const guildId = requireGuildId(context);
-    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
-
-    return notesRefreshText('Server notes', await warmup.refreshServerNotes(guildId));
-  }
-
-  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefreshUser, cmdMemoryRefreshChannel, cmdMemoryRefreshServer };
+  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdMemoryAffinity };
 });
 
 defineOp({
@@ -749,34 +466,9 @@ defineOp({
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRecent(args, ctx),
 });
 defineOp({
-  name: 'memory.refresh.user',
-  rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshUser(args, ctx),
-});
-defineOp({
-  name: 'memory.refresh.channel',
-  rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshChannel(args, ctx),
-});
-defineOp({
-  name: 'memory.refresh.server',
-  rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshServer(args, ctx),
-});
-defineOp({
-  name: 'memory.forget',
-  rights: { kind: 'write', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryForget(args, ctx),
-});
-defineOp({
   name: 'memory.affinity.read',
   rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ userId: args?.userId }, ctx),
-});
-defineOp({
-  name: 'memory.wipe',
-  rights: { kind: 'write', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryWipe(args, ctx),
 });
 defineOp({
   name: 'memory.journal.read',
@@ -802,14 +494,4 @@ defineOp({
   name: 'memory.private.read',
   rights: { kind: 'read', ownerOnly: true },
   run: (args, ctx) => handlers(ctx.env).cmdPrivateShow(args, ctx),
-});
-defineOp({
-  name: 'memory.private.forget',
-  rights: { kind: 'write', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdPrivateForget(args, ctx),
-});
-defineOp({
-  name: 'memory.private.purge',
-  rights: { kind: 'write', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdPrivatePurge(args, ctx),
 });

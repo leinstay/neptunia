@@ -1,8 +1,8 @@
-// The record's reads from the database (stage W1; src/memory/record.js dispatches to them under authority `db`).
+// The record's reads from the database (src/memory/record.js reads through them).
 // A record day file is the unit `<layer>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` of `sources` rows (map/record.js);
 // the lines come back rebuilt by the export, in file order. Pure functions over a read connection.
 
-import { byBytes, childNames, hasRows, layerDir, ownersUnder, unitLines } from './common.js';
+import { byBytes, childNames, layerDir, ownersUnder, unitLines } from './common.js';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
@@ -30,9 +30,6 @@ export function recordDays(db, guildId, privateUserId, month) {
 
 /** The lines (JSON text) of one record day unit, in file order. */
 export const recordLines = (db, owner) => unitLines(db, owner);
-
-/** Whether the record holds a day unit (a row of it). */
-export const recordHoldsDay = (db, owner) => hasRows(db, 'sources', owner);
 
 /**
  * The newest revision of a message among the lines of one month of a layer's record (the id index's rule: a line

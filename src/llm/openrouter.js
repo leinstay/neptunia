@@ -5,14 +5,12 @@
 //
 // Deliberate exception: `complete(messages, { countAgainstDailyCap: false })`
 // skips the daily-request counter and is never refused by it. Its callers
-// each have a budget or a trigger of their own, so none of them can burn
-// through the day's request cap of the chat:
-// - the memory warmup (src/memory/warmup.js), a long-running seeding job
-//   under its own token budget (`warmup.maxTokens`);
-// - the operations tools (tools/replay.mjs through src/behavior/sandbox.js),
-//   run by hand behind their own spend gate, never by the bot.
+// have a budget or a trigger of their own, so none of them can burn
+// through the day's request cap of the chat: the operations tools
+// (tools/replay.mjs through src/behavior/sandbox.js), run by hand behind
+// their own spend gate, never by the bot.
 // Every other request counts: the reply and every helper before it, the
-// analyzer, the voice model, a portrait refresh. The per-request token cap
+// analyzer, her memory session. The per-request token cap
 // (`TokenLimitError`) always applies, with no exception.
 //
 // The same module holds the read-only side of that counter (`capLeft`,
@@ -211,7 +209,7 @@ const HELPER_TIMEOUT_MS_FALLBACK = 30000;
  * (`{ model, ...helperRequestOptions(config, { ... }) }`). The set carries the
  * helper mark `helper: true` (never sent): only a marked request on a role
  * `llm.hedge.roles` lists is hedged by `complete` (see `hedgeSettings`), so the
- * memory wording, the memory extractor, the describers never are; the
+ * memory session, the describers never are; the
  * reply only through an explicit `options.hedge` (see `complete`).
  * Pure; `config` is the live config read at the moment of use.
  * @param {object|null|undefined} config  The whole live config.
@@ -377,16 +375,6 @@ export function dailyCapOf(value, key) {
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
-
-/**
- * The `llm.complete` options that name a request wording memory in the persona's voice (the
- * two-stage analyzer's voice run, its single-stage fallback, the warmup's and the portrait
- * refresh's wording requests): role `core` on `models.base.core` like the reply, purpose
- * `memory-voice`, and `cache: false`, so the prompt-cache marker stays on the reply only (a
- * cache write costs more than a plain prompt, and this system text is not the reply's).
- * Spread into a request's own options, never mutated.
- */
-export const MEMORY_VOICE_REQUEST = Object.freeze({ role: 'core', purpose: 'memory-voice', cache: false });
 
 /**
  * One `llm.providerByModel` key split into its model prefix and its role:
@@ -1173,10 +1161,9 @@ export function createLlm({
    * in charge. Exists for the reply of a turn with a bar (`pace.replyHedgeMs`): a provider stall
    * must not let a direct call pass its bar unanswered.
    * `options.purpose` — what the request is for, a kebab-case code (`reply`,
-   * `memory-voice`, `address`, `rewatch`, `lookup`, `read-link`,
+   * `address`, `rewatch`, `lookup`, `read-link`,
    * `search-summary`, `describe`, ...): the requests that share one role are told
-   * apart by it in the journal (the reply and the memory wording both go out as
-   * role `core`).
+   * apart by it in the journal.
    * `options.origin` — where the request comes from when it is not live chat
    * traffic (e.g. `replay`), so a day's count can leave it out. Both are
    * logged on the usage line only: never sent in the request body, never
@@ -1190,9 +1177,7 @@ export function createLlm({
    * it (whatever the model), `false` forbids it, anything else leaves the policy
    * in charge (a marker only while `features.promptCache` is true, `options.role`
    * is listed in `llm.cache.roles` and the request's model starts with a prefix
-   * listed in `llm.cache.models`; see `cacheTtlFor`). The memory wording passes
-   * `false` (`MEMORY_VOICE_REQUEST`): it shares the reply's role `core`, not its
-   * system text, so only the reply is marked. The marker (TTL
+   * listed in `llm.cache.models`; see `cacheTtlFor`). The marker (TTL
    * `llm.cache.ttl`) is placed on the system message by `withCacheMarker` after
    * the estimate and the token cap check, which always see the caller's
    * `messages` as given; so are the markers of the user parts tagged with a
@@ -1202,12 +1187,10 @@ export function createLlm({
    * signal — the analyzer (a large batch, a long JSON answer) and the media
    * describer need more room than a chat reply's default.
    * `options.countAgainstDailyCap` (default true) — `false` skips the daily
-   * request counter and is never refused by it: passed by the memory warmup
-   * and the operations tools only (see the header comment for why each is exempt).
+   * request counter and is never refused by it: passed by the operations tools only
+   * (see the header comment for why each is exempt).
    * `options.maxRequestTokens` — overrides `cfg.maxRequestTokens` for this one call's pre-flight
-   * cap check only (the global rail stays in force for every caller that omits it). Exists for
-   * the memory warmup (src/memory/warmup.js), whose requests are fitted under a much larger,
-   * separately-budgeted cap (`warmup.maxRequestTokens`) than a live chat/analyzer request.
+   * cap check only (the global rail stays in force for every caller that omits it).
    * `options.skipCalibration` (default false) — never feeds the provider's prompt
    * count into the calibrator. For every request whose provider-counted prompt
    * tokens say nothing about the text ratio the other requests are checked
@@ -1218,17 +1201,16 @@ export function createLlm({
    * the per-attempt timeout signal (`options.timeoutMs`/`cfg.timeoutMs`) —
    * both combined with `AbortSignal.any`. Once `options.signal` is aborted,
    * a caught error is rethrown immediately with NO retry (an external abort
-   * is deliberate, not a transient failure worth retrying). Exists for the
-   * memory warmup's stop (src/memory/warmup.js, Ctrl+C in tools/warmup.mjs): the
-   * request already counted by the provider cannot be un-billed, but no
-   * further retry/tokens are spent past the moment of the abort.
+   * is deliberate, not a transient failure worth retrying): the request already
+   * counted by the provider cannot be un-billed, but no further retry/tokens are
+   * spent past the moment of the abort.
    * `options.provider` — OpenRouter provider routing for this one call; a plain
    * object REPLACES the configured routing (`llm.providerByModel`, then
    * `llm.provider`; see `resolveProvider`); any other value leaves the
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`core`, `analyzer`,
-   * `extractor`, `vision`, `video`; the roles of src/llm/roles.js and
+   * `vision`, `video`; the roles of src/llm/roles.js and
    * `/nep model`), so a `"<prefix>@<role>"` key of
    * `llm.providerByModel` can route it; never sent. A call without a role
    * matches only role-less keys.
@@ -1236,8 +1218,7 @@ export function createLlm({
    * (e.g. `{ enabled: false }`); a plain object is sent verbatim as
    * `body.reasoning`, anything else omits the field. Used by the video
    * describer (`media.video.reasoning`), whose model otherwise spends the
-   * output budget on reasoning, and by the two-stage analyzer's stage A and
-   * the warmup's neutral route (`memory.reasoning`).
+   * output budget on reasoning.
    * `options.plugins` — OpenRouter's plugins for this one call (e.g. `[{ id: 'web', engine:
    *   'exa', max_results: 5 }]`); a non-empty array is sent verbatim as `body.plugins`,
    *   anything else omits the field. Used by the web lookup's `openrouter` engine

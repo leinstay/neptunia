@@ -55,7 +55,7 @@ function samplesOf(definition) {
 }
 
 test('the table holds every operation, in the operations registry order', () => {
-  assert.equal(SKILL_DEFINITIONS.length, 74);
+  assert.equal(SKILL_DEFINITIONS.length, 67);
   assert.deepEqual(SKILL_DEFINITIONS.map((definition) => definition.name), listOps().map((op) => op.name));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));
@@ -105,7 +105,7 @@ test('the intent skills carry only what their operation reads', () => {
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {
-  for (const name of ['memory.profile.read', 'memory.affinity.read', 'alias.add', 'alias.remove', 'memory.forget', 'memory.private.read', 'memory.private.forget', 'memory.private.purge']) {
+  for (const name of ['memory.profile.read', 'memory.affinity.read', 'alias.add', 'alias.remove', 'memory.private.read']) {
     assert.equal(BY_NAME.get(name).toArgs({ name: 'x' }), null, name);
     assert.equal(BY_NAME.get(name).toArgs({ user: ID, name: 'x' }).userId, ID, name);
   }
@@ -133,11 +133,11 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 74, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 67, well-formed, unique, a round trip, no longer than 64', () => {
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
-  assert.equal(apis.length, 74);
-  assert.equal(new Set(apis).size, 74);
-  assert.equal(Object.keys(API_NAMES).length, 74);
+  assert.equal(apis.length, 67);
+  assert.equal(new Set(apis).size, 67);
+  assert.equal(Object.keys(API_NAMES).length, 67);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);

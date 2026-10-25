@@ -489,8 +489,7 @@ function withHistory(record, entry) {
  * `candidateExpiresHours` unless `expiresAt` says otherwise; her own after `expiresDays`, or
  * after `recurringExpiresDays` with `every` set (parseEvery's shape, pinned by the caller).
  * `provenance.participants` (member ids) names the members of the conversation it came from: who
- * asked, who was answered or mentioned, the other authors of a candidate's channel; a forget of
- * one of them takes the intention out (concernsMember).
+ * asked, who was answered or mentioned, the other authors of a candidate's channel (concernsMember).
  * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group', participants?: string[] },
  *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
  *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
@@ -890,7 +889,7 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
 }
 
 /**
- * Whether `record` concerns member `userId` (a forget, src/intentions/store.js#forgetUser): it is
+ * Whether `record` concerns member `userId` (src/memory/db/session.js, the intentions her memory session shows): it is
  * meant for them (`destination`), an attention names them (`attend.people`), it came from a
  * conversation with them (`provenance.participants`),
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's

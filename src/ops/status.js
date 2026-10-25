@@ -7,7 +7,7 @@
 // (`models.base`, `keys.base`, `costs.base`: her core and organs), the errands (`models.errands`,
 // `costs.errands`: the delegated agents) and the development agents (`models.development`,
 // `costs.development`: outside her). The models sit in three fields, one line per role, `<role> · <model> ...`:
-// `models.base` (core, memory, then the helpers analyzer, extractor, vision, video, embedding, speech, then drawing),
+// `models.base` (core, memory, then the helpers analyzer, vision, video, embedding, speech, then drawing),
 // `models.errands` (scout, server) and `models.development` (thinker, dev, writer), which an OpenCode worker runs,
 // so they are never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
@@ -28,8 +28,6 @@
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
 import { keyHashOf, llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
@@ -38,7 +36,6 @@ import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../ti
 import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../memory/index.js';
 import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { recordFileStats } from '../memory/record.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.js';
 import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
@@ -89,7 +86,6 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'core', roles: [CORE_ROLE] },
   { name: 'memory', roles: [MEMORY_ROLE] },
   { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
-  { name: 'extractor', roles: ['extractor'] },
   { name: 'vision', roles: ['vision'] },
   { name: 'video', roles: ['video'] },
   { name: 'embedding', roles: [EMBED_ROLE] },
@@ -133,31 +129,14 @@ export function innerLines(s, labels, { tokens = null } = {}) {
 
 /**
  * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
- * `off` (the switch is off), `unavailable` (on, the database not open), `notSynced` (open, no pass yet, `{files}`),
- * else `line` with `{rows}`, `{files}`, `{at}` (last sync), `{lag}` (seconds), `{read}` (`readOn` or `readOff`) and
- * `{fallbacks}` (reads that fell back to the disk); `syncOff` (`{rows}`, `{files}`) replaces the line while the database is the
- * writer and the sync is off. Null when the label is missing or blank.
+ * `unavailable` (the database not open), else `syncOff` with `{rows}` and `{files}` (the units it holds). Null when
+ * the label is missing or blank.
  */
-export function memoryDbStatusLine(s, labels, nowMs = Date.now()) {
+export function memoryDbStatusLine(s, labels) {
   const L = labels?.status?.memoryDb;
   if (!isPlainObject(L) || !isPlainObject(s)) return null;
-  if (!s.on) return labelLine(L.off, {});
-  // Under the database as the writer, a refused start says why (memoryDb.status().refused, a code).
-  if (s.refused) return labelLine(L.refused, { code: s.refused }) ?? labelLine(L.unavailable, {});
   if (!s.open) return labelLine(L.unavailable, {});
-  // The database is the writer (`memoryDb.authority` `db`): the sync is off, and the line says so (when its label is filled).
-  const syncOff = s.syncOff === true ? labelLine(L.syncOff, { rows: s.rows ?? 0, files: s.files ?? 0 }) : null;
-  if (syncOff) return syncOff;
-  if (s.lastSyncAt === null || s.lastSyncAt === undefined) return labelLine(L.notSynced, { files: s.files ?? 0 });
-  const fallbacks = Object.entries(s.reads ?? {}).reduce((sum, [key, n]) => (key === 'db' ? sum : sum + (Number.isFinite(n) ? n : 0)), 0);
-  return labelLine(L.line, {
-    rows: s.rows ?? 0,
-    files: s.files ?? 0,
-    at: innerStamp(s.lastSyncAt),
-    lag: Number.isFinite(s.lagSeconds) ? s.lagSeconds : Math.max(0, Math.round((nowMs - s.lastSyncAt) / 1000)),
-    read: (s.read ? L.readOn : L.readOff) ?? '',
-    fallbacks,
-  });
+  return labelLine(L.syncOff, { rows: s.rows ?? 0, files: s.files ?? 0 });
 }
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */
@@ -361,22 +340,11 @@ const handlers = perEnv((env) => {
     return parts.length > 0 ? parts.join('\n') : 'none';
   }
 
-  /** When the journal was last written (today's day file, else yesterday's: the first hour after
-   * midnight), as epoch ms, or null (no journal, no file): the journal's own `stats` (which reads the
-   * database under its authority), else the day files' modification times. */
+  /** When the journal was last written (today's lines, else yesterday's: the first hour after midnight), as epoch ms,
+   * or null (no journal, nothing written): the journal's own `stats`. */
   async function journalLastWrite(guildId, nowMs) {
-    if (typeof journal?.stats === 'function') return (await journal.stats(guildId, { now: nowMs }))?.lastWriteMs ?? null;
-    if (typeof journal?.dayFile !== 'function') return null;
-    let last = null;
-    for (const at of [nowMs, nowMs - DAY_MS]) {
-      try {
-        const stat = await fs.stat(journal.dayFile(guildId, new Date(at).toISOString()));
-        if (last === null || stat.mtimeMs > last) last = stat.mtimeMs;
-      } catch {
-        // no file that day
-      }
-    }
-    return last;
+    if (typeof journal?.stats !== 'function') return null;
+    return (await journal.stats(guildId, { now: nowMs }))?.lastWriteMs ?? null;
   }
 
   /**
@@ -658,20 +626,11 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The record line: its messages (the distinct ids of the month indexes), its first day to
-   * today, and the share of those days with a day file: the record's own `stats` (which reads the
-   * database under its authority), else its files (directory listings and one `ids.json` per month,
-   * never a day file). */
+  /** The record line: its messages (the distinct message ids), its first day to today, and the share of those days
+   * with lines: the record's own `stats`. */
   async function recordLine(guildId, today) {
-    let counts;
-    if (typeof record?.stats === 'function') {
-      counts = await record.stats(guildId);
-    } else {
-      if (typeof record?.dayFile !== 'function') return 'record: not available';
-      // The guild record's root: the parent of a month directory (src/memory/record.js's layout).
-      counts = await recordFileStats(fs, path.dirname(path.dirname(record.dayFile(guildId, '2000-01-01T00:00:00.000Z'))));
-    }
-    const { messages, days, first } = counts;
+    if (typeof record?.stats !== 'function') return 'record: not available';
+    const { messages, days, first } = await record.stats(guildId);
     if (first === null) return `record: ${messages} messages`;
     const since = Math.max(1, daysBetween(first, today));
     return `record: ${messages} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
@@ -794,7 +753,7 @@ const handlers = perEnv((env) => {
   /** The memory database's one line (words from `labels.status.memoryDb`; a missing or blank label leaves the line out). */
   function memoryDbLine() {
     if (typeof memoryDb?.status !== 'function') return null;
-    return memoryDbStatusLine(memoryDb.status(), hot.prompts?.labels, clock());
+    return memoryDbStatusLine(memoryDb.status(), hot.prompts?.labels);
   }
 
   /** The memory field (the coverage of every kind of memory), one line per kind. */

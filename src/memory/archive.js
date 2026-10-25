@@ -1,8 +1,8 @@
 // The archive: every memory item that leaves a hot list, kept for good. Hot memory forgets by
 // design (caps, expiry, the analyzer's removes and replaces); before an item leaves, its last
-// version is written here, so nothing the persona once held is lost to a cap. One JSON line per
-// event, through the append store (src/memory/append-store.js), in a month file
-// `data/guilds/<guildId>/archive/<YYYY-MM>.jsonl` by the entry's `recordedAt`; a private layer's
+// version is written here, so nothing the persona once held is lost to a cap. One line per event
+// in the memory database (src/memory/db/service.js), in the unit of its month,
+// `guilds/<guildId>/archive/<YYYY-MM>.jsonl` by the entry's `recordedAt`; a private layer's
 // items go under `private/<userId>/archive/` instead and never into the guild archive.
 //
 // An entry carries three ids: `itemId` (the item's stable identity, src/memory/store.js stamps it
@@ -12,13 +12,12 @@
 // (dates, counts, ids), so an owner restore rebuilds it as it was. `sourceRefs` lists the messages
 // the item came from only when the item names them; it is never guessed.
 //
-// A per-month id index (`archive/<YYYY-MM>.ids.json`, a sorted array of `itemId:revisionId` keys,
-// held in memory per month and rebuilt from the segment when missing) refuses an entry already
-// archived; a `restored` line is a lifecycle event and is never refused. Entries the archive could
-// not take wait in `archive/pending.jsonl`; `drainPending` writes them and notes each one in
-// `archive/pending-done.jsonl`, then compacts both files. `forgetUser` drops every entry naming a
-// member, under the forgetting marker src/memory/record.js uses; `iterate` and `find` hide such a
-// member until the forget is done, and the writers wait while a writer lock is held (`writerGate`).
+// A month's `itemId:revisionId` keys (read from the database once per month, then kept) refuse an
+// entry already archived; a `restored` line is a lifecycle event and is never refused. Entries the
+// archive could not take wait in the operational file `archive/pending.jsonl` (through the append
+// store, src/memory/append-store.js); `drainPending` writes them and notes each one in
+// `archive/pending-done.jsonl`, then compacts both files. The writers wait while a writer lock is
+// held (`writerGate`).
 //
 // Logs carry counts and guild ids, never an entry's text.
 
@@ -29,9 +28,9 @@ import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
 import { stripUrls } from './clamp.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
-import { forgettingIds, isoOf, revisionOf } from './record.js';
+import { isoOf, revisionOf } from './record.js';
 import { memoryRootOf } from './root.js';
-import { createReadSeam, hiddenIds } from './db/readers/common.js';
+import { createReadSeam } from './db/readers/common.js';
 import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.js';
 
 /** The schema version every entry carries. */
@@ -90,7 +89,6 @@ const TIME_FIELDS = ['firstSeen', 'ts', 'at', 'startAt', 'addedAt'];
 const LAST_SEEN_FIELDS = ['lastSeen', 'lastAt', 'addedAt'];
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
-const SEGMENT_RE = /^(\d{4}-\d{2})\.jsonl$/;
 
 /** Distinct non-empty strings of `values` (arrays or single values), in order. */
 function idList(...values) {
@@ -266,51 +264,24 @@ function parse(line) {
   }
 }
 
-/** Whether `entry` concerns member `id`: scoped to them, or naming them among its participants. */
-function names(entry, id) {
-  return entry?.scope?.user === id || (Array.isArray(entry?.participants) && entry.participants.includes(id));
-}
-
-/**
- * Whether forgetting `userId` drops this archive entry: it is scoped to them or names them among
- * its participants and, with `before` (epoch ms, the deletion ledger's time), it was archived
- * earlier (an entry without a readable `recordedAt` counts as earlier). A pending line's entry is
- * judged the same. The one rule `forgetUser` and the store's vault pass
- * (src/memory/store.js#forgetUser) both apply.
- * @param {unknown} entry  A parsed archive entry.
- * @param {string} userId
- * @param {number|null} [before]
- * @returns {boolean}
- */
-export function archiveDrops(entry, userId, before = null) {
-  if (!isPlainObject(entry) || !names(entry, String(userId))) return false;
-  if (!Number.isFinite(before)) return true;
-  return !(Date.parse(entry.recordedAt) >= before);
-}
-
 /**
  * Create the archive.
  *
  * @param {object} options
  * @param {{ append: Function, iterate: Function, rewrite: Function, stats?: Function }} options.appendStore
- *   src/memory/append-store.js; best its own, so its counts speak for the archive alone.
+ *   src/memory/append-store.js, for the pending queue's files; best its own, so its counts speak for the archive alone.
  * @param {string} options.dataDir  the `data/` directory
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {() => number} [options.now=Date.now]
- * @param {() => string} [options.uuid=randomUUID]
- * @param {object} [options.fs]  a `node:fs/promises`-shaped API
+ * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the pending queue's directories)
  * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append, queue and
- *   drain: the journal's `waitUnlocked`, so a forget's writer lock
- *   (src/memory/journal.js#withWriterLock) holds the archive's writers too
- * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
- *   authority `db`, `iterate` and `find` are answered from the database (src/memory/db/readers/archive.js), with no
- *   file fallback (a failed read rejects with a code); under `json` (the default) the files are read as always. Stage
- *   W2b, under `db`: `append` writes no segment and no month index: the month's keys come from the lines the
- *   database holds (read once per month, then kept), the entries it does not refuse go to the database as lines of
- *   the month's unit (`memoryDb.writeUnit`, op `lines`), and a failed write rejects as a failed append does (the
- *   store then queues the entries in the pending file, an operational file that stays written, and the drain writes
- *   them through `append` again)
- * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
+ *   drain: the journal's `waitUnlocked`, so its writer lock (src/memory/journal.js#withWriterLock)
+ *   holds the archive's writers too
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): `iterate` and
+ *   `find` are answered from it (src/memory/db/readers/archive.js), a failed read rejects with a code; `append`
+ *   writes the entries it does not refuse as lines of the month's unit (`memoryDb.writeUnit`, op `lines`), and a
+ *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
+ *   drain writes them through `append` again)
  * @returns {{
  *   append(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   iterate(guildId: string, query?: { from?: string, to?: string, scope?: object, kinds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
@@ -318,35 +289,22 @@ export function archiveDrops(entry, userId, before = null) {
  *   queuePending(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<number>,
  *   drainPending(guildId: string): Promise<{ archived: number, left: number, confirmed: object[] }>,
  *   stats(guildId: string): { pending: number },
- *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ dropped: number }>,
  * }}
- *   `iterate` and `find` leave out the entries of a member under a forgetting marker
- *   (`archiveDrops`), and read nothing of such a member's private archive. `forgetUser` with
- *   `before` (the deletion ledger re-applied, src/memory/store.js#applyLedger) writes no marker and
- *   drops only the entries archived earlier, the member's private archive rewritten the same way.
  *   `append` stamps `guildId` (and, with `privateUserId`, the private scope `{ user, private: true }`)
- *   on each entry, refuses an entry whose key the month's index holds (`duplicates`), writes the
- *   rest with an fsync, then the touched months' indexes. It rejects (code `archive-unconfirmed`)
- *   when the append store reports a failed or still queued write: the entry is not known to be on
- *   disk. `iterate` streams the entries whose `recordedAt` lies in `[from, to]`, of `kinds` and
- *   matching every key of `scope` when given, month by month (an entry repeated in a segment by a
- *   retried write is yielded once). `find` returns every entry of one item, the private archives
- *   included, oldest first. `queuePending` keeps entries in `pending.jsonl` (the member's private
- *   one with `privateUserId`) and resolves to their count; `drainPending` appends every pending
- *   entry of the guild and its private layers (a duplicate counts as archived), notes each in
- *   `pending-done.jsonl`, compacts both files and returns the counts and the `confirmed` entries;
- *   it stops a file at the first refusal. `stats` reads the pending count kept in memory (set by
- *   `queuePending`, `drainPending` and `forgetUser`; 0 before the first). `forgetUser` writes the
- *   marker `data/guilds/<id>/forgetting/<userId>.json` first (unless one exists: then the caller
- *   owns it), rewrites every guild segment and the pending queue without the entries scoped to or
- *   naming the member, rebuilds the touched indexes, deletes the member's private archive whole
- *   and removes the marker it wrote last; `dropped` counts the guild entries removed (pending
- *   ones included). Every method but `iterate`, `find` and `stats` runs one at a time.
+ *   on each entry and refuses an entry whose key the month already holds (`duplicates`). `iterate` streams
+ *   the entries whose `recordedAt` lies in `[from, to]`, of `kinds` and matching every key of `scope` when
+ *   given, month by month (an entry repeated by a retried write is yielded once). `find` returns every entry
+ *   of one item, the private archives included, oldest first. `queuePending` keeps entries in `pending.jsonl`
+ *   (the member's private one with `privateUserId`) and resolves to their count; `drainPending` appends
+ *   every pending entry of the guild and its private layers (a duplicate counts as archived), notes each in
+ *   `pending-done.jsonl`, compacts both files and returns the counts and the `confirmed` entries; it stops a
+ *   file at the first refusal. `stats` reads the pending count kept in memory (set by `queuePending` and
+ *   `drainPending`; 0 before the first). Every method but `iterate`, `find` and `stats` runs one at a time.
  */
-export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null, memoryDb = null, authorityOf = null }) {
+export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, writerGate = null, memoryDb = null }) {
   const root = memoryRootOf(dataDir);
-  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'archive' });
-  const indexes = new Map(); // ids.json path -> Set of keys
+  const seam = createReadSeam({ memoryDb, log, reader: 'archive' });
+  const indexes = new Map(); // unit -> Set of keys
   const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
   let chain = Promise.resolve();
 
@@ -368,7 +326,6 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   }
 
   const segmentFile = (base, month) => path.join(base, `${month}.jsonl`);
-  const indexFile = (base, month) => path.join(base, `${month}.ids.json`);
   const pendingFile = (base) => path.join(base, 'pending.jsonl');
   const doneFile = (base) => path.join(base, 'pending-done.jsonl');
 
@@ -382,18 +339,8 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     }
   }
 
-  /** The months that have a segment under `base`. */
-  async function months(base) {
-    const out = [];
-    for (const name of await listDir(base)) {
-      const match = name.match(SEGMENT_RE);
-      if (match) out.push(match[1]);
-    }
-    return out;
-  }
-
-  /** Every base of a guild: its own archive, then each private layer's that exists. The private
-   * directory also holds the DM memory files (`<userId>.json`): only directories are layers. */
+  /** Every base of a guild that may hold a pending queue: its own archive, then each private layer's
+   * directory that exists (only directories are layers). */
   async function bases(guildId) {
     const out = [{ base: baseDir(guildId), privateUserId: null }];
     for (const userId of await listDir(path.join(guildBase(guildId), 'private'), { dirsOnly: true })) {
@@ -403,52 +350,7 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return out;
   }
 
-  async function writeIndex(file, keys) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify([...keys].sort()));
-    await fs.rename(tmp, file);
-  }
-
-  async function scanMonth(base, month) {
-    const keys = new Set();
-    for await (const { line } of appendStore.iterate(segmentFile(base, month))) {
-      const key = keyOf(parse(line));
-      if (key) keys.add(key);
-    }
-    return keys;
-  }
-
-  async function rebuild(base, month) {
-    const keys = await scanMonth(base, month);
-    await writeIndex(indexFile(base, month), keys);
-    indexes.set(indexFile(base, month), keys);
-    return keys.size;
-  }
-
-  /** The month's index, read once, rebuilt from the segment when missing or unreadable. */
-  async function loadIndex(base, month) {
-    const file = indexFile(base, month);
-    if (indexes.has(file)) return indexes.get(file);
-    let keys = null;
-    try {
-      const value = JSON.parse(await fs.readFile(file, 'utf8'));
-      if (Array.isArray(value)) keys = new Set(value.filter((key) => typeof key === 'string'));
-    } catch (error) {
-      if (error?.code !== 'ENOENT') log.warn('archive: index unreadable', { month, code: error?.code ?? null });
-    }
-    if (!keys) {
-      keys = await scanMonth(base, month);
-      if (keys.size > 0) {
-        await writeIndex(file, keys);
-        log.info('archive: index rebuilt', { month, keys: keys.size });
-      }
-    }
-    indexes.set(file, keys);
-    return keys;
-  }
-
-  /** Append one line durably: rejects when the append store failed it or holds it for a retry. */
+  /** Append one line of a pending file durably: rejects when the append store failed it or holds it for a retry. */
   async function appendLine(file, line) {
     const before = typeof appendStore.stats === 'function' ? appendStore.stats() : null;
     await appendStore.append(file, line, { sync: true });
@@ -467,21 +369,21 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return iso.slice(0, 7);
   }
 
-  /** Authority `db`: a month's keys, from the database's lines of the month's unit, read once and then kept. */
+  /** A month's keys, from the database's lines of the month's unit, read once and then kept. */
   function dbIndex(db, guildId, privateUserId, month, owner) {
-    const cached = indexes.get(`db:${owner}`);
+    const cached = indexes.get(owner);
     if (cached) return cached;
     const keys = new Set();
     for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) {
       const key = keyOf(parse(line));
       if (key) keys.add(key);
     }
-    indexes.set(`db:${owner}`, keys);
+    indexes.set(owner, keys);
     return keys;
   }
 
-  /** `appendNow` under authority `db`: the month units' lines written through the database's writer. */
-  async function appendDb(guildId, entries, privateUserId) {
+  /** The month units' lines written through the database's writer. */
+  async function appendNow(guildId, entries, privateUserId = null) {
     const db = seam.db();
     if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
     const base = baseDir(guildId, privateUserId);
@@ -507,48 +409,14 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     let written = 0;
     for (const [owner, unit] of months) {
       if (unit.lines.length === 0) continue;
-      await memoryDb.writeUnit({ op: 'lines', mode: 'db', owner, lines: unit.lines });
+      await memoryDb.writeUnit({ op: 'lines', owner, lines: unit.lines });
       for (const key of unit.added) unit.keys.add(key);
       written += unit.lines.length;
     }
     return { written, duplicates };
   }
 
-  async function appendNow(guildId, entries, privateUserId = null) {
-    if (seam.authority() === 'db') return appendDb(guildId, entries, privateUserId);
-    const base = baseDir(guildId, privateUserId);
-    const isPrivate = typeof privateUserId === 'string' && privateUserId;
-    const touched = new Map(); // ids.json path -> keys
-    let written = 0;
-    let duplicates = 0;
-    try {
-      for (const raw of Array.isArray(entries) ? entries : []) {
-        if (!isPlainObject(raw)) continue;
-        const entry = { ...raw, guildId: String(guildId) };
-        if (isPrivate) entry.scope = { user: privateUserId, private: true };
-        const month = monthOf(entry);
-        const key = keyOf(entry);
-        const keys = await loadIndex(base, month);
-        if (key && keys.has(key)) {
-          duplicates += 1;
-          continue;
-        }
-        await appendLine(segmentFile(base, month), JSON.stringify(entry));
-        written += 1;
-        if (key) {
-          keys.add(key);
-          touched.set(indexFile(base, month), keys);
-        }
-      }
-    } finally {
-      for (const [file, keys] of touched) {
-        await writeIndex(file, keys).catch((error) => log.warn('archive: index write failed', { code: error?.code ?? null, guildId: String(guildId) }));
-      }
-    }
-    return { written, duplicates };
-  }
-
-  /** Wait while a writer lock is held (outside the chain: a forget queued behind it would wait for itself). */
+  /** Wait while a writer lock is held (outside the chain: a writer queued behind it would wait for itself). */
   async function gate() {
     if (typeof writerGate === 'function') await writerGate();
   }
@@ -558,32 +426,18 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return serial(() => appendNow(guildId, entries, privateUserId));
   }
 
-  /** The lines (text) of one month segment: the file's, or the database's unit under `db`. */
-  async function* segmentLines(db, guildId, privateUserId, base, month) {
-    if (db) {
-      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) yield line;
-      return;
-    }
-    for await (const { line } of appendStore.iterate(segmentFile(base, month))) yield line;
-  }
-
   async function* iterate(guildId, { from = null, to = null, scope = null, kinds = null, privateUserId = null } = {}) {
     const db = seam.db();
-    const base = baseDir(guildId, privateUserId);
     const fromMs = from ? Date.parse(from) : -Infinity;
     const toMs = to ? Date.parse(to) : Infinity;
     const fromMonth = from ? String(isoOf(from) ?? '').slice(0, 7) : '0000-00';
     const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
     const scopeKeys = isPlainObject(scope) ? Object.entries(scope) : [];
-    // A member being forgotten is hidden until the forget is done.
-    const hidden = db ? seam.run(() => hiddenIds(db, guildId)) : await forgettingIds(fs, dataDir, guildId);
-    if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return;
-    const segments = db ? seam.run(() => archiveMonths(db, guildId, privateUserId)) : await months(base);
-    for (const month of segments) {
+    for (const month of seam.run(() => archiveMonths(db, guildId, privateUserId))) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
-      for await (const line of segmentLines(db, guildId, privateUserId, base, month)) {
+      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) {
         const entry = parse(line);
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -591,7 +445,6 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
         if (Number.isFinite(at) && (at < fromMs || at > toMs)) continue;
         if (wanted && !wanted.has(entry.itemKind)) continue;
         if (scopeKeys.some(([key, value]) => entry.scope?.[key] !== value)) continue;
-        if (hidden.size > 0 && [...hidden].some((id) => archiveDrops(entry, id))) continue;
         yield entry;
       }
     }
@@ -600,8 +453,8 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   async function find(guildId, itemId) {
     const out = [];
     const db = seam.db();
-    const layers = db ? [{ privateUserId: null }, ...seam.run(() => archiveLayers(db, guildId)).map((userId) => ({ privateUserId: userId }))] : await bases(guildId);
-    for (const { privateUserId } of layers) {
+    const layers = [null, ...seam.run(() => archiveLayers(db, guildId))];
+    for (const privateUserId of layers) {
       for await (const entry of iterate(guildId, { privateUserId })) if (entry.itemId === itemId) out.push(entry);
     }
     return out.sort((a, b) => String(a.recordedAt).localeCompare(String(b.recordedAt)));
@@ -689,68 +542,5 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return { pending: pendingCounts.get(String(guildId)) ?? 0 };
   }
 
-  /**
-   * The deletion ledger re-applied (`forgetUser` with `before`): every guild entry (pending ones
-   * included) of the member archived before `before` goes, and every earlier entry of their
-   * private archive; no marker.
-   */
-  async function forgetEarlier(guildId, id, before) {
-    const drops = (entry) => archiveDrops(entry, id, before);
-    const earlier = (entry) => isPlainObject(entry) && !(Date.parse(entry.recordedAt) >= before);
-    let dropped = 0;
-    for (const [base, test] of [[baseDir(guildId), drops], [baseDir(guildId, id), earlier]]) {
-      for (const month of await months(base)) {
-        const result = await appendStore.rewrite(segmentFile(base, month), (line) => !test(parse(line)));
-        if (result.dropped > 0) await rebuild(base, month);
-        dropped += result.dropped;
-      }
-      dropped += (await appendStore.rewrite(pendingFile(base), (line) => !test(parse(line)?.entry))).dropped;
-    }
-    await countPending(guildId);
-    if (dropped > 0) log.info('archive: forgotten', { guildId: String(guildId), dropped });
-    return { dropped };
-  }
-
-  function forgetUser(guildId, userId, { before = null } = {}) {
-    if (Number.isFinite(before)) return serial(() => forgetEarlier(guildId, String(userId), before));
-    return serial(async () => {
-      const id = String(userId);
-      const marker = path.join(guildBase(guildId), 'forgetting', `${id}.json`);
-      let created = false;
-      try {
-        await fs.stat(marker);
-      } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-        await fs.mkdir(path.dirname(marker), { recursive: true });
-        await fs.writeFile(marker, JSON.stringify({ userId: id, at: new Date(now()).toISOString(), step: 'archive' }));
-        created = true;
-      }
-      const keep = (line) => {
-        const value = parse(line);
-        return !value || !archiveDrops(value, id);
-      };
-      const base = baseDir(guildId);
-      let dropped = 0;
-      for (const month of await months(base)) {
-        const result = await appendStore.rewrite(segmentFile(base, month), keep);
-        if (result.dropped > 0) await rebuild(base, month);
-        dropped += result.dropped;
-      }
-      dropped += (await appendStore.rewrite(pendingFile(base), (line) => !archiveDrops(parse(line)?.entry, id))).dropped;
-      // The private archive goes whole; each of its files is emptied through the append store
-      // first, so its descriptor is closed and no queued line lands after the delete.
-      const privateBase = baseDir(guildId, id);
-      for (const name of await listDir(privateBase)) {
-        if (name.endsWith('.jsonl')) await appendStore.rewrite(path.join(privateBase, name), () => false);
-      }
-      await fs.rm(privateBase, { recursive: true, force: true });
-      for (const file of [...indexes.keys()]) if (file.startsWith(privateBase + path.sep)) indexes.delete(file);
-      await countPending(guildId);
-      if (created) await fs.rm(marker, { force: true });
-      log.info('archive: forgotten', { guildId: String(guildId), dropped });
-      return { dropped };
-    });
-  }
-
-  return { append, iterate, find, queuePending, drainPending, stats, forgetUser };
+  return { append, iterate, find, queuePending, drainPending, stats };
 }

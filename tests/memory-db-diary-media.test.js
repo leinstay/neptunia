@@ -7,11 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { createDiaryMedia, applyDiaryUpdate, GAP_MS } from '../src/memory/db/diary-media.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordAdapter } from '../interfaces/discord/port.js';
-import { main } from '../tools/memory-db.mjs';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
 
 const CHANNEL = '700000000000000001';
@@ -28,7 +27,7 @@ function setup({ posts, config = {} } = {}) {
   writePosts(posts);
   const dbFile = path.join(data, 'memory.db');
   const handle = openMemoryDb(dbFile);
-  syncOnce(handle, data);
+  seedUnits(handle, data);
   const port = createFakeAdapter({ iface: 'discord', selfId: 'self' });
   const downloads = [];
   const files = new Map();
@@ -83,7 +82,7 @@ function setup({ posts, config = {} } = {}) {
     root, data, g, handle, port, job, say, writePosts, downloads, sleeps, logs, hot, dbFile,
     row: (id) => handle.db.prepare('SELECT * FROM diary WHERE id = ?').get(id),
     media: () => handle.db.prepare("SELECT * FROM media WHERE kind = 'diary' ORDER BY id").all(),
-    sync: () => syncOnce(handle, data),
+    writeUnits: () => seedUnits(handle, data),
     done: () => { handle.close(); fs.rmSync(root, { recursive: true, force: true }); },
   };
 }
@@ -96,7 +95,7 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     const a = env.say('first part', [{ name: 'a.png', bytes: png('a') }]);
     const b = env.say('second part', [{ name: 'b.png', bytes: png('b') }, { name: 'notes.txt', type: 'text/plain' }]);
     env.writePosts([post('d-1', [a, b])]);
-    env.sync();
+    env.writeUnits();
     const counts = await env.job().run();
     assert.deepEqual(counts, { done: 1, failed: 0 });
     const row = env.row('d-1');
@@ -129,7 +128,7 @@ test('a post whose messages are all gone keeps what the database holds and is no
   try {
     const kept = env.say('still here');
     env.writePosts([post('d-1', ['gone-1', 'gone-2']), post('d-2', ['gone-3', kept])]);
-    env.sync();
+    env.writeUnits();
     const counts = await env.job().run();
     assert.deepEqual(counts, { done: 2, failed: 0 });
     assert.equal(env.row('d-1').text, '');
@@ -143,18 +142,18 @@ test('a post whose messages are all gone keeps what the database holds and is no
   } finally { env.done(); }
 });
 
-test('it is idempotent: a second start asks for nothing, and a sync of the same diary keeps the text', async () => {
+test('it is idempotent: a second start asks for nothing, and a rewrite of the same diary keeps the text', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
     const a = env.say('hello', [{ name: 'a.png', bytes: png('a') }]);
     env.writePosts([post('d-1', [a])]);
-    env.sync();
+    env.writeUnits();
     await env.job().run();
     const calls = env.port.calls.length;
     const downloads = env.downloads.length;
-    // The file is touched (a new mtime and gist), so the sync maps it again.
+    // The diary is written again (a new gist).
     env.writePosts([post('d-1', [a], { gist: 'changed gist' })]);
-    env.sync();
+    env.writeUnits();
     assert.equal(env.row('d-1').gist, 'changed gist');
     assert.equal(env.row('d-1').text, 'hello');
     const again = env.job();
@@ -172,7 +171,7 @@ test('a picture over the cap is skipped without a download; a failed download le
     const big = env.say('big one', [{ name: 'big.png', bytes: png('big') }], 5000);
     const flaky = env.say('flaky one', [{ name: 'flaky.png' }]);
     env.writePosts([post('d-1', [big]), post('d-2', [flaky])]);
-    env.sync();
+    env.writeUnits();
     const first = env.job();
     assert.deepEqual(await first.run(), { done: 1, failed: 1 });
     assert.equal(env.row('d-1').text, 'big one');
@@ -201,7 +200,7 @@ test('rows are fetched at most one a second, only with a diary channel, and a ne
     const a = env.say('one');
     const b = env.say('two');
     env.writePosts([post('d-1', [a]), post('d-2', [b])]);
-    env.sync();
+    env.writeUnits();
     env.hot.config.diary.channelId = '';
     const job = env.job();
     assert.equal(job.hasWork(), true);
@@ -212,7 +211,7 @@ test('rows are fetched at most one a second, only with a diary channel, and a ne
     assert.deepEqual(env.sleeps, [GAP_MS]);
     const c = env.say('three');
     env.writePosts([post('d-1', [a]), post('d-2', [b]), post('d-3', [c])]);
-    env.sync();
+    env.writeUnits();
     assert.equal(job.hasWork(), true);
     assert.deepEqual(await job.run(), { done: 1, failed: 0 });
     assert.equal(env.row('d-3').text, 'three');
@@ -223,24 +222,10 @@ test('a port failure leaves the post and logs a code only', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
     env.port.failNext('fetchMessages', { status: 'failed', error: { code: 'http-503', retryable: true } });
-    env.sync();
+    env.writeUnits();
     assert.deepEqual(await env.job().run(), { done: 0, failed: 1 });
     assert.equal(env.row('d-1').text, null);
     assert.ok(env.logs.some((entry) => entry.code === 'http-503'));
-  } finally { env.done(); }
-});
-
-test('verify says the files still equal after the job filled the new columns', async () => {
-  const env = setup({ posts: [post('d-1', ['x'])] });
-  try {
-    const a = env.say('hello', [{ name: 'a.png', bytes: png('a') }]);
-    env.writePosts([post('d-1', [a])]);
-    env.sync();
-    await env.job().run();
-    const lines = [];
-    const code = main(['verify', '--data', env.data, '--db', env.dbFile], { out: (l) => lines.push(l), err: (l) => lines.push(l) });
-    assert.equal(code, 0, lines.join('\n'));
-    assert.match(lines.join('\n'), /verify ok/);
   } finally { env.done(); }
 });
 
@@ -270,18 +255,16 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
   assert.equal(nowhere.status, 'failed');
 });
 
-test('the service runs the job once the import is done, only with memoryDb.diaryMedia on', async () => {
+test('the service runs the job once the database is open, only with memoryDb.diaryMedia on', async () => {
   const { createMemoryDb } = await import('../src/memory/db/service.js');
   for (const flag of [false, true]) {
     const env = setup({ posts: [post('d-1', ['x'])] });
-    env.handle.close();
-    fs.rmSync(env.dbFile, { force: true });
-    fs.rmSync(`${env.dbFile}-wal`, { force: true });
-    fs.rmSync(`${env.dbFile}-shm`, { force: true });
     try {
       const a = env.say('served');
       env.writePosts([post('d-1', [a])]);
-      const hot = { config: { ...env.hot.config, features: { memoryDb: true }, memoryDb: { syncSeconds: 60, diaryMedia: flag } } };
+      env.writeUnits();
+      env.handle.close();
+      const hot = { config: { ...env.hot.config, memoryDb: { diaryMedia: flag } } };
       const service = createMemoryDb({
         hot, dataDir: env.data, worker: false, log: { info() {}, warn() {}, error() {}, debug() {} },
         diaryMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
@@ -305,7 +288,7 @@ test('an audio attachment is saved in the picture numbering with a row whose ext
     const bytes = Buffer.from('ogg-bytes');
     const v = env.sayVoice('', { bytes, durationSec: 3.5 });
     env.writePosts([post('d-1', [a, v], { voice: { messageId: v, text: 'sp+oken', durationSec: 4.25 } })]);
-    env.sync();
+    env.writeUnits();
     assert.deepEqual(await env.job().run(), { done: 1, failed: 0 });
     const media = env.media();
     assert.deepEqual(media.map((m) => [m.path, m.mime]), [['media/diary/d-1-1.png', 'image/png'], ['media/diary/d-1-2.ogg', 'audio/ogg']]);
@@ -321,7 +304,7 @@ test('an audio attachment without a matching voice field keeps its own duration 
   try {
     const v = env.sayVoice('', { bytes: Buffer.from('m'), type: 'audio/mpeg', name: 'clip.mp3', durationSec: 7 });
     env.writePosts([post('d-1', [v], { voice: { messageId: 'other', text: 'no', durationSec: 1 } })]);
-    env.sync();
+    env.writeUnits();
     await env.job().run();
     const [item] = env.media();
     assert.equal(item.path, 'media/diary/d-1-1.mp3');
@@ -335,7 +318,7 @@ test('audio over the cap is skipped without a download; a failed audio download 
     const big = env.sayVoice('big', { bytes: Buffer.alloc(50), name: 'big.ogg' });
     const missing = env.sayVoice('gone', { bytes: Buffer.alloc(5), name: 'gone.ogg' });
     env.writePosts([post('d-1', [big]), post('d-2', [missing])]);
-    env.sync();
+    env.writeUnits();
     // Serve nothing for the second one.
     for (const m of env.port.messages.values()) if (m.text === 'gone') m.attachments[0].url = 'https://cdn.example/unserved.ogg';
     assert.deepEqual(await env.job().run(), { done: 1, failed: 1 });
@@ -352,19 +335,19 @@ test('a completed old post is fetched again only with a voice field and no audio
     const a = env.say('plain old', [{ name: 'a.png', bytes: png('a') }]);
     const v = env.sayVoice('spoken', { bytes: Buffer.from('o') });
     env.writePosts([post('d-1', [a]), post('d-2', [v])]);
-    env.sync();
+    env.writeUnits();
     await env.job().run();
     assert.equal(env.row('d-2').text, 'spoken');
     const audioBefore = env.media().filter((m) => m.mime.startsWith('audio/')).length;
     assert.equal(audioBefore, 1);
     // Both texts are set. A post with a voice field and no audio row appears when the file gains the field.
     env.writePosts([post('d-1', [a]), post('d-2', [v], { gist: 'touched' })]);
-    env.sync();
+    env.writeUnits();
     assert.equal(env.job().hasWork(), false);
     // Add a voice field to the old picture-only post: fetched once more, picture numbering unchanged.
     const voiceId = env.sayVoice('', { bytes: Buffer.from('late') });
     env.writePosts([post('d-1', [a, voiceId], { voice: { messageId: voiceId, text: 'late', durationSec: 2 } }), post('d-2', [v])]);
-    env.sync();
+    env.writeUnits();
     assert.equal(env.row('d-1').text, 'plain old');
     const job = env.job();
     assert.equal(job.hasWork(), true);

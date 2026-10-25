@@ -87,8 +87,7 @@ const ctxOf = (env, { llm, cfg = config(), envVars = { OPENROUTER_MEMORY_KEY: 'k
   now: () => NOW,
   log: {},
   selfName: 'Nep',
-  // The service stamps the authority of the live config into every write; so does this one.
-  write: async (update) => applyMemoryWrite(env.handle, { ...update, authority: cfg.memoryDb?.authority ?? 'json' }),
+  write: async (update) => applyMemoryWrite(env.handle, update),
 });
 
 const answer = (description, reason) => `<think>looking</think>\n<description>${description}</description>\n<reason>${reason}</reason>`;
@@ -230,7 +229,7 @@ test('the claim-level diff is a text match over a claim words: what the old text
   assert.deepEqual([diff.kept, diff.lost.map((c) => c.id), diff.gained.map((c) => c.id)], [1, ['b'], ['c']]);
 });
 
-const applyConfig = (extra = {}) => ({ ...config({ mode: 'apply' }), memoryDb: { authority: 'db', session: { mode: 'apply' }, ...extra } });
+const applyConfig = (extra = {}) => ({ ...config({ mode: 'apply' }), memoryDb: { session: { mode: 'apply' }, ...extra } });
 
 test('a description is identified by its scope: a private review of the same subject and field is a description of its own', async () => {
   const env = fixture();
@@ -305,17 +304,12 @@ test('apply: the final becomes the current version in the transaction that store
   }
 });
 
-test('apply is refused without the database as the authority, in the review and in the writer; a version moved meanwhile is not overwritten', async () => {
+test('apply: a mode the writer does not know is refused; a version moved meanwhile is not overwritten', async () => {
   const env = fixture();
   try {
-    const llm = fakeLlm(answer('a', 'b'), answer('c', 'd'));
-    const jsonWriter = { ...config({ mode: 'apply' }), memoryDb: { read: true, session: { mode: 'apply' } } };
-    assert.deepEqual(await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm, cfg: jsonWriter }) }), { status: 'refused', code: 'APPLY_JSON_WRITER' });
-    assert.equal(llm.calls.length, 0);
     const row = { id: 'dv:x', descriptionId: `desc:${env.person}:character`, text: 'x', writtenAt: '2026-10-24T12:00:00.000Z', extra: {} };
     const update = { kind: 'description', mode: 'apply', row, subject: { kind: 'person', id: env.person, field: 'character' }, scope: { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }, expectCurrent: 'dv:old', now: NOW };
-    assert.throws(() => applyMemoryWrite(env.handle, update), (error) => error.code === 'APPLY_JSON_WRITER');
-    assert.throws(() => applyMemoryWrite(env.handle, { ...update, mode: 'other', authority: 'db' }), (error) => error.code === 'BAD_MODE');
+    assert.throws(() => applyMemoryWrite(env.handle, { ...update, mode: 'other' }), (error) => error.code === 'BAD_MODE');
     assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM description_versions WHERE id = 'dv:x'").get().n, 0);
     // the current version moved after the review began
     const racing = { ...ctxOf(env, { llm: fakeLlm(answer('a', 'b'), answer('c', 'd')), cfg: applyConfig() }) };

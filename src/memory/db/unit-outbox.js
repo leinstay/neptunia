@@ -1,11 +1,11 @@
-// The writes of memory units waiting for the database (stage W2b, spec 2026-10-24-memory-authority, section 6 item 3):
-// under authority `db` the store's cache (src/memory/store.js) and the module stores (src/intentions/store.js,
-// src/errands/store.js) hand the units they changed to an outbox instead of writing a file, and the outbox sends them
+// The writes of memory units waiting for the database (spec 2026-10-24-memory-authority, section 6 item 3): the
+// store's cache (src/memory/store.js) and the module stores (src/intentions/store.js, src/errands/store.js) hand the
+// units they changed to an outbox, and the outbox sends them
 // through the writer (`memoryDb.writeUnit`, unit-write.js). A unit stays in the outbox until its write resolved, so the
 // caller's in-process value is the truth meanwhile and a failed write is never lost:
 //   - `value(owner, value)`   a whole JSON unit (op `value`): a newer value of the same unit replaces the one waiting
 //                             (the latest is all the database needs);
-//   - `lines(owner, lines)`   lines of a JSONL unit (op `lines`, mode `db`): appended to what waits for that unit, in
+//   - `lines(owner, lines)`   lines of a JSONL unit (op `lines`): appended to what waits for that unit, in
 //                             order;
 //   - `push()`                sends what waits, at most one write per unit under way (so the lines of one unit land
 //                             in their order); a failed write goes back in front of what came meanwhile and is tried
@@ -42,7 +42,7 @@ export function createUnitOutbox({ memoryDb, log = { warn: noop, error: noop, de
   }
 
   /** The update of a waiting unit, as the writer takes it. */
-  const updateOf = (owner, item) => (item.op === 'value' ? { op: 'value', owner, value: item.value } : { op: 'lines', mode: 'db', owner, lines: item.lines });
+  const updateOf = (owner, item) => (item.op === 'value' ? { op: 'value', owner, value: item.value } : { op: 'lines', owner, lines: item.lines });
 
   /** A failed write back in the outbox: a newer value stays; lines go in front of the ones that came meanwhile. */
   function putBack(owner, item) {

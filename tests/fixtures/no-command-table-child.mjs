@@ -22,21 +22,21 @@ assert.throws(() => resolveCommand('lore.list', {}), /resolveCommand called/);
 
 // 2. the registry is whole
 const registry = skillRegistry();
-assert.equal(registry.size, 74);
+assert.equal(registry.size, 67);
 assert.equal(registry.size, SKILL_DEFINITIONS.length);
 
-// 3. the gateway lets her 53 live grants through with valid samples
+// 3. the gateway lets her 50 live grants through with valid samples
 const GRANTED = [
   'status.show', 'draw.create', 'pings.get', 'pings.set', 'media.status', 'media.rescan', 'media.recache', 'model.show', 'route.list',
   'rule.list', 'access.list', 'alias.add', 'alias.remove', 'learning.add', 'learning.remove', 'lore.add', 'lore.list', 'lore.show',
-  'lore.remove', 'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh.user',
-  'memory.refresh.channel', 'memory.refresh.server', 'memory.affinity.read', 'memory.journal.read', 'memory.archive.read',
+  'lore.remove', 'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read',
+  'memory.affinity.read', 'memory.journal.read', 'memory.archive.read',
   'memory.snapshot', 'memory.private.read', 'message.create', 'message.edit', 'message.delete', 'message.react.add',
   'message.react.remove', 'task.run', 'task.status', 'task.read', 'task.resolve', 'task.cancel', 'task.list', 'web.search',
   'memory.search', 'skills.describe', 'conversation.read', 'media.find', 'web.read', 'intent.set', 'intent.update', 'intent.cancel',
   'intent.list', 'media.look',
 ];
-assert.equal(GRANTED.length, 53);
+assert.equal(GRANTED.length, 50);
 const SELF = 'self-1';
 const OWNER = '42';
 const grants = Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: [SELF] }]));

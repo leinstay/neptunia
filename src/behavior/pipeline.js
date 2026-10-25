@@ -156,10 +156,10 @@ function missingReason(missing) {
 }
 
 /**
- * The media of `normalized` the buffered copy did not carry yet (`known`: the item ids of every
- * attachment and link of the buffered message and its forwarded snapshots): what an embed
- * Discord attached after the message arrived brought. Stickers and custom emoji always come
- * with the message itself, so none is late. Pure; never mutates `normalized`.
+ * The media of `normalized` the message as it was did not carry yet (`known`: the item ids of every
+ * attachment and link of the earlier copy and its forwarded snapshots): what an embed Discord
+ * attached after the message arrived brought. Stickers and custom emoji always come with the
+ * message itself, so none is late. Pure; never mutates `normalized`.
  * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
  * @param {Set<string>} known
  * @returns {object} `normalized` with only the late attachments and links in each part.
@@ -170,10 +170,10 @@ function lateMedia(normalized, known) {
   return { ...part(normalized), forwarded: (normalized.forwarded ?? []).map(part) };
 }
 
-/** The attachment and link item ids of a buffered (slim) message and its forwarded snapshots. */
-function bufferedMediaIds(buffered) {
+/** The attachment and link item ids of a normalized message and its forwarded snapshots. */
+function mediaIdsOf(message) {
   const ids = new Set();
-  for (const p of [buffered, ...(Array.isArray(buffered.forwarded) ? buffered.forwarded : [])]) {
+  for (const p of [message, ...(Array.isArray(message.forwarded) ? message.forwarded : [])]) {
     for (const item of [...(p?.attachments ?? []), ...(p?.links ?? [])]) {
       if (item?.id != null) ids.add(String(item.id));
     }
@@ -214,8 +214,7 @@ function bufferedMediaIds(buffered) {
  *   absent, or features.mediaDescriptions is off, no description request is ever made from this
  *   pipeline. When present, every observed human message's pictures (up to
  *   media.prefillPerMessage) are handed to it fire-and-forget -- errors swallowed -- so the
- *   cache is already warm by the time the live memory analyzer (src/memory/update.js#analyze)
- *   wants a caption for one of them; the analyzer itself never triggers a new request. Only the
+ *   cache is already warm by the time a turn wants a caption for one of them. Only the
  *   address and room classifiers await a message's own prefill, then read captions from the cache alone
  *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. With
  *   features.mediaDescriptions, features.videoDescriptions (a missing key counts as on) and
@@ -241,15 +240,14 @@ function bufferedMediaIds(buffered) {
  *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (recordEdit). Absent: nothing is recorded here.
  * @param {{ observe: (envelope: object) => (Promise<object>|null) }|null} [deps.memoryDb]  From
- *   src/memory/db/service.js#createMemoryDb, optional: with `memoryDb.observeLive` exactly true (read
- *   at each message), every message memory observes and every edit the record writes is also sent to
- *   the memory database as an observation (src/memory/db/observe-event.js#observationOf), through
- *   its writer; never a message's failure (a refusal is logged with its code at debug). Under its
- *   authority `db` (`memoryDb.authority()`, fixed for the process) the observation is the line's
- *   record: it names the line's record (`{ guildId, privateUserId }`) and the handler awaits its
- *   commit, at most `memoryDb.observeTimeoutMs` (5000), before it goes on (a failed write waits in
- *   the service's queue for the next tick, never for a file); an edit's record line then takes the
- *   revision the database counted. Under `json` it is never awaited. Absent or off: nothing is sent.
+ *   src/memory/db/service.js#createMemoryDb, optional: every message memory observes and every edit
+ *   the record writes is sent to the memory database as an observation
+ *   (src/memory/db/observe-event.js#observationOf), through its writer; never a message's failure (a
+ *   refusal is logged with its code at debug). The observation is the line's record: it names the
+ *   line's record (`{ guildId, privateUserId }`) and the handler awaits its commit, at most
+ *   `memoryDb.observeTimeoutMs` (5000), before it goes on (a failed write waits in the service's queue
+ *   for the next tick); an edit's record line then takes the revision the database counted. Absent:
+ *   nothing is sent.
  * @param {{ noteFact: Function, noteActivity: Function }|null} [deps.missed]  From
  *   src/behavior/missed.js#createMissed, optional: a failed address classifier
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
@@ -267,8 +265,8 @@ function bufferedMediaIds(buffered) {
  *   drops every queued ping and every settle wait without answering any of them. And a `.stop()`
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
  *   client goes down. And an `.onMessageUpdate(event)` method (src/index.js wires it to
- *   `messageUpdate` through an edit event) that folds an embed Discord attached after the
- *   message arrived into its buffered copy -- see onMessageUpdate below. And an
+ *   `messageUpdate` through an edit event) that records an edit and counts an embed Discord attached
+ *   after the message arrived -- see onMessageUpdate below. And an
  *   `.onMessageDelete(event)` method (src/index.js wires it to `messageDelete` through a
  *   deletion event) that writes a `deleted` line to the record. And a `.catchUp(event, { trigger })`
  *   method (src/behavior/catch-up.js, at start) for a message posted while the bot was offline:
@@ -307,18 +305,14 @@ export function createMessageHandler({
   const revisions = new Map();
   let revisionsDay = null;
 
-  /** Whether the memory database is the memory's writer (fixed for the process): the observation is then the record. */
-  const dbWrites = () => typeof memoryDb?.authority === 'function' && memoryDb.authority() === 'db';
-
   /**
    * The live observation path: `event` as an observation of the memory database (see
    * deps.memoryDb), with `direct` as memory gets it and `where` (`{ guildId, privateUserId }`)
-   * the record the line belongs to. Under `json` fire-and-forget (null); under `db` a promise of
-   * the observe result (null on a failure or past `memoryDb.observeTimeoutMs`), which the caller
-   * awaits. Codes only.
+   * the record the line belongs to: a promise of the observe result (null on a failure or past
+   * `memoryDb.observeTimeoutMs`), which the caller awaits; null without a memory database. Codes only.
    */
-  function observeShadow(event, direct = false, where = null) {
-    if (!memoryDb || typeof memoryDb.observe !== 'function' || hot.config?.memoryDb?.observeLive !== true) return null;
+  function observeLine(event, direct = false, where = null) {
+    if (!memoryDb || typeof memoryDb.observe !== 'function') return null;
     try {
       const envelope = observationOf(event, { selfId: client.user?.id ?? null, direct });
       if (!envelope) return null;
@@ -331,7 +325,6 @@ export function createMessageHandler({
           log.warn('events: observe failed', { code: err?.code ?? null });
           return null;
         });
-      if (!dbWrites()) return null;
       const limit = hot.config?.memoryDb?.observeTimeoutMs;
       const ms = Number.isFinite(limit) && limit > 0 ? limit : 5000;
       let timer;
@@ -2376,7 +2369,7 @@ export function createMessageHandler({
       if (isLimitNotice(hot.prompts?.labels, normalized.content)) return;
       if (memoryOn) {
         memory.observe(guildId, normalized, { private: partnerId });
-        const observing = observeShadow(event, false, { guildId, privateUserId: String(partnerId) });
+        const observing = observeLine(event, false, { guildId, privateUserId: String(partnerId) });
         if (observing) await observing;
       }
       return;
@@ -2392,7 +2385,7 @@ export function createMessageHandler({
     // Observed like a direct call; during a memory warmup run, never answered.
     if (memoryOn) {
       memory.observe(guildId, normalized, { direct: true, private: authorId });
-      const observing = observeShadow(event, true, { guildId, privateUserId: String(authorId) });
+      const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
       if (observing) await observing;
     }
     if (isWarmingUp()) return;
@@ -2628,7 +2621,7 @@ export function createMessageHandler({
         noteFollowUpSend(normalized.channelId, normalized.ts);
         if (memoryOn) {
           memory.observe(guildId, normalized);
-          const observing = observeShadow(event, false, { guildId });
+          const observing = observeLine(event, false, { guildId });
           if (observing) await observing;
         }
         return 'observed';
@@ -2647,7 +2640,7 @@ export function createMessageHandler({
         warmMediaCache(guildId, normalized);
         if (memoryOn) {
           memory.observe(guildId, normalized, { direct: false });
-          const observing = observeShadow(event, false, { guildId });
+          const observing = observeLine(event, false, { guildId });
           if (observing) await observing;
         }
         return 'observed';
@@ -2673,7 +2666,7 @@ export function createMessageHandler({
       const ownPrefill = warmMediaCache(guildId, normalized);
       if (memoryOn) {
         memory.observe(guildId, normalized, { direct: Boolean(kind) });
-        const observing = observeShadow(event, Boolean(kind), { guildId });
+        const observing = observeLine(event, Boolean(kind), { guildId });
         if (observing) await observing;
       }
 
@@ -2728,18 +2721,16 @@ export function createMessageHandler({
   }
 
   /**
-   * A message changed after it arrived (`messageUpdate`). Discord attaches some embeds late -- a
-   * Tenor link's `gifv` embed comes in an update, not with `messageCreate` -- so the buffered
-   * copy would keep a bare link and its GIF would never reach the library. When the message is
-   * still in the memory buffer, its copy is rebuilt from the updated message (src/memory/
-   * update.js#slimMessage, keeping its `direct` mark); the attachments and links it did not
-   * carry yet are counted into the GIF library (features.gifs) and handed to the media prefill
-   * under the same switches as on arrival (warmMediaCache). Nothing else: no trigger, no turn,
-   * no eavesdrop, no counters, no channel map, no affinity. A message no longer buffered (the
-   * analyzer took it) is an accepted miss, logged with counts only. Off with
-   * features.embedUpdates (a missing key counts as on), with features.memory off and while
-   * paused. Only the served guild, a channel outside threads and the dry-run mirror,
-   * and a human author's message with embeds. Config read now. Never throws.
+   * A message changed after it arrived (`messageUpdate`): an edit of its text is a `seen` line of the
+   * record with its next revision (`recordEdit`). Discord attaches some embeds late -- a Tenor link's
+   * `gifv` embed comes in an update, not with `messageCreate` -- so the attachments and links the
+   * message as it was (`rawPrevious`) did not carry are counted into the GIF library
+   * (features.gifs) and handed to the media prefill under the same switches as on arrival
+   * (warmMediaCache). Nothing else: no trigger, no turn, no eavesdrop, no counters, no channel map,
+   * no affinity. Without the earlier message (not cached, or partial) what it carried is unknown: an
+   * accepted miss, logged with counts only. Off with features.embedUpdates (a missing key counts as
+   * on), with features.memory off and while paused. Only the served guild, a channel outside threads
+   * and the dry-run mirror, and a human author's message with embeds. Config read now. Never throws.
    * @param {import('../protocol/index.js').MessageReceived & { raw: object, rawPrevious: object|null }} event
    *   The edit event (collect.js#toEvent with `edit`): `raw` is the updated discord.js message,
    *   `rawPrevious` the old one; a partial one is fetched here and its event built again.
@@ -2770,15 +2761,15 @@ export function createMessageHandler({
       if (embeds === 0) return;
 
       // A message fetched whole here gets its event now, as the adapter would have built it.
-      const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...normalizeOptions(config), edit: true, now }));
+      const options = { ...normalizeOptions(config), now };
+      const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...options, edit: true }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
-      const buffered = store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id));
-      if (!buffered) {
+      const previous = event.rawPrevious && !event.rawPrevious.partial ? normalizedOf(toEvent(event.rawPrevious, selfId, options)) : null;
+      if (!previous) {
         log.info('events: embeds late', fields);
         return;
       }
-      const late = lateMedia(normalized, bufferedMediaIds(buffered));
-      store.updateBuffered(guildId, slimMessage(normalized, buffered.direct === true));
+      const late = lateMedia(normalized, mediaIdsOf(previous));
       const gifs = features.gifs !== false ? store.recordGifs(guildId, [late], gifOpts(config)) : 0;
       warmMediaCache(guildId, late);
       log.info('events: embeds folded', { ...fields, gifs });
@@ -2822,7 +2813,6 @@ export function createMessageHandler({
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;
       const normalized = normalizedOf(event);
-      const buffered = typeof store?.getBuffer === 'function' ? store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id)) : null;
       const day = utcDay(now());
       if (day !== revisionsDay) {
         revisions.clear();
@@ -2830,14 +2820,13 @@ export function createMessageHandler({
       }
       const revision = (revisions.get(normalized.id) ?? 1) + 1;
       revisions.set(normalized.id, revision);
-      const slim = slimMessage(normalized, buffered?.direct === true);
-      // A revision the record already holds (a tool appended one) moves the edit past it; later edits continue from there.
-      // The database counts its own revisions (observe.js): the edit goes there without one. Under authority `db` the
-      // observation is the record: the edit's line takes the revision the database counted (and waits for a failed
-      // observation's retry, never for a file).
-      const observed = observeShadow(event, buffered?.direct === true, { guildId });
+      const slim = slimMessage(normalized, false);
+      // The database counts its own revisions (observe.js): the edit goes there without one, and the observation is the
+      // record: the edit's line takes the revision the database counted (a failed observation waits for its retry).
+      // A revision the record already holds moves the edit past it; later edits continue from there.
+      const observed = observeLine(event, false, { guildId });
       let start = revision;
-      if (dbWrites()) {
+      if (observed) {
         const done = await observed;
         if (!done || done.ok !== true || !Number.isInteger(done.revision)) return;
         start = done.revision;

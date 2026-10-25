@@ -36,16 +36,9 @@ export const DEFERRED_OPS = Object.freeze(new Set([
   'message.create',
   'bot.pause',
   'bot.resume',
-  'memory.refresh.user',
-  'memory.refresh.channel',
-  'memory.refresh.server',
-  'memory.forget',
-  'memory.wipe',
   'memory.archive.read',
   'memory.restore',
   'memory.snapshot',
-  'memory.private.forget',
-  'memory.private.purge',
   'media.rescan',
   'draw.create',
 ]));
@@ -54,8 +47,7 @@ export const DEFERRED_OPS = Object.freeze(new Set([
  * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the helpers), each with the
  * config path of its model (src/ops/model.js): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
- * the one model that speaks as the persona: its replies and every memory text worded in its voice
- * (src/memory/update.js#runVoice). `embedding` serves the embeddings (src/llm/embed.js), which
+ * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.js), which
  * take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze(Object.fromEntries(CORE_ROLES.map((role) => [role, roleConfigKeys(role).join('.')])));
@@ -114,9 +106,6 @@ export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.incl
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
-
-/** `/nep memory refresh`'s `kind` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
-export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server']);
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
@@ -668,32 +657,10 @@ export const COMMAND_TABLE = Object.freeze([
       { name: 'server', description: 'Show server notes: patterns, starters, in-jokes, self facts.', args: none },
       { name: 'recent', description: 'Show the live recent lines, newest first.', args: none },
       {
-        name: 'refresh',
-        description: "Rewrite a member's portrait, or a channel's or the server notes from a fresh sample.",
-        options: [
-          { type: STRING, name: 'kind', description: 'user, channel or server.', required: true, choices: choicesOf(MEMORY_REFRESH_KINDS) },
-          userOption('Member (kind user).', false),
-          channelOption('Channel (kind channel).'),
-        ],
-        args: (options) => ({ kind: options.getString('kind', true), userId: options.getUser('user')?.id, channelId: options.getChannel('channel')?.id }),
-      },
-      {
-        name: 'forget',
-        description: "Delete a member's profile and private memory.",
-        options: [userOption()],
-        args: (options) => ({ userId: userId(options) }),
-      },
-      {
         name: 'affinity',
         description: "Show a member's attitude score and its history.",
         options: [userOption()],
         args: (options) => ({ userId: userId(options) }),
-      },
-      {
-        name: 'wipe',
-        description: 'Delete ALL server memory (profiles, private memory, habits, channels, lore).',
-        options: [{ type: STRING, name: 'confirm', description: "Type this server's exact name to confirm.", required: true }],
-        args: (options) => ({ confirm: options.getString('confirm', true) }),
       },
       {
         name: 'journal',
@@ -731,11 +698,8 @@ export const COMMAND_TABLE = Object.freeze([
       {
         name: 'private',
         description: "A member's private memory: what they said in DMs.",
-        options: [
-          { type: STRING, name: 'action', description: 'show; forget deletes it; purge deletes the DMs too.', required: true, choices: choicesOf(['show', 'forget', 'purge']) },
-          userOption(),
-        ],
-        args: (options) => ({ action: options.getString('action', true), userId: userId(options) }),
+        options: [userOption()],
+        args: (options) => ({ userId: userId(options) }),
       },
       {
         name: 'search',

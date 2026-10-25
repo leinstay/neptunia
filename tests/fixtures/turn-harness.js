@@ -2,6 +2,8 @@
 // scripted fake model over a real admin and the fake interface adapter (src/interface/fake.js); no network,
 // no data/. An answer of the script is a string (speech only), a toolAnswer (tests/fixtures/tool-answers.js) or a
 // function of the request that builds one; the last one repeats.
+import { after } from 'node:test';
+import path from 'node:path';
 import { createTurnRunner } from '../../src/behavior/turn.js';
 import { userText } from '../../src/behavior/prompt.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
@@ -10,6 +12,7 @@ import { createJournal } from '../../src/memory/journal.js';
 import { createTaskStores } from '../../src/errands/store.js';
 import { createErrandService } from '../../src/errands/service.js';
 import { tempDir } from './tmp.js';
+import { openTestMemorySync } from './memory-db/service.js';
 import '../../src/ops/index.js';
 import { skillRegistry } from '../../src/skills/registry.js';
 import { createAdmin } from '../../src/admin.js';
@@ -136,11 +139,26 @@ export function sequenceLlm(answers, classifier = 'none', onAnswer = null) {
   };
 }
 
+/** The test memory databases the harness opened; closed when the test file is done. */
+const OPENED_MEMORY = [];
+after(async () => {
+  for (const mem of OPENED_MEMORY.splice(0)) await mem.close();
+});
+
+/** A real journal over a test memory database whose writes also keep every line in memory (`lines`: `{ file, record }`). */
 export function journalOverMemory() {
   const lines = [];
-  const appendStore = { append: async (file, line) => lines.push({ file, record: JSON.parse(line) }), async *iterate() {} };
+  const mem = openTestMemorySync();
+  OPENED_MEMORY.push(mem);
+  const memoryDb = {
+    ...mem.memoryDb,
+    writeUnit: (update) => {
+      for (const line of update.lines ?? []) lines.push({ file: path.join('fake-data', update.owner), record: line });
+      return mem.memoryDb.writeUnit(update);
+    },
+  };
   let n = 0;
-  const journal = createJournal({ appendStore, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
+  const journal = createJournal({ memoryDb, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
   return { journal, lines };
 }
 

@@ -11,6 +11,7 @@ import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
 import { createStore } from '../src/memory/store.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -204,17 +205,6 @@ test('emoji backfill run: backfillMessages caps the messages read per channel (r
   });
 });
 
-test('emoji backfill run: messages still in the analyzer buffer are left for the analyzer', async () => {
-  await withStore(async (store) => {
-    store.pushBuffer('g1', { id: '1002', ts: T0 + 2000, authorId: 'b', emojis: [] }, 100);
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
-
-    const result = await backfill.run('g1');
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 3, emoji: 2 });
-    assert.equal(store.getGuild('g1').emojiUsage['111'].count, 1);
-  });
-});
-
 test('emoji backfill run: refused while paused and while another run is in flight', async () => {
   await withStore(async (store) => {
     const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
@@ -276,18 +266,16 @@ test('emoji backfill startIfNeeded: an error is logged, never thrown', async () 
 });
 
 test('store emojiBackfill: normalised on read, set only through setEmojiBackfill, cleared usage stays cleared', async () => {
-  await withStore(async (store, dir) => {
+  const mem = await openTestMemory();
+  try {
+    const { dataDir: dir, memoryDb } = mem;
+    const store = createStore({ dataDir: dir, memoryDb });
     assert.equal(store.getGuild('g1').emojiBackfill, null);
 
-    fs.mkdirSync(path.join(dir, 'guilds', 'g2'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'guilds', 'g2', 'guild.json'), JSON.stringify({ emojiBackfill: { at: 5, channels: 'x' } }));
+    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g2/guild.json', value: { emojiBackfill: { at: 5, channels: 'x' } } });
     assert.equal(store.getGuild('g2').emojiBackfill, null);
 
-    fs.mkdirSync(path.join(dir, 'guilds', 'g3'), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, 'guilds', 'g3', 'guild.json'),
-      JSON.stringify({ emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } }),
-    );
+    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g3/guild.json', value: { emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } } });
     assert.deepEqual(store.getGuild('g3').emojiBackfill, { at: '2026-09-30T00:00:00.000Z', channels: 2, messages: 0 });
 
     store.updateGuild('g1', { emojiBackfill: { at: 'x', channels: 1, messages: 1 } });
@@ -297,8 +285,13 @@ test('store emojiBackfill: normalised on read, set only through setEmojiBackfill
     store.recordEmojiUsage('g1', [{ id: 'm', ts: T0, emojis: [{ id: '1', name: 'alpha' }] }]);
     store.clearEmojiUsage('g1');
     store.flush();
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'guilds', 'g1', 'guild.json'), 'utf8'));
-    assert.deepEqual(onDisk.emojiBackfill, { at: '2026-09-30T00:00:00.000Z', channels: 3, messages: 40 });
-    assert.deepEqual(onDisk.emojiUsage, {});
-  });
+    await store.flushSettled({});
+    const stored = createStore({ dataDir: dir, memoryDb }).getGuild('g1');
+    assert.deepEqual(stored.emojiBackfill, { at: '2026-09-30T00:00:00.000Z', channels: 3, messages: 40 });
+    assert.deepEqual(stored.emojiUsage, {});
+  } finally {
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
+  }
 });
+

@@ -1,5 +1,4 @@
-// The intention store's reads from the database (stage W1; src/intentions/store.js dispatches to them under
-// authority `db`). `intentions.json` is the unit of `intentions` rows and one `operational` row, and
+// The intention store's reads from the database (src/intentions/store.js reads through them). `intentions.json` is the unit of `intentions` rows and one `operational` row, and
 // `intentions-archive.jsonl` the unit of the archived `intentions` rows (map/intentions.js); both come back rebuilt
 // by the export. Pure functions over a read connection.
 

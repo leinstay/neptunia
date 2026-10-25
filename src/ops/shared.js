@@ -518,19 +518,6 @@ export function writeLocalConfig(localPath, value) {
   fs.writeFileSync(localPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-/** The oldest id of a page of messages, by snowflake order (the next page's `before`). */
-export function oldestMessageId(batch) {
-  let oldest = batch[batch.length - 1].id;
-  for (const message of batch) {
-    try {
-      if (BigInt(message.id) < BigInt(oldest)) oldest = message.id;
-    } catch {
-      return batch[batch.length - 1].id;
-    }
-  }
-  return oldest;
-}
-
 // ---------------------------------------------------------------------------
 // Model roles and `/nep route`: pure helpers
 // ---------------------------------------------------------------------------
@@ -602,11 +589,6 @@ export function routeRoleArg(args) {
 // ---------------------------------------------------------------------------
 // Access and the media commands: pure helpers
 // ---------------------------------------------------------------------------
-
-/** A refused warmup or portrait outcome as the owner reads it: its message, else its reason code. */
-export function outcomeText(outcome, fallback) {
-  return outcome?.message ?? outcome?.reason ?? fallback;
-}
 
 /** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.js's skip reason (the
  * reasons every background job shares -- paused, no guild -- are worded by `skipText`). */

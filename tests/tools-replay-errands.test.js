@@ -19,6 +19,9 @@ import {
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openMemoryDb } from '../src/memory/db/open.js';
+import { applyUnitWrite } from '../src/memory/db/unit-write.js';
+import { readOnlyMemory } from '../tools/lib/memory-read.mjs';
 
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';
@@ -89,9 +92,21 @@ function scratchData(t, tasksJson) {
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const dir = path.join(dataDir, 'guilds', GUILD);
   fs.mkdirSync(dir, { recursive: true });
-  if (tasksJson) fs.writeFileSync(path.join(dir, 'tasks.json'), JSON.stringify(tasksJson));
+  if (tasksJson) {
+    // The tasks as the live engine keeps them: the unit in the memory database.
+    const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
+    try { applyUnitWrite(handle, { kind: 'unit', op: 'value', owner: `guilds/${GUILD}/tasks.json`, value: tasksJson, now: NOW }); } finally { handle.close(); }
+  }
+  const memory = readOnlyMemory(dataDir);
+  t.after(() => memory.close());
+  // A first read, so whatever the reader keeps beside the database exists before a test takes its tree.
+  memory.memoryDb?.readHandle()?.db.prepare('SELECT COUNT(*) AS n FROM files').get();
+  MEMORY.set(dataDir, memory.memoryDb);
   return dataDir;
 }
+
+/** The read-only memory of each scratch data directory (null: no database, no memory). */
+const MEMORY = new Map();
 
 /** Every file under `dir` with its size, time and content: what a write would change. */
 function treeOf(dir) {
@@ -126,7 +141,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   const ended = (id, agent) => ({ id, agent, goal: 'x', state: 'done', createdAt: NOW - 60_000, endedAt: NOW - 30_000, usage: { usd: 0.01 } });
   const dataDir = scratchData(t, { tasks: [ended('w1', 'scout'), ended('s1', 'server')] });
   const before = treeOf(dataDir);
-  const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => config, now: () => NOW });
+  const tasks = sandboxErrandBudget({ createTaskStore, memoryDb: MEMORY.get(dataDir), guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual(Object.keys(tasks), ['budget'], 'only the budget is handed out: nothing can be queued');
 
   // Under the cap (1 of 2 scout tasks today): it passes and is only recorded.
@@ -144,21 +159,22 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
 
   // The caps are read at the moment of use: a lower scout cap refuses it the next time.
   const lowered = scenarioConfig(['task.run'], { agents: { scout: { daily: { tasks: 1 } } } });
-  const live = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => lowered, now: () => NOW });
+  const live = sandboxErrandBudget({ createTaskStore, memoryDb: MEMORY.get(dataDir), guildId: GUILD, config: () => lowered, now: () => NOW });
   assert.equal(runTask({ config: lowered, tasks: live }).verdict.code, 'cap-tasks');
 
   // Open tasks count against agents.maxOpen as live.
   const busyDir = scratchData(t, { tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'scout', goal: 'x', state: 'running' })) });
-  const busy = sandboxErrandBudget({ createTaskStore, dataDir: busyDir, guildId: GUILD, config: () => config, now: () => NOW });
+  const busy = sandboxErrandBudget({ createTaskStore, memoryDb: MEMORY.get(busyDir), guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual([runTask({ config, tasks: busy }).verdict.code, runTask({ config, tasks: busy }).verdict.reason], ['cap-open', 'agents.maxOpen']);
 
   // A guild without tasks.json starts empty: nothing spent, and no file appears.
   const emptyDir = scratchData(t, null);
-  const empty = sandboxErrandBudget({ createTaskStore, dataDir: emptyDir, guildId: GUILD, config: () => config, now: () => NOW });
+  const empty = sandboxErrandBudget({ createTaskStore, memoryDb: MEMORY.get(emptyDir), guildId: GUILD, config: () => config, now: () => NOW });
   assert.equal(runTask({ config, tasks: empty }).verdict.ok, true);
   assert.deepEqual(fs.readdirSync(path.join(emptyDir, 'guilds', GUILD)), []);
+  assert.equal(fs.existsSync(path.join(emptyDir, 'memory.db')), false, 'no database appears');
 
-  assert.deepEqual(treeOf(dataDir), before, 'no write under data/: tasks.json untouched, no tasks.jsonl');
+  assert.deepEqual(treeOf(dataDir), before, 'no write under data/: the database untouched, no file appears');
 });
 
 test('parseScenarios: a taskResult scenario takes the place of author and text; defaults and refusals', () => {
@@ -231,7 +247,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
   const situation = { history, mode: 'interject' };
   const dataDir = scratchData(t, { tasks: [] });
   const before = treeOf(dataDir);
-  const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => config, now: () => NOW });
+  const tasks = sandboxErrandBudget({ createTaskStore, memoryDb: MEMORY.get(dataDir), guildId: GUILD, config: () => config, now: () => NOW });
   const channel = fakeChannel();
   // The requester a live result turn hands in: the asker's id, no roles.
   const requester = { id: MEMBER, roleIds: [] };

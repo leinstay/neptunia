@@ -1,5 +1,4 @@
-// The meaning index's reads from the database (stage W1; src/memory/vectors.js dispatches to them under authority
-// `db`). A month of the index is the unit `<layer>/vectors/<YYYY-MM>` of `vectors` rows and one `operational` row
+// The meaning index's reads from the database (src/memory/vectors.js reads through them). A month of the index is the unit `<layer>/vectors/<YYYY-MM>` of `vectors` rows and one `operational` row
 // (kind vectors, the manifest; map/vectors.js); the export rebuilds its three files (manifest, int8 data, jsonl),
 // and vectors.js reads them as it reads the disk (its manifest, checksum and row-count checks included). Pure
 // functions over a read connection.

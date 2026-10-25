@@ -5,9 +5,10 @@
 //
 // The learned stemmer is kept in `meta` (key `stemmer`: the endings and the productivity of the stems that are seen
 // with two or more endings), so the writer that fills the stems and the reader that stems a query use the same one.
-// `fillStems` runs at the end of a sync pass: it learns the stemmer when there is none or the text grew by a quarter
-// since it was learned (a new stemmer re-stamps every row), then fills the rows whose stems are still empty. A row
-// whose text changes gets its stems emptied by the sync's upsert (sync.js), so it is filled again.
+// `fillStems` runs from the writers' projection job (unit-write.js, op `project`): it learns the stemmer when there is
+// none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row), then fills the rows whose
+// stems are still empty. A row whose text changes gets its stems emptied by the upsert (upsert.js), so it is filled
+// again.
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
 

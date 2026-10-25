@@ -1,4 +1,4 @@
-// Recall over the memory database (src/memory/db/recall.js) and the stems the sync fills (src/memory/db/stems.js), on
+// Recall over the memory database (src/memory/db/recall.js) and the stems the unit writes fill (src/memory/db/stems.js), on
 // synthetic Greek and accented Latin text: inflected forms, phrases, the trigram fallback, fusion, date ranking, scope
 // filtering with the hidden marker, and window reads at the edges and across a hidden line.
 import { test } from 'node:test';
@@ -13,7 +13,7 @@ import { memorySearchText, runMemorySearch } from '../src/skills/tools.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js';
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.js';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.js';
@@ -83,14 +83,14 @@ const plan = (forms, extra = {}) => ({ forms, who: [], from: null, to: null, ...
 const ids = (result) => result.hits.map((hit) => hit.messageId);
 const run = (env, forms, { plan: given = {}, ...rest } = {}, ctx = group) => search(env.db, { ctx, plan: plan(forms, given), now: NOW, ...rest });
 
-test('stems: the sync fills them, learns the endings from the database text and stamps again only what changed', () => {
+test('stems: the unit writes fill them, learns the endings from the database text and stamps again only what changed', () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-stems-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
   const handle = openMemoryDb(path.join(root, 'memory.db'));
   try {
-    const first = syncOnce(handle, data);
+    const first = seedUnits(handle, data);
     assert.equal(first.errors, 0);
     const db = handle.db;
     const empty = db.prepare("SELECT COUNT(*) AS n FROM sources WHERE text IS NOT NULL AND stems IS NULL").get().n;
@@ -102,16 +102,14 @@ test('stems: the sync fills them, learns the endings from the database text and 
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sources_fts WHERE sources_fts MATCH '{stems} : \"cafe\"'").get().n, 1);
     // A changed text loses its stems and gets new ones; an unchanged row keeps its own.
     db.prepare("UPDATE sources SET stems = 'kept' WHERE text = 'Καλημέρα'").run();
-    const again = syncOnce(handle, data);
+    const again = seedUnits(handle, data);
     assert.equal(again.errors, 0);
-    assert.equal(db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems, 'kept', 'a pass that wrote nothing stems nothing');
+    assert.equal(db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems, 'kept', 'a write that changed nothing stems nothing');
     const file = path.join(guildDir(data), 'record', '2026-10', '2026-10-20.jsonl');
     const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
     lines.push({ ...lines[0], id: 'r-new', messageId: '400000000000000077', text: 'ένα νέο μήνυμα' });
     fs.writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
-    const later = new Date(Date.now() + 5000);
-    fs.utimesSync(file, later, later);
-    syncOnce(handle, data);
+    seedUnits(handle, data);
     assert.equal(db.prepare("SELECT stems FROM sources WHERE native_id = '400000000000000077'").get().stems, 'ενα νεο μηνυμα');
     assert.equal(db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems, 'kept');
     assert.ok(MEMBER && CHANNEL);
@@ -468,7 +466,7 @@ const withHidden = { ...labels, skills: { ...labels.skills, tools: { ...labels.s
  * A runner over a fake guild (#general c1, #secret c4 that @everyone cannot see) and the fixture database, whose
  * places rows hold both channels and Bob's DM (`places: false`: none; the runner's place rule reads them).
  */
-function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = false, embed = null, places = true } = {}) {
+function runner(env, { open = true, meaning = false, embed = null, places = true } = {}) {
   if (places) {
     insertRows(env.db, {
       places: [
@@ -489,8 +487,7 @@ function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = f
   addChannel('c4', 'secret', false);
   const config = structuredClone(SHIPPED);
   config.bot = { ...config.bot, timezone: 'UTC' };
-  config.features = { ...config.features, memoryDb, meaningSearch: meaning, recall: true };
-  config.recall = { ...config.recall, backend };
+  config.features = { ...config.features, meaningSearch: meaning, recall: true };
   config.models = { ...config.models, base: { ...config.models?.base, embedding: 'test/embedder' } };
   const data = {};
   const store = { state: { get data() { return data; }, markDirty() {} }, listUserProfiles: () => [] };
@@ -501,7 +498,7 @@ function runner(env, { backend = 'db', memoryDb = true, open = true, meaning = f
   return { recaller, guild, channel, rest, hot, llmCalls, args: { guild, guildId: 'g1', channel, selfId: 'self', selfName: 'Ζωή', history: [], candidate: { id: 'q', content: 'το σπιτι' } } };
 }
 
-test('recall.run with backend db: the stretches come from the database, in scope and behind the pull rail, with no Discord request and no summary', async () => {
+test('recall.run: the stretches come from the database, in scope and behind the pull rail, with no Discord request and no summary', async () => {
   const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);
@@ -534,28 +531,25 @@ test('recall.run with backend db: the stretches come from the database, in scope
   }
 });
 
-test('recall.run: the backend is read at the moment of use; discord, the switch off or no open database mean the old way', async () => {
+test('recall.run: with no open database the stretches are not configured, and nothing asks Discord', async () => {
   const env = fixture();
   try {
     env.say({ native: 'r1', at: NOW - DAY, text: 'το σπιτι', place: channelPlaceId('c1') });
     env.stem();
-    for (const options of [{ backend: 'discord' }, { memoryDb: false }, { open: false }]) {
-      const s = runner(env, options);
-      const found = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
-      assert.ok(s.rest.length > 0, `the Discord search ran: ${JSON.stringify(options)}`);
-      assert.deepEqual(found.quotes, []);
-    }
-    const s = runner(env, { backend: 'discord' });
-    s.hot.config.recall.backend = 'db';
+    const s = runner(env, { open: false });
     const found = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
-    assert.equal(found.quotes.length, 1, 'switched live, no restart');
+    assert.equal(found.outcome.kind, 'not-configured');
+    assert.equal(found.quotes?.length ?? 0, 0);
     assert.deepEqual(s.rest, []);
+    const open = runner(env, { places: false });
+    const again = await open.recaller.run({ ...open.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    assert.equal(again.quotes.length, 1, 'the open database answers');
   } finally {
     env.done();
   }
 });
 
-test('recall.run with backend db: the question is embedded once for the meaning search, and a failed embedding leaves words only', async () => {
+test('recall.run: the question is embedded once for the meaning search, and a failed embedding leaves words only', async () => {
   const env = fixture();
   try {
     env.say({ native: 'r1', at: NOW - DAY, text: 'ασχετο κειμενο', place: channelPlaceId('c1') });
@@ -589,7 +583,7 @@ test('recall.window: reads up or down from a message through the same rails; an 
     assert.equal(down.quotes[0].channelName, 'general');
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor', 'a place the pull rail refuses');
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'zzz', move: 'up' })).outcome.kind, 'unknown-anchor');
-    const off = runner(env, { backend: 'discord' });
+    const off = runner(env, { open: false, places: false });
     assert.equal((await off.recaller.window({ ...off.args, anchor: 'x2' })).outcome.kind, 'not-configured');
   } finally {
     env.done();
@@ -683,7 +677,7 @@ test('memory.search: the hidden marker is one label line, with or without stretc
   assert.equal((await runMemorySearch({ ...base, recall: { available: () => true, run: recall.run }, args: { anchor: 'x2' } })).status, 'not_configured');
 });
 
-test('recall-eval: --backend db goes with --db <file> and only with it, and the file must exist', async () => {
+test('recall-eval: the database is --db, else <data>/memory.db, and the file must exist', async () => {
   const { main } = await import('../tools/recall-eval.mjs');
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-eval-'));
   try {
@@ -692,10 +686,8 @@ test('recall-eval: --backend db goes with --db <file> and only with it, and the 
     const questions = path.join(root, 'questions.json');
     fs.writeFileSync(questions, JSON.stringify([{ id: 'q1', channelId: '100000000000000001', askerId: '200000000000000001', question: 'πού είναι το κουνέλι;', expected: ['300000000000000001'], kind: 'exact' }]));
     const base = [questions, '--data', data, '--dry'];
-    await assert.rejects(main([...base, '--backend', 'db']), /goes with --db/);
-    await assert.rejects(main([...base, '--db', path.join(root, 'x.db')]), /goes with --db/);
-    await assert.rejects(main([...base, '--backend', 'sqlite']), /db, json or discord/);
-    await assert.rejects(main([...base, '--backend', 'db', '--db', path.join(root, 'missing.db')]), /no database/);
+    await assert.rejects(main(base), /no database at .*memory\.db/);
+    await assert.rejects(main([...base, '--db', path.join(root, 'missing.db')]), /no database at .*missing\.db/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -878,7 +870,7 @@ test('names: an alias claim resolves only through verified accounts and only whe
   }
 });
 
-test('recall.prefetch with backend db reads the database without throwing, and the asker it is given is the asker of its read', async () => {
+test('recall.prefetch reads the database without throwing, and the asker it is given is the asker of its read', async () => {
   const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);

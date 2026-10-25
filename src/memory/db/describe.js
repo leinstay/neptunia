@@ -15,7 +15,7 @@
 // that hold her two whole answers, `<think>` included). A final over the display cap is stored as it came with
 // `extra.overCap`; nothing is cut or rewritten by the engine.
 //   - shadow: origin `shadow`, never current, and it does not move the "last reviewed" mark the next review reads.
-//   - apply (`memoryDb.session.mode` `apply` and `memoryDb.authority` `db`): origin `review`, and the same
+//   - apply (`memoryDb.session.mode` `apply`): origin `review`, and the same
 //     transaction moves `descriptions.current_version` to it (session-write.js).
 // A description is identified by its scope as well as its subject and field: the id of one this module creates is
 // `desc:<scope>:<subject>:<field>`; a stored row of the same subject, field and scope keeps the id it has.
@@ -26,10 +26,10 @@
 //   With `memoryDb.audienceColumn` the review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
-import { voiceLimits } from '../voice.js';
+import { MEMORY_LIMIT_DEFAULTS } from '../text-limits.js';
 import { shortHash } from './ids.js';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.js';
-import { CODES, DESCRIPTION_FIELDS, authorityOf, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
+import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
 import { block } from '../../behavior/prompt.js';
 
 export const DRAFT_PURPOSE = 'description-draft';
@@ -42,12 +42,19 @@ const SOURCE_CHARS = 200;
 const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 const present = (value) => typeof value === 'string' && value.trim() !== '';
 
-/** The display cap of a field, in characters: the limits the store applies to the same kind of text. */
+/** A finite number above 0, else `fallback`. */
+const positive = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
+
+/**
+ * The display cap of a field, in characters: the limits the store applies to the same kind of text
+ * (`relationships.textChars` for a relationship, twice `memory.fieldChars` for the server notes, `memory.fieldChars`
+ * for a portrait; config.json's values when missing).
+ */
 export function fieldCap(config, field) {
-  const limits = voiceLimits(config);
-  if (field === 'relationship') return limits.relationship;
-  if (field === 'patterns' || field === 'starters') return limits.patterns;
-  return limits.character;
+  const fieldChars = positive(config?.memory?.fieldChars, MEMORY_LIMIT_DEFAULTS.fieldChars);
+  if (field === 'relationship') return positive(config?.relationships?.textChars, MEMORY_LIMIT_DEFAULTS.relationshipChars);
+  if (field === 'patterns' || field === 'starters') return fieldChars * 2;
+  return fieldChars;
 }
 
 const wordsOf = (text) => [...new Set(String(text ?? '').normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [])];
@@ -188,7 +195,6 @@ export function parseDescriptionAnswer(text) {
 export function reviewRefusal(config, env, prompts) {
   if (sessionSettings(config).mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
-  if (sessionSettings(config).mode === 'apply' && authorityOf(config) !== 'db') return CODES.APPLY_REFUSED;
   if (!present(prompts?.[DRAFT_PURPOSE]) || !present(prompts?.[CHECK_PURPOSE])) return CODES.NO_PROMPT;
   return null;
 }

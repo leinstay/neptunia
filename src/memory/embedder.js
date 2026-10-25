@@ -9,17 +9,14 @@
 //
 // The context of a chunk comes from a small ring of recent lines per channel and layer, kept in
 // memory and filled from the record the first time a channel is flushed. A job is dropped, before
-// the request and again before the append, when a newer revision of its message was queued, when
-// a member of its chunk is under a forgetting marker or was forgotten (the deletion ledger) after
-// the line, when its private layer's member is, or when the record no longer holds its day file
-// (a wipe). A context line failing the same check is left out of the chunk. A failed request or
-// append keeps the batch for the next flush; the queue holds at most `embed.queueMax` jobs, the
+// the request and again before the append, when a newer revision of its message was queued. A
+// failed request or append keeps the batch for the next flush; the queue holds at most `embed.queueMax` jobs, the
 // oldest dropped with a warn. On shutdown `close` flushes once more, briefly, and stops the queue.
 //
 // The catch-up keeps the index whole across every gap the queue cannot see (a stop, a crash, a
 // pause, the switches turned on late, a line the queue dropped): `catchUp` reads the record of the
 // last `embed.catchUpHours` in the guild and every private layer, takes each message's newest
-// revision, leaves out what the forgets leave out, and queues every message whose
+// revision, and queues every message whose
 // `record:<id>:<revision>` the index does not hold (src/memory/vectors.js#has), with its channel
 // context from the same read, at most up to `embed.queueMax`; the rest goes on a later pass, run
 // once the queue has drained. A pass runs when the caller starts it (the start, `/nep resume`),
@@ -27,7 +24,6 @@
 // bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
 // taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
-import * as nodeFs from 'node:fs/promises';
 import { log as defaultLog } from '../log.js';
 import { roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
@@ -35,11 +31,9 @@ import { railReason } from '../llm/openrouter.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { HOUR_MS, MINUTE_MS } from '../time.js';
 import { CHUNK_CONTEXT_LINES, chunkKey, compareLines, contextFor, embeddableLine, layerChannelKey, newestRevisions, recordChunk } from './chunks.js';
-import { forgettingIds, isoOf, recordDrops } from './record.js';
-import { readLedger } from './store.js';
-import { memoryRootOf } from './root.js';
-import { createReadSeam, hiddenIds, ledgerOf } from './db/readers/common.js';
-import { recordHoldsDay, recordLayers } from './db/readers/record.js';
+import { isoOf } from './record.js';
+import { createReadSeam } from './db/readers/common.js';
+import { recordLayers } from './db/readers/record.js';
 
 /** `embed.batch` when missing or invalid: config.json's value. */
 const BATCH_FALLBACK = 64;
@@ -74,19 +68,15 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  * @param {{ config: object }} deps.hot  The live config, read at the moment of use.
  * @param {{ append: Function }} deps.vectors  src/memory/vectors.js#createVectors
  * @param {(texts: string[], opts: object) => Promise<Float32Array[]>} deps.embed  src/llm/embed.js's `embed`
- * @param {{ iterate: Function, dayFile: Function }} deps.record  The record (unwrapped): rings are filled from it.
- * @param {string} deps.dataDir  The `data/` directory: forgetting markers and the deletion ledger.
+ * @param {{ iterate: Function }} deps.record  The record (unwrapped): rings are filled from it.
  * @param {{ info: Function, warn: Function }} [deps.log]
  * @param {() => number} [deps.now]
- * @param {object} [deps.fs]  A `node:fs/promises`-shaped API.
  * @param {(guildId: string, userId: string) => string|null} [deps.nameOf]  A member's display name now.
  * @param {(guildId: string) => string} [deps.selfName]  The persona's display name.
  * @param {() => boolean} [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
- * @param {object|null} [deps.memoryDb]  The memory database service: under its authority `db` the forgets (markers,
- *   ledger), the private layers and whether a day is held come from the database
- *   (src/memory/db/readers/record.js), with no file fallback (a failed read is an error of the pass); the lines
- *   always come through `record.iterate`, which reads the database itself then.
- * @param {(() => string)|null} [deps.authorityOf]  The authority, when not the service's own.
+ * @param {object|null} deps.memoryDb  The memory database service: the private layers come from it
+ *   (src/memory/db/readers/record.js; a failed read is an error of the pass); the lines come through
+ *   `record.iterate`.
  * @returns {{
  *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,
  *   flush(): Promise<{ embedded: number, dropped: number, left: number }>,
@@ -115,8 +105,8 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
  *   the timeout, a failure or a second call; after it nothing is queued.
  */
-export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null, paused = () => false, memoryDb = null, authorityOf = null }) {
-  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'embedder' });
+export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, now = Date.now, nameOf = null, selfName = null, paused = () => false, memoryDb = null }) {
+  const seam = createReadSeam({ memoryDb, log, reader: 'embedder' });
   let queue = [];
   const rings = new Map(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
   const latest = new Map(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
@@ -255,84 +245,18 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     }
   }
 
-  /** What a guild's forgets say now: the ids under a marker and each forgotten member's latest ledger time. */
-  async function forgetsOf(guildId, cache) {
-    if (cache.has(guildId)) return cache.get(guildId);
-    const db = seam.db();
-    const hidden = db ? seam.run(() => hiddenIds(db, guildId)) : await forgettingIds(fs, dataDir, guildId);
-    const ledger = new Map();
-    for (const entry of db ? seam.run(() => ledgerOf(db, guildId)) : readLedger(dataDir, guildId)) {
-      const at = Date.parse(entry.at);
-      if (Number.isFinite(at) && !(ledger.get(entry.userId) >= at)) ledger.set(entry.userId, at);
-    }
-    const value = { hidden, ledger };
-    cache.set(guildId, value);
-    return value;
+  /** Whether a job is still to be appended: no newer revision of its message was queued. */
+  function stillWanted(job) {
+    return latest.get(job.idKey) === job.revision;
   }
 
-  /** Whether forgetting leaves `value` (a record line or a row's meta) out. */
-  function forgotten(value, { hidden, ledger }) {
-    for (const id of hidden) if (recordDrops(value, id)) return true;
-    for (const [id, at] of ledger) if (recordDrops(value, id, at)) return true;
-    return false;
-  }
-
-  /** Whether the private layer of a job is gone or going: its member under a marker or forgotten after the line. */
-  function layerForgotten(job, { hidden, ledger }) {
-    if (!job.privateUserId) return false;
-    if (hidden.has(job.privateUserId)) return true;
-    const at = ledger.get(job.privateUserId);
-    return at !== undefined && !(Date.parse(job.line.occurredAt) >= at);
-  }
-
-  /** Whether the record still holds the job's day file (a wipe deletes it). */
-  async function dayFileHeld(job, cache) {
-    const file = record.dayFile(job.guildId, job.line.occurredAt, job.privateUserId);
-    if (!cache.has(file)) {
-      let held = true;
-      const db = seam.db();
-      if (db) {
-        held = seam.run(() => recordHoldsDay(db, memoryRootOf(dataDir).relative(file)));
-      } else {
-        try {
-          await fs.stat(file);
-        } catch (error) {
-          if (error?.code === 'ENOENT') held = false;
-        }
-      }
-      cache.set(file, held);
-    }
-    return cache.get(file);
-  }
-
-  /** Whether a job (with its chunk's meta) is still to be appended. */
-  async function stillWanted(job, meta, caches) {
-    if (latest.get(job.idKey) !== job.revision) return false;
-    const forgets = await forgetsOf(job.guildId, caches.forgets);
-    if (layerForgotten(job, forgets) || forgotten(meta, forgets)) return false;
-    return dayFileHeld(job, caches.files);
-  }
-
-  /** The chunk of a job: its line with the context lines no forget leaves out. */
-  async function chunkOf(job, caches) {
-    const forgets = await forgetsOf(job.guildId, caches.forgets);
-    const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE)
-      .filter((line) => !forgotten(line, forgets))
-      .slice(-CHUNK_CONTEXT_LINES);
+  /** The chunk of a job: its line with its context lines. */
+  function chunkOf(job) {
+    const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE).slice(-CHUNK_CONTEXT_LINES);
     return recordChunk(job.line, context, {
       nameOf: (id) => (typeof nameOf === 'function' ? nameOf(job.guildId, id) : null),
       selfName: typeof selfName === 'function' ? selfName(job.guildId) ?? '' : '',
     });
-  }
-
-  /** Take the ring lines a forget leaves out away from memory. */
-  async function purgeRings(caches) {
-    for (const [key, ring] of rings) {
-      const guildId = key.slice(0, key.indexOf('|'));
-      const forgets = await forgetsOf(guildId, caches.forgets);
-      if (forgets.hidden.size === 0 && forgets.ledger.size === 0) continue;
-      ring.lines = ring.lines.filter((line) => !forgotten(line, forgets));
-    }
   }
 
   async function runFlush() {
@@ -341,18 +265,16 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     if (!on() || queue.length === 0) return { embedded: 0, dropped: 0, left: queue.length };
     const { batch, maxTokens } = settings();
     const config = hot.config;
-    const caches = { forgets: new Map(), files: new Map() };
     const taken = queue.slice(0, batch);
     await warm(taken);
-    await purgeRings(caches);
 
-    // The checks before anything is sent: a forgotten or superseded line never leaves the machine.
+    // The check before anything is sent: a superseded line never leaves the machine.
     const jobs = [];
     const gone = new Set();
     let tokens = 0;
     for (const job of taken) {
-      const chunk = await chunkOf(job, caches);
-      if (!(await stillWanted(job, chunk.meta, caches))) {
+      const chunk = chunkOf(job);
+      if (!stillWanted(job)) {
         gone.add(job);
         continue;
       }
@@ -379,13 +301,12 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     const sent = new Set(jobs.map(({ job }) => job));
     queue = queue.filter((job) => !sent.has(job));
 
-    // The checks again: a forget or an edit may have landed while the request ran.
+    // The check again: an edit may have landed while the request ran.
     const groups = new Map();
     let dropped = gone.size;
-    const fresh = { forgets: new Map(), files: new Map() };
     for (let i = 0; i < jobs.length; i += 1) {
       const { job, chunk } = jobs[i];
-      if (!(await stillWanted(job, chunk.meta, fresh))) {
+      if (!stillWanted(job)) {
         dropped += 1;
         continue;
       }
@@ -423,35 +344,26 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
 
   // ---- the catch-up ---------------------------------------------------------------------------
 
-  /** The members with a private layer in the guild (a directory under `private/`). */
-  async function privateLayers(guildId) {
+  /** The members with a private record in the guild. */
+  function privateLayers(guildId) {
     const db = seam.db();
-    if (db) return seam.run(() => recordLayers(db, guildId));
-    try {
-      const entries = await fs.readdir(memoryRootOf(dataDir).privateDir(guildId), { withFileTypes: true });
-      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    } catch (error) {
-      if (error?.code === 'ENOENT') return [];
-      throw error;
-    }
+    return seam.run(() => recordLayers(db, guildId));
   }
 
   /**
-   * The record of the last `hours` against the index: every message (its newest revision) a
-   * forget does not leave out, counted, and the missing ones, oldest first per layer, with their
+   * The record of the last `hours` against the index: every message (its newest revision)
+   * counted, and the missing ones, oldest first per layer, with their
    * channel's earlier lines when `withContext` (read a day further back for that).
    */
   async function survey(guildId, hours, { withContext = false } = {}) {
     const to = now();
     const from = to - hours * HOUR_MS;
-    const forgets = await forgetsOf(guildId, new Map());
     const out = { messages: 0, indexed: 0, missing: [] };
-    for (const layer of [null, ...(await privateLayers(guildId))]) {
-      if (layer && forgets.hidden.has(layer)) continue;
+    for (const layer of [null, ...privateLayers(guildId)]) {
       const raw = [];
       const query = { from: new Date(from - (withContext ? WARM_MS : 0)).toISOString(), to: new Date(to).toISOString(), privateUserId: layer };
       for await (const line of record.iterate(guildId, query)) raw.push(line);
-      const lines = newestRevisions(raw).filter((line) => !forgotten(line, forgets) && !layerForgotten({ privateUserId: layer, line }, forgets));
+      const lines = newestRevisions(raw);
       const channels = new Map();
       const months = new Map();
       for (const line of lines) {
@@ -572,7 +484,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     const id = String(guildId);
     let rows = 0;
     if (typeof vectors?.stats === 'function') {
-      for (const layer of [null, ...(await privateLayers(id))]) rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
+      for (const layer of [null, ...privateLayers(id)]) rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
     }
     return { rows, missing: lastPass.get(id)?.missing ?? null };
   }

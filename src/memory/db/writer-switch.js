@@ -1,6 +1,6 @@
 // Her memory session as the memory writer (spec 2026-10-24-memory-authority, stage W3): the pure parts of the live
-// schedule the service runs under authority `db` with `memoryDb.session.mode` `apply`, and the effective models the
-// service names at its start. Reads only; every write goes through the service's writer.
+// schedule the service runs with `memoryDb.session.mode` `apply`, and the effective models the service names at its
+// start. Reads only; every write goes through the service's writer.
 //
 //   dueScopes(db, config, now) -> [{ key, lines, full }]
 //     The scopes a sweep should take now: at least `minMessages` settled lines after the scope's cursor, and either
@@ -15,7 +15,7 @@
 //     focus score), then every other flag by its age, oldest first. `skip`: description ids not to offer again today.
 //   reviewsToday(db, now) -> number    the accepted reviews written on the UTC day of `now`
 //   effectiveModels(config, env) -> [{ purpose, role, model, key }]
-//     The model and the key variable each request of the memory writer and of every purpose that stays goes out on,
+//     The model and the key variable each request of the memory writer and of every other named purpose goes out on,
 //     resolved from the live config the way the callers resolve it (session.js / describe.js call roleModel with the
 //     role alone; the analyzer purposes with their purpose) and openrouter.js#roleApiKey picks the key: the variable
 //     `llm.keyByRole.<role>` names when it is set, else `OPENROUTER_CORE_KEY`, except the strict roles (`memory`), whose
@@ -23,7 +23,7 @@
 //   effectiveModelsLine(list) -> string[]    `purpose=model@KEY` per entry, for the start-up log line
 
 import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.js';
-import { MEMORY_ROLE, PURPOSE_AT_SWITCH, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
+import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
 import { batchOf, cursorKey, DESCRIPTION_FIELDS, scopeSweepsToday, scopesOf, sessionSettings } from './session.js';
 import { descriptionIdFor, scopeOfContext } from './describe.js';
 import { dmContext, groupContext } from './scope.js';
@@ -115,15 +115,13 @@ function keyNameOf(config, env, role) {
   return STRICT_KEY_ROLES.includes(role) ? null : MAIN_KEY;
 }
 
-/** The effective models (see the head of this file): the memory writer's purposes first, then every purpose that stays. */
+/** The effective models (see the head of this file): the memory writer's purposes first, then every other purpose. */
 export function effectiveModels(config, env) {
   const out = [];
-  for (const [purpose, fate] of Object.entries(PURPOSE_AT_SWITCH)) {
-    if (fate === 'memory') out.push({ purpose, role: MEMORY_ROLE, model: roleModel(config, MEMORY_ROLE) ?? null, key: keyNameOf(config, env, MEMORY_ROLE) });
+  for (const purpose of MEMORY_PURPOSES) {
+    out.push({ purpose, role: MEMORY_ROLE, model: roleModel(config, MEMORY_ROLE) ?? null, key: keyNameOf(config, env, MEMORY_ROLE) });
   }
-  for (const [purpose, fate] of Object.entries(PURPOSE_AT_SWITCH)) {
-    if (fate !== 'stays') continue;
-    const role = PURPOSE_ROLES[purpose];
+  for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) {
     out.push({ purpose, role, model: roleModel(config, role, purpose) ?? null, key: keyNameOf(config, env, role) });
   }
   return out;

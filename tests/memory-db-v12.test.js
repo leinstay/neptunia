@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
-import { syncOnce } from '../src/memory/db/sync.js';
+import { seedUnits } from './fixtures/memory-db/seed.js';
 import { channelPlaceId } from '../src/memory/db/ids.js';
 import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.js';
 
@@ -23,7 +23,7 @@ test('schema v12: the legacy diary mirrors get the diary channel as destination,
   try {
     // A database of schema 11 with the legacy mirrors, then opened by a tool (no channel), then by the bot.
     const v11 = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 11) });
-    try { syncOnce(v11, data, { now: () => NOW }); } finally { v11.close(); }
+    try { seedUnits(v11, data, { now: () => NOW }); } finally { v11.close(); }
     openMemoryDb(file).close();
     const plain = openMemoryDb(file, { readOnly: true });
     try {

@@ -66,10 +66,6 @@ The prompt files, placeholders, labels, context blocks and output tags are descr
 
 `config.json` holds every setting with its default. `config.local.json` (gitignored) is deep-merged over it. Both are hot-reloaded. See [`docs/configuration.md`](docs/configuration.md) for the full reference of every key.
 
-## Warmup
-
-The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never runs the warmup; the tool resumes an unfinished run itself. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/warmup.md`](docs/warmup.md) for the stages, progress, rails and the tool.
-
 ## Dry run
 
 With `features.dryRun: true` the bot runs the full pipeline (memory, triggers, LLM calls) but never sends a message or reaction. Output goes to the log (`dry-run: would send` / `dry-run: would react`). Set `bot.dryRunChannelId` to a private channel for a readable mirror; everything posted in that channel is ignored by the bot. Slash commands work in any channel, the mirror included, because they are not messages.
@@ -97,7 +93,7 @@ The 18 top-level entries:
 - `alias` adds or removes a member's nickname
 - `learning` adds or removes a taught lesson
 - `lore` adds, lists, shows or removes lorebook entries
-- `memory` covers profiles, channels, server notes, affinity, refresh, forget, wipe, the journal, the archive, restore, snapshots and private memory
+- `memory` covers profiles, channels, server notes, affinity, the journal, the archive, restore, snapshots and private memory
 
 Owners (`bot.owners`) can run everything. Anyone else needs a grant on the exact operation; reading and writing are separate operations, and a grant on a group or `*` opens only the read operations that exist at that moment. On a fresh server, members can use `pings` and nothing else until the owner grants more. Owner-only operations (access grants, forget, wipe, the journal, the archive, snapshots and private memory) cannot be opened by any grant. See [`docs/owner-commands.md`](docs/owner-commands.md) for the full table and the access model.
 
@@ -105,7 +101,7 @@ Owners (`bot.owners`) can run everything. Anyone else needs a grant on the exact
 
 The persona responds to mentions, replies and name triggers, sometimes ignoring them. They cut into conversations at random intervals, start topics in dead channels, and may pick up a question put to the room. After answering, they track follow-up messages in that channel through a classifier. They write one reply at a time across the server; pings in other channels are held and answered in turn, any number per channel and author, up to `mention.maxPending` (default 6). When a message holds several separate requests, each is answered in its own turn. When someone sends another message about something still waiting, it is folded into that item instead of queueing separately. When someone talks about another channel, a classifier picks the channel so the persona can read it.
 
-A separate memory analyzer runs when enough messages accumulate. It builds per-member profiles with interests, details, aliases, episodes and attitudes, server-wide habits and in-jokes, a lorebook of events and stories, and a list of things people taught the persona directly (words, facts, requests). Profiles are updated incrementally; stored facts are never re-summarised. The persona also learns what people call each other and recognises a member by name or alias. Lessons are stored at the server level (`memory.maxLearned` shown, `memory.maxLearnedStored` kept on disk, `memory.learnedChars` per item) and always appear in the prompt.
+<!-- writer: the memory analyzer is gone; her memory session (docs/prompt-contract.md, "Her memory session and description review") builds the memory now. A paragraph on it belongs here. -->
 
 Memory is kept in layers. Hot memory is the profiles, notes and lists the persona carries in every request: per-member interests, details, aliases, episodes, character, style and relationship; per-channel notes; server-wide patterns, starters, in-jokes and lessons. The record is a permanent append-only log in `data/`: every message the persona heard, every one it posted, every decision it made, written before anything is analyzed. The archive catches everything hot memory evicts: when an episode, interest, detail, alias, attitude move, lesson, recent line or diary gist ages out or is pushed past a cap, a copy goes to an archive file before the item leaves. When someone asks the persona about old events, the recall search reads the archive and the last few days of the record alongside Discord's own search, so items that left hot memory can still be found. `/nep memory forget` copies everything it will delete into a vault directory (`memory.vaultDir`, default `data/vault/`) and writes the member's id to a ledger (`forgotten.json`). The engine never reads the vault back; putting a member back means copying their files by hand. `/nep memory wipe` does the same for the whole server.
 
@@ -174,7 +170,6 @@ prompts/
   initiate.md              task: start a topic
   forced.md                appended on a forced turn (/nep talk interject, /nep talk initiate)
   private.md               appended in a DM turn (features.privateMessages)
-  memory.md                prompt for the memory analyzer
   diary.md                 task: write a diary post
   diary-plan.md            diary planner: pick the kind and subject for the next post
   world.md                 the persona's virtual world (diary posts only)
@@ -198,10 +193,6 @@ prompts/
   split.md                 classifier: does a direct call hold several separate requests
   merge.md                 classifier: does a new message belong to something already waiting
   missed.md                classifier: do earlier messages to the persona still need an answer
-  backfill.md              extract episodes and lessons from old chat (tools/backfill.mjs)
-  profile.md               warmup: one member's profile from a message sample
-  channel.md               warmup: channel notes from a message sample
-  server.md                warmup: server-level notes from channel notes and member summaries
   labels.json              every code-inserted string in prompts
   skills.json              the persona's skill texts (title, whenToUse, whenNotToUse)
 prompts.local/             your personality (gitignored)
@@ -284,7 +275,7 @@ src/
     alias.js               /nep alias (add, remove)
     learning.js            /nep learning (add, remove)
     lore.js                /nep lore (add, list, show, remove)
-    memory.js              /nep memory (show, channel, server, recent, refresh user/channel/server, forget, affinity, wipe, journal, archive, restore, snapshot, private)
+    memory.js              /nep memory (show, channel, server, recent, affinity, journal, archive, restore, snapshot, private)
     skill.js               /nep skill (allow, deny, list)
   skills/
     registry.js            skill definitions: names, families, effects, cost classes, argument schemas
@@ -344,25 +335,19 @@ src/
     recent.js              recent notes: the last few days of short events
     participation.js       pure: the persona's own exchanges on other channels, kept a few days
     describe.js            media describer: one picture in, one cached caption out
-    portrait.js            periodic portrait refresh scheduler
     youtube-check.js       YouTube duration probes and the API key check
     append-store.js        append-only file writer with fsync and retry queue
     journal.js             the persona's journal: one record per turn, by UTC day
     record.js              the witnessed record: every message heard and posted, by UTC day
     archive.js             the archive: items evicted from hot memory, by month
-    warmup.js              sample-based memory warmup
-    vectors.js             vector index: int8 rows per month, append, search, forget rewrite
+    vectors.js             vector index: int8 rows per month, append, search
     chunks.js              pure: what one vector holds (a message with context, or an archive item)
     embedder.js            live embedding queue: queues record lines, flushes batches to the index
 tools/
-  backfill.mjs             fill the persona's past from old messages (fetch, merge, extract, dedupe, voice, report)
-  warmup.mjs               the memory warmup, run with the bot stopped (run, users, channels, server, people, status, reset)
-  embed-index.mjs          build or inspect the meaning-search vector index (estimate, build, stats)
   journal-report.mjs       per-day numbers from the journal: turns, outcomes, tokens, limits
   request-report.mjs       the same numbers from the operational log, for days before the journal
   replay.mjs               answer a real message again, or compare two prompt layers on the same triggers
   replay-score.mjs         tally a pair sheet's scores
-  memory-sim.mjs           replay analyzer batches on a snapshot: field movement, sentence length, lost facts
   recall-eval.mjs          measure recall against hand-written questions: hit@1, hit@5, false confident answers (run, sample)
   README.md                rules, tool reference, typical measurement
 tests/                     node --test, pure-function unit tests
@@ -372,7 +357,6 @@ deploy/
 data/                      persistent state (gitignored, created at runtime)
   state.json               scheduler times, token calibration, daily counters, warmup progress
   guilds/<id>/guild.json   server habits, in-jokes, the persona's self-claims
-  guilds/<id>/buffer.json  messages observed since the last memory update
   guilds/<id>/media.json   media description cache
   guilds/<id>/gifs.json    GIF library: handles, URLs, use counts
   guilds/<id>/recent.json  recent notes from the analyzer
@@ -383,11 +367,9 @@ data/                      persistent state (gitignored, created at runtime)
   guilds/<id>/channels/    channel observations from the analyzer
   guilds/<id>/diary.json   diary post history (one-line gists)
   guilds/<id>/lore.json    lorebook entries
-  guilds/<id>/voice.json   voice queue for two-stage analyzer (stage B items)
   guilds/<id>/versions/    version history of prose memory fields
   guilds/<id>/journal/     the persona's journal, one day file each
   guilds/<id>/record/      the witnessed record, one day file each
   guilds/<id>/archive/     archived items evicted from hot memory, one month file each
-  guilds/<id>/forgotten.json  ledger of deleted members (written by /nep memory forget)
   vault/                   copies of everything /nep memory forget and wipe delete (memory.vaultDir)
 ```

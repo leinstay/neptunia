@@ -17,8 +17,6 @@ test('memoryRootOf: guild paths are the joins the stores made by hand', () => {
   assert.equal(root.guildsDir, path.join(dataDir, 'guilds'));
   assert.equal(root.guildDir('123'), path.join(dataDir, 'guilds', '123'));
   assert.equal(root.guildDir(123), path.join(dataDir, 'guilds', '123'));
-  assert.equal(root.forgottenFile('123'), path.join(dataDir, 'guilds', '123', 'forgotten.json'));
-  assert.equal(root.forgettingDir('123'), path.join(dataDir, 'guilds', '123', 'forgetting'));
 });
 
 test('memoryRootOf: the state file and the snapshots root sit at the top of data/', () => {
@@ -55,7 +53,7 @@ test('memoryRootOf: the vault resolves under data/ by default and keeps an absol
 });
 
 test('memoryRootOf: resolve is path.resolve against data/', () => {
-  assert.equal(root.resolve('vault/forget-42-x'), path.resolve(dataDir, 'vault/forget-42-x'));
+  assert.equal(root.resolve('vault/copy-42-x'), path.resolve(dataDir, 'vault/copy-42-x'));
 });
 
 test('memoryRootOf: relative is forward-slash separated', () => {

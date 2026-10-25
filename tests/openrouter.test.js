@@ -29,7 +29,6 @@ import {
   profilesTtlFor,
   fullPromptTokens,
   REPLY_REQUEST,
-  MEMORY_VOICE_REQUEST,
   countLlmRequest,
 } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -1185,12 +1184,12 @@ test('complete: an answered request logs exactly one llm: usage line filled from
     }),
   });
   const { result, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'extractor', model: 'google/gemini-x' }),
+    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'vision', model: 'google/gemini-x' }),
   );
   assert.equal(result.text, 'the answer itself');
   assert.equal(result.provider, 'Google AI Studio');
   assert.deepEqual(usageFields(logs), [{
-    role: 'extractor',
+    role: 'vision',
     purpose: null, // none was named for this request
     origin: null,
     model: 'google/gemini-x',
@@ -1445,15 +1444,15 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@core': STUDIO }, 'core'), { key: 'a@b@core', prefix: 'a@b', role: 'core', value: STUDIO });
 });
 
-test('matchRoute: a role never takes another role\'s key: the extractor skips an analyzer key for a role-less one', () => {
+test('matchRoute: a role never takes another role\'s key: the vision role skips an analyzer key for a role-less one', () => {
   const EXTRACT = { only: ['extract-provider'] };
   const byModel = { 'x/': VERTEX, 'x/@analyzer': STUDIO };
-  assert.deepEqual(matchRoute('x/model', byModel, 'extractor'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the extractor\'s');
-  assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'extractor'), null);
-  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@extractor': EXTRACT }, 'extractor')?.value, EXTRACT, 'its own key wins');
-  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@extractor': EXTRACT }, 'extractor')?.value, EXTRACT, 'its own key wins whatever the lengths');
-  assert.equal(matchRoute('x/model', { 'x/@extractor': EXTRACT }, 'analyzer'), null, 'nor the other way round');
-  assert.equal(resolveProvider('x/model', { byModel, role: 'extractor' }), VERTEX);
+  assert.deepEqual(matchRoute('x/model', byModel, 'vision'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the vision role\'s');
+  assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'vision'), null);
+  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@vision': EXTRACT }, 'vision')?.value, EXTRACT, 'its own key wins');
+  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@vision': EXTRACT }, 'vision')?.value, EXTRACT, 'its own key wins whatever the lengths');
+  assert.equal(matchRoute('x/model', { 'x/@vision': EXTRACT }, 'analyzer'), null, 'nor the other way round');
+  assert.equal(resolveProvider('x/model', { byModel, role: 'vision' }), VERTEX);
 });
 
 test('countLlmRequest: counts one request of the day on the shared counter, refuses at the cap without counting', () => {
@@ -1558,15 +1557,15 @@ test('cacheTtlFor: no marker unless features.promptCache is exactly true', () =>
 });
 
 test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as core only', () => {
-  for (const role of ['extractor', 'analyzer', 'video', undefined, null, 7]) {
+  for (const role of ['vision', 'analyzer', 'video', undefined, null, 7]) {
     assert.equal(cacheTtlFor(cachingConfig(), role, LISTED_MODEL), null, String(role));
   }
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['core', 'extractor'] } }), 'extractor', LISTED_MODEL), '1h');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['core', 'vision'] } }), 'vision', LISTED_MODEL), '1h');
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'core', LISTED_MODEL), null, 'an empty list marks nothing');
-  for (const roles of [undefined, null, 'extractor', { analyzer: true }]) {
+  for (const roles of [undefined, null, 'vision', { analyzer: true }]) {
     const config = cachingConfig({ cache: { ...CACHE, roles } });
     assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', JSON.stringify(roles));
-    assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null, JSON.stringify(roles));
+    assert.equal(cacheTtlFor(config, 'vision', LISTED_MODEL), null, JSON.stringify(roles));
   }
 });
 
@@ -1587,7 +1586,7 @@ test('cacheTtlFor: a model outside llm.cache.models gets no marker; a non-array 
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'core', LISTED_MODEL), null);
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'core', LISTED_MODEL), null);
   // the role gate still applies to a listed model
-  assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL), null);
+  assert.equal(cacheTtlFor(cachingConfig(), 'vision', LISTED_MODEL), null);
 });
 
 test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the policy', () => {
@@ -1605,7 +1604,7 @@ test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the
   // anything else leaves the policy in charge
   for (const force of [undefined, null, 'true', 1]) {
     assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL, force), '1h', String(force));
-    assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL, force), null, String(force));
+    assert.equal(cacheTtlFor(cachingConfig(), 'vision', LISTED_MODEL, force), null, String(force));
     assert.equal(cacheTtlFor(cachingConfig(), 'core', UNLISTED_MODEL, force), null, String(force));
   }
 });
@@ -1843,7 +1842,7 @@ test('complete: a segmented reply is sent with the system, stable and profiles m
   config = cachingConfig({ model: UNLISTED_MODEL });
   await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig();
-  await llm.complete(segmentedMessages(), { role: 'extractor' });
+  await llm.complete(segmentedMessages(), { role: 'vision' });
   await llm.complete(segmentedMessages(), { role: 'core' });
   const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
   assert.deepEqual(markedParts(on.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M]);
@@ -1907,11 +1906,11 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   ];
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
-    for (const role of ['core', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
+    for (const role of ['core', 'vision', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
     for (const body of sent) assert.equal(body, today(config.models.base.core));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['extractor', 'analyzer', 'vision', 'video', undefined]) await llm.complete(messages, { role });
+  for (const role of ['vision', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
   for (const body of sent) assert.equal(body, today(LISTED_MODEL));
 });
 
@@ -1954,7 +1953,7 @@ test('complete: the cache policy is read from the live config on every call', as
   await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig();
   await llm.complete(replyMessages(), { role: 'core' });
-  config = cachingConfig({ cache: { ...CACHE, roles: ['extractor'] } });
+  config = cachingConfig({ cache: { ...CACHE, roles: ['vision'] } });
   await llm.complete(replyMessages(), { role: 'core' });
   assert.deepEqual(bodies().map((b) => markedParts(b.messages).length), [0, 1, 0]);
 });
@@ -2042,7 +2041,7 @@ test('complete: an unmarked request reporting cached tokens feeds prompt_tokens 
   const usage = { prompt_tokens: 20000, prompt_tokens_details: { cached_tokens: 5000, cache_write_tokens: 0 } };
   const net = { ...CACHE, promptIncludesCached: false };
   const cases = [
-    [cachingConfig({ cache: net }), { role: 'extractor' }],
+    [cachingConfig({ cache: net }), { role: 'vision' }],
     [cachingConfig({ cache: net, model: UNLISTED_MODEL }), { role: 'core' }],
     [cachingConfig({ cache: net }), { role: 'core', cache: false }],
     [cachingConfig({ cache: net, promptCache: false }), { role: 'core' }],
@@ -2277,7 +2276,7 @@ test('assertByok: refuses only a route with byok exactly true and is_byok exactl
 
 test('complete: a analyzer request carries no marker even with promptCache on', async () => {
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['analyzer', 'extractor', 'video', undefined]) {
+  for (const role of ['analyzer', 'vision', 'video', undefined]) {
     await llm.complete(replyMessages(), { role });
   }
   assert.equal(sent.length, 4);
@@ -2765,37 +2764,6 @@ test('hedge: an explicit hedge keeps the rails -- the token cap before any attem
   assert.equal(seen.value.name, 'TimeoutError');
   assert.deepEqual(stalled.calls.map((call) => call.signal.aborted), [true, true]);
   assert.equal(stalled.clock.pending(), 0);
-});
-
-// --- one speaking model: the reply and the memory wording share the role `core` ---
-
-test('REPLY_REQUEST and MEMORY_VOICE_REQUEST: both go out as role core, told apart by purpose on the usage line only', async () => {
-  const { llm, sent } = cachingLlm(() => cachingConfig({ promptCache: false }));
-  const { logs } = await withCapturedLogs(async () => {
-    await llm.complete(replyMessages(), { ...REPLY_REQUEST });
-    await llm.complete(replyMessages(), { ...MEMORY_VOICE_REQUEST });
-  });
-  assert.deepEqual(usageLines(logs).map(({ role, purpose }) => ({ role, purpose })), [
-    { role: 'core', purpose: 'reply' },
-    { role: 'core', purpose: 'memory-voice' },
-  ]);
-  for (const body of sent) {
-    for (const word of ['purpose', 'memory-voice', '"reply"']) assert.ok(!body.includes(word), `${word} is never sent`);
-  }
-});
-
-test('complete: with the cache on, the reply is marked and the memory wording on the same role and model is not', async () => {
-  for (const roles of [['core']]) {
-    const { llm, bodies } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, roles } }));
-    await withCapturedLogs(async () => {
-      await llm.complete(replyMessages(), { ...REPLY_REQUEST });
-      await llm.complete(replyMessages(), { ...MEMORY_VOICE_REQUEST });
-    });
-    const [reply, memory] = bodies();
-    assert.equal(markedParts(reply.messages).length, 1, `the reply is marked: ${roles}`);
-    assert.equal(markedParts(memory.messages).length, 0, `the memory wording is not: ${roles}`);
-    assert.equal(memory.messages[0].content, SYSTEM_TEXT, 'sent exactly as without caching');
-  }
 });
 
 // --- a choice-level provider error inside a 200 ---

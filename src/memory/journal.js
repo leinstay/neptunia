@@ -1,9 +1,9 @@
-// The persona's journal: one JSON line per thing that happened -- a turn started, a turn
+// The persona's journal: one record per thing that happened -- a turn started, a turn
 // ended (what it saw, what it thought, what it posted), an action's phase, a memory change, a
-// system event -- appended to a day file through the append store (src/memory/append-store.js),
-// so the record survives a crash and keeps its order. The day is the UTC day of the record's
-// `occurredAt`; a private chat has its own files under the partner's private directory and is
-// never written to the guild's journal. Every record carries the same envelope (`v`, `id`,
+// system event -- written to the memory database (src/memory/db/service.js, `memoryDb.writeUnit`) in
+// the unit of its day, `guilds/<g>/journal/<YYYY-MM-DD>.jsonl`, as the journal mapper maps it, so it
+// keeps its order. The day is the UTC day of the record's `occurredAt`; a private chat has its own
+// units under the partner's private directory and is never written to the guild's journal. Every record carries the same envelope (`v`, `id`,
 // `kind`, `occurredAt`, `recordedAt`, `guildId`, `scope`, `participants`, `sourceMessageIds`,
 // `origin`); a record missing a list is written with an empty one, never rejected: a journal
 // line lost to validation is worse than an incomplete one. The model's `think` is stored
@@ -15,13 +15,8 @@
 // post is looked for among the persona's last own messages of its channel by the message it
 // replied to and the first INTENT_CHARS characters of its text; nothing is ever sent again.
 //
-// A forgotten member leaves the journal too (`forgetUser`): every guild day file is rewritten
-// without the records naming them among `participants`, and their private journal goes. The job
-// runs under a marker, `data/guilds/<id>/forgetting/<userId>.json`, written first and removed
-// last (only by the call that wrote it), so a restart finishes it (`resumeForgets`) and `read`
-// hides the member while the marker exists. `removeGuild` (`/nep memory wipe`) deletes every day
-// file. A `.running` marker in the guild's journal directory, written at start and removed on a
-// clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
+// A `.running` marker in the guild's journal directory (an operational file), written at start and
+// removed on a clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
 // Request dumps (`dumpRequest`): beside the journal, `requests/<day>/<turnId>-<attempt>.json` holds the
 // request as the client sent it (a tool-loop step's or the follow-up's request after a call, the
@@ -29,15 +24,13 @@
 // with the model's raw answer and its usage, written whole through a `.tmp` file and a rename
 // (not the append store: it is one document, not a line). Written only while
 // `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
-// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text,
-// so a forget deletes the dumps naming the member (`forgetRequests`) and a wipe deletes them all.
+// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text.
 //
-// `withWriterLock(fn)` (`/nep memory snapshot`, `/nep memory forget|wipe`, the deletion ledger at
-// start) holds every new line back while `fn` runs, after the append stores flushed what they had:
-// the journal's own lines and request dumps here, and the record's and the archive's appends,
-// which wait on `waitUnlocked` (src/memory/record.js, src/memory/archive.js `writerGate`; their
-// append stores are flushed through `lockStores`). A copy of `data/` taken inside it sees no line
-// half-way, and a forget run inside it is not raced by a new line.
+// `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
+// the append stores flushed what they had: the journal's own lines and request dumps here, and the
+// record's and the archive's appends, which wait on `waitUnlocked` (src/memory/record.js,
+// src/memory/archive.js `writerGate`; the append stores are flushed through `lockStores`). A copy of
+// `data/` taken inside it sees no line half-way.
 //
 // The persona's time away (`offPeriods`, `createOffPeriodsReader`): the owner's pauses and the
 // service's stops of the last hours, read from the system records (`timeline`), for her request.
@@ -67,7 +60,7 @@ import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
 import { createReadSeam } from './db/readers/common.js';
-import { journalLastWrite, journalLines, journalMarkerNames } from './db/readers/journal.js';
+import { journalLastWrite, journalLines } from './db/readers/journal.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** The schema version every record carries. */
@@ -86,14 +79,8 @@ const RECONCILE_SKEW_MS = 60_000;
 const CLOSING_PHASES = new Set(['succeeded', 'failed', 'unknown']);
 /** The fields a closing line repeats from its operation (never the input or the intent). */
 const OP_FIELDS = ['turnId', 'name', 'by', 'channelId', 'privateUserId', 'participants', 'sourceMessageIds', 'dryRun'];
-/** A day file's name. */
-const DAY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
-/** A torn tail moved aside by the append store (src/memory/append-store.js#recover). */
-const TORN_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl\.torn-/;
-/** A member id usable as a file name. */
+/** A member id usable as a directory name. */
 const USER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-/** The `owner` a forget marker written by this module carries. */
-const MARKER_OWNER = 'journal';
 /** A request-dump directory's name. */
 const REQUEST_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The characters of `think` a `/nep journal` line shows. */
@@ -139,50 +126,6 @@ export function journalLine(record) {
     short = '';
   }
   return words(at, kind, short);
-}
-
-/**
- * Whether forgetting `userId` drops this journal record: it names them among its `participants`
- * and, with `before` (epoch ms, the deletion ledger's time), it happened earlier (a record
- * without a readable `occurredAt` counts as earlier). The one rule `forgetUser` and the
- * store's vault pass (src/memory/store.js#forgetUser) both apply.
- * @param {unknown} record  A parsed journal line.
- * @param {string} userId
- * @param {number|null} [before]
- * @returns {boolean}
- */
-export function journalDrops(record, userId, before = null) {
-  if (!Array.isArray(record?.participants) || !record.participants.includes(String(userId))) return false;
-  if (!Number.isFinite(before)) return true;
-  return !(Date.parse(record.occurredAt) >= before);
-}
-
-/** Whether a journal line is dropped by `journalDrops`; a line that does not parse is not. */
-function namesParticipant(line, userId, before = null) {
-  try {
-    return journalDrops(JSON.parse(line), userId, before);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Whether a request dump's text names member `userId`: the id as a whole number (no digit
- * right before or after it), as a bare id or inside a `<@id>` token.
- * @param {string} text
- * @param {string} userId
- * @returns {boolean}
- */
-export function requestMentions(text, userId) {
-  const id = String(userId ?? '');
-  if (!id || typeof text !== 'string') return false;
-  let from = 0;
-  for (;;) {
-    const at = text.indexOf(id, from);
-    if (at === -1) return false;
-    if (!/\d/.test(text[at - 1] ?? '') && !/\d/.test(text[at + id.length] ?? '')) return true;
-    from = at + 1;
-  }
 }
 
 /**
@@ -535,25 +478,23 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * Create the journal.
  *
  * @param {object} options
- * @param {{ append: Function, iterate: Function }} options.appendStore  src/memory/append-store.js
+ * @param {{ flush?: Function, stats?: Function }|null} [options.appendStore]  src/memory/append-store.js, optional:
+ *   flushed by `withWriterLock`; its `stats().stalled` is `stalled()`
  * @param {string} options.dataDir  the `data/` directory
  * @param {() => ({ thinkChars?: number }|undefined)} [options.config]  the live `journal` config
  *   section, read at each write (`hot.config.journal`)
  * @param {() => number} [options.now=Date.now]
  * @param {() => string} [options.uuid=randomUUID]
  * @param {{ warn: Function }} [options.log]
- * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the markers, listing and deleting)
+ * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the `.running` marker and the request dumps)
  * @param {Array<{ flush: Function }>} [options.lockStores]  other append stores `withWriterLock`
  *   flushes before `fn` (the record's and the archive's, src/index.js)
- * @param {object|null} [options.memoryDb]  the memory database service (src/memory/db/service.js): under its
- *   authority `db` the day reads (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`,
- *   `triggerLinks`, `callMarks`, `reconcile`'s scan) and `stats` are answered from the database
- *   (src/memory/db/readers/journal.js), with no file fallback (a failed read rejects with a code), and every line
- *   the writers write goes to the database as the journal mapper maps it (`day`, `decisions`, her answers' `sources`,
- *   `affinity_events`, in the day's unit, `memoryDb.writeUnit`), never to a file: the request dumps and the
- *   `.running` marker stay files. Under `json` (the default) the files are read and written as always (the sync
- *   mirrors them).
- * @param {(() => string)|null} [options.authorityOf]  the authority, when not the service's own
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): the day reads
+ *   (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`, `triggerLinks`, `callMarks`,
+ *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/readers/journal.js; a failed read rejects
+ *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
+ *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`): the request dumps and the
+ *   `.running` marker stay files.
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
  *     participants?: string[], sourceMessageIds?: string[], privateUserId?: string|null,
@@ -582,27 +523,21 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *     Promise<Array<{ id: string, content: string, replyToId: string|null, createdAt: unknown }>> }):
  *     Promise<{ succeeded: number, unknown: number }>,
  *   stalled(): boolean,
- *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ files: number, dropped: number }>,
- *   resumeForgets(guildId: string): Promise<{ finished: number }>,
- *   removeGuild(guildId: string): Promise<{ files: number }>,
  *   markRunning(guildId: string): Promise<{ unclean: boolean }>,
  *   clearRunning(guildId: string): Promise<void>,
  *   dumpRequest(guildId: string, dump: object): Promise<void>,
  *   pruneRequests(guildId: string): Promise<{ removed: number }>,
- *   forgetRequests(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ removed: number }>,
  *   withWriterLock<T>(fn: () => Promise<T>|T): Promise<T>,
  *   waitUnlocked(): Promise<void>,
  *   stats(guildId: string, query?: { now?: number }): Promise<{ lastWriteMs: number|null }>,
  * }}
- *   `stats` says when the guild journal was last written: the newer modification time of the day files of `now`
- *   and the day before (the first hour after midnight), or, from the database, the latest `recordedAt` of their
- *   lines; null when neither exists.
+ *   `stats` says when the guild journal was last written: the latest `recordedAt` of the lines of the day of `now`
+ *   and the day before (the first hour after midnight); null when neither holds one.
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
- *   same turn. The writers resolve once the append store took the line and never reject (a
- *   refused append is logged as `journal: append failed` with its code). `read` returns the
- *   last `n` records of the day (of `kind` when given), newest last, leaving out the records of a
- *   member whose forget marker exists (a private journal of such a member reads empty).
+ *   same turn. The writers resolve once the database's writer committed the line and never reject (a
+ *   refused write is logged as `journal: append failed` with its code). `read` returns the
+ *   last `n` records of the day (of `kind` when given), newest last.
  *
  *   `op` allots an operation's `opId` (`op-<uuid>`) for one side effect; `base` holds its
  *   `turnId`, `name`, `by` (`persona` | `engine`), `channelId`, `privateUserId`,
@@ -624,16 +559,15 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   `stalled` says whether the append store's retry queue is full (`stats().stalled`; false for a
  *   store without stats): what depends on a record being taken (memory application) waits.
  */
-export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [], memoryDb = null, authorityOf = null }) {
+export function createJournal({ appendStore = null, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [], memoryDb = null }) {
   const root = memoryRootOf(dataDir);
-  const seam = createReadSeam({ memoryDb, authorityOf, log, reader: 'journal' });
+  const seam = createReadSeam({ memoryDb, log, reader: 'journal' });
   const guildDir = root.guildDir;
   function journalDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId
       ? path.join(guildDir(guildId), 'private', privateUserId, 'journal')
       : path.join(guildDir(guildId), 'journal');
   }
-  const forgettingDir = (guildId) => path.join(guildDir(guildId), 'forgetting');
   const runningFile = (guildId) => path.join(journalDir(guildId), '.running');
 
   function dayFile(guildId, dateIso, privateUserId = null) {
@@ -681,13 +615,8 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       const { record, privateUserId } = envelope(guildId, kind, fields);
       await unlocked();
       const file = dayFile(guildId, record.occurredAt, privateUserId);
-      // Authority `db`: the line goes to the database as the journal mapper maps it, and no file is written.
-      if (seam.authority() === 'db') {
-        if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-        await memoryDb.writeUnit({ op: 'lines', mode: 'db', owner: root.relative(file), lines: [record] });
-        return;
-      }
-      await appendStore.append(file, JSON.stringify(record));
+      if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+      await memoryDb.writeUnit({ op: 'lines', owner: root.relative(file), lines: [record] });
     } catch (error) {
       log.warn('journal: append failed', { kind, code: error?.code ?? null, guildId: String(guildId) });
     }
@@ -744,49 +673,16 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     }
   }
 
-  /** The forget markers of the guild: `{ userId, file, owned }`, `owned` when this module wrote it. */
-  async function markers(guildId) {
-    const out = [];
-    for (const name of (await namesIn(forgettingDir(guildId))).sort()) {
-      if (!name.endsWith('.json')) continue;
-      const userId = name.slice(0, -'.json'.length);
-      if (!USER_ID_RE.test(userId)) continue;
-      const file = path.join(forgettingDir(guildId), name);
-      let owned = false;
-      try {
-        owned = JSON.parse(await fs.readFile(file, 'utf8'))?.owner === MARKER_OWNER;
-      } catch {
-        owned = false;
-      }
-      out.push({ userId, file, owned });
-    }
-    return out;
-  }
-
-  /** The lines (text) of one day file, or of its unit in the database under `db`. */
-  async function* dayLines(db, file) {
-    if (db) {
-      for (const line of seam.run(() => journalLines(db, root.relative(file)))) yield line;
-      return;
-    }
-    for await (const { line } of appendStore.iterate(file)) yield line;
-  }
-
-  /** The members a read hides: the forget markers' ids (the files', or the database's under `db`). */
-  async function hiddenOf(guildId, db) {
-    if (!db) return new Set((await markers(guildId)).map((marker) => marker.userId));
-    const names = seam.run(() => journalMarkerNames(db, guildId));
-    return new Set(names.filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length)).filter((id) => USER_ID_RE.test(id)));
+  /** The lines (text) of one day's unit in the database. */
+  function* dayLines(db, file) {
+    for (const line of seam.run(() => journalLines(db, root.relative(file)))) yield line;
   }
 
   async function read(guildId, { day, kind = null, n = DEFAULT_READ_N, privateUserId = null } = {}) {
     const db = seam.db();
     const limit = Number.isInteger(n) && n > 0 ? n : DEFAULT_READ_N;
-    // A member being forgotten is hidden until the rewrite is done.
-    const hidden = await hiddenOf(guildId, db);
-    if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return [];
     const out = [];
-    for await (const line of dayLines(db, dayFile(guildId, day, privateUserId))) {
+    for (const line of dayLines(db, dayFile(guildId, day, privateUserId))) {
       let record;
       try {
         record = JSON.parse(line);
@@ -795,7 +691,6 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       }
       if (!record || typeof record !== 'object') continue;
       if (kind && record.kind !== kind) continue;
-      if (hidden.size > 0 && Array.isArray(record.participants) && record.participants.some((id) => hidden.has(id))) continue;
       out.push(record);
       if (out.length > limit) out.shift();
     }
@@ -815,7 +710,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     const start = Number.isFinite(from) ? Math.min(from, end) : end;
     const out = [];
     for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
-      for await (const line of dayLines(db, dayFile(guildId, utcDay(day)))) {
+      for (const line of dayLines(db, dayFile(guildId, utcDay(day)))) {
         const head = ENVELOPE_HEAD_RE.exec(line);
         let kind = head?.[1] ?? null;
         let occurredAt = head?.[2] ?? null;
@@ -1052,7 +947,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     });
   }
 
-  // The tool-definition copies written by this process (`requests/tools/<sha>.json`); cleared by a wipe.
+  // The tool-definition copies written by this process (`requests/tools/<sha>.json`).
   const toolsWritten = new Set();
 
   /**
@@ -1135,47 +1030,11 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
   }
 
   /**
-   * Delete the request dumps of the guild (its own and every private journal's) whose text names
-   * `userId` (`requestMentions`); with `before` (epoch ms) only those recorded earlier.
-   * @param {string} guildId
-   * @param {string} userId
-   * @param {{ before?: number|null }} [opts]
-   * @returns {Promise<{ removed: number }>}
-   */
-  async function forgetRequests(guildId, userId, { before = null } = {}) {
-    const id = checkUserId(userId);
-    let removed = 0;
-    const files = [];
-    for (const root of await requestRoots(guildId)) {
-      for (const day of (await namesIn(root)).filter((name) => REQUEST_DAY_RE.test(name))) {
-        for (const name of (await namesIn(path.join(root, day))).filter((entry) => entry.endsWith('.json'))) files.push(path.join(root, day, name));
-      }
-    }
-    for (const file of files) {
-      const text = await fs.readFile(file, 'utf8').catch(() => '');
-      if (!requestMentions(text, id)) continue;
-      if (Number.isFinite(before)) {
-        let at = NaN;
-        try {
-          at = Date.parse(JSON.parse(text)?.recordedAt);
-        } catch {
-          at = NaN;
-        }
-        if (at >= before) continue;
-      }
-      await fs.rm(file, { force: true });
-      removed += 1;
-    }
-    return { removed };
-  }
-
-  /**
    * Run `fn` with every journal write held back, and the record's and the archive's appends too
    * (they wait on `waitUnlocked` through their `writerGate`): the lock waits for one already
    * held, the append store and every `lockStores` store flush (queued lines retried, files
    * fsynced), then `fn` runs; lines and request dumps written meanwhile wait and land after it in
-   * their order. A forget (src/memory/store.js#forgetUser) runs inside it, so no writer of the
-   * guild adds a line while the lines are dropped. The lock is released however `fn` ends; its
+   * their order. The lock is released however `fn` ends; its
    * result or rejection is passed on.
    * @template T
    * @param {() => Promise<T>|T} fn
@@ -1189,7 +1048,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       release = resolve;
     });
     try {
-      if (typeof appendStore.flush === 'function') await appendStore.flush();
+      if (typeof appendStore?.flush === 'function') await appendStore.flush();
       for (const other of Array.isArray(lockStores) ? lockStores : []) {
         if (typeof other?.flush === 'function') await other.flush();
       }
@@ -1200,143 +1059,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     }
   }
 
-  const stalled = () => typeof appendStore.stats === 'function' && appendStore.stats()?.stalled === true;
-
-  /** The day files of `dir`, oldest first, as full paths. */
-  async function dayFiles(dir) {
-    return (await namesIn(dir)).filter((name) => DAY_FILE_RE.test(name)).sort().map((name) => path.join(dir, name));
-  }
-
-  /** Empty `file` through the append store (its descriptor closed, nothing queued left), then delete it. */
-  async function dropFile(file) {
-    await appendStore.rewrite(file, () => false);
-    await fs.rm(file, { force: true });
-  }
-
-  /**
-   * The journal part of forgetting `userId`: the guild day files rewritten, torn tails naming them
-   * and the private journal deleted. With `before` (the deletion ledger re-applied) only the
-   * records that happened earlier go, the private journal is rewritten the same way, and torn
-   * tails stay.
-   */
-  async function purgeUser(guildId, userId, before = null) {
-    const dir = journalDir(guildId);
-    let files = 0;
-    let dropped = 0;
-    for (const file of await dayFiles(dir)) {
-      const result = await appendStore.rewrite(file, (line) => !namesParticipant(line, userId, before));
-      files += 1;
-      dropped += result?.dropped ?? 0;
-    }
-    const privateDir = journalDir(guildId, userId);
-    if (Number.isFinite(before)) {
-      const earlier = (line) => {
-        try {
-          return !(Date.parse(JSON.parse(line)?.occurredAt) >= before);
-        } catch {
-          return false;
-        }
-      };
-      for (const file of await dayFiles(privateDir)) {
-        const result = await appendStore.rewrite(file, (line) => !earlier(line));
-        files += 1;
-        dropped += result?.dropped ?? 0;
-      }
-      return { files, dropped };
-    }
-    // A torn tail is a line cut short: it may name the member, so one that does goes.
-    for (const name of (await namesIn(dir)).filter((entry) => TORN_FILE_RE.test(entry))) {
-      const file = path.join(dir, name);
-      const text = await fs.readFile(file, 'utf8').catch(() => '');
-      if (text.includes(userId)) await fs.rm(file, { force: true });
-    }
-    for (const file of await dayFiles(privateDir)) {
-      await dropFile(file);
-      files += 1;
-    }
-    await fs.rm(privateDir, { recursive: true, force: true });
-    return { files, dropped };
-  }
-
-  /** `userId` as a string usable as a file name, else a throw. */
-  function checkUserId(userId) {
-    const id = String(userId ?? '');
-    if (!USER_ID_RE.test(id)) throw Object.assign(new Error('journal: bad member id'), { code: 'bad-user-id' });
-    return id;
-  }
-
-  /**
-   * Forget `userId` in the guild journal: under the marker `forgetting/<userId>.json` (written
-   * when absent; removed at the end only when this call wrote it, or a crashed call of this
-   * module did), every day file is rewritten without the records whose `participants` include
-   * them, and their private journal is deleted. Rejects on a disk error, the marker left for
-   * `resumeForgets`. With `before` (epoch ms: the deletion ledger re-applied, src/memory/store.js
-   * #applyLedger) no marker is written and only the records that happened earlier go
-   * (`journalDrops`), the private journal's too.
-   * @param {string} guildId
-   * @param {string} userId
-   * @param {{ before?: number|null }} [opts]
-   * @returns {Promise<{ files: number, dropped: number }>}
-   */
-  async function forgetUser(guildId, userId, { before = null } = {}) {
-    const id = checkUserId(userId);
-    if (Number.isFinite(before)) return purgeUser(guildId, id, before);
-    const marker = path.join(forgettingDir(guildId), `${id}.json`);
-    await fs.mkdir(forgettingDir(guildId), { recursive: true });
-    let owned = false;
-    try {
-      await fs.writeFile(marker, `${JSON.stringify({ userId: id, owner: MARKER_OWNER, startedAt: new Date(now()).toISOString() })}\n`, { flag: 'wx' });
-      owned = true;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      owned = (await markers(guildId)).some((entry) => entry.userId === id && entry.owned);
-    }
-    const counts = await purgeUser(guildId, id);
-    if (owned) await fs.rm(marker, { force: true });
-    return counts;
-  }
-
-  /**
-   * Finish every forget a crash or a restart left behind: for each marker of the guild the
-   * journal part runs again; a marker this module wrote is removed, any other stays (its writer
-   * removes it).
-   * @param {string} guildId
-   * @returns {Promise<{ finished: number }>}
-   */
-  async function resumeForgets(guildId) {
-    let finished = 0;
-    for (const marker of await markers(guildId)) {
-      await purgeUser(guildId, marker.userId);
-      if (marker.owned) await fs.rm(marker.file, { force: true });
-      finished += 1;
-    }
-    return { finished };
-  }
-
-  /**
-   * Delete every journal day file of the guild and every request dump, private journals included
-   * (`/nep memory wipe`); the `.running` marker and the forget markers stay.
-   * @param {string} guildId
-   * @returns {Promise<{ files: number }>}
-   */
-  async function removeGuild(guildId) {
-    let files = 0;
-    const dirs = [journalDir(guildId)];
-    for (const userId of await namesIn(path.join(guildDir(guildId), 'private'))) {
-      if (USER_ID_RE.test(userId)) dirs.push(journalDir(guildId, userId));
-    }
-    for (const dir of dirs) {
-      for (const file of await dayFiles(dir)) {
-        await dropFile(file);
-        files += 1;
-      }
-      for (const name of (await namesIn(dir)).filter((entry) => TORN_FILE_RE.test(entry))) await fs.rm(path.join(dir, name), { force: true });
-      // The request dumps quote the chat: they go with it.
-      await fs.rm(path.join(dir, 'requests'), { recursive: true, force: true });
-      toolsWritten.clear();
-    }
-    return { files };
-  }
+  const stalled = () => typeof appendStore?.stats === 'function' && appendStore.stats()?.stalled === true;
 
   /**
    * At start: a `.running` marker left by a run that never stopped cleanly writes an
@@ -1367,17 +1090,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
   async function stats(guildId, { now: at = now() } = {}) {
     const files = [at, at - DAY_MS].map((ms) => dayFile(guildId, new Date(ms).toISOString()));
     const db = seam.db();
-    if (db) return { lastWriteMs: seam.run(() => journalLastWrite(db, files.map((file) => root.relative(file)))) };
-    let last = null;
-    for (const file of files) {
-      try {
-        const stat = await fs.stat(file);
-        if (last === null || stat.mtimeMs > last) last = stat.mtimeMs;
-      } catch {
-        // no file that day
-      }
-    }
-    return { lastWriteMs: last };
+    return { lastWriteMs: seam.run(() => journalLastWrite(db, files.map((file) => root.relative(file)))) };
   }
 
   return {
@@ -1400,14 +1113,10 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     turnOperations,
     reconcile,
     stalled,
-    forgetUser,
-    resumeForgets,
-    removeGuild,
     markRunning,
     clearRunning,
     dumpRequest,
     pruneRequests,
-    forgetRequests,
     withWriterLock,
     waitUnlocked: unlocked,
   };

@@ -318,7 +318,7 @@ async function compareMain(argv) {
     await copyDatabase(source, copy);
     handle = openMemoryDb(copy);
     const live = hot.config;
-    const config = { ...live, features: { ...(live.features ?? {}), memoryDb: true }, llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } } };
+    const config = { ...live, llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } } };
     const usage = { requests: 0, prompt: 0, completion: 0, cost: null };
     let llm = null;
     if (!shadowOnly) {
@@ -389,7 +389,6 @@ export async function main(argv) {
     const live = hot.config;
     const config = {
       ...live,
-      features: { ...(live.features ?? {}), memoryDb: true },
       llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
       memoryDb: {
         ...(live.memoryDb ?? {}),

@@ -25,7 +25,7 @@
 // Exists so a prompt or profile change can be checked against real moments
 // before it is deployed.
 //
-// Not for: measuring what the analyzer does to memory (tools/memory-sim.mjs);
+// Not for: measuring what her memory session writes (tools/memory-session.mjs);
 // reading the journal's day numbers (tools/journal-report.mjs).
 //
 //   cd /opt/neptunia/app && node tools/replay.mjs <channelId> <triggerMessageId>
@@ -371,7 +371,9 @@
 //
 // `--snapshot <dir>`: the memory is read from a snapshot of data/ (written by
 // `/nep memory snapshot`, or an unpacked stop-backup) instead of the live
-// data/, read only as ever.
+// data/, read only as ever. The memory is the memory database of that
+// directory (its `memory.db`, opened read only by tools/lib/memory-read.mjs);
+// the operational files beside it (state.json, inner.json) are read as files.
 //
 // `--pair <promptsDirA> <promptsDirB>`: the same triggers answered twice, once
 // with each prompt layer: each directory is laid over the tracked prompts/
@@ -544,6 +546,14 @@ import {
 } from './lib/diary-day.mjs';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
+import { readOnlyMemory } from './lib/memory-read.mjs';
+
+/** The memory of a data directory, read only (tools/lib/memory-read.mjs), one per directory for the whole run. */
+const memories = new Map();
+function memoryFor(dataDir) {
+  if (!memories.has(dataDir)) memories.set(dataDir, readOnlyMemory(dataDir).memoryDb);
+  return memories.get(dataDir);
+}
 
 const USAGE =
   'usage: node tools/replay.mjs <channelId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]\n' +
@@ -2004,7 +2014,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     if (isSetKind(kind, config.diary?.setKinds)) log.warn('replay-cli: the kind is a set kind; only the first <draw> is reported', { kind });
 
     // The store and the counters: an in-memory copy; the picture gate opened there only.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData }));
+    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
     const nowMs = Date.now();
     const were = {
       diaryPictures: countToday(state.data, DIARY_PICTURES_DAILY, nowMs),
@@ -2449,7 +2459,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const config = hot.config;
     const settings = mods.innerSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
-    const { store, state } = unflushedStore(createStore({ dataDir }));
+    const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: memoryFor(dataDir) }));
     const calibrator = createCalibrator(state.data.calibration);
     const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
     const calls = [];
@@ -2482,14 +2492,14 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const capabilities = hiddenCapabilities(mods.createDiscordInterface({ client }).capabilities, hide);
 
     // Her intentions and errands, read only; her inner state as it stands.
-    const taskStore = createTaskStore({ dataDir, guildId, config: () => hot.config, journal: null });
+    const taskStore = createTaskStore({ guildId, config: () => hot.config, journal: null, memoryDb: memoryFor(dataDir) });
     const errands = {
       view: ({ privateChannelId = null } = {}) => [...taskStore.open(), ...taskStore.unseen()].filter((task) => task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId))),
       markSeen: () => {},
       budget: ({ agent }) => taskStore.budget(agent),
       store: () => taskStore,
     };
-    const intentions = createIntentionService({ stores: readOnlyIntentionStores(createIntentionStores({ dataDir })), hot, tasks: { store: () => taskStore }, getGuildId: () => guildId });
+    const intentions = createIntentionService({ stores: readOnlyIntentionStores(createIntentionStores({ memoryDb: memoryFor(dataDir) })), hot, tasks: { store: () => taskStore }, getGuildId: () => guildId });
     let innerState = mods.emptyState();
     try {
       innerState = mods.normalizeState(JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'inner.json'), 'utf8')));
@@ -2517,9 +2527,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           return typeof value === 'function' ? value.bind(target) : value;
         },
       });
-      const appendStore = createAppendStore({ log });
-      const record = hiddenRecord(createRecord({ appendStore, dataDir, log }), hide);
-      const journalRead = createJournal({ appendStore, dataDir, config: () => ({}), log });
+      const record = hiddenRecord(createRecord({ dataDir, log, memoryDb: memoryFor(dataDir) }), hide);
+      const journalRead = createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) });
       const caught = await heartbeatReplayWake({
         inner: mods,
         hot,
@@ -2570,7 +2579,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       } else {
         channelIds = innerState.review?.channels ?? [];
         if (channelIds.length === 0) {
-          const record = hiddenRecord(createRecord({ appendStore: createAppendStore({ log }), dataDir, log }), hide);
+          const record = hiddenRecord(createRecord({ dataDir, log, memoryDb: memoryFor(dataDir) }), hide);
           const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
           const own = [];
           for await (const line of record.iterate(guildId, { from })) if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
@@ -2591,7 +2600,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 
     // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
     const port = createFakeAdapter({ iface: 'replay', selfId: self.id, now: Date.now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
-    const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, journal: readOnlyJournal(createJournal({ appendStore: createAppendStore({ log }), dataDir, config: () => ({}), log })), getGuildId: () => guildId, dataDir: null });
+    const admin = createAdmin({ hot, store, client, discord: capabilities, port, intentions, errands, journal: readOnlyJournal(createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) })), getGuildId: () => guildId, dataDir: null });
     const turns = diaryTurnRunner(mods, {
       hot, store, llm, calibrator, client, guildId, self, images: null, state, port, wrapDiscord: (found) => hiddenCapabilities(found, hide),
       extra: { skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, intentions, errands },
@@ -2808,7 +2817,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     const now = () => clock.base + (Date.now() - clock.real);
 
     // The store and the counters: an in-memory copy, today's diary and image counts at 0.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData }));
+    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
     state.data[DIARY_DAILY.countKey] = 0;
     state.data[DIARY_PICTURES_DAILY.countKey] = 0;
     state.data.imageCount = 0;
@@ -3294,11 +3303,12 @@ export function scenarioFileOf(task, parseFileHandle) {
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
  * `task.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed
  * out: nothing is ever queued, and the store writes nothing for it.
- * @param {{ createTaskStore: Function, dataDir: string, guildId: string, config: () => object, now?: () => number, log?: object }} input
+ * @param {{ createTaskStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
+ *   memoryDb?: object|null }} input  `memoryDb`: the memory read (tools/lib/memory-read.mjs); without it no task is known
  * @returns {{ budget(agent: string): { spent: boolean, key: string|null, code: string|null } }}
  */
-export function sandboxErrandBudget({ createTaskStore, dataDir, guildId, config, now = Date.now, log }) {
-  const store = createTaskStore({ dataDir, guildId: String(guildId), config, now, journal: null, ...(log ? { log } : {}) });
+export function sandboxErrandBudget({ createTaskStore, guildId, config, now = Date.now, log, memoryDb = null }) {
+  const store = createTaskStore({ guildId: String(guildId), config, now, journal: null, memoryDb, ...(log ? { log } : {}) });
   return Object.freeze({ budget: (agent) => store.budget(agent) });
 }
 
@@ -3390,7 +3400,7 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
     appendRecallTrace() {},
   };
   const recallOf = (client) =>
-    createRecall({ hot, store: recallStore, llm: client, discord, describer, archive: sources.archive ?? null, record: sources.record ?? null, vectors: sources.vectors ?? null, embed });
+    createRecall({ hot, store: recallStore, llm: client, discord, describer, archive: sources.archive ?? null, record: sources.record ?? null, vectors: sources.vectors ?? null, embed, memoryDb: sources.memoryDb ?? null });
   const metered = () => {
     const usage = { requests: 0, tokens: { prompt: 0, completion: 0 }, cost: null };
     const client = {
@@ -4337,7 +4347,7 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
     const situation = task ? { history: first.lines, mode: 'interject' } : { history: first.lines, triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
     const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
     // An errand's budget as live: the guild's tasks.json of the data read (live or --snapshot) against the scenario's config, never queued into.
-    const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId, config: () => scenarioConfig, log });
+    const tasks = sandboxErrandBudget({ createTaskStore, guildId, config: () => scenarioConfig, log, memoryDb: memoryFor(dataDir) });
     // The files of the scenario's errand, named by their handles as live (`file:<task id>/<name>`).
     const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
     const memoryOn = scenarioConfig.features?.memory !== false;
@@ -4777,7 +4787,7 @@ export async function runTriggerLoops({ single, args, root, liveData, pairTrigge
       const hotLike = { get prompts() { return hot.prompts; }, get config() { return config; } };
       const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args, mods: viewMods });
       const images = { quota: createImageGen({ apiKey: '', getConfig: () => config, state: frozenState, fetchImpl: refusing }).quota };
-      const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId, config: () => config, log });
+      const tasks = sandboxErrandBudget({ createTaskStore, guildId, config: () => config, log, memoryDb: memoryFor(dataDir) });
       const simulate = (call, { idByIndex, history: lines2, channelHandles = null }) =>
         simulateCall({
           call,
@@ -4948,14 +4958,15 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   };
   for (const [name, fn] of Object.entries(fns)) if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (the tool loop needs it)`);
   if (!Array.isArray(IN_TURN_TOOLS)) throw new CliError('replay-cli: the engine has no IN_TURN_TOOLS (the tool loop needs it)');
-  // Iteration only: the append stores never get an append, so they never open a file for writing.
-  const record = createRecord({ appendStore: createAppendStore(), dataDir });
-  const archive = createArchive({ appendStore: createAppendStore(), dataDir });
-  const vectors = createVectors({ dataDir });
+  // Iteration only: the archive's append store never gets an append, so it never opens a file for writing.
+  const record = createRecord({ dataDir, memoryDb: memoryFor(dataDir) });
+  const archive = createArchive({ appendStore: createAppendStore(), dataDir, memoryDb: memoryFor(dataDir) });
+  const vectors = createVectors({ dataDir, memoryDb: memoryFor(dataDir) });
   const sources = {
     record: { iterate: (...a) => record.iterate(...a) },
     archive: { iterate: (...a) => archive.iterate(...a) },
     vectors: { search: (...a) => vectors.search(...a) },
+    memoryDb: memoryFor(dataDir),
   };
   let embed = null;
   if (hot.config.features?.meaningSearch === true && openrouterKey) {
@@ -5254,7 +5265,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
     const channelDirectory = channelDirectoryOf(guild, hot.config.bot);
 
-    const realStore = createStore({ dataDir });
+    const realStore = createStore({ dataDir, memoryDb: memoryFor(dataDir) });
     const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);

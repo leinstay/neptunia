@@ -9,6 +9,7 @@ import { avatarHashOf, isAvatarDue, memberView, normalizeAvatar } from '../src/m
 import { AVATAR_DAILY, createAvatarQueue } from '../src/memory/avatar-queue.js';
 import { createStore } from '../src/memory/store.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
 const GUILD = 'g1';
@@ -442,9 +443,10 @@ test('scan: a resolver that throws for one member does not stop the others', asy
 
 // ---- the store's write path -------------------------------------------------------------
 
-test('store.setAvatar: writes the current avatar only into an existing profile, replaces it, normalised on read', () => {
-  const dataDir = fs.mkdtempSync(path.join(TMP_ROOT, 'store-'));
-  const store = createStore({ dataDir });
+test('store.setAvatar: writes the current avatar only into an existing profile, replaces it, normalised on read', async () => {
+  const mem = await openTestMemory({ dataDir: fs.mkdtempSync(path.join(TMP_ROOT, 'store-')) });
+  const { dataDir, memoryDb } = mem;
+  const store = createStore({ dataDir, memoryDb });
   assert.equal(store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'fox', describedAt: null }), null, 'never creates a profile');
   assert.equal(store.getUser(GUILD, 'u1'), null);
   store.touchUser(GUILD, 'u1', 'Ελένη', NOW);
@@ -456,10 +458,12 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   store.setAvatar(GUILD, 'u1', { hash: null, default: true });
   assert.deepEqual(store.getUser(GUILD, 'u1').avatar, { hash: null, default: true });
   store.flush();
+  await store.flushSettled({});
   // A hand-broken field is dropped on read; an absent one stays absent.
-  const file = path.join(dataDir, 'guilds', GUILD, 'users', 'u1.json');
-  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  fs.writeFileSync(file, JSON.stringify({ ...raw, avatar: { hash: 'h3' } }));
-  const fresh = createStore({ dataDir });
+  const owner = `guilds/${GUILD}/users/u1.json`;
+  const raw = JSON.parse(unitFile(memoryDb, owner));
+  await memoryDb.writeUnit({ op: 'value', owner, value: { ...raw, avatar: { hash: 'h3' } } });
+  const fresh = createStore({ dataDir, memoryDb });
   assert.equal('avatar' in fresh.getUser(GUILD, 'u1'), false);
+  await mem.close();
 });

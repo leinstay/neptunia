@@ -1,4 +1,4 @@
-// The archive's reads from the database (stage W1; src/memory/archive.js dispatches to them under authority `db`).
+// The archive's reads from the database (src/memory/archive.js reads through them).
 // An archive month is the unit `<layer>/archive/<YYYY-MM>.jsonl` of `claim_versions` rows (map/archive.js); the
 // lines come back rebuilt by the export, in file order. Pure functions over a read connection.
 

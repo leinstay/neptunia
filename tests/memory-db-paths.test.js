@@ -1,8 +1,7 @@
 // The path allowlist of the writer switch (spec 2026-10-24-memory-authority, section 6 item 8; stage W4): every path
-// the sync maps or skips, the data layout of src/memory/store.js and the files of the fixture data directory are in
-// exactly one of the two lists (operational: still written under `db`; memory: retires at the switch), and
-// `tools/memory-db.mjs retire-check` fails when a memory file was modified after the switch time. Synthetic paths and
-// data only; the ids are made up.
+// the unit mappers map or skip, the data layout of src/memory/store.js and the files of the fixture data directory are
+// in exactly one of the two lists (operational: still written as files; memory: in the database only). Synthetic paths
+// and data only; the ids are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +10,6 @@ import path from 'node:path';
 import { MEMORY_PATTERNS, OPERATIONAL_PATTERNS, isMemoryPath, isOperational, pathClass } from '../src/memory/db/paths.js';
 import { MAPPERS, classify } from '../src/memory/db/map/index.js';
 import { operationalJsonPath } from '../src/memory/store.js';
-import { main } from '../tools/memory-db.mjs';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 
 const G = `guilds/${GUILD}`;
@@ -162,56 +160,5 @@ test('allowlist: the store\'s operational JSON files (what /nep resume checks un
   for (const rel of json) {
     if (toolOutput.test(rel)) continue;
     assert.equal(operationalJsonPath(rel), isOperational(rel), rel);
-  }
-});
-
-/** The fixture data directory with every file dated `at`. */
-function datedDataDir(at) {
-  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-retire-'));
-  const data = path.join(root, 'data');
-  fs.mkdirSync(data);
-  buildDataDir(data);
-  for (const rel of filesOf(data)) fs.utimesSync(path.join(data, rel), at / 1000, at / 1000);
-  return { root, data };
-}
-
-const run = (...argv) => {
-  const lines = [];
-  const code = main(argv, { out: (line) => lines.push(line), err: (line) => lines.push(line) });
-  return { code, text: lines.join('\n') };
-};
-
-test('retire-check: the memory files per pattern with their newest time; a memory file written after --since fails it', () => {
-  const before = Date.parse('2026-10-20T10:00:00.000Z');
-  const since = '2026-10-21T00:00:00.000Z';
-  const { root, data } = datedDataDir(before);
-  try {
-    const listed = run('retire-check', '--data', data);
-    assert.equal(listed.code, 0, listed.text);
-    assert.match(listed.text, /guilds\/\*\/users\/\*\* +files +1 +newest 2026-10-20T10:00:00\.000Z/);
-    assert.match(listed.text, /operational files 7, unknown files 0/);
-
-    const clean = run('retire-check', '--data', data, '--since', since);
-    assert.equal(clean.code, 0, clean.text);
-    assert.match(clean.text, /retire-check ok: no memory file modified since 2026-10-21T00:00:00\.000Z/);
-
-    // The operational files may be written after the switch.
-    const later = Date.parse('2026-10-22T08:00:00.000Z') / 1000;
-    for (const rel of ['state.json', `${G}/participation.json`, `${G}/journal/requests/2026-10-20/turn-1-s1.json`]) fs.utimesSync(path.join(data, rel), later, later);
-    assert.equal(run('retire-check', '--data', data, '--since', since).code, 0);
-
-    // A memory file written after it fails the check and is named.
-    fs.utimesSync(path.join(data, G, 'users', `${MEMBER}.json`), later, later);
-    fs.utimesSync(path.join(data, G, 'journal', '2026-10-20.jsonl'), later, later);
-    const dirty = run('retire-check', '--data', data, '--since', since);
-    assert.equal(dirty.code, 1, dirty.text);
-    assert.match(dirty.text, /retire-check FAILED: 2 memory files modified since 2026-10-21T00:00:00\.000Z/);
-    assert.match(dirty.text, new RegExp(`${G}/users/${MEMBER}\\.json 2026-10-22T08:00:00\\.000Z`));
-    assert.match(dirty.text, /guilds\/\*\/journal\/<YYYY-MM-DD>\.jsonl +files +1 +newest 2026-10-22T08:00:00\.000Z/);
-
-    assert.equal(run('retire-check', '--data', data, '--since', 'yesterday').code, 2);
-    assert.equal(run('retire-check').code, 2);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
   }
 });

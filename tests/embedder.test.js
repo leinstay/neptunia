@@ -1,13 +1,11 @@
-// Tests for src/memory/embedder.js: the live embedding queue over a real record in a temporary
-// data/ directory, with a fake embedding call and a fake vector index (no network, no real data).
-import { test } from 'node:test';
+// Tests for src/memory/embedder.js: the live embedding queue over a real record in the memory
+// database of a temporary data/ directory, with a fake embedding call and a fake vector index (no
+// network, no real data).
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createEmbedder } from '../src/memory/embedder.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
@@ -28,11 +26,18 @@ function quietLog() {
   return { warns, infos, info(name, fields) { infos.push({ name, fields }); }, warn(name, fields) { warns.push({ name, fields }); }, error() {} };
 }
 
-/** A temp data/, the real record, a fake index and embed call, and the queue over them. */
+/** The test databases opened here; closed when the file is done. */
+const OPENED = [];
+after(async () => {
+  for (const mem of OPENED) await mem.close();
+});
+
+/** A temp data/ with its database, the real record, a fake index and embed call, and the queue over them. */
 function scene({ features = { meaningSearch: true, embedIndex: true }, embedConfig = {}, embedImpl = null, paused = null } = {}) {
-  const dataDir = tempDir('nep-embedder-');
-  const appendStore = createAppendStore({ fsyncMs: 0, log: quietLog() });
-  const record = createRecord({ appendStore, dataDir, log: quietLog() });
+  const mem = openTestMemorySync();
+  OPENED.push(mem);
+  const { dataDir, memoryDb } = mem;
+  const record = createRecord({ dataDir, log: quietLog(), memoryDb });
   const config = {
     features: { ...features },
     embed: { dimensions: 4, batch: 64, flushSeconds: 180, queueMax: 2000, ...embedConfig },
@@ -69,7 +74,7 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   const clock = { at: T0 };
   const log = quietLog();
   const embedder = createEmbedder({
-    hot, vectors, embed, record, dataDir, log, now: () => clock.at,
+    hot, vectors, embed, record, memoryDb, log, now: () => clock.at,
     nameOf: (guildId, id) => names.get(id) ?? null,
     selfName: () => 'Persona',
     ...(paused ? { paused } : {}),
@@ -81,7 +86,7 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   }
   /** Record the lines only: the queue was down (a stop, a crash, the switches off). */
   const recordOnly = (lines, opts = {}) => record.append(GUILD, lines, opts);
-  return { dataDir, record, hot, appended, preIndexed, calls, clock, log, embedder, write, recordOnly, close: () => appendStore.close() };
+  return { dataDir, record, hot, appended, preIndexed, calls, clock, log, embedder, write, recordOnly, close: async () => {} };
 }
 
 const sentIds = (kit) => kit.appended.flatMap((a) => a.rows.map((row) => `${row.meta.id}:${row.meta.revision}`));
@@ -169,42 +174,6 @@ test('embedder: the queue is bounded at embed.queueMax, the oldest dropped with 
   await kit.close();
 });
 
-test('embedder: a forget landing while the request runs drops the rows naming the member', async () => {
-  let kit;
-  kit = scene({
-    embedImpl: (texts) => {
-      const dir = path.join(kit.dataDir, 'guilds', GUILD, 'forgetting');
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, `${NIKOS}.json`), '{}');
-      return texts.map(() => Float32Array.from([1, 0, 0, 0]));
-    },
-  });
-  await kit.write([line('m1', 0, 'by Nikós', { by: NIKOS, participants: [NIKOS] })]);
-  await kit.write([line('m2', 10, 'unrelated', { scope: { channel: 'c2' } })]);
-  const result = await kit.embedder.flush();
-  assert.equal(result.embedded, 1);
-  assert.equal(result.dropped, 1);
-  assert.deepEqual(kit.appended[0].rows.map((row) => row.meta.id), ['m2']);
-  await kit.close();
-});
-
-test('embedder: a member forgotten after the line is never sent; a context line naming them is left out', async () => {
-  const kit = scene();
-  const ledger = path.join(kit.dataDir, 'guilds', GUILD, 'forgotten.json');
-  await kit.write([line('m1', 0, 'by Nikós', { by: NIKOS, participants: [NIKOS] })]);
-  await kit.write([line('m2', 1, 'by Eleni')]);
-  fs.writeFileSync(ledger, JSON.stringify([{ userId: NIKOS, at: new Date(T0 + 5 * 60_000).toISOString() }]));
-  await kit.embedder.flush();
-  assert.equal(kit.calls.length, 1);
-  assert.deepEqual(kit.calls[0].texts, ['Ελένη: by Eleni']);
-  assert.deepEqual(kit.appended[0].rows[0].meta.sourceIds, ['m2']);
-  // What the member wrote after their forget is kept: a forget is not a ban.
-  await kit.write([line('m3', 9, 'back again', { by: NIKOS, participants: [NIKOS] })]);
-  await kit.embedder.flush();
-  assert.deepEqual(kit.appended[1].rows.map((row) => row.meta.id), ['m3']);
-  await kit.close();
-});
-
 test('embedder: the ring is filled from the record on first use', async () => {
   const kit = scene({ features: { meaningSearch: true, embedIndex: false } });
   await kit.write([line('m1', 0, 'one'), line('m2', 1, 'two'), line('m3', 2, 'three', { scope: { channel: 'c2' } })]);
@@ -223,17 +192,6 @@ test('embedder: a private line keeps to its own layer and goes to the private in
   assert.deepEqual(kit.calls[0].texts, ['Ελένη: public', 'Ελένη: private']);
   assert.deepEqual(kit.appended.map((a) => a.opts.privateUserId), [null, ELENI]);
   await kit.close();
-});
-
-test('embedder: a wiped record (its day file gone) sends nothing', async () => {
-  const kit = scene();
-  await kit.write([line('m1', 0, 'a')]);
-  // The record's files closed first, as the wipe's writer lock flushes them (Windows keeps open files).
-  await kit.close();
-  fs.rmSync(path.join(kit.dataDir, 'guilds', GUILD, 'record'), { recursive: true, force: true });
-  const result = await kit.embedder.flush();
-  assert.deepEqual(result, { embedded: 0, dropped: 1, left: 0 });
-  assert.equal(kit.calls.length, 0);
 });
 
 test('embedder: close flushes what waits once, then queues nothing more', async () => {
@@ -294,24 +252,6 @@ test('embedder: catchUp skips what the index holds at that revision and embeds a
   assert.deepEqual({ messages: pass.messages, indexed: pass.indexed, missing: pass.missing, queued: pass.queued }, { messages: 3, indexed: 1, missing: 2, queued: 2 });
   await kit.embedder.flush();
   assert.deepEqual(sentIds(kit), ['m2:2', 'm3:1']);
-  await kit.close();
-});
-
-test('embedder: catchUp leaves out a member under a forgetting marker, one the ledger forgot after the line, and their private layer', async () => {
-  const kit = scene();
-  const guildDir = path.join(kit.dataDir, 'guilds', GUILD);
-  const MARTA = '433333333333333333';
-  await kit.recordOnly([line('m1', 0, 'by Nikós', { by: NIKOS, participants: [NIKOS] }), line('m2', 1, 'by Eleni'), line('m3', 2, 'by Marta', { by: MARTA, participants: [MARTA] })]);
-  await kit.recordOnly([line('p1', 3, 'private to Nikós', { by: NIKOS, participants: [NIKOS] })], { privateUserId: NIKOS });
-  fs.writeFileSync(path.join(guildDir, 'forgotten.json'), JSON.stringify([{ userId: NIKOS, at: new Date(T0 + 30 * 60_000).toISOString() }]));
-  fs.mkdirSync(path.join(guildDir, 'forgetting'), { recursive: true });
-  fs.writeFileSync(path.join(guildDir, 'forgetting', `${MARTA}.json`), '{}');
-  kit.clock.at = T0 + 3_600_000;
-  const pass = await kit.embedder.catchUp(GUILD);
-  assert.equal(pass.queued, 1);
-  await kit.embedder.flush();
-  assert.deepEqual(sentIds(kit), ['m2:1']);
-  assert.deepEqual(kit.calls[0].texts, ['Ελένη: by Eleni'], 'a forgotten context line is left out too');
   await kit.close();
 });
 

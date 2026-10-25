@@ -1,17 +1,15 @@
 // The database writes of her memory session and description review (session.js, describe.js). They run on the
-// writer connection: in the sync worker (sync-worker.js, message `memoryWrite`), or on the calling thread when there
+// writer connection: in the writer worker (writer-worker.js, message `memoryWrite`), or on the calling thread when there
 // is no worker. This module imports nothing heavy, so the worker can load it.
 //
 // applyMemoryWrite(handle, update) -> counts
-//   { kind: 'session', mode, authority, run, plan, advance, pending, decision, answer, maxDelta, now }
+//   { kind: 'session', mode, run, plan, advance, pending, decision, answer, maxDelta, now }
 //       `run` may be null for a write that only moves the cursor, the pending mark or records a `decision`.
 //       One transaction: the `session_runs` row of the request, her whole answer as a `sources` row (kind
 //       `memory_session`, scope internal), the cursor (`advance`: a meta key, the value, and the value it must still
 //       have: a compare-and-set), the pending-batch mark (`pending`: a meta key and a value, or null to clear it), and
 //       the plan the answer validated to. Any failure rolls the whole thing back: a cursor never moves without its writes.
-//       - `mode` is `shadow` or `apply`; any other mode is refused (`BAD_MODE`). `apply` also needs `authority` `db`
-//         (`APPLY_JSON_WRITER` otherwise): the caller (service.js) stamps it from the live config, the read switch alone
-//         never unlocks a write.
+//       - `mode` is `shadow` or `apply`; any other mode is refused (`BAD_MODE`).
 //       - shadow: every op becomes one `decisions` row (`by` her, `action` `proposed:<op>`, the whole op in `extra`);
 //         no claim, episode or attitude is touched.
 //       - apply: claims (rows, versions, sources), episodes, attitude events and their effect on the score, and a
@@ -21,25 +19,21 @@
 //         (a `decisions` row `rejected:<why>`). A claim's scope is the narrowest scope of the run and of the NEW
 //         sources; when it differs from the target claim's scope, the change is written as a new claim of that scope
 //         and the old claim stays as it was.
-//   { kind: 'description', mode, authority, row, subject, scope, expectCurrent, answers, now }
-//       One `description_versions` row. `shadow`: origin `shadow`, never current. `apply` (authority `db`): origin
+//   { kind: 'description', mode, row, subject, scope, expectCurrent, answers, now }
+//       One `description_versions` row. `shadow`: origin `shadow`, never current. `apply`: origin
 //       `review`, and in the same transaction the `descriptions` row is created or moved to this version.
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.js#contextRow of a context the core issued); a context already recorded is
-//       left as it is. Not a memory write: no mode and no authority.
+//       left as it is. Not a memory write: no mode.
 //   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
-//       Bookkeeping of the database itself, not her memory: no mode and no authority.
-//   { kind: 'handoff', authority, now }
-//       Stage W3: the analyzer-to-session handoff (handoff.js#handoff), refused unless authority is `db`
-//       (`HANDOFF_JSON_WRITER`); idempotent through its `meta` marker.
-//   { kind: 'unit', op, authority, ... }
-//       Stage W2a: the append-like memory units (record and journal lines, participation, the diary, the vectors) and
-//       the projection the writers finish under authority `db`, handed to unit-write.js#applyUnitWrite (the authority
-//       is the service's stamp).
+//       Bookkeeping of the database itself, not her memory: no mode.
+//   { kind: 'unit', op, ... }
+//       The memory units (record and journal lines, the store's cache, the module stores, participation, the diary,
+//       the vectors) and the projection the writers finish, handed to unit-write.js#applyUnitWrite.
 //   { kind: 'backup', to, dataDir, now, commit, configHash }
-//       Stage W4: the daily backup (backup.js#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
-//       a consistent copy, no WAL file copied. Not a memory write: no mode and no authority; returns the manifest.
+//       The daily backup (backup.js#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
+//       a consistent copy, no WAL file copied. Not a memory write: no mode; returns the manifest.
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -85,7 +79,6 @@ import { applyWakeWrite } from './wakes.js';
 import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
-import { handoff } from './handoff.js';
 import { writeBackup } from './backup.js';
 
 /**
@@ -382,10 +375,9 @@ function applyPeopleAdd(db, op, state) {
 
 const emptyCounts = () => ({ proposed: 0, added: 0, confirmed: 0, revised: 0, retired: 0, episodes: 0, affinity: 0, flags: 0, missing: 0, rejected: 0, derived: 0, duplicate: 0, people: 0 });
 
-/** Throws unless `mode` is one the writer knows, and `apply` has the database as the writer. */
+/** Throws unless `mode` is one the writer knows. */
 function guard(update) {
   if (update.mode !== 'shadow' && update.mode !== 'apply') throw coded('BAD_MODE');
-  if (update.mode === 'apply' && update.authority !== 'db') throw coded('APPLY_JSON_WRITER');
 }
 
 /** Applies one write on the writer connection; returns counts. */
@@ -399,11 +391,6 @@ export function applyMemoryWrite(handle, update) {
   if (update?.kind === 'unit') return applyUnitWrite(handle, update);
   if (update?.kind === 'backup') {
     return writeBackup(handle, { to: update.to, dataDir: update.dataDir, now: () => update.now ?? Date.now(), commit: update.commit ?? null, configHash: update.configHash ?? null });
-  }
-  // Stage W3: the analyzer-to-session handoff at the switch (handoff.js), only with the database as the writer.
-  if (update?.kind === 'handoff') {
-    if (update.authority !== 'db') throw coded('HANDOFF_JSON_WRITER');
-    return handoff(handle, { now: update.now ?? Date.now() });
   }
   if (update?.kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
@@ -483,7 +470,7 @@ export function applyMemoryWrite(handle, update) {
 
 /**
  * One reviewed description as a `description_versions` row. In shadow its origin is `shadow` and it is never the
- * current version; in apply (authority `db`) the same transaction creates or moves the `descriptions` row to it.
+ * current version; in apply the same transaction creates or moves the `descriptions` row to it.
  * `expectCurrent` is the version the review was based on; if another one has become current meanwhile, nothing is written.
  */
 function writeDescription(handle, update) {

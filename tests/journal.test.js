@@ -1,11 +1,12 @@
-// Tests for src/memory/journal.js: the persona's journal records, written as JSON lines
-// through an append store. A fake append store records `{ file, line }` and replays them on
-// iterate; no real disk, no real data/.
-import { test } from 'node:test';
+// Tests for src/memory/journal.js: the persona's journal records, written to the memory database
+// (a test database on a temporary directory; the lines each write sends are recorded as `{ file,
+// line }`, `file` the day file they stand for), and read back from it; no real data/.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf, toolsHashOf } from '../src/memory/journal.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.js';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -34,10 +35,30 @@ function counter(prefix) {
   return () => `${prefix}${(n += 1)}`;
 }
 
+/** The test databases opened here; closed when the file is done. */
+const OPENED = [];
+after(async () => {
+  for (const mem of OPENED) await mem.close();
+});
+
+/** A test memory database whose unit writes also record each line in `lines` as `{ file, line }`. */
+function recordingMemory(lines) {
+  const mem = openTestMemorySync();
+  OPENED.push(mem);
+  return {
+    ...mem.memoryDb,
+    writeUnit: (update) => {
+      for (const line of update.lines ?? []) lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+      return mem.memoryDb.writeUnit(update);
+    },
+  };
+}
+
 function journalAt(clock, { thinkChars = 4000 } = {}) {
   const appendStore = fakeAppendStore();
   const journal = createJournal({
     appendStore,
+    memoryDb: recordingMemory(appendStore.lines),
     dataDir: DATA,
     config: () => ({ thinkChars }),
     now: () => clock.ms,
@@ -501,73 +522,19 @@ test('journal: an answer record is scoped to its channel, named by its participa
   assert.equal(journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'recovery', outcome: 'spoke' }), '08:09:10 answer recovery spoke');
 });
 
-// ---- forget and the run marker: a real append store on a temp dir --------------------------
+// ---- the run marker: a real directory and database --------------------------------------------
 
 async function realJournal(clock) {
   const fsp = await import('node:fs/promises');
-  const os = await import('node:os');
   const { createAppendStore } = await import('../src/memory/append-store.js');
   const dataDir = tempDir('nep-journal-');
   const quiet = { info() {}, warn() {} };
+  const mem = await openTestMemory({ dataDir });
+  OPENED.push(mem);
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet, now: () => clock.ms });
-  const make = (store = appendStore) => createJournal({ appendStore: store, dataDir, config: () => ({}), now: () => clock.ms, uuid: counter('r-'), log: quiet });
+  const make = (store = appendStore) => createJournal({ appendStore: store, dataDir, config: () => ({}), now: () => clock.ms, uuid: counter('r-'), log: quiet, memoryDb: mem.memoryDb });
   return { fsp, dataDir, appendStore, make, journal: make() };
 }
-
-test('journal: forgetUser rewrites day files dropping records whose participants include the user, with a marker that survives a crash', async () => {
-  const clock = { ms: DAY_D };
-  const { fsp, dataDir, appendStore, make, journal } = await realJournal(clock);
-  try {
-    await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'spoke', think: 'Ζωή', participants: ['u1', 'u2'] });
-    await journal.system('g1', { event: 'pause', by: 'owner' });
-    await journal.turn('g1', { turnId: 't-p', attemptId: 1, channelId: 'dm1', privateUserId: 'u1', outcome: 'spoke', participants: ['u1'] });
-    clock.ms = DAY_D1;
-    await journal.action('g1', { opId: 'op-1', phase: 'started', name: 'post', channelId: 'c1', participants: ['u1'] });
-    await journal.action('g1', { opId: 'op-2', phase: 'started', name: 'react', channelId: 'c1', participants: ['u3'] });
-    await appendStore.flush();
-
-    // A crash mid-forget: the second day file's rewrite never happens.
-    let calls = 0;
-    const crashing = {
-      ...appendStore,
-      rewrite: async (file, keep) => {
-        calls += 1;
-        if (calls === 2) throw Object.assign(new Error('killed'), { code: 'EKILLED' });
-        return appendStore.rewrite(file, keep);
-      },
-    };
-    await assert.rejects(make(crashing).forgetUser('g1', 'u1'), /killed/);
-    const marker = path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u1.json');
-    await fsp.stat(marker); // the marker survived the crash
-
-    // While the marker exists, the reader hides the user everywhere.
-    assert.deepEqual((await journal.read('g1', { day: '2026-10-14' })).map((r) => r.opId), ['op-2']);
-    assert.deepEqual((await journal.read('g1', { day: '2026-10-13' })).map((r) => r.kind), ['system']);
-    assert.deepEqual(await journal.read('g1', { day: '2026-10-13', privateUserId: 'u1' }), []);
-
-    // The next start finishes the job and removes the marker.
-    const finished = await journal.resumeForgets('g1');
-    assert.equal(finished.finished, 1);
-    await assert.rejects(fsp.stat(marker), { code: 'ENOENT' });
-    const raw = async (day) => (await fsp.readFile(journal.dayFile('g1', day), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
-    assert.deepEqual((await raw('2026-10-13')).map((r) => r.kind), ['system']);
-    assert.deepEqual((await raw('2026-10-14')).map((r) => r.opId), ['op-2']);
-    await assert.rejects(fsp.stat(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'journal')), { code: 'ENOENT' });
-
-    // A marker someone else owns stays where it is; the journal part is still done.
-    await fsp.writeFile(path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u3.json'), '{"userId":"u3"}\n');
-    const result = await journal.forgetUser('g1', 'u3');
-    assert.equal(result.dropped, 1);
-    await fsp.stat(path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u3.json'));
-    // And the store keeps appending after a rewrite.
-    await journal.system('g1', { event: 'resume', by: 'owner' });
-    await appendStore.flush();
-    assert.deepEqual((await raw('2026-10-14')).map((r) => r.kind), ['system']);
-  } finally {
-    await appendStore.close();
-    await fsp.rm(dataDir, { recursive: true, force: true });
-  }
-});
 
 test('journal: a .running marker left over at start writes an unclean-stop record', async () => {
   const clock = { ms: DAY_D };
@@ -589,26 +556,6 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
     const written = await journal.read('g1', { day: '2026-10-13' });
     assert.deepEqual(written.map((r) => [r.kind, r.event]), [['system', 'unclean-stop']]);
     await fsp.stat(running);
-  } finally {
-    await appendStore.close();
-    await fsp.rm(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('journal: removeGuild deletes the guild journal day files and every private journal, the run marker stays', async () => {
-  const clock = { ms: DAY_D };
-  const { fsp, dataDir, appendStore, journal } = await realJournal(clock);
-  try {
-    await journal.markRunning('g1');
-    await journal.system('g1', { event: 'pause', by: 'owner' });
-    await journal.turn('g1', { turnId: 't-p', attemptId: 1, channelId: 'dm1', privateUserId: 'u1', outcome: 'spoke' });
-    const counts = await journal.removeGuild('g1');
-    assert.equal(counts.files, 2);
-    assert.deepEqual(await journal.read('g1', { day: '2026-10-13' }), []);
-    assert.deepEqual(await journal.read('g1', { day: '2026-10-13', privateUserId: 'u1' }), []);
-    await fsp.stat(path.join(dataDir, 'guilds', 'g1', 'journal', '.running'));
-    await journal.system('g1', { event: 'wipe', by: 'owner' });
-    assert.deepEqual((await journal.read('g1', { day: '2026-10-13' })).map((r) => r.event), ['wipe']);
   } finally {
     await appendStore.close();
     await fsp.rm(dataDir, { recursive: true, force: true });
@@ -812,30 +759,6 @@ test('journal: withWriterLock releases the lock when fn throws', async () => {
   );
   await journal.system('g1', { event: 'resume', by: 'owner' });
   assert.equal(appendStore.lines.length, 1);
-});
-
-test('journal: request dumps that mention a forgotten user are deleted', async () => {
-  const { journal, fs } = dumpJournal();
-  fs.readFile = async (file) => {
-    if (!fs.files.has(file)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
-    return fs.files.get(file);
-  };
-  const id = '348100000000000101';
-  const privateRequests = path.join(DATA, 'guilds', 'g1', 'private', '348100000000000202', 'journal', 'requests');
-  const named = path.join(REQUESTS, '2026-10-12', 't-1-1.json');
-  const token = path.join(REQUESTS, '2026-10-13', 't-2-1.json');
-  const inPrivate = path.join(privateRequests, '2026-10-13', 't-3-1.json');
-  const other = path.join(REQUESTS, '2026-10-13', 't-4-1.json');
-  const longer = path.join(REQUESTS, '2026-10-13', 't-5-1.json');
-  fs.files.set(named, JSON.stringify({ system: `Ελένη (id:${id})`, parts: [] }));
-  fs.files.set(token, JSON.stringify({ system: '', parts: [{ type: 'text', text: `<@${id}> καλημέρα` }] }));
-  fs.files.set(inPrivate, JSON.stringify({ system: '', parts: [{ type: 'text', text: `about <@${id}>` }] }));
-  fs.files.set(other, JSON.stringify({ system: '', parts: [{ type: 'text', text: 'καλησπέρα' }] }));
-  fs.files.set(longer, JSON.stringify({ system: '', parts: [{ type: 'text', text: `<@${id}9>` }] }));
-
-  assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 3 });
-  assert.deepEqual([...fs.files.keys()].sort(), [longer, other].sort(), 'another id that only starts the same stays');
-  assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 0 });
 });
 
 // ---- the persona's time away: offPeriods, timeline, createOffPeriodsReader ----

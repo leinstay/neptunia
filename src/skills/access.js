@@ -35,10 +35,6 @@ export const CARRIED_OVER = Object.freeze(['message.create', 'message.react.add'
  * is stored. Everything else -- owner-only operations included -- is grantable to her.
  */
 export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
-  'memory.wipe',
-  'memory.private.purge',
-  'memory.forget',
-  'memory.private.forget',
   'memory.restore',
   'rule.remove',
   'config.set',

@@ -1,7 +1,7 @@
 # Prompt contract
 
 Where the prompt files and the code (`src/behavior/prompt.js`, `src/llm/parse.js`, `src/format.js`,
-`src/memory/update.js`, `src/memory/channels.js`, `src/memory/warmup.js`) meet. Change one side only with the
+`src/memory/channels.js`) meet. Change one side only with the
 other. See `CONTRIBUTING.md` for the workflow around changes.
 
 ## Layers
@@ -26,14 +26,6 @@ All instructions are English in both layers; a character's speech samples may be
 | `follow-up.md` | no | Task: a line that carries on an exchange with the persona. The persona first decides whether another outward line is warranted (silence by default when the line asks nothing) and assesses any call separately; `<skip/>` only when neither is warranted. Replaces `reply.md` as the task text when the trigger kind is `followUp` (the address classifier's `yes`) or `reply` without an explicit @mention of the persona (Discord's reply ping does not count). A mention, a tagged reply and a name call keep `reply.md`. A missing or blank file falls back to `reply.md` | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `interject.md` / `initiate.md` | yes | Tasks: cut into a live conversation / start a topic in a silent chat. Code rolls `spontaneous.initiateChance` after `deadAfterMinutes` of silence, so the initiate prompt speaks by default and `<skip/>` is for a channel where a new topic is plainly out of place. An initiate turn may also follow the persona's own last line once the channel is dead | `{{name}}` |
 | `forced.md` | no | Appended after the mode prompt on a forced turn (`/nep talk interject`, `/nep talk initiate`). Overrides the `<skip/>` default | `{{name}}` |
-| `memory.md` | yes | Out-of-character prompt of the stream analyzer (single-stage mode and private batches): targeted edits to memory from live batches | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
-| `memory-decide.md` | no | Stage A of the two-stage analyzer (`features.memoryTwoStage`): neutral decisions on what changed, with briefs for the voice model. Same input blocks as `memory.md`. Returns JSON. Required when `features.memoryTwoStage` is on; a missing file falls back to single-stage mode | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
-| `memory-intentions.md` | no | Appended to the analyzer's system message (`memory.md` or `memory-decide.md`) of a guild batch while `features.intentions` is exactly true: asks for the top-level `intentions` field, candidates from the persona's own lines (see [Analyzer](#analyzer)). Absent or blank: not asked. Never in a private batch | `{{maxCandidates}}` |
-| `memory-voice.md` | no | Stage B of the two-stage analyzer: the persona words queued items in their own voice. Returns JSON. Required when `features.memoryTwoStage` is on. An optional `<over_limit>` block on a retry lists the items whose previous answer exceeded their limit | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{relationshipChars}}` `{{learnedChars}}` |
-| `portrait.md` | no | Stage A of the two-stage portrait refresh: reads the stored portrait and a message sample, returns a merged `style` text and structured `character` edits. The character edits are queued as a voice item for stage B. An optional `<over_limit>` block on a retry lists the fields whose previous answer exceeded their limit | `{{name}}` `{{fieldChars}}` |
-| `profile.md` | yes | Warmup / portrait refresh: one member's profile from a message sample. An optional `<over_limit>` block on a retry lists the fields whose previous answer exceeded their limit | `{{name}}` `{{fieldChars}}` `{{maxInterests}}` `{{maxDetails}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{maxNewEpisodes}}` |
-| `channel.md` | yes | Warmup and notes refresh: channel notes from a message sample. On a refresh, an optional `<existing_notes>` block carries the stored notes as claims to evaluate, not as evidence. An optional `<over_limit>` block on a retry lists the fields whose previous answer exceeded their limit | `{{fieldChars}}` |
-| `server.md` | yes | Warmup and notes refresh: server-level notes from channel notes and member summaries. On a refresh, an optional `<existing_notes>` block carries the stored notes as claims to evaluate. An optional `<over_limit>` block on a retry lists the fields whose previous answer exceeded their limit | `{{fieldChars}}` `{{maxInjokes}}` `{{loreTextChars}}` |
 | `describe.md` | yes | Out-of-character prompt of the media describer (`features.mediaDescriptions`): one picture in, one plain line out: what is visibly there, with actions and identities only on clear evidence. Legible text quoted in its original script. Indistinct regions described as such, ambiguous shapes not turned into an identity. Always English. No commentary, no moralising, no markdown | `{{today}}` `{{maxChars}}` (optional) |
 | `describe-video.md` | yes | Out-of-character prompt of the video describer (`features.videoDescriptions`): one video clip in (with sound), a full ordered account out: who appears, what is said (key phrases quoted), text on screen, what happens visually. Audio-first: the model decides from the audio alone whether anything is audible, opens with a plain statement of what it hears (or silence), and never infers sound from the picture, captions or genre. Configurable length. Always English; speech, captions and on-screen text quoted in their original language. No character card | `{{today}}` `{{maxChars}}` |
 | `describe-gif.md` | no | Out-of-character prompt for the GIF describer (`media.gif.watch`): a short silent clip in, three labelled lines out: `reaction` (the reply function, a few words or `none`), `action` (what visibly happens, capped at `{{maxChars}}`), `text` (on-screen text verbatim or `none`). Always English. No character card. Falls back to `describe-video.md` when absent | `{{today}}` `{{maxChars}}` `{{seconds}}` |
@@ -66,24 +58,18 @@ All instructions are English in both layers; a character's speech samples may be
 | `split.md` | no | Classifier: does a direct call hold several separate requests (`features.splitTasks`). Receives a short `<transcript>` and the new message as `<candidate>`. Output is the word `one`, or 2 to `{{maxTasks}}` lines each starting with `- ` and holding one part in the author's own words. No character card. Without this file the splitter is off | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | no | Classifier: does a new message from an author with waiting items belong to one of them. Receives a numbered `<waiting>` list and the new message as `<candidate>`. Output is one line: a number from the list or the word `new`. No character card. Without this file a new call is always queued as its own item | `{{name}}` |
 | `missed.md` | no | Classifier: do earlier messages to the persona still need an answer (`features.missedAnswers`). Role `analyzer`, purpose `missed`. Receives a short transcript (`missed.contextMessages` lines, the persona's own lines marked with `labels.self`, trigger markers when on) and a `<candidates>` block of numbered messages with their transcript line and the reason they were flagged. Output is one `n: verdict` line per candidate: `owed`, `resolved`, `intentional-skip`, `stale` or `uncertain`. A failed call gives every candidate `unchecked`, never `owed`. No character card | `{{name}}` |
-| `backfill.md` | no | Out-of-character prompt of the backfill tool (`tools/backfill.mjs extract`, never the running bot): picks episodes worth months and lessons taught to the persona out of one window of old chat. Receives `<roster>` and `<window>`. Returns JSON. No character card. Without it the tool's extract step refuses | `{{name}}` |
 | `labels.json` | yes | Every string the CODE inserts into a prompt. Keys fixed below, values are the writer's | see below |
 | `skills.json` | yes | The persona's skill texts, keyed by skill name (`hot.prompts.skills`). Deep-merged like `labels.json`: a local file adds or overrides individual keys. Each key holds `title`, `whenToUse`, an optional `whenNotToUse` and `args` (one description per parameter, sent with the tool schema). Code joins them with the structural definition from `src/skills/registry.js` at the moment of use (`describeSkill`) | none |
 
 `{{name}}` bot's display name · `{{author}}` caller's display name · `{{trigger}}` one of `labels.triggers.*` ·
 `{{target}}` index of the calling message (`#87`).
 `{{today}}` in `lookup.md` is the date in `bot.timezone`; in the describers (`describe.md`, `describe-video.md`, `describe-gif.md`) and `search-summary.md` it is the UTC date.
-System message = `system-prompt` + `character-card` + `rules` + `format`. For the analyzer: `memory.md` alone.
+System message = `system-prompt` + `character-card` + `rules` + `format`.
 On a forced turn (`/nep talk interject`, `/nep talk initiate`), `forced.md` is appended after the mode prompt if the file exists.
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 On the turn a finished errand opens without an origin message (trigger kind `task`, no trigger), `errand-result.md` REPLACES the mode prompt (`interject.md`). When `errand-result.md` is missing or blank, `interject.md` is used (degraded: it tells the persona that skipping is the normal outcome). With an origin message the reply task text is used as before.
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
-The analyzer and the warmup's `profile.md` and `server.md` receive the character card and `rules.md` as a
-`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `avatar.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md`, `planner.md` and `elsewhere.md` do not receive the card.
-
-`{{guildFieldChars}}` is `fieldChars * 2`, the limit code clamps guild-level patterns and starters to.
-`{{maxEpisodes}}` is the total episodes kept per person. Both are filled from config but not used by the default
-prompts; a custom `memory.md` may reference them.
+`describe.md`, `describe-video.md`, `describe-gif.md`, `avatar.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md`, `planner.md` and `elsewhere.md` do not receive the card.
 
 ## Blocks
 
@@ -1041,278 +1027,7 @@ In `<msg>` text and the body of `message.create` / `message.edit` (the reply, it
 
 Channels get handles the same way: `#`, then `c` and four base-36 digits of the channel id's SHA-256 (`src/behavior/handles.js#assignChannelHandles`; on a collision the oldest channel keeps the four digits and the other takes one more), so a channel keeps its handle across turns and restarts with nothing stored. `<channel_directory>` lists every text channel the persona can read with its handle, and a channel a line mentions carries its handle there (`transcript.channel`). In `<msg>` text and the body of `message.create` / `message.edit` an exact `#handle` of the request becomes `<#id>` before any name is tried (no letter, digit or underscore right before the `#` or after the handle, never inside a URL); a handle-shaped token the request does not hold goes on to the name matching under Output, and stays text when no name matches. A channel option of a `<call>` resolves the same way: `<#id>` or an id as given, a `#handle` (with or without the `#`) exactly, and only then the name matching (an exact name, else the one channel with the same core; several -> `target-ambiguous`, none -> `unknown-channel`). With the switch off: no `<channel_directory>`, no channel handles on the lines, and channels resolve by name only.
 
-## Analyzer
-
-One call (`memory.md`) updates everything the persona remembers. It judges people **through the persona's eyes**, so it receives
-the character card. Whether a channel is alive is NOT its call; code counts that. The warmup feeds old history
-through the warmup prompts (`profile.md`, `channel.md`, `server.md`), not through the analyzer.
-
-The numeric limits in the prompt are placeholders filled at runtime from `config.memory.*` and `relationships.maxDeltaPerUpdate`.
-
-Input: `<character>` · `<existing_profiles>` (JSON by user id; each profile is either whole or compact. A whole profile carries prose fields, attitude, and the ranked top of interests, details, aliases and episodes: interests capped at `memory.maxInterests`, details at `memory.maxDetails`, aliases at `memory.maxAliases`, episodes at `memory.analyzerEpisodes` (default 8). A whole profile also carries `realName` (the stored real name, when one is known) and `addressedAs` (names people use for this member, most used first, counted by code). A compact profile carries only `names`, `affinity` and `"compact": true`. When the batch is too large to fit every profile whole, authors with the most shown lines keep theirs whole and the rest arrive compact. Log fields `profilesWhole`, `profilesCompact`, `profilesTokens` on `memory: update applied`) · `<existing_lore>` ·
-`<existing_guild>` (JSON: patterns, starters, in-jokes, learned items; may carry `"stale": { "days": n }` when the server notes are due for review) · `<existing_channels>` (JSON by channel id: `name`, Discord `category`, `topic`, stored `purpose`,
-`topics`, `tone`; an entry may carry `"stale": { "days": n }` when its notes are due for review) · `<known_members>` (guild batches only, absent from private batches; may be partial or absent entirely: stored members who did NOT write in this batch, each with their display names and aliases, so the analyzer can record an alias for one of them; at most `memory.aliasRosterSize` entries, most recently seen first, `0` = off; ranked before the transcript in the budget so a heavy batch cannot starve it, not required so it never makes the request fail) · `<new_messages>` grouped under `## #channel-name (id:123)`, lines `[14:32] nick (id:123): text`,
-a line addressed to the persona starts with `→ `, own lines use `labels.self`. A reply to another line carries `transcript.replyToMemory` (`{author}`, `{quote}`) after its text; a parent outside the batch uses `transcript.replyToOld`.
-
-With `features.innerLife` on, `<new_messages>` may also hold the persona's inner-turn episodes: lines of hers (`labels.self`) in the conversation the inner turn ran in, worded by `labels.memory.inner.*` and `labels.memory.innerFeedback` (her thinking, what she did and did not do, what did not go through, what each read found with its sources). Nobody saw them; they are her own experience, never a member's claim ([Inner life](inner-life.md#what-she-found-goes-to-her-memory)).
-
-Section order in the user message (budget trims from the bottom first): compact profiles of every author, the roster (`<known_members>`), the transcript (`<new_messages>`), whole profiles (offered only for authors with a shown line, most lines first), recent notes (`<recent_notes>`). The guild, channel and lore blocks sit before the compact profiles. A profile that does not fit whole is sent compact; the request never fails because of a profile.
-
-Output: a bare JSON object. Profiles are updated INCREMENTALLY: the analyzer returns changes, never a re-summary
-of what is already stored, so facts are not degraded by being rewritten batch after batch:
-
-```
-{
-  "users": { "<userId>": {
-      "portrait": "",                                                // OPTIONAL: one-line cue that the stored character/style misses something
-      "relationship": "",                                            // OPTIONAL: present when first written or when it must change, then the whole new text
-      "aliases": { "add": [""], "remove": [""] },
-      "realName": "",                                                    // OPTIONAL: a string or { "name", "supersedes", "validFrom" }
-      "interests": { "add": [ { "topic": "", "note": "", "sure": false } ], "update": [ { "topic": "", "note": "" } ],
-                     "seen": [ "topic" ], "remove": [ "topic" ] },
-      "details":   { "add": [ { "text": "", "sure": false } ], "seen": [ 3 ], "remove": [ 3 ] },   // numbers = stored detail ids
-                                                                                 // "sure" is OPTIONAL everywhere, default true
-      "affinity":  { "delta": 0, "reason": "" },
-      "episodes":  [ { "date": "YYYY-MM-DD", "what": "", "quote": "", "feeling": "", "weight": 3 } ] } },
-  "guild": { "patterns": "", "starters": "", "injokes": [""],
-             "learned": { "add": [{ "text": "", "from": "<@id>" }], "seen": [3], "remove": [3] } },
-  "channels": { "<channelId>": { "purpose": "", "topics": "", "tone": "" } },
-  "lore": [ { "title": "", "keys": [""], "text": "" } ],
-  "self": [""],
-  "note_reviews": [{ "target": "", "status": "" }],
-  "intentions": [{ "span": "", "purpose": "" }]                      // OPTIONAL: features.intentions only, see below
-}
-```
-
-- **Interests are atomic items**, not prose: `topic` (≤ `{{interestTopicChars}}`, the identity, compared
-  case-insensitively) and `note` (≤ `{{interestNoteChars}}`, what exactly about it; may be empty). Both placeholders
-  are filled from `memory.interestTopicChars` / `memory.interestNoteChars` like the other limits. Stored per person up to `memory.maxInterestsStored`, each with a
-  weight that grows when the analyzer adds or updates it again; the lowest rank is evicted first. The input shows the
-  stored items so the analyzer adds only new ones, updates a note only when it learned something, removes only what
-  the person has clearly dropped.
-- **Details are atomic items too**: `{ id, text, weight, firstSeen, lastSeen }`. The input shows each stored detail
-  with its numeric `id`; `seen` and `remove` refer to details by that id (code also accepts the exact stored text).
-  `add` takes `{ text, sure? }` (a bare string is accepted). Over `memory.maxDetailsStored` the lowest rank is
-  evicted.
-- **Learned items are atomic items at the guild level**: `{ id, text, from, weight, firstSeen, lastSeen }`. `from`
-  stores the member who taught it (`<@id>`, or empty). The same `add` / `seen` / `remove` ops, the same confirmation
-  mechanics, the same rank and eviction as details. `memory.maxLearned` shown, `memory.maxLearnedStored` kept,
-  `memory.learnedChars` per item. The chat model sees them in `<about_chat>` after the in-jokes line, ranked,
-  unconfirmed ones marked with `labels.aboutChat.unsureMark`.
-- **Confirmation (the "(?)" mechanism), same for interests, details and learned items.** `weight` counts the separate OCCASIONS a
-  thing was observed. A new item starts at weight 1, or 0 when the analyzer marks it `"sure": false` (unclear whose it
-  is, unclear whether it was meant seriously, or a name the analyzer does not recognise). `seen` (nothing new to say,
-  but it came up again), `add` of an existing item and `update` each count as one sighting; a sighting raises the
-  weight by 1 only when the person's messages in this batch are at least `memory.confirmGapHours` away from the
-  item's `lastSeen` (so one long conversation split across batches counts once). An op with `"sure": false` on an
-  existing item changes nothing. An item is CONFIRMED when weight ≥ `memory.confirmAfter`; until then the chat model
-  sees it with `labels.profile.unsureMark`.
-- **More is stored than shown, and rank decays with age.** Code keeps up to `memory.maxInterestsStored` /
-  `memory.maxDetailsStored` items per person; the persona AND the analyzer see only the top `memory.maxInterests` /
-  `memory.maxDetails` by rank. Rank = `log2(weight + 0.5) + lastSeen / halfLife` (half-lives
-  `memory.interestHalfLifeDays`, `memory.detailHalfLifeDays`), i.e. weight halves with every half-life of silence, so
-  what is frequent AND recent is on top, and a newcomer can gather weight in the unseen tail instead of being evicted
-  the moment it arrives. Eviction drops the lowest rank. If the analyzer `add`s something that is stored but not
-  shown, code counts a sighting; the prompt therefore tells it to add whatever is new to IT and never to hold back
-  because a list looks full.
-- **Dates come from the messages**, not from the clock: `firstSeen` / `lastSeen` are the time of the person's
-  newest message in the batch that produced the sighting (min / max, so history fed out of order still works). An
-  interest whose `lastSeen` is older than `memory.interestStaleDays` at the start of the request's UTC day is rendered
-  for the chat model with `labels.profile.staleMark` and sorted after the fresh ones. Details never go stale.
-- The input view of a stored item: interests `{ topic, note, seen, last }`, details `{ id, text, seen, last }`
-  (`seen` = weight, `last` = `YYYY-MM-DD`, omitted when unknown).
-- **Attribution, for every profile field.** Something is recorded about a person only from that person's OWN
-  messages: they bring it up, return to it, or speak about it with substance. Being present in, or replying once to,
-  someone else's topic is not theirs. A note may only contain what was said about THAT topic; when it is unclear
-  which topic or which person a remark belongs to, it is dropped or marked `"sure": false`. Things everybody on the
-  server does belong to `guild.patterns` or `lore`, not to every profile.
-- **What each prose field is.** `character`: how the person acts with others, as a handful (4–7) of concrete
-  RECURRING habits told in the persona's voice ("habits beat labels": never a row of adjectives or an assessment);
-  skills, knowledge, jobs, hobbies and one-off actions are not character. Stored adjective/assessment text is
-  rewritten from the batch, not patched. `character`, `relationship`, the affinity `reason` and an episode's `feeling`
-  are written in the persona's voice from the card (first person allowed, no clinical vocabulary). `style`:
-  HOW the person writes (length, rhythm, vocabulary, emoji habits), not what they do or talk about. `relationship`:
-  three things and nothing else: who this person is to the persona, what the persona feels toward them, and what they
-  said about the persona and whether the persona liked it. Who this person is to the persona includes how they treat
-  the persona, what they do for or with the persona, what they promised the persona, what they are to each other.
-  Only explicitly supported meaning about the three things is kept. What is not about the two of them is stripped:
-  dates and time markers, things said to or about third persons, topics and media merely discussed or shared, outcomes
-  of games and contests, facts about the person's own life. A new role or feeling is never inferred from behaviour
-  alone, and a single moment is never generalised into a standing habit. A mixed sentence is rewritten to keep its
-  part about the two of them, not deleted whole. Specific events, game outcomes and facts about the person's own life
-  belong to `episodes`, `details` or `interests`. When the limit presses, an item is dropped whole,
-  least important first. A sentence is never shortened into a fragment. Written first when the stored text is empty
-  and a batch shows them dealing with each other (or affinity/episodes already exist), afterwards only when one of the
-  three things shifts or the profile carries `relationshipStale`. When the profile carries `relationshipStale`, the
-  text is due for a rewrite: `writtenAt` is the band the text was written at (or `none` when unwritten), `now` is the
-  current band (`affinity.band`), `cause` is one of `first` (empty text with a non-zero score, a reason or episodes),
-  `band` (the band changed, past `relationships.bandHysteresis`), `drift` (the score moved
-  `relationships.rewriteOnDrift` points since the text was written, within the same band), `moves` (at least
-  `relationships.rewriteAfterMoves` attitude history entries since the text was written), or `rewrite` (a per-profile
-  flag the owner sets once; the stored text is rewritten to the field's scope and full-sentence style with no change in
-  standing implied; stage A may return an empty brief for it and the voice model still rewrites). Code stamps
-  `relationshipScore` and `relationshipWrittenAt` each time `relationship` is written and compares bands and drift to
-  detect staleness. Switches: `relationships.rewriteOnBandChange` (default true, missing = on), `rewriteOnDrift`
-  (default 8, `0` = off), `rewriteAfterMoves` (default 6, `0` = off).
-  Relationship text ≤ `relationships.textChars` (default 600, placeholder `{{relationshipChars}}`); other prose fields
-  ≤ `memory.fieldChars`; an absent field leaves the stored text untouched.
-  `character` and `style` are written ONLY by `profile.md` (the warmup and a portrait refresh), never edited by the
-  stream analyzer directly. The analyzer returns `portrait` (a one-line cue about what the stored text misses) when
-  a batch warrants it, and code queues a refresh.
-- **Members are referred to by id, never by nickname.** Nicknames change daily, so in every free-text field the
-  analyzer writes (profile prose, interest notes, detail text, episode `what`/`feeling`, affinity reason, `guild`
-  fields, channel notes, lore `text`, `self`) a member is written as the token `<@id>` (the id from the transcript's
-  `nick (id:123)`, from `<existing_profiles>` or from `<known_members>`). Only when the analyzer is sure who is meant; otherwise the name stays
-  as written; an id is never invented. Verbatim `quote`s and lore `keys`/`title` are left alone. Code resolves tokens
-  at the moment of use: for the chat model `<@id>` becomes the member's current name (the same string the transcript
-  shows, so `@name` still works), for the analyzer it becomes `name (id:123)`; on the way in, code turns a
-  `name (id:123)` the model wrote back into the token and leaves unknown ids untouched.
-- **Aliases** are what people in chat actually call a member (a stable nickname like a shortened or translated name),
-  NOT Discord display names. `users.<id>.aliases: { "add": ["…"], "remove": ["…"] }`; stored as ranked items like
-  interests (`memory.maxAliases` shown, `memory.maxAliasesStored` kept, `memory.aliasHalfLifeDays`), an `add` of a
-  known alias is a sighting. The input view shows them as a plain list; the chat model sees them through
-  `labels.profile.aliases` `{text}`. A member whose current name OR alias occurs in the recent transcript is pulled
-  into `<people>` even if they have not spoken; members referred to in the trigger or the last five messages (by mention, current name or alias, prefix match for names of 4+ characters) come right after the interlocutor in full (`context.askedAboutProfiles` at most), the other recent participants after them in compact form (name, aliases, the avatar line, character, top 5 topics; their attitude with at most one move is their `<people_now>` entry); the budget trims the compact ones first.
-  For a member listed in `<known_members>` (a roster member), only `aliases` is applied; every other key in the answer is dropped and counted. A profile is never created for a roster member: it must already exist. Guards on a proposed alias (all members, authors and roster alike): dropped when it holds a `<@` token or an `(id:` marker, dropped when it equals one of the member's stored display names (case-insensitive, punctuation ignored). A bare array under `aliases` (instead of `{ add, remove }`) is read as an add of the names not already stored (it never bumps a stored alias). The `firstSeen`/`lastSeen` date for a roster member's alias comes from the newest message in the batch, since the roster member wrote no message themselves.
-- **Real name** is the person's given first name only, stated by the person or settled in the chat; never a surname, patronymic, middle name or a full name, and a diminutive counts only when the person uses it to name themselves. `users.<id>.realName`:
-  a string (sets it when none is stored; the same name as the stored one changes nothing) or
-  `{ "name": "…", "supersedes": "<stored itemId or the stored name>", "validFrom": "YYYY-MM-DD" }` (the only way to
-  replace a stored one). At most 60 characters. Recorded under the subject's id, never the speaker's. Never an `<@`
-  token. A real name is never also listed as an alias; the analyzer does not add an alias matching it (case-insensitive) and removes an existing one. The chat model sees it through `labels.profile.realName` `{text}`. `addressedAs` is a separate code-counted
-  list of names people use for this member (most used first, decayed by `memory.addressHalfLifeDays`); the chat model
-  sees it through `labels.profile.addressed` `{text}`. A profile's `closed` list may carry
-  `{ "kind": "realName", "name", "from", "to" }` for a real name that was replaced.
-- **Validity.** Interests, details, aliases and real names may carry `recordedAt` (ISO, set when the item is first
-  written), `validFrom` and `validTo` (`YYYY-MM-DD` or null: when the claim was true), `supersededBy` (an itemId) and
-  `conflictSetId`; items without them load unchanged. An `add` or `update` op (an alias `add` as
-  `{ "name": "…" }`, a `realName` as `{ "name": "…" }`) may carry `supersedes: <itemId>` (an interest's topic, a
-  detail's numeric `id` or text, an alias's name, or a stored real name also name it), `validFrom: "YYYY-MM-DD"` and
-  `conflict: <itemId>` (same references).
-  `supersedes` closes the named open item: `validTo` = the op's `validFrom` when given (a claim that was never true,
-  such as a joke, closes at its own `validFrom`), else the batch day; `supersededBy` = the new item's itemId. The
-  closed item leaves the ranked list for the profile's `closed` list (`kind`: `interest` | `detail` | `alias` | `realName`, at
-  most `memory.maxClosedStored`, default 40; the oldest past it goes to the archive with event `replaced`).
-  `conflict` gives the named open item and the new one one shared `conflictSetId` (the named item's own, else its
-  itemId). A plain `remove` behaves as before (archived as `replaced`). In `<existing_profiles>` the open interests
-  and details carry `itemId`, `from` (`validFrom`) and `conflict` (`conflictSetId`) when set; a whole profile
-  carries `closed`: the closed claims whose topic, text, alias or real name occurs as a whole word in the batch, as
-  `{ kind, topic | text | name, note, from, to }` (`from` = `validFrom`, else the day of `firstSeen`; `to` =
-  `validTo`), so a closed claim is not added again. The chat model sees open items only, plus
-  `labels.profile.before` and `labels.profile.conflict`.
-- **Main channels are the source of the portrait.** `memory.mainChannelIds` (default `[]`) lists the channels where
-  people talk to each other; in `<existing_channels>` such a channel carries `"main": true` (key omitted otherwise).
-  `character` and `style` are judged from how the person talks with others in a main channel; diaries and topical
-  channels feed interests and details, not the manner of speech. While a person has no main-channel messages the
-  portrait is provisional and short. In a batch with the person's main-channel messages the portrait refresh REFINES both
-  fields: returns the whole new text (≤ `memory.fieldChars`), carrying forward what still holds, adding what the batch
-  showed, letting newer evidence outweigh older and dropping what no longer shows, so the portrait follows the person
-  over the years. When no channel is marked main, every channel counts as main.
-- **Server-level notes are about the server.** What one person does in their own channel is not a `guild` pattern,
-  starter or in-joke, and not `lore`; an in-joke is something several people use.
-- **Limits are enforced without cutting.** A prose field returned over its stated character limit is not stored: the previous text stays. Code never shortens a model's rewrite. The prompt tells the model the limit; the code holds it to the exact number (code points). Only the FIRST write of an empty field is cut to the limit with `memory.clampTolerance` (default 1.25), because there is nothing to lose yet; that cut lands on a sentence or word boundary, never inside a `<@id>` token. The stream analyzer does not retry: the overflowing field is left out of the batch's write and counted. The voice model, the portrait refresh and the notes refresh retry once (when `memory.overLimitRetries` is above 0): the model's own answer comes back as an assistant turn, followed by a user turn with an `<over_limit>` block listing each overflowing field's character count and limit. A second overflow keeps the previous text. A stored note or text that visibly breaks off mid-word (cut by an older version) is rewritten whole the next time its subject comes up.
-- **Links never reach memory.** Code removes every http(s) link from each text it stores in memory: profile and
-  private-layer prose, interests, details, aliases, the real name, episodes, attitude reasons, channel notes, server
-  notes, in-jokes, self facts, lessons, lore titles, keys and texts, recent notes and archive entries, whoever wrote
-  them (the analyzer, the voice model, the warmup, the notes refresh, an owner command or a skill). A Markdown link
-  keeps its label; the brackets, quotes and separators a link leaves behind are tidied. A text that was only links
-  counts as empty: an item or entry is not added, a stored text is not blanked. The record, the journal and the
-  meaning index keep links, because they record what was said.
-- **Output economy.** `"sure"` is written only when false; `affinity` is omitted when nothing changed.
-- **One home per fact.** An event goes to `episodes` or `lore`, a fact to `details`, a pastime to `interests`, a
-  lesson addressed to the persona to `learned`; the same thing is never written into several fields.
-- **Sanity check against what the model knows.** Before attaching one named thing to another (a region, mode,
-  character or item to a game; a person to a franchise), the analyzer checks that they belong together. When the
-  chat's wording conflicts with its knowledge, or it does not recognise the thing, it does not glue: it records the
-  thing on its own with `"sure": false`. It never "corrects" the chat.
-- **The note says what the person does with the topic** (plays, watches videos about, only mentioned), and something
-  the person did long ago and dropped is not an interest (at most a detail). What cannot be understood without the
-  conversation around it is not recorded.
-- Deliberately absent: any rule about irony or sarcasm. Uncertainty of every kind goes through `"sure": false`.
-- The analyzer prompt stays short; every added rule is paid for by tightening existing text.
-- Only users and channels with something new. A returned channel / `guild` / `self` is the WHOLE merged value and
-  replaces the stored one; empty `guild` / `self` = nothing new. A returned blank string for a channel field (purpose, topics or tone) is ignored; the stored text stays.
-- **Stale-note review.** A channel or guild entry carrying `"stale": { "days": n }` needs exactly one item in the top-level `note_reviews` array: `{ "target": "<channelId>" | "guild", "status": "updated" | "confirmed" | "insufficient_evidence" }`. `updated` means the batch justified a content change, returned through the normal `channels` or `guild` output. `confirmed` means the analyzer examined the stored notes against relevant evidence in this batch and found no change warranted (a batch-level review, not a certificate for the full period). `insufficient_evidence` means the batch has too little relevant material to judge. Code stamps `notesCheckedAt` only for `confirmed` and for `updated` whose stored text really changed (in two-stage mode, a queued voice brief for `patterns`/`starters` counts as the change). `insufficient_evidence`, a missing item, and `updated` with identical text do not stamp; the target is flagged again after `memory.notesRetryHours`. Every flag stamps `notesFlaggedAt`.
-- `affinity` is a CHANGE: integer `delta` (usually ±1…5, up to ±`relationships.maxDeltaPerUpdate` for something
-  striking), one-line `reason` naming an observed event. Code clamps it to ±`relationships.maxDeltaPerUpdate`, accumulates into −100…100, keeps a short
-  history. The model never sets the absolute score. Scores drift toward zero daily when `relationships.decayPerDay`
-  is set: per day the score loses `decayPerDay * |score| * (|score| / 100) ^ decayPower`, faster the further from
-  zero; negative scores rise the same way. Applied at startup and hourly from a per-profile stamp
-  (`affinity.decayedAt`), whole days only, so downtime is caught up. Never runs while paused or during the warmup.
-  No history entry is written.
-- `episodes` are APPENDED, never rewritten: return only NEW moments worth remembering for months: an insult, a
-  kindness, a promise, a bet, a fight, a shared joke, something the person asked the persona to do or never do. `what`
-  one line; `quote` the person's own words verbatim, short (≤ 120 chars), or empty; `feeling` how the persona took it,
-  judged through the character card; `weight` 1–5 (5 = never forget). At most `memory.maxNewEpisodes` per user per
-  batch; most batches add none. The input shows the episodes already stored so nothing is recorded twice. Code keeps
-  `memory.maxEpisodes` per person, evicting the lightest, then the oldest; the `memory.keepNewestEpisodes` (default 5)
-  most recently added episodes are exempt from eviction, so a light new moment of an active member is not pushed out
-  on arrival.
-- `lore` is the server's lorebook: things that outlive a conversation: events ("the day X left"), recurring
-  characters and pets, long-running stories, feuds, traditions. `title` is the identity (an entry with the same title
-  is an UPDATE and carries the whole merged text), `keys` 2–6 words or short phrases that people actually type when
-  the thing comes up (names, nicknames, the meme's wording, in the chat's language, lowercase), `text` ≤ `lore.textChars` (`{{loreTextChars}}`).
-  Input `<existing_lore>` lists stored titles with their keys, and the full text of entries the batch touches.
-  Entries added by the owner (`/nep lore add`) are never changed by the analyzer.
-- String fields ≤ `memory.fieldChars`; details ≤ `memory.maxDetails`, injokes ≤ `memory.maxInjokes`, self ≤ `memory.maxSelfFacts`. Notes in the language the chat speaks.
-  Observed facts only; nothing sensitive (addresses, phones, documents, health, finances, real full names).
-- **Intention candidates** (`features.intentions` exactly true and `prompts/memory-intentions.md` present, guild
-  batches only): `intentions` lists what the persona's own (self-marked) lines of the batch commit her to do later,
-  `{ span, purpose }` each, at most `intentions.maxCandidates`. Code keeps a candidate only when its `span` occurs
-  (case and spacing folded) in one of her own lines the request showed and in no other author's line of the batch (an
-  echo of someone else's request is never hers), with that line's message id, channel and time; the turn that posted
-  the line is looked up in the journal. A kept candidate that repeats an open intention (same purpose, or same line and
-  span) is dropped, and none is added while `intentions.maxCandidates` candidates are open. The rest are stored as
-  `proposed` intentions (`data/guilds/<id>/intentions.json`), shown to her in `<intentions>`; nothing is activated and
-  nothing wakes her. Logged as `intentions: candidates` (counts). Rides the batch's one request: no extra call.
-- **Counters on `memory: update applied`** (logged after each batch): `roster` (members sent in `<known_members>`), `rosterCandidates` (roster entries offered to the budget), `rosterTokens` (estimated tokens the sent roster took), `aliasesChanged` (members, authors and roster, whose stored alias list really changed), `aliasOnly` (roster members among them), `droppedUsers` (entries for an id that is neither an author nor a roster member with a stored profile), `droppedFields` (non-alias keys dropped from roster members' entries), `portraitDropped` (authors' non-blank `character`/`style` dropped), `notesFlagged` (channel or guild entries that carried a stale flag in this batch), `overLimit` (prose fields refused because the model's text exceeded the limit), `overLimitFields` (array of `kind.field` names, e.g. `['channels.topics', 'guild.patterns', 'lore.text', 'users.relationship']`; no member ids). When flags were sent, also: `notesUpdated`, `notesConfirmed`, `notesInsufficient` (the three review statuses), `notesMissing` (flagged targets the model did not return), `notesIdentical` (`updated` whose text matched storage), `notesUnflagged` (a review returned for a target that was not flagged).
-
-### Two-stage mode
-
-When `features.memoryTwoStage` is exactly `true` and both `prompts/memory-decide.md` and `prompts/memory-voice.md`
-are present, guild batches are split into two stages. A switch on with a prompt missing falls back to single-stage
-mode. Private batches always use single-stage mode (`memory.md` on `models.base.core`).
-
-**Stage A** runs `memory-decide.md` on `models.base.extractor` (role `extractor`). It returns the same JSON structure with
-neutral decisions: interests, details, aliases, in-jokes, channel notes, lore, `style` and the episode line and
-quote are stored at once. Voice fields (relationship, affinity reason, episode feeling, lessons, self-facts, server
-patterns, starters, character) are returned as neutral briefs and queued for stage B. The attitude delta is applied
-at once with the stored reason kept; episodes are stored at once with an empty feeling. `character`, `style` and
-`portrait` keys from stage A are dropped and counted. Known-members roster rules apply to stage A: aliases for
-roster members are stored by stage A alone.
-
-The stage A answer shape for voice fields:
-
-- `relationship`: a brief (only when `relationshipStale` or one of the three relationship things shifted; for `rewrite` cause the brief may be empty).
-- `affinity.delta`: an integer; `affinity.event`: a neutral one-line reason (the key is `event`, not `reason`).
-- `episodes[].tone`: how it landed, neutral (becomes the feeling's brief for stage B).
-- `guild.learned.add[].brief`: the lesson as a neutral claim (the key is `brief`, not `text`).
-- `self`: an object `{ "add": [...], "remove": [...] }` (a bare list is ignored).
-- `guild.patterns` and `guild.starters`: briefs, only when the note must change.
-
-**Stage B** runs `memory-voice.md` on `models.base.core` (role `core`, the persona's model; purpose `memory-voice`). It takes the
-queued items and returns `{ "items": { "<id>": "<text>" } }`. Each item carries its kind, the stored old text (when
-applicable), the neutral brief from stage A, and a character limit. Applied items leave the queue; items left out of
-the answer are retried with increasing back-off. Items that expire (older than `memory.voice.queueHours`, or left
-out `memory.voice.maxAttempts` times) take the degraded path: a feeling falls back to the stage A tone, lessons and
-self-facts are stored from the brief, and the rest (relationship, reason, patterns, starters) are dropped (the delta
-already landed, and the stale markers bring the notes back). Character items never expire, overflow or take the
-degraded path.
-
-The voice queue is persisted in `data/guilds/<id>/voice.json`. It survives restarts. `/nep memory forget` removes
-the member's queued items and the lessons they taught. `/nep memory wipe` deletes the queue file. One voice request
-runs after each successful stage A batch and on every tick that finds due items, at most `memory.voice.maxPerDay`
-(default 100) per UTC day. Each request carries up to `memory.voice.maxItems` (default 24) items, fitted under the
-50k token rail.
-
-Counters on `memory: voice applied`: `overLimit` (items refused after the retry, whose stored text stayed), `overLimitRetried` (items sent again with the `<over_limit>` block). When the retry request itself failed (bad JSON, timeout, provider error), `retryFailed` carries the reason string.
-
-### Portrait and notes refresh overflow
-
-When a portrait refresh produces a `style` or `character` text over the limit, the same retry runs: the model's answer comes back as an assistant turn, a user turn with `<over_limit>` follows. A second overflow ends with outcome `over-limit` on `warmup: portrait refresh failed` with `fields` (the field names that overflowed). The attempt stamp is set and the day's slot is used (the request was sent), but nothing is written.
-
-When a notes refresh (`channel.md` or `server.md` in refresh mode) produces a field over the limit, the same retry runs. A second overflow ends with `warmup: notes refresh failed`, reason `over-limit`, `fields` listing the field names. Nothing is written for that channel or server. The next attempt fires after `memory.notesRetryHours`. The notes scheduler moves on to the next target.
-
-### Version history
+## Version history
 
 When `features.versions` is on (the default), every replacement of a prose field's text is recorded before the new text is stored. The previous text goes into `data/guilds/<guildId>/versions/<kind>/<id>.json`, where `kind` is `users`, `channels`, `guild` (id `guild`) or `lore` (id is a slug of the entry title plus a short hash). Each file holds one JSON object keyed by field name, each value an array of records (newest last):
 
@@ -1325,51 +1040,6 @@ When `features.versions` is on (the default), every replacement of a prose field
 `/nep memory forget` deletes the member's version file. `/nep memory wipe` deletes the entire `versions/` folder for the server.
 
 Each record logs `store: version recorded` with `kind`, `field`, `by`, `chars`, `kept`, `removed`, `added` (a channel id for channel versions, never a member id).
-
-## Backfill
-
-`tools/backfill.mjs extract` (an operations tool, run by hand; see `tools/README.md`) sends one request per window
-of connected old lines (reply chains, gaps of at most `recall.clusterGapMinutes`, at most 120 lines) on the analyzer
-model (`models.base.extractor`; role `extractor`, purpose `backfill`, no cache marker). A thin window is
-not sent unless `--include-thin` is given: fewer than 4 content lines (media, or at least 3 words once URLs, emoji
-and mentions are taken out), no line by the persona and no line with a `?` or a mention.
-
-System: `backfill.md` with `{{name}}`. User, two blocks:
-
-- `<roster>`: a JSON array, the persona first as `{ "id", "names": [<display name>], "self": true }`, then one
-  `{ "id", "names" }` per member the window names (authors, mentions, authors of replied lines), `names` the stored
-  names and alias names, at most 5. No profile text, no attitude.
-- `<window>`: a JSON object `{ "channel": <name or null>, "date": "YYYY-MM-DD", "lines": [...] }`, each line
-  `{ "id", "at" (ISO), "by" (a roster id; the persona's id on their own lines), "replyTo" (a message id or null),
-  "text", "media" (kinds, only when there are some) }`.
-
-The answer is one JSON object:
-
-```
-{ "episodes": [ { "member": "<roster id>", "what": "...", "quote": "...", "quoteSourceId": "<line id>", "weight": 1-5, "brief": "...", "sources": ["<line id>", ...] } ],
-  "lessons":  [ { "text": "...", "from": "<roster id or empty>", "weight": 1-5, "sources": ["<line id>", ...] } ] }
-```
-
-Code drops an item whose `sources` cite an id that is not a line of the window (logged as
-`backfill: candidates dropped` with `reason: outside-window` and a count) and an item without a source; an episode
-needs a `member` the window names (never the persona) and a `what`; a lesson's `from` is kept only when it is such a
-member. In `what`, `brief` and `text` every whole-word form of the persona's name (the display name and
-`bot.nameTriggers`) becomes `<@selfId>`; `quote` is never touched. Then `what` and `quote` are clamped as stored
-episodes are, a lesson's `text` to `memory.learnedChars`, `brief` to 300 characters; a `what` the clamp cut that does
-not end at a sentence end is kept and counted (`backfill: clamped`, count). A `quote` is kept only when
-`quoteSourceId` is a line of the window whose text holds it verbatim (whitespace collapsed); otherwise it is emptied
-and counted (`backfill: quotes dropped`, count). A missing or unreadable `weight` is 3. The episode's date and
-`observedAt` are the window's day. Each item carries `participants` (its member or teacher, the authors of its
-sources, every `<@id>` of its texts, the persona left out) and `mentioned` (those ids of its texts that are neither its
-member or teacher nor an author of a source). The items go to a scratch file first; the `dedupe` step merges the ones
-that repeat each other (the same kind and member or teacher, and shared sources or a token similarity of at least
-0.8: Jaccard over lowercased words of 3 or more letters; the longer text, the earlier date, the sources united),
-drops the ones memory already holds (a hot episode that is the same moment, an archived item of the same kind that
-shares a source, or either of them reaching that similarity with the same member or teacher) and archives the rest
-(`event: backfill`, `origin: backfill`; with `quoteSourceId` and `mentioned` when there are some), never
-into hot memory and never as a `felt` record line. The optional `voice` step sends the archived episodes of a
-high enough weight as `feeling` items through `memory-voice.md` (stage B above, `brief` from this answer) and
-archives the worded text as the episode's `feeling` with `reconstructedAt`.
 
 ## Channel map
 
@@ -1402,46 +1072,6 @@ A channel entry (`renderChannel` in `src/memory/channels.js`) carries:
 
 When the current channel has no stored note yet (the analyzer has not touched it), a fallback entry is synthesised from
 the Discord facts of the messages in the transcript, so the persona still knows where they are.
-
-## Warmup
-
-Each warmup request handles one unit of work (one channel, one person or the server), so attribution stays clean.
-`channel.md` produces channel notes (purpose, topics, tone). `profile.md` produces a member's character, style,
-interests, details, episodes and aliases. `server.md` produces server-wide patterns, conversation starters, in-jokes and
-lore. For the run order, sampling, progress, rails and subcommands see [Warmup](warmup.md).
-
-### Data model
-
-`character` and `style` STAY PROSE and are written ONLY by `profile.md`: by the warmup and by a PORTRAIT REFRESH.
-The stream analyzer never edits them directly. A stream batch can no longer overwrite `character` or `style`; any
-non-blank value from a stream batch is dropped and counted as `portraitDropped`. For a member whose batch shows a
-recurring habit or a change in how they write that the stored portrait misses or contradicts, the analyzer returns
-`users.<id>.portrait: "one line: what the portrait misses"`, and code queues a refresh.
-
-Portraits are also refreshed by code on a periodic schedule (`features.portraitRefresh`). A member is due by one of two paths. The counter path: at least `memory.portraitRefreshMessages` (default 300) own messages since their last portrait AND at least `memory.portraitRefreshDays` (default 3) have passed. The age path: the portrait is at least `memory.portraitMaxAgeDays` (default 21) days old AND at least `memory.portraitMinMessages` (default 60) own messages have accumulated since. A failed attempt
-backs off for `memory.portraitRetryHours` (default 24). The scheduler checks every `memory.portraitCheckMinutes`
-(default 60) and refreshes up to `memory.portraitRefreshPerDay` (default 3) members per day. Queue order: the member waiting longest first (`portraitDueAt`, stamped when a member first becomes due, cleared on a finished portrait), then the oldest portrait, then the most own messages since the last portrait.
-A member with no portrait stamp counts all their messages, so several qualify at once on first deploy; the daily
-cap spreads them over a few days. Code-triggered refreshes, analyzer cue refreshes and `/nep memory refresh` share
-this cap. Each refresh is fitted under the 50k token rail (`llm.maxRequestTokens`), shrinking the sample if needed. A provider error after the request was sent (HTTP 408/429/5xx or a timeout) gives the day's slot back and restores the previous attempt stamp, so the member stays due; the scheduler ends its cycle for this tick.
-
-`profile.md` is called with `<draft>` = the stored character + style, `<hint>` = the analyzer's line (when present),
-and the answer's `character` and `style` replace the stored ones. The draft is a MERGE base: every point still
-compatible with the sample stays (condensed to make room), points the sample contradicts are revised, new recurring
-habits are added, and a point the sample merely does not show is NOT dropped. Interests, details, episodes and
-aliases of the refresh answer are IGNORED; they keep flowing through the stream ops.
-
-In two-stage mode (`features.memoryTwoStage`), the portrait refresh uses `prompts/portrait.md` on `models.base.extractor`
-(stage A), which returns a merged `style` text stored at once and structured `character` edits queued as a voice
-item. The next voice run (stage B) words the character text. Details of this flow are in a later documentation pass.
-
-Attitude and `relationship` are NOT warmed up; they grow from live conversation only.
-
-`profile.md` output: `{ "character": "", "style": "", "interests": [{ topic, note, times }], "details": [{ text, times }],
-"episodes": [...], "aliases": [""] }`; blocks `<character>` `<member>` `<draft>` (optional) `<hint>` (optional, portrait
-refresh only) `<snippets>`. Own lines in the snippets start with `labels.warmup.ownMark`; context lines start with
-`labels.warmup.contextMark`. Aliases come from OTHER people's lines (how they address the member), so the
-own-lines attribution rule does not apply to them. One explicit naming statement is enough evidence for an alias; a teasing name thrown once in passing is not.
 
 ## Avatars
 
@@ -1896,17 +1526,6 @@ The public score changes only from server batches. The private layer has its own
 DM batches. In the DM the persona feels `clamp(public + private, -100, 100)`; on the server only the public score.
 The gate uses the public score alone.
 
-### Analyzer in private mode
-
-`analyzePrivate` builds a `memory.md` request with the same format and a `<private>` block
-(`labels.memory.privateNote`). `<existing_profiles>` contains ONLY the partner, rendered as the private profile
-(private details with ids, private interests, private episodes, the effective affinity view). `<public_profile>`
-shows the partner's public profile (read-only, via `renderProfile`). `<existing_guild>`, `<existing_lore>` appear as
-usual (read-only context). `<new_messages>` is headed by `labels.memory.privateChannel`.
-
-From the answer, only `users[<partnerId>]` is applied through the private store methods. `portrait` and `aliases`
-are ignored. `guild`, `channels`, `lore`, `self` and any other user ids are dropped and logged as counts.
-
 ## Limit notices
 
 When a rail refuses a directly requested action (a mention, reply, name trigger, follow-up or private message, not an overheard or spontaneous turn), the
@@ -1932,6 +1551,8 @@ memory blocks, as in her turns. The requests go out on the role `memory` (`model
 
 ### The purposes at the writer switch
 
+<!-- writer: the JSON memory and the switch are gone (src/llm/roles.js#MEMORY_PURPOSES now names the memory purposes); the heading, the intro and the "At the switch" column need rewording. -->
+
 With `memoryDb.authority` `db` her memory session is the memory writer (spec stage W3). What happens to each request
 purpose (`src/llm/roles.js#PURPOSE_AT_SWITCH`; under `json` every row runs as before):
 
@@ -1941,13 +1562,7 @@ purpose (`src/llm/roles.js#PURPOSE_AT_SWITCH`; under `json` every row runs as be
 | `reply` | `core` | stays |
 | `describe`, `relook`, `avatar` | `vision` | stays |
 | `recall-query`, `probe` | `embedding` | stays |
-| `memory-voice` | `core` | removed with the switch: never sent under `db` (the analyzer's two-stage wording and the single-stage batch on her voice) |
-| `backfill` | `extractor` | removed with the switch (`tools/backfill.mjs` refuses under `db`) |
-| the stream analyzer's batches (`memory.md`, `memory-decide.md`), the warmup family and the portrait and notes refreshes (no purpose of their own) | `extractor` | removed with the switch: the role `extractor` sends nothing under `db` |
 | `memory-session`, `description-draft`, `description-check` | `memory` | her memory session and description review: the memory writer |
-
-The removed rows, their prompts, the role `extractor` and `features.memoryTwoStage` stay runnable under `json` for the
-fallback week and are deleted in the cleanup after it.
 
 ### The live schedule (authority `db`)
 
@@ -1956,8 +1571,7 @@ With `memoryDb.session.mode` `apply` the memory database's tick looks at most on
 `maxMessages` lines waiting, under `sweepsPerScopePerDay`. One sweep runs over the due scopes (one request per scope and
 page of people, as below), then the description reviews her runs flagged (a `descriptions` entry of an answer), at most
 `reviewsPerDay` a day: the people of her focus close set first when `memoryDb.focus.enabled`, then by the flag's age.
-Never two at once. At the first start under `db` the handoff sets each scope's cursor at the analyzer's boundary: the
-lines its buffer still held are read by the session, the ones it had consumed are not.
+Never two at once.
 
 ### Memory session request
 
@@ -2039,8 +1653,7 @@ each showed.
 In `shadow` every kept op is a `decisions` row (`by` `her`, `action` `proposed:<op>`, the op in `extra`); in `apply`
 the changes land in `claims`, `claim_versions` (with each version's lines in `claim_version_sources`), `claim_sources`, `episodes`, `affinity_events` and `people.affinity`
 (the delta is capped by `relationships.maxDeltaPerUpdate`), each with a `decisions` row whose `action` is the op; a
-description flag is a `decisions` row only. `apply` is refused (`APPLY_JSON_WRITER`) unless `memoryDb.authority` is
-`db` (the read switch does not count). In `apply` a run is written once (a retried batch returns the first result), an
+description flag is a `decisions` row only. In `apply` a run is written once (a retried batch returns the first result), an
 op whose sources do not all exist is rejected whole, and a claim's scope is the narrowest scope of the run and of the new
 sources of the op: when that differs from the claim's own scope (a private line revising a group claim), the change is
 written as a new claim of the narrower scope and the old claim stays as it was.

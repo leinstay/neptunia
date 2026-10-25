@@ -1,9 +1,10 @@
 // Tests for `/nep memory journal message:<id|link>` (memory.journal.read): the journal's turn
 // record of the turn that posted one of the persona's messages, found by the message's own UTC
 // day (from its snowflake) and the next, shown whole. The pure lookup (turnOfMessage), the
-// journal's search (findTurn, a real journal over a fake append store), the operation by id and
-// by link, and the persona's call naming a transcript line `#N`. No disk, no real data/.
-import { test } from 'node:test';
+// journal's search (findTurn, a real journal over a test memory database, the lines each write
+// sends recorded), the operation by id and by link, and the persona's call naming a transcript
+// line `#N`. No real data/.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
@@ -15,6 +16,7 @@ import { executeCall, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { journalTurnRecord } from '../src/behavior/turn.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -39,10 +41,29 @@ function fakeAppendStore() {
   };
 }
 
+/** The test databases opened here; closed when the file is done. */
+const OPENED = [];
+after(async () => {
+  for (const mem of OPENED) await mem.close();
+});
+
+/** A test memory database whose unit writes also record each line in `lines` as `{ file, line }`. */
+function recordingMemory(lines) {
+  const mem = openTestMemorySync();
+  OPENED.push(mem);
+  return {
+    ...mem.memoryDb,
+    writeUnit: (update) => {
+      for (const line of update.lines ?? []) lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+      return mem.memoryDb.writeUnit(update);
+    },
+  };
+}
+
 function journalAt(clock) {
   let n = 0;
   const appendStore = fakeAppendStore();
-  const journal = createJournal({ appendStore, dataDir: DATA, config: () => ({ thinkChars: 4000 }), now: () => clock.ms, uuid: () => `u-${(n += 1)}` });
+  const journal = createJournal({ appendStore, memoryDb: recordingMemory(appendStore.lines), dataDir: DATA, config: () => ({ thinkChars: 4000 }), now: () => clock.ms, uuid: () => `u-${(n += 1)}` });
   return { journal, appendStore };
 }
 

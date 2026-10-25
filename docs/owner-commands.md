@@ -8,7 +8,7 @@ One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (
 
 Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
 
-Owner-only operations (`access.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+Owner-only operations (`access.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
 
 **Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
@@ -56,15 +56,12 @@ The table is generated from the command table (`src/ops/catalog.js#COMMAND_TABLE
 | `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | Show a channel's note, or a table of all stored channels |
 | `/nep memory server` | `memory.server.read` | ephemeral | Show server notes: patterns, starters, in-jokes, self facts |
 | `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
-| `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
 | `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | Show a member's attitude score and its history |
-| `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
 | `/nep memory journal [day] [kind:turn\|action\|memory\|system\|answer\|inner\|all] [n] [message]` | `memory.journal.read` | ephemeral | Journal records |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral, deferred | Archived items |
 | `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
-| `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
+| `/nep memory private <user>` | `memory.private.read` | ephemeral | A member's private memory: what they said in DMs |
 | `/nep memory search <question> [people] [channel] [when] [terms]` | `memory.search` | ephemeral, deferred | Search this server's message history the way the persona's own `memory.search` does: the question's long words, the stored names it holds, `people` and `terms` (comma-separated) and `when` (`YYYY-MM-DD` or `A..B`, either side open) go to the recall runner with no helper model, and the messages come back quoted with their time and author, no summary. Open to every member (see [Member commands](#member-commands)) |
 
 ## Granting skills to the persona
@@ -75,7 +72,7 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 **Carried over (current conversation only):** the persona's normal reply (the speech tags `<msg>` and `<react>`, and the `message.create`, `message.react.add` and `draw.create` tools) counts in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
 
-**Not grantable to the persona:** `memory.wipe`, `memory.private.purge`, `memory.forget`, `memory.private.forget`, `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop`, `inner.start`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
+**Not grantable to the persona:** `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop`, `inner.start`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
 
 **In-turn tools:** `web.search`, `web.read`, `media.look`, `memory.search` and `conversation.read` are reads (`conversation.read`, a channel read in order, has no slash command: it is hers alone); with `features.coreTools` on, the persona's call of any of them runs inside her turn and its result comes back in the same turn (see [the tool loop](prompt-contract.md#the-tool-loop-featurescoretools)). None is open to her until granted by name (`/nep access grant web.search user:@bot`, `/nep access grant web.read user:@bot`, `/nep access grant media.look user:@bot`, `/nep access grant memory.search user:@bot`, `/nep access grant conversation.read user:@bot`); `media.look` exists for her only while `features.coreTools` is on. A `*` or `memory` grant stored before they existed does not cover them.
 
@@ -83,15 +80,11 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 ## Memory commands
 
-`/nep memory refresh kind:user <user>` rewrites a member's portrait now, ignoring the refresh-hours rail (not the daily cap). `kind:channel <channel>` and `kind:server` rewrite a channel's notes or the server notes (patterns, starters, in-jokes) from a fresh sample spread over recent days, the same request as the notes refresh in [Warmup](warmup.md#keeping-the-notes-current): the 50k token cap and `llm.maxRequestsPerDay` apply, the persona keeps talking, no whole history is read. A channel with no notes yet is refused with a pointer to `tools/warmup.mjs channels --channel <id>`; lore is rebuilt only by `tools/warmup.mjs server`. The warmup itself is not a command: it is `tools/warmup.mjs`, run with the bot stopped (see [Warmup](warmup.md)).
-
 `/nep memory show` reads a member's stored profile: the compact summary or a specific section (character, style, relationship, affinity, aliases, interests, details, episodes, or the raw JSON). `/nep memory channel` shows a channel's stored notes or a table of all stored channels. `/nep memory server` shows the server-wide patterns, starters, in-jokes and self-facts.
-
-`/nep memory forget` deletes a member's public profile, their private DM file, their voice queue items, their version history and their record and archive entries. Before deleting, it copies everything into a vault directory (`memory.vaultDir`, default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back; to restore a member, copy their files by hand and remove the entry from `forgotten.json`. `/nep memory wipe` does the same for the entire server: it copies everything under the guild directory into the vault, then deletes all profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, versions, diary history and the recall trace.
 
 `/nep memory journal` shows the persona's journal records for a UTC day, optionally filtered by kind (turn, action, memory, system, answer, inner). With `message` (a message id or link), it shows the full record of the turn that posted that message: trigger, outcome, posted ids, skill calls and the stored think. The other options are ignored when `message` is given. `/nep memory archive` shows archived items, optionally for one member or one kind. `/nep memory restore` puts an archived item back into hot memory (the `id` autocompletes from the newest entries). `/nep memory snapshot` copies `data/` to a timestamped directory for the measurement tools.
 
-`/nep memory private show` reads a member's private DM memory. `/nep memory private forget` deletes only the private file; the public profile stays. `/nep memory private purge` deletes the private file and also bulk-deletes the bot's DM messages to that member (up to `private.purgeMaxMessages`).
+`/nep memory private` reads a member's private DM memory.
 
 ## Member commands
 

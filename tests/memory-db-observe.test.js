@@ -358,7 +358,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
     const add = (kind, id, source) => ({ op: 'add', subjectKind: kind, subjectId: id, sources: [source], reason: 'seen twice' });
     const runOf = (id) => ({ id, scopeKey: 'group:imageboard', scope: groupScope('imageboard'), startedAt: 'a', finishedAt: 'b', outcome: 'ok', counts: {}, errors: [], batchKey: id });
 
-    const shadow = applyMemoryWrite(handle, { kind: 'session', mode: 'shadow', authority: 'json', run: runOf('run:s'), plan: plan([add('participant', p1.author.participant, p1.sourceId)]), now: NOW });
+    const shadow = applyMemoryWrite(handle, { kind: 'session', mode: 'shadow', run: runOf('run:s'), plan: plan([add('participant', p1.author.participant, p1.sourceId)]), now: NOW });
     assert.equal(shadow.proposed, 1);
     assert.deepEqual({ ...db.prepare("SELECT action, target_kind, target_id FROM decisions WHERE id = 'dec:run:s:1'").get() }, { action: 'proposed:people_add', target_kind: 'participant', target_id: p1.author.participant });
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people, 'shadow writes no person');
@@ -366,7 +366,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
     let n = 0;
     const uuid = () => `00000000-0000-4000-8000-00000000000${(n += 1)}`;
     const applied = applyMemoryWrite(handle, {
-      kind: 'session', mode: 'apply', authority: 'db', run: runOf('run:a'), now: NOW, uuid,
+      kind: 'session', mode: 'apply', run: runOf('run:a'), now: NOW, uuid,
       plan: plan([add('participant', p1.author.participant, p1.sourceId), add('account', p2.author.account, p2.sourceId)]),
     });
     assert.equal(applied.people, 2);
@@ -380,7 +380,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
     assert.deepEqual(db.prepare("SELECT action, target_id FROM decisions WHERE id LIKE 'dec:run:a:%' ORDER BY id").all().map((r) => ({ ...r })),
       [{ action: 'people_add', target_id: first }, { action: 'people_add', target_id: second }]);
 
-    const again = applyMemoryWrite(handle, { kind: 'session', mode: 'apply', authority: 'db', run: runOf('run:b'), now: NOW, uuid, plan: plan([add('participant', p1.author.participant, p1.sourceId)]) });
+    const again = applyMemoryWrite(handle, { kind: 'session', mode: 'apply', run: runOf('run:b'), now: NOW, uuid, plan: plan([add('participant', p1.author.participant, p1.sourceId)]) });
     assert.deepEqual([again.people, again.rejected], [0, 1]);
     assert.equal(db.prepare("SELECT action FROM decisions WHERE id = 'dec:run:b:1'").get().action, 'rejected:has_person');
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people + 2);

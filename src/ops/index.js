@@ -53,7 +53,7 @@ function absent(value) {
 /**
  * The `option` argument picking one operation among `table` (`{ value: operation }`): the
  * operation with the arguments as given, or `{ invalid }` naming the values when the argument is
- * missing or unknown. `byAction` reads `action` (with `kind` for media), `byKind` reads `kind`.
+ * missing or unknown. `byAction` reads `action` (with `kind` for media).
  */
 function byOption(option, table) {
   return (args) => {
@@ -64,13 +64,12 @@ function byOption(option, table) {
 }
 
 const byAction = (actions) => byOption('action', actions);
-const byKind = (kinds) => byOption('kind', kinds);
 
 /**
  * The command keys of the tree (src/ops/catalog.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
- * the arguments pick the operation (`media`, `memory.private`, `message.react`, `task.intent` and `task.inner` by `action`, `memory.refresh`
- * by `kind`, `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
+ * the arguments pick the operation (`media`, `message.react`, `task.intent` and `task.inner` by `action`,
+ * `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
 export const COMMAND_TO_OP = Object.freeze({
@@ -105,15 +104,12 @@ export const COMMAND_TO_OP = Object.freeze({
   'memory.channel': 'memory.channel.read',
   'memory.server': 'memory.server.read',
   'memory.recent': 'memory.recent.read',
-  'memory.refresh': byKind({ user: 'memory.refresh.user', channel: 'memory.refresh.channel', server: 'memory.refresh.server' }),
-  'memory.forget': 'memory.forget',
   'memory.affinity': 'memory.affinity.read',
-  'memory.wipe': 'memory.wipe',
   'memory.journal': 'memory.journal.read',
   'memory.archive': 'memory.archive.read',
   'memory.restore': 'memory.restore',
   'memory.snapshot': 'memory.snapshot',
-  'memory.private': byAction({ show: 'memory.private.read', forget: 'memory.private.forget', purge: 'memory.private.purge' }),
+  'memory.private': 'memory.private.read',
   'message.create': 'message.create',
   'message.edit': 'message.edit',
   'message.delete': 'message.delete',
@@ -178,17 +174,12 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'memory.channel': 'memory.channel.read',
   'memory.server': 'memory.server.read',
   'memory.recent': 'memory.recent.read',
-  'memory.refresh': 'memory.refresh.user',
-  'memory.forget': 'memory.forget',
   'memory.affinity': 'memory.affinity.read',
-  'memory.wipe': 'memory.wipe',
   'memory.journal': 'memory.journal.read',
   'memory.archive': 'memory.archive.read',
   'memory.restore': 'memory.restore',
   'memory.snapshot': 'memory.snapshot',
   'private.show': 'memory.private.read',
-  'private.forget': 'memory.private.forget',
-  'private.purge': 'memory.private.purge',
 });
 
 /** `table[key]` resolved with `args`; null for a key the table does not hold. */

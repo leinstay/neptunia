@@ -1,5 +1,5 @@
-// The shared half of the database readers (spec 2026-10-24-memory-authority, stage W1): how a module's file read is
-// answered from the database, and the seam that chooses between the two.
+// The shared half of the database readers: how a module's read of a memory unit is answered from the database, and
+// the seam every memory module reads through.
 //
 // The memory files are units: one file (a record day, a journal day, an archive month, `intentions.json`) or one
 // directory (a month of vectors), and every row a unit's mapper wrote carries the unit's path as `owner_file`
@@ -10,18 +10,14 @@
 // (the same order as a sorted `readdir` of ASCII names). These are the core's own reads of the whole memory: no
 // audience, no execution context.
 //
-// The seam (`createReadSeam`): `db()` is null while the authority is `json` (the module reads its files, as before);
-// under `db` it is the read connection of the service (`memoryDb.readHandle()`), or an error with code `DB_CLOSED`
-// when the database is not open. Under `db` no file fallback exists: a failed database read is an error to the
-// caller, logged once with its code (`memory db: read failed`, fields `reader` and `code`), never a file read.
-// The authority is the service's (`memoryDb.authority()`, fixed for the process) unless `authorityOf` is given.
-// Logs carry codes only.
+// The seam (`createReadSeam`): `db()` is the read connection of the service (`memoryDb.readHandle()`), or an error
+// with code `DB_CLOSED` when the database is not open (or no service is given). A failed database read is an error to
+// the caller, logged once with its code (`memory db: read failed`, fields `reader` and `code`). Logs carry codes only.
 
 import { filesOfUnit, unitRows } from '../export.js';
 import { classify } from '../map/index.js';
 
 const END = '￿';
-const AUTHORITIES = new Set(['json', 'db']);
 
 /** An Error with a code. */
 export function codedError(code, message = code) {
@@ -97,47 +93,12 @@ export function unitValue(db, owner) {
   return { found: true, value: JSON.parse(JSON.stringify(info.mapper.fromRows(rows))) };
 }
 
-/** The names of the forget markers of a guild (`forgetting/<name>`), sorted as bytes. */
-export function markerNames(db, guildId) {
-  const dir = layerDir(guildId, null, 'forgetting');
-  return childNames(ownersUnder(db, 'operational', dir, { kind: 'forgetting' }), dir);
-}
-
-/** The members under a forget marker (`forgetting/<id>.json`), as record.js#forgettingIds reads them from the files. */
-export function hiddenIds(db, guildId) {
-  return new Set(markerNames(db, guildId).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length)));
-}
-
-/** The deletion ledger's entries as store.js#readLedger keeps them: objects with a string `userId`. */
-export function ledgerEntries(value) {
-  return Array.isArray(value) ? value.filter((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.userId === 'string') : [];
-}
-
-/** The deletion ledger of a guild (`forgotten.json`) from the database; [] when it holds none. */
-export function ledgerOf(db, guildId) {
-  const row = db.prepare("SELECT value FROM operational WHERE owner = ? AND kind = 'forgotten' AND retired_at IS NULL").get(layerDir(guildId, null, 'forgotten.json'));
-  if (!row) return [];
-  let value = null;
-  try {
-    value = JSON.parse(row.value);
-  } catch {
-    value = null;
-  }
-  return ledgerEntries(value);
-}
-
 /**
  * The seam of one module (see the head of this file).
- * @param {{ memoryDb?: { authority?: () => string, readHandle?: () => ({ db: object }|null) }|null,
- *   authorityOf?: (() => string)|null, log: { warn: Function }, reader: string }} options
- * @returns {{ authority(): 'json'|'db', db(): object|null, run<T>(fn: () => T): T }}
+ * @param {{ memoryDb?: { readHandle?: () => ({ db: object }|null) }|null, log: { warn: Function }, reader: string }} options
+ * @returns {{ db(): object, run<T>(fn: () => T): T }}
  */
-export function createReadSeam({ memoryDb = null, authorityOf = null, log, reader }) {
-  function authority() {
-    const asked = typeof authorityOf === 'function' ? authorityOf() : memoryDb?.authority?.();
-    return AUTHORITIES.has(asked) ? asked : 'json';
-  }
-
+export function createReadSeam({ memoryDb = null, log, reader }) {
   function failed(error) {
     const out = error instanceof Error ? error : codedError('DB_READ_FAILED');
     if (!out.code) out.code = 'DB_READ_FAILED';
@@ -148,9 +109,8 @@ export function createReadSeam({ memoryDb = null, authorityOf = null, log, reade
     return out;
   }
 
-  /** Null under `json`; under `db` the read connection, else throws `DB_CLOSED`. */
+  /** The read connection, else throws `DB_CLOSED`. */
   function db() {
-    if (authority() !== 'db') return null;
     const handle = memoryDb?.readHandle?.() ?? null;
     if (!handle?.db) throw failed(codedError('DB_CLOSED', 'memory db is not open'));
     return handle.db;
@@ -165,5 +125,5 @@ export function createReadSeam({ memoryDb = null, authorityOf = null, log, reade
     }
   }
 
-  return { authority, db, run };
+  return { db, run };
 }

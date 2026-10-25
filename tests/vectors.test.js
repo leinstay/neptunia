@@ -1,12 +1,11 @@
-// Tests for src/memory/vectors.js: the int8 vector index for meaning search, over a temporary
-// directory (never the deployment's data/), with a fixed clock and seeded vectors.
-import { test } from 'node:test';
+// Tests for src/memory/vectors.js: the int8 vector index for meaning search, in the memory database of a
+// temporary directory (never the deployment's data/), with a fixed clock and seeded vectors.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import * as fsp from 'node:fs/promises';
-import path from 'node:path';
 import { createVectors, dequantize, quantize } from '../src/memory/vectors.js';
-import { tempDir } from './fixtures/tmp.js';
+import { classify } from '../src/memory/db/map/index.js';
+import { filesOfUnit } from '../src/memory/db/export.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);
@@ -62,20 +61,30 @@ function meta(id, overrides = {}) {
   };
 }
 
-function scene(options = {}) {
-  const dataDir = tempDir('nep-vectors-');
-  const vectors = createVectors({ dataDir, log: quiet, now: () => OCT, ...options });
-  return { dataDir, vectors };
+/** The test databases opened here; closed when the file is done. */
+const OPENED = [];
+after(async () => {
+  for (const mem of OPENED) await mem.close();
+});
+
+async function scene(options = {}) {
+  const mem = await openTestMemory();
+  OPENED.push(mem);
+  const { dataDir, memoryDb } = mem;
+  const vectors = createVectors({ dataDir, log: quiet, now: () => OCT, memoryDb, ...options });
+  return { dataDir, memoryDb, vectors };
 }
 
-function monthDir(dataDir, month, privateUserId = null) {
-  return privateUserId
-    ? path.join(dataDir, 'guilds', 'g1', 'private', privateUserId, 'vectors', month)
-    : path.join(dataDir, 'guilds', 'g1', 'vectors', month);
+/** The files a month of the index stands for (`manifest.json`, `<gen>.i8`, `<gen>.jsonl`), from the database: name -> bytes. */
+function monthFiles(memoryDb, month, privateUserId = null) {
+  const rel = privateUserId ? `guilds/g1/private/${privateUserId}/vectors/${month}/manifest.json` : `guilds/g1/vectors/${month}/manifest.json`;
+  const info = classify(rel);
+  const full = `guilds/g1/${info.unit}`;
+  return new Map(filesOfUnit(memoryDb.readHandle().db, info.unit, info, full).map((file) => [file.rel.split('/').at(-1), file.data]));
 }
 
-function manifestOf(dataDir, month, privateUserId = null) {
-  return JSON.parse(fs.readFileSync(path.join(monthDir(dataDir, month, privateUserId), 'manifest.json'), 'utf8'));
+function manifestOf(memoryDb, month, privateUserId = null) {
+  return JSON.parse(monthFiles(memoryDb, month, privateUserId).get('manifest.json').toString('utf8'));
 }
 
 const ids = (hits) => hits.map((hit) => hit.meta.id);
@@ -97,7 +106,7 @@ test('vectors: quantise and dequantise round trip within half a step of the row 
 });
 
 test('vectors: append then search returns the nearest rows with a plausible cosine', async () => {
-  const { vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(2);
   const target = randomVector(rng, 128);
   const rows = [
@@ -117,15 +126,15 @@ test('vectors: append then search returns the nearest rows with a plausible cosi
 });
 
 test('vectors: rows go to the month of their occurredAt; months and from/to narrow the search', async () => {
-  const { dataDir, vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(3);
   const q = randomVector(rng, 32);
   await vectors.append('g1', [
     { meta: meta('sep', { occurredAt: '2026-09-30T23:59:00.000Z' }), vector: near(q, rng, 0.05) },
     { meta: meta('oct', { occurredAt: '2026-10-01T00:01:00.000Z' }), vector: near(q, rng, 0.05) },
   ]);
-  assert.equal(manifestOf(dataDir, '2026-09').rows, 1);
-  assert.equal(manifestOf(dataDir, '2026-10').rows, 1);
+  assert.equal(manifestOf(memoryDb, '2026-09').rows, 1);
+  assert.equal(manifestOf(memoryDb, '2026-10').rows, 1);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5, months: ['2026-10'] })), ['oct']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5, to: '2026-09-30T23:59:59.000Z' })), ['sep']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5, from: '2026-10-01T00:00:00.000Z' })), ['oct']);
@@ -136,150 +145,41 @@ test('vectors: rows go to the month of their occurredAt; months and from/to narr
   assert.ok(stats.bytes > 64);
 });
 
-test('vectors: bytes past the manifest after a crash are ignored, then cut on the next write', async () => {
-  const { dataDir, vectors } = scene();
-  const rng = seeded(4);
-  const q = randomVector(rng, 16);
-  await vectors.append('g1', [{ meta: meta('a'), vector: near(q, rng, 0.1) }]);
-  const dir = monthDir(dataDir, '2026-10');
-  const m = manifestOf(dataDir, '2026-10');
-  // A crash after the data and the jsonl line were written, before the manifest moved.
-  fs.appendFileSync(path.join(dir, `${m.gen}.i8`), Buffer.alloc(16, 5));
-  fs.appendFileSync(path.join(dir, `${m.gen}.jsonl`), `${JSON.stringify({ row: 1, kind: 'record', id: 'ghost' })}\n{"row":2,`);
-  const fresh = createVectors({ dataDir, log: quiet, now: () => OCT });
-  assert.deepEqual(ids(await fresh.search('g1', q, { k: 5 })), ['a']);
-  await fresh.append('g1', [{ meta: meta('b'), vector: near(q, rng, 0.2) }]);
-  const after = manifestOf(dataDir, '2026-10');
-  assert.equal(after.rows, 2);
-  assert.equal(fs.statSync(path.join(dir, `${after.gen}.i8`)).size, 32);
-  const lines = fs.readFileSync(path.join(dir, `${after.gen}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.deepEqual(lines.map((l) => [l.row, l.id]), [[0, 'a'], [1, 'b']]);
-  assert.deepEqual(ids(await createVectors({ dataDir, log: quiet }).search('g1', q, { k: 5 })).sort(), ['a', 'b']);
-  // The instance that loaded the month before the crash sees the new row too.
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['a', 'b']);
-});
-
 test('vectors: rewrite writes a new generation, switches the manifest and removes the old files', async () => {
-  const { dataDir, vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(5);
   const q = randomVector(rng, 16);
   await vectors.append('g1', ['a', 'b', 'c'].map((id) => ({ meta: meta(id), vector: near(q, rng, 0.3) })), { model: 'mx' });
-  const before = manifestOf(dataDir, '2026-10');
+  const before = manifestOf(memoryDb, '2026-10');
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['a', 'b', 'c']);
   const result = await vectors.rewrite('g1', '2026-10', (m) => m.id !== 'b');
   assert.deepEqual(result, { kept: 2, dropped: 1 });
-  const after = manifestOf(dataDir, '2026-10');
+  const after = manifestOf(memoryDb, '2026-10');
   assert.notEqual(after.gen, before.gen);
   assert.equal(after.rows, 2);
   assert.equal(after.model, 'mx');
-  const dir = monthDir(dataDir, '2026-10');
-  assert.deepEqual(fs.readdirSync(dir).sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`, 'manifest.json'].sort());
+  assert.deepEqual([...monthFiles(memoryDb, '2026-10').keys()].sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`, 'manifest.json'].sort());
   const hits = await vectors.search('g1', q, { k: 5 });
   assert.deepEqual(ids(hits).sort(), ['a', 'c']);
   assert.deepEqual(hits.map((h) => h.meta.row).sort(), [0, 1]);
 });
 
-test('vectors: forgetUser drops rows by author, by participant and by a chunk line of theirs', async () => {
-  const { dataDir, vectors } = scene();
-  const rng = seeded(6);
-  const q = randomVector(rng, 16);
-  const row = (m) => ({ meta: m, vector: near(q, rng, 0.3) });
-  await vectors.append('g1', [
-    row(meta('own', { by: 'u9', participants: ['u9'] })),
-    row(meta('mentioned', { by: 'u1', participants: ['u1', 'u9'] })),
-    row(meta('context', { by: 'u1', participants: ['u1'], sourceIds: ['x-u9', 'x-u2', 'context'] })),
-    row(meta('archive', { kind: 'archive', by: null, participants: ['u9'] })),
-    row(meta('other', { by: 'u2', participants: ['u2'], sourceIds: ['x-u2', 'other'] })),
-  ]);
-  await vectors.append('g1', [row(meta('dm', { by: 'u3', participants: ['u3', 'u9'] }))], { privateUserId: 'u3' });
-  await vectors.append('g1', [row(meta('own-dm', { by: 'u9', participants: ['u9'] }))], { privateUserId: 'u9' });
-  const result = await vectors.forgetUser('g1', 'u9', { messageIds: ['x-u9'] });
-  assert.deepEqual(result, { dropped: 4, privateDropped: 2 });
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['other']);
-  assert.deepEqual(await vectors.search('g1', q, { k: 10, privateUserId: 'u3' }), []);
-  assert.equal(fs.existsSync(path.join(dataDir, 'guilds', 'g1', 'private', 'u9', 'vectors')), false);
-  assert.equal(fs.existsSync(path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u9.json')), false);
-});
-
-test('vectors: forgetUser with before drops only the earlier rows', async () => {
-  const { vectors } = scene();
-  const rng = seeded(7);
-  const q = randomVector(rng, 16);
-  await vectors.append('g1', [
-    { meta: meta('early', { by: 'u9', participants: ['u9'], occurredAt: '2026-10-01T00:00:00.000Z' }), vector: near(q, rng, 0.2) },
-    { meta: meta('late', { by: 'u9', participants: ['u9'], occurredAt: '2026-10-12T00:00:00.000Z' }), vector: near(q, rng, 0.2) },
-  ]);
-  const result = await vectors.forgetUser('g1', 'u9', { before: Date.parse('2026-10-05T00:00:00.000Z') });
-  assert.equal(result.dropped, 1);
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['late']);
-});
-
-test('vectors: search hides a member under a forgetting marker or in the ledger before the rewrite', async () => {
-  const { dataDir, vectors } = scene();
-  const rng = seeded(8);
-  const q = randomVector(rng, 16);
-  const row = (m) => ({ meta: m, vector: near(q, rng, 0.2) });
-  await vectors.append('g1', [
-    row(meta('marked', { by: 'u7', participants: ['u7'] })),
-    row(meta('ledger-early', { by: 'u1', participants: ['u1', 'u8'], occurredAt: '2026-10-02T00:00:00.000Z' })),
-    row(meta('ledger-late', { by: 'u8', participants: ['u8'], occurredAt: '2026-10-12T00:00:00.000Z' })),
-    row(meta('archived', { kind: 'archive', by: null, participants: ['u8'], occurredAt: '2026-10-03T00:00:00.000Z' })),
-    row(meta('plain', { by: 'u2', participants: ['u2'] })),
-  ]);
-  await vectors.append('g1', [row(meta('dm', { by: 'u7', participants: ['u7'] }))], { privateUserId: 'u7' });
-  const guildDir = path.join(dataDir, 'guilds', 'g1');
-  fs.mkdirSync(path.join(guildDir, 'forgetting'), { recursive: true });
-  fs.writeFileSync(path.join(guildDir, 'forgetting', 'u7.json'), JSON.stringify({ userId: 'u7' }));
-  fs.writeFileSync(path.join(guildDir, 'forgotten.json'), JSON.stringify([{ userId: 'u8', at: '2026-10-10T00:00:00.000Z' }]));
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })).sort(), ['ledger-late', 'plain']);
-  assert.deepEqual(await vectors.search('g1', q, { k: 10, privateUserId: 'u7' }), []);
-});
-
 test('vectors: a private layer is kept apart from the guild index and from other private layers', async () => {
-  const { dataDir, vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(9);
   const q = randomVector(rng, 16);
   await vectors.append('g1', [{ meta: meta('guild'), vector: near(q, rng, 0.1) }]);
   await vectors.append('g1', [{ meta: meta('dm-a'), vector: near(q, rng, 0.1) }], { privateUserId: 'u3' });
   await vectors.append('g1', [{ meta: meta('dm-b'), vector: near(q, rng, 0.1) }], { privateUserId: 'u4' });
-  assert.equal(manifestOf(dataDir, '2026-10', 'u3').rows, 1);
+  assert.equal(manifestOf(memoryDb, '2026-10', 'u3').rows, 1);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['guild']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 10, privateUserId: 'u3' })), ['dm-a']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 10, privateUserId: 'u4' })), ['dm-b']);
   assert.equal((await vectors.stats('g1', { privateUserId: 'u4' })).rows, 1);
 });
 
-test('vectors: the cache is bounded by bytes and evicts the least recently used month', async () => {
-  const reads = [];
-  const countingFs = {
-    ...fsp,
-    async open(file, flags) {
-      if (String(file).endsWith('.i8') && flags === 'r') reads.push(path.basename(path.dirname(file)));
-      return fsp.open(file, flags);
-    },
-  };
-  // Each month: 2 rows x 256 bytes plus its jsonl (~400 bytes); two months fit, three do not.
-  const { vectors } = scene({ fs: countingFs, maxCacheBytes: 2200 });
-  const rng = seeded(10);
-  const q = randomVector(rng, 256);
-  for (const month of ['2026-08', '2026-09', '2026-10']) {
-    await vectors.append('g1', [1, 2].map((n) => ({ meta: meta(`${month}-${n}`, { occurredAt: `${month}-05T00:00:00.000Z` }), vector: randomVector(rng, 256) })));
-  }
-  reads.length = 0;
-  await vectors.search('g1', q, { k: 1, months: ['2026-08'] });
-  await vectors.search('g1', q, { k: 1, months: ['2026-09'] });
-  await vectors.search('g1', q, { k: 1, months: ['2026-08'] });
-  assert.deepEqual(reads, ['2026-08', '2026-09']);
-  // 2026-10 pushes out the least recently used month, 2026-09; 2026-08 stays cached.
-  await vectors.search('g1', q, { k: 1, months: ['2026-10'] });
-  await vectors.search('g1', q, { k: 1, months: ['2026-08'] });
-  assert.deepEqual(reads, ['2026-08', '2026-09', '2026-10']);
-  await vectors.search('g1', q, { k: 1, months: ['2026-09'] });
-  assert.deepEqual(reads, ['2026-08', '2026-09', '2026-10', '2026-09']);
-});
-
 test('vectors: search time over 20 000 rows of 1024 dims (measured, not asserted)', async (t) => {
-  const { vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(11);
   const dims = 1024;
   const rows = [];
@@ -300,34 +200,34 @@ test('vectors: search time over 20 000 rows of 1024 dims (measured, not asserted
 });
 
 test('vectors: replace builds a month as a new generation, keeps the rows asked, and switches the manifest', async () => {
-  const { dataDir, vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(21);
   const q = randomVector(rng, 16);
   await vectors.append('g1', [
     { meta: meta('old-1'), vector: randomVector(rng, 16) },
     { meta: meta('live-2'), vector: randomVector(rng, 16) },
   ], { model: 'm-a' });
-  const before = manifestOf(dataDir, '2026-10');
+  const before = manifestOf(memoryDb, '2026-10');
   const result = await vectors.replace('g1', '2026-10', [{ meta: meta('old-1'), vector: near(q, rng, 0.01) }], {
     model: 'm-a',
     keep: (m) => m.id !== 'old-1',
   });
   assert.deepEqual(result, { written: 1, kept: 1, dropped: 1 });
-  const after = manifestOf(dataDir, '2026-10');
+  const after = manifestOf(memoryDb, '2026-10');
   assert.equal(after.gen, before.gen + 1);
   assert.equal(after.rows, 2);
-  assert.deepEqual(fs.readdirSync(monthDir(dataDir, '2026-10')).filter((n) => /^\d+\./.test(n)).sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`]);
+  assert.deepEqual([...monthFiles(memoryDb, '2026-10').keys()].filter((n) => /^\d+\./.test(n)).sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`]);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 1 })), ['old-1']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['live-2', 'old-1']);
 });
 
 test('vectors: replace with another model or length keeps none of the old rows; a row of another month is refused', async () => {
-  const { dataDir, vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(22);
   await vectors.append('g1', [{ meta: meta('a'), vector: randomVector(rng, 16) }], { model: 'm-a' });
   const result = await vectors.replace('g1', '2026-10', [{ meta: meta('b'), vector: randomVector(rng, 8) }], { model: 'm-b', keep: () => true });
   assert.deepEqual(result, { written: 1, kept: 0, dropped: 1 });
-  const manifest = manifestOf(dataDir, '2026-10');
+  const manifest = manifestOf(memoryDb, '2026-10');
   assert.equal(manifest.dims, 8);
   assert.equal(manifest.model, 'm-b');
   await assert.rejects(
@@ -337,7 +237,7 @@ test('vectors: replace with another model or length keeps none of the old rows; 
 });
 
 test('vectors: has lists the kind, id and revision of every row of a month, kept current across append, rewrite and layers', async () => {
-  const { vectors } = scene();
+  const { memoryDb, vectors } = await scene();
   const rng = seeded(11);
   assert.deepEqual([...(await vectors.has('g1', '2026-10'))], [], 'no month yet');
   await vectors.append('g1', [
@@ -357,9 +257,9 @@ test('vectors: has lists the kind, id and revision of every row of a month, kept
   await assert.rejects(vectors.has('g1', 'october'), TypeError);
 });
 
-test('vectors: has sees a month another process wrote (by its manifest)', async () => {
-  const { dataDir, vectors } = scene();
-  const other = createVectors({ dataDir, log: quiet, now: () => OCT });
+test('vectors: has sees a month another instance wrote (by its manifest)', async () => {
+  const { dataDir, memoryDb, vectors } = await scene();
+  const other = createVectors({ dataDir, log: quiet, now: () => OCT, memoryDb });
   const rng = seeded(12);
   await vectors.append('g1', [{ meta: meta('a'), vector: randomVector(rng, 8) }]);
   assert.equal((await vectors.has('g1', '2026-10')).size, 1);
