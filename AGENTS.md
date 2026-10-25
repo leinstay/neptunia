@@ -6,7 +6,7 @@ For the coding agents that work on this repository: where things are, how to run
 
 1. Read this file whole.
 2. Read `docs/README.md` for how the parts fit, then the doc of the part you touch.
-3. Read `STYLEGUIDE.md` before writing code or prose, and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
+3. Read `STYLEGUIDE.md` before writing code, and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
 4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "The agents' folder").
 
 ## Structure
