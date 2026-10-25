@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Neptunia is a persona engine: one process plays one character through a language model in a chat platform, with its own memory, inner life and tools. This file is for the coding agents that work on it. It says where things are, how to run and test the code, how to write, and what never to do. The README is for people; the docs explain the parts.
+For the coding agents that work on this repository: where things are, how to run and test the code, how to write, what never to do. The README is for people.
 
 ## Start here
 
@@ -62,6 +62,19 @@ This applies to documentation, comments, commit messages, pull request text and 
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
 - Length: about 100 words for a direct answer, 250 for an explanation or a work report, 500 for a plan or a review. A document is as long as its rules need.
 - Before handing in a text, read it once against the patterns of model prose (staged openers, forced triads, dashes as connectors, inflated words, closers) and remove them. Only the final text goes into a file.
+
+## Documentation
+
+- One topic per file in `docs/`, named in kebab-case and listed in `docs/README.md` with one line. The first paragraph says what the document covers and for whom.
+- Write in full sentences, in the present tense, about the code as it is. A document is not a changelog and not a plan: no "now", "was", "no longer", no roadmap.
+- Headings are plain phrases that name their content ("Configuration", "How a turn runs"), never questions, promises or jokes. A title may connect two things ("Memory and the diary").
+- Weave names into sentences: "`runTurn` opens a turn when an event passes the door", not "runTurn: opens a turn". No "Label: explanation" rows outside a table.
+- Say what the engine does, not what the reader "can" or "gets": "the door drops a duplicate event", not "you can rely on deduplication".
+- A document that describes behaviour names the module that implements it and the setting that changes it, with its default.
+- Tables for references (settings, commands, labels, codes), prose for behaviour. A table generated from the code says so in its first line.
+- Every path, key, command and value in backticks. Links are relative and point at files that exist; an external link only to published documentation.
+- Lists use "and" or "or", never a slash. No emoji.
+- A change to the code changes its document in the same pull request.
 
 ## Git
 
