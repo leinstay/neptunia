@@ -26,13 +26,7 @@ Read-only questions about this machine: reads files and runs read-only shell com
 
 **Tools:** `read`, `grep`, `glob`, `list`, `bash`.
 
-### drawing
-
-A tool agent, not a worker. There is no separate process and no model loop. When the persona draws a picture (her `draw.create` call, a diary post's pictures, or `/nep draw`), the core runs the Images pipeline directly: the persona's scene goes into the `draw` prompt with the `appearance` prompt and the local time, cut only to `image.maxPromptChars`, and the bot's avatar rides along as the reference when she draws herself. Nothing rewrites or "improves" her scene.
-
-The drawing agent's daily cap is `agents.drawing.daily.tasks` (default 100). Its pictures are paid with the key of `llm.keyByRole.drawing` and show in the `costs.base` row of `/nep status`, not in `costs.errands`.
-
-A drawing task is a record in the guild's task store, but it stays outside `agents.maxOpen`, it is born seen (never listed in `<tasks>` or the task lists), and it is never mirrored into the ledger.
+Drawing is not an errand. It is a built-in ability of the core, see [Media](media.md#drawings).
 
 ## How a task runs
 

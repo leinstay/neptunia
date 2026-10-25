@@ -2433,7 +2433,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   await load('ops/index.js');
   const { createJournal } = await load('memory/journal.js');
   const { grantedSkillNames } = await load('skills/discovery.js');
-  const { PROFILES: AGENT_PROFILES, TOOL_PROFILES } = await load('agent-runner/profiles.js');
+  const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.js');
   const { deepMerge } = await load('config.js');
   const { createStore, createCalibrator, createLlm, resolveGuild, createFakeAdapter, createIntentionStores, createIntentionService, createTaskStore, createAppendStore, createRecord, createAdmin, skillRegistry, userText } = mods;
   const liveData = defaultDataDir(root);
@@ -2560,7 +2560,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           heartbeat: {
             tasks: () => taskStore.recent(100),
             skills: () => grantedSkillNames({ config: hot.config, selfId: self.id, registry: skillRegistry() }),
-            agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
+            agents: () => Object.keys(AGENT_PROFILES),
             selfId: () => self.id,
           },
         },

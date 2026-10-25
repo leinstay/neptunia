@@ -85,7 +85,7 @@ import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
 import { skillRegistry, missingDefinitions } from './skills/registry.js';
 import { grantedSkillNames } from './skills/discovery.js';
-import { PROFILES as AGENT_PROFILES, TOOL_PROFILES } from './agent-runner/profiles.js';
+import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { isValidCommandName } from './ops/catalog.js';
@@ -501,7 +501,7 @@ const inner = createInnerLife({
   heartbeat: {
     tasks: (guildId) => taskStores.get(guildId).recent(100),
     skills: () => grantedSkillNames({ config: hot.config, selfId: client.user?.id ?? null, registry: skillRegistry() }),
-    agents: () => [...Object.keys(AGENT_PROFILES), ...Object.keys(TOOL_PROFILES)],
+    agents: () => Object.keys(AGENT_PROFILES),
     selfId: () => client.user?.id ?? null,
     focusPeople: () => (hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople() : null),
   },

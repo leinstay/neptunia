@@ -21,13 +21,6 @@
 // when the tasks are read), and its handles name nothing from then on.
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
-// A task of a `tool` agent (src/agent-runner/profiles.js: the drawing agent, run by the core itself,
-// src/errands/service.js#runInline) is a record like any other, with `usage.usd` from the provider's
-// own figure, but it is not an errand of the persona: it is born `seen` and stays so, so it is
-// never in `unseen`, `open`, `recent` (the `<tasks>` block and the task lists), it does not count
-// against `agents.maxOpen`, the list keeps only KEEP_FINISHED_TOOL of its finished ones (tasks.jsonl
-// keeps every transition, so the spend is whole), and it writes no journal line (its operation is
-// the persona's own, journaled by the turn). Its daily caps are the profile's, read like a worker's.
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a
 // turn that showed its `<task_result>` completed, or `task.read` returned it, src/ops/task.js) and
 // `resolvedAt` (she closed it: `task.resolve`, or an intention that waited on it moved to done).
@@ -45,7 +38,7 @@ import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
-import { agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
+import { profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../skills/codes.js';
 
 /** Every state a task may be in. */
@@ -58,8 +51,11 @@ export const REQUESTER_KINDS = Object.freeze(['owner', 'member', 'persona']);
 export const DEFAULT_MAX_OPEN = 3;
 /** The finished tasks tasks.json keeps besides the open ones (tasks.jsonl keeps every transition). */
 export const KEEP_FINISHED = 50;
-/** The finished tasks of tool agents tasks.json keeps (their spend stays whole in tasks.jsonl). */
-export const KEEP_FINISHED_TOOL = 20;
+/**
+ * Agents that no longer exist: the drawing agent was removed on 2026-10-25 (drawing is a core ability), but
+ * production task lists still hold its pictures as records. Load drops them.
+ */
+export const RETIRED_AGENTS = Object.freeze(['drawing']);
 /** The prefix of a task file handle. */
 export const FILE_HANDLE_PREFIX = 'file:';
 
@@ -80,11 +76,6 @@ export function parseFileHandle(handle) {
 /** True for a state of a task still under way. */
 export function isOpenState(state) {
   return OPEN_STATES.includes(state);
-}
-
-/** True for a task (or an agent name) of a `tool` agent. */
-export function isToolTask(task) {
-  return toolProfileOf(typeof task === 'string' ? task : task?.agent) !== null;
 }
 
 /**
@@ -121,6 +112,12 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
       raw = found.found ? found.value : null;
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
+    // Records of a retired agent are dropped once, here.
+    const known = tasks.filter((task) => !RETIRED_AGENTS.includes(task.agent));
+    if (known.length < tasks.length) {
+      log.info('errands: tasks of retired agents dropped at load', { guildId: String(guildId), count: tasks.length - known.length });
+      tasks.splice(0, tasks.length, ...known);
+    }
     for (const task of tasks) {
       // Records from before readAt: a seen one was read, an unseen one is still unread.
       if (task.readAt === undefined) task.readAt = task.seen === true ? (task.endedAt ?? task.createdAt ?? 0) : null;
@@ -170,24 +167,18 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
 
   /** Whether `task` is a finished errand whose result she has not read nor closed. */
   function isUnread(task) {
-    return !isOpenState(task.state) && !isToolTask(task) && !task.readAt && !task.resolvedAt;
+    return !isOpenState(task.state) && !task.readAt && !task.resolvedAt;
   }
 
   /** The list kept: every open task, then the finished ones, the unread first, at most KEEP_FINISHED. */
   function pruned(tasks) {
-    // The tool agents' finished ones have a list of their own, so a day of pictures never pushes an errand out.
-    const finishedTools = tasks.filter((task) => !isOpenState(task.state) && isToolTask(task));
-    const dropTools = finishedTools.length > KEEP_FINISHED_TOOL
-      ? new Set([...finishedTools].sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)).slice(KEEP_FINISHED_TOOL))
-      : null;
-    const listed = dropTools ? tasks.filter((task) => !dropTools.has(task)) : tasks;
-    const finished = listed.filter((task) => !isOpenState(task.state) && !isToolTask(task));
-    if (finished.length <= KEEP_FINISHED) return listed;
+    const finished = tasks.filter((task) => !isOpenState(task.state));
+    if (finished.length <= KEEP_FINISHED) return tasks;
     // The unread first, then the latest to end.
     const keep = new Set([...finished]
       .sort((a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0))
       .slice(0, KEEP_FINISHED));
-    return listed.filter((task) => isOpenState(task.state) || isToolTask(task) || keep.has(task));
+    return tasks.filter((task) => isOpenState(task.state) || keep.has(task));
   }
 
   /** The list handed to the outbox whole, and the transition of `task` as a line of tasks.jsonl. */
@@ -206,7 +197,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
 
   /** One journal `action` line of the task's operation (features.journal exactly true, read now); never throws. */
   function journalLine(task, phase, extra = {}) {
-    if (!journal || typeof journal.action !== 'function' || config()?.features?.journal !== true || isToolTask(task)) return;
+    if (!journal || typeof journal.action !== 'function' || config()?.features?.journal !== true) return;
     const privateUserId = task.scope === 'dm' ? (task.requester?.userId ?? null) : null;
     Promise.resolve(journal.action(String(guildId), {
       opId: task.opId,
@@ -277,7 +268,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
 
   /** `agents.<agent>.daily` with the profile's defaults under it. */
   function dailyCaps(agent) {
-    const defaults = agentProfileOf(agent)?.defaultDaily ?? {};
+    const defaults = profileOf(agent)?.defaultDaily ?? {};
     const set = agentsConfig()?.[agent]?.daily ?? {};
     return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks };
   }
@@ -300,8 +291,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
   /** The cap `agent` hits now, as its refusal code, or null. */
   function capHit(agent) {
     const maxOpen = Number.isFinite(agentsConfig().maxOpen) ? agentsConfig().maxOpen : DEFAULT_MAX_OPEN;
-    // A tool agent's task is no errand: it is outside agents.maxOpen (open() leaves it out too).
-    if (!isToolTask(agent) && open().length >= maxOpen) return 'cap-open';
+    if (open().length >= maxOpen) return 'cap-open';
     const caps = dailyCaps(agent);
     const used = usedToday(agent);
     if (Number.isFinite(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
@@ -338,7 +328,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
    *   idempotencyKey?: string|null }} input
    */
   function add({ agent, goal, requester, origin, scope, idempotencyKey = null } = {}) {
-    if (!agentProfileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    if (!profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: CODE.BAD_GOAL };
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
@@ -370,8 +360,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
       usage: null,
       result: null,
       error: null,
-      // A tool agent's task is no errand of hers to be told about: born seen.
-      seen: isToolTask(agent),
+      seen: false,
       readAt: null,
       resolvedAt: null,
       opId: `op-${uuid()}`,
@@ -411,7 +400,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     if (task.result?.filesDropped) task.result.filesDropped = task.result.filesDropped.map((entry) => entry.name).filter(Boolean);
     if (task.result?.filesDropped?.length === 0) delete task.result.filesDropped;
     task.error = task.state === 'done' ? null : (typeof error === 'string' && error ? error : task.state === 'cancelled' ? 'cancelled' : 'failed');
-    task.seen = isToolTask(task);
+    task.seen = false;
     persist(task);
     if (task.state === 'done') journalLine(task, 'succeeded', { result: journalResult(task) });
     else journalLine(task, 'failed', { result: { ...journalResult(task), code: task.error } });
@@ -485,23 +474,23 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     return copy(task);
   }
 
-  /** The open errands (queued and running, a tool agent's task left out), oldest first. */
+  /** The open errands (queued and running), oldest first. */
   function open() {
-    return state.tasks.filter((task) => isOpenState(task.state) && !isToolTask(task)).map(copy);
+    return state.tasks.filter((task) => isOpenState(task.state)).map(copy);
   }
 
-  /** The latest `n` errands (a tool agent's task left out), newest first. */
+  /** The latest `n` errands, newest first. */
   function recent(n = 10) {
     expireFiles();
     const count = Number.isInteger(n) && n > 0 ? n : 10;
     // Reversed first, so tasks of the same millisecond keep the later one first.
-    return state.tasks.filter((task) => !isToolTask(task)).reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
+    return state.tasks.slice().reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
   }
 
   /** The finished tasks the persona has not seen yet, oldest first. */
   function unseen() {
     expireFiles();
-    return state.tasks.filter((task) => !isOpenState(task.state) && task.seen !== true && !isToolTask(task)).map(copy);
+    return state.tasks.filter((task) => !isOpenState(task.state) && task.seen !== true).map(copy);
   }
 
   /** The finished errands whose result she has not read nor closed, oldest first (to end). */
@@ -521,7 +510,7 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
    * when a cap would refuse a new task now (`key` the setting).
    */
   function budget(agent) {
-    const code = agentProfileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
+    const code = profileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
     const key = { [CODE.CAP_OPEN]: 'agents.maxOpen', [CODE.CAP_TASKS]: `agents.${agent}.daily.tasks` }[code] ?? null;
     return { spent: code !== null, key, code };
   }

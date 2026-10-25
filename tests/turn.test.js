@@ -3113,25 +3113,6 @@ test('runTurn: a private turn may draw (no Attach Files check in a DM), counted 
   assert.equal(channel.sent[0].files.length, 1, 'the picture first, then her message');
 });
 
-test('runTurn: a private turn\'s picture is recorded by the drawing agent under the served guild, as a DM of the partner', async () => {
-  const inline = [];
-  const errands = {
-    runInline: async ({ run, ...args }) => {
-      inline.push(args);
-      return { ok: true, task: null, output: (await run()).output };
-    },
-  };
-  const { result, images } = await runPrivateTurn({ answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })])], errands });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.generateCalls.length, 1);
-  assert.equal(inline.length, 1);
-  assert.deepEqual(
-    [inline[0].guildId, inline[0].agent, inline[0].goal, inline[0].scope, inline[0].requester, inline[0].origin.channelId],
-    ['g1', 'drawing', 'a cat', 'dm', { userId: 'u1', kind: 'member' }, 'dm1'],
-  );
-});
-
 test('runTurn: a guild channel keeps its own guild id even when a guildId param is passed', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ guildId: 'g1', historyMessages: [raw] });
