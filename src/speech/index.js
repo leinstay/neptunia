@@ -21,20 +21,21 @@ const SPEECH_DAILY = { dayKey: 'speechDay', countKey: 'speechCount' };
 /** The setting a spent rail names. */
 export const SPEECH_CAP_KEY = 'speech.maxPerDay';
 
-/** A voice message that could not be made; `stage` is 'cap' | 'synth' | 'convert', `code` the skill code. */
+/** A voice message that could not be made; `stage` is 'cap' | 'prepare' | 'synth' | 'convert', `code` the skill code. */
 export class SpeechError extends Error {
   /**
-   * @param {'cap'|'synth'|'convert'} stage
+   * @param {'cap'|'prepare'|'synth'|'convert'} stage
    * @param {string} code
    * @param {string} message
-   * @param {{ statusCode?: number|null, cause?: unknown }} [extra]
+   * @param {{ statusCode?: number|null, reason?: string|null, cause?: unknown }} [extra]  `reason`: why a preparation failed.
    */
-  constructor(stage, code, message, { statusCode = null, cause } = {}) {
+  constructor(stage, code, message, { statusCode = null, reason = null, cause } = {}) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = 'SpeechError';
     this.stage = stage;
     this.code = code;
     this.statusCode = statusCode;
+    this.reason = reason;
   }
 }
 
@@ -61,10 +62,10 @@ export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, api
 
   /**
    * Make one voice message of `text` (already within `speech.maxChars`). Throws `SpeechError` for a
-   * spent rail, a failed synthesis or a failed conversion; a failed preparation does not throw
-   * (the text goes on as written, `prepared: false`, `reason`).
+   * spent rail, a failed preparation (stage `prepare`, `reason` as the pass gave it; nothing is
+   * synthesized or counted), a failed synthesis or a failed conversion.
    * @param {{ text: string }} args
-   * @returns {Promise<{ ogg: Buffer, durationSecs: number, waveform: string, chars: number, cost: number, model: string, voiced: string, prepared: boolean, reason?: string, ms: number }>}
+   * @returns {Promise<{ ogg: Buffer, durationSecs: number, waveform: string, chars: number, cost: number, model: string, voiced: string, prepared: true, ms: number }>}
    */
   async function say({ text }) {
     const config = getConfig();
@@ -83,6 +84,10 @@ export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, api
       maxOutputTokens: config.speech?.prepareMaxOutputTokens,
       timeoutMs: config.llm?.helperTimeoutMs,
     });
+
+    if (!prepared.prepared) {
+      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, `pronunciation pass failed (${prepared.reason})`, { reason: prepared.reason ?? null });
+    }
 
     // Counted as the request goes out: a failure after this was possibly billed.
     bumpDaily(state.data, SPEECH_DAILY, now());
@@ -110,8 +115,7 @@ export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, api
       cost: made.cost,
       model: made.model,
       voiced: prepared.text,
-      prepared: prepared.prepared,
-      ...(prepared.reason ? { reason: prepared.reason } : {}),
+      prepared: true,
       ms: made.ms,
     };
   }

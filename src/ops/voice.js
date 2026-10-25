@@ -11,17 +11,17 @@ import { CODE } from '../skills/codes.js';
 import { log } from '../log.js';
 
 /** The stage of a SpeechError, as the result words it. */
-const STAGE_NAMES = Object.freeze({ cap: 'limit', synth: 'synthesis', convert: 'conversion' });
+const STAGE_NAMES = Object.freeze({ cap: 'limit', prepare: 'pronunciation pass', synth: 'synthesis', convert: 'conversion' });
 
 const handlers = perEnv((env) => {
   const { hot, client, discord, speech, port, assertNotPaused, resolvedGuildId } = env;
 
   /**
    * One voice message. Answers `{ text, ref, at }` when it was posted: the duration, the
-   * characters, the estimated cost, whether the preparation passed and the text as voiced; the same
-   * as a `partial` result (`speech-prepare-failed`) when the preparation was dropped and her text
-   * went out as written. A failure is `{ status: 'failed', code, summary }` naming the stage
-   * (limit, synthesis, conversion, post); a post that may have gone out is `data.unknown`: never
+   * characters, the estimated cost and the text as voiced. A failure is `{ status: 'failed', code,
+   * summary }` naming the stage (limit, pronunciation pass, synthesis, conversion, post); a failed
+   * pronunciation pass (`speech-prepare-failed`) stops the call before anything is synthesized or
+   * sent, with the pass's reason (timeout, error, empty, mismatch, no-prompt) in `data.reason`; a post that may have gone out is `data.unknown`: never
    * made again.
    */
   async function cmdVoice(args, context) {
@@ -46,7 +46,8 @@ const handlers = perEnv((env) => {
     } catch (err) {
       if (!(err instanceof SpeechError)) throw err;
       const status = err.statusCode ? `, HTTP ${err.statusCode}` : '';
-      return { status: 'failed', code: err.code, summary: `voice: ${STAGE_NAMES[err.stage] ?? err.stage} failed (${err.code}${status}); nothing was posted` };
+      const reason = err.reason ? { data: { stage: err.stage, reason: err.reason } } : {};
+      return { status: 'failed', code: err.code, summary: `voice: ${STAGE_NAMES[err.stage] ?? err.stage} failed (${err.code}${status}${err.reason ? `, ${err.reason}` : ''}); nothing was posted`, ...reason };
     }
 
     const sent = await port.send(
@@ -64,13 +65,11 @@ const handlers = perEnv((env) => {
     }
 
     const lines = [
-      `voice message posted in ${postTo} · ${made.durationSecs}s · ${made.chars} characters · estimated cost ${made.cost.toFixed(4)} USD · prepared: ${made.prepared ? 'yes' : 'no'}`,
+      `voice message posted in ${postTo} · ${made.durationSecs}s · ${made.chars} characters · estimated cost ${made.cost.toFixed(4)} USD`,
       `as voiced: ${made.voiced}`,
     ];
-    log.info('voice: posted', { seconds: made.durationSecs, chars: made.chars, prepared: made.prepared });
-    const data = { text: lines.join('\n'), ref: sent.ref ?? null, at: sent.at, voice: { text: made.voiced, durationSecs: made.durationSecs } };
-    if (made.prepared) return data;
-    return { status: 'partial', code: CODE.SPEECH_PREPARE_FAILED, summary: data.text, data };
+    log.info('voice: posted', { seconds: made.durationSecs, chars: made.chars });
+    return { text: lines.join('\n'), ref: sent.ref ?? null, at: sent.at, voice: { text: made.voiced, durationSecs: made.durationSecs } };
   }
 
   return { cmdVoice };
