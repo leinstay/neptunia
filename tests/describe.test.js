@@ -2395,7 +2395,6 @@ test('relookImage: one download and one vision request with the question; the an
   const { describer, store, llm, imageFetcher, state } = relookDescriber({ now: clock() });
   const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
   const result = await describer.relookImage('g1', item, 'Y a-t-il un chargeur dans la pupille ?');
-
   assert.deepEqual(result, {
     question: 'Y a-t-il un chargeur dans la pupille ?',
     text: 'pas de chargeur, juste un reflet',
@@ -2567,8 +2566,7 @@ test('cachedVideos: returns cached video states only, never fetches or spends a 
   assert.equal(state.data.videoCount, undefined, 'no daily video slot is reserved');
 });
 
-// Provider routing: every request says which role makes it (llm.providerByModel
-// keys of the form "<prefix>@<role>").
+// Provider routing: every request says which role makes it (llm.providerByModel keys of the form "<prefix>@<role>").
 
 // --- GIFs: watched like a short video --------------------------------------
 
@@ -2620,11 +2618,9 @@ function gifDescriber({
 }
 
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
+const GIF_STILL_PREVIEW = 'https://previews.example/still.png'; // the adapter's preview, downloaded as given
 
 /** A tenor gifv embed's picture item (src/media/classify.js#collectPictures). */
-// The one still frame of a GIF is the preview address the adapter gave the item; the core downloads it as given.
-const GIF_STILL_PREVIEW = 'https://previews.example/still.png';
-
 function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
   return {
     source: 'embed',
