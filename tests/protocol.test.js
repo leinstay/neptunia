@@ -110,6 +110,40 @@ const EVENTS = {
     guildId: 'g1',
     wake: { kind: 'review' },
   },
+  // Stage 2 PR 4 added these four kinds; the detailed refusals are in protocol-events.test.ts.
+  'presence.changed': {
+    kind: 'presence.changed',
+    iface: 'discord',
+    at: 1000,
+    id: 'discord:presence:u1:1000',
+    userId: 'u1',
+    name: 'Ελένη',
+    status: 'online',
+    activities: [{ kind: 'playing', name: 'Chess', details: '', state: '' }],
+  },
+  'presence.snapshot': {
+    kind: 'presence.snapshot',
+    iface: 'discord',
+    at: 1000,
+    id: 'discord:presence-snapshot:g1:1000',
+    voice: [],
+    presence: [],
+  },
+  'conversation.changed': {
+    kind: 'conversation.changed',
+    iface: 'discord',
+    at: 1000,
+    id: 'discord:conversation:c1:created:1000',
+    conversation,
+    change: 'created',
+  },
+  'connection.changed': {
+    kind: 'connection.changed',
+    iface: 'discord',
+    at: 1000,
+    id: 'discord:connection:lost:1000',
+    state: 'lost',
+  },
 };
 
 const ref = { iface: 'fake', conversationId: 'c1' };
@@ -141,6 +175,11 @@ test('protocol: the kinds, conversation kinds and actions are the contract', () 
       'membership.changed',
       'voice.changed',
       'inner.wake',
+      // Stage 2 PR 4 appended these four; an interface sends them, so CORE_KINDS below is unchanged.
+      'presence.changed',
+      'presence.snapshot',
+      'conversation.changed',
+      'connection.changed',
     ]
   );
   assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed', 'inner.wake']);
