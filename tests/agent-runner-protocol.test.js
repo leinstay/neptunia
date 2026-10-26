@@ -8,9 +8,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  RESULT_STATUSES, OPS, validateRequest, parseRequestLine, encodeLine,
-  progressEvent, endEvent, restartedEvent, pongEvent, errorEvent, normalizeUsage, normalizeResult,
-  SECRET_KEYS, httpProxyForm, MAX_PREAMBLE_CHARS,
+  RESULT_STATUSES,
+  OPS,
+  validateRequest,
+  parseRequestLine,
+  encodeLine,
+  progressEvent,
+  endEvent,
+  restartedEvent,
+  pongEvent,
+  errorEvent,
+  normalizeUsage,
+  normalizeResult,
+  SECRET_KEYS,
+  httpProxyForm,
+  MAX_PREAMBLE_CHARS,
 } from '../src/agent-runner/protocol.js';
 
 test('RESULT_STATUSES: the three final states, frozen', () => {
@@ -21,11 +33,15 @@ test('RESULT_STATUSES: the three final states, frozen', () => {
 
 test('validateRequest: a full run passes and is normalised', () => {
   const r = validateRequest({
-    op: 'run', id: 'task-1', goal: '  find a meme  ',
+    op: 'run',
+    id: 'task-1',
+    goal: '  find a meme  ',
     context: { scope: 'dm', asker: 'Theodora' },
     limits: { steps: 10, seconds: 60 },
-    tools: ['search', 'search', 'fetch'], model: 'x-ai/grok-4.7',
-    cost: { input: 2, output: 6 }, searchProvider: 'exa',
+    tools: ['search', 'search', 'fetch'],
+    model: 'x-ai/grok-4.7',
+    cost: { input: 2, output: 6 },
+    searchProvider: 'exa',
   });
   assert.equal(r.ok, true);
   assert.equal(r.message.goal, 'find a meme');
@@ -51,12 +67,25 @@ test('validateRequest: a bad scope, limit, cost or search provider is refused', 
 
 test('validateRequest: a run carries its secrets, each a non-empty string; only the known keys', () => {
   assert.deepEqual([...SECRET_KEYS], ['openrouterKey', 'proxy', 'searchKey']);
-  const full = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' } });
+  const full = validateRequest({
+    op: 'run',
+    id: 'a',
+    goal: 'x',
+    secrets: { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' },
+  });
   assert.equal(full.ok, true);
-  assert.deepEqual(full.message.secrets, { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' });
+  assert.deepEqual(full.message.secrets, {
+    openrouterKey: 'sk-or-1',
+    proxy: 'http://u:p@proxy.example:8000',
+    searchKey: 'srch-1',
+  });
   const keyOnly = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1' } });
   assert.deepEqual(keyOnly.message.secrets, { openrouterKey: 'sk-or-1' });
-  assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x' }).message, 'secrets'), false, 'none given: none passed on');
+  assert.equal(
+    Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x' }).message, 'secrets'),
+    false,
+    'none given: none passed on'
+  );
 });
 
 test('validateRequest / parseRequestLine: refused secrets come back as a code, never the secret', () => {
@@ -78,11 +107,18 @@ test('validateRequest / parseRequestLine: refused secrets come back as a code, n
     assert.ok(!JSON.stringify(checked).includes('VERYSECRET'));
   }
   // A run refused for another reason while carrying good secrets: the refusal and its error event name no secret.
-  const line = JSON.stringify({ op: 'run', id: 'task-7', goal: '', secrets: { openrouterKey: secret, proxy: 'http://u:VERYSECRET@p.example:1', searchKey: secret } });
+  const line = JSON.stringify({
+    op: 'run',
+    id: 'task-7',
+    goal: '',
+    secrets: { openrouterKey: secret, proxy: 'http://u:VERYSECRET@p.example:1', searchKey: secret },
+  });
   const parsed = parseRequestLine(line);
   assert.deepEqual(parsed, { ok: false, error: 'bad-goal', id: 'task-7' });
   assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('VERYSECRET'));
-  const badSecrets = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-8', goal: 'g', secrets: { openrouterKey: secret, extra: secret } }));
+  const badSecrets = parseRequestLine(
+    JSON.stringify({ op: 'run', id: 'task-8', goal: 'g', secrets: { openrouterKey: secret, extra: secret } })
+  );
   assert.deepEqual(badSecrets, { ok: false, error: 'bad-secrets', id: 'task-8' });
   assert.ok(!encodeLine(errorEvent(badSecrets.error, badSecrets.id)).includes('VERYSECRET'));
 });
@@ -131,7 +167,12 @@ test('progressEvent: shape, note trimmed and cut', () => {
 });
 
 test('endEvent: status clamped to a known one, result and usage normalised', () => {
-  const e = endEvent({ id: 'a', status: 'weird', result: { text: 'ok', sources: ['u', 'u'], files: [{ path: '/p', bytes: 3 }] }, usage: { usd: 0.1, costUnknown: 2 } });
+  const e = endEvent({
+    id: 'a',
+    status: 'weird',
+    result: { text: 'ok', sources: ['u', 'u'], files: [{ path: '/p', bytes: 3 }] },
+    usage: { usd: 0.1, costUnknown: 2 },
+  });
   assert.equal(e.status, 'failed');
   assert.deepEqual(e.result.sources, ['u']);
   assert.equal(e.result.files[0].name, '');
@@ -143,8 +184,20 @@ test('endEvent: status clamped to a known one, result and usage normalised', () 
 });
 
 test('restarted, pong and error events', () => {
-  assert.deepEqual(restartedEvent('a'), { id: 'a', event: 'end', status: 'failed', result: { text: '', sources: [], files: [] }, usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 }, error: 'restarted' });
-  assert.deepEqual(pongEvent({ profile: 'scout', busy: true, queued: 2 }), { event: 'pong', profile: 'scout', busy: true, queued: 2 });
+  assert.deepEqual(restartedEvent('a'), {
+    id: 'a',
+    event: 'end',
+    status: 'failed',
+    result: { text: '', sources: [], files: [] },
+    usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 },
+    error: 'restarted',
+  });
+  assert.deepEqual(pongEvent({ profile: 'scout', busy: true, queued: 2 }), {
+    event: 'pong',
+    profile: 'scout',
+    busy: true,
+    queued: 2,
+  });
   assert.deepEqual(errorEvent('bad-op'), { event: 'error', error: 'bad-op' });
   assert.deepEqual(errorEvent('bad-goal', 'a'), { id: 'a', event: 'error', error: 'bad-goal' });
 });
@@ -155,13 +208,22 @@ test('normalizeUsage and normalizeResult: non-numbers and non-objects default', 
 });
 
 test('normalizeResult: the withheld paths pass, each once and cut, at most 50; none or an empty list leaves the key out', () => {
-  assert.deepEqual(normalizeResult({ text: 't', withheld: ['/var/www/a', '/var/www/a', '', 7, '/home/u/.ssh/id'] }).withheld, ['/var/www/a', '/home/u/.ssh/id']);
+  assert.deepEqual(
+    normalizeResult({ text: 't', withheld: ['/var/www/a', '/var/www/a', '', 7, '/home/u/.ssh/id'] }).withheld,
+    ['/var/www/a', '/home/u/.ssh/id']
+  );
   assert.equal(Object.hasOwn(normalizeResult({ text: 't', withheld: [] }), 'withheld'), false);
   assert.equal(Object.hasOwn(normalizeResult({ text: 't', withheld: 'x' }), 'withheld'), false);
-  const many = normalizeResult({ withheld: Array.from({ length: 80 }, (_, i) => `/var/www/${i}/${'x'.repeat(300)}`) }).withheld;
+  const many = normalizeResult({
+    withheld: Array.from({ length: 80 }, (_, i) => `/var/www/${i}/${'x'.repeat(300)}`),
+  }).withheld;
   assert.equal(many.length, 50);
   assert.ok(many.every((p) => p.length === 200));
-  assert.deepEqual(endEvent({ id: 'a', status: 'done', result: { text: 'ok', withheld: ['/etc/shadow'] } }).result.withheld, ['/etc/shadow'], 'the end event carries them to the core');
+  assert.deepEqual(
+    endEvent({ id: 'a', status: 'done', result: { text: 'ok', withheld: ['/etc/shadow'] } }).result.withheld,
+    ['/etc/shadow'],
+    'the end event carries them to the core'
+  );
 });
 
 test('encodeLine: one JSON object and a newline', () => {
@@ -171,16 +233,47 @@ test('encodeLine: one JSON object and a newline', () => {
 test('validateRequest: context.recent passes as { author, text } lines, the latest 20 kept, each cut; a malformed line refuses bad-recent', () => {
   const line = (i) => ({ author: `Ελένη ${i}`, text: `γραμμή ${i}`, extra: 'dropped' });
   const many = Array.from({ length: 25 }, (_, i) => line(i));
-  const ok = validateRequest({ op: 'run', id: 't1', goal: 'g', context: { scope: 'group', channel: 'c1', recent: many } });
+  const ok = validateRequest({
+    op: 'run',
+    id: 't1',
+    goal: 'g',
+    context: { scope: 'group', channel: 'c1', recent: many },
+  });
   assert.equal(ok.ok, true);
   assert.equal(ok.message.context.recent.length, 20);
-  assert.deepEqual(ok.message.context.recent[0], { author: 'Ελένη 5', text: 'γραμμή 5' }, 'the earliest dropped, other keys too');
+  assert.deepEqual(
+    ok.message.context.recent[0],
+    { author: 'Ελένη 5', text: 'γραμμή 5' },
+    'the earliest dropped, other keys too'
+  );
   assert.equal(ok.message.context.channel, 'c1');
-  const long = validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(300) }] } });
-  assert.deepEqual([long.message.context.recent[0].author.length, long.message.context.recent[0].text.length], [200, 200]);
-  assert.deepEqual(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } }).message.context.recent, []);
-  for (const bad of ['text', [{ author: 'a' }], [{ author: 'a', text: 3 }], [null], [['a', 'b']], [{ author: 'a', text: 'b' }, 'c']]) {
-    assert.deepEqual(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: bad } }), { ok: false, error: 'bad-recent' }, JSON.stringify(bad));
+  const long = validateRequest({
+    op: 'run',
+    id: 't1',
+    goal: 'g',
+    context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(300) }] },
+  });
+  assert.deepEqual(
+    [long.message.context.recent[0].author.length, long.message.context.recent[0].text.length],
+    [200, 200]
+  );
+  assert.deepEqual(
+    validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } }).message.context.recent,
+    []
+  );
+  for (const bad of [
+    'text',
+    [{ author: 'a' }],
+    [{ author: 'a', text: 3 }],
+    [null],
+    [['a', 'b']],
+    [{ author: 'a', text: 'b' }, 'c'],
+  ]) {
+    assert.deepEqual(
+      validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: bad } }),
+      { ok: false, error: 'bad-recent' },
+      JSON.stringify(bad)
+    );
   }
 });
 
@@ -189,17 +282,31 @@ test('validateRequest: a run carries the shared preamble trimmed; a blank one is
   const ok = validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '  Shared text for every agent.\n' });
   assert.equal(ok.ok, true);
   assert.equal(ok.message.preamble, 'Shared text for every agent.');
-  assert.equal(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: 'é'.repeat(8000) }).message.preamble.length, 8000, 'at the cap: kept');
-  assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' }).message, 'preamble'), false);
+  assert.equal(
+    validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: 'é'.repeat(8000) }).message.preamble.length,
+    8000,
+    'at the cap: kept'
+  );
+  assert.equal(
+    Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' }).message, 'preamble'),
+    false
+  );
   assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x' }).message, 'preamble'), false);
 });
 
 test('validateRequest / parseRequestLine: a non-string or over-long preamble is refused with its code, never its text', () => {
   for (const preamble of [42, null, ['PREAMBLE-TEXT'], { text: 'PREAMBLE-TEXT' }, true]) {
-    assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble }), { ok: false, error: 'bad-preamble' }, JSON.stringify(preamble));
+    assert.deepEqual(
+      validateRequest({ op: 'run', id: 'a', goal: 'x', preamble }),
+      { ok: false, error: 'bad-preamble' },
+      JSON.stringify(preamble)
+    );
   }
   const long = `PREAMBLE-TEXT${'x'.repeat(8000)}`;
-  assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: long }), { ok: false, error: 'preamble-too-long' });
+  assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: long }), {
+    ok: false,
+    error: 'preamble-too-long',
+  });
   const parsed = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-p', goal: 'g', preamble: long }));
   assert.deepEqual(parsed, { ok: false, error: 'preamble-too-long', id: 'task-p' });
   assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('PREAMBLE-TEXT'));

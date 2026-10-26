@@ -25,7 +25,16 @@ const LAST = Date.UTC(2026, 9, 3, 10, 0, 0);
 function msg(
   id,
   ts,
-  { channels = [], content = 'καλημέρα', attachments = [], links = [], stickers = [], emojis = [], bot = false, self = false } = {},
+  {
+    channels = [],
+    content = 'καλημέρα',
+    attachments = [],
+    links = [],
+    stickers = [],
+    emojis = [],
+    bot = false,
+    self = false,
+  } = {}
 ) {
   return {
     id,
@@ -151,7 +160,11 @@ test('explicitChannelIds: newest mention first, each id once', () => {
   assert.deepEqual(explicitChannelIds(messages), ['ch-c', 'ch-a', 'ch-b']);
   assert.deepEqual(explicitChannelIds([]), []);
   assert.deepEqual(explicitChannelIds(undefined), []);
-  assert.deepEqual(explicitChannelIds([msg('m5', at(0), { channels: ['', 7, null, 'ch-d'] })]), ['ch-d'], 'only non-empty string ids');
+  assert.deepEqual(
+    explicitChannelIds([msg('m5', at(0), { channels: ['', 7, null, 'ch-d'] })]),
+    ['ch-d'],
+    'only non-empty string ids'
+  );
 });
 
 // ---- pullTargets -----------------------------------------------------------------
@@ -185,17 +198,17 @@ test('pullTargets: the source comes first and counts toward maxChannels', () => 
       { channelId: 'ch-memes', reason: 'mention' },
       { channelId: 'ch-diary', reason: 'mention' },
     ],
-    'a source also mentioned explicitly is pulled once, as the source',
+    'a source also mentioned explicitly is pulled once, as the source'
   );
   assert.deepEqual(
     targets({ source: { channelId: 'ch-source', reason: 'routed' }, history, trigger, maxChannels: 0 }),
     [{ channelId: 'ch-source', reason: 'routed' }],
-    'the source is the turn itself: it is kept even when maxChannels leaves no slot',
+    'the source is the turn itself: it is kept even when maxChannels leaves no slot'
   );
   assert.deepEqual(
     targets({ source: { channelId: 'ch-source', reason: 'routed' }, isPullable: () => false }),
     [{ channelId: 'ch-source', reason: 'routed' }],
-    'isPullable judges mentions and route ids, not the source the caller already chose',
+    'isPullable judges mentions and route ids, not the source the caller already chose'
   );
   assert.deepEqual(targets({ history, maxChannels: 0 }), [], 'without a source maxChannels 0 pulls nothing');
 });
@@ -206,7 +219,7 @@ test('pullTargets: a source in the current channel is dropped, the chat already 
   assert.deepEqual(
     targets({ source: { channelId: 'ch-here', reason: 'noticed' }, trigger }),
     [{ channelId: 'ch-memes', reason: 'mention' }],
-    'the slot it would have taken goes to the next candidate',
+    'the slot it would have taken goes to the next candidate'
   );
 });
 
@@ -215,7 +228,11 @@ test('pullTargets: without isPullable only the source is kept', () => {
   const history = [msg('m1', at(2), { channels: ['ch-diary'] })];
   const base = { history, trigger, extra: ['ch-route'], currentChannelId: 'ch-here', scanMessages: 20, maxChannels: 3 };
   assert.deepEqual(pullTargets(base), [], 'fail closed: no predicate, no mention or route id');
-  assert.deepEqual(pullTargets({ ...base, isPullable: true }), [], 'a predicate that is not a function counts as missing');
+  assert.deepEqual(
+    pullTargets({ ...base, isPullable: true }),
+    [],
+    'a predicate that is not a function counts as missing'
+  );
   assert.deepEqual(pullTargets({ ...base, source: { channelId: 'ch-source', reason: 'routed' } }), [
     { channelId: 'ch-source', reason: 'routed' },
   ]);
@@ -249,7 +266,7 @@ test('pullTargets: a refused mention leaves its slot to the next candidate', () 
   assert.equal(asked.length, 1, 'a full slot list asks nothing more');
 });
 
-test('pullTargets: a channel mention in another bot\'s message does not pull', () => {
+test("pullTargets: a channel mention in another bot's message does not pull", () => {
   const history = [
     msg('m1', at(5), { channels: ['ch-diary'] }),
     msg('b1', at(2), { channels: ['ch-rules'], bot: true }),
@@ -260,12 +277,12 @@ test('pullTargets: a channel mention in another bot\'s message does not pull', (
   assert.deepEqual(
     targets({ history, trigger: null, maxChannels: 5 }),
     [{ channelId: 'ch-diary', reason: 'mention' }],
-    'neither a bot\'s line nor the persona\'s own line pulls',
+    "neither a bot's line nor the persona's own line pulls"
   );
   assert.deepEqual(
     targets({ history, trigger, scanMessages: 2, maxChannels: 5 }),
     [],
-    'the skipped lines still use up the scanned span',
+    'the skipped lines still use up the scanned span'
   );
 });
 
@@ -276,11 +293,13 @@ test('pullTargets: the current channel and unpullable ids are skipped', () => {
     msg('m3', at(1), { channels: ['ch-mirror'] }),
   ];
   const pullable = (id) => id !== 'ch-thread' && id !== 'ch-mirror';
-  assert.deepEqual(targets({ history, maxChannels: 5, isPullable: pullable }), [{ channelId: 'ch-ok', reason: 'mention' }]);
+  assert.deepEqual(targets({ history, maxChannels: 5, isPullable: pullable }), [
+    { channelId: 'ch-ok', reason: 'mention' },
+  ]);
   assert.deepEqual(
     targets({ history, maxChannels: 5, isPullable: pullable, extra: ['ch-here', 'ch-mirror'] }),
     [{ channelId: 'ch-ok', reason: 'mention' }],
-    'route ids pass the same checks',
+    'route ids pass the same checks'
   );
 });
 
@@ -290,8 +309,12 @@ test('pullTargets: route ids come after explicit mentions', () => {
     { channelId: 'ch-said', reason: 'mention' },
     { channelId: 'ch-route', reason: 'route' },
   ]);
-  assert.deepEqual(targets({ trigger, extra: ['ch-route'], maxChannels: 1 }), [{ channelId: 'ch-said', reason: 'mention' }]);
-  assert.deepEqual(targets({ extra: ['ch-route', 42, ''], maxChannels: 3 }), [{ channelId: 'ch-route', reason: 'route' }]);
+  assert.deepEqual(targets({ trigger, extra: ['ch-route'], maxChannels: 1 }), [
+    { channelId: 'ch-said', reason: 'mention' },
+  ]);
+  assert.deepEqual(targets({ extra: ['ch-route', 42, ''], maxChannels: 3 }), [
+    { channelId: 'ch-route', reason: 'route' },
+  ]);
   assert.deepEqual(targets({ extra: undefined, maxChannels: 3 }), []);
 });
 
@@ -306,13 +329,16 @@ test('pullTargets: the trigger and the last scanMessages of the history are scan
   assert.deepEqual(
     targets({ history, trigger, scanMessages: 2, maxChannels: 5 }).map((t) => t.channelId),
     ['ch-trigger', 'ch-mid'],
-    'the trigger does not use up one of the scanned history messages',
+    'the trigger does not use up one of the scanned history messages'
   );
-  assert.deepEqual(targets({ history, trigger, scanMessages: 0, maxChannels: 5 }).map((t) => t.channelId), ['ch-trigger']);
+  assert.deepEqual(
+    targets({ history, trigger, scanMessages: 0, maxChannels: 5 }).map((t) => t.channelId),
+    ['ch-trigger']
+  );
   assert.deepEqual(
     targets({ history, trigger: null, scanMessages: 20, maxChannels: 5 }).map((t) => t.channelId),
     ['ch-trigger', 'ch-mid', 'ch-old'],
-    'a spontaneous turn scans its history alone',
+    'a spontaneous turn scans its history alone'
   );
 });
 
@@ -320,16 +346,36 @@ test('pullTargets: channelPull off keeps only the source', () => {
   const trigger = msg('t', at(0), { channels: ['ch-said'] });
   assert.deepEqual(targets({ trigger, extra: ['ch-route'], maxChannels: 3, channelPull: false }), []);
   assert.deepEqual(
-    targets({ source: { channelId: 'ch-source', reason: 'routed' }, trigger, extra: ['ch-route'], maxChannels: 3, channelPull: false }),
-    [{ channelId: 'ch-source', reason: 'routed' }],
+    targets({
+      source: { channelId: 'ch-source', reason: 'routed' },
+      trigger,
+      extra: ['ch-route'],
+      maxChannels: 3,
+      channelPull: false,
+    }),
+    [{ channelId: 'ch-source', reason: 'routed' }]
   );
 });
 
 // ---- pullWindow ------------------------------------------------------------------
 
 test('pullWindow: keeps every message within windowMinutes before the anchor', () => {
-  const messages = [msg('a', at(90)), msg('b', at(61)), msg('c', at(60)), msg('d', at(40)), msg('e', at(15)), msg('f', at(0))];
-  const result = pullWindow(messages, { anchorTs: LAST, windowMinutes: 60, minMessages: 2, maxMessages: 60, pageFull: false, now: NOW });
+  const messages = [
+    msg('a', at(90)),
+    msg('b', at(61)),
+    msg('c', at(60)),
+    msg('d', at(40)),
+    msg('e', at(15)),
+    msg('f', at(0)),
+  ];
+  const result = pullWindow(messages, {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 2,
+    maxMessages: 60,
+    pageFull: false,
+    now: NOW,
+  });
   assert.deepEqual(ids(result.messages), ['c', 'd', 'e', 'f'], 'the window edge itself is inside');
   assert.equal(result.olderNotShown, true);
   assert.equal(result.skip, null);
@@ -338,7 +384,11 @@ test('pullWindow: keeps every message within windowMinutes before the anchor', (
 test('pullWindow: the window ends at the anchor, not at now', () => {
   const messages = [msg('a', at(90)), msg('b', at(50)), msg('c', at(0))];
   const result = pullWindow(messages, { anchorTs: LAST, windowMinutes: 60, minMessages: 1, maxMessages: 60, now: NOW });
-  assert.deepEqual(ids(result.messages), ['b', 'c'], 'two days after the anchor the window is still 9:00-10:00 of that day');
+  assert.deepEqual(
+    ids(result.messages),
+    ['b', 'c'],
+    'two days after the anchor the window is still 9:00-10:00 of that day'
+  );
   assert.equal(result.skip, null);
 });
 
@@ -355,11 +405,14 @@ test('pullWindow: without an anchor the window ends at the newest message whatev
 
 test('pullWindow: a positive maxAgeDays refuses an older channel with too-old', () => {
   const messages = [msg('a', at(30)), msg('b', at(0))];
-  assert.deepEqual(pullWindow(messages, { windowMinutes: 60, minMessages: 1, maxMessages: 60, maxAgeDays: 1, now: NOW }), {
-    messages: [],
-    olderNotShown: false,
-    skip: 'too-old',
-  });
+  assert.deepEqual(
+    pullWindow(messages, { windowMinutes: 60, minMessages: 1, maxMessages: 60, maxAgeDays: 1, now: NOW }),
+    {
+      messages: [],
+      olderNotShown: false,
+      skip: 'too-old',
+    }
+  );
   const recent = pullWindow(messages, { windowMinutes: 60, minMessages: 1, maxMessages: 60, maxAgeDays: 3, now: NOW });
   assert.deepEqual(ids(recent.messages), ['a', 'b']);
   assert.equal(recent.skip, null);
@@ -377,11 +430,27 @@ test('pullWindow: fewer than minMessages inside takes the last minMessages', () 
   // A burst the day before, then a lone question an hour later than the window reaches.
   const burst = [0, 1, 2, 3, 4].map((i) => msg(`b${i}`, at(24 * 60 - i)));
   const lone = msg('q', at(0), { content: '?' });
-  const result = pullWindow([...burst, lone], { anchorTs: LAST, windowMinutes: 60, minMessages: 5, maxMessages: 60, now: NOW });
-  assert.deepEqual(ids(result.messages), ['b1', 'b2', 'b3', 'b4', 'q'], 'the tail of the burst is shown regardless of time');
+  const result = pullWindow([...burst, lone], {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 5,
+    maxMessages: 60,
+    now: NOW,
+  });
+  assert.deepEqual(
+    ids(result.messages),
+    ['b1', 'b2', 'b3', 'b4', 'q'],
+    'the tail of the burst is shown regardless of time'
+  );
   assert.equal(result.olderNotShown, true);
 
-  const all = pullWindow([...burst, lone], { anchorTs: LAST, windowMinutes: 60, minMessages: 10, maxMessages: 60, now: NOW });
+  const all = pullWindow([...burst, lone], {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 10,
+    maxMessages: 60,
+    now: NOW,
+  });
   assert.deepEqual(ids(all.messages), ['b0', 'b1', 'b2', 'b3', 'b4', 'q']);
   assert.equal(all.olderNotShown, false, 'nothing older exists and the page was not full');
 });
@@ -392,10 +461,24 @@ test('pullWindow: keeps the newest maxMessages and flags older ones', () => {
   assert.deepEqual(ids(result.messages), ['m6', 'm7', 'm8', 'm9']);
   assert.equal(result.olderNotShown, true);
 
-  const whole = pullWindow(messages, { anchorTs: LAST, windowMinutes: 60, minMessages: 5, maxMessages: 60, pageFull: false, now: NOW });
+  const whole = pullWindow(messages, {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 5,
+    maxMessages: 60,
+    pageFull: false,
+    now: NOW,
+  });
   assert.equal(whole.messages.length, 10);
   assert.equal(whole.olderNotShown, false);
-  const fullPage = pullWindow(messages, { anchorTs: LAST, windowMinutes: 60, minMessages: 5, maxMessages: 60, pageFull: true, now: NOW });
+  const fullPage = pullWindow(messages, {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 5,
+    maxMessages: 60,
+    pageFull: true,
+    now: NOW,
+  });
   assert.equal(fullPage.messages.length, 10);
   assert.equal(fullPage.olderNotShown, true, 'a full page means the channel holds older messages than the page');
 
@@ -407,7 +490,14 @@ test('pullWindow: messages after the anchor are left out', () => {
   const [a, b, c, d] = [msg('a', at(30)), msg('b', at(0)), msg('c', at(-5)), msg('d', at(-90))];
   const messages = [b, d, a, c];
   const before = ids(messages);
-  const result = pullWindow(messages, { anchorTs: LAST, windowMinutes: 60, minMessages: 1, maxMessages: 60, pageFull: false, now: NOW });
+  const result = pullWindow(messages, {
+    anchorTs: LAST,
+    windowMinutes: 60,
+    minMessages: 1,
+    maxMessages: 60,
+    pageFull: false,
+    now: NOW,
+  });
   assert.deepEqual(ids(result.messages), ['a', 'b'], 'in time order whatever the input order');
   assert.equal(result.olderNotShown, false, 'newer messages left out are not older ones');
   assert.deepEqual(ids(messages), before, 'the input is not changed');
@@ -420,7 +510,11 @@ test('pullWindow: messages after the anchor are left out', () => {
 test('pullWindow: an empty channel or nothing up to the anchor is skipped with empty', () => {
   assert.deepEqual(pullWindow([], { now: NOW }), { messages: [], olderNotShown: false, skip: 'empty' });
   assert.deepEqual(pullWindow(undefined, { now: NOW }), { messages: [], olderNotShown: false, skip: 'empty' });
-  assert.deepEqual(pullWindow([msg('a', at(-1))], { anchorTs: LAST, now: NOW }), { messages: [], olderNotShown: false, skip: 'empty' });
+  assert.deepEqual(pullWindow([msg('a', at(-1))], { anchorTs: LAST, now: NOW }), {
+    messages: [],
+    olderNotShown: false,
+    skip: 'empty',
+  });
 });
 
 // ---- pullPictures ----------------------------------------------------------------
@@ -438,10 +532,13 @@ test('pullPictures: newest first, at most maxPictures, the rest counted', () => 
   assert.deepEqual(
     items.map((item) => item.itemId),
     ['c1', 'c2', 'c3', 'link:λ'],
-    'newest message first, each message in its own order',
+    'newest message first, each message in its own order'
   );
   assert.equal(items[0].messageId, 'm3');
-  assert.deepEqual(rest.map((item) => item.itemId), ['sticker:s1', 'a1', 'a2']);
+  assert.deepEqual(
+    rest.map((item) => item.itemId),
+    ['sticker:s1', 'a1', 'a2']
+  );
   assert.equal(overflow, 3, 'the sticker of m2 and both pictures of m1');
 
   assert.deepEqual(pullPictures(messages, 0).items, []);
@@ -453,12 +550,12 @@ test('pullPictures: newest first, at most maxPictures, the rest counted', () => 
 test('pullPictures: pictures past maxPictures are returned for the cache, not only counted', () => {
   const same = { id: 'link:same', kind: 'link', thumbnailUrl: 'https://cdn.example/same.png', title: 'Crème' };
   const messages = Array.from({ length: 12 }, (_, i) =>
-    msg(`m${i}`, at(60 - i), { attachments: [image(`p${i}`)], links: i === 0 || i === 11 ? [same] : [] }),
+    msg(`m${i}`, at(60 - i), { attachments: [image(`p${i}`)], links: i === 0 || i === 11 ? [same] : [] })
   );
   const { items, rest, overflow } = pullPictures(messages, 10);
   assert.deepEqual(
     items.map((item) => item.itemId),
-    ['p11', 'link:same', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p4', 'p3'],
+    ['p11', 'link:same', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p4', 'p3']
   );
   assert.deepEqual(
     rest.map((item) => [item.itemId, item.messageId]),
@@ -467,10 +564,14 @@ test('pullPictures: pictures past maxPictures are returned for the cache, not on
       ['p1', 'm1'],
       ['p0', 'm0'],
     ],
-    'same order, the repeated link only once, at its newest message',
+    'same order, the repeated link only once, at its newest message'
   );
   assert.equal(overflow, rest.length);
-  assert.equal(new Set([...items, ...rest].map((item) => item.itemId)).size, 13, 'every picture of the window, each once');
+  assert.equal(
+    new Set([...items, ...rest].map((item) => item.itemId)).size,
+    13,
+    'every picture of the window, each once'
+  );
 });
 
 test('pullPictures: custom emoji come apart from the pictures, each once at its newest message', () => {
@@ -479,15 +580,21 @@ test('pullPictures: custom emoji come apart from the pictures, each once at its 
     msg('m2', at(10), { emojis: [emoji('e1')], attachments: [image('b1')] }),
   ];
   const { items, rest, overflow, emoji: emojiItems } = pullPictures(messages, 1);
-  assert.deepEqual(items.map((item) => item.itemId), ['b1']);
-  assert.deepEqual(rest.map((item) => item.itemId), ['a1']);
+  assert.deepEqual(
+    items.map((item) => item.itemId),
+    ['b1']
+  );
+  assert.deepEqual(
+    rest.map((item) => item.itemId),
+    ['a1']
+  );
   assert.equal(overflow, 1, 'emoji never count toward maxPictures or the overflow');
   assert.deepEqual(
     emojiItems.map((item) => [item.itemId, item.messageId, item.kind]),
     [
       ['emoji:e1', 'm2', 'emoji'],
       ['emoji:e2', 'm1', 'emoji'],
-    ],
+    ]
   );
   assert.deepEqual(pullPictures(messages, 0).emoji.length, 2, 'emoji are returned whatever maxPictures says');
 });
@@ -502,12 +609,25 @@ test('pullPictures: only describable pictures, each picture once', () => {
     }),
   ];
   const { items, overflow } = pullPictures(messages, 10);
-  assert.deepEqual(items.map((item) => [item.itemId, item.messageId]), [['link:same', 'm2']], 'the same link twice is one picture, at its newest message');
+  assert.deepEqual(
+    items.map((item) => [item.itemId, item.messageId]),
+    [['link:same', 'm2']],
+    'the same link twice is one picture, at its newest message'
+  );
   assert.equal(overflow, 0);
 });
 
 test('pullTargets: kept ids come after mentions and route ids, fill only free slots, reason kept', () => {
-  assert.deepEqual(targets({ maxChannels: 2, kept: ['ch-k'], extra: ['ch-r'] }), [{ channelId: 'ch-r', reason: 'route' }, { channelId: 'ch-k', reason: 'kept' }]);
-  assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-k'], extra: ['ch-r'] }), [{ channelId: 'ch-r', reason: 'route' }]);
-  assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-here', 'ch-k'] }), [{ channelId: 'ch-k', reason: 'kept' }], 'never the current channel');
+  assert.deepEqual(targets({ maxChannels: 2, kept: ['ch-k'], extra: ['ch-r'] }), [
+    { channelId: 'ch-r', reason: 'route' },
+    { channelId: 'ch-k', reason: 'kept' },
+  ]);
+  assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-k'], extra: ['ch-r'] }), [
+    { channelId: 'ch-r', reason: 'route' },
+  ]);
+  assert.deepEqual(
+    targets({ maxChannels: 1, kept: ['ch-here', 'ch-k'] }),
+    [{ channelId: 'ch-k', reason: 'kept' }],
+    'never the current channel'
+  );
 });
