@@ -6,6 +6,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 
 | Path | Layer | Purpose | May import | Test |
 |---|---|---|---|---|
+| `.claude/settings.json` | public | Claude Code project settings: the one hook every clone gets, the rule-files guard (tools/hooks/rule-files-guard.sh). | nothing | none |
 | `README.md` | public | The project README for people who find the repository. | nothing | none |
 | `*.md` | public | The root documents: agent rules, style guide, writing guide, contributing and security policy. | nothing | none |
 | `LICENSE` | public | The license text. | nothing | none |
