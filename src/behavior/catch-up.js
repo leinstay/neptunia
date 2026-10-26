@@ -197,3 +197,30 @@ export function createOfflineCatchUp({
 
   return { run };
 }
+
+/**
+ * The `deliver` of createOfflineCatchUp: one fetched message built into its protocol event, the event's
+ * handles kept for the message handler's `rawOf`, and the event handed to the handler's catch-up path, which
+ * answers with the outcome. The event is never emitted as a live message: a caught-up message is observed
+ * once, by the catch-up path, not by the live one. A message whose event cannot be built is `ignored`.
+ * @param {object} deps
+ * @param {(message: object) => object} deps.eventOf  The interface's event of a fetched message (it throws for one it cannot read).
+ * @param {(event: object) => void} deps.keep  Keeps the discord.js handles the event carries, under its id.
+ * @param {(event: object, options: { trigger: boolean }) => Promise<string>} deps.onCatchUp  The message handler's `catchUp`.
+ * @param {{ warn: (message: string, meta?: object) => void }} [deps.log]
+ * @returns {(message: object, options: { trigger: boolean }) => Promise<string>}
+ */
+export function createCatchUpDeliver({ eventOf, keep, onCatchUp, log = defaultLog }) {
+  return async (message, options) => {
+    /** @type {object} */
+    let event;
+    try {
+      event = eventOf(message);
+    } catch {
+      log.warn('catch-up: event not built', {});
+      return 'ignored';
+    }
+    keep(event);
+    return onCatchUp(event, options);
+  };
+}
