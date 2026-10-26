@@ -26,7 +26,7 @@ Fork the repository, branch from `main`, make the change, open a pull request ba
 
 **Tests.** Every pull request must pass `npm test`, and CI runs it automatically. Tests use `node:test` and `node:assert/strict`. Name tests `subject: behaviour`. Tests never read a real `prompts.local/` or `data/`; I/O goes through fakes. When a test needs non-Latin text, use Greek or accented Latin.
 
-**Code conventions.** [`STYLEGUIDE.md`](STYLEGUIDE.md) says how code and documentation are written. CI also runs `npm run lint`, `npm run typecheck` and a Prettier check on the files the pull request changes. Existing violations are recorded in `eslint-suppressions.json` and `type-baseline.json`; a change adds none, and records a fix with `npm run lint:prune` or `npm run typecheck:update`. `sh tools/pre-commit.sh` runs the format and lint checks on staged files.
+**Code conventions.** [`STYLEGUIDE.md`](STYLEGUIDE.md) says how code and documentation are written.
 
 **Every behaviour has a config setting.** A new behaviour needs its switch or number in `config.json` (`features.*` for on/off) and a row in the [configuration reference](docs/configuration.md).
 
