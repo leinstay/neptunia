@@ -8,9 +8,12 @@ import { createCatchUpDeliver, createOfflineCatchUp, planChannel } from '../src/
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { deepMerge } from '../src/config.js';
-import { createDiscordInterface, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { onWorldIface, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
 
-const DISCORD = createDiscordInterface().capabilities;
+// The conversations are held by a fake interface named `fake`, where the persona is `self1`.
+useIface('fake');
+useSelf('self1');
 const SHIPPED = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const MIN = 60_000;
 const NOW = Date.parse('2026-10-18T12:00:00Z');
@@ -36,7 +39,7 @@ function fakeGuild() {
 }
 
 function fakeChannel(id, guild) {
-  return {
+  const channel = {
     id,
     guild,
     isThread: () => false,
@@ -44,6 +47,8 @@ function fakeChannel(id, guild) {
     permissionsFor: () => ({ has: () => true }),
     messages: { cache: new Map(), fetch: async () => null },
   };
+  syncStub(channel);
+  return channel;
 }
 
 function fakeMessage({ id, channel, ts, content = 'γεια σου', authorId = 'u1', mention = false }) {
@@ -74,8 +79,10 @@ function harness({ hot, channels = [{ id: 'c1', lastMessageAt: LAST_SEEN }], pau
   const handler = createMessageHandler({
     hot,
     store,
-    client: { user: { id: SELF, username: 'Neptunia' } },
-    discord: DISCORD,
+    reads: world().reads,
+    selfId: () => SELF,
+    getSelfName: () => 'Ζωή',
+    port: world().port,
     turns: {
       notePost() {},
       runTurn: async (args) => {
@@ -93,8 +100,9 @@ function harness({ hot, channels = [{ id: 'c1', lastMessageAt: LAST_SEEN }], pau
     rng: () => 0.99,
     now: () => NOW,
   });
-  const live = (message) => handler(toEvent(message, SELF, normalizeOptions(hot.config)));
-  const deliver = (message, options) => handler.catchUp(toEvent(message, SELF, normalizeOptions(hot.config)), options);
+  const live = (message) => handler(onWorldIface(toEvent(message, SELF, normalizeOptions(hot.config))));
+  const deliver = (message, options) =>
+    handler.catchUp(onWorldIface(toEvent(message, SELF, normalizeOptions(hot.config))), options);
   return { handler, live, deliver, store, turnsStarted, observed };
 }
 
