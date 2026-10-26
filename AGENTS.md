@@ -31,19 +31,7 @@ npm install
 node --test --test-reporter=dot tests/<module>.test.js   # the tests of the module you changed
 npm test                                                  # the whole suite, once before a pull request
 npm run check:codes                                       # the result codes against labels and docs
-npm run prose                                             # the prose files against the dash, label and slash rules of WRITING.md
-npm run prose:update                                      # after fixing a violation: rewrites prose-baseline.json
-npm run lint                                              # ESLint over the tree; fails on a violation not in eslint-suppressions.json
-npm run lint:prune                                        # after fixing violations: drops the stale entries from eslint-suppressions.json
-npm run typecheck                                         # tsc errors against type-baseline.json; fails when a count grows or shrinks
-npm run typecheck:update                                  # after fixing type errors: rewrites type-baseline.json
-npm run health                                            # file, function and structure limits against code-health-baseline.json, and docs/structure.md against structure.json
-npm run health:update                                     # after fixing a breach: rewrites code-health-baseline.json
-npm run format:check -- <files>                           # Prettier on the files you changed, never on the whole tree
-sh tools/pre-commit.sh                                    # format and lint on the staged files
 ```
-
-The three baselines may only shrink: new code adds no lint violation, no type error and no size or structure breach, and a fix is recorded in the same change with `lint:prune`, `typecheck:update` or `health:update`.
 
 Set `TMPDIR` to a scratch folder before running tests. Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 
@@ -74,7 +62,6 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
 - Length: about 100 words for a direct answer, 250 for an explanation or a work report, 500 for a plan or a review. A document is as long as its rules need.
 - Before handing in a text, review it against `WRITING.md` and hand in the corrected text; only the final text goes into a file.
-- CI fails a prose file that gains a dash, a "Label: explanation" row outside a table or a slash list (`npm run prose`).
 
 ## Documentation
 
@@ -107,7 +94,6 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - Test behaviour through the module's public exports. No import of a private function, no reaching into internals.
 - One scenario per test, fixed inputs, an assertion on the concrete result. Every module gets its boundary case, its empty input and its error path.
 - Assert the fact that matters. `deepEqual` on a whole object is for a value whose whole shape is the point; an assertion on a type, on "not undefined", or on a mock returning what it was told to return proves nothing.
-- `npm run lint` checks three of these rules: an assertion in every test, no assertion that only says a value exists or has a type, and a comment above any `deepEqual` against an object of more than 8 fields.
 - No mock for code that can be called directly. I/O goes through fakes; `rng` and `now` are injected; a test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network.
 - For every bug you find, a regression test that reproduces it, in the same change as the fix.
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
