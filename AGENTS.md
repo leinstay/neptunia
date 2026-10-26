@@ -104,6 +104,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - Test behaviour through the module's public exports. No import of a private function, no reaching into internals.
 - One scenario per test, fixed inputs, an assertion on the concrete result. Every module gets its boundary case, its empty input and its error path.
 - Assert the fact that matters. `deepEqual` on a whole object is for a value whose whole shape is the point; an assertion on a type, on "not undefined", or on a mock returning what it was told to return proves nothing.
+- `npm run lint` checks three of these rules: an assertion in every test, no assertion that only says a value exists or has a type, and a comment above any `deepEqual` against an object of more than 8 fields.
 - No mock for code that can be called directly. I/O goes through fakes; `rng` and `now` are injected; a test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network.
 - For every bug you find, a regression test that reproduces it, in the same change as the fix.
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.

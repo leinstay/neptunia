@@ -20,7 +20,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
-| `eslint.config.js` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint` | none |
+| `eslint.config.js` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `tools/eslint-test-rules.mjs` | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
 | `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |
@@ -37,7 +37,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `deploy/` | public | The systemd units and the install script. | nothing | none |
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
 | `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. | `node:*`, `discord.js`, `src/protocol/**` | required |
-| `tests/` | public | The node:test files, one per module. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
+| `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tools/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `tools/**`, `typescript`, `discord.js` | none |
 | `tools/lib/` | public | What the scripts under tools share. | `node:*`, `src/**`, `tools/**` | none |
