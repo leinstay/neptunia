@@ -72,8 +72,12 @@ function checkConversation(conversation) {
   need(conversation, 'conversation', isObject);
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', (kind) => CONVERSATION_KINDS.includes(kind), { problem: 'unknown' });
-  for (const key of ['guildId', 'name', 'topic', 'category', 'parentId']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
-  need(conversation.chatType, 'conversation.chatType', (value) => CONVERSATION_CHAT_TYPES.includes(value), { required: false, problem: 'unknown' });
+  for (const key of ['guildId', 'name', 'topic', 'category', 'parentId'])
+    need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
+  need(conversation.chatType, 'conversation.chatType', (value) => CONVERSATION_CHAT_TYPES.includes(value), {
+    required: false,
+    problem: 'unknown',
+  });
   need(conversation.partnerId, 'conversation.partnerId', (value) => value === null || isId(value), { required: false });
 }
 
@@ -89,7 +93,8 @@ function checkMessage(message) {
   need(message.author.bot, 'message.author.bot', (value) => typeof value === 'boolean');
   need(message.content, 'message.content', (value) => typeof value === 'string');
   need(message.at, 'message.at', isFiniteNumber);
-  for (const key of ['replyToId', 'replyPingUserId']) need(message[key], `message.${key}`, (value) => value === null || isId(value));
+  for (const key of ['replyToId', 'replyPingUserId'])
+    need(message[key], `message.${key}`, (value) => value === null || isId(value));
   need(message.forwardedFrom, 'message.forwardedFrom', isNullableString);
   for (const key of MESSAGE_LISTS) need(message[key], `message.${key}`, Array.isArray);
 }
@@ -106,14 +111,16 @@ function checkOrigin(origin) {
   need(origin, 'origin', isObject);
   need(origin.chatType, 'origin.chatType', (value) => CHAT_TYPES.includes(value), { problem: 'unknown' });
   need(origin.place, 'origin.place', isId);
-  for (const key of ['parent', 'thread', 'replyToAuthorId']) need(origin[key], `origin.${key}`, (value) => value === null || isId(value));
+  for (const key of ['parent', 'thread', 'replyToAuthorId'])
+    need(origin[key], `origin.${key}`, (value) => value === null || isId(value));
   need(origin.replyExpected, 'origin.replyExpected', (value) => value === null || typeof value === 'boolean');
 }
 
 function checkMessageReceived(event) {
   checkConversation(event.conversation);
   if (event.origin !== undefined) checkOrigin(event.origin);
-  for (const flag of ['edit', 'deleted', 'partial']) need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
+  for (const flag of ['edit', 'deleted', 'partial'])
+    need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
   need(event.message, 'message', isObject);
   need(event.message.id, 'message.id', isId);
   if (event.deleted === true) return;
@@ -187,7 +194,8 @@ function checkVoiceChanged(event) {
   need(event.guildId, 'guildId', isId);
   need(event.userId, 'userId', isId);
   for (const key of ['conversationId', 'previousId']) need(event[key], key, (value) => value === null || isId(value));
-  for (const flag of ['muted', 'deafened', 'streaming']) need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
+  for (const flag of ['muted', 'deafened', 'streaming'])
+    need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
 }
 
 const EVENT_CHECKS = {
@@ -234,7 +242,9 @@ function checkRef(ref, field, { needMessage }) {
 function checkContent(content) {
   need(content, 'content', isObject);
   need(content.text, 'content.text', isNullableString, { required: false });
-  need(content.attachments, 'content.attachments', (value) => value === null || Array.isArray(value), { required: false });
+  need(content.attachments, 'content.attachments', (value) => value === null || Array.isArray(value), {
+    required: false,
+  });
   need(content.mentions, 'content.mentions', (value) => value === null || isObject(value), { required: false });
   need(content.replyTo, 'content.replyTo', (value) => value === null || isObject(value), { required: false });
 }
