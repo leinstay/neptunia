@@ -26,6 +26,28 @@ const nameOf = (id) => NAMES[id] ?? null;
 const voice = (id, channelId, flags = {}) => ({ id, channelId, ...flags });
 const presence = (userId, status, activities = []) => ({ userId, status, activities });
 
+const F = labels.peopleNow.fields;
+const V = labels.peopleNow.values;
+/** The live fields of a member as `{ field: value }`. */
+const fields = (store, id, namer = channelNameOf) =>
+  Object.fromEntries(
+    liveFields(store.snapshot(), id, { labels, channelNameOf: namer }).map((line) => {
+      const text = line.replace(/^- /, '');
+      const at = text.indexOf(': ');
+      return [text.slice(0, at), text.slice(at + 2)];
+    })
+  );
+const seat = (channel, flags = {}) =>
+  fill(labels.peopleNow.voiceYes, {
+    channel,
+    joined: '',
+    muted: V.no,
+    deafened: V.no,
+    streaming: V.no,
+    camera: V.no,
+    ...flags,
+  });
+
 test('liveFields: every entry has the same two live fields, never the Discord status, in order, each a line through labels.peopleNow.field', () => {
   const store = createFedAround({ presences: true });
   store.presenceUpdate(presence('u1', 'online'));
