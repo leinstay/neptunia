@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "path": ".claude/settings.json",
+      "purpose": "Claude Code project settings: the one hook every clone gets, the rule-files guard (tools/hooks/rule-files-guard.sh).",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "README.md",
       "purpose": "The project README for people who find the repository.",
       "layer": "public",
