@@ -5,20 +5,19 @@
 // tests/draw-parity.test.js. Fake clock, prompts, labels, avatar and channel; no network.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { familyOf } from '../src/llm/images.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { drawPicture, drawPromptOf } from '../src/media/draw.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 // Tuesday, October 6, 2026, 22:30 in Europe/Athens.
 const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
@@ -107,29 +106,9 @@ function hot() {
   };
 }
 
-/** A discord.js-shaped text channel with every permission; `history` its raw messages. */
+/** A text channel of the world with every permission; `history` its raw messages. */
 function channel(id, name, history = []) {
-  const sent = [];
-  return {
-    id,
-    name,
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${id}-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(history.map((m) => [m.id, m]));
-        return { react: async () => {} };
-      },
-    },
-    sent,
-  };
+  return world().channel({ id, name, guildId: 'g1', historyMessages: history });
 }
 
 /** A member's message as discord.js hands it over. */
@@ -147,11 +126,16 @@ function rawMessage({ id, authorId, authorName, content, ts }) {
   };
 }
 
-/** The bot user and the served guild, with an avatar URL. */
+/** The bot user and the served guild; the interface gives her large avatar as an address. */
 function client() {
   const guild = { id: 'g1', name: 'The Server', members: { me: { displayName: 'Bot' } } };
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Bot',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example/avatar.png' },
+  });
   return {
-    user: { id: 'self-id', username: 'Bot', displayAvatarURL: () => 'https://cdn.example/avatar.png' },
+    user: { id: 'self-id', username: 'Bot' },
     guilds: { cache: new Map([['g1', guild]]) },
     channels: { cache: new Map([['d1', { id: 'd1', name: 'journal' }]]) },
   };
@@ -218,14 +202,12 @@ function llm(post, plan = null) {
 }
 
 function runner({ answer, plan = null, images, hotValue = hot() }) {
+  client();
   return createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: hotValue,
     store: store(),
     llm: llm(answer, plan),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: client(),
     images,
     imageFetcher: imageFetcher(),
     lookup: null,
@@ -294,7 +276,8 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
   const hotValue = hot();
   const admin = (value) =>
     createAdmin({
-      discord: DISCORD,
+      reads: world().reads,
+      port: world().port,
       hot: value,
       store: store(),
       client: client(),
@@ -339,22 +322,26 @@ test("draw.create from a member's mention: the picture is charged to the member;
     hotCase.prompts = { ...PROMPTS };
     const { raw, trigger } = memberTrigger();
     const target = channel('c1', 'general', [raw]);
+    client();
     const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
       hot: hotCase,
       store: store(),
       llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
       calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-      client: client(),
       images,
       imageFetcher: imageFetcher(),
       lookup: null,
       rng: () => 0.5,
       now: () => NOW,
       skills: skillRegistry(),
-      runOp: createAdmin({ discord: DISCORD, hot: hotCase, store: store(), client: client(), getGuildId: () => 'g1' })
-        .runSkillOp,
+      runOp: createAdmin({
+        reads: world().reads,
+        port: world().port,
+        hot: hotCase,
+        store: store(),
+        client: client(),
+        getGuildId: () => 'g1',
+      }).runSkillOp,
     });
     const { logs } = await withCapturedLogs(() =>
       turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' })
@@ -381,7 +368,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });
   const admin = createAdmin({
-    discord: DISCORD,
+    reads: world().adopt(port, { sendsInHistory: true }),
     hot: hotValue,
     store: store(),
     client: client(),
@@ -448,7 +435,7 @@ function fakeImages(answers = []) {
 const deps = (images, hotValue = plainHot(), fetcher = imageFetcher()) => ({
   images,
   hot: hotValue,
-  client: client(),
+  avatarUrl: async () => 'https://cdn.example/avatar.png',
   imageFetcher: fetcher,
   now: () => NOW,
 });

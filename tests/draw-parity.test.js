@@ -7,16 +7,15 @@
 // fake discord.js-shaped channel; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { familyOf } from '../src/llm/images.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 // Tuesday, October 6, 2026, 22:30 in Europe/Athens.
 const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
@@ -105,29 +104,9 @@ function hot() {
   };
 }
 
-/** A discord.js-shaped text channel with every permission; `history` its raw messages. */
+/** A text channel of the world with every permission; `history` its raw messages. */
 function channel(id, name, history = []) {
-  const sent = [];
-  return {
-    id,
-    name,
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${id}-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(history.map((m) => [m.id, m]));
-        return { react: async () => {} };
-      },
-    },
-    sent,
-  };
+  return world().channel({ id, name, guildId: 'g1', historyMessages: history });
 }
 
 /** A member's message as discord.js hands it over. */
@@ -145,11 +124,16 @@ function rawMessage({ id, authorId, authorName, content, ts }) {
   };
 }
 
-/** The bot user and the served guild, with an avatar URL. */
+/** The bot user and the served guild; the interface gives her large avatar as an address. */
 function client() {
   const guild = { id: 'g1', name: 'The Server', members: { me: { displayName: 'Bot' } } };
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Bot',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example/avatar.png' },
+  });
   return {
-    user: { id: 'self-id', username: 'Bot', displayAvatarURL: () => 'https://cdn.example/avatar.png' },
+    user: { id: 'self-id', username: 'Bot' },
     guilds: { cache: new Map([['g1', guild]]) },
     channels: { cache: new Map([['d1', { id: 'd1', name: 'journal' }]]) },
   };
@@ -210,14 +194,12 @@ function llm(post, plan = null) {
 }
 
 function runner({ answer, plan = null, images }) {
+  client();
   return createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: hot(),
     store: store(),
     llm: llm(answer, plan),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: client(),
     images,
     imageFetcher: imageFetcher(),
     lookup: null,
@@ -317,7 +299,8 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
 test('draw parity: /nep draw with self', async () => {
   const images = recordingImages();
   const admin = createAdmin({
-    discord: DISCORD,
+    reads: world().reads,
+    port: world().port,
     hot: hot(),
     store: store(),
     client: client(),
