@@ -135,7 +135,10 @@ export function liveFields(snapshot, memberId, { labels, channelNameOf, now } = 
       : values.no;
   lines.push(fieldLine(labels, 'voice', voice ?? ''));
 
-  const doing = !unknown && status !== 'offline' ? (record?.activities ?? []).map((activity) => activityPhrase(activity, l)).filter(Boolean) : [];
+  const doing =
+    !unknown && status !== 'offline'
+      ? (record?.activities ?? []).map((activity) => activityPhrase(activity, l)).filter(Boolean)
+      : [];
   lines.push(fieldLine(labels, 'activity', unknown ? (values[unknown] ?? '') : doing.join('; ') || values.none || ''));
   return lines.filter(Boolean);
 }

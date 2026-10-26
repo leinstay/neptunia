@@ -49,7 +49,7 @@ function fakeStore(profiles = {}) {
   return {
     users,
     writes,
-    getUser: (guildId, id) => (guildId === GUILD ? users.get(id) ?? null : null),
+    getUser: (guildId, id) => (guildId === GUILD ? (users.get(id) ?? null) : null),
     listUserProfiles: (guildId) => (guildId === GUILD ? [...users.values()] : []),
     setAvatar(guildId, id, avatar) {
       const profile = users.get(id);
@@ -86,7 +86,13 @@ function fakeFetcher(result = DOWNLOAD) {
 }
 
 function fakeState(data = {}) {
-  return { data, dirty: 0, markDirty() { this.dirty += 1; } };
+  return {
+    data,
+    dirty: 0,
+    markDirty() {
+      this.dirty += 1;
+    },
+  };
 }
 
 function fakeLog() {
@@ -96,10 +102,25 @@ function fakeLog() {
 }
 
 function view(id, hash, extra = {}) {
-  return { id, bot: false, hash, url: hash ? `https://cdn.example/avatars/${id}/${hash}.png?size=256` : null, ...extra };
+  return {
+    id,
+    bot: false,
+    hash,
+    url: hash ? `https://cdn.example/avatars/${id}/${hash}.png?size=256` : null,
+    ...extra,
+  };
 }
 
-function setup({ profiles = { u1: {} }, hot = fakeHot(), llm = fakeLlm(), imageFetcher = fakeFetcher(), state = fakeState(), now = clock(), members = {}, paused = false } = {}) {
+function setup({
+  profiles = { u1: {} },
+  hot = fakeHot(),
+  llm = fakeLlm(),
+  imageFetcher = fakeFetcher(),
+  state = fakeState(),
+  now = clock(),
+  members = {},
+  paused = false,
+} = {}) {
   const store = fakeStore(profiles);
   const log = fakeLog();
   const queue = createAvatarQueue({
@@ -144,18 +165,44 @@ test('memberView: a guild member as the queue sees it, a static 256 px PNG url o
   assert.equal(memberView(null), null);
   assert.equal(memberView({ user: {} }), null);
   // A throwing url builder never escapes.
-  assert.deepEqual(memberView({ avatar: 's', user: { id: 'u3', avatar: null }, displayAvatarURL: () => { throw new Error('boom'); } }), { id: 'u3', bot: false, hash: 's', url: null });
+  assert.deepEqual(
+    memberView({
+      avatar: 's',
+      user: { id: 'u3', avatar: null },
+      displayAvatarURL: () => {
+        throw new Error('boom');
+      },
+    }),
+    { id: 'u3', bot: false, hash: 's', url: null }
+  );
 });
 
 test('normalizeAvatar: a described avatar, the default one, anything else is no field', () => {
-  assert.deepEqual(normalizeAvatar({ hash: 'h1', text: ' a  red\nfox ', describedAt: '2026-10-15T12:00:00.000Z', extra: 1 }), {
-    hash: 'h1',
-    text: 'a red fox',
-    describedAt: '2026-10-15T12:00:00.000Z',
-  });
+  assert.deepEqual(
+    normalizeAvatar({ hash: 'h1', text: ' a  red\nfox ', describedAt: '2026-10-15T12:00:00.000Z', extra: 1 }),
+    {
+      hash: 'h1',
+      text: 'a red fox',
+      describedAt: '2026-10-15T12:00:00.000Z',
+    }
+  );
   assert.deepEqual(normalizeAvatar({ hash: null, default: true }), { hash: null, default: true });
-  assert.deepEqual(normalizeAvatar({ hash: 'h1', text: 'fox', describedAt: 'not a date' }), { hash: 'h1', text: 'fox', describedAt: null });
-  for (const broken of [null, 'fox', [], {}, { hash: 'h1' }, { hash: 'h1', text: '   ' }, { hash: '', text: 'fox' }, { hash: null }, { default: 'yes' }]) {
+  assert.deepEqual(normalizeAvatar({ hash: 'h1', text: 'fox', describedAt: 'not a date' }), {
+    hash: 'h1',
+    text: 'fox',
+    describedAt: null,
+  });
+  for (const broken of [
+    null,
+    'fox',
+    [],
+    {},
+    { hash: 'h1' },
+    { hash: 'h1', text: '   ' },
+    { hash: '', text: 'fox' },
+    { hash: null },
+    { default: 'yes' },
+  ]) {
     assert.equal(normalizeAvatar(broken), null, JSON.stringify(broken));
   }
 });
@@ -175,7 +222,9 @@ test('isAvatarDue: nothing stored or another hash is due; the same hash or the d
 // ---- offer: who is queued ---------------------------------------------------------------
 
 test('offer: only a profiled member of the served guild, never a bot or the persona, and only on a hash change', () => {
-  const { queue, store } = setup({ profiles: { u1: {}, u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } }, [SELF]: {}, b1: {} } });
+  const { queue, store } = setup({
+    profiles: { u1: {}, u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } }, [SELF]: {}, b1: {} },
+  });
   assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'queued');
   assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'queued', 'the same offer again keeps one item');
   assert.equal(queue.offer(GUILD, view('u2', 'h2')), 'current');
@@ -190,7 +239,11 @@ test('offer: only a profiled member of the served guild, never a bot or the pers
 });
 
 test('offer: with the switch not exactly true or the prompt missing nothing is queued', () => {
-  for (const hot of [fakeHot({ features: { avatars: 'yes' } }), fakeHot({ features: { avatars: undefined } }), fakeHot({ prompts: { avatar: '' } })]) {
+  for (const hot of [
+    fakeHot({ features: { avatars: 'yes' } }),
+    fakeHot({ features: { avatars: undefined } }),
+    fakeHot({ prompts: { avatar: '' } }),
+  ]) {
     const { queue } = setup({ hot });
     assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'off');
     assert.deepEqual(queue.pending(), []);
@@ -219,7 +272,10 @@ test('tick: a default avatar is stored without any request or download', async (
 
 test('tick: one vision request on purpose avatar, the prompt filled, one clamped line stored', async () => {
   const long = `a fox in a red scarf ${'and more '.repeat(40)}\nsecond line`;
-  const { queue, store, llm, imageFetcher, state, log } = setup({ llm: fakeLlm(long), hot: fakeHot({ avatars: { descriptionChars: 60 } }) });
+  const { queue, store, llm, imageFetcher, state, log } = setup({
+    llm: fakeLlm(long),
+    hot: fakeHot({ avatars: { descriptionChars: 60 } }),
+  });
   queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'described');
   assert.equal(imageFetcher.calls.length, 1);
@@ -290,7 +346,12 @@ test('tick: a second tick while a request runs does not start another', async ()
 test('tick: avatars.maxPerDay stops the requests until the UTC day turns, the queue kept', async () => {
   const now = clock();
   const state = fakeState({ [AVATAR_DAILY.dayKey]: '2026-10-15', [AVATAR_DAILY.countKey]: 2 });
-  const { queue, llm, log } = setup({ profiles: { u1: {}, u2: {} }, now, state, hot: fakeHot({ avatars: { maxPerDay: 2, intervalMs: 0 } }) });
+  const { queue, llm, log } = setup({
+    profiles: { u1: {}, u2: {} },
+    now,
+    state,
+    hot: fakeHot({ avatars: { maxPerDay: 2, intervalMs: 0 } }),
+  });
   queue.offer(GUILD, view('u1', 'h1'));
   queue.offer(GUILD, view('u2', null));
   // The default avatar costs nothing and goes through even with the cap spent.
@@ -298,7 +359,11 @@ test('tick: avatars.maxPerDay stops the requests until the UTC day turns, the qu
   assert.equal(await queue.tick(), 'avatar-cap');
   assert.equal(llm.calls.length, 0);
   assert.deepEqual(queue.pending(), ['u1']);
-  assert.equal(log.entries.filter((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'avatar-cap').length, 1, 'logged once a day');
+  assert.equal(
+    log.entries.filter((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'avatar-cap').length,
+    1,
+    'logged once a day'
+  );
   now.advance(12 * 3_600_000);
   assert.equal(await queue.tick(), 'described');
   assert.equal(state.data[AVATAR_DAILY.dayKey], '2026-10-16');
@@ -326,7 +391,12 @@ test('tick: with llm.maxRequestsPerDay spent nothing is downloaded or sent', asy
 test('tick: a failed one is dropped and offered again only after the next scan, no tight loop', async () => {
   const now = clock();
   const members = { u1: view('u1', 'h1') };
-  const { queue, llm, store, log } = setup({ now, members, llm: fakeLlm(new Error('provider down')), hot: fakeHot({ avatars: { intervalMs: 0 } }) });
+  const { queue, llm, store, log } = setup({
+    now,
+    members,
+    llm: fakeLlm(new Error('provider down')),
+    hot: fakeHot({ avatars: { intervalMs: 0 } }),
+  });
   queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'failed');
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'llm-error'));
@@ -382,7 +452,14 @@ test('scan: every profiled member whose avatar differs is queued; bots, the pers
     [SELF]: view(SELF, 'hs'),
   };
   const { queue, log } = setup({
-    profiles: { u1: {}, u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } }, u3: {}, b1: {}, gone: {}, [SELF]: {} },
+    profiles: {
+      u1: {},
+      u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } },
+      u3: {},
+      b1: {},
+      gone: {},
+      [SELF]: {},
+    },
     members,
   });
   const counts = await queue.scan(GUILD);
@@ -447,13 +524,21 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   const mem = await openTestMemory({ dataDir: fs.mkdtempSync(path.join(TMP_ROOT, 'store-')) });
   const { dataDir, memoryDb } = mem;
   const store = createStore({ dataDir, memoryDb });
-  assert.equal(store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'fox', describedAt: null }), null, 'never creates a profile');
+  assert.equal(
+    store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'fox', describedAt: null }),
+    null,
+    'never creates a profile'
+  );
   assert.equal(store.getUser(GUILD, 'u1'), null);
   store.touchUser(GUILD, 'u1', 'Ελένη', NOW);
   const before = store.getUser(GUILD, 'u1').updatedAt;
   store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'a fox', describedAt: '2026-10-15T12:00:00.000Z' });
   store.setAvatar(GUILD, 'u1', { hash: 'h2', text: 'a cat', describedAt: '2026-10-16T12:00:00.000Z' });
-  assert.deepEqual(store.getUser(GUILD, 'u1').avatar, { hash: 'h2', text: 'a cat', describedAt: '2026-10-16T12:00:00.000Z' });
+  assert.deepEqual(store.getUser(GUILD, 'u1').avatar, {
+    hash: 'h2',
+    text: 'a cat',
+    describedAt: '2026-10-16T12:00:00.000Z',
+  });
   assert.equal(store.getUser(GUILD, 'u1').updatedAt, before, 'the portrait version stamp is untouched');
   store.setAvatar(GUILD, 'u1', { hash: null, default: true });
   assert.deepEqual(store.getUser(GUILD, 'u1').avatar, { hash: null, default: true });

@@ -89,7 +89,8 @@ export function createEventDoor({ handlers, capacity = DEFAULT_CAPACITY, log = d
    */
   async function receive(value) {
     const verdict = validateEnvelope(value);
-    if (!verdict.ok) return ackOf(typeof value?.id === 'string' && value.id !== '' ? value.id : 'unknown', 'invalid', verdict.reason);
+    if (!verdict.ok)
+      return ackOf(typeof value?.id === 'string' && value.id !== '' ? value.id : 'unknown', 'invalid', verdict.reason);
     if (value.type === 'hello' || value.type === 'ping') return ackOf(value, 'ok');
     if (value.type !== 'event') return ackOf(value, 'invalid', 'type:not-inbound');
     const answer = await submit(value.body);

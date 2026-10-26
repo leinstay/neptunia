@@ -103,7 +103,9 @@ function needOrFail(key) {
   try {
     return need(key);
   } catch {
-    return fail(`index: missing required environment variable ${key} — copy .env.example to .env and fill in the real values.`);
+    return fail(
+      `index: missing required environment variable ${key} — copy .env.example to .env and fill in the real values.`
+    );
   }
 }
 
@@ -113,7 +115,8 @@ function needOrFail(key) {
 // from .env, whose own place depends on them. Logged once, paths only.
 const paths = resolvePaths({ rootDir: ROOT_DIR });
 log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
-if (!fs.existsSync(paths.privateDir)) fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
+if (!fs.existsSync(paths.privateDir))
+  fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
 
 loadDotEnv(paths.privateDir);
 const discordToken = needOrFail('DISCORD_TOKEN');
@@ -140,7 +143,7 @@ if (missingPrompts.length > 0) {
   const files = missingPrompts.map((name) => (name === 'labels' ? 'prompts/labels.json' : `prompts/${name}.md`));
   fail(
     `index: missing required prompt file(s): ${files.join(', ')} ` +
-      '(prompts.local/ may override any of these, file by file).',
+      '(prompts.local/ may override any of these, file by file).'
   );
 }
 
@@ -162,13 +165,14 @@ try {
 if (!isValidCommandName(hot.config.bot.commandName)) {
   fail(
     `index: invalid bot.commandName "${hot.config.bot.commandName}" — must match ^[a-z0-9_-]{1,32}$ ` +
-      '(config.local.json).',
+      '(config.local.json).'
   );
 }
 
 // The old per-feature model keys are never read (classifier.* replaced them);
 // say so once, key names only, never a value.
-for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: deprecated model key ignored', { key, use });
+for (const { key, use } of deprecatedModelKeys(hot.config))
+  log.warn('index: deprecated model key ignored', { key, use });
 
 const dataDir = paths.dataDir;
 // The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
@@ -186,7 +190,10 @@ onLog(usageTap(usage));
 // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
 // run that fails is told to her as a `memoryFailed` fact (inner, defined below).
 const memoryDb = createMemoryDb({
-  hot, dataDir, log, diaryMediaDeps: () => ({ port: iface, imageFetcher }),
+  hot,
+  dataDir,
+  log,
+  diaryMediaDeps: () => ({ port: iface, imageFetcher }),
   embed: (texts, options) => embedder.embed(texts, options),
   selfName: () => getSelfName(getGuildId()),
   sessionLlm: () => llm,
@@ -227,10 +234,21 @@ const archiveAppendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
+const archive = createArchive({
+  appendStore: archiveAppendStore,
+  dataDir,
+  log,
+  writerGate: () => journal.waitUnlocked(),
+  memoryDb,
+});
 // The journal's writer lock (a snapshot) flushes the archive's append store too, and holds the
 // record's and the archive's writers through their writerGate.
-const journal = createJournal({ dataDir, config: () => hot.config.journal ?? {}, lockStores: [archiveAppendStore], memoryDb });
+const journal = createJournal({
+  dataDir,
+  config: () => hot.config.journal ?? {},
+  lockStores: [archiveAppendStore],
+  memoryDb,
+});
 const store = createStore({
   dataDir,
   record,
@@ -253,7 +271,9 @@ embedQueue = createEmbedQueue({
   record: recordWriter,
   log,
   nameOf: (guildId, userId) =>
-    store.getUser(guildId, userId)?.names?.[0] ?? client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ?? null,
+    store.getUser(guildId, userId)?.names?.[0] ??
+    client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ??
+    null,
   selfName: (guildId) => getSelfName(guildId),
   // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
   paused: () => store.state.data.paused === true,
@@ -262,14 +282,25 @@ embedQueue = createEmbedQueue({
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
 // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
 // each request; the main key when the role names none.
-const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawing', openrouterKey), getConfig: () => hot.config, state: store.state });
+const images = createImageGen({
+  apiKey: () => roleApiKey(hot.config, env, 'drawing', openrouterKey),
+  getConfig: () => hot.config,
+  state: store.state,
+});
 // The persona's voice messages (features.speech): the preparation pass on the analyzer, the synthesis on the
 // voice role's key and model, the conversion with the system ffmpeg. Without ffmpeg there is no `speech` at
 // all (the skill answers `speech-not-configured`), reported once.
 const speechReady = ffmpegAvailable();
 if (!speechReady) log.warn('speech: ffmpeg not found, voice messages are off', {});
 const speech = speechReady
-  ? createSpeech({ getConfig: () => hot.config, getPrompts: () => hot.prompts, env, apiKey: openrouterKey, llm, state: store.state })
+  ? createSpeech({
+      getConfig: () => hot.config,
+      getPrompts: () => hot.prompts,
+      env,
+      apiKey: openrouterKey,
+      llm,
+      state: store.state,
+    })
   : null;
 
 // Direct messages are received regardless of features.privateMessages (the
@@ -299,7 +330,9 @@ const getGuildId = () => instance.guildId;
 // The audience rail tells a bot's member overwrite by the member cache, which
 // the client fills only with members seen since startup (no member intent):
 // the warmer fetches every member named by an overwrite (interfaces/discord/audience-warm.js).
-const audienceWarmer = createAudienceWarmer({ getGuild: () => (instance.guildId ? client.guilds.cache.get(instance.guildId) ?? null : null) });
+const audienceWarmer = createAudienceWarmer({
+  getGuild: () => (instance.guildId ? (client.guilds.cache.get(instance.guildId) ?? null) : null),
+});
 
 // Shared so a picture attached on consecutive turns, or described more than
 // once, is only ever downloaded once within the fetcher's LRU window.
@@ -347,7 +380,8 @@ const reactors = createReactorStore({ maxMessages: () => hot.config.context?.rea
 // The served guild's custom emoji (features.customEmoji): a live view over discord.js's own cache.
 const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request uses.
-const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
+const getSelfName = (guildId) =>
+  client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
 // after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
 // (interfaces/discord/) builds it, and its capabilities object: what the core asks Discord for
@@ -361,7 +395,18 @@ const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
 // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
 // index (one embedding of the question per run).
-const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed, memoryDb });
+const recall = createRecall({
+  hot,
+  store,
+  llm,
+  discord,
+  describer,
+  archive,
+  record,
+  vectors,
+  embed: embedder.embed,
+  memoryDb,
+});
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();
@@ -377,21 +422,39 @@ const taskStores = createTaskStores({ config: () => hot.config, journal, log, me
 function recentChannelLines(guildId, channelId, count) {
   const db = memoryDb.database();
   if (!db || !channelId || !(count > 0)) return [];
-  const rows = db.prepare(
-    `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
-      WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`,
-  ).all(channelPlaceId(String(channelId)), count);
+  const rows = db
+    .prepare(
+      `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
+      WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
+    )
+    .all(channelPlaceId(String(channelId)), count);
   const lines = [];
   for (const row of rows) {
     let name = '';
     if (row.kind === 'said') name = hot.config?.bot?.name ?? '';
-    else { try { const names = JSON.parse(row.names ?? '[]'); name = Array.isArray(names) && typeof names[0] === 'string' ? names[0] : ''; } catch { name = ''; } }
+    else {
+      try {
+        const names = JSON.parse(row.names ?? '[]');
+        name = Array.isArray(names) && typeof names[0] === 'string' ? names[0] : '';
+      } catch {
+        name = '';
+      }
+    }
     lines.push({ author: name, text: row.text ?? '' });
     if (lines.length >= count) break;
   }
   return lines.reverse();
 }
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: { recentLines: recentChannelLines }, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
+const errands = createErrandService({
+  client: errandClient,
+  stores: taskStores,
+  hot,
+  env,
+  memory: { recentLines: recentChannelLines },
+  getGuildId,
+  log,
+  onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)),
+});
 // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
 // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
 // Both stores send their writes to the database; `flush` is their retry and shutdown step.
@@ -531,7 +594,19 @@ const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
 // recovery turn only with features.missedRecovery on (shadow mode by default).
-const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, dataDir, fetchHistory: discord.fetchHistory, canSend: discord.canSend });
+const missed = createMissed({
+  hot,
+  store,
+  journal,
+  llm,
+  turns,
+  client,
+  getGuildId,
+  getSelfName,
+  dataDir,
+  fetchHistory: discord.fetchHistory,
+  canSend: discord.canSend,
+});
 turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
 const emojiBackfill = createEmojiBackfill({ hot, store, client, discord, log });
@@ -579,7 +654,8 @@ const offlineCatchUp = createOfflineCatchUp({
   selfId: () => client.user?.id ?? null,
   channelInfo: (channelId) => {
     const channel = client.channels.cache.get(channelId);
-    if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function') return { available: false, latestAt: null };
+    if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function')
+      return { available: false, latestAt: null };
     return { available: true, latestAt: channel.lastMessageId ? discord.snowflakeTime(channel.lastMessageId) : null };
   },
   fetchRecent: async (channelId, limit) => {
@@ -699,7 +775,8 @@ function sweepAffinityDecay() {
   const counts = store.decayAffinities(guildId, now, { ...(config.relationships ?? {}), skipMs });
   store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
   store.state.markDirty();
-  if (counts.decayed > 0 || skipMs > 0) log.info('index: affinity decay applied', { ...counts, skippedHours: Math.round(skipMs / 3_600_000) });
+  if (counts.decayed > 0 || skipMs > 0)
+    log.info('index: affinity decay applied', { ...counts, skippedHours: Math.round(skipMs / 3_600_000) });
 }
 
 /**
@@ -711,14 +788,17 @@ function sweepAffinityDecay() {
 let archiveDrainTimer = null;
 function scheduleArchiveDrain() {
   const ms = Number(hot.config.archive?.drainMs);
-  archiveDrainTimer = setTimeout(() => {
-    Promise.resolve()
-      .then(() => (instance.guildId && !store.state.data.paused ? store.drainArchive(instance.guildId) : null))
-      .catch((err) => log.error('index: archive drain failed', { error: err }))
-      .finally(() => {
-        if (!shuttingDown) scheduleArchiveDrain();
-      });
-  }, Number.isFinite(ms) && ms > 0 ? ms : 30_000);
+  archiveDrainTimer = setTimeout(
+    () => {
+      Promise.resolve()
+        .then(() => (instance.guildId && !store.state.data.paused ? store.drainArchive(instance.guildId) : null))
+        .catch((err) => log.error('index: archive drain failed', { error: err }))
+        .finally(() => {
+          if (!shuttingDown) scheduleArchiveDrain();
+        });
+    },
+    Number.isFinite(ms) && ms > 0 ? ms : 30_000
+  );
   archiveDrainTimer.unref?.();
 }
 
@@ -750,7 +830,12 @@ async function fetchOwnMessages(channelId, n) {
   const messages = await channel.messages.fetch({ limit: n });
   return [...messages.values()]
     .filter((message) => message.author?.id === client.user.id)
-    .map((message) => ({ id: message.id, content: message.content, replyToId: message.reference?.messageId ?? null, createdAt: message.createdTimestamp }));
+    .map((message) => ({
+      id: message.id,
+      content: message.content,
+      replyToId: message.reference?.messageId ?? null,
+      createdAt: message.createdTimestamp,
+    }));
 }
 
 /**
@@ -964,7 +1049,9 @@ hot.on('change', ({ what }) => {
     lastAdminCommandsOn = adminCommandsOn;
     const guild = client.guilds.cache.get(instance.guildId);
     if (guild) {
-      registerCommands(guild, hot.config).catch((err) => log.error('index: failed to re-register commands', { error: err }));
+      registerCommands(guild, hot.config).catch((err) =>
+        log.error('index: failed to re-register commands', { error: err })
+      );
     }
   }
 });
@@ -984,7 +1071,10 @@ const door = createEventDoor({
     'reaction.changed': (event) => feedReactors(event),
     'task.completed': (event) => {
       // An errand an inner turn handed off counts its cost against the inner life's dollars.
-      inner.onTaskFinished(event?.raw?.task ?? errands.store?.(event?.guildId ?? null)?.get?.(event?.taskId) ?? null, event?.guildId ?? instance.guildId);
+      inner.onTaskFinished(
+        event?.raw?.task ?? errands.store?.(event?.guildId ?? null)?.get?.(event?.taskId) ?? null,
+        event?.guildId ?? instance.guildId
+      );
       return taskTurns.onEvent(event);
     },
     'inner.wake': (event) => inner.onWake(event),
@@ -1007,7 +1097,9 @@ client.on('messageCreate', (message) => {
 });
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
 client.on('messageUpdate', (oldMessage, newMessage) => {
-  inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
+  inbound('message.received', () =>
+    toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage })
+  );
 });
 // A deleted message is a `deleted` line of the record (features.record).
 client.on('messageDelete', (message) => {
@@ -1049,13 +1141,17 @@ client.on(Events.UserUpdate, (_old, user) => {
   if (member) avatars.offer(instance.guildId, memberView(member));
 });
 client.on('messageCreate', (message) => {
-  if (instance.guildId && message?.guild?.id === instance.guildId && message.member) avatars.offer(instance.guildId, memberView(message.member));
+  if (instance.guildId && message?.guild?.id === instance.guildId && message.member)
+    avatars.offer(instance.guildId, memberView(message.member));
 });
 // The reactor store follows the reactions on the persona's messages in the served guild, whatever
 // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
 const feedReactors = (event) => {
   try {
-    applyReactionEvent(reactors, reactionStoreEventOf(event), { guildId: instance.guildId, selfId: client.user?.id ?? null });
+    applyReactionEvent(reactors, reactionStoreEventOf(event), {
+      guildId: instance.guildId,
+      selfId: client.user?.id ?? null,
+    });
   } catch (err) {
     log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
   }
@@ -1106,11 +1202,15 @@ async function shutdown(signal) {
   // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
   if (instance.guildId) {
     if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
-    await journal.clearRunning(instance.guildId).catch((err) => log.warn('index: journal marker not removed', { error: err }));
+    await journal
+      .clearRunning(instance.guildId)
+      .catch((err) => log.warn('index: journal marker not removed', { error: err }));
   }
   await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   // The intention and task writes still waiting, then those still failing kept pending.
-  await intentionStores.flush({ final: true }).catch((err) => log.warn('index: intentions flush failed', { error: err }));
+  await intentionStores
+    .flush({ final: true })
+    .catch((err) => log.warn('index: intentions flush failed', { error: err }));
   await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
   // After the last flush of every store the database closes and releases its lock.
   await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));

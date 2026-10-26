@@ -309,7 +309,13 @@ function normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars) {
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
   const cleanText = cleanEmoji(cleanContent).trim();
   const { attachments, links, content } = normalizeMedia(
-    snapshot.id ?? 'fwd', snapshot, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars,
+    snapshot.id ?? 'fwd',
+    snapshot,
+    isVoice,
+    cleanText,
+    embedTextChars,
+    videoSites,
+    maxUrlChars
   );
   return {
     content,
@@ -366,10 +372,16 @@ export function normalizeMessage(message, selfId, options = {}) {
   const emojis = extractEmojis(message.content ?? cleanContent);
   const cleanText = cleanEmoji(cleanContent).trim();
   const { attachments, links, content } = normalizeMedia(
-    message.id, message, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars,
+    message.id,
+    message,
+    isVoice,
+    cleanText,
+    embedTextChars,
+    videoSites,
+    maxUrlChars
   );
   const forwarded = [...(message.messageSnapshots?.values?.() ?? [])].map((snapshot) =>
-    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars),
+    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars)
   );
 
   // A forward's `message.reference.messageId` is the ORIGINAL message, not
@@ -382,7 +394,13 @@ export function normalizeMessage(message, selfId, options = {}) {
   const mentionedUserIds = [...(message.mentions?.users?.keys?.() ?? [])];
   // The name `content` reads for each (`@DisplayName`, cleanContent), so the transcript can show their handle instead.
   const mentionedUsers = mentionedUserIds
-    .map((id) => ({ id, name: displayNameOf(message.mentions?.members?.get?.(id) ?? message.guild?.members?.cache?.get?.(id), message.mentions?.users?.get?.(id)) }))
+    .map((id) => ({
+      id,
+      name: displayNameOf(
+        message.mentions?.members?.get?.(id) ?? message.guild?.members?.cache?.get?.(id),
+        message.mentions?.users?.get?.(id)
+      ),
+    }))
     .filter((user) => typeof user.name === 'string' && user.name);
 
   return {
@@ -515,7 +533,15 @@ export function toEvent(message, selfId, options = {}) {
   const conversation = conversationOf(message);
   const base = { kind: MESSAGE_RECEIVED, iface: DISCORD_IFACE };
   if (options.deleted === true) {
-    return { ...base, at: now(), id: `${DISCORD_IFACE}:delete:${message?.id}`, conversation, message: { id: message?.id }, deleted: true, raw: message };
+    return {
+      ...base,
+      at: now(),
+      id: `${DISCORD_IFACE}:delete:${message?.id}`,
+      conversation,
+      message: { id: message?.id },
+      deleted: true,
+      raw: message,
+    };
   }
   const edit = options.edit === true;
   const receivedAt = now();
@@ -526,7 +552,17 @@ export function toEvent(message, selfId, options = {}) {
   const editPart = edit ? { edit: true } : {};
   const editRaw = edit ? { rawPrevious: options.previous ?? null } : {};
   if (edit && message?.partial) {
-    return { ...base, at: editAt, id: editId(message.id), conversation, message: { id: message.id }, ...editPart, partial: true, raw: message, ...editRaw };
+    return {
+      ...base,
+      at: editAt,
+      id: editId(message.id),
+      conversation,
+      message: { id: message.id },
+      ...editPart,
+      partial: true,
+      raw: message,
+      ...editRaw,
+    };
   }
   const normalized = normalizeMessage(message, selfId, options);
   return {
@@ -753,10 +789,12 @@ export async function withTextPreviews(messages, maxChars, fetchImpl = fetch) {
         attachments: message.attachments.map((a) => {
           const preview = byId.get(a.id);
           if (!preview) return a;
-          return preview.lost > 0 ? { ...a, previewText: preview.text, previewLost: preview.lost } : { ...a, previewText: preview.text };
+          return preview.lost > 0
+            ? { ...a, previewText: preview.text, previewLost: preview.lost }
+            : { ...a, previewText: preview.text };
         }),
       };
-    }),
+    })
   );
 }
 
@@ -828,7 +866,10 @@ export function canAttach(channel) {
  *   reactors?: { store: object, budgetMs: number, fetchUsers: number }|null }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites, maxUrlChars, reactors = null }) {
+export async function fetchHistory(
+  channel,
+  { limit, selfId, embedTextChars, videoSites, maxUrlChars, reactors = null }
+) {
   const fetched = await channel.messages.fetch({ limit: Math.min(PAGE, limit) });
   const raw = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   const lines = raw.map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
@@ -840,7 +881,9 @@ export async function fetchHistory(channel, { limit, selfId, embedTextChars, vid
  * REST page of at most `fetchUsers` (1..100). Throws when the message or the reaction is gone.
  */
 async function fetchReactorIds(message, emoji, fetchUsers) {
-  const reaction = [...(message?.reactions?.cache?.values?.() ?? [])].find((item) => reactionKey(emojiOf(item)) === emoji);
+  const reaction = [...(message?.reactions?.cache?.values?.() ?? [])].find(
+    (item) => reactionKey(emojiOf(item)) === emoji
+  );
   if (!reaction) throw new Error('reaction not found');
   const cap = Math.min(PAGE, Math.max(1, Math.floor(Number(fetchUsers) || 10)));
   const users = await reaction.users.fetch({ limit: cap });
@@ -852,7 +895,12 @@ async function withReactorNames(channel, raw, lines, { store, budgetMs, fetchUse
   const byId = new Map(raw.map((message) => [message.id, message]));
   const plan = backfillPlan(lines, store);
   if (plan.length > 0) {
-    const stats = await runBackfill(plan, store, (item) => fetchReactorIds(byId.get(item.messageId), item.emoji, fetchUsers), { budgetMs, selfId });
+    const stats = await runBackfill(
+      plan,
+      store,
+      (item) => fetchReactorIds(byId.get(item.messageId), item.emoji, fetchUsers),
+      { budgetMs, selfId }
+    );
     log.info('reactors: backfill', { channel: channel.id, ...stats });
   }
   const guild = channel.guild ?? null;
@@ -883,7 +931,10 @@ function bumpSnowflake(id) {
  *   videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, selfId, embedTextChars, videoSites, maxUrlChars }) {
+export async function fetchHistoryWindow(
+  channel,
+  { anchorId, limit, minTs = 0, selfId, embedTextChars, videoSites, maxUrlChars }
+) {
   const collected = []; // newest first while accumulating; reversed at the end
   let before = anchorId ? bumpSnowflake(anchorId) : undefined;
 
@@ -953,7 +1004,11 @@ export async function fetchMessage(channel, id) {
  *   embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchReplyParents(channel, history, { trigger = null, recent, max, selfId, embedTextChars, videoSites, maxUrlChars }) {
+export async function fetchReplyParents(
+  channel,
+  history,
+  { trigger = null, recent, max, selfId, embedTextChars, videoSites, maxUrlChars }
+) {
   const found = [];
   if (!(max > 0)) return found;
   const asked = new Set(history.map((m) => m.id));
@@ -990,12 +1045,7 @@ export async function fetchReplyParents(channel, history, { trigger = null, rece
  */
 export function isReadableChannel(channel, botConfig) {
   const mirrorId = botConfig?.dryRunChannelId;
-  return (
-    !(mirrorId && channel.id === mirrorId) &&
-    channel.isTextBased() &&
-    !channel.isThread() &&
-    canRead(channel)
-  );
+  return !(mirrorId && channel.id === mirrorId) && channel.isTextBased() && !channel.isThread() && canRead(channel);
 }
 
 /**
@@ -1016,7 +1066,7 @@ export function isWritableChannel(channel, botConfig) {
 /** The channels of a guild the persona may read (isReadableChannel), excluding `exceptId`. */
 export function readableChannels(guild, botConfig, exceptId = null) {
   return [...guild.channels.cache.values()].filter(
-    (channel) => channel.id !== exceptId && isReadableChannel(channel, botConfig),
+    (channel) => channel.id !== exceptId && isReadableChannel(channel, botConfig)
   );
 }
 
@@ -1032,14 +1082,19 @@ export function channelDirectoryOf(guild, botConfig) {
   const cache = guild?.channels?.cache;
   if (!cache || typeof cache.values !== 'function' || !guild.members) return [];
   // A channel object without the discord.js checks (a partial one) is never listed.
-  const usable = (channel) => typeof channel?.isTextBased === 'function' && typeof channel.isThread === 'function' && typeof channel.permissionsFor === 'function';
+  const usable = (channel) =>
+    typeof channel?.isTextBased === 'function' &&
+    typeof channel.isThread === 'function' &&
+    typeof channel.permissionsFor === 'function';
   // Never a thread: discord.js caches threads as they turn active or archived, and each one listed
   // would rewrite the cached stable part (a thread still resolves and renders by its `#name`).
-  return [...cache.values()].filter((channel) => usable(channel) && !channel.isThread() && isReadableChannel(channel, botConfig)).map((channel) => ({
-    id: String(channel.id),
-    name: channel.name,
-    category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
-  }));
+  return [...cache.values()]
+    .filter((channel) => usable(channel) && !channel.isThread() && isReadableChannel(channel, botConfig))
+    .map((channel) => ({
+      id: String(channel.id),
+      name: channel.name,
+      category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
+    }));
 }
 
 /** When the message (or any object) with snowflake `id` was created, in ms since the epoch: no API call. */
@@ -1086,14 +1141,20 @@ export async function fetchNeighbors(channel, config, selfId, now = Date.now(), 
       const readOnly = !canSend(other);
       try {
         const messages = (
-          await fetchHistory(other, { limit: neighborMessages, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars })
+          await fetchHistory(other, {
+            limit: neighborMessages,
+            selfId,
+            embedTextChars: config.media?.embedTextChars,
+            videoSites: config.media?.video?.sites,
+            maxUrlChars: config.context?.maxUrlChars,
+          })
         ).filter((m) => m.ts >= minTs);
         return { channelId: other.id, channelName: other.name, readOnly, messages };
       } catch (err) {
         log.warn('collect: neighbour channel fetch failed', { channel: other.id, error: err });
         return { channelId: other.id, channelName: other.name, readOnly, messages: [] };
       }
-    }),
+    })
   );
   return results.filter((result) => result.messages.length > 0);
 }
