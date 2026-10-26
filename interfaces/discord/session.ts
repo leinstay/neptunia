@@ -22,7 +22,7 @@ import {
   snowflakeTime,
   toEvent,
 } from './collect.js';
-import { registerCommands } from './commands.js';
+import { createInteractionHandler, registerCommands } from './commands.js';
 import { createEmojiIndex } from './emoji.js';
 import { createDiscordClient } from './gateway.js';
 import { resolveGuild } from './guild.js';
@@ -51,7 +51,8 @@ type Gateway = {
 
 /**
  * What `start` hands the core as `RunningInterface.legacy`: the discord.js objects and reads its subsystems still
- * use, each field a seam that stage 3 of the core extraction removes (src/index.js lists the reader of each).
+ * use, each field a seam that stage 3 of the core extraction removes (src/interface/legacy.ts is the core's view of it and
+ * names the reader of each).
  */
 export type DiscordLegacy = {
   client: Client;
@@ -75,7 +76,7 @@ export type DiscordLegacy = {
   reactors: ReturnType<typeof createReactorStore>;
   applyReaction(event: unknown): void;
   emoji: ReturnType<typeof createEmojiIndex>;
-  serveCommands(onInteraction: (interaction: never) => unknown): { register(): Promise<unknown> };
+  serveCommands(admin: unknown): { register(): Promise<unknown> };
 };
 
 /** How many gateway events are held before `open()`. */
@@ -121,6 +122,13 @@ function conversationChangedEvent(
     change,
   };
 }
+
+// The `hot` the interaction handler reads: its `config` is the live config at each read.
+const liveConfig = (read: () => Obj) => ({
+  get config(): Obj {
+    return read();
+  },
+});
 
 export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const token = text(host.env.DISCORD_TOKEN);
@@ -171,10 +179,14 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   let held: Array<{ kind: string; event: Obj }> | null = [];
   let dropped = 0;
 
+  // The discord.js message behind a message event stays here, under the event id, for the pipeline's `rawOf`.
+  function keepHandles(event: Obj): Obj {
+    if (event.raw) handles.put(String(event.id), { message: event.raw, previous: event.rawPrevious ?? null });
+    return event;
+  }
+
   function deliver(kind: string, event: Obj): void {
-    // The discord.js message behind a message event stays here, under the event id, for the pipeline's `rawOf`.
-    if (kind === 'message.received' && event.raw)
-      handles.put(String(event.id), { message: event.raw, previous: event.rawPrevious ?? null });
+    if (kind === 'message.received') keepHandles(event);
     void served.emit(event).then((status) => {
       if (status !== 'ok' && status !== 'duplicate') log.warn('interface: event not taken', { kind, status });
     });
@@ -283,8 +295,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
   on(Events.ShardReady, announceGuild);
 
-  // The slash commands: the core hands over its interaction handler once its admin exists, and the command tree
-  // is registered again when the name or the switch changed.
+  // The slash commands: the core hands over its admin once it exists, the session builds the interaction handler
+  // over it, and the command tree is registered again when the name or the switch changed.
   let commandsServed = false;
   let commandName = text(obj(config().bot).commandName);
   let adminCommandsOn = obj(config().features).adminCommands !== false;
@@ -303,8 +315,9 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     }
   });
 
-  function serveCommands(onInteraction: (interaction: never) => unknown): { register(): Promise<unknown> } {
-    on(Events.InteractionCreate, onInteraction);
+  function serveCommands(admin: unknown): { register(): Promise<unknown> } {
+    const onInteraction = createInteractionHandler({ hot: liveConfig(config), admin, getGuildId: () => guildId });
+    on(Events.InteractionCreate, (interaction: Parameters<typeof onInteraction>[0]) => void onInteraction(interaction));
     commandsServed = true;
     return { register: () => registerCommands(guildNow() as never, config()) };
   }
@@ -357,7 +370,9 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
         });
         return [...messages.values()];
       },
-      eventOf: (message: object): object => toEvent(message, selfId() ?? '', normalizeOptions(config())),
+      // The handles stay here under the event id, so `rawOf` finds a caught-up message like a live one.
+      eventOf: (message: object): object =>
+        keepHandles(obj(toEvent(message, selfId() ?? '', normalizeOptions(config())))),
     },
     // The persona's last messages of a channel, as the journal's reconciliation reads them.
     fetchOwnMessages: async (channelId: string, count: number) => {

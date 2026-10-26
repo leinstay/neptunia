@@ -1029,7 +1029,6 @@
       "src/errands/blocks.js",
       "src/errands/turns.js",
       "src/handles-text.js",
-      "src/index.js",
       "src/intentions/blocks.js",
       "src/intentions/sources.js",
       "src/interface/discord.js",
