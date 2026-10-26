@@ -73,21 +73,6 @@ export async function until(check: () => boolean, ms = 4000): Promise<void> {
 /** Lets anything the core would still do on its own happen, so a test can assert that nothing did. */
 export const settle = (ms = 250): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-
-type CoreOptions = Parameters<typeof startCore>[0];
-
-// A core that fails to start leaves its watchers running, and the test process would never end. The failure is
-// rethrown for the test, and the process ends shortly after, so a broken core fails the run instead of hanging it.
-async function startCoreOrExit(options: CoreOptions): ReturnType<typeof startCore> {
-  try {
-    return await startCore(options);
-  } catch (error) {
-    process.exitCode = 1;
-    setTimeout(() => process.exit(1), 2000).unref();
-    throw error;
-  }
-}
-
 export type CoreRig = {
   fake: Fake;
   /** The requests the model got, as the messages array of each. */
@@ -132,7 +117,7 @@ export async function withFakeCore<T>(
   };
   let running: Running | null = null;
   const captured = await withCapturedLogs(async () => {
-    const core = await startCoreOrExit({
+    const core = await startCore({
       paths: { rootDir: REPO, privateDir, dataDir },
       env: { OPENROUTER_CORE_KEY: 'test-key' },
       interfaces: [
