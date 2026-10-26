@@ -324,17 +324,42 @@ test('a port failure leaves the post and logs a code only', async () => {
   }
 });
 
+/**
+ * A whole discord.js-shaped message: the adapter also builds its event from it (changed with the contract: a read by id
+ * answers the message's whole event beside its text and attachments).
+ * @param {{ id: string, content: string, attachments: Map<string, object> }} fields
+ */
+function wholeMessage({ id, content, attachments }) {
+  return {
+    id,
+    channelId: 'c1',
+    channel: { name: 'general' },
+    guild: { id: 'g1' },
+    author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
+    member: { displayName: 'Alice' },
+    content,
+    cleanContent: content,
+    createdTimestamp: 1000,
+    reference: null,
+    attachments,
+    stickers: new Map(),
+    embeds: [],
+    messageSnapshots: new Map(),
+    flags: { has: () => false },
+  };
+}
+
 test('the Discord adapter reads messages by id: text, attachments, and missing for a deleted one', async () => {
   const messages = new Map([
     [
       'm1',
-      {
+      wholeMessage({
         id: 'm1',
         content: 'a post',
         attachments: new Map([
           ['a1', { url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }],
         ]),
-      },
+      }),
     ],
   ]);
   const channel = {
@@ -351,14 +376,21 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
   });
   const found = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'm2']);
   assert.equal(found.status, 'ok');
-  assert.deepEqual(found.messages, [
-    {
-      messageId: 'm1',
-      text: 'a post',
-      attachments: [{ url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }],
-    },
-    { messageId: 'm2', missing: true },
-  ]);
+  assert.deepEqual(
+    found.messages.map((message) => {
+      const copy = { ...message };
+      delete copy.event;
+      return copy;
+    }),
+    [
+      {
+        messageId: 'm1',
+        text: 'a post',
+        attachments: [{ url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }],
+      },
+      { messageId: 'm2', missing: true },
+    ]
+  );
   const failed = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'boom']);
   assert.notEqual(failed.status, 'ok');
   const nowhere = await port.fetchMessages({ iface: 'discord', conversationId: 'c9' }, ['m1']);
@@ -505,7 +537,7 @@ test('the Discord adapter passes an attachment duration and waveform when Discor
   const messages = new Map([
     [
       'm1',
-      {
+      wholeMessage({
         id: 'm1',
         content: '',
         attachments: new Map([
@@ -521,7 +553,7 @@ test('the Discord adapter passes an attachment duration and waveform when Discor
             },
           ],
         ]),
-      },
+      }),
     ],
   ]);
   const channel = { messages: { fetch: async (id) => messages.get(id) } };
