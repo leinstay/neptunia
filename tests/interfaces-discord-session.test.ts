@@ -18,8 +18,60 @@ type Legacy = {
   client: unknown;
   guildId: string;
   selfId(): string | null;
-  serveCommands(onInteraction: (interaction: unknown) => void): unknown;
+  serveCommands(admin: unknown): unknown;
+  rawOf(event: { id: string }): { message: unknown; previous: unknown } | null;
+  catchUp: { eventOf(message: object): { id: string } };
 };
+
+type RunCall = [string, Record<string, unknown>, Record<string, unknown>];
+
+// The part of the core's admin the interaction handler of the session calls (src/admin.js): what it asks and answers.
+function fakeAdmin() {
+  const runCalls: Array<RunCall> = [];
+  return {
+    runCalls,
+    isAllowed: (): boolean => true,
+    operationFor: (): null => null,
+    accessKeys: (): Array<string> => [],
+    runCommand: (name: string, args: Record<string, unknown>, context: Record<string, unknown>) => {
+      runCalls.push([name, args, context]);
+      return Promise.resolve({ status: 'ok', summary: 'pong', data: null });
+    },
+  };
+}
+
+// A chat input interaction `/nep status` of user u1 in channel c1 of the guild, with the replies it got.
+function statusInteraction(guild: Fake) {
+  const replies: Array<unknown> = [];
+  const interaction = {
+    id: 'i1',
+    guildId: guild.id,
+    channelId: 'c1',
+    user: { id: 'u1' },
+    member: undefined,
+    commandName: 'nep',
+    deferred: false,
+    replied: false,
+    isChatInputCommand: (): boolean => true,
+    isAutocomplete: (): boolean => false,
+    options: {
+      getSubcommandGroup: (): null => null,
+      getSubcommand: (): string => 'status',
+      getString: (): null => null,
+    },
+    deferReply: () => Promise.resolve(),
+    reply: (payload: unknown) => {
+      replies.push(payload);
+      return Promise.resolve();
+    },
+    editReply: (payload: unknown) => {
+      replies.push(payload);
+      return Promise.resolve();
+    },
+    followUp: () => Promise.resolve(),
+  };
+  return { interaction, replies };
+}
 
 const NOW = Date.UTC(2026, 9, 26, 12, 0, 0);
 const SELF_ID = 'self1';
@@ -462,7 +514,7 @@ test('announces each readable channel and each cached thread as updated at conne
 test('registers the commands again under the new name when bot.commandName changes', async () => {
   await withSession({}, async (h, running) => {
     running.open();
-    (running.legacy as Legacy).serveCommands(() => {});
+    (running.legacy as Legacy).serveCommands(fakeAdmin());
     await flush(20);
     h.config.bot.commandName = 'luna';
     h.fire('config');
@@ -472,10 +524,25 @@ test('registers the commands again under the new name when bot.commandName chang
   });
 });
 
+test('routes an interaction of the client to the admin the core handed over and answers with its result', async () => {
+  await withSession({}, async (h, running) => {
+    running.open();
+    const admin = fakeAdmin();
+    (running.legacy as Legacy).serveCommands(admin);
+    const { interaction, replies } = statusInteraction(h.guild);
+    h.client.emit(Events.InteractionCreate, interaction);
+    await until(() => replies.length > 0);
+    assert.equal(admin.runCalls[0]?.[0], 'status');
+    assert.equal(admin.runCalls[0]?.[2].userId, 'u1');
+    assert.equal(admin.runCalls[0]?.[2].guildId, 'g1');
+    assert.equal(asFake(replies[0]).content, 'pong');
+  });
+});
+
 test('does not register the commands again when a change leaves bot.commandName and adminCommands as they were', async () => {
   await withSession({}, async (h, running) => {
     running.open();
-    (running.legacy as Legacy).serveCommands(() => {});
+    (running.legacy as Legacy).serveCommands(fakeAdmin());
     await flush(20);
     const before = h.trees.length;
     h.fire('config');
@@ -511,6 +578,27 @@ test('hands the core exactly the named seams of legacy, over the client it built
         'serveCommands',
       ].sort()
     );
+    return Promise.resolve();
+  });
+});
+
+// A caught-up message never crossed the link as an event, so the session keeps its handles when the core turns it
+// into an event, and `rawOf` finds them under the event id like those of a live message.
+test('keeps the handles of a caught-up message so that rawOf finds it by the event id', async () => {
+  await withSession({}, (h, running) => {
+    const legacy = running.legacy as Legacy;
+    const message = messageIn('m77', h.channel('c1'), h.guild);
+    const event = legacy.catchUp.eventOf(message);
+    const handles = legacy.rawOf(event);
+    assert.equal(handles?.message, message);
+    assert.equal(handles?.previous, null);
+    return Promise.resolve();
+  });
+});
+
+test('rawOf knows nothing of an event id the session never saw', async () => {
+  await withSession({}, (_h, running) => {
+    assert.equal((running.legacy as Legacy).rawOf({ id: 'discord:message:unknown' }), null);
     return Promise.resolve();
   });
 });

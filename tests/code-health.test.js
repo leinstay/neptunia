@@ -13,6 +13,7 @@ import {
   measureSource,
   checkStructure,
 } from '../tools/code-health.mjs';
+import { trackedEntries } from './fixtures/structure-manifest.ts';
 
 const NOW = new Date('2026-10-26T12:00:00Z');
 
@@ -432,4 +433,31 @@ test('checkStructure: a clean tree reports nothing', () => {
 
 test('checkStructure: an empty tree reports nothing', () => {
   assert.deepEqual(checkStructure(entries, {}), { unmatched: [], local: [], imports: {}, missingTests: [] });
+});
+
+// ---- the entry and the core import no Discord (the tracked structure.json) ----
+
+const tracked = trackedEntries();
+
+const DISCORD_IMPORTS = [
+  "import { Client } from 'discord.js';",
+  "import { start } from '../interfaces/discord/index.js';",
+  "import { createInteractionHandler } from './interface/discord.js';",
+].join('\n');
+
+for (const name of ['src/index.js', 'src/core.js']) {
+  test(`structure.json: ${name} importing discord.js, interfaces/ or src/interface/discord.js is a breach of each`, () => {
+    const result = checkStructure(tracked, { [name]: file(DISCORD_IMPORTS) });
+    assert.deepEqual(result.imports[name], ['discord.js', 'interfaces/discord/index.js', 'src/interface/discord.js']);
+  });
+}
+
+test('structure.json: src/core.js may import the door, the link and the protocol', () => {
+  const source = [
+    "import { createEventDoor } from './interface/door.js';",
+    "import { openAdapterLink } from './interface/link.ts';",
+    "import { connectSocket } from './protocol/wire.ts';",
+    "import { createHot } from './hot.js';",
+  ].join('\n');
+  assert.deepEqual(checkStructure(tracked, { 'src/core.js': file(source) }).imports, {});
 });
