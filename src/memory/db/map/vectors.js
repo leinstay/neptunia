@@ -17,9 +17,10 @@
 //
 // toRows(rel, value, ctx) -> { vectors, operational }     fromRows(rows, ctx) -> the value
 
-import { personId, uniqueIds } from '../ids.js';
-import { dmScope, groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
+import { personId, uniqueIds } from '../ids.ts';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { dmScope, groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
 import { privateUserOf } from './scope-parts.js';
 
 const SPEC = [
@@ -95,7 +96,7 @@ function lineRow(line, index, ctx) {
   };
 }
 
-function monthContext(dir, manifest, i8, unique) {
+function monthContext(dir, manifest, i8, unique, iface) {
   const user = privateUserOf(dir);
   return {
     manifest,
@@ -103,13 +104,14 @@ function monthContext(dir, manifest, i8, unique) {
     unique,
     dims: manifest.dims,
     prefix: user ? `private:${user}:` : '',
-    scope: user ? dmScope(personId(user)) : groupScope(),
+    scope: user ? dmScope(personId(iface, user), iface) : groupScope(iface),
   };
 }
 
 const metaText = (value) => (Buffer.isBuffer(value.meta) ? value.meta.toString('utf8') : String(value.meta ?? ''));
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const dir = monthDirOf(rel);
   const manifest = value.manifest;
   const meta = metaText(value);
@@ -121,8 +123,8 @@ export function toRows(rel, value) {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const ctx = monthContext(dir, manifest, i8, uniqueIds());
-    lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, ctx)));
+    const month = monthContext(dir, manifest, i8, uniqueIds(), iface);
+    lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
   }
@@ -140,7 +142,7 @@ export function toRows(rel, value) {
  *   `metaBytes` / `bytes` on (to the end of each file), with the new manifest
  * @param {{ previous: object, keys: Iterable<string> }} state
  */
-export function appendRows(rel, delta, { previous, keys }) {
+export function appendRows(rel, delta, { previous, keys, iface = LEGACY_IFACE }) {
   const dir = monthDirOf(rel);
   const manifest = delta.manifest;
   const old = previous?.manifest;
@@ -167,9 +169,9 @@ export function appendRows(rel, delta, { previous, keys }) {
     seen.add(out);
     return out;
   };
-  const ctx = monthContext(dir, manifest, i8, unique);
+  const month = monthContext(dir, manifest, i8, unique, iface);
   const rows = {};
-  lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, ctx)));
+  lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
   const next = { manifest, gen: manifest.gen ?? null };
   const used = lines.length * manifest.dims;
   if (i8.length > used) next.tailI8 = i8.subarray(used).toString('base64');

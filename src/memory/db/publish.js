@@ -7,7 +7,7 @@
 // The rule (item 4): an outward act opens a destination context and publishes only what that context produced, or
 // what the owner granted. A text produced in an internal context (an internal wake) is publishable only through an
 // unrevoked `publication_grants` row that binds this very content hash to this very destination; an edit changes the
-// hash and needs a new grant. Contexts are the core's own objects (scope.js#issueContext), never tool arguments, and
+// hash and needs a new grant. Contexts are the core's own objects (scope.ts#issueContext), never tool arguments, and
 // `recheck` checks a queued row again at send time.
 //
 //   preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn, idempotencyKey?, now? })
@@ -32,8 +32,8 @@
 // `sent` publication, unit-write.js) derives them like the sync. Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
-import { legacyNativeKind, nativeAuthorityOf } from './ids.js';
-import { contextRow } from './scope.js';
+import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
+import { contextRow } from './scope.ts';
 import { projectRow } from './graph.js';
 
 const dbOf = (handle) => handle?.db ?? handle;

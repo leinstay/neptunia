@@ -20,7 +20,7 @@
 //   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
 //     (`dropped`: the bounded queue's oldest, a write that failed every retry, one the shutdown could not write);
 //     `waitObservations()` writes the waiting ones and awaits them.
-//   - `issueContext(spec)` issues an execution context (scope.js#issueContext: an id, the mode, the destination) read
+//   - `issueContext(spec)` issues an execution context (scope.ts#issueContext: an id, the mode, the destination) read
 //     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
 //     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.
 //     `recordTurnReads` stores the context id (`contextId`, '' without one) and the reader kind (`turn` by default).
@@ -94,8 +94,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { lockPathOf, openMemoryDb } from './open.js';
-import { channelPlaceId, guildPlaceId } from './ids.js';
-import { contextRow, issueContext as issuePureContext } from './scope.js';
+import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
+import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
+import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.js';
 import { focusView, lastFocusDay, runFocusDay } from './focus.js';
@@ -159,7 +160,8 @@ const silent = { info: noop, warn: noop, error: noop, debug: noop };
  * Besides the kinds her turns name, a read may name a row by its database id (her memory session's request does):
  * `source_id`, `description`, `place`, `intention`.
  */
-export function turnReadRows(db, reads, { guildId = null, authority = 'discord/global' } = {}) {
+export function turnReadRows(db, reads, { guildId = null, iface = LEGACY_IFACE } = {}) {
+  const authority = nativeAuthorityOf(iface);
   const rows = new Map();
   const claimVersion = db.prepare(NEWEST_CLAIM_VERSION_SQL);
   const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
@@ -184,7 +186,7 @@ export function turnReadRows(db, reads, { guildId = null, authority = 'discord/g
     });
   };
   const hasRow = (table, id) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE id = ? LIMIT 1`).get(id) !== undefined;
-  // A message id is native to one authority: the turn's (Discord's global snowflakes today), never matched alone.
+  // A message id is native to one authority: the turn's interface, never matched alone.
   const latestMessage = db.prepare(
     "SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
   );
@@ -209,10 +211,10 @@ export function turnReadRows(db, reads, { guildId = null, authority = 'discord/g
         put('claims', `lore:${id}`, read);
         break;
       case 'channel':
-        put('places', channelPlaceId(id), read);
+        put('places', channelPlaceId(iface, id), read);
         break;
       case 'guild_note':
-        if (guildId) put('descriptions', `desc:${guildPlaceId(guildId)}:${id}`, read);
+        if (guildId) put('descriptions', `desc:${guildPlaceId(iface, guildId)}:${id}`, read);
         break;
       case 'item':
         if (hasRow('claims', id)) put('claims', id, read);
@@ -384,6 +386,7 @@ export function createMemoryDb({
   onSessionFailure = null,
   sessionLookMs = 60_000,
   onBackupFailure = null,
+  iface = () => null,
 }) {
   const threaded = useWorker ?? open === undefined;
   open ??= openMemoryDb;
@@ -397,14 +400,13 @@ export function createMemoryDb({
   const openErrors = new Set();
 
   const settings = () => {
-    const given = hot.config?.memoryDb ?? {};
+    const given = /** @type {Record<string, unknown>} */ (hot.config?.memoryDb ?? {});
+    const closeMs = given.closeTimeoutMs;
     return {
       file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
       turnReads: given.turnReads !== false,
       closeMs:
-        Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0
-          ? given.closeTimeoutMs
-          : DEFAULT_CLOSE_TIMEOUT_MS,
+        typeof closeMs === 'number' && Number.isFinite(closeMs) && closeMs > 0 ? closeMs : DEFAULT_CLOSE_TIMEOUT_MS,
     };
   };
   const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
@@ -416,7 +418,7 @@ export function createMemoryDb({
   /** What a migration needs from the opener (open.js#migrate): the deployment's diary channel as a place. */
   const openContext = () => {
     const channel = hot.config?.diary?.channelId;
-    return { diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(channel) : null };
+    return { diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null };
   };
 
   async function openNow() {
@@ -509,7 +511,7 @@ export function createMemoryDb({
     ) {
       stamped.destination = openContext().diaryPlaceId;
     }
-    return stamped;
+    return withLiveIface(stamped, iface);
   }
 
   const pendingFileOf = (owner) =>
@@ -1002,7 +1004,7 @@ export function createMemoryDb({
    * The focus sets for the heartbeat's people view (focus.js#focusView, an internal read): `{ close, exploring,
    * exploringShare }` as member ids of the interface, each the best scored first; null while the database is closed.
    */
-  function focusPeople({ iface = 'discord' } = {}) {
+  function focusPeople({ iface = LEGACY_IFACE } = {}) {
     if (!handle) return null;
     try {
       const sets = focusView(handle.db, { iface });
@@ -1292,7 +1294,7 @@ export function createMemoryDb({
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows;
     try {
-      rows = turnReadRows(handle.db, carried, { guildId });
+      rows = turnReadRows(handle.db, carried, { guildId, iface: liveIface(iface) ?? LEGACY_IFACE });
     } catch (error) {
       log.warn('memory db: turn reads failed', { code: codeOf(error) });
       return;
@@ -1408,7 +1410,7 @@ export function createMemoryDb({
   }
 
   /**
-   * Issues an execution context for one turn, session or wake (scope.js#issueContext), read through `audience_id` when
+   * Issues an execution context for one turn, session or wake (scope.ts#issueContext), read through `audience_id` when
    * `memoryDb.audienceColumn` is on. While the database is open the context is recorded in `execution_contexts`,
    * deferred through the writer (a failure is logged with a code); otherwise it is only the object.
    * @param {{ kind: 'group'|'dm'|'internal', iface?: string, person?: string, place?: string|null, destination?: string|null }} spec

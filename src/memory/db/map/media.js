@@ -5,12 +5,13 @@
 //
 // toRows(rel, value, ctx) -> { media }     fromRows(rows, ctx) -> the file's value
 
-import { groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [{ col: 'description', key: 'text', type: 'text' }];
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   for (const [key, entry] of Object.entries(value)) {
     const part = isPlainObject(entry) ? split(entry, SPEC) : { cols: { description: null }, rest: { $raw: entry } };
@@ -25,7 +26,7 @@ export function toRows(rel, value) {
       sha1: null,
       bytes: null,
       mime: null,
-      ...groupScope(),
+      ...groupScope(iface),
       extra: extraText(part.rest),
       owner_file: rel,
     });

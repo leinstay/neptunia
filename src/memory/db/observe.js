@@ -15,7 +15,7 @@
 // `aud:internal`), its relations and its bundle membership. Idempotent on the native tuple: the source id is the hash of
 // (authority, native kind, key, generation, revision, subtype), and a replay writes nothing. A malformed envelope is
 // refused with a code (`{ ok: false, code }`) and writes nothing; a refusal found while writing rolls the whole
-// transaction back. Native keys are aliases in `external_keys` (one resolver, ids.js#resolveAlias, at the event time).
+// transaction back. Native keys are aliases in `external_keys` (one resolver, ids.ts#resolveAlias, at the event time).
 //
 // Participants (section 1.3): a per-thread token is a participant of that thread (`thread_token`, the thread required);
 // a site-scoped token that is not an identity is `site_token`; a bare post number is `post_number` and a display name
@@ -39,7 +39,7 @@
 //     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
 //     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
 //   - a tuple of the legacy layout (Discord, generation 1) is created under the legacy spelling
-//     (ids.js#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
+//     (ids.ts#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
 //     (upsert.js#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
 //     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
@@ -66,9 +66,9 @@ import {
   legacySourceIdOf,
   nodeId,
   resolveAlias,
-} from './ids.js';
+} from './ids.ts';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.js';
-import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.js';
+import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.ts';
 import {
   CAPTURE_REASONS,
   CAPTURE_ROLES,
@@ -326,7 +326,7 @@ const TUPLE_TABLES = { account: 'accounts', place: 'places' };
 
 /**
  * The node a native key names: the exact generation when one is given, else the alias that holds at the event time
- * (ids.js#resolveAlias). An account or place stored with that tuple in its columns but missing from `external_keys` is
+ * (ids.ts#resolveAlias). An account or place stored with that tuple in its columns but missing from `external_keys` is
  * found there and registered. Null when the key was never stored; an ambiguous alias is a refusal, never "the latest".
  */
 function nodeOf(db, authority, kind, key, generation, atIso, at) {
@@ -626,7 +626,7 @@ const lineKindOf = (envelope) =>
 
 /**
  * The source id of an envelope's native tuple (its revision given): the legacy importer's spelling when the tuple is
- * one it writes (ids.js#legacySourceIdOf), else the hash of the tuple.
+ * one it writes (ids.ts#legacySourceIdOf), else the hash of the tuple.
  */
 export function observedSourceId(envelope) {
   const n = envelope.native;

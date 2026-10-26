@@ -27,8 +27,9 @@
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { MEMORY_LIMIT_DEFAULTS } from '../text-limits.js';
-import { shortHash } from './ids.js';
-import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.js';
+import { shortHash } from './ids.ts';
+import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
 import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.js';
 import { block } from '../../behavior/prompt.js';
 
@@ -303,7 +304,7 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
     return { status: 'refused', code: 'bad_subject' };
   // Read through `audience_id` when the live config says so (`memoryDb.audienceColumn`) or the caller's context does.
-  const given = ctx.readCtx ?? groupContext('discord');
+  const given = ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx));
   const readCtx = config?.memoryDb?.audienceColumn === true ? { ...given, audienceColumn: true } : given;
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);

@@ -22,6 +22,7 @@
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.js';
 import { projectRow } from './graph.js';
 import { deriveMirrorPublication } from './publish.js';
+import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -356,7 +357,7 @@ function relinkParticipation(db, at) {
   const find = tuple
     ? prepared(
         db,
-        "SELECT id FROM sources WHERE authority_id = 'discord/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
+        `SELECT id FROM sources WHERE authority_id = '${LEGACY_IFACE}/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1`
       )
     : prepared(
         db,
@@ -369,10 +370,10 @@ function relinkParticipation(db, at) {
   let count = 0;
   for (const row of db
     .prepare(
-      "SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%' AND retired_at IS NULL"
+      `SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:${LEGACY_IFACE}:%' AND retired_at IS NULL`
     )
     .all()) {
-    const messageId = /^src:discord:([^:]+)/.exec(row.source_id)?.[1];
+    const messageId = new RegExp(`^src:${LEGACY_IFACE}:([^:]+)`).exec(row.source_id)?.[1];
     const found = messageId ? find.get(messageId) : null;
     if (!found || found.id === row.source_id) continue;
     update.run(found.id, row.episode_id, row.position, row.source_id);

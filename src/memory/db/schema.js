@@ -320,7 +320,7 @@ const V6 = [
 //  - `turn_reads` is rebuilt with `context_id` (a read without one stores '') in its primary key and `reader_kind`;
 //  - the `sources` update trigger now fires on `text` and `stems` only (the only columns the FTS tables hold), so a
 //    one-pass update of another column does not re-index the whole table.
-// The SQL here and src/memory/db/scope.js#audienceOf are the same rule; tests/memory-db-v7.test.js checks they agree.
+// The SQL here and src/memory/db/scope.ts#audienceOf are the same rule; tests/memory-db-v7.test.js checks they agree.
 
 /** Every table that carries the scope triple (and from v7 its `audience_id`). */
 export const SCOPED_TABLES = [
@@ -343,12 +343,12 @@ export const SELF_SOURCE_KINDS = ['said', 'answer', 'felt', 'memory_session', 'd
 // The rows the migration writes are stamped with the time the legacy data is as of: the last sync before the
 // migration (an empty database has none: the epoch). Deterministic, so two databases migrated from the same rows agree.
 const NOW_SQL = "COALESCE((SELECT value FROM meta WHERE key = 'last_sync_at'), '1970-01-01T00:00:00.000Z')";
-/** The native authority of an interface column (src/memory/db/ids.js#nativeAuthorityOf). */
+/** The native authority of an interface column (src/memory/db/ids.ts#nativeAuthorityOf). */
 const AUTHORITY_SQL = (col) =>
   `(CASE WHEN ${col} IS NULL OR ${col} = '' THEN 'core/local' WHEN ${col} IN ('cli', 'core') THEN ${col} || '/local' ELSE ${col} || '/global' END)`;
 const DM_PREFIX = "('person:' || scope_iface || ':')";
 const DM_OK = `(scope_iface IS NOT NULL AND scope_iface <> '' AND scope_dm IS NOT NULL AND substr(scope_dm, 1, length(${DM_PREFIX})) = ${DM_PREFIX} AND length(scope_dm) > length(${DM_PREFIX}))`;
-/** The audience of a triple (src/memory/db/scope.js#audienceOf). */
+/** The audience of a triple (src/memory/db/scope.ts#audienceOf). */
 const AUDIENCE_SQL = `(CASE
   WHEN scope_kind = 'none' THEN 'aud:none'
   WHEN scope_kind = 'group' AND scope_iface IS NOT NULL AND scope_iface <> '' THEN 'aud:group:' || scope_iface
@@ -516,7 +516,7 @@ END;`,
 //    token or observation key, generation), stored whole under one unique index; a thread token needs its thread, a
 //    display name or no token is keyed by the observation it came with (one participant per post). Never a person;
 //    `participant_links` names exactly one target (an account or a person), `people_merges` records merges (the writer
-//    refuses a cycle; a chain resolves to its final survivor, ids.js#survivorOf);
+//    refuses a cycle; a chain resolves to its final survivor, ids.ts#survivorOf);
 //  - `sources.author_participant` (the author combination is checked by the one writer path, rows.js#checkAuthor:
 //    SQLite cannot add a CHECK to an existing table), `sources.native_kind` and `sources.generation` (with
 //    `authority_id`, `native_id` and `revision`: the native tuple a relation's target is matched on). Discord lines get
@@ -525,7 +525,7 @@ END;`,
 //    `capture_events` (append-only: the coverage after each step) and `capture_watches`. Members and events are never
 //    updated or deleted (triggers refuse it);
 //  - `source_relations`: one row per (source, predicate, target_key); `target_key` is `source:<id>` or the external
-//    tuple JSON (ids.js#externalTargetKey) and never changes; `target_source_id` and `resolved_at` are filled when the
+//    tuple JSON (ids.ts#externalTargetKey) and never changes; `target_source_id` and `resolved_at` are filled when the
 //    target is or becomes a stored source. Backfilled from every Discord line's `reply_to`, resolved where the replied
 //    message is stored (its first revision).
 

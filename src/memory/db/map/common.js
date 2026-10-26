@@ -10,6 +10,7 @@
 //
 // Rows are plain objects of column -> value; JSON columns hold JSON text and booleans are 0/1, so a row can be
 // bound to SQLite as it is and read back without a conversion step.
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
 
 export const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -37,7 +38,7 @@ function decode(type, value) {
  * Splits can be chained (the remainder of one is the input of the next): a `$null` list in the input is carried on.
  * @returns {{ cols: object, rest: object }} `rest` holds every key no column took, plus `$null` when needed.
  */
-export function split(obj, spec) {
+export function split(obj, spec, iface = LEGACY_IFACE) {
   const rest = { ...obj };
   const cols = {};
   const nulls = Array.isArray(obj.$null) ? [...obj.$null] : [];
@@ -50,7 +51,7 @@ export function split(obj, spec) {
       nulls.push(key);
     } else if (FITS[type](value) && (!ok || ok(value))) {
       delete rest[key];
-      cols[col] = encode(type, enc ? enc(value) : value);
+      cols[col] = encode(type, enc ? enc(value, iface) : value);
     }
   }
   if (nulls.length) rest.$null = nulls;
@@ -125,3 +126,5 @@ export function jsonEqual(a, b) {
   }
   return false;
 }
+
+export { ifaceOrLegacy as ifaceOf } from '../legacy-namespace.ts';

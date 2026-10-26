@@ -9,10 +9,10 @@
 // toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { guildId }
 // fromRows(rows, ctx) -> the file's value
 
-import { IFACE, SELF_PERSON, guildPlaceId, nativeOf, personId } from '../ids.js';
-import { SCOPE_NONE, groupScope } from '../scope.js';
+import { SELF_PERSON, guildPlaceId, nativeOfAny, personId } from '../ids.ts';
+import { SCOPE_NONE, groupScope } from '../scope.ts';
 import { claimItems, claimRows } from './lists.js';
-import { parseExtra, put, rowsOf } from './common.js';
+import { ifaceOf, parseExtra, put, rowsOf } from './common.js';
 
 const FIELDS = ['patterns', 'starters'];
 
@@ -26,8 +26,8 @@ const LEARNED_SPEC = [
     key: 'from',
     type: 'text',
     ok: (v) => /^<@\d+>$/.test(v),
-    enc: (v) => personId(v.slice(2, -1)),
-    dec: (id) => `<@${nativeOf(id)}>`,
+    enc: (v, iface) => personId(iface, v.slice(2, -1)),
+    dec: (id) => `<@${nativeOfAny(id)}>`,
   },
 ];
 
@@ -46,13 +46,14 @@ const LISTS = [
 ];
 
 export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const guildId = ctx.guildId ?? 'unknown';
-  const placeId = guildPlaceId(guildId);
+  const placeId = guildPlaceId(iface, guildId);
   const rows = {};
   const rest = { ...value };
   put(rows, 'places', {
     id: placeId,
-    iface: IFACE,
+    iface,
     kind: 'guild',
     native_id: guildId,
     parent_id: null,
@@ -72,7 +73,7 @@ export function toRows(rel, value, ctx = {}) {
       subject_kind: 'place',
       subject_id: placeId,
       field,
-      ...groupScope(),
+      ...groupScope(iface),
       current_version: `${id}:legacy`,
       owner_file: rel,
     });
@@ -103,7 +104,7 @@ export function toRows(rel, value, ctx = {}) {
       subject_kind: self ? 'self' : 'place',
       subject_id: self ? SELF_PERSON : placeId,
       owner: self ? SELF_PERSON : placeId,
-      scope: self ? { ...SCOPE_NONE } : groupScope(),
+      scope: self ? { ...SCOPE_NONE } : groupScope(iface),
       how: def.how,
     });
     if (ok) {

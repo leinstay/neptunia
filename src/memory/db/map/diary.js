@@ -11,9 +11,9 @@
 //
 // toRows(rel, value, ctx) -> { diary, diary_mirrors, operational }     fromRows(rows, ctx) -> the file's value
 
-import { IFACE, itemOrDerivedId, uniqueIds } from '../ids.js';
-import { groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
+import { itemOrDerivedId, uniqueIds } from '../ids.ts';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [
   { col: 'at_ms', key: 'at', type: 'num' },
@@ -25,7 +25,8 @@ const SPEC = [
 
 const isIds = (value) => Array.isArray(value) && value.every((id) => typeof id === 'string');
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const rest = { ...value };
   const has = [];
@@ -48,7 +49,7 @@ export function toRows(rel, value) {
         world: null,
         status: null,
         perspective: null,
-        ...groupScope(),
+        ...groupScope(iface),
         extra: extraText(part.rest),
         owner_file: rel,
         position,
@@ -56,7 +57,7 @@ export function toRows(rel, value) {
       if (mirrored) {
         put(rows, 'diary_mirrors', {
           diary_id: id,
-          iface: IFACE,
+          iface,
           place_id: null,
           native_ids: JSON.stringify(post.messageIds),
           posted_at: null,

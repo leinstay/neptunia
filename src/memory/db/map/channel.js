@@ -8,9 +8,9 @@
 // toRows(rel, value, ctx) -> { places, descriptions, description_versions, operational }     ctx: { guildId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { IFACE, channelPlaceId, guildPlaceId } from '../ids.js';
-import { groupScope } from '../scope.js';
-import { join, parseExtra, put, rowsOf, split } from './common.js';
+import { channelPlaceId, guildPlaceId } from '../ids.ts';
+import { groupScope } from '../scope.ts';
+import { ifaceOf, join, parseExtra, put, rowsOf, split } from './common.js';
 
 const PLACE_SPEC = [
   { col: 'native_id', key: 'id', type: 'text' },
@@ -23,16 +23,17 @@ const FIELDS = ['purpose', 'topics', 'tone'];
 export const channelIdOf = (rel) => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
 
 export function toRows(rel, value, ctx = {}) {
-  const placeId = channelPlaceId(channelIdOf(rel));
+  const iface = ifaceOf(ctx);
+  const placeId = channelPlaceId(iface, channelIdOf(rel));
   const rows = {};
   const { cols, rest } = split(value, PLACE_SPEC);
-  const scope = groupScope();
+  const scope = groupScope(iface);
   put(rows, 'places', {
     id: placeId,
-    iface: IFACE,
+    iface,
     kind: 'channel',
     ...cols,
-    parent_id: ctx.guildId ? guildPlaceId(ctx.guildId) : null,
+    parent_id: ctx.guildId ? guildPlaceId(iface, ctx.guildId) : null,
     scope_kind: 'group',
     extra: null,
     retired_at: null,

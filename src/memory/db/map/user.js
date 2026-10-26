@@ -13,10 +13,10 @@
 // toRows(rel, value, ctx) -> { people, accounts, ... }       ctx: { guildId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { IFACE, accountId, guildPlaceId, personId } from '../ids.js';
-import { groupScope } from '../scope.js';
+import { accountId, guildPlaceId, personId } from '../ids.ts';
+import { groupScope } from '../scope.ts';
 import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './lists.js';
-import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
 
 const PEOPLE_SPEC = [
   { col: 'first_seen_at', key: 'firstSeen', type: 'text' },
@@ -37,9 +37,10 @@ const FIELDS = ['character', 'style', 'relationship'];
 export const userIdOf = (rel) => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
 
 export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const userId = userIdOf(rel);
-  const person = personId(userId);
-  const scope = groupScope();
+  const person = personId(iface, userId);
+  const scope = groupScope(iface);
   const rows = {};
   const { rest, affinity } = profileRows(rows, value, {
     rel,
@@ -73,8 +74,8 @@ export function toRows(rel, value, ctx = {}) {
     owner_file: rel,
   });
   put(rows, 'accounts', {
-    id: accountId(userId),
-    iface: IFACE,
+    id: accountId(iface, userId),
+    iface,
     ...account.cols,
     person_id: person,
     link: 'verified',
@@ -85,9 +86,9 @@ export function toRows(rel, value, ctx = {}) {
   });
   if (membership) {
     put(rows, 'memberships', {
-      id: `mem:${accountId(userId)}:${ctx.guildId ?? 'unknown'}`,
-      account_id: accountId(userId),
-      place_id: guildPlaceId(ctx.guildId ?? 'unknown'),
+      id: `mem:${accountId(iface, userId)}:${ctx.guildId ?? 'unknown'}`,
+      account_id: accountId(iface, userId),
+      place_id: guildPlaceId(iface, ctx.guildId ?? 'unknown'),
       nick: null,
       roles: null,
       pings_off: null,

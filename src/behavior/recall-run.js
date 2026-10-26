@@ -73,7 +73,7 @@ import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { DAY_MS, bumpDaily, countToday } from '../time.js';
-import { audienceCovers } from './elsewhere.js';
+import { audienceCovers } from './elsewhere.ts';
 import { roleModel } from '../llm/roles.js';
 import { pullPictures } from './pull.js';
 import {
@@ -106,8 +106,9 @@ import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './p
 import { indexWords } from '../memory/record-index.js';
 import { CODE } from '../skills/codes.js';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
-import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.js';
-import { issueContext } from '../memory/db/scope.js';
+import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
+import { issueContext } from '../memory/db/scope.ts';
+import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -383,16 +384,14 @@ function summaryFailure(err) {
  *   it): the message and member searches, the windows around a hit and the audience rules.
  * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
  *   `cachedDescriptions` is used, never a fresh caption.
- * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only
- *   `iterate` is used (read only). Without it the archive is not searched.
- * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only
- *   `iterate` is used (read only). Without it the record is not read.
+ * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only `iterate` is used (read only); without it the archive is not searched.
+ * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only `iterate` is used (read only); without it the record is not read.
  * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.js): only
  *   `search` is used. Without it (or `deps.embed`) no run searches by meaning.
- * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's
- *   `embed`: one call per run that searches by meaning.
+ * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's `embed`: one call per run that searches by meaning.
  * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.js: the open memory database
  *   (the persona's own search, her window reads and the prefetch).
+ * @param {string} [deps.iface]  The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one.
  * @param {() => number} [deps.now]
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
@@ -413,6 +412,7 @@ export function createRecall({
   vectors = null,
   embed = null,
   memoryDb = null,
+  iface = LEGACY_IFACE,
   now = Date.now,
   timers = DEFAULT_TIMERS,
 }) {
@@ -421,7 +421,6 @@ export function createRecall({
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
   }
-
   /** The summary prompt, or null when it is missing or blank. */
   function summaryPrompt() {
     const prompt = hot.prompts?.['recall-summary'];
@@ -1045,8 +1044,8 @@ export function createRecall({
    */
   function readContext({ config, channel, privateUserId, asker, memoryContext = null }) {
     const spec = privateUserId
-      ? { kind: 'dm', person: personId(privateUserId) }
-      : { kind: 'group', destination: channel?.id ? channelPlaceId(channel.id) : null };
+      ? { kind: 'dm', person: personId(iface, privateUserId) }
+      : { kind: 'group', destination: channel?.id ? channelPlaceId(iface, channel.id) : null };
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -1058,8 +1057,8 @@ export function createRecall({
       ? memoryContext
       : typeof memoryDb?.issueContext === 'function'
         ? memoryDb.issueContext(spec)
-        : issueContext({ ...spec, now, audienceColumn: config?.memoryDb?.audienceColumn === true });
-    return privateUserId || !asker ? issued : { ...issued, asker: [personId(String(asker))] };
+        : issueContext({ iface, ...spec, now, audienceColumn: config?.memoryDb?.audienceColumn === true });
+    return privateUserId || !asker ? issued : { ...issued, asker: [personId(iface, String(asker))] };
   }
 
   /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */
