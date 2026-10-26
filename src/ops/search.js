@@ -34,6 +34,8 @@ function asOpResult(result, what = 'search') {
 
 const handlers = perEnv((env) => {
   const { hot, store, client, resolvedGuildId, now = Date.now } = env;
+  /** @type {import('../interface/reads.ts').Reads} */
+  const reads = env.reads;
 
   /** `/nep task search query [goal]`. */
   async function cmdWebSearch(args, context) {
@@ -162,11 +164,9 @@ const handlers = perEnv((env) => {
     const guildId = resolvedGuildId(context);
     const channelOf = (id) =>
       String(id) === String(here.id) ? here : (guild.channels?.cache?.get?.(String(id)) ?? null);
-    const selfId = client?.user?.id ?? null;
     const selfName = guild.members?.me?.displayName ?? client?.user?.username ?? '';
     const nameOf = (id) => guild.members?.cache?.get?.(id)?.displayName ?? null;
     const timezone = config.bot?.timezone ?? 'UTC';
-    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
     const result = await runConversationRead({
       args,
       labels,
@@ -181,7 +181,8 @@ const handlers = perEnv((env) => {
         config.features?.record === true && env.record
           ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
-      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      fetchLive: (request) =>
+        fetchSpan(reads, { iface: env.port?.iface ?? '', conversationId: String(request.channelId) }, request),
       render: () => ({
         timezone,
         gapMinutes: config.context?.gapMarkerMinutes,

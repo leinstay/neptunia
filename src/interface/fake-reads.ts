@@ -68,6 +68,8 @@ type Deps = {
     extra: { at: number; event: MessageEvent }
   ) => StoredMessage;
   messageUrl: () => { community: string; direct: string } | null | undefined;
+  /** Whether what the persona sent is part of a conversation's history (it is, as on a platform; a test may say it is not). */
+  sendsInHistory: () => boolean;
 };
 
 /** The fields of an event's `conversation` record, taken from a conversation's info. */
@@ -139,6 +141,7 @@ export function createFakeReads(deps: Deps): {
   eventOf(stored: StoredMessage): MessageEvent;
   seeders: {
     seedConversation(info: ConversationInfo): void;
+    removeConversation(conversationId: string): void;
     seedGroups(communityId: string, list: Array<GroupInfo>): void;
     seedMember(communityId: string, member: MemberInfo): void;
     seedEmoji(communityId: string, list: Array<EmojiInfo>): void;
@@ -146,7 +149,7 @@ export function createFakeReads(deps: Deps): {
     seedEvent(event: MessageEvent): void;
   };
 } {
-  const { iface, selfId, messages, offered, calls, takeQueued, store, messageUrl } = deps;
+  const { iface, selfId, messages, offered, calls, takeQueued, store, messageUrl, sendsInHistory } = deps;
   const conversations = new Map<string, ConversationInfo>();
   const groups = new Map<string, Array<GroupInfo>>();
   const members = new Map<string, Map<string, MemberInfo>>();
@@ -175,6 +178,7 @@ export function createFakeReads(deps: Deps): {
   const ordered = (conversationId: string): Array<StoredMessage> =>
     [...messages.values()]
       .filter((message) => message.ref.conversationId === conversationId && !message.deleted)
+      .filter((message) => message.event !== undefined || sendsInHistory())
       .sort((a, b) => a.at - b.at || a.seq - b.seq);
 
   /** The record an event carries for conversation `id`: what the interface would say of it. */
@@ -367,6 +371,9 @@ export function createFakeReads(deps: Deps): {
     seeders: {
       seedConversation(info) {
         conversations.set(info.id, clone(info));
+      },
+      removeConversation(conversationId) {
+        conversations.delete(conversationId);
       },
       seedGroups(communityId, list) {
         groups.set(communityId, clone(list));

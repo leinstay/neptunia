@@ -73,7 +73,9 @@ export const FAKE_CAPABILITIES = Object.freeze({
  * An in-memory port.
  * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null,
  *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'|'messageUrl'>>, now?: () => number,
- *   reads?: Iterable<string>|null }} [options]
+ *   reads?: Iterable<string>|null, messageId?: ((conversationId: string, count: number) => string)|null }} [options]
+ *   `messageId`: the id of each message the persona sends, from the conversation and how many she sent there so
+ *   far (else `<iface>-<n>`, n counting every message stored);
  *   `operations`: the capability names offered (all of CAPABILITIES when absent); `reads`: the wire names of the
  *   reads offered (all of READ_ACTIONS when absent); `capabilities`:
  *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) over FAKE_CAPABILITIES; `selfId`: the
@@ -86,11 +88,14 @@ export const FAKE_CAPABILITIES = Object.freeze({
  *   failNext(op: string, result: import('./port.js').PortResult): void,
  *   messagesIn(conversationId: string): StoredMessage[],
  *   seedConversation(info: import('../protocol/adapter.ts').ConversationInfo): void,
+ *   removeConversation(conversationId: string): void,
  *   seedGroups(communityId: string, list: import('../protocol/adapter.ts').GroupInfo[]): void,
  *   seedMember(communityId: string, member: import('../protocol/adapter.ts').MemberInfo): void,
  *   seedEmoji(communityId: string, list: import('../protocol/adapter.ts').EmojiInfo[]): void,
  *   seedReactors(ref: import('../protocol/adapter.ts').MessageRef, emoji: string, memberIds: string[]): void,
  *   seedEvent(event: import('../protocol/adapter.ts').MessageEvent): void,
+ *   clearConversation(conversationId: string): void,
+ *   showSendsInHistory(shown: boolean): void,
  * }}
  *   `seed` puts someone's message (its `messageId`, else a new one) into a conversation;
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,
@@ -103,6 +108,7 @@ export function createFakeAdapter({
   capabilities: declared = {},
   now = Date.now,
   reads = null,
+  messageId: messageIdOf = null,
 } = {}) {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
   const offeredReads = new Set(reads ? [...reads] : READ_ACTIONS);
@@ -117,6 +123,9 @@ export function createFakeAdapter({
   let nextId = 0;
   let nextKey = 0;
   let nextSeq = 0;
+  let sendsInHistory = true;
+  /** @type {Map<string, number>} */
+  const sentIn = new Map();
 
   const keyOf = (ref) => `${ref.conversationId}/${ref.messageId}`;
   const supports = (operation) => offered.has(CAPABILITIES[operation]);
@@ -146,7 +155,13 @@ export function createFakeAdapter({
   function store(conversationId, authorId, content, messageId = null, extra = {}) {
     nextId += 1;
     nextSeq += 1;
-    const ref = { iface, conversationId, messageId: messageId ?? `${iface}-${nextId}`, memberId: authorId };
+    let given = messageId;
+    if (given === null && messageIdOf !== null) {
+      const count = (sentIn.get(conversationId) ?? 0) + 1;
+      sentIn.set(conversationId, count);
+      given = messageIdOf(conversationId, count);
+    }
+    const ref = { iface, conversationId, messageId: given ?? `${iface}-${nextId}`, memberId: authorId };
     const message = {
       ref,
       authorId,
@@ -175,6 +190,7 @@ export function createFakeAdapter({
     takeQueued,
     store,
     messageUrl: () => caps.messageUrl,
+    sendsInHistory: () => sendsInHistory,
   });
 
   return {
@@ -292,6 +308,17 @@ export function createFakeAdapter({
 
     ...world.methods,
     ...world.seeders,
+
+    // Whether the messages the persona sent are read back in a conversation's history (default: yes).
+    showSendsInHistory(shown) {
+      sendsInHistory = shown;
+    },
+
+    // A test's way to start a conversation over: every message of it is forgotten and its ids start again.
+    clearConversation(conversationId) {
+      for (const [key, message] of messages) if (message.ref.conversationId === conversationId) messages.delete(key);
+      sentIn.delete(conversationId);
+    },
 
     async typing(conversation) {
       const early = front('typing', [conversation]);

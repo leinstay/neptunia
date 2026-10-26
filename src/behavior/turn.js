@@ -844,18 +844,22 @@ function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
 
 /**
  * Where a reaction on line `targetId` goes: this channel for a chat line; for a pulled line (`pulledIds`) its own
- * channel, read from the turn's `snapshot` of this channel's community, while the persona may react there now
+ * channel, as the interface describes it now (`reads`), while the persona may react there
  * (`permissions.react`). A private chat holds no pulled channel to react in. Otherwise `target` is null and `reason`
  * is the code the drop is logged with: `not-found` (the channel is gone) or `cannot-react`. `source` is the pulled
  * channel's id, null for a chat line.
- * @returns {{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }}
- * @param {Snap|null} snapshot
+ * @returns {Promise<{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }>}
+ * @param {import('../interface/reads.ts').Reads} reads
  * @param {Conv} channel
  */
-function reactionChannel(snapshot, channel, targetId, pulledIds) {
+async function reactionChannel(reads, channel, targetId, pulledIds) {
   const source = pulledIds.get(targetId) ?? null;
   if (!source) return { target: channel, source: null, reason: null };
-  const target = channel.communityId === null ? null : (snapshot?.get(String(source)) ?? null);
+  const live =
+    channel.communityId === null
+      ? null
+      : await reads.conversationInfo({ iface: channel.iface, conversationId: String(source) });
+  const target = live?.conversation ?? null;
   if (!target) return { target: null, source, reason: 'not-found' };
   return target.permissions.react ? { target, source, reason: null } : { target: null, source, reason: 'cannot-react' };
 }
@@ -3399,6 +3403,7 @@ export function createTurnRunner({
     const viewOf = (r) =>
       callView({
         channel,
+        snapshot: snapshotOfDraft(draft),
         guildId,
         idByIndex: r.idByIndex,
         lines: r.lines,
@@ -4509,7 +4514,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(snapshotOfDraft(draft), channel, targetId, pulledIds);
+      const route = await reactionChannel(ifaceReads, channel, targetId, pulledIds);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -4717,6 +4722,7 @@ export function createTurnRunner({
         if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
         channelId = await postingConversation({
           reads: ifaceReads,
+          iface: channel.iface,
           guildId,
           channelId: given ?? reply?.channelId ?? null,
           context: { channelId: String(channel.id) },
@@ -5225,7 +5231,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(snapshotOfDraft(draft), channel, targetId, pulledIds);
+      const route = await reactionChannel(ifaceReads, channel, targetId, pulledIds);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -5893,20 +5899,17 @@ export function createTurnRunner({
   /**
    * A private chat's partner as a member of the served community (`memberInfo`), for a private chat that works
    * like a server turn on their behalf: features.privateLikeServer (read from `config`, the turn's live
-   * config; a missing key counts as on, only false turns it off). Null with the switch off, without a user id,
-   * a read the interface does not answer or a user who is no member (the member left); a read that fails
-   * (the interface answers an error) logs `turn: partner failed` and is null too. Never rejects.
+   * config; a missing key counts as on, only false turns it off). Null with the switch off or without a user id.
+   * A read the interface does not answer, an error answer and a user who is no member (the member left) are null
+   * and log `turn: partner failed`. Never rejects.
    * @returns {Promise<{ id: string, name: string|null, bot: boolean, groupIds: string[] }|null>}
    */
   async function privatePartner({ guildId, userId, config }) {
     if (config.features?.privateLikeServer === false || !userId) return null;
-    try {
-      const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
-      return found?.member ?? null;
-    } catch (err) {
-      log.warn('turn: partner failed', { guildId, userId, error: err });
-      return null;
-    }
+    const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
+    if (found?.member) return found.member;
+    log.warn('turn: partner failed', { guildId, userId });
+    return null;
   }
 
   /**

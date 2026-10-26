@@ -28,7 +28,8 @@
 // byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
 
 import fsp from 'node:fs/promises';
-import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
+import { messageRefOf, portAnswer, postingConversation } from './shared.js';
+import { lineOf } from '../behavior/line-of.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
@@ -44,7 +45,9 @@ function isLast(value) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, discord, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
+  const { hot, store, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
+  /** @type {import('../interface/reads.ts').Reads} */
+  const reads = env.reads;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
@@ -99,24 +102,19 @@ const handlers = perEnv((env) => {
       throw invalid('one attachment per post', CODE.INVALID_ARGS);
     const ref = messageRefOf(raw);
     const sourceId = await postingConversation({
-      client,
-      discord,
+      reads,
+      iface: port?.iface,
       guildId: resolvedGuildId(context),
       channelId: ref.channelId,
       context,
       need: 'read',
     });
-    const source = await channelById(client, sourceId);
-    let message = null;
-    try {
-      message = (await source?.messages?.fetch?.(ref.messageId)) ?? null;
-    } catch (err) {
-      if (err?.code === 10008) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
-    }
-    if (!message) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
-    if (!client?.user?.id || String(message.author?.id) !== String(client.user.id))
-      throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
-    const attachments = [...(message.attachments?.values?.() ?? [])];
+    const found = await reads.fetchMessages({ iface: port.iface, conversationId: sourceId }, [ref.messageId]);
+    const message = found?.messages[0] ?? null;
+    if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
+    if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
+    if (message.event.message.author.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
+    const attachments = [...(message.attachments ?? [])];
     const given = args?.item === undefined || args?.item === null || args?.item === '' ? 1 : Number(args.item);
     if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
     if (!Number.isInteger(given) || given < 1 || given > attachments.length)
@@ -193,8 +191,8 @@ const handlers = perEnv((env) => {
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({
-      client,
-      discord,
+      reads,
+      iface: p.iface,
       guildId: resolvedGuildId(context),
       channelId: given ?? reply?.channelId ?? null,
       context,
@@ -250,11 +248,7 @@ const handlers = perEnv((env) => {
   async function postGif(p, to, entry, guildId, channelId, lead) {
     const fresh =
       entry.kind === 'attachment'
-        ? await freshAttachmentUrl({
-            client,
-            channel: (await channelById(client, channelId)) ?? { id: channelId },
-            entry,
-          })
+        ? await freshAttachmentUrl({ reads, channel: { iface: p.iface, conversationId: channelId }, entry })
         : null;
     const content = lead
       ? { ...lead, text: gifPostUrl(entry, fresh) }
@@ -272,36 +266,32 @@ const handlers = perEnv((env) => {
   async function turn(args, context) {
     const channelId = args?.channelId || context?.channelId;
     if (!channelId) throw invalid('a channel is required');
-    const channel = await client.channels.fetch(channelId);
-    if (!channel) throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
+    const ref = { iface: port.iface, conversationId: String(channelId) };
+    if ((await reads.conversationInfo(ref)) === null) throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
     // The person who ran the command is the requester of what she does in that turn.
     const requester = context?.userId
       ? { id: String(context.userId), roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(String) : [] }
       : null;
     if (!args?.replyTo) {
-      const result = await spontaneous.force(channel, null, { requester });
-      return `message create on ${channel.id}: ${JSON.stringify(result) ?? 'ok'}`;
+      const result = await spontaneous.force(ref, null, { requester });
+      return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
     }
     const reply = messageRefOf(args.replyTo);
-    if (reply.channelId && reply.channelId !== String(channel.id))
+    if (reply.channelId && reply.channelId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const message = await channel.messages?.fetch?.(reply.messageId).catch(() => null);
-    if (!message) throw invalid(`no message ${reply.messageId} in ${channel.id}`, CODE.UNKNOWN_MESSAGE);
-    const media = hot.config.media ?? {};
-    const trigger = discord.normalizeMessage(message, client.user?.id, {
-      embedTextChars: media.embedTextChars,
-      videoSites: media.video?.sites,
-      maxUrlChars: hot.config.context?.maxUrlChars,
-    });
+    const fetched = await reads.fetchMessages(ref, [reply.messageId]);
+    const event = fetched?.messages[0]?.event;
+    if (!event) throw invalid(`no message ${reply.messageId} in ${ref.conversationId}`, CODE.UNKNOWN_MESSAGE);
+    const trigger = lineOf(event);
     const result = await turns.runTurn({
-      channel,
+      conversation: ref,
       mode: 'reply',
       trigger,
       triggerKind: 'mention',
       forced: true,
       ...(requester ? { requester } : {}),
     });
-    return `message create on ${channel.id}: ${JSON.stringify(result) ?? 'ok'}`;
+    return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
   }
 
   /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
@@ -328,8 +318,8 @@ const handlers = perEnv((env) => {
     if (given && message.channelId && given !== message.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({
-      client,
-      discord,
+      reads,
+      iface: port?.iface,
       guildId: resolvedGuildId(context),
       channelId: given ?? message.channelId,
       context,
@@ -344,29 +334,27 @@ const handlers = perEnv((env) => {
 
   /**
    * `last`'s target: the persona's own most recent message among the last LAST_LOOKBACK of the
-   * conversation (`args.channelId`, else the one the command runs in), read through the client;
+   * conversation (`args.channelId`, else the one the command runs in), read through the interface;
    * none of hers there is `invalid` with `no-own-message`.
    */
   async function lastTarget(args, context, need) {
     const channelId = await postingConversation({
-      client,
-      discord,
+      reads,
+      iface: port?.iface,
       guildId: resolvedGuildId(context),
       channelId: args?.channelId ? String(args.channelId) : null,
       context,
       need,
     });
-    const channel = await channelById(client, channelId);
-    const fetched = await Promise.resolve(channel?.messages?.fetch?.({ limit: LAST_LOOKBACK })).catch(() => null);
-    const selfId = client?.user?.id ? String(client.user.id) : null;
+    const page = await reads.history({ iface: port.iface, conversationId: channelId }, { limit: LAST_LOOKBACK });
     let newest = null;
-    for (const message of fetched?.values?.() ?? []) {
-      if (!selfId || String(message?.author?.id ?? '') !== selfId) continue;
-      if (!newest || (message.createdTimestamp ?? 0) > (newest.createdTimestamp ?? 0)) newest = message;
+    for (const event of page?.events ?? []) {
+      if (event.message.author.self !== true) continue;
+      if (!newest || event.message.at > newest.message.at) newest = event;
     }
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, CODE.NO_OWN_MESSAGE);
-    const messageId = String(newest.id);
+    const messageId = String(newest.message.id);
     return { channelId, messageId, ref: { iface: port.iface, conversationId: channelId, messageId } };
   }
 

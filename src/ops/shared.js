@@ -691,28 +691,18 @@ export function learnedLine(item, resolve) {
 }
 
 /**
- * What an operation does in a channel other than the one it runs in, and whether the bot holds
- * the Discord permissions it needs there (interfaces/discord/collect.js: each check needs View Channel
- * too): `send` a message, `reply` to one (send, and read the history the reply points into),
- * `attach` a picture (send with a file), `read` the history to find a message (an edit, a
- * deletion, a reaction taken back), `react` to one. Each check is asked of `discord`, the Discord
- * interface's capabilities object (the operations' `env.discord`).
+ * What an operation does in a conversation other than the one it runs in, and the permissions of the persona it needs
+ * there (`info.permissions` of the interface's conversation info): `send` a message, `reply` to one (send, and read the
+ * history the reply points into), `attach` a picture (send with a file), `read` the history to find a message (an edit,
+ * a deletion, a reaction taken back), `react` to one.
  */
 export const CHANNEL_NEEDS = Object.freeze({
-  send: (channel, discord) => discord.canSend(channel),
-  reply: (channel, discord) => discord.canSend(channel) && discord.canRead(channel),
-  attach: (channel, discord) => discord.canSend(channel) && discord.canAttach(channel),
-  read: (channel, discord) => discord.canRead(channel),
-  react: (channel, discord) => discord.canReact(channel),
+  send: (permissions) => permissions.send,
+  reply: (permissions) => permissions.send && permissions.read,
+  attach: (permissions) => permissions.send && permissions.attach,
+  read: (permissions) => permissions.read,
+  react: (permissions) => permissions.react,
 });
-
-/** The channel `id` the client knows (its cache, else a fetch), or null. */
-export async function channelById(client, id) {
-  const cached = client?.channels?.cache?.get?.(id);
-  if (cached) return cached;
-  if (typeof client?.channels?.fetch !== 'function') return null;
-  return (await client.channels.fetch(id).catch(() => null)) ?? null;
-}
 
 /** The skill a channel need stands for, as a wake envelope names it (a read stands for none). */
 const NEED_CAPABILITY = Object.freeze({
@@ -725,19 +715,19 @@ const NEED_CAPABILITY = Object.freeze({
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
  * channel:`): `channelId`, else the one the command runs in. The one it runs in passes as it is;
- * any other must be a text channel of the served guild (`guildId`; never a private chat) where
- * the bot holds the permissions `need` names (CHANNEL_NEEDS), looked up through `client` --
- * Discord's permissions are the only limit on where. Otherwise a `denied` error
- * (`channel-no-permission`), a channel the bot cannot find included; nothing was done.
- * `discord` is the Discord interface's capabilities object the permission checks are asked of.
+ * any other must be a conversation of the served community (`guildId`; never a private chat) where
+ * the persona holds the permissions `need` names (CHANNEL_NEEDS), as the interface reports them
+ * (`reads.conversationInfo`, `iface` its name) -- the platform's permissions are the only limit on where.
+ * Otherwise a `denied` error (`channel-no-permission`), a conversation the interface does not know
+ * included; nothing was done.
  * On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is also
  * asked of the wake's envelope (src/skills/access.js#nestedRefusal, the live config through `context.env.hot`): a
  * `denied` error (`not-allowed`) before anything is done.
- * @param {{ client: object, discord: object, guildId: string|null, channelId: string|null|undefined,
- *   context: { channelId?: string }, need: keyof typeof CHANNEL_NEEDS }} args
+ * @param {{ reads: import('../interface/reads.ts').Reads|null, iface: string, guildId: string|null,
+ *   channelId: string|null|undefined, context: { channelId?: string }, need: keyof typeof CHANNEL_NEEDS }} args
  * @returns {Promise<string>}
  */
-export async function postingConversation({ client, discord, guildId, channelId, context, need }) {
+export async function postingConversation({ reads, iface, guildId, channelId, context, need }) {
   const capability = NEED_CAPABILITY[need] ?? null;
   if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
     const refusal = nestedRefusal({ config: context.env?.hot?.config, wakeKind: context.wakeKind, capability });
@@ -748,11 +738,10 @@ export async function postingConversation({ client, discord, guildId, channelId,
   if (id === String(context?.channelId ?? '')) return id;
   const allowedThere = CHANNEL_NEEDS[need];
   if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
-  const channel = await channelById(client, id);
-  const served = Boolean(channel?.guild) && Boolean(guildId) && String(channel.guild.id) === String(guildId);
-  const isDm = typeof channel?.isDMBased === 'function' && channel.isDMBased();
-  const text = typeof channel?.isTextBased === 'function' && channel.isTextBased() && !isDm;
-  if (!served || !text || !allowedThere(channel, discord)) {
+  const found = reads ? await reads.conversationInfo({ iface, conversationId: id }) : null;
+  const info = found?.conversation ?? null;
+  const served = info !== null && Boolean(guildId) && info.communityId === String(guildId);
+  if (!served || info.kind === 'dm' || !allowedThere(info.permissions)) {
     throw denied(`the bot may not ${need} in channel ${id}`, CODE.CHANNEL_NO_PERMISSION);
   }
   return id;
