@@ -1,8 +1,9 @@
 // Mutation testing on the lines a branch changed, never on the whole suite. It reads `git diff --unified=0
 // <base-ref>...HEAD`, keeps the added and changed lines of the `.js`, `.mjs` and `.ts` files under `src/` and
 // `interfaces/`, and hands them to Stryker as `mutate` ranges. The test files it runs are the ones named after the
-// changed files (the rule of tools/code-health.mjs) plus every changed test file. A changed file with no test of its
-// own is named and skipped. A change whose commit subjects all start with
+// changed files (the rule of tools/code-health.mjs), the ones that import a changed file directly (`findImports` of
+// the same tool, no fixture followed), and every changed test file. A changed file that no test is named after or
+// imports is named and skipped. A change whose commit subjects all start with
 // "Format " is skipped whole, because formatting rewrites old lines. The score is read from Stryker's
 // json report and compared with `thresholds.break` of stryker.config.json, a starting value of 60 to raise once real
 // runs are measured.
@@ -21,6 +22,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { findImports } from './code-health.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -99,30 +102,41 @@ function testNamesFor(filePath) {
 }
 
 /**
- * The test files to run: the match of each changed source file, plus the changed test files.
+ * The test files to run: the match of each changed source file by name, the tests that import it when `read` is
+ * given, plus the changed test files. A test whose `read` returns undefined contributes nothing by import.
  * @param {Array<string>} sourceFiles  Changed source files.
  * @param {Array<string>} changedFiles  Every changed path, tests included.
  * @param {Array<string>} testFiles  Every test file of the tree.
+ * @param {(file: string) => string | undefined} [read]  The text of a repository path.
  * @returns {Array<string>} Sorted, each once.
  */
-export function selectTestFiles(sourceFiles, changedFiles, testFiles) {
+export function selectTestFiles(sourceFiles, changedFiles, testFiles, read) {
   const picked = new Set(changedFiles.filter((f) => TEST_FILE.test(f)));
   for (const source of sourceFiles) {
     const names = testNamesFor(source);
     for (const test of testFiles) if (names.some((n) => test.startsWith(n))) picked.add(test);
   }
+  if (read) {
+    for (const test of testFiles) {
+      const text = read(test);
+      if (text !== undefined && sourceFiles.some((source) => findImports(text, test).includes(source))) {
+        picked.add(test);
+      }
+    }
+  }
   return [...picked].sort();
 }
 
 /**
- * The changed source files no test is named after by the naming rule. A changed test file does not rescue them: it
- * is run for the files that have a test, and against a file of no test it would only leave uncovered mutants.
+ * The changed source files no test is named after or, with `read`, imports. A changed test file does not rescue
+ * them: it is run for the files that have a test, and against a file of no test it would only leave uncovered mutants.
  * @param {Array<string>} sourceFiles  Changed source files.
  * @param {Array<string>} testFiles  Every test file of the tree.
+ * @param {(file: string) => string | undefined} [read]  The text of a repository path.
  * @returns {Array<string>}
  */
-export function filesWithoutTest(sourceFiles, testFiles) {
-  return sourceFiles.filter((source) => selectTestFiles([source], [], testFiles).length === 0);
+export function filesWithoutTest(sourceFiles, testFiles, read) {
+  return sourceFiles.filter((source) => selectTestFiles([source], [], testFiles, read).length === 0);
 }
 
 /**
@@ -210,6 +224,18 @@ function git(cwd, args) {
   return run.stdout;
 }
 
+/**
+ * @param {string} file  A path relative to the repository root.
+ * @returns {string | undefined} Its text, or undefined when it cannot be read.
+ */
+function readFromTree(file) {
+  try {
+    return fs.readFileSync(path.join(root, file), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 /** @param {string} base */
 function main(base) {
   const subjects = git(root, ['log', '--format=%s', '--no-merges', `${base}..HEAD`])
@@ -230,7 +256,7 @@ function main(base) {
   const allTests = git(root, ['ls-files', 'tests'])
     .split('\n')
     .filter((f) => TEST_FILE.test(f));
-  for (const file of filesWithoutTest(Object.keys(sources), allTests)) {
+  for (const file of filesWithoutTest(Object.keys(sources), allTests, readFromTree)) {
     console.log(`mutation: no test covers ${file}, skipped`);
     delete sources[file];
   }
@@ -246,7 +272,7 @@ function main(base) {
     for (const [file, lines] of left) console.log(`  ${file}: ${lines} lines`);
   }
 
-  const tests = selectTestFiles(Object.keys(ranges), Object.keys(changed), allTests);
+  const tests = selectTestFiles(Object.keys(ranges), Object.keys(changed), allTests, readFromTree);
   /** @type {unknown} */
   const parsedConfig = JSON.parse(fs.readFileSync(path.join(root, 'stryker.config.json'), 'utf8'));
   const baseConfig = /** @type {{ thresholds?: { break?: number }, tap?: object }} */ (parsedConfig);
