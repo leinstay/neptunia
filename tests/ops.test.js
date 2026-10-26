@@ -19,38 +19,87 @@ const DISCORD = createDiscordInterface().capabilities;
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([
   'status.show',
-  'config.set', 'config.unset',
-  'bot.pause', 'bot.resume',
+  'config.set',
+  'config.unset',
+  'bot.pause',
+  'bot.resume',
   'draw.create',
   'voice.say',
-  'pings.get', 'pings.set',
-  'media.status', 'media.rescan', 'media.recache',
-  'model.show', 'model.set',
-  'route.list', 'route.set', 'route.remove',
-  'rule.add', 'rule.list', 'rule.remove',
-  'access.grant', 'access.revoke', 'access.list',
-  'alias.add', 'alias.remove',
-  'learning.add', 'learning.remove',
-  'lore.add', 'lore.list', 'lore.show', 'lore.remove',
-  'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read',
-  'memory.affinity.read', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
-  'memory.snapshot', 'memory.private.read',
-  'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
-  'task.run', 'task.status', 'task.cancel', 'task.list', 'task.read', 'task.resolve',
-  'web.search', 'web.read', 'media.look', 'media.find', 'memory.search',
-  'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
+  'pings.get',
+  'pings.set',
+  'media.status',
+  'media.rescan',
+  'media.recache',
+  'model.show',
+  'model.set',
+  'route.list',
+  'route.set',
+  'route.remove',
+  'rule.add',
+  'rule.list',
+  'rule.remove',
+  'access.grant',
+  'access.revoke',
+  'access.list',
+  'alias.add',
+  'alias.remove',
+  'learning.add',
+  'learning.remove',
+  'lore.add',
+  'lore.list',
+  'lore.show',
+  'lore.remove',
+  'memory.profile.read',
+  'memory.channel.read',
+  'memory.server.read',
+  'memory.recent.read',
+  'memory.affinity.read',
+  'memory.journal.read',
+  'memory.archive.read',
+  'memory.restore',
+  'memory.snapshot',
+  'memory.private.read',
+  'message.create',
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+  'task.run',
+  'task.status',
+  'task.cancel',
+  'task.list',
+  'task.read',
+  'task.resolve',
+  'web.search',
+  'web.read',
+  'media.look',
+  'media.find',
+  'memory.search',
+  'intent.set',
+  'intent.update',
+  'intent.cancel',
+  'intent.list',
   'places.list',
   'skills.describe',
   'conversation.read',
-  'inner.stop', 'inner.start', 'inner.status',
+  'inner.stop',
+  'inner.start',
+  'inner.status',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */
 const OWNER_ONLY = [
-  'access.grant', 'access.revoke', 'access.list',
+  'access.grant',
+  'access.revoke',
+  'access.list',
   'memory.private.read',
-  'memory.journal.read', 'memory.snapshot', 'memory.archive.read', 'memory.restore',
-  'inner.stop', 'inner.start', 'inner.status',
+  'memory.journal.read',
+  'memory.snapshot',
+  'memory.archive.read',
+  'memory.restore',
+  'inner.stop',
+  'inner.start',
+  'inner.status',
 ];
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {
@@ -73,7 +122,16 @@ function makeEnv({ access = {}, emojiBackfill } = {}) {
     getUser: () => null,
     getGuild: () => ({ emojiUsage: {} }),
   };
-  return createOpsEnv({ discord: DISCORD, hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', emojiBackfill });
+  return createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    getGuildId: () => 'g1',
+    emojiBackfill,
+  });
 }
 
 test('ops: every registered op has a rights kind and a name in the agreed list', () => {
@@ -94,7 +152,11 @@ test('ops: runOp denies a non-owner on an owner-only op with a code, even under 
   const everyone = { everyone: true, roles: [], users: [] };
   const env = makeEnv({ access: { '*': everyone, memory: everyone, access: everyone, 'rule.list': everyone } });
   for (const name of OWNER_ONLY) {
-    const result = await runOp(name, { userId: '7', confirm: 'g1' }, { env, guildId: 'g1', userId: '999', roleIds: [] });
+    const result = await runOp(
+      name,
+      { userId: '7', confirm: 'g1' },
+      { env, guildId: 'g1', userId: '999', roleIds: [] }
+    );
     assert.equal(result.status, 'denied', name);
     assert.equal(result.code, 'owner-only', name);
     assert.equal(typeof result.summary, 'string');
@@ -150,7 +212,12 @@ test('ops: an exception becomes failed with its code', async () => {
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
   // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'message.react': ['add', 'remove'], 'task.intent': ['add', 'update', 'cancel', 'list'], 'task.inner': ['stop', 'start', 'status'] };
+  const ACTIONS = {
+    media: ['status', 'rescan', 'recache'],
+    'message.react': ['add', 'remove'],
+    'task.intent': ['add', 'update', 'cancel', 'list'],
+    'task.inner': ['stop', 'start', 'status'],
+  };
   const KINDS = {};
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
@@ -165,8 +232,15 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
     }
   }
   assert.equal(resolveCommand('memory.affinity', { userId: '1' }).op, 'memory.affinity.read');
-  assert.equal(resolveCommand('memory.affinity', { userId: '1', score: 0 }).op, 'memory.affinity.read', 'a score picks nothing any more');
-  assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), { op: 'media.recache', args: { kind: 'gifs', action: 'recache' } });
+  assert.equal(
+    resolveCommand('memory.affinity', { userId: '1', score: 0 }).op,
+    'memory.affinity.read',
+    'a score picks nothing any more'
+  );
+  assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), {
+    op: 'media.recache',
+    args: { kind: 'gifs', action: 'recache' },
+  });
   assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
   assert.match(resolveCommand('message.react', {}).invalid, /action must be one of: add, remove/);
   assert.equal(resolveCommand('talk', {}), null, '/nep talk is message create now');
@@ -178,13 +252,17 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
 test('ops: no memory refresh, forget, wipe or purge operation is left', () => {
   const ops = listOps();
   const gone = ['memory.refresh', 'memory.forget', 'memory.wipe', 'memory.private.forget', 'memory.private.purge'];
-  assert.deepEqual(ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name), []);
-  for (const key of ['memory.refresh', 'memory.forget', 'memory.wipe']) assert.equal(Object.hasOwn(COMMAND_TO_OP, key), false, key);
+  assert.deepEqual(
+    ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name),
+    []
+  );
+  for (const key of ['memory.refresh', 'memory.forget', 'memory.wipe'])
+    assert.equal(Object.hasOwn(COMMAND_TO_OP, key), false, key);
 });
 
-
 test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {
-  for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run']) assert.equal(legacyGrantOps(key), null, key);
+  for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run'])
+    assert.equal(legacyGrantOps(key), null, key);
   assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
 
@@ -221,16 +299,40 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     },
   };
   const activity = [];
-  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    getGuildId: () => null,
+    llm,
+    simKey: 'sim-test-key',
+    managementKey: 'mgmt-test',
+  });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
   const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
-  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['keys.base']);
+  assert.deepEqual(
+    result.data.embeds[0].fields.map((field) => field.name),
+    ['keys.base']
+  );
   const value = result.data.embeds[0].fields[0].value;
-  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'core key 0.00/200.00'], 'a failed activity read: the lines as without it');
+  assert.deepEqual(
+    value.split('\n'),
+    ['main 0.00/30.00', 'sim 0.00/5.00', 'core key 0.00/200.00'],
+    'a failed activity read: the lines as without it'
+  );
   assert.deepEqual(reads.sort(), ['core', 'main', 'sim-test-key']);
   const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
-  assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-core'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
+  assert.deepEqual(
+    activity.sort(),
+    [
+      ['mgmt-test', 'hash-main'],
+      ['mgmt-test', 'hash-core'],
+      ['mgmt-test', simHash],
+    ].sort(),
+    'one activity read per key, by its hash, with the management key'
+  );
 });
 
 test('status keys: a role on the simulator key (here the vision role) is shown on the simulator line, never on a line of its own', async () => {
@@ -262,17 +364,36 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     },
     keyHash: ({ role } = {}) => (role === 'vision' ? simHash : role ? 'hash-dev' : 'hash-main'),
   };
-  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    getGuildId: () => null,
+    llm,
+    simKey: 'sim-test-key',
+  });
   const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
   const value = result.data.embeds[0].fields[0].value;
-  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'], 'no line for the vision role: the simulator line is its line');
+  assert.deepEqual(
+    value.split('\n'),
+    ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'],
+    'no line for the vision role: the simulator line is its line'
+  );
   assert.deepEqual(reads.sort(), ['dev', 'main', 'sim-test-key'], 'the simulator key is read once');
   const noSim = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm });
-  const without = await runOp('status.show', { field: 'keys.base' }, { env: noSim, guildId: null, userId: '42', roleIds: [] });
-  assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('vision key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
+  const without = await runOp(
+    'status.show',
+    { field: 'keys.base' },
+    { env: noSim, guildId: null, userId: '42', roleIds: [] }
+  );
+  assert.ok(
+    without.data.embeds[0].fields[0].value.split('\n').includes('vision key 0.00/200.00'),
+    'with no simulator key on the card, the role keeps a line of its own'
+  );
 });
 
-test('status keys.base and costs.errands: the errand agents\' key has no line and no read; their spend comes from the task records, the agents without records show no runs', async () => {
+test("status keys.base and costs.errands: the errand agents' key has no line and no read; their spend comes from the task records, the agents without records show no runs", async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
@@ -289,7 +410,11 @@ test('status keys.base and costs.errands: the errand agents\' key has no line an
     agentEstimate: 'est.',
   };
   const NOW = Date.parse('2026-10-18T12:00:00Z');
-  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { scout: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } } };
+  const config = {
+    bot: { owners: ['42'] },
+    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 },
+    agents: { scout: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } },
+  };
   const hot = { config, prompts: { labels: { status: { costs } } }, promptSources: {}, rootDir };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const reads = [];
@@ -297,13 +422,28 @@ test('status keys.base and costs.errands: the errand agents\' key has no line an
     roleKeys: () => [{ roles: ['server', 'scout'] }, { roles: ['dev', 'thinker'] }],
     async keyInfo(options) {
       reads.push(options.role ?? 'main');
-      return { ok: true, status: 200, json: { data: { limit: options.role ? 200 : 30, limit_remaining: options.role ? 200 : 30 } } };
+      return {
+        ok: true,
+        status: 200,
+        json: { data: { limit: options.role ? 200 : 30, limit_remaining: options.role ? 200 : 30 } },
+      };
     },
   };
   const clock = { t: NOW - 10 * 24 * 60 * 60 * 1000 };
-  const tasks = createTaskStore({ dataDir: tempDir('nep-ops-data-'), guildId: 'g1', now: () => clock.t, config: () => config });
+  const tasks = createTaskStore({
+    dataDir: tempDir('nep-ops-data-'),
+    guildId: 'g1',
+    now: () => clock.t,
+    config: () => config,
+  });
   const run = (agent, usage) => {
-    const { task } = tasks.add({ agent, goal: 'look it up', requester: { userId: 'u1', kind: 'member' }, origin: {}, scope: 'group' });
+    const { task } = tasks.add({
+      agent,
+      goal: 'look it up',
+      requester: { userId: 'u1', kind: 'member' },
+      origin: {},
+      scope: 'group',
+    });
     tasks.start(task.id);
     tasks.finish(task.id, { status: 'done', result: { text: 'ok' }, usage });
   };
@@ -315,10 +455,15 @@ test('status keys.base and costs.errands: the errand agents\' key has no line an
   });
   const errands = { store: (guildId) => (guildId === 'g1' ? tasks : null) };
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands });
-  const card = async (field) => (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+  const card = async (field) =>
+    (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
 
   const [keys] = await card('keys.base');
-  assert.deepEqual(keys.value.split('\n'), ['main 0.00/30.00', 'sim: not set', 'dev+thinker key 0.00/200.00'], 'the development key stays, the agents key is gone');
+  assert.deepEqual(
+    keys.value.split('\n'),
+    ['main 0.00/30.00', 'sim: not set', 'dev+thinker key 0.00/200.00'],
+    'the development key stays, the agents key is gone'
+  );
   assert.deepEqual(reads.sort(), ['dev', 'main'], 'the agents key is not read');
 
   const [agents] = await card('costs.errands');
@@ -328,14 +473,24 @@ test('status keys.base and costs.errands: the errand agents\' key has no line an
     'server: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
     'est.',
   ]);
-  assert.deepEqual(tasks.today('scout'), { tasks: 1, usd: 0.12, caps: { tasks: 40 } }, 'the scout cap reads the same today');
+  assert.deepEqual(
+    tasks.today('scout'),
+    { tasks: 1, usd: 0.12, caps: { tasks: 40 } },
+    'the scout cap reads the same today'
+  );
 
   const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
-  const [empty] = (await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
-  assert.deepEqual(empty.value.split('\n'), ['scout: none', 'server: none', 'est.'], 'no errands: every agent with no runs');
+  const [empty] = (
+    await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })
+  ).data.embeds[0].fields;
+  assert.deepEqual(
+    empty.value.split('\n'),
+    ['scout: none', 'server: none', 'est.'],
+    'no errands: every agent with no runs'
+  );
 });
 
-test('status costs.development: thinker and dev from the ledger, the thinker\'s context line; no runs for them when the ledger gives nothing or throws', async () => {
+test("status costs.development: thinker and dev from the ledger, the thinker's context line; no runs for them when the ledger gives nothing or throws", async () => {
   const costs = {
     partSeparator: ' | ',
     agentLine: '{agent}: {parts}',
@@ -350,15 +505,27 @@ test('status costs.development: thinker and dev from the ledger, the thinker\'s 
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const w = (runs, input, output, usd) => ({ runs, input, output, usd });
   const zero = { today: w(0, 0, 0, 0), last7: w(0, 0, 0, 0), last30: w(0, 0, 0, 0) };
-  const records = { scout: { today: w(1, 1_000, 100, 0.01), last7: w(1, 1_000, 100, 0.01), last30: w(1, 1_000, 100, 0.01) }, server: zero, thinker: zero, dev: zero };
+  const records = {
+    scout: { today: w(1, 1_000, 100, 0.01), last7: w(1, 1_000, 100, 0.01), last30: w(1, 1_000, 100, 0.01) },
+    server: zero,
+    thinker: zero,
+    dev: zero,
+  };
   const fromLedger = {
-    thinker: { today: w(2, 300_000, 9_000, 1.5), last7: w(2, 300_000, 9_000, 1.5), last30: w(2, 300_000, 9_000, 1.5), last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 } },
+    thinker: {
+      today: w(2, 300_000, 9_000, 1.5),
+      last7: w(2, 300_000, 9_000, 1.5),
+      last30: w(2, 300_000, 9_000, 1.5),
+      last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 },
+    },
     dev: { today: zero.today, last7: w(1, 50_000, 4_000, 0.4), last30: w(1, 50_000, 4_000, 0.4) },
   };
   const field = async (ledger) => {
     const errands = { store: () => ({ costs: () => records }), ledger };
     const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', errands });
-    return (await runOp('status.show', { field: 'costs.development' }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields[0].value.split('\n');
+    return (
+      await runOp('status.show', { field: 'costs.development' }, { env, guildId: 'g1', userId: '42', roleIds: [] })
+    ).data.embeds[0].fields[0].value.split('\n');
   };
   assert.deepEqual(await field({ costs: async () => fromLedger }), [
     'thinker: D 2r 300k/9.0k 1.50 | W 2r 300k/9.0k 1.50 | M 2r 300k/9.0k 1.50',
@@ -369,7 +536,15 @@ test('status costs.development: thinker and dev from the ledger, the thinker\'s 
   const fallback = ['thinker: none', 'dev: none', 'est.'];
   assert.deepEqual(await field({ costs: async () => null }), fallback, 'the ledger unavailable');
   await withCapturedLogs(async () => {
-    assert.deepEqual(await field({ costs: async () => { throw new Error('boom'); } }), fallback, 'a throwing ledger never fails the field');
+    assert.deepEqual(
+      await field({
+        costs: async () => {
+          throw new Error('boom');
+        },
+      }),
+      fallback,
+      'a throwing ledger never fails the field'
+    );
   });
   assert.deepEqual(await field(null), fallback, 'no ledger mirror');
 });
@@ -379,7 +554,15 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
   const inner = {
     stop: (guildId, { by }) => (calls.push(['stop', guildId, by]), { ok: true, already: false, dropped: 2 }),
     start: (guildId, { by }) => (calls.push(['start', guildId, by]), { ok: true, already: false }),
-    status: () => ({ on: true, mode: 'shadow', stopped: false, stoppedAt: null, queue: [{ id: 'w', kind: 'review', dueAt: 0, capped: null }], review: { day: '2026-10-19', at: 0, done: false }, budgets: { day: { used: 1, cap: 24, resetAt: 0 }, hour: { used: 1, cap: 4 }, posts: { used: 0, cap: 2 } } }),
+    status: () => ({
+      on: true,
+      mode: 'shadow',
+      stopped: false,
+      stoppedAt: null,
+      queue: [{ id: 'w', kind: 'review', dueAt: 0, capped: null }],
+      review: { day: '2026-10-19', at: 0, done: false },
+      budgets: { day: { used: 1, cap: 24, resetAt: 0 }, hour: { used: 1, cap: 4 }, posts: { used: 0, cap: 2 } },
+    }),
   };
   const env = { ...makeEnv(), inner };
   const owner = { env, userId: '42', guildId: 'g1' };
@@ -390,7 +573,10 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
   const status = await runOp('inner.status', {}, owner);
   assert.match(status.summary, /mode shadow, running/);
   assert.match(status.summary, /queue: 1 \(review/);
-  assert.deepEqual(calls.map((call) => call[0]), ['stop', 'start']);
+  assert.deepEqual(
+    calls.map((call) => call[0]),
+    ['stop', 'start']
+  );
   const member = await runOp('inner.stop', {}, { env, userId: '7', guildId: 'g1' });
   assert.equal(member.status, 'denied');
   assert.equal(member.code, 'owner-only');
