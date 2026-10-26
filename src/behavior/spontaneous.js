@@ -36,6 +36,7 @@ import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('./snapshot.ts').Snapshot} Snap */
+/** @typedef {{ lastPostAt(id: string): number, isBusy(id: string): boolean, isAnyBusy(): boolean }} Turns */
 
 const REWAKE_MINUTES = [10, 40]; // how soon to try again after a turn found "nothing to say" / no channel
 
@@ -285,6 +286,61 @@ function hasElsewherePrompt(prompts) {
 }
 
 /**
+ * Why the persona may not speak unprompted in `dest` (the channel the words
+ * go to) now, or null when it may: `cannot-send`, `channel` (not in a
+ * non-empty spontaneous.channels), `gap` (its
+ * own last post there is younger than spontaneous.minGapMinutes) or `busy`
+ * (a turn runs there or, with one attention, anywhere). A writable channel
+ * is its own destination; a read-only source speaks in the main channel.
+ * @param {Turns} turns
+ * @param {Conv} dest
+ * @param {*} config
+ * @param {*} cfg
+ * @param {number} t
+ */
+function destinationBlock(turns, dest, config, cfg, t) {
+  if (!dest.permissions.send) return 'cannot-send';
+  if (cfg.channels.length > 0 && !cfg.channels.includes(dest.id)) return 'channel';
+  if (t - turns.lastPostAt(dest.id) < cfg.minGapMinutes * MINUTE_MS) return 'gap';
+  // One attention (mention.oneAtATime, default on): while a turn is
+  // running anywhere, a spontaneous tick or an eavesdrop must treat every
+  // channel as unavailable, not just the one already busy -- runTurn
+  // enforces the same rail itself, this just avoids attempting it.
+  const oneAtATime = config.mention?.oneAtATime !== false;
+  if (turns.isBusy(dest.id) || (oneAtATime && turns.isAnyBusy())) return 'busy';
+  return null;
+}
+
+/**
+ * Whether the persona may speak unprompted in `channel` now: one it may
+ * write in (src/behavior/snapshot.ts#isWritable: readable, never the
+ * dry-run mirror, she can send) and destinationBlock finds nothing.
+ * @param {Turns} turns
+ * @param {Conv} channel
+ * @param {*} config
+ * @param {*} cfg
+ * @param {number} t
+ */
+function passesFilters(turns, channel, config, cfg, t) {
+  return isWritable(channel, config.bot ?? {}) && destinationBlock(turns, channel, config, cfg, t) === null;
+}
+
+/**
+ * Every channel the persona can read as someoneAround's input: its last message and the persona's last post there.
+ * @param {Turns} turns
+ * @param {Snap} snapshot
+ * @param {*} config
+ */
+function presenceOf(turns, snapshot, config) {
+  return snapshot.conversations
+    .filter((entry) => isReadable(entry, config.bot))
+    .map((channel) => ({
+      lastActivity: channel.lastMessageAt ?? 0,
+      ownPostAt: turns.lastPostAt(channel.id),
+    }));
+}
+
+/**
  * Wire the pure decisions above to the interface's conversations, the persisted schedule and the
  * turn runner.
  * @param {object} params
@@ -302,44 +358,6 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
   const refOf = (/** @type {Conv} */ channel) => ({ iface: channel.iface, conversationId: channel.id });
   const running = new Set(); // guildIds with a spontaneous turn in flight
   const eavesdropTimers = new Set();
-
-  /**
-   * Why the persona may not speak unprompted in `dest` (the channel the words
-   * go to) now, or null when it may: `cannot-send`, `channel` (not in a
-   * non-empty spontaneous.channels), `gap` (its
-   * own last post there is younger than spontaneous.minGapMinutes) or `busy`
-   * (a turn runs there or, with one attention, anywhere). A writable channel
-   * is its own destination; a read-only source speaks in the main channel.
-   * @param {Conv} dest
-   * @param {*} config
-   * @param {*} cfg
-   * @param {number} t
-   */
-  function destinationBlock(dest, config, cfg, t) {
-    if (!dest.permissions.send) return 'cannot-send';
-    if (cfg.channels.length > 0 && !cfg.channels.includes(dest.id)) return 'channel';
-    if (t - turns.lastPostAt(dest.id) < cfg.minGapMinutes * MINUTE_MS) return 'gap';
-    // One attention (mention.oneAtATime, default on): while a turn is
-    // running anywhere, a spontaneous tick or an eavesdrop must treat every
-    // channel as unavailable, not just the one already busy -- runTurn
-    // enforces the same rail itself, this just avoids attempting it.
-    const oneAtATime = config.mention?.oneAtATime !== false;
-    if (turns.isBusy(dest.id) || (oneAtATime && turns.isAnyBusy())) return 'busy';
-    return null;
-  }
-
-  /**
-   * Whether the persona may speak unprompted in `channel` now: one it may
-   * write in (src/behavior/snapshot.ts#isWritable: readable, never the
-   * dry-run mirror, she can send) and destinationBlock finds nothing.
-   * @param {Conv} channel
-   * @param {*} config
-   * @param {*} cfg
-   * @param {number} t
-   */
-  function passesFilters(channel, config, cfg, t) {
-    return isWritable(channel, config.bot ?? {}) && destinationBlock(channel, config, cfg, t) === null;
-  }
 
   /** The seen mark of a source (state.json `elsewhereSeen`), read now; null without one. */
   function seenOf(sourceId) {
@@ -365,7 +383,7 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
     const route = routeFor(source, snapshot, config);
     if (!route.destination) return route;
     if (!hasElsewherePrompt(hot.prompts)) return { destination: null, reason: 'no-prompt' };
-    const blocked = destinationBlock(route.destination, config, cfg, t);
+    const blocked = destinationBlock(turns, route.destination, config, cfg, t);
     return blocked ? { destination: null, reason: blocked } : route;
   }
 
@@ -405,7 +423,7 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
       const last = channel.lastMessageAt ?? 0;
       if (isChannelDead(channel, t, cfg)) continue;
       if (channel.permissions.send) {
-        if (passesFilters(channel, config, cfg, t))
+        if (passesFilters(turns, channel, config, cfg, t))
           candidates.push({ channel, lastActivity: last, destination: channel });
         continue;
       }
@@ -413,20 +431,6 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
       if (destination) candidates.push({ channel, lastActivity: last, destination, noticed: true });
     }
     return candidates;
-  }
-
-  /**
-   * Every channel the persona can read as someoneAround's input: its last message and the persona's last post there.
-   * @param {Snap} snapshot
-   * @param {*} config
-   */
-  function presence(snapshot, config) {
-    return snapshot.conversations
-      .filter((entry) => isReadable(entry, config.bot))
-      .map((channel) => ({
-        lastActivity: channel.lastMessageAt ?? 0,
-        ownPostAt: turns.lastPostAt(channel.id),
-      }));
   }
 
   /**
@@ -539,7 +543,7 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
     const candidates = channelCandidates(snapshot, config, cfg, t);
     // Presence is server-wide: every channel the persona can read counts, not
     // only the candidates (the one it just spoke in is held back by minGapMinutes).
-    if (candidates.length > 0 && !someoneAround(presence(snapshot, config), t, cfg)) {
+    if (candidates.length > 0 && !someoneAround(presenceOf(turns, snapshot, config), t, cfg)) {
       schedule[guildId] = t + between(REWAKE_MINUTES, rng) * MINUTE_MS;
       store.state.markDirty();
       log.info('spontaneous: skipped', { guildId, reason: 'nobody-around', candidates: candidates.length });
@@ -610,7 +614,7 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
     // A switch off or the persona asleep: no eavesdrop scheduling.
     if (!eavesdropAllowed(config, t)) return false;
     if (channel.communityId !== getGuildId()) return false;
-    return passesFilters(channel, config, config.spontaneous, t);
+    return passesFilters(turns, channel, config, config.spontaneous, t);
   }
 
   /**

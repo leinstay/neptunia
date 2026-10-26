@@ -110,7 +110,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       const settings = routeSettings(config);
       if (!settings) return [];
       const allowed =
-        channel?.communityId !== null && channel?.communityId !== undefined
+        channel?.communityId != null
           ? routeAllowed({ triggerKind })
           : Boolean(snapshot && partner) && triggerKind === 'private';
       if (!allowed) return [];
