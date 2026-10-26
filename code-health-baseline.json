@@ -4,7 +4,7 @@
     "src/behavior/prompt.js": 4310,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 7570,
+    "src/behavior/turn.js": 9529,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
     "tests/describe.test.js": 3190,
@@ -12,7 +12,7 @@
     "tests/openrouter.test.js": 3082,
     "tests/prompt.test.js": 5060,
     "tests/store.test.js": 3255,
-    "tests/turn.test.js": 9092,
+    "tests/turn.test.js": 13028,
     "tools/replay.mjs": 5604
   },
   "functions": {
@@ -238,10 +238,11 @@
         "complexity": 33
       },
       "createTurnRunner": {
-        "function-length": 5732
+        "function-length": 7406
       },
       "createTurnRunner>act": {
-        "complexity": 76
+        "complexity": 76,
+        "function-length": 400
       },
       "createTurnRunner>applyRewatch": {
         "complexity": 23
@@ -280,11 +281,12 @@
         "complexity": 94
       },
       "createTurnRunner>runStepsIn": {
-        "complexity": 97
+        "complexity": 97,
+        "function-length": 471
       },
       "createTurnRunner>runTurnAttempt": {
         "complexity": 378,
-        "function-length": 1449
+        "function-length": 1865
       },
       "journalTurnRecord": {
         "complexity": 21

@@ -10,7 +10,15 @@
 // always `failed`: nothing was sent.
 
 import { AttachmentBuilder, MessageFlags } from 'discord.js';
-import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from '../../src/interface/port.js';
+import {
+  CAPABILITIES,
+  contentRefusal,
+  declaredHooks,
+  mentionsOf,
+  notOk,
+  ok,
+  refRefusal,
+} from '../../src/interface/port.js';
 import { CODE, httpCode } from '../../src/skills/codes.js';
 
 /** The namespace of every Discord reference. */
@@ -20,11 +28,25 @@ export const DISCORD_IFACE = 'discord';
  * Discord's limits for a bot: 2000 characters a message, 10 files, 10 MiB a file on a server
  * without boosts.
  */
-export const DISCORD_LIMITS = Object.freeze({ maxTextLength: 2000, maxAttachments: 10, maxAttachmentBytes: 10 * 1024 * 1024 });
+export const DISCORD_LIMITS = Object.freeze({
+  maxTextLength: 2000,
+  maxAttachments: 10,
+  maxAttachmentBytes: 10 * 1024 * 1024,
+});
 
 /** Error names and codes of a request that timed out or lost its connection. */
 const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError']);
-const NETWORK_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET']);
+const NETWORK_CODES = new Set([
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EPIPE',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
 
 /**
  * A thrown discord.js error as a port result. `sent`: the failing call may have reached Discord
@@ -35,7 +57,8 @@ const NETWORK_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EPIPE
  */
 export function discordFailure(err, { sent }) {
   const status = Number.isInteger(err?.status) ? err.status : Number.isInteger(err?.statusCode) ? err.statusCode : null;
-  if (status === 429 || err?.name === 'RateLimitError') return notOk('failed', httpCode(429), { retryable: true, cause: err });
+  if (status === 429 || err?.name === 'RateLimitError')
+    return notOk('failed', httpCode(429), { retryable: true, cause: err });
   if (status === 403) return notOk('forbidden', httpCode(403), { cause: err });
   if (status !== null && status >= 400 && status < 500) return notOk('failed', httpCode(status), { cause: err });
   const timedOut = TIMEOUT_NAMES.has(err?.name) || NETWORK_CODES.has(err?.code);
@@ -116,12 +139,16 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
       payload.files = attachments.map((attachment) => {
         const file = attachment.data ?? attachment.url;
         if (!attachment.voice) return { attachment: file, name: attachment.name };
-        return new AttachmentBuilder(file, { name: attachment.name }).setDuration(attachment.voice.durationSecs).setWaveform(attachment.voice.waveform);
+        return new AttachmentBuilder(file, { name: attachment.name })
+          .setDuration(attachment.voice.durationSecs)
+          .setWaveform(attachment.voice.waveform);
       });
       if (isVoice) payload.flags = MessageFlags.IsVoiceMessage;
     }
     // The key is always there, undefined without a target: the payload the engine always sent.
-    payload.reply = content.replyTo ? { messageReference: content.replyTo.messageId, failIfNotExists: false } : undefined;
+    payload.reply = content.replyTo
+      ? { messageReference: content.replyTo.messageId, failIfNotExists: false }
+      : undefined;
     // Absent mentions notify nobody: no parsing of the text, and Discord's own default leaves the
     // replied author unnotified. Given mentions notify exactly the members named.
     if (content.mentions && typeof content.mentions === 'object') {
@@ -137,7 +164,12 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
   function refOf(posted, conversationId) {
     const messageId = typeof posted?.id === 'string' && posted.id ? posted.id : undefined;
     const memberId = typeof posted?.author?.id === 'string' ? posted.author.id : (selfId() ?? undefined);
-    return { iface: DISCORD_IFACE, conversationId, ...(messageId ? { messageId } : {}), ...(memberId ? { memberId } : {}) };
+    return {
+      iface: DISCORD_IFACE,
+      conversationId,
+      ...(messageId ? { messageId } : {}),
+      ...(memberId ? { memberId } : {}),
+    };
   }
 
   /** A forbidden result unless `message` is the bot's own. */
@@ -166,7 +198,8 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
 
     async edit(message, content) {
       if (!supports('edit')) return unsupported();
-      const refused = refRefusal(message, DISCORD_IFACE, { needMessage: true }) ?? contentRefusal(content, caps, DISCORD_IFACE);
+      const refused =
+        refRefusal(message, DISCORD_IFACE, { needMessage: true }) ?? contentRefusal(content, caps, DISCORD_IFACE);
       if (refused) return refused;
       const found = await resolveMessage(message);
       if (found.result) return found.result;

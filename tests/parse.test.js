@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOutput, parseJsonObject } from '../src/llm/parse.js';
 
-
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
   assert.equal(result.skip, false);
@@ -24,7 +23,9 @@ test('parseOutput: reply="87" (no #) is also parsed as replyTo 87', () => {
 test('parseOutput: a fourth message is joined into the third on its own line, recorded as message-merge', async () => {
   const { createLimits } = await import('../src/llm/limits.js');
   const limits = createLimits();
-  const result = parseOutput('<msg>1</msg><msg>2</msg><msg reply="#7">τρία</msg><msg reply="#9">τέσσερα  ok</msg>', { limits });
+  const result = parseOutput('<msg>1</msg><msg>2</msg><msg reply="#7">τρία</msg><msg reply="#9">τέσσερα  ok</msg>', {
+    limits,
+  });
   assert.deepEqual(result.messages, [
     { text: '1', replyTo: null },
     { text: '2', replyTo: null },
@@ -37,17 +38,27 @@ test('parseOutput: messages four and five are joined into the third in order', a
   const { createLimits } = await import('../src/llm/limits.js');
   const limits = createLimits();
   const result = parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d\ne</msg><msg>f</msg>', { limits });
-  assert.deepEqual(result.messages.map((m) => m.text), ['a', 'b', 'c\nd\ne\nf']);
+  assert.deepEqual(
+    result.messages.map((m) => m.text),
+    ['a', 'b', 'c\nd\ne\nf']
+  );
   assert.deepEqual(limits.list(), [{ kind: 'message-merge', where: 'parse', lost: 2 }]);
   // Without a collector the join is the same.
-  assert.deepEqual(parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d</msg>').messages.map((m) => m.text), ['a', 'b', 'c\nd']);
+  assert.deepEqual(
+    parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d</msg>').messages.map((m) => m.text),
+    ['a', 'b', 'c\nd']
+  );
 });
 
 test('parseOutput: three messages stay as they are, nothing recorded', async () => {
   const { createLimits } = await import('../src/llm/limits.js');
   const limits = createLimits();
   const result = parseOutput('<msg>a</msg><msg reply="#2">b</msg><msg>c</msg>', { limits });
-  assert.deepEqual(result.messages, [{ text: 'a', replyTo: null }, { text: 'b', replyTo: 2 }, { text: 'c', replyTo: null }]);
+  assert.deepEqual(result.messages, [
+    { text: 'a', replyTo: null },
+    { text: 'b', replyTo: 2 },
+    { text: 'c', replyTo: null },
+  ]);
   assert.deepEqual(limits.list(), []);
 });
 
@@ -139,9 +150,7 @@ test('parseOutput: an emoji reaction longer than 16 chars is dropped', () => {
 
 test('parseOutput: a custom emoji reaction as :name: or markup is kept past 16 chars', () => {
   const name = 'a_rather_long_custom_emoji_name';
-  const result = parseOutput(
-    `<react to="#1">:${name}:</react><react to="#2"><a:${name}:123456789012345678></react>`,
-  );
+  const result = parseOutput(`<react to="#1">:${name}:</react><react to="#2"><a:${name}:123456789012345678></react>`);
   assert.deepEqual(result.reactions, [
     { to: 1, emoji: `:${name}:` },
     { to: 2, emoji: `<a:${name}:123456789012345678>` },
@@ -233,10 +242,15 @@ test('parseOutput: a cut message, joined messages and an unclosed <think> are di
 });
 
 test('parseOutput: a <call> or a <draw> outside code is a retired tag: cut out, told, never read, never posted as text', () => {
-  const parsed = parseOutput('<think>x</think><msg>hello</msg><call skill="message.create">hi</call><draw self="yes">a boat</draw>');
+  const parsed = parseOutput(
+    '<think>x</think><msg>hello</msg><call skill="message.create">hi</call><draw self="yes">a boat</draw>'
+  );
   assert.deepEqual(parsed.messages, [{ text: 'hello', replyTo: null }]);
   assert.equal('draw' in parsed, false);
-  assert.deepEqual(parsed.diagnostics, [{ kind: 'retiredTag', tag: 'call' }, { kind: 'retiredTag', tag: 'draw' }]);
+  assert.deepEqual(parsed.diagnostics, [
+    { kind: 'retiredTag', tag: 'call' },
+    { kind: 'retiredTag', tag: 'draw' },
+  ]);
   assert.equal('call' in parsed, false);
   const alone = parseOutput('<call skill="status.show"/>');
   assert.equal(alone.skip, true);

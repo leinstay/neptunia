@@ -173,7 +173,10 @@ export function isRefOf(ref, iface, { needMessage = false } = {}) {
 /** The refusal of a reference that is not `iface`'s (or lacks its ids), else null. */
 export function refRefusal(ref, iface, { needMessage = false } = {}) {
   if (isRefOf(ref, iface, { needMessage })) return null;
-  return notOk('failed', ref && typeof ref === 'object' && ref.iface !== iface ? 'foreign-reference' : 'invalid-reference');
+  return notOk(
+    'failed',
+    ref && typeof ref === 'object' && ref.iface !== iface ? 'foreign-reference' : 'invalid-reference'
+  );
 }
 
 /** The byte length of one attachment's data, 0 for a URL. */
@@ -203,11 +206,14 @@ export function contentRefusal(content, limits, iface) {
   if (hasText && Array.from(content.text).length > limits.maxTextLength) return notOk('failed', 'text-too-long');
   if (attachments.length > limits.maxAttachments) return notOk('failed', 'invalid-attachment');
   for (const attachment of attachments) {
-    if (!attachment || typeof attachment.name !== 'string' || !attachment.name) return notOk('failed', 'invalid-attachment');
-    if (attachment.data === undefined && (typeof attachment.url !== 'string' || !attachment.url)) return notOk('failed', 'invalid-attachment');
+    if (!attachment || typeof attachment.name !== 'string' || !attachment.name)
+      return notOk('failed', 'invalid-attachment');
+    if (attachment.data === undefined && (typeof attachment.url !== 'string' || !attachment.url))
+      return notOk('failed', 'invalid-attachment');
     if (attachmentBytes(attachment) > limits.maxAttachmentBytes) return notOk('failed', 'attachment-too-large');
   }
-  if (content.replyTo !== undefined && content.replyTo !== null) return refRefusal(content.replyTo, iface, { needMessage: true });
+  if (content.replyTo !== undefined && content.replyTo !== null)
+    return refRefusal(content.replyTo, iface, { needMessage: true });
   return null;
 }
 
