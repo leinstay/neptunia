@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/pipeline.js": 2869,
+    "src/behavior/pipeline.js": 3104,
     "src/behavior/prompt.js": 4310,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
@@ -8,7 +8,7 @@
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
     "tests/describe.test.js": 3190,
-    "tests/events.test.js": 7865,
+    "tests/events.test.js": 9310,
     "tests/openrouter.test.js": 3082,
     "tests/prompt.test.js": 5060,
     "tests/store.test.js": 3255,
@@ -115,7 +115,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2598
+        "function-length": 2810
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21

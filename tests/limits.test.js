@@ -79,9 +79,21 @@ test('isLimitNotice: regex metacharacters in the label are matched literally', (
   const text = limitNotice(custom, { key: 'llm.maxRequestsPerDay', used: 800, cap: 800 });
   assert.equal(text, '...but nobody came (llm.maxRequestsPerDay, 800/800) [*+?^$|\\]');
   assert.equal(isLimitNotice(custom, text), true);
-  assert.equal(isLimitNotice(custom, 'abcbut nobody came (llm.maxRequestsPerDay, 800/800) [*+?^$|\\]'), false, 'dots are literal');
-  assert.equal(isLimitNotice(custom, '...but nobody came llm.maxRequestsPerDay, 800/800 [*+?^$|\\]'), false, 'parentheses are literal');
-  assert.equal(isLimitNotice(custom, '...but nobody came (llm.maxRequestsPerDay, 800/800) [*+?^$|]'), false, 'the backslash is literal');
+  assert.equal(
+    isLimitNotice(custom, 'abcbut nobody came (llm.maxRequestsPerDay, 800/800) [*+?^$|\\]'),
+    false,
+    'dots are literal'
+  );
+  assert.equal(
+    isLimitNotice(custom, '...but nobody came llm.maxRequestsPerDay, 800/800 [*+?^$|\\]'),
+    false,
+    'parentheses are literal'
+  );
+  assert.equal(
+    isLimitNotice(custom, '...but nobody came (llm.maxRequestsPerDay, 800/800) [*+?^$|]'),
+    false,
+    'the backslash is literal'
+  );
 });
 
 // --- the pause notice --------------------------------------------------------------
@@ -144,7 +156,15 @@ const LIVE = { features: { dryRun: false }, bot: { dryRunChannelId: 'mirror1' } 
 test('postLimitNotice: a plain message quoting the trigger, no mentions', async () => {
   const channel = sendingChannel();
   const { result, logs } = await withCapturedLogs(() =>
-    postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: true, labels, config: LIVE, client: mirrorClient() }),
+    postLimitNotice({
+      channel,
+      trigger: { id: 'm1' },
+      limit: LIMIT,
+      asReply: true,
+      labels,
+      config: LIVE,
+      client: mirrorClient(),
+    })
   );
   assert.equal(result, 'sent');
   assert.deepEqual(channel.sent, [
@@ -159,7 +179,15 @@ test('postLimitNotice: a plain message quoting the trigger, no mentions', async 
 
 test('postLimitNotice: asReply false (a follow-up) never posts as a Discord reply', async () => {
   const channel = sendingChannel();
-  await postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: false, labels, config: LIVE, client: mirrorClient() });
+  await postLimitNotice({
+    channel,
+    trigger: { id: 'm1' },
+    limit: LIMIT,
+    asReply: false,
+    labels,
+    config: LIVE,
+    client: mirrorClient(),
+  });
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].reply, undefined);
 });
@@ -167,8 +195,14 @@ test('postLimitNotice: asReply false (a follow-up) never posts as a Discord repl
 test('postLimitNotice: a missing label or limit posts nothing', async () => {
   const channel = sendingChannel();
   const client = mirrorClient();
-  assert.equal(await postLimitNotice({ channel, trigger: null, limit: LIMIT, asReply: true, labels: {}, config: LIVE, client }), 'none');
-  assert.equal(await postLimitNotice({ channel, trigger: null, limit: null, asReply: true, labels, config: LIVE, client }), 'none');
+  assert.equal(
+    await postLimitNotice({ channel, trigger: null, limit: LIMIT, asReply: true, labels: {}, config: LIVE, client }),
+    'none'
+  );
+  assert.equal(
+    await postLimitNotice({ channel, trigger: null, limit: null, asReply: true, labels, config: LIVE, client }),
+    'none'
+  );
   assert.equal(channel.sent.length, 0);
 });
 
@@ -177,7 +211,7 @@ test('postLimitNotice: in dry-run it is logged and mirrored, never sent; a DM is
   const client = mirrorClient();
   const config = { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } };
   const { result, logs } = await withCapturedLogs(() =>
-    postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: true, labels, config, client }),
+    postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: true, labels, config, client })
   );
   assert.equal(result, 'dry-run');
   assert.equal(channel.sent.length, 0);
@@ -191,7 +225,15 @@ test('postLimitNotice: in dry-run it is logged and mirrored, never sent; a DM is
 test('postLimitNotice: a failing send is logged, never thrown', async () => {
   const channel = sendingChannel({ fail: true });
   const { result, logs } = await withCapturedLogs(() =>
-    postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: true, labels, config: LIVE, client: mirrorClient() }),
+    postLimitNotice({
+      channel,
+      trigger: { id: 'm1' },
+      limit: LIMIT,
+      asReply: true,
+      labels,
+      config: LIVE,
+      client: mirrorClient(),
+    })
   );
   assert.equal(result, 'failed');
   assert.ok(logs.some((l) => l.msg === 'limits: notice failed' && l.channel === 'c1'));
@@ -200,11 +242,23 @@ test('postLimitNotice: a failing send is logged, never thrown', async () => {
 test('postPauseNotice: the pause label as a reply to the trigger, no mentions, logged with its kind', async () => {
   const channel = sendingChannel();
   const { result, logs } = await withCapturedLogs(() =>
-    postPauseNotice({ channel, trigger: { id: 'm1' }, kind: 'mention', asReply: true, labels, config: LIVE, client: mirrorClient() }),
+    postPauseNotice({
+      channel,
+      trigger: { id: 'm1' },
+      kind: 'mention',
+      asReply: true,
+      labels,
+      config: LIVE,
+      client: mirrorClient(),
+    })
   );
   assert.equal(result, 'sent');
   assert.deepEqual(channel.sent, [
-    { content: labels.limits.paused, reply: { messageReference: 'm1', failIfNotExists: false }, allowedMentions: { parse: [] } },
+    {
+      content: labels.limits.paused,
+      reply: { messageReference: 'm1', failIfNotExists: false },
+      allowedMentions: { parse: [] },
+    },
   ]);
   const line = logs.find((l) => l.msg === 'limits: pause notice');
   assert.deepEqual([line.channel, line.kind], ['c1', 'mention']);
@@ -212,7 +266,15 @@ test('postPauseNotice: the pause label as a reply to the trigger, no mentions, l
 
 test('postPauseNotice: a missing label posts nothing', async () => {
   const channel = sendingChannel();
-  const result = await postPauseNotice({ channel, trigger: { id: 'm1' }, kind: 'mention', asReply: true, labels: { limits: {} }, config: LIVE, client: mirrorClient() });
+  const result = await postPauseNotice({
+    channel,
+    trigger: { id: 'm1' },
+    kind: 'mention',
+    asReply: true,
+    labels: { limits: {} },
+    config: LIVE,
+    client: mirrorClient(),
+  });
   assert.equal(result, 'none');
   assert.equal(channel.sent.length, 0);
 });
@@ -222,7 +284,7 @@ test('postPauseNotice: in dry-run it is mirrored, never sent', async () => {
   const client = mirrorClient();
   const config = { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } };
   const { result, logs } = await withCapturedLogs(() =>
-    postPauseNotice({ channel, trigger: { id: 'm1' }, kind: 'name', asReply: true, labels, config, client }),
+    postPauseNotice({ channel, trigger: { id: 'm1' }, kind: 'name', asReply: true, labels, config, client })
   );
   assert.equal(result, 'dry-run');
   assert.equal(channel.sent.length, 0);
@@ -234,7 +296,15 @@ test('postPauseNotice: in dry-run it is mirrored, never sent', async () => {
 
 test('postPauseNotice: a failing send is logged, never thrown', async () => {
   const channel = sendingChannel({ fail: true });
-  const result = await postPauseNotice({ channel, trigger: { id: 'm1' }, kind: 'reply', asReply: true, labels, config: LIVE, client: mirrorClient() });
+  const result = await postPauseNotice({
+    channel,
+    trigger: { id: 'm1' },
+    kind: 'reply',
+    asReply: true,
+    labels,
+    config: LIVE,
+    client: mirrorClient(),
+  });
   assert.equal(result, 'failed');
 });
 
@@ -243,8 +313,16 @@ test('mirrorDryRun: no id posts nothing; a fetch failure is logged and swallowed
   assert.equal(await mirrorDryRun({ client, dryRunChannelId: '', header: 'h', body: 'b' }), false);
   assert.deepEqual(client.fetched, []);
 
-  const broken = { channels: { fetch: async () => { throw new Error('Unknown Channel'); } } };
-  const { result, logs } = await withCapturedLogs(() => mirrorDryRun({ client: broken, dryRunChannelId: 'gone', header: 'h', body: 'b' }));
+  const broken = {
+    channels: {
+      fetch: async () => {
+        throw new Error('Unknown Channel');
+      },
+    },
+  };
+  const { result, logs } = await withCapturedLogs(() =>
+    mirrorDryRun({ client: broken, dryRunChannelId: 'gone', header: 'h', body: 'b' })
+  );
   assert.equal(result, false);
   assert.ok(logs.some((l) => l.msg === 'dry-run: mirror failed' && l.dryRunChannelId === 'gone'));
 });

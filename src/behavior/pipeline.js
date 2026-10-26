@@ -21,7 +21,13 @@
 // interface package.
 
 import { isOwnerId } from '../ops/grants.js';
-import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from '../media/classify.js';
+import {
+  collectPictures,
+  collectEmojiItems,
+  collectVideos,
+  collectReadableLinks,
+  isDescribable,
+} from '../media/classify.js';
 import {
   detectTrigger,
   strippedLength,
@@ -40,7 +46,16 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { topByRank } from '../memory/ranking.js';
 import { CODE } from '../skills/codes.js';
-import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from './pending.js';
+import {
+  addPending,
+  authorCalls,
+  foldInto,
+  followUpSlot,
+  isExpired,
+  parseMergeAnswer,
+  popOldest,
+  requeuePending,
+} from './pending.js';
 import { between } from './random.js';
 import { block, fillPromptTemplate } from './prompt.js';
 import { roomQuestionChance } from './spontaneous.js';
@@ -48,7 +63,15 @@ import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
 import { privateGate } from './private.js';
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
-import { isVideoVisionOn, slimMessage, appendRevision, toRecordLine, gifOpts, participationSettings, recordFollowing } from '../memory/index.js';
+import {
+  isVideoVisionOn,
+  slimMessage,
+  appendRevision,
+  toRecordLine,
+  gifOpts,
+  participationSettings,
+  recordFollowing,
+} from '../memory/index.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { observationOf } from '../memory/db/observe-event.js';
@@ -279,7 +302,8 @@ export function createMessageHandler({
   memory,
   tagHistory,
   getGuildId,
-  getSelfName = (guildId) => client.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client.user?.username ?? 'bot',
+  getSelfName = (guildId) =>
+    client.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client.user?.username ?? 'bot',
   describer,
   llm,
   lookup,
@@ -446,7 +470,10 @@ export function createMessageHandler({
     if (config.features?.webLookup !== true) return;
     const linksCfg = config.web?.links ?? {};
     if (linksCfg.enabled === false || linksCfg.prefill !== true) return;
-    const links = collectReadableLinks(normalized, { videoSites: config.media?.video?.sites ?? [] }).slice(0, MAX_WARM_LINKS_PER_MESSAGE);
+    const links = collectReadableLinks(normalized, { videoSites: config.media?.video?.sites ?? [] }).slice(
+      0,
+      MAX_WARM_LINKS_PER_MESSAGE
+    );
     if (links.length === 0) return;
     const perUser = Number.isFinite(linksCfg.prefillPerUserPerDay)
       ? Math.max(0, Math.floor(linksCfg.prefillPerUserPerDay))
@@ -545,7 +572,11 @@ export function createMessageHandler({
         Number.isFinite(entry.lastAnswerAt) &&
         Number.isFinite(entry.noStreak);
       if (valid && t - entry.lastAnswerAt < minutes * MINUTE_MS) {
-        followUpWindows.set(channelId, { openedAt: entry.openedAt, lastAnswerAt: entry.lastAnswerAt, noStreak: entry.noStreak });
+        followUpWindows.set(channelId, {
+          openedAt: entry.openedAt,
+          lastAnswerAt: entry.lastAnswerAt,
+          noStreak: entry.noStreak,
+        });
       } else {
         if (!paused) delete saved[channelId];
         dropped += 1;
@@ -553,7 +584,11 @@ export function createMessageHandler({
     }
     if (dropped > 0 && !paused) store.state.markDirty?.();
     if (followUpWindows.size > 0 || dropped > 0) {
-      log.info('follow-up: windows restored', { restored: followUpWindows.size, dropped, ...(paused ? { paused: true } : {}) });
+      log.info('follow-up: windows restored', {
+        restored: followUpWindows.size,
+        dropped,
+        ...(paused ? { paused: true } : {}),
+      });
     }
   }
   loadFollowUpWindows();
@@ -591,11 +626,29 @@ export function createMessageHandler({
    * fetched lines without the candidate (never sent). `null` when `prompt` is
    * missing -- the caller treats that the same as a "no".
    */
-  async function buildClassifierRequest({ prompt, config, prompts, channel, selfId, selfName, normalized, ownPrefill }) {
+  async function buildClassifierRequest({
+    prompt,
+    config,
+    prompts,
+    channel,
+    selfId,
+    selfName,
+    normalized,
+    ownPrefill,
+  }) {
     if (!prompt) return null;
     const labels = prompts.labels;
     const contextLines = Math.max(0, config.mention.followUpContext ?? 15);
-    const raw = contextLines > 0 ? await fetchHistory(channel, { limit: contextLines, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars }) : [];
+    const raw =
+      contextLines > 0
+        ? await fetchHistory(channel, {
+            limit: contextLines,
+            selfId,
+            embedTextChars: config.media?.embedTextChars,
+            videoSites: config.media?.video?.sites,
+            maxUrlChars: config.context?.maxUrlChars,
+          })
+        : [];
     const history = raw.filter((m) => m.id !== normalized.id);
     const messages = [...history, normalized];
     const { descriptions, videos } = await cachedFollowUpMedia(channel.guild.id, messages, config, ownPrefill);
@@ -693,7 +746,13 @@ export function createMessageHandler({
 
     const startedAt = now();
     if (followUpPreFilter(normalized, selfId, mentionCfg)) {
-      log.info('follow-up: verdict', { channel: channelId, author: normalized.authorId, verdict: 'no', answer: 'no', ms: now() - startedAt });
+      log.info('follow-up: verdict', {
+        channel: channelId,
+        author: normalized.authorId,
+        verdict: 'no',
+        answer: 'no',
+        ms: now() - startedAt,
+      });
       bumpFollowUpNoStreak(channelId, state, mentionCfg);
       return { kind: 'handled' };
     }
@@ -731,7 +790,11 @@ export function createMessageHandler({
     if (followUpInFlight.has(channelId)) {
       const replaced = followUpHeld.has(channelId);
       followUpHeld.set(channelId, { message, normalized, selfId, ownPrefill });
-      log.info('follow-up: held while a classifier call is in flight', { channel: channelId, message: normalized.id, replaced });
+      log.info('follow-up: held while a classifier call is in flight', {
+        channel: channelId,
+        message: normalized.id,
+        replaced,
+      });
       return true;
     }
 
@@ -749,7 +812,7 @@ export function createMessageHandler({
     // one is classified in the background, still holding the slot. With
     // nothing held the slot is released synchronously, before this returns.
     classifyHeldFollowUps(channelId, settled).catch((err) =>
-      log.error('follow-up: classifying a held message failed', { channel: channelId, error: err }),
+      log.error('follow-up: classifying a held message failed', { channel: channelId, error: err })
     );
     return true;
   }
@@ -773,7 +836,11 @@ export function createMessageHandler({
         if (!held) break;
         followUpHeld.delete(channelId);
         if (started) {
-          log.info('follow-up: held message dropped', { channel: channelId, message: held.normalized.id, reason: 'turn' });
+          log.info('follow-up: held message dropped', {
+            channel: channelId,
+            message: held.normalized.id,
+            reason: 'turn',
+          });
           return;
         }
         // As if it had just arrived: paused, onMessage would
@@ -781,7 +848,11 @@ export function createMessageHandler({
         const muted = followUpMuted();
         const gate = muted ? { kind: 'skip', reason: muted } : followUpGate(held.message, held.normalized, held.selfId);
         if (gate.kind === 'skip') {
-          log.info('follow-up: held message dropped', { channel: channelId, message: held.normalized.id, reason: gate.reason });
+          log.info('follow-up: held message dropped', {
+            channel: channelId,
+            message: held.normalized.id,
+            reason: gate.reason,
+          });
           // A waiting line meets the same check in startWaitingLine, except
           // `closed` (it was classified inside the window).
           break;
@@ -814,7 +885,8 @@ export function createMessageHandler({
    */
   function settleFollowUp(channelId, candidate, answer, waiting = null) {
     if (answer === 'no') return { started: false, waiting };
-    if (waiting) log.info('follow-up: dropped', { channel: channelId, message: waiting.normalized.id, reason: 'newer' });
+    if (waiting)
+      log.info('follow-up: dropped', { channel: channelId, message: waiting.normalized.id, reason: 'newer' });
     const triggerKind = followUpTriggerKind(answer, hot.config.mention);
     if (triggerKind === 'overheard' && followUpHeld.has(channelId)) return { started: false, waiting: candidate };
     return { started: startFollowUpTurn(candidate, triggerKind), waiting: null };
@@ -865,7 +937,16 @@ export function createMessageHandler({
     let buildFailed = false;
     try {
       const prompts = hot.prompts;
-      request = await buildClassifierRequest({ prompt: prompts?.address, config, prompts, channel, selfId, selfName, normalized, ownPrefill });
+      request = await buildClassifierRequest({
+        prompt: prompts?.address,
+        config,
+        prompts,
+        channel,
+        selfId,
+        selfName,
+        normalized,
+        ownPrefill,
+      });
     } catch (err) {
       buildFailed = true;
       log.warn('follow-up: building the classifier request failed', { channel: channelId, error: err });
@@ -879,7 +960,13 @@ export function createMessageHandler({
       }
       // A failed build is a failed gate (src/behavior/missed.js); a missing prompt is the deployment's.
       if (buildFailed) missed?.noteFact({ reason: 'gate-failed', message: normalized, failure: 'build-failed' });
-      log.info('follow-up: verdict', { channel: channelId, author: normalized.authorId, verdict: 'no', answer: 'no', ms: now() - startedAt });
+      log.info('follow-up: verdict', {
+        channel: channelId,
+        author: normalized.authorId,
+        verdict: 'no',
+        answer: 'no',
+        ms: now() - startedAt,
+      });
       bumpFollowUpNoStreak(channelId, state, mentionCfg);
       return 'no';
     }
@@ -903,8 +990,12 @@ export function createMessageHandler({
             // A helper's request: on llm.helperTimeoutMs, never the turn-length llm.timeoutMs, and
             // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
             // slot, and every untagged line there is only held.
-            ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: mentionCfg.followUpMaxOutputTokens, purpose: 'address' }),
-          },
+            ...helperRequestOptions(config, {
+              role: 'analyzer',
+              maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
+              purpose: 'address',
+            }),
+          }
         );
         if (String(completion.text ?? '').trim()) {
           answer = parseAddressAnswer(completion.text);
@@ -926,7 +1017,11 @@ export function createMessageHandler({
     const failOpenMinutes = mentionCfg.failOpenMinutes ?? 3;
     let open = false;
     if (failure && failOpenMinutes > 0) {
-      open = activeExchangeWith(request.history, { authorId: normalized.authorId, ts: normalized.ts ?? now() }, failOpenMinutes);
+      open = activeExchangeWith(
+        request.history,
+        { authorId: normalized.authorId, ts: normalized.ts ?? now() },
+        failOpenMinutes
+      );
       log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
     }
@@ -935,7 +1030,13 @@ export function createMessageHandler({
 
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
     const verdict = answer === 'no' ? 'no' : 'yes';
-    log.info('follow-up: verdict', { channel: channelId, author: normalized.authorId, verdict, answer, ms: now() - startedAt });
+    log.info('follow-up: verdict', {
+      channel: channelId,
+      author: normalized.authorId,
+      verdict,
+      answer,
+      ms: now() - startedAt,
+    });
     if (answer === 'no') missed?.noteNotAddressed?.(normalized);
     if (answer === 'no') bumpFollowUpNoStreak(channelId, state, mentionCfg);
     return answer;
@@ -1073,7 +1174,16 @@ export function createMessageHandler({
     const selfName = getSelfName(channel.guild.id);
     let request = null;
     try {
-      request = await buildClassifierRequest({ prompt, config, prompts: hot.prompts, channel, selfId, selfName, normalized, ownPrefill });
+      request = await buildClassifierRequest({
+        prompt,
+        config,
+        prompts: hot.prompts,
+        channel,
+        selfId,
+        selfName,
+        normalized,
+        ownPrefill,
+      });
     } catch (err) {
       log.warn('room: skipped', { channel: channelId, reason: 'failed', name: err?.name ?? null });
       return null;
@@ -1090,11 +1200,20 @@ export function createMessageHandler({
         ],
         {
           model,
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'room' }),
-        },
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: config.mention?.followUpMaxOutputTokens,
+            purpose: 'room',
+          }),
+        }
       );
     } catch (err) {
-      log.warn('room: classifier failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
+      log.warn('room: classifier failed', {
+        channel: channelId,
+        reason: railReason(err),
+        status: err?.statusCode ?? null,
+        name: err?.name ?? null,
+      });
       return null;
     }
     const text = String(completion?.text ?? '').trim();
@@ -1199,7 +1318,8 @@ export function createMessageHandler({
   function markRoutedCall(messageId, result) {
     let status = null;
     if (result?.outcome === 'skip') status = 'skipped';
-    else if (result?.outcome === 'spoke' && result.dryRun !== true) status = result.delivered === false ? 'skipped' : 'answered';
+    else if (result?.outcome === 'spoke' && result.dryRun !== true)
+      status = result.delivered === false ? 'skipped' : 'answered';
     if (status) stampRing([{ messageId, status }]);
   }
 
@@ -1278,7 +1398,8 @@ export function createMessageHandler({
     if (marked.length === 0) return;
     data.elsewherePings = ring;
     state.markDirty?.();
-    for (const { messageId, channelId, status } of marked) log.info('elsewhere: marked', { source: channelId, message: messageId, status });
+    for (const { messageId, channelId, status } of marked)
+      log.info('elsewhere: marked', { source: channelId, message: messageId, status });
   }
 
   /**
@@ -1395,7 +1516,9 @@ export function createMessageHandler({
     if (routed || !trigger?.authorId) return null;
     return () =>
       pendingList
-        .filter((p) => !p.destination && p.kind !== 'overheard' && p.channelId === channelId && p.trigger?.id !== trigger.id)
+        .filter(
+          (p) => !p.destination && p.kind !== 'overheard' && p.channelId === channelId && p.trigger?.id !== trigger.id
+        )
         .sort((a, b) => a.arrivedAt - b.arrivedAt)
         .map((p) => ({
           id: p.trigger.id,
@@ -1426,7 +1549,10 @@ export function createMessageHandler({
    */
   function noteUnanswered(ping, code) {
     if (!missed || !OWED_PING_KINDS.has(ping?.kind) || ping.destination || !ping.trigger?.id) return;
-    missed.noteFact({ reason: code, message: { ...ping.trigger, channelId: ping.trigger.channelId ?? ping.channelId } });
+    missed.noteFact({
+      reason: code,
+      message: { ...ping.trigger, channelId: ping.trigger.channelId ?? ping.channelId },
+    });
   }
 
   /**
@@ -1469,7 +1595,8 @@ export function createMessageHandler({
     const channelId = channel.id;
     const sameChannel = turns.isBusy(channelId);
     let reason = followUpMuted();
-    if (!reason && (followUpOff(config) || (sameChannel && config.mention.pendingSameChannel === false))) reason = 'busy';
+    if (!reason && (followUpOff(config) || (sameChannel && config.mention.pendingSameChannel === false)))
+      reason = 'busy';
     if (reason) {
       log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason });
       return;
@@ -1505,7 +1632,8 @@ export function createMessageHandler({
   function dropReplaced(older, newerId = null) {
     pendingList = pendingList.filter((p) => p !== older);
     log.info('follow-up: dropped', { channel: older.channelId, message: older.trigger.id, reason: 'newer' });
-    if (older.kind === 'followUp') missed?.noteFact({ reason: 'replaced-deferred', message: older.trigger, replacedBy: newerId });
+    if (older.kind === 'followUp')
+      missed?.noteFact({ reason: 'replaced-deferred', message: older.trigger, replacedBy: newerId });
   }
 
   /** Whether a pending entry is a deferred follow-up or overheard line (deferFollowUp), not a call. */
@@ -1592,7 +1720,9 @@ export function createMessageHandler({
    */
   function enqueuePending(channel, trigger, kind, destination = null, superseded = [], arrivedAt = now()) {
     const maxPending = hot.config.mention.maxPending ?? 6;
-    const routed = destination ? { destination, ...(superseded.length > 0 ? { superseded: [...superseded] } : {}) } : {};
+    const routed = destination
+      ? { destination, ...(superseded.length > 0 ? { superseded: [...superseded] } : {}) }
+      : {};
     if (!destination) {
       const { replaced } = followUpSlot(pendingList, channel.id, kind);
       if (replaced) dropReplaced(replaced, trigger.id);
@@ -1713,7 +1843,10 @@ export function createMessageHandler({
     const startedAt = now();
     const guildId = channel.guild?.id ?? getGuildId();
     const waiting = items.map((item, i) => `${i + 1}. ${item.text}`).join('\n');
-    const user = [block('waiting', waiting), block('candidate', `${trigger.authorName}: ${itemText(trigger.content)}`)].join('\n');
+    const user = [
+      block('waiting', waiting),
+      block('candidate', `${trigger.authorName}: ${itemText(trigger.content)}`),
+    ].join('\n');
     let completion;
     try {
       completion = await llm.complete(
@@ -1723,8 +1856,12 @@ export function createMessageHandler({
         ],
         {
           model: roleModel(config, 'analyzer', 'merge'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'merge' }),
-        },
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: config.mention?.followUpMaxOutputTokens,
+            purpose: 'merge',
+          }),
+        }
       );
     } catch (err) {
       log.warn('merge: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null });
@@ -1735,7 +1872,12 @@ export function createMessageHandler({
       log.warn('merge: failed', { channel: channelId, reason, status: null });
       return null;
     }
-    log.info('merge: verdict', { channel: channelId, waiting: items.length, answer: index ? 'item' : 'new', ms: now() - startedAt });
+    log.info('merge: verdict', {
+      channel: channelId,
+      waiting: items.length,
+      answer: index ? 'item' : 'new',
+      ms: now() - startedAt,
+    });
     return index;
   }
 
@@ -1753,7 +1895,11 @@ export function createMessageHandler({
     const maxPending = mentionCfg.maxPending ?? 6;
     const { list, evicted } = requeuePending(pendingList, ping, maxPending);
     pendingList = list;
-    logPending(ping, 'deferred again', { reason: 'busy', pending: pendingList.length, queued: queuedCount(ping.channelId, ping.trigger.authorId) });
+    logPending(ping, 'deferred again', {
+      reason: 'busy',
+      pending: pendingList.length,
+      queued: queuedCount(ping.channelId, ping.trigger.authorId),
+    });
     if (evicted) logEvicted(evicted, maxPending);
     return turnBlocked(ping.destination?.id ?? ping.channelId, hot.config);
   }
@@ -1890,7 +2036,12 @@ export function createMessageHandler({
         // A routed call the ring holds as answered (a turn that showed it
         // spoke): not answered a second time, whatever the turns remember.
         if (held === 'answered') {
-          log.info('mention: already answered', { channel: ping.channelId, kind: ping.kind, reason: 'ring', ...routed });
+          log.info('mention: already answered', {
+            channel: ping.channelId,
+            kind: ping.kind,
+            reason: 'ring',
+            ...routed,
+          });
           continue;
         }
         if (held !== true) {
@@ -1958,7 +2109,13 @@ export function createMessageHandler({
         if (ping.destination) {
           const route = routeFor(ping.channel, config, discord);
           if (!route.destination) {
-            log.info('mention: dropped', { channel: ping.channelId, kind: ping.kind, reason: 'cannot-send', route: route.reason, ...routed });
+            log.info('mention: dropped', {
+              channel: ping.channelId,
+              kind: ping.kind,
+              reason: 'cannot-send',
+              route: route.reason,
+              ...routed,
+            });
             continue;
           }
           destination = route.destination;
@@ -2000,7 +2157,8 @@ export function createMessageHandler({
             added: ping.added ?? null,
             ...(destination ? { source: { channelId: ping.channelId, reason: 'routed' } } : {}),
           });
-          if (result?.outcome === 'busy') stop = requeueBusy({ ...ping, decided: true, ...(destination ? { destination } : {}) });
+          if (result?.outcome === 'busy')
+            stop = requeueBusy({ ...ping, decided: true, ...(destination ? { destination } : {}) });
           else await afterCallTurn(ping.channel, ping.trigger, result, ping.kind, destination);
         } catch (err) {
           log.error('mention: deferred turn failed', { channel: ping.channelId, ...routed, error: err });
@@ -2081,7 +2239,14 @@ export function createMessageHandler({
     }
     const source = destination ? { source: { channelId: channel.id, reason: 'routed' } } : {};
     turns
-      .runTurn({ channel: turnChannel, mode: 'reply', trigger: normalized, triggerKind: kind, queued: queuedFor(channel.id, normalized, Boolean(destination)), ...source })
+      .runTurn({
+        channel: turnChannel,
+        mode: 'reply',
+        trigger: normalized,
+        triggerKind: kind,
+        queued: queuedFor(channel.id, normalized, Boolean(destination)),
+        ...source,
+      })
       .then((result) => {
         if (result?.outcome === 'busy') dropBusy();
         return afterCallTurn(channel, normalized, result, kind, destination);
@@ -2133,7 +2298,8 @@ export function createMessageHandler({
   function clearSettles(reason) {
     for (const [sourceId, entry] of settles) {
       timers.clear(entry.timer);
-      if (reason) log.info('elsewhere: dropped', { source: sourceId, kind: entry.kind, message: entry.normalized.id, reason });
+      if (reason)
+        log.info('elsewhere: dropped', { source: sourceId, kind: entry.kind, message: entry.normalized.id, reason });
     }
     settles.clear();
   }
@@ -2150,7 +2316,7 @@ export function createMessageHandler({
     state.data.elsewherePings = recordPing(
       state.data.elsewherePings,
       { messageId: normalized.id, channelId: source.id, ts: normalized.ts },
-      { cap: rememberPings, maxAgeMs: pingMaxAgeMs, now: now() },
+      { cap: rememberPings, maxAgeMs: pingMaxAgeMs, now: now() }
     );
     state.markDirty?.();
   }
@@ -2188,12 +2354,23 @@ export function createMessageHandler({
     const waiting = settles.get(source.id);
     if (waiting) {
       if (callRank(triggerKind) < callRank(waiting.triggerKind)) {
-        log.info('elsewhere: dropped', { source: source.id, kind: 'ping', message: normalized.id, reason: 'outranked' });
+        log.info('elsewhere: dropped', {
+          source: source.id,
+          kind: 'ping',
+          message: normalized.id,
+          reason: 'outranked',
+        });
         waiting.superseded = [...waiting.superseded, normalized.id];
         return;
       }
-      log.info('elsewhere: dropped', { source: source.id, kind: waiting.kind, message: waiting.normalized.id, reason: 'replaced' });
-      const superseded = waiting.kind === 'noticed' ? [...waiting.superseded] : [...waiting.superseded, waiting.normalized.id];
+      log.info('elsewhere: dropped', {
+        source: source.id,
+        kind: waiting.kind,
+        message: waiting.normalized.id,
+        reason: 'replaced',
+      });
+      const superseded =
+        waiting.kind === 'noticed' ? [...waiting.superseded] : [...waiting.superseded, waiting.normalized.id];
       Object.assign(waiting, { kind: 'ping', channel: source, normalized, triggerKind, superseded });
       return;
     }
@@ -2208,7 +2385,18 @@ export function createMessageHandler({
    */
   function startSettle(source, normalized, kind, triggerKind, destination) {
     const t = now();
-    const entry = { kind, channel: source, normalized, triggerKind, superseded: [], firstAt: t, lastAt: t, due: null, moved: 0, timer: null };
+    const entry = {
+      kind,
+      channel: source,
+      normalized,
+      triggerKind,
+      superseded: [],
+      firstAt: t,
+      lastAt: t,
+      due: null,
+      moved: 0,
+      timer: null,
+    };
     settles.set(source.id, entry);
     scheduleSettle(source.id, entry, settleDue(entry));
     log.info('elsewhere: settling', { source: source.id, kind, message: normalized.id, destination: destination.id });
@@ -2235,7 +2423,13 @@ export function createMessageHandler({
    */
   async function fireNoticed(sourceId, { channel, normalized }) {
     const result = await spontaneous.runNoticed?.(channel);
-    if (result?.reason) log.info('elsewhere: dropped', { source: sourceId, kind: 'noticed', message: normalized.id, reason: result.reason });
+    if (result?.reason)
+      log.info('elsewhere: dropped', {
+        source: sourceId,
+        kind: 'noticed',
+        message: normalized.id,
+        reason: result.reason,
+      });
   }
 
   /**
@@ -2390,7 +2584,14 @@ export function createMessageHandler({
     }
 
     turns
-      .runTurn({ channel, guildId, mode: 'reply', trigger: normalized, triggerKind: 'private', queued: queuedFor(channel.id, normalized) })
+      .runTurn({
+        channel,
+        guildId,
+        mode: 'reply',
+        trigger: normalized,
+        triggerKind: 'private',
+        queued: queuedFor(channel.id, normalized),
+      })
       .then((result) => afterPrivateTurn(channel, guildId, normalized, result))
       .catch((err) => log.error('private: turn failed', { channel: channel.id, error: err }));
   }
@@ -2435,7 +2636,9 @@ export function createMessageHandler({
     const normalized = normalize();
     const kind = detectTrigger({
       mentionsSelf: features.mentions !== false && event.addressing.mentioned,
-      repliesToSelf: features.replies !== false && (event.addressing.replyToSelf || (await resolveReference(channel, normalized.replyToId, selfId))),
+      repliesToSelf:
+        features.replies !== false &&
+        (event.addressing.replyToSelf || (await resolveReference(channel, normalized.replyToId, selfId))),
       content: normalized.content,
       nameTriggers: features.nameTriggers !== false ? config.bot.nameTriggers : [],
     });
@@ -2499,9 +2702,17 @@ export function createMessageHandler({
       const next = recordFollowing(state, { channelId: normalized.channelId, message }, settings, at);
       if (next === state) return;
       store.setParticipation(guildId, next, { settings, now: at });
-      log.info('participation: recorded', { channel: normalized.channelId, episodes: next.episodes.length, following: true });
+      log.info('participation: recorded', {
+        channel: normalized.channelId,
+        episodes: next.episodes.length,
+        following: true,
+      });
     } catch (err) {
-      log.warn('participation: failed', { channel: normalized?.channelId ?? null, reason: 'following-error', name: err?.name ?? null });
+      log.warn('participation: failed', {
+        channel: normalized?.channelId ?? null,
+        reason: 'following-error',
+        name: err?.name ?? null,
+      });
     }
   }
 
@@ -2594,7 +2805,8 @@ export function createMessageHandler({
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
-      if (message.author.id !== client.user.id) activity?.note(message.channel.id, message.author.id, message.createdTimestamp);
+      if (message.author.id !== client.user.id)
+        activity?.note(message.channel.id, message.author.id, message.createdTimestamp);
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.js).
       missed?.noteActivity(message.channel.id, message.createdTimestamp);
 
@@ -2631,7 +2843,9 @@ export function createMessageHandler({
       // forward of the persona's own message has no replyToId: not a reply.
       const mentionsSelf = features.mentions !== false && event.addressing.mentioned;
       // The adapter's cached answer first; else the reference is fetched as before.
-      const repliesToSelf = features.replies !== false && (event.addressing.replyToSelf || (await resolveReference(message.channel, normalized.replyToId, selfId)));
+      const repliesToSelf =
+        features.replies !== false &&
+        (event.addressing.replyToSelf || (await resolveReference(message.channel, normalized.replyToId, selfId)));
       const nameTriggers = features.nameTriggers !== false ? config.bot.nameTriggers : [];
       const kind = detectTrigger({
         mentionsSelf,
@@ -2681,7 +2895,12 @@ export function createMessageHandler({
       if (!canSend(message.channel)) {
         const route = routeFor(message.channel, config, discord);
         if (!route.destination) {
-          log.info('mention: dropped', { channel: message.channel.id, kind, reason: 'cannot-send', route: route.reason });
+          log.info('mention: dropped', {
+            channel: message.channel.id,
+            kind,
+            reason: 'cannot-send',
+            route: route.reason,
+          });
           return 'observed';
         }
         rememberCall(message.channel, normalized, config);
@@ -2743,7 +2962,10 @@ export function createMessageHandler({
       const options = { ...normalizeOptions(config), now };
       const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...options, edit: true }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
-      const previous = event.rawPrevious && !event.rawPrevious.partial ? normalizedOf(toEvent(event.rawPrevious, selfId, options)) : null;
+      const previous =
+        event.rawPrevious && !event.rawPrevious.partial
+          ? normalizedOf(toEvent(event.rawPrevious, selfId, options))
+          : null;
       if (!previous) {
         log.info('events: embeds late', fields);
         return;
@@ -2810,7 +3032,12 @@ export function createMessageHandler({
         if (!done || done.ok !== true || !Number.isInteger(done.revision)) return;
         start = done.revision;
       }
-      const landed = await appendRevision(record, guildId, (next) => toRecordLine(slim, { revision: next, now }), start);
+      const landed = await appendRevision(
+        record,
+        guildId,
+        (next) => toRecordLine(slim, { revision: next, now }),
+        start
+      );
       if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
     } catch (err) {
       log.warn('events: record failed', { kind: 'seen', lines: 1, code: err?.code ?? null });
@@ -2837,8 +3064,16 @@ export function createMessageHandler({
       if (!id || !recordable(message, config)) return;
       const guildId = message.guild?.id ?? message.guildId;
       const line = toRecordLine(
-        { id: String(id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: Number.isFinite(message.createdTimestamp) && message.createdTimestamp > 0 ? message.createdTimestamp : now() },
-        { kind: 'deleted', now },
+        {
+          id: String(id),
+          channelId: message.channel.id,
+          authorId: message.author?.id ?? null,
+          ts:
+            Number.isFinite(message.createdTimestamp) && message.createdTimestamp > 0
+              ? message.createdTimestamp
+              : now(),
+        },
+        { kind: 'deleted', now }
       );
       await record.append(guildId, [line]);
     } catch (err) {
