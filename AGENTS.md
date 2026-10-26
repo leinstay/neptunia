@@ -37,6 +37,8 @@ Set `TMPDIR` to a scratch folder before running tests.
 
 Every run you start in the background has a time budget, and you check on it every five minutes: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. Past its budget a run is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
 
+Before a push, run the fast checks over the whole tree: `node tools/code-health.mjs`, `node tools/prose-check.mjs` and `npm run check:codes`. A count that shrank is recorded in the same change with `npm run health:update`, because CI refuses an unrecorded shrink as well as a growth. The whole-tree lint and the type check run in CI only. Lint each file you edit, and after you change a type that other modules import, lint those modules too: the lint suppressions count errors per file and rule, and one error past a count reports every error of that rule in the file.
+
 Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 
 ## Project rules
