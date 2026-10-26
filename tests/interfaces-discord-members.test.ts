@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { avatarHashOf, memberView } from '../interfaces/discord/members.ts';
 
-const view = (member: unknown) => memberView(member as Parameters<typeof memberView>[0]);
+const view = (member: unknown) => memberView(member);
 
 test('prefers the server avatar hash over the account avatar hash', () => {
   assert.equal(avatarHashOf({ memberAvatar: 'srv', userAvatar: 'acc' }), 'srv');
