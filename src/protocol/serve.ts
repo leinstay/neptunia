@@ -1,5 +1,5 @@
 // The serving side of the link: what an interface runs to talk to the core over a Transport. It says `hello`
-// with its capabilities and the token it was started with, sends each inbound event as an `event` envelope
+// with who the persona is on it, the community it serves, its capabilities and the token it was started with, sends each inbound event as an `event` envelope
 // and resolves with the status of the `ack` that answers it, and runs each `action` envelope of the core on its
 // adapter, answering with an `action_result`. It holds no core state and no platform object: a value that
 // cannot cross the wire (a platform error in `error.cause`, the `raw` handles of an event) never leaves it.
@@ -14,7 +14,17 @@ import type { Envelope, Transport } from './wire.ts';
 /** The statuses of an `ack` (envelope.js#ACK_STATUSES). */
 export type AckStatus = 'ok' | 'duplicate' | 'invalid' | 'unhandled' | 'failed';
 
-export type Hello = { iface: string; capabilities: Capabilities; resume: string | null };
+/** Who an interface says it is: an id and the name people see. */
+export type Named = { id: string; name: string };
+
+/** `self` is the persona's account on the interface, `community` the community it serves (null when it serves none). */
+export type Hello = {
+  iface: string;
+  self: Named;
+  community: Named | null;
+  capabilities: Capabilities;
+  resume: string | null;
+};
 
 export type Logger = {
   info(msg: string, meta?: unknown): void;
@@ -140,7 +150,14 @@ export function serveAdapter(options: {
   transport.send(
     envelope(
       'hello',
-      { iface: hello.iface, capabilities: hello.capabilities, resume: hello.resume, token },
+      {
+        iface: hello.iface,
+        self: hello.self,
+        community: hello.community,
+        capabilities: hello.capabilities,
+        resume: hello.resume,
+        token,
+      },
       { id: `hello:${hello.iface}` }
     )
   );

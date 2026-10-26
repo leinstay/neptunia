@@ -182,7 +182,7 @@ export function reactionStoreEventOf(event) {
           : 'remove';
   return {
     kind,
-    guildId: text(event?.conversation?.guildId),
+    guildId: text(event?.conversation?.communityId),
     messageId: text(event?.messageId),
     authorId: text(event?.authorId),
     emoji: event?.emoji ? reactionKey(event.emoji) : null,

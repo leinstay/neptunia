@@ -63,7 +63,7 @@ function nameFrom(member) {
  */
 function voiceFields(state, guild, previousId = null) {
   return {
-    guildId: idOf(state?.guild?.id) ?? idOf(guild?.id),
+    communityId: idOf(state?.guild?.id) ?? idOf(guild?.id),
     userId: idOf(state?.id) ?? idOf(state?.member?.id),
     name: nameFrom(state?.member),
     conversationId: idOf(state?.channelId),

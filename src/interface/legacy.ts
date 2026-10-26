@@ -18,14 +18,6 @@ export type InterfaceLegacy = {
   capabilities: unknown;
   /** The platform message behind a message event, by its id. Read by the message pipeline. Stage 3, the conversation reads. */
   rawOf(event: { id: string }): { message: unknown; previous: unknown } | null;
-  /** The one guild this instance serves, set once at start. Stage 3, memory ids and SQL. */
-  guildId: string;
-  /** The persona's id. Read by the avatar queue, the heartbeat and the offline catch-up. Stage 3, memory ids and SQL. */
-  selfId(): string | null;
-  /** The persona's display name in a guild, the one name every request uses. Stage 3, memory ids and SQL. */
-  selfName(guildId: string): string;
-  /** A cached member's name. Read by the embedding queue. Stage 3, memory ids and SQL. */
-  memberName(guildId: string, userId: string): string | null;
   /** One member by REST. Read by the avatar queue. Stage 3, the conversation reads. */
   resolveMember(guildId: string, userId: string): Promise<unknown>;
   /** A member's private conversation, when the platform knows it. Read for the memory session failure fact. Stage 3, the inner life and the diary. */

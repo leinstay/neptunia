@@ -283,7 +283,7 @@ export function commandEvent(interaction, commandKey, args, config, replyRef, at
     conversation: {
       id: interaction.channelId,
       kind: interaction.guildId ? (interaction.channel?.isThread?.() ? 'thread' : 'channel') : 'dm',
-      guildId: interaction.guildId ?? null,
+      communityId: interaction.guildId ?? null,
       name: interaction.channel?.name ?? null,
     },
     name: commandKey,
@@ -457,7 +457,7 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
       mode = { deferred: op !== null && DEFERRED_OPS.has(op) };
       if (mode.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const context = {
-        guildId: conversation.guildId,
+        guildId: conversation.communityId,
         channelId: conversation.id,
         userId: requester.id,
         roleIds: requester.roles,
