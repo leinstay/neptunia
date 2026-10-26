@@ -1,5 +1,4 @@
-/.claude/*
-!/.claude/settings.json
+/.claude/
 /.opencode/
 /.agents/
 /.local.git/

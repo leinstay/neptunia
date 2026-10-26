@@ -27,14 +27,14 @@ concurrency:
 jobs:
   guard:
     # The per-deployment private layer (agent rules, personality, live config, memory, keys) must never be
-    # committed. `.claude/settings.json` is public on purpose: it carries the rule-files guard every clone gets.
+    # committed.
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
       - name: No private files tracked
         run: |
-          bad=$(git ls-files -- CLAUDE.local.md .claude/settings.local.json .claude/agents .claude/worktrees .opencode .agents .local.git .secrets references prompts.local config.local.json data .env '.env.*' | grep -vx '.env.example' || true)
+          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local config.local.json data .env '.env.*' | grep -vx '.env.example' || true)
           if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
 
   lint:
