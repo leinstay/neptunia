@@ -145,12 +145,13 @@ export function applyReactionChanged(
   if (selfId && userId === selfId && event.cleared === undefined) return 'ignored';
   if (selfId && event.authorId === selfId) store.markOwn(messageId);
   if (!store.isOwn(messageId)) return 'ignored';
-  if (event.cleared === 'all') return store.removeAll(messageId) ? 'applied' : 'ignored';
-  if (event.cleared === 'emoji') return emoji && store.removeEmoji(messageId, emoji) ? 'applied' : 'ignored';
+  if (event.cleared === 'all') return applied(store.removeAll(messageId));
+  if (event.cleared === 'emoji') return applied(emoji !== null && store.removeEmoji(messageId, emoji));
   if (!emoji || !userId) return 'ignored';
-  const changed = event.added ? store.add(messageId, emoji, userId) : store.remove(messageId, emoji, userId);
-  return changed ? 'applied' : 'ignored';
+  return applied(event.added ? store.add(messageId, emoji, userId) : store.remove(messageId, emoji, userId));
 }
+
+const applied = (changed: boolean): 'applied' | 'ignored' => (changed ? 'applied' : 'ignored');
 
 type Reaction = { emoji?: string; count?: number; mine?: boolean };
 type Line = { id?: string; self?: boolean; reactions?: ReadonlyArray<Reaction> };

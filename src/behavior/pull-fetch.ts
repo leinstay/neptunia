@@ -448,7 +448,146 @@ export async function captionPulled(
   return { ...pulled, descriptions: captions.descriptions, picturesNotSeen: captions.notSeen };
 }
 
+/** What a pull shows: the lines, their ids, the ones shown before the window, and where the window starts. */
+type Shown = { lines: Array<Line>; ids: Set<string>; beforeWindow: Set<string>; windowStart: number };
+
+/** Adds a line to what is shown, once; `early` puts it before the window. */
+function addShown(shown: Shown, line: Line, early: boolean): void {
+  shown.lines.push(line);
+  shown.ids.add(line.id);
+  if (early) shown.beforeWindow.add(line.id);
+}
+
+/** Adds the ring's earlier calls that were read, before the window; how many were added. */
+function addRingCalls(shown: Shown, read: ReadonlyArray<Line | null>): number {
+  let added = 0;
+  for (const message of read) {
+    if (!message || !Number.isFinite(message.ts) || message.ts >= shown.windowStart || shown.ids.has(message.id))
+      continue;
+    addShown(shown, message, true);
+    added += 1;
+  }
+  return added;
+}
+
 type Ring = { messageId: string; channelId: string; ts: number; answeredAt?: number; skippedAt?: number };
+
+type Opened = {
+  page: Array<Line>;
+  anchorTs: number | null;
+  before: string | null;
+  earlierPull: boolean;
+  window: ReturnType<typeof pullWindow>;
+};
+
+/**
+ * One page of the conversation (ending at the anchor, before the oldest line of the last view, or the newest) cut to
+ * the window; a skip code when the anchor is unknown or too old, the page unreadable or empty.
+ */
+async function openPage({
+  reads,
+  channel,
+  anchorId,
+  direction,
+  beforeId,
+  config,
+  nowMs,
+  logIds,
+}: {
+  reads: Reads;
+  channel: ConversationInfo;
+  anchorId: string | null;
+  direction: 'earlier' | null;
+  beforeId: string | null;
+  config: Config;
+  nowMs: number;
+  logIds: LogIds;
+}): Promise<Opened | { skip: string }> {
+  const settings = pullSettings(config);
+  const anchor = anchorId !== null && anchorId !== '' ? String(anchorId) : null;
+  const limit = Math.min(100, Math.max(settings.maxMessages, settings.minMessages) + 1);
+  const earlierPull = direction === 'earlier';
+  const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;
+  const age = { maxAgeDays: settings.maxAgeDays, now: nowMs };
+  const fetched = await fetchPage(reads, channel, { anchorId: anchor, beforeId: before, limit }, age, logIds);
+  if (fetched === null) return { skip: 'fetch-failed' };
+  if (anchor !== null && !Number.isFinite(fetched.anchorTs)) return { skip: 'not-found' };
+  const anchorTs = anchor === null ? null : fetched.anchorTs;
+  if (anchorTs !== null && isTooOld(anchorTs, age)) return { skip: 'too-old' };
+  const page = fetched.lines;
+  const window = pullWindow(page, {
+    anchorTs,
+    windowMinutes: settings.windowMinutes,
+    minMessages: settings.minMessages,
+    maxMessages: settings.maxMessages,
+    pageFull: page.length >= limit,
+    ...age,
+  });
+  if (window.skip) return { skip: window.skip };
+  return { page, anchorTs, before, earlierPull, window };
+}
+
+/**
+ * The lines a pull shows: the window, the routed trigger as the conversation holds it now (a deleted one is
+ * `trigger-gone`) and the ring's unanswered calls older than the window, each taken from the page or read by id.
+ */
+async function gatherShown({
+  reads,
+  channel,
+  opened,
+  trigger,
+  pings,
+  config,
+  nowMs,
+}: {
+  reads: Reads;
+  channel: ConversationInfo;
+  opened: Opened;
+  trigger: { id?: unknown; channelId?: unknown; ts?: unknown } | null;
+  pings: ReadonlyArray<Ring>;
+  config: Config;
+  nowMs: number;
+}): Promise<
+  | { skip: string }
+  | {
+      shown: Shown;
+      ring: ReturnType<typeof pingsIn>;
+      earlier: number;
+      wanted: Array<unknown>;
+      triggerId: string | null;
+    }
+> {
+  const { page, anchorTs, before, window } = opened;
+  const windowLines = window.messages as Array<Line>;
+  const shown: Shown = {
+    lines: [...windowLines],
+    ids: new Set(windowLines.map((line) => line.id)),
+    beforeWindow: new Set<string>(),
+    windowStart: windowLines[0].ts,
+  };
+  const pageById = new Map(page.map((line) => [line.id, line]));
+  const byId = (messageId: string): Promise<Line | null> => messageById(reads, channel, messageId, pageById);
+  const triggerId = isTriggerOf(trigger, channel.id) ? trigger.id : null;
+  if (isTriggerOf(trigger, channel.id) && !shown.ids.has(trigger.id)) {
+    // The page's span: from its oldest message to the anchor, the earlier page's newest one, or now.
+    const pageEnd = anchorTs ?? (before !== null ? (page.at(-1) as Line).ts : null);
+    const deleted = !pageById.has(trigger.id) && trigger.ts > page[0].ts && (pageEnd === null || trigger.ts <= pageEnd);
+    const line = deleted ? null : await byId(trigger.id);
+    if (!line) return { skip: 'trigger-gone' };
+    addShown(shown, line, line.ts < shown.windowStart);
+  }
+  const ring = pingsIn(pings, channel.id, { now: nowMs, maxAgeMs: elsewhereSettings(config).pingMaxAgeMs });
+  const wanted = ring.filter(
+    (entry) =>
+      pingStatus(entry) === 'unanswered' &&
+      entry.messageId !== triggerId &&
+      !shown.ids.has(entry.messageId) &&
+      entry.ts < shown.windowStart
+  );
+  const earlier = addRingCalls(shown, await Promise.all(wanted.map((entry) => byId(entry.messageId))));
+  shown.lines.sort((a, b) => a.ts - b.ts);
+  return { shown, ring, earlier, wanted, triggerId };
+}
 
 /**
  * Read one conversation for a turn's `<channel_view>`: the hook any caller uses for any conversation id (a routed
@@ -533,88 +672,22 @@ export async function fetchPull({
   const checked = checkPull({ snapshot, channelId, destination, partnerId, config, now: nowMs });
   if (checked.skip !== null || checked.channel === null) return skipWith(checked.skip ?? 'not-found');
   const channel = checked.channel;
-  const settings = pullSettings(config);
 
-  const anchor = anchorId !== null && anchorId !== '' ? String(anchorId) : null;
-  const limit = Math.min(100, Math.max(settings.maxMessages, settings.minMessages) + 1);
-  const earlierPull = direction === 'earlier';
-  const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;
-  const fetched = await fetchPage(
-    reads,
-    channel,
-    { anchorId: anchor, beforeId: before, limit },
-    { maxAgeDays: settings.maxAgeDays, now: nowMs },
-    logIds
-  );
-  if (fetched === null) return skipWith('fetch-failed');
-  if (anchor !== null && !Number.isFinite(fetched.anchorTs)) return skipWith('not-found');
-  const { lines: page } = fetched;
-  const anchorTs = anchor === null ? null : fetched.anchorTs;
-  if (anchorTs !== null && isTooOld(anchorTs, { maxAgeDays: settings.maxAgeDays, now: nowMs }))
-    return skipWith('too-old');
-
-  const window = pullWindow(page, {
-    anchorTs,
-    windowMinutes: settings.windowMinutes,
-    minMessages: settings.minMessages,
-    maxMessages: settings.maxMessages,
-    pageFull: page.length >= limit,
-    maxAgeDays: settings.maxAgeDays,
-    now: nowMs,
-  });
-  if (window.skip) return skipWith(window.skip);
-
-  const windowLines = window.messages as Array<Line>;
-  const shown: Array<Line> = [...windowLines];
-  const shownIds = new Set(shown.map((line) => line.id));
-  const windowStart = windowLines[0].ts;
-  const pageById = new Map(page.map((line) => [line.id, line]));
-  const byId = (messageId: string): Promise<Line | null> => messageById(reads, channel, messageId, pageById);
-  // Shown before the window: the trigger when older than it, the ring's earlier calls.
-  const beforeWindow = new Set<string>();
-
-  // The routed trigger, as the conversation holds it now; a deleted one ends the pull.
-  const triggerId = isTriggerOf(trigger, channel.id) ? trigger.id : null;
-  if (triggerId !== null && isTriggerOf(trigger, channel.id) && !shownIds.has(triggerId)) {
-    // The page's span: from its oldest message to the anchor, the earlier page's newest one, or now.
-    const first = page[0];
-    const pageEnd = anchorTs ?? (before !== null ? (page.at(-1) as Line).ts : null);
-    const deleted = !pageById.has(triggerId) && trigger.ts > first.ts && (pageEnd === null || trigger.ts <= pageEnd);
-    const line = deleted ? null : await byId(triggerId);
-    if (!line) return skipWith('trigger-gone');
-    shown.push(line);
-    shownIds.add(line.id);
-    if (line.ts < windowStart) beforeWindow.add(line.id);
-  }
-
-  // The ring's calls of this conversation: the unanswered ones older than the window are shown too.
-  const ring = pingsIn(pings, channel.id, { now: nowMs, maxAgeMs: elsewhereSettings(config).pingMaxAgeMs });
-  const wanted = ring.filter(
-    (entry) =>
-      pingStatus(entry) === 'unanswered' &&
-      entry.messageId !== triggerId &&
-      !shownIds.has(entry.messageId) &&
-      entry.ts < windowStart
-  );
-  const read = await Promise.all(wanted.map((entry) => byId(entry.messageId)));
-  let earlier = 0;
-  for (const message of read) {
-    if (!message || !Number.isFinite(message.ts) || message.ts >= windowStart || shownIds.has(message.id)) continue;
-    shown.push(message);
-    shownIds.add(message.id);
-    beforeWindow.add(message.id);
-    earlier += 1;
-  }
-  shown.sort((a, b) => a.ts - b.ts);
+  const opened = await openPage({ reads, channel, anchorId, direction, beforeId, config, nowMs, logIds });
+  if ('skip' in opened) return skipWith(opened.skip);
+  const { window, earlierPull, before } = opened;
+  const gathered = await gatherShown({ reads, channel, opened, trigger, pings, config, nowMs });
+  if ('skip' in gathered) return skipWith(gathered.skip);
+  const { shown, ring, earlier, wanted, triggerId } = gathered;
 
   const pingState = new Map<string, PingState>();
   for (const entry of ring) {
-    if (entry.messageId === triggerId || !shownIds.has(entry.messageId)) continue;
+    if (entry.messageId === triggerId || !shown.ids.has(entry.messageId)) continue;
     pingState.set(entry.messageId, pingStatus(entry));
   }
 
   // Captions: the cache's for every picture and emoji, fresh ones only for a turn certain to run.
-  const captions = await pullCaptions(shown, {
+  const captions = await pullCaptions(shown.lines, {
     describer,
     guildId,
     config,
@@ -628,8 +701,8 @@ export async function fetchPull({
     channelName: channel.name ?? null,
     readOnly: !channel.permissions.send,
     reason,
-    messages: shown,
-    earlierPingIds: beforeWindow,
+    messages: shown.lines,
+    earlierPingIds: shown.beforeWindow,
     olderNotShown: window.olderNotShown,
     descriptions: captions.descriptions,
     picturesNotSeen: captions.notSeen,
@@ -641,7 +714,7 @@ export async function fetchPull({
     direction: earlierPull ? 'earlier' : null,
     ...(earlierPull ? { beforeId: before !== null } : {}),
     ...(earlierPull && before === null ? { pullDirection: 'earlier-no-previous' } : {}),
-    messages: shown.length,
+    messages: shown.lines.length,
     earlier,
     earlierGone: wanted.length - earlier,
     olderNotShown: window.olderNotShown,

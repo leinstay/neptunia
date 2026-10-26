@@ -743,13 +743,14 @@ export function mentionDirectory({ members = [], profiles = [], selfId = null } 
     entries.push({ name, id });
   };
   const cached = [...members].filter((member) => member && typeof member === 'object');
+  const idOf = (member) => member.id ?? member.user?.id;
   for (const member of cached) {
-    const id = member.id ?? member.user?.id;
+    const id = idOf(member);
     if (id !== undefined && id !== null && (member.bot === true || member.user?.bot === true)) bots.add(String(id));
   }
   const counts = (id) => id !== undefined && id !== null && String(id) !== self && !bots.has(String(id));
   for (const member of cached) {
-    const id = member.id ?? member.user?.id;
+    const id = idOf(member);
     if (!counts(id)) continue;
     for (const name of [
       member.name,
