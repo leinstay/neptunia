@@ -95,3 +95,39 @@ export function discordReads(client: unknown, config: () => unknown): { reads: R
   const port = createDiscordAdapter({ client: obj(client), config: config as () => object });
   return { reads: createReads(port, quiet), iface: port.iface };
 }
+
+/** The conversation reference of a discord.js channel: where a turn of the replay runs. */
+export function conversationRef(channel: unknown): { iface: string; conversationId: string } {
+  return { iface: 'discord', conversationId: String(obj(channel).id) };
+}
+
+type Hide = { any?: boolean; channels: Set<string>; messages: Set<string> };
+
+/**
+ * The interface's reads with the hidden channels and messages filtered out of what the request reads: the turn's
+ * history (a hidden channel gives none, hidden messages are dropped), the listing the neighbours and the pulls take
+ * (a hidden channel is not in it, so it is no candidate and a pull of it is skipped as not found), the info of a hidden
+ * channel (none).
+ */
+export function hiddenReads<T extends Reads>(reads: T, hide: Hide): T {
+  if (!hide.any) return reads;
+  const hiddenChannel = (ref: { conversationId: string }): boolean => hide.channels.has(String(ref.conversationId));
+  const keep = <E extends { message?: { id?: string } }>(events: ReadonlyArray<E>): Array<E> =>
+    events.filter((event) => !hide.messages.has(String(event.message?.id)));
+  const hidden: Reads = {
+    ...reads,
+    conversationInfo: async (ref, ...rest) => (hiddenChannel(ref) ? null : reads.conversationInfo(ref, ...rest)),
+    conversations: async (...args) => {
+      const found = await reads.conversations(...args);
+      return found === null
+        ? null
+        : { ...found, conversations: found.conversations.filter((entry) => !hide.channels.has(entry.id)) };
+    },
+    history: async (ref, query) => {
+      if (hiddenChannel(ref)) return { events: [], complete: true };
+      const page = await reads.history(ref, query);
+      return page === null ? null : { ...page, events: keep(page.events) };
+    },
+  };
+  return hidden as T;
+}

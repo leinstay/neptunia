@@ -8,8 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   heartbeatReplayWake,
-  hiddenCapabilities,
   hiddenPlaces,
+  hiddenReads,
   hiddenRecord,
   hideSetsOf,
   innerAnswerOf,
@@ -25,6 +25,10 @@ import { parseOutput } from '../src/llm/parse.js';
 import { answerOf } from '../src/behavior/turn.js';
 import { call as toolCall } from './fixtures/tool-answers.js';
 import * as inner from '../src/behavior/inner.js';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+// The conversations the scheduler runs in are held by a fake interface named `fake`.
+useIface('fake');
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 
@@ -156,7 +160,7 @@ function heartbeatFixture({ stopped = false } = {}) {
     heartbeat: { nextAt: NOW - 1000, lastAt: NOW - 3 * 3_600_000 },
   });
   fs.writeFileSync(stateFile, kept);
-  const channel = { id: 'c1', name: 'general', guild: { id: 'g1' } };
+  world().channel({ id: 'c1', name: 'general', guildId: 'g1' });
   const record = {
     iterate: async function* iterate() {
       yield { kind: 'said', occurredAt: new Date(NOW - 3_600_000).toISOString(), scope: { channel: 'c1' } };
@@ -164,8 +168,8 @@ function heartbeatFixture({ stopped = false } = {}) {
   };
   const deps = {
     record,
-    client: { channels: { fetch: async (id) => (id === 'c1' ? channel : null) } },
-    discord: { canSend: () => true },
+    reads: world().reads,
+    iface: () => 'fake',
     store: { state: { data: {} }, listUserProfiles: () => [], getDiary: () => ({ posts: [] }) },
     nameOf: () => null,
   };
@@ -173,12 +177,12 @@ function heartbeatFixture({ stopped = false } = {}) {
     config: { bot: { timezone: 'UTC' }, features: { innerLife: true }, innerLife: { mode: 'shadow' } },
     prompts: {},
   };
-  return { dataDir, tmpRoot, stateFile, kept, channel, deps, hot };
+  return { dataDir, tmpRoot, stateFile, kept, deps, hot };
 }
 
 test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read only, the throwaway state removed", async () => {
   const fx = heartbeatFixture({ stopped: true });
-  const { info, channel, currentChannel } = await heartbeatReplayWake({
+  const { info, conversation, currentChannel } = await heartbeatReplayWake({
     inner,
     hot: fx.hot,
     dataDir: fx.dataDir,
@@ -195,7 +199,8 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
   assert.equal(info.chainId, `heartbeat:${NOW}`);
   assert.equal(info.now, NOW);
   assert.ok(info.heartbeat, 'the heartbeat view is on the wake');
-  assert.equal(channel.id, 'c1');
+  // Changed with the contract: the turn is handed the conversation reference, where it was given the channel object.
+  assert.deepEqual(conversation, { iface: 'fake', conversationId: 'c1' });
   assert.equal(currentChannel, null, 'a heartbeat has no current channel');
   assert.equal(fs.readFileSync(fx.stateFile, 'utf8'), fx.kept, 'the data directory is untouched');
   assert.deepEqual(fs.readdirSync(fx.tmpRoot), [], 'the throwaway directory is gone');
@@ -203,7 +208,8 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
 
 test('heartbeatReplayWake: no conversation to run in is a CliError, not a turn', async () => {
   const fx = heartbeatFixture();
-  fx.deps.client = { channels: { fetch: async () => null } };
+  // The interface knows no conversation: the scheduler finds none to run in.
+  world().channel({ id: 'c1' }).leave();
   await assert.rejects(
     heartbeatReplayWake({
       inner,
@@ -310,36 +316,47 @@ test('hiddenPlaces drops hidden channels from the list', () => {
   assert.deepEqual(hiddenPlaces(places, hideSetsOf({ hideChannels: ['a'] }))('g'), [{ id: 'b' }]);
 });
 
-test('hiddenCapabilities: history, neighbours and pulls lose the hidden channels and messages; the directory stays', async () => {
-  const seenAccept = [];
-  const base = {
-    channelDirectoryOf: () => [{ id: 'c2' }],
-    fetchHistory: async () => [{ id: 'm1' }, { id: 'm2' }],
-    fetchNeighbors: async (channel, config, selfId, now, { accept }) => {
-      seenAccept.push(accept({ id: 'c2' }), accept({ id: 'c3' }));
-      return [
-        { channelId: 'c3', messages: [{ id: 'm1' }, { id: 'm5' }] },
-        { channelId: 'c4', messages: [{ id: 'm1' }] },
-      ];
-    },
-    fetchPull: async ({ channelId }) => ({
-      pulled: { channelId, messages: channelId === 'c5' ? [{ id: 'm1' }] : [{ id: 'm1' }, { id: 'm6' }] },
-      skip: null,
-    }),
-  };
+test('hiddenReads: history and the listing lose the hidden channels and messages, the info of a hidden channel is none', async () => {
+  /**
+   * @param {string} channelId
+   * @param {string} id
+   */
+  const message = (channelId, id) => ({
+    id,
+    channelId,
+    channel: { name: channelId },
+    guild: { id: 'g1' },
+    author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
+    member: { displayName: 'Alice' },
+    cleanContent: `text ${id}`,
+    createdTimestamp: NOW,
+    reference: null,
+    attachments: new Map(),
+    stickers: new Map(),
+    embeds: [],
+    messageSnapshots: new Map(),
+    flags: { has: () => false },
+  });
+  for (const id of ['c1', 'c2', 'c3', 'c9']) world().channel({ id, guildId: 'g1' });
+  world().seed('c1', [message('c1', 'm1'), message('c1', 'm2')]);
+  world().seed('c9', [message('c9', 'm3')]);
   const hide = hideSetsOf({ hideChannels: ['c2', 'c9'], hideMessages: ['m1'] });
-  const wrapped = hiddenCapabilities(base, hide);
-  assert.deepEqual(wrapped.channelDirectoryOf(), [{ id: 'c2' }]);
-  assert.deepEqual(await wrapped.fetchHistory({ id: 'c1' }, {}), [{ id: 'm2' }]);
-  assert.deepEqual(await wrapped.fetchHistory({ id: 'c9' }, {}), []);
-  assert.deepEqual(await wrapped.fetchNeighbors({}, {}, 's', 0, { accept: () => true }), [
-    { channelId: 'c3', messages: [{ id: 'm5' }] },
-  ]);
-  assert.deepEqual(seenAccept, [false, true]);
-  assert.deepEqual((await wrapped.fetchPull({ channelId: 'c6' })).pulled.messages, [{ id: 'm6' }]);
-  assert.deepEqual(await wrapped.fetchPull({ channelId: 'c9' }), { pulled: null, skip: 'not-found' });
-  assert.equal((await wrapped.fetchPull({ channelId: 'c5' })).skip, 'not-found');
-  assert.equal(hiddenCapabilities(base, hideSetsOf({})), base);
+  const wrapped = hiddenReads(world().reads, hide);
+  const ref = (conversationId) => ({ iface: 'fake', conversationId });
+  assert.deepEqual(
+    (await wrapped.history(ref('c1'), { limit: 10 })).events.map((event) => event.message.id),
+    ['m2'],
+    'a hidden message is dropped'
+  );
+  assert.deepEqual((await wrapped.history(ref('c9'), { limit: 10 })).events, [], 'a hidden channel gives no history');
+  assert.deepEqual(
+    (await wrapped.conversations({ communityId: 'g1' })).conversations.map((entry) => entry.id),
+    ['c1', 'c3'],
+    'the neighbours and the pulls never see a hidden channel'
+  );
+  assert.equal(await wrapped.conversationInfo(ref('c2')), null);
+  assert.equal((await wrapped.conversationInfo(ref('c1'))).conversation.id, 'c1');
+  assert.equal(hiddenReads(world().reads, hideSetsOf({})), world().reads);
 });
 
 test('innerReportMarkdown prints the hidden ids in the header', () => {
