@@ -72,6 +72,159 @@ function audienceOnTheWire(channel: Obj): Audience | null {
   };
 }
 
+/** The large static avatar address of a user or a member, null when the platform gives none. */
+function largeAvatarOf(source: unknown): string | null {
+  const make = obj(source).displayAvatarURL;
+  if (typeof make !== 'function') return null;
+  try {
+    return text((make as (options: Obj) => unknown).call(source, { extension: 'png', size: 1024, forceStatic: true }));
+  } catch {
+    return null;
+  }
+}
+
+/** One guild member: from the cache, else one fetch; undefined for a member who is gone. */
+async function guildMember(guild: Obj, memberId: string, failure: FailureOf): Promise<{ member?: Obj } | Failure> {
+  const members = obj(guild.members);
+  const cached = (obj(members.cache).get as (id: string) => unknown)?.call(members.cache, memberId);
+  if (cached) return { member: obj(cached) };
+  if (typeof members.fetch !== 'function') return {};
+  try {
+    return { member: obj(await (members.fetch as (id: string) => Promise<unknown>).call(members, memberId)) };
+  } catch (err) {
+    const gone = obj(err);
+    return gone.status !== 404 && gone.code !== 10007 ? failure(err) : {};
+  }
+}
+
+/** A user the platform knows outside any guild, as the member of a private chat. */
+async function directUser(client: Obj, memberId: string): Promise<Obj | undefined> {
+  const users = obj(client.users);
+  try {
+    const user =
+      (obj(users.cache).get as (id: string) => unknown)?.call(users.cache, memberId) ??
+      (await (users.fetch as (id: string) => Promise<unknown>)?.call(users, memberId));
+    return user ? { id: memberId, user, displayName: obj(user).globalName ?? obj(user).username } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The member `who` names as the platform holds him, or a failure. */
+async function findMember(
+  client: Obj,
+  guild: Obj | null,
+  who: { communityId: string | null; memberId: string },
+  failure: FailureOf
+): Promise<{ member?: Obj } | Failure> {
+  if (guild !== null) return guildMember(guild, who.memberId, failure);
+  if (who.communityId === null) return { member: await directUser(client, who.memberId) };
+  return {};
+}
+
+/** The member as a read answers it: his names, his groups and his avatar, the large one for her own and for a member who has one. */
+function memberInfoOf(member: Obj, memberId: string, selfId: string, client: Obj): MemberInfo {
+  const view = memberView(member);
+  const user = obj(member.user);
+  const own = memberId === selfId;
+  return {
+    id: view?.id ?? memberId,
+    name: typeof member.displayName === 'string' ? member.displayName : null,
+    bot: view?.bot ?? user.bot === true,
+    groupIds: idList(obj(member.roles).cache),
+    avatar: {
+      hash: view?.hash ?? null,
+      url: view?.url ?? null,
+      largeUrl: own ? largeAvatarOf(client.user) : view?.hash ? largeAvatarOf(member) : null,
+    },
+  };
+}
+
+/** The searches, the emoji list and the link parse of a read: answers over the client and the guild of a community. */
+function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communityId: string | null) => Obj | null }) {
+  const { client, iface, guildOf } = deps;
+  const failed = (code: string): Failure => ({ status: 'failed', error: { code, retryable: false } });
+  return {
+    async searchMessages(
+      scope: { communityId: string },
+      query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }
+    ) {
+      const page = (await searchMessages(
+        { id: scope.communityId, client },
+        {
+          ...(query.text === undefined ? {} : { content: query.text }),
+          ...(query.authorId === undefined ? {} : { authorId: query.authorId }),
+          ...(query.after === undefined ? {} : { minId: snowflakeAt(query.after) }),
+          ...(query.before === undefined ? {} : { maxId: snowflakeAt(query.before) }),
+          ...(query.offset === undefined ? {} : { offset: query.offset }),
+        }
+      )) as { total: number; hits: Array<Obj> } | null;
+      if (page === null) return failed('error');
+      return {
+        status: 'ok' as const,
+        total: page.total,
+        hits: page.hits.map((hit) => {
+          const author = obj(hit.author);
+          return {
+            ref: { iface, conversationId: String(hit.channel_id), messageId: String(hit.id) },
+            at: Date.parse(String(hit.timestamp)),
+            text: typeof hit.content === 'string' ? hit.content : '',
+            author: {
+              id: text(author.id),
+              handle: text(author.username),
+              displayName: text(author.global_name),
+              bot: author.bot === true,
+            },
+          };
+        }),
+      };
+    },
+
+    async searchMembers(scope: { communityId: string }, query: { prefix: string; limit: number }) {
+      const found = (await searchMembers(
+        { id: scope.communityId, client },
+        query.prefix,
+        query.limit
+      )) as Array<Obj> | null;
+      if (found === null) return failed('error');
+      return {
+        status: 'ok' as const,
+        members: found.map((member) => ({
+          id: String(member.id),
+          handle: text(member.username),
+          displayName: text(member.globalName),
+          nickname: text(member.nick),
+          bot: member.bot === true,
+        })),
+      };
+    },
+
+    emoji(scope: { communityId: string }) {
+      const guild = guildOf(scope.communityId);
+      const cache = obj(guild?.emojis).cache as Map<string, Obj> | undefined;
+      const listed = [...(cache?.values() ?? [])]
+        .filter((e) => text(e.id) !== null && text(e.name) !== null && e.available !== false)
+        .map((e) => ({
+          id: String(e.id),
+          name: String(e.name),
+          animated: e.animated === true,
+          url: emojiUrl(String(e.id)),
+        }));
+      return Promise.resolve({ status: 'ok' as const, emoji: listed });
+    },
+
+    parseLinks(texts: ReadonlyArray<string>) {
+      const refs = texts.map((value): MessageRef | null => {
+        const match = MESSAGE_LINK_RE.exec(value);
+        return match?.[1] !== undefined && match[2] !== undefined
+          ? { iface, conversationId: match[1], messageId: match[2] }
+          : null;
+      });
+      return Promise.resolve({ status: 'ok' as const, refs });
+    },
+  };
+}
+
 /**
  * @param deps `client` the discord.js client, `config` the live config, `resolveChannel` the adapter's lookup of a
  *   channel by reference, `failure` its mapping of a thrown error, `refusal` its check of a reference.
@@ -345,137 +498,14 @@ export function createDiscordReads(deps: {
     },
 
     async memberInfo(who: { communityId: string | null; memberId: string }) {
-      const guild = guildOf(who.communityId);
-      const self = who.memberId === selfId();
-      let member: Obj | undefined;
-      if (guild !== null) {
-        const members = obj(guild.members);
-        const cached = (obj(members.cache).get as (id: string) => unknown)?.call(members.cache, who.memberId);
-        if (cached) member = obj(cached);
-        else if (typeof members.fetch === 'function') {
-          try {
-            member = obj(await (members.fetch as (id: string) => Promise<unknown>).call(members, who.memberId));
-          } catch (err) {
-            const gone = obj(err);
-            if (gone.status !== 404 && gone.code !== 10007) return failure(err);
-          }
-        }
-      } else if (who.communityId === null) {
-        const users = obj(client.users);
-        try {
-          const user =
-            (obj(users.cache).get as (id: string) => unknown)?.call(users.cache, who.memberId) ??
-            (await (users.fetch as (id: string) => Promise<unknown>)?.call(users, who.memberId));
-          if (user) member = { id: who.memberId, user, displayName: obj(user).globalName ?? obj(user).username };
-        } catch {
-          member = undefined;
-        }
-      }
-      if (member === undefined || Object.keys(member).length === 0) return { status: 'ok' as const, member: null };
-      const view = memberView(member);
-      const user = obj(member.user);
-      const largeOf = (source: unknown): string | null => {
-        const make = obj(source).displayAvatarURL;
-        if (typeof make !== 'function') return null;
-        try {
-          return text(
-            (make as (options: Obj) => unknown).call(source, { extension: 'png', size: 1024, forceStatic: true })
-          );
-        } catch {
-          return null;
-        }
-      };
-      const info: MemberInfo = {
-        id: view?.id ?? who.memberId,
-        name: typeof member.displayName === 'string' ? member.displayName : null,
-        bot: view?.bot ?? user.bot === true,
-        groupIds: idList(obj(member.roles).cache),
-        avatar: {
-          hash: view?.hash ?? null,
-          url: view?.url ?? null,
-          largeUrl: self ? largeOf(client.user) : view?.hash ? largeOf(member) : null,
-        },
-      };
-      return { status: 'ok' as const, member: info };
+      const found = await findMember(client, guildOf(who.communityId), who, failure);
+      if ('status' in found) return found;
+      if (found.member === undefined || Object.keys(found.member).length === 0)
+        return { status: 'ok' as const, member: null };
+      return { status: 'ok' as const, member: memberInfoOf(found.member, who.memberId, selfId(), client) };
     },
 
-    async searchMessages(
-      scope: { communityId: string },
-      query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }
-    ) {
-      const page = (await searchMessages(
-        { id: scope.communityId, client },
-        {
-          ...(query.text === undefined ? {} : { content: query.text }),
-          ...(query.authorId === undefined ? {} : { authorId: query.authorId }),
-          ...(query.after === undefined ? {} : { minId: snowflakeAt(query.after) }),
-          ...(query.before === undefined ? {} : { maxId: snowflakeAt(query.before) }),
-          ...(query.offset === undefined ? {} : { offset: query.offset }),
-        }
-      )) as { total: number; hits: Array<Obj> } | null;
-      if (page === null) return failed('error');
-      return {
-        status: 'ok' as const,
-        total: page.total,
-        hits: page.hits.map((hit) => {
-          const author = obj(hit.author);
-          return {
-            ref: { iface, conversationId: String(hit.channel_id), messageId: String(hit.id) },
-            at: Date.parse(String(hit.timestamp)),
-            text: typeof hit.content === 'string' ? hit.content : '',
-            author: {
-              id: text(author.id),
-              handle: text(author.username),
-              displayName: text(author.global_name),
-              bot: author.bot === true,
-            },
-          };
-        }),
-      };
-    },
-
-    async searchMembers(scope: { communityId: string }, query: { prefix: string; limit: number }) {
-      const found = (await searchMembers(
-        { id: scope.communityId, client },
-        query.prefix,
-        query.limit
-      )) as Array<Obj> | null;
-      if (found === null) return failed('error');
-      return {
-        status: 'ok' as const,
-        members: found.map((member) => ({
-          id: String(member.id),
-          handle: text(member.username),
-          displayName: text(member.globalName),
-          nickname: text(member.nick),
-          bot: member.bot === true,
-        })),
-      };
-    },
-
-    emoji(scope: { communityId: string }) {
-      const guild = guildOf(scope.communityId);
-      const cache = obj(guild?.emojis).cache as Map<string, Obj> | undefined;
-      const listed = [...(cache?.values() ?? [])]
-        .filter((e) => text(e.id) !== null && text(e.name) !== null && e.available !== false)
-        .map((e) => ({
-          id: String(e.id),
-          name: String(e.name),
-          animated: e.animated === true,
-          url: emojiUrl(String(e.id)),
-        }));
-      return Promise.resolve({ status: 'ok' as const, emoji: listed });
-    },
-
-    parseLinks(texts: ReadonlyArray<string>) {
-      const refs = texts.map((value): MessageRef | null => {
-        const match = MESSAGE_LINK_RE.exec(value);
-        return match?.[1] !== undefined && match[2] !== undefined
-          ? { iface, conversationId: match[1], messageId: match[2] }
-          : null;
-      });
-      return Promise.resolve({ status: 'ok' as const, refs });
-    },
+    ...createLookupReads({ client, iface, guildOf }),
 
     async reactors(ref: MessageRef, emoji: string, limit: number) {
       const refused = refusal(ref, true);

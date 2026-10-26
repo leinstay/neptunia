@@ -573,6 +573,32 @@ function cachedReplyToSelf(message, replyToId, selfId) {
 }
 
 /**
+ * The deletion event of a message: what the platform still knows of it, when it was written (its id says) and who
+ * wrote it.
+ */
+function deletionEvent(message, selfId, conversation, at) {
+  const written = Number.isFinite(message?.createdTimestamp) ? message.createdTimestamp : undefined;
+  const author = message?.author?.id
+    ? {
+        id: String(message.author.id),
+        name: displayNameOf(message.member, message.author),
+        self: message.author.id === selfId,
+        bot: Boolean(message.author.bot) && message.author.id !== selfId,
+      }
+    : undefined;
+  return {
+    kind: MESSAGE_RECEIVED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:delete:${message?.id}`,
+    conversation,
+    message: { id: message?.id, ...(written === undefined ? {} : { at: written }), ...(author ? { author } : {}) },
+    deleted: true,
+    raw: message,
+  };
+}
+
+/**
  * The `message.received` event of a discord.js message, built from normalizeMessage's result
  * field for field: the channel becomes the event's `conversation`, the author `message.author`,
  * `ts` `message.at`, the mentions `addressing` (`mentioned`: the persona is among the mentioned
@@ -591,27 +617,7 @@ export function toEvent(message, selfId, options = {}) {
   const now = options.now ?? Date.now;
   const conversation = conversationOf(message);
   const base = { kind: MESSAGE_RECEIVED, iface: DISCORD_IFACE };
-  if (options.deleted === true) {
-    // What the platform still knows of a deleted message: when it was written (its id says) and who wrote it.
-    const at = Number.isFinite(message?.createdTimestamp) ? message.createdTimestamp : undefined;
-    const author = message?.author?.id
-      ? {
-          id: String(message.author.id),
-          name: displayNameOf(message.member, message.author),
-          self: message.author.id === selfId,
-          bot: Boolean(message.author.bot) && message.author.id !== selfId,
-        }
-      : undefined;
-    return {
-      ...base,
-      at: now(),
-      id: `${DISCORD_IFACE}:delete:${message?.id}`,
-      conversation,
-      message: { id: message?.id, ...(at === undefined ? {} : { at }), ...(author ? { author } : {}) },
-      deleted: true,
-      raw: message,
-    };
-  }
+  if (options.deleted === true) return deletionEvent(message, selfId, conversation, now());
   const edit = options.edit === true;
   const receivedAt = now();
   const editAt = edit ? (Number.isFinite(message?.editedTimestamp) ? message.editedTimestamp : receivedAt) : null;
