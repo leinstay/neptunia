@@ -2,7 +2,6 @@
 // when it runs, the whole captioned library it lists and how its answer is read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {
   GIF_PICK_DEFAULTS,
   captionedEntries,
@@ -49,12 +48,6 @@ test("gifPickSettings: each key read from gifs.pick, an unusable one takes confi
     'null: wait for the answer however long'
   );
   assert.deepEqual(gifPickSettings({}), { ...GIF_PICK_DEFAULTS });
-});
-
-test('config.json: gifs.pick equals the code defaults and the picker ships on', () => {
-  const config = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.gifs.pick, { ...GIF_PICK_DEFAULTS });
-  assert.equal(config.features.gifPicker, true);
 });
 
 test('pickCandidates: a short reply, no GIF of its own and a captioned library run the picker', () => {

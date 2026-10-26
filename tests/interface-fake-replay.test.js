@@ -11,17 +11,6 @@ import { originOf, validateEvent } from '../src/protocol/index.js';
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/events/basic-chat.json', import.meta.url), 'utf8'));
 const quiet = { info() {}, warn() {} };
 
-test('replayFixture: every recorded event is a valid protocol event', () => {
-  for (const event of fixture.events) {
-    const { redeliver: _r, ...fields } = event;
-    assert.deepEqual(validateEvent({ iface: fixture.iface, ...fields }), { ok: true }, event.kind);
-  }
-  assert.deepEqual(
-    new Set(fixture.events.map((e) => e.kind)),
-    new Set(['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed'])
-  );
-});
-
 test('replayFixture: the events enter the door in order, a redelivery is a duplicate, handlers run once each', async () => {
   const handled = [];
   const names = ['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed'];

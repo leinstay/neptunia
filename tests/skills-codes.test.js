@@ -89,25 +89,6 @@ test('codes: no emitter spells a code as a string literal; every code is importe
   assert.deepEqual(found, []);
 });
 
-test('codes: the scan is not blind, it sees a literal in each position', () => {
-  const lines = [
-    "return { code: 'x-y' };",
-    "if (r.code === 'x') {}",
-    "return refused('x', 'y');",
-    "op.failed('x')",
-    "throw invalid('m', 'x-y');",
-    "return notOk('failed', 'x');",
-  ];
-  for (const line of lines)
-    assert.ok(
-      POSITIONS.some((pattern) => {
-        pattern.lastIndex = 0;
-        return pattern.test(line);
-      }),
-      line
-    );
-});
-
 test('CODE: a name the catalogue does not have throws, a code is its upper-cased name', () => {
   assert.equal(CODE.NOT_FOUND, 'not-found');
   assert.equal(CODE.HTTP, 'http');

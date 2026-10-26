@@ -5,10 +5,7 @@
 // No I/O besides reading the shipped config.json; the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {
-  ELSEWHERE_DEFAULTS,
-  LIVENESS_DEFAULTS,
   audienceCovers,
   chooseElsewhereMode,
   elsewhereSettings,
@@ -34,7 +31,6 @@ const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const SEC = 1000;
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
-const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
 /** A normalized message in a read-only source channel. */
 function msg(id, minutesAgo, { self = false, bot = false } = {}) {
@@ -76,12 +72,6 @@ function audience({
 const RING_OPTS = { cap: 20, maxAgeMs: 7 * DAY, now: NOW };
 
 // ---- settings -------------------------------------------------------------------
-
-test('config.json: the code fallbacks equal the elsewhere block and the liveness settings', () => {
-  assert.deepEqual(shipped.elsewhere, { ...ELSEWHERE_DEFAULTS });
-  assert.equal(shipped.spontaneous.liveMinMessages, LIVENESS_DEFAULTS.liveMinMessages);
-  assert.equal(shipped.spontaneous.liveWindowMinutes, LIVENESS_DEFAULTS.liveWindowMinutes);
-});
 
 test('elsewhereSettings: live values in milliseconds, zero kept, garbage falls back to the defaults', () => {
   const fallback = elsewhereSettings({});

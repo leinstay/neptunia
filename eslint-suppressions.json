@@ -4025,10 +4025,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
+      "count": 6
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 9
@@ -4562,13 +4562,13 @@
       "count": 5
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
+      "count": 6
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 37
+      "count": 34
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 9
@@ -5194,9 +5194,6 @@
   },
   "tests/gif-pick.test.js": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
     },
     "@typescript-eslint/no-unsafe-return": {
@@ -5228,12 +5225,6 @@
   },
   "tests/gif-watch.test.js": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
     }
   },
@@ -5538,19 +5529,16 @@
   },
   "tests/interface-fake-replay.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 4
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 9
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -6494,7 +6482,7 @@
   },
   "tests/missed.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 12
+      "count": 11
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 28
@@ -6621,7 +6609,7 @@
       "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 39
+      "count": 36
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
@@ -6969,13 +6957,13 @@
   },
   "tests/pull.test.js": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
@@ -7598,20 +7586,6 @@
       "count": 8
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "tests/text-limits.test.js": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "tests/no-presence-assertion": {
       "count": 1
     }
   },
