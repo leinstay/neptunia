@@ -63,7 +63,7 @@ const handlers = perEnv((env) => {
   /**
    * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
    * errand's file (src/errands/service.js#fileOf), its size checked against the interface's
-   * `maxAttachmentBytes` before it is read.
+   * `maxFileBytes` before it is read.
    */
   async function errandFile(args, context, channelId, p) {
     const handle = String(args?.file ?? '').trim();
@@ -74,7 +74,7 @@ const handlers = perEnv((env) => {
         : null;
     if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
     if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
-    const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
+    const limit = p.capabilities?.()?.maxFileBytes;
     const stat = await fsp.stat(file.path).catch(() => null);
     if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
     if (Number.isFinite(limit) && stat.size > limit)
@@ -123,7 +123,7 @@ const handlers = perEnv((env) => {
       throw invalid('item is out of range', CODE.NO_MEDIA);
     const item = attachments[given - 1];
     if (!item?.url) throw invalid('that attachment has no address', CODE.NO_MEDIA);
-    const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
+    const limit = p.capabilities?.()?.maxFileBytes;
     const tooLarge = (size) => Number.isFinite(limit) && size > limit;
     const large = (size) =>
       Object.assign(new Error(`the picture is ${size} bytes, over the ${limit} this interface takes`), {

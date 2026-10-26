@@ -3228,7 +3228,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       iface: 'replay',
       selfId: self.id,
       now: Date.now,
-      limits: { maxAttachmentBytes: 64 * 1024 * 1024 },
+      capabilities: { maxFileBytes: 64 * 1024 * 1024 },
     });
     const admin = createAdmin({
       hot,
@@ -3606,7 +3606,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       iface: 'replay',
       selfId: self.id,
       now,
-      limits: { maxAttachmentBytes: 64 * 1024 * 1024 },
+      capabilities: { maxFileBytes: 64 * 1024 * 1024 },
     });
     const turns = diaryTurnRunner(mods, {
       hot,

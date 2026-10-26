@@ -854,16 +854,16 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 300
+      "count": 299
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1727
+      "count": 1723
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 393
+      "count": 392
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2055
+      "count": 2051
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 180
@@ -1259,7 +1259,7 @@
       "count": 41
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 12
+      "count": 11
     },
     "@typescript-eslint/require-await": {
       "count": 7
@@ -3546,7 +3546,7 @@
   },
   "src/protocol/actions.js": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
+      "count": 6
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 3
@@ -7996,16 +7996,16 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 77
+      "count": 76
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 393
+      "count": 387
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 279
+      "count": 277
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1147
+      "count": 1143
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 209

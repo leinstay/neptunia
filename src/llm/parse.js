@@ -13,11 +13,10 @@
 // message (`untagged`), an unterminated <think> (output cut by max_tokens) means
 // silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
-// (`retiredTag` with its `tag`, `messageCut`, `messagesMerged`, `thinkUnclosed`), so the caller can
+// (`retiredTag` with its `tag`, `messagesMerged`, `thinkUnclosed`), so the caller can
 // tell the persona what happened to her output (src/behavior/turn.js).
 
 const MAX_MESSAGES = 3;
-const MAX_MESSAGE_CHARS = 1900;
 const MAX_FALLBACK_CHARS = 600;
 // A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.js).
 const MAX_REACTION_CHARS = 16;
@@ -79,15 +78,14 @@ function parseIndex(value) {
  * @param {{ limits?: { add: Function }|null }} [options] At most 3 messages come out: every `<msg>` past the
  *   third is joined into the third, each on its own line, its text unchanged (its own reply
  *   target is dropped). `limits` (src/llm/limits.js#createLimits, optional) is told of such a
- *   join as a `message-merge` (`where: 'parse'`, `lost`: the messages joined) and of every
- *   `<msg>` (a joined one included) cut at 1900 characters as a `message-cut` (`where: 'parse'`)
- *   with the characters lost.
+ *   join as a `message-merge` (`where: 'parse'`, `lost`: the messages joined). A message is never
+ *   cut for its length: the adapter of the interface splits a long one.
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
  *             reactions: {to: number, emoji: string}[], untargetedReactions: {emoji: string}[], think: string,
  *             gif: {id: string, replyTo: number|null}|null,
  *             thinkOpen: boolean, untagged: boolean, diagnostics: object[] }}
  *   `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw' }`
- *   (a retired tag written outside code, cut out), `{ kind: 'messageCut', chars }`,
+ *   (a retired tag written outside code, cut out),
  *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`. `thinkOpen`: a `<think>` was never
  *   closed -- silence, with what it held so far appended to `think`. `untagged`: the one message is the
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
@@ -139,14 +137,7 @@ export function parseOutput(raw, { limits = null } = {}) {
     limits?.add({ kind: 'message-merge', where: 'parse', lost: extra.length });
     result.diagnostics.push({ kind: 'messagesMerged', count: extra.length });
   }
-  for (const { text: body, replyTo } of bodies) {
-    if (body.length > MAX_MESSAGE_CHARS) {
-      const lost = Array.from(body.slice(MAX_MESSAGE_CHARS)).length;
-      limits?.add({ kind: 'message-cut', where: 'parse', lost });
-      result.diagnostics.push({ kind: 'messageCut', chars: lost });
-    }
-    result.messages.push({ text: body.slice(0, MAX_MESSAGE_CHARS), replyTo });
-  }
+  for (const { text: body, replyTo } of bodies) result.messages.push({ text: body, replyTo });
 
   for (const match of text.matchAll(/<react(\s[^>]*)?>([\s\S]*?)<\/react>/gi)) {
     const target = /\bto\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');

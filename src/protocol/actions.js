@@ -51,8 +51,16 @@
  */
 
 /**
- * What an adapter can do: the capability names it supports (CAPABILITIES' values) and its limits.
- * @typedef {{ operations: Set<string>, limits: { maxTextLength: number, maxAttachments: number, maxAttachmentBytes: number } }} Capabilities
+ * The answer of a `send`, which may post several messages: `ref` is the first part, `parts` every
+ * message posted, `idempotencyKey` names the send.
+ * @typedef {import('./adapter.ts').Delivery} Delivery
+ */
+
+/**
+ * What an adapter can do: the capability names it supports (CAPABILITIES' values) and its limits,
+ * named as in src/protocol/adapter.ts: `maxChars` code points of text a message holds, `maxFiles`
+ * attachments a message holds, `maxFileBytes` bytes a file holds.
+ * @typedef {{ operations: string[], maxChars: number, maxFiles: number, maxFileBytes: number }} Capabilities
  */
 
 /**
@@ -62,7 +70,7 @@
  * own wiring, see events.js).
  * @typedef {{
  *   iface: string,
- *   send(conversation: ConversationRef, content: Content): Promise<PortResult>,
+ *   send(conversation: ConversationRef, content: Content): Promise<Delivery>,
  *   edit(message: MessageRef, content: Content): Promise<PortResult>,
  *   delete(message: MessageRef): Promise<PortResult>,
  *   react(message: MessageRef, emoji: string): Promise<PortResult>,
@@ -145,12 +153,18 @@ export function portAction(operation, args) {
   }
 }
 
-/** An `ok` result, with the message reference and stamp when given. */
+/**
+ * An `ok` result, with the message reference and stamp when given.
+ * @returns {PortResult}
+ */
 export function ok(ref = undefined, at = undefined) {
   return { status: 'ok', ...(ref ? { ref } : {}), ...(Number.isFinite(at) ? { at } : {}) };
 }
 
-/** A result that is not `ok`, with its normalised error. */
+/**
+ * A result that is not `ok`, with its normalised error.
+ * @returns {PortResult}
+ */
 export function notOk(status, code, { retryable = false, cause } = {}) {
   return { status, error: { code, retryable, ...(cause !== undefined ? { cause } : {}) } };
 }
@@ -188,32 +202,47 @@ function attachmentBytes(attachment) {
 }
 
 /**
- * Why `content` cannot be sent within `limits`, as a failed result, or null when it can: no
- * text and no attachment (`empty-content`), text past `maxTextLength` code points
- * (`text-too-long`), more than `maxAttachments` attachments or one without a name or source
- * (`invalid-attachment`), or one past `maxAttachmentBytes` (`attachment-too-large`); a reply
- * target of another interface is `foreign-reference`.
+ * Why `content` cannot be sent within `capabilities`, as a failed result, or null when it can: no
+ * text and no attachment (`empty-content`), text past `maxChars` code points (`text-too-long`),
+ * more than `maxFiles` attachments or one without a name or source (`invalid-attachment`), or one
+ * past `maxFileBytes` (`attachment-too-large`); a reply target of another interface is
+ * `foreign-reference`. With `splits` the adapter cuts a long text into parts itself, so a send is
+ * never refused as `text-too-long`; an edit, which cannot grow into several messages, still is.
  * @param {Content} content
- * @param {Capabilities['limits']} limits
+ * @param {Pick<Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'>} capabilities
  * @param {string} iface
+ * @param {{ splits?: boolean }} [options]
  * @returns {PortResult|null}
  */
-export function contentRefusal(content, limits, iface) {
+export function contentRefusal(content, capabilities, iface, { splits = false } = {}) {
   if (!content || typeof content !== 'object') return notOk('failed', 'empty-content');
   const hasText = typeof content.text === 'string' && content.text !== '';
   const attachments = Array.isArray(content.attachments) ? content.attachments : [];
   if (!hasText && attachments.length === 0) return notOk('failed', 'empty-content');
-  if (hasText && Array.from(content.text).length > limits.maxTextLength) return notOk('failed', 'text-too-long');
-  if (attachments.length > limits.maxAttachments) return notOk('failed', 'invalid-attachment');
+  if (!splits && hasText && Array.from(content.text).length > capabilities.maxChars)
+    return notOk('failed', 'text-too-long');
+  const refused = attachmentsRefusal(attachments, capabilities);
+  if (refused) return refused;
+  if (content.replyTo !== undefined && content.replyTo !== null)
+    return refRefusal(content.replyTo, iface, { needMessage: true });
+  return null;
+}
+
+/**
+ * The refusal of an attachment list past `maxFiles`, or one with a nameless, sourceless or oversize file.
+ * @param {Attachment[]} attachments
+ * @param {Pick<Capabilities, 'maxFiles'|'maxFileBytes'>} capabilities
+ * @returns {PortResult|null}
+ */
+function attachmentsRefusal(attachments, capabilities) {
+  if (attachments.length > capabilities.maxFiles) return notOk('failed', 'invalid-attachment');
   for (const attachment of attachments) {
     if (!attachment || typeof attachment.name !== 'string' || !attachment.name)
       return notOk('failed', 'invalid-attachment');
     if (attachment.data === undefined && (typeof attachment.url !== 'string' || !attachment.url))
       return notOk('failed', 'invalid-attachment');
-    if (attachmentBytes(attachment) > limits.maxAttachmentBytes) return notOk('failed', 'attachment-too-large');
+    if (attachmentBytes(attachment) > capabilities.maxFileBytes) return notOk('failed', 'attachment-too-large');
   }
-  if (content.replyTo !== undefined && content.replyTo !== null)
-    return refRefusal(content.replyTo, iface, { needMessage: true });
   return null;
 }
 

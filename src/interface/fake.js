@@ -6,9 +6,11 @@
 // member's messages, mentions default to none, nothing ever throws. Every call is checked as a
 // protocol action first (validateAction over the call's action object): a malformed one is
 // refused as `failed` with the code `invalid-action`, so a test that drives the persona through
-// the fake also proves she only ever asks for well-formed actions.
+// the fake also proves she only ever asks for well-formed actions. A `send` splits a text longer
+// than `maxChars` into parts, stores each as a message of the self member and answers a Delivery
+// (src/protocol/adapter.ts), the way every adapter does.
 
-import { portAction, validateAction } from '../protocol/index.js';
+import { deliveryOf, portAction, splitText, validateAction } from '../protocol/index.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
 import { CODE } from '../skills/codes.js';
 
@@ -41,17 +43,19 @@ export async function replayFixture(fixture, door, { port = null } = {}) {
   return answers;
 }
 
-/** The fake's default limits. */
-export const FAKE_LIMITS = Object.freeze({
-  maxTextLength: 2000,
-  maxAttachments: 10,
-  maxAttachmentBytes: 8 * 1024 * 1024,
+/** The fake's default capabilities beyond its operations: the limits of a message. */
+export const FAKE_CAPABILITIES = Object.freeze({
+  maxChars: 2000,
+  maxFiles: 10,
+  maxFileBytes: 8 * 1024 * 1024,
 });
 
 /**
  * An in-memory port.
- * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null, limits?: object, now?: () => number }} [options]
- *   `operations`: the capability names offered (all of CAPABILITIES when absent); `selfId`: the
+ * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null,
+ *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'>>, now?: () => number }} [options]
+ *   `operations`: the capability names offered (all of CAPABILITIES when absent); `capabilities`:
+ *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) over FAKE_CAPABILITIES; `selfId`: the
  *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.
  * @returns {import('./port.js').Port & {
  *   calls: { op: string, args: unknown[] }[],
@@ -69,17 +73,18 @@ export function createFakeAdapter({
   iface = 'fake',
   selfId = 'self',
   operations = null,
-  limits = {},
+  capabilities: declared = {},
   now = Date.now,
 } = {}) {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
-  const caps = { ...FAKE_LIMITS, ...limits };
+  const caps = { ...FAKE_CAPABILITIES, ...declared };
   const calls = [];
   // `${conversationId}/${messageId}` -> { ref, authorId, text, attachments, replyTo, mentions, reactions, deleted }
   const messages = new Map();
   const typings = [];
   const queued = new Map();
   let nextId = 0;
+  let nextKey = 0;
 
   const keyOf = (ref) => `${ref.conversationId}/${ref.messageId}`;
   const supports = (operation) => offered.has(CAPABILITIES[operation]);
@@ -150,12 +155,20 @@ export function createFakeAdapter({
     },
 
     async send(conversation, content) {
+      nextKey += 1;
+      const key = `${iface}-send-${nextKey}`;
       const early = front('send', [conversation, content]);
-      if (early) return early;
-      const refused = refRefusal(conversation, iface) ?? contentRefusal(content, caps, iface);
-      if (refused) return refused;
-      const message = store(conversation.conversationId, selfId, content);
-      return ok({ ...message.ref }, message.at);
+      if (early) return deliveryOf([early], key);
+      const refused = refRefusal(conversation, iface) ?? contentRefusal(content, caps, iface, { splits: true });
+      if (refused) return deliveryOf([refused], key);
+      // The reply and the files go with the first part; the rest of the text follows as plain messages.
+      const texts = splitText(typeof content.text === 'string' ? content.text : '', caps.maxChars);
+      const stored = texts.map((text, index) => {
+        const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
+        const message = store(conversation.conversationId, selfId, part);
+        return ok({ ...message.ref }, message.at);
+      });
+      return deliveryOf(stored, key);
     },
 
     async edit(ref, content) {
@@ -237,7 +250,7 @@ export function createFakeAdapter({
     },
 
     capabilities() {
-      return { operations: new Set(offered), limits: { ...caps } };
+      return { operations: [...offered], ...caps };
     },
 
     ...declaredHooks(),

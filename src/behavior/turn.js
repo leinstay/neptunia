@@ -91,7 +91,7 @@ import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
 import { callReason, fill, formatTranscript, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
-import { clampChars, clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
+import { clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import {
   gifPostsToday,
   rankGifs,
@@ -900,39 +900,15 @@ function createLinker({ guildId, pulledIds, sourceTarget }) {
   };
 }
 
-// A Discord message holds at most 2000 characters.
-const DISCORD_MESSAGE_CHARS = 2000;
-
-/**
- * `text` cut to `max` characters at its end, never inside a `<...>` token (a
- * mention, a custom emoji); unchanged when it fits. A cut is told to `limits`
- * (src/llm/limits.js#createLimits, optional) as a `message-cut` with the characters lost.
- */
-function cutPost(text, max, limits = null) {
-  let body = clampChars(text, max);
-  if (body.length < text.length) {
-    const open = body.lastIndexOf('<');
-    if (open > body.lastIndexOf('>')) body = body.slice(0, open);
-    body = body.trimEnd();
-    limits?.add({ kind: 'message-cut', where: 'post', lost: [...text].length - [...body].length });
-  }
-  return body;
-}
-
 /**
  * `text` with `link` joined through `labels.elsewhere.link` (`{text}` `{link}`);
- * without the label, a newline between them. Every post fits one Discord
- * message: `text` is cut at its end (cutPost) when it would outgrow it --
- * with a link, so that the link always fits; without one, after the mentions
- * and custom emoji expanded into it (parse.js leaves only a small margin for
- * them, which a few long ones or a link outgrow). `limits` (optional) is told a cut (cutPost).
+ * without the label, a newline between them; without a link, `text` as it is.
+ * Nothing is cut: an adapter whose platform limits a message splits the post itself.
  */
-function withLink(text, link, labels, limits = null) {
-  if (!link) return cutPost(text, DISCORD_MESSAGE_CHARS, limits);
+function withLink(text, link, labels) {
+  if (!link) return String(text);
   const template = labels?.elsewhere?.link;
-  const join = (body) =>
-    typeof template === 'string' && template ? fill(template, { text: body, link }) : `${body}\n${link}`;
-  return join(cutPost(text, Math.max(0, DISCORD_MESSAGE_CHARS - [...join('')].length), limits));
+  return typeof template === 'string' && template ? fill(template, { text, link }) : `${text}\n${link}`;
 }
 
 const REWATCH_SUMMARY_CHARS = 200;
@@ -2674,7 +2650,6 @@ export function createTurnRunner({
         directory,
         handles,
         channelHandles,
-        limits: draft?.limits ?? null,
       }));
     let result;
     // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
@@ -4252,7 +4227,7 @@ export function createTurnRunner({
    * `directory` (a thunk, only called when the text has an `@`; resolveMentions), custom
    * emoji after the mentions (`<@id>` has no `:name:` in it to break), transcript numbers into jump
    * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
-   * joined and the whole cut to one Discord message (withLink; `limits` told a cut). Resolves
+   * joined (withLink). Resolves
    * `text` (as sent), `spoken` (before any link: what the typing time is taken from) and
    * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
    * @returns {{ text: string, spoken: string, userIds: string[] }}
@@ -4271,7 +4246,6 @@ export function createTurnRunner({
       handles = null,
       channelHandles = null,
       link = null,
-      limits = null,
       quiet = false,
     }
   ) {
@@ -4292,8 +4266,7 @@ export function createTurnRunner({
         channelHandles
       ),
       link,
-      hot.prompts?.labels,
-      limits
+      hot.prompts?.labels
     );
     return { text, spoken, userIds: mentioned.userIds };
   }
@@ -4575,7 +4548,6 @@ export function createTurnRunner({
         handles,
         channelHandles,
         link,
-        limits: draft?.limits,
       });
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', {
@@ -5089,8 +5061,8 @@ export function createTurnRunner({
    * answering a pulled line posts plain, never as a Discord reply across
    * channels, and each post carries the jump link `linkFor` gives it (a message
    * and the GIF through `labels.elsewhere.link`, read now; the picture as its
-   * content). `@name` resolves over `lines`, then `knownNames`. Every message is cut to fit one
-   * Discord message once its mentions and custom emoji are expanded (withLink).
+   * content). `@name` resolves over `lines`, then `knownNames`. A message longer than the interface
+   * holds is split by its adapter, never cut here.
    *
    * A message whose send fails ends the posting: `turn: send failed`
    * (`channel`, `index` -- 0-based among the turn's messages --, `error`), no
@@ -5358,7 +5330,6 @@ export function createTurnRunner({
         handles,
         channelHandles,
         link,
-        limits: draft?.limits,
       });
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
