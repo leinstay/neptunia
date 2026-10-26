@@ -1,0 +1,20 @@
+# Prettier runs on changed files only (npm run format:check -- <files>); these never get formatted.
+package-lock.json
+type-baseline.json
+eslint-suppressions.json
+node_modules
+data
+.agents
+.claude
+.opencode
+references
+prompts.local
+config.local.json
+
+# Model-facing text and fixtures keep their exact bytes.
+prompts
+tests/fixtures
+tools/fixtures
+
+# Documentation prose is reviewed against WRITING.md, not rewrapped by a tool.
+*.md

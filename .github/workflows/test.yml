@@ -21,6 +21,8 @@ jobs:
         node: ['26.x']
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: No private files tracked
         # The per-deployment private layer (agent rules, personality, live config, state) must never be committed.
         run: |
@@ -31,5 +33,19 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Format of changed files
+        # Prettier checks only the files this change touches. A pull request diffs against its base; a push to main
+        # diffs against the commit before the push, and a first push (all-zero sha) is skipped.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
+          files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD | grep -E '\.(js|mjs|cjs|ts|json|ya?ml)$' || true)
+          if [ -n "$files" ]; then printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 npx prettier --check; fi
       - run: npm run check:codes
       - run: npm test

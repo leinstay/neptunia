@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src", "interfaces", "tests", "tools", "bin", "agents"],
+  "exclude": ["node_modules", "**/node_modules", ".agents", "data", "references", "prompts.local", "tools/fixtures"]
+}
