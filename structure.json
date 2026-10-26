@@ -1,0 +1,382 @@
+{
+  "entries": [
+    {
+      "path": "README.md",
+      "purpose": "The project README for people who find the repository.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "*.md",
+      "purpose": "The root documents: agent rules, style guide, writing guide, contributing and security policy.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "LICENSE",
+      "purpose": "The license text.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".github/",
+      "purpose": "The continuous integration workflow, the issue and pull request templates and the README images.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".env.example",
+      "purpose": "The names of the environment keys a deployment sets, without values.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".env",
+      "purpose": "The deployment keys, never committed.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".agents/",
+      "purpose": "The working folder of the agents of one deployment.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "prompts.local/",
+      "purpose": "A deployment prompt layer that shadows the tracked prompts.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config.local.json",
+      "purpose": "A deployment settings layer over config.json.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "data/",
+      "purpose": "A deployment memory, state and logs.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config.json",
+      "purpose": "The tracked default settings.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "package.json",
+      "purpose": "The root package: scripts, workspaces and development dependencies.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "package-lock.json",
+      "purpose": "The locked dependency tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "tsconfig.json",
+      "purpose": "The TypeScript compiler options used for type checking.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "eslint.config.js",
+      "purpose": "The ESLint flat configuration.",
+      "layer": "public",
+      "imports": ["@eslint/js", "globals", "eslint-plugin-import-x", "typescript-eslint"],
+      "test": "none"
+    },
+    {
+      "path": "eslint-suppressions.json",
+      "purpose": "The recorded ESLint violations that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "type-baseline.json",
+      "purpose": "The recorded type errors that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "code-health-baseline.json",
+      "purpose": "The recorded size and structure breaches that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "structure.json",
+      "purpose": "This manifest of the tracked tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".prettierrc",
+      "purpose": "The Prettier options.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".prettierignore",
+      "purpose": "The files Prettier never formats.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".gitignore",
+      "purpose": "The paths git ignores.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".gitattributes",
+      "purpose": "The git attributes of the tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".nvmrc",
+      "purpose": "The Node version of the project.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "prompts/",
+      "purpose": "The tracked prompt files and labels the model reads.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "docs/",
+      "purpose": "How the engine works, one topic per file.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "agents/",
+      "purpose": "The profile and prompt of each errand and development agent.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "bin/",
+      "purpose": "Entry points that run as their own process.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "deploy/",
+      "purpose": "The systemd units and the install script.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/README.md",
+      "purpose": "The overview of the interface packages.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/discord/",
+      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol.",
+      "layer": "public",
+      "imports": ["node:*", "discord.js", "src/protocol/**"],
+      "test": "required"
+    },
+    {
+      "path": "tests/",
+      "purpose": "The node:test files, one per module.",
+      "layer": "public",
+      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
+      "test": "none"
+    },
+    {
+      "path": "tests/fixtures/",
+      "purpose": "Fakes, harnesses and sample data the tests share.",
+      "layer": "public",
+      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
+      "test": "none"
+    },
+    {
+      "path": "tools/",
+      "purpose": "Scripts for development and measurement, never run by the engine.",
+      "layer": "public",
+      "imports": ["node:*", "src/**", "interfaces/**", "tools/**", "typescript", "discord.js"],
+      "test": "none"
+    },
+    {
+      "path": "tools/lib/",
+      "purpose": "What the scripts under tools share.",
+      "layer": "public",
+      "imports": ["node:*", "src/**", "tools/**"],
+      "test": "none"
+    },
+    {
+      "path": "tools/fixtures/",
+      "purpose": "Sample data for the virtual-week harness.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "tools/prompts/",
+      "purpose": "Example scenario files for the tools.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/*.js",
+      "purpose": "The entry point and the small modules every part uses: settings, hot reload, logging, paths, time and text formatting.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/agent-runner/",
+      "purpose": "The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/behavior/",
+      "purpose": "What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/errands/",
+      "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/intentions/",
+      "purpose": "The persona intentions: model, store, sources and the service that wakes them.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/interface/",
+      "purpose": "The core side of the interface port: the door that admits events, the fake interface and typing leases.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/llm/",
+      "purpose": "The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/media/",
+      "purpose": "Pictures, video, audio, GIFs and drawing on the core side.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/",
+      "purpose": "The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/db/",
+      "purpose": "The memory database: schema, the single writer, sessions, wakes and the read paths.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/db/map/",
+      "purpose": "The mapping of memory rows to records and back.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/db/readers/",
+      "purpose": "The read queries of the memory database.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/ops/",
+      "purpose": "The owner operations behind the /nep commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/protocol/",
+      "purpose": "The neutral protocol of events, actions and envelopes between the core and its interfaces.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/skills/",
+      "purpose": "The tools the persona can call: definitions, registry, executors and the gateway.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/speech/",
+      "purpose": "Voice messages: text preparation, synthesis and audio conversion.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/web/",
+      "purpose": "Web search, page fetching and link reading.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    }
+  ]
+}

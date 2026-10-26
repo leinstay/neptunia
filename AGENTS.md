@@ -35,11 +35,13 @@ npm run lint                                              # ESLint over the tree
 npm run lint:prune                                        # after fixing violations: drops the stale entries from eslint-suppressions.json
 npm run typecheck                                         # tsc errors against type-baseline.json; fails when a count grows or shrinks
 npm run typecheck:update                                  # after fixing type errors: rewrites type-baseline.json
+npm run health                                            # file, function and structure limits against code-health-baseline.json, and docs/structure.md against structure.json
+npm run health:update                                     # after fixing a breach: rewrites code-health-baseline.json
 npm run format:check -- <files>                           # Prettier on the files you changed, never on the whole tree
 sh tools/pre-commit.sh                                    # format and lint on the staged files
 ```
 
-The two baselines may only shrink: new code adds no lint violation and no type error, and a fix is recorded in the same change with `lint:prune` or `typecheck:update`.
+The three baselines may only shrink: new code adds no lint violation, no type error and no size or structure breach, and a fix is recorded in the same change with `lint:prune`, `typecheck:update` or `health:update`.
 
 Set `TMPDIR` to a scratch folder before running tests. Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 

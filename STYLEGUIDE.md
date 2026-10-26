@@ -17,10 +17,10 @@ import { openDoor } from './door.ts';
 - ESLint 9 (flat config) runs typescript-eslint `recommended-type-checked` plus the rules named below.
 - Prettier formats with single quotes, semicolons, a 2-space indent, 120 columns and trailing commas where ES5 allows them.
 - The code-health check allows a file of up to 2,000 lines, a function of up to 300, nesting of 6 and cyclomatic complexity of 20. A file that is already over a limit may only shrink.
-- To waive a rule, write one comment above the code that says why.
+- To waive a rule, write one comment on the line directly above the function, or at the top of the file for `file-length`. It names the rule, a date at most 180 days ahead and the reason, and the waiver expires on that date.
 
 ```ts
-// health: allow function-length -- one switch over every wake kind, split would hide the table
+// health: allow function-length until 2027-01-31 -- one switch over every wake kind, split would hide the table
 ```
 
 ## Files and modules

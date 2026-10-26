@@ -1,6 +1,7 @@
 # Prettier runs on changed files only (npm run format:check -- <files>); these never get formatted.
 package-lock.json
 type-baseline.json
+code-health-baseline.json
 eslint-suppressions.json
 node_modules
 data
