@@ -4,7 +4,7 @@
 // function of the request that builds one; the last one repeats.
 import { after } from 'node:test';
 import path from 'node:path';
-import { createTurnRunner } from '../../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
 import { userText } from '../../src/behavior/prompt.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createDiscordInterface } from '../../interfaces/discord/index.js';
@@ -19,6 +19,12 @@ import { createAdmin } from '../../src/admin.js';
 import { labels } from './labels.js';
 import { withCapturedLogs } from './capture-logs.js';
 import { completionOf } from './tool-answers.js';
+import { freshWorld, onWorld, useIface, world } from './turn-world.ts';
+
+// The turn's conversations are held by a fake interface of the world of the test, named `fake`.
+useIface('fake');
+/** `createTurnRunner` over the world: `runTurn` takes a channel of the world; an adapter the test brings holds what the world holds. */
+export const createTurnRunner = onWorld(createRealTurnRunner);
 
 export const DISCORD = createDiscordInterface().capabilities;
 export const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -41,24 +47,26 @@ export function normalizedTrigger(raw) {
   return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
 }
 
+/**
+ * #general (c1) of the world, holding `historyMessages` (the array may grow: later lines reach the history too), with
+ * `neighbours` as its other channels.
+ * @param {Array<Record<string, unknown>>} historyMessages
+ * @param {Array<{ id: string, name: string }>} [neighbours]
+ * @returns {import('./turn-world.ts').Channel}
+ */
 export function fakeChannel(historyMessages, neighbours = []) {
-  return {
-    id: 'c1',
-    name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map(neighbours.map((c) => [c.id, c])) } },
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
-  };
+  // One history array is one channel for as long as the world lives: asking again gives the channel back, with what
+  // she posted in it.
+  const held = KNOWN.get(historyMessages);
+  if (held && held.world === world()) return held.channel;
+  for (const neighbour of neighbours) world().channel({ id: neighbour.id, name: neighbour.name });
+  const channel = world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
+  KNOWN.set(historyMessages, { world: world(), channel });
+  return channel;
 }
+
+/** @type {WeakMap<object, { world: object, channel: import('./turn-world.ts').Channel }>} */
+const KNOWN = new WeakMap();
 
 export function fakeStore({ profiles = [] } = {}) {
   return {
@@ -178,25 +186,25 @@ export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server
   });
   Object.assign(hot.prompts, prompts);
   if (withHot) withHot(hot);
+  freshWorld();
+  const channel = fakeChannel(history, neighbours);
+  // #jardin (c2): a neighbour of the same guild where the bot may do anything (a message quoted from it can be edited).
+  world().channel({ id: 'c2', name: 'jardin' });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seed('c1', { authorId: 'u2', messageId: 'm0', text: 'καλημέρα' });
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: content });
   for (const seed of seeds) port.seed(seed.conversationId, seed);
   if (setup) setup(port);
-  // #jardin (c2): a neighbour of the same guild where the bot may do anything (a message quoted from it can be edited).
-  const jardin = { id: 'c2', name: 'jardin', guild: { id: 'g1', members: { me: { displayName: 'Bot' } } }, isTextBased: () => true, isDMBased: () => false, viewable: true, permissionsFor: () => ({ has: () => true }) };
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map([['c2', jardin]]) }, ...clientExtra };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...adminExtra });
+  const client = { user: { id: 'self-id', username: 'Bot' }, ...clientExtra };
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', reads: world().adopt(port), port, ...adminExtra });
   const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier, onAnswer ? (n) => onAnswer(n, history, port) : null);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, ...runner });
   // An inner turn (`inner`: the wake): nobody asked, no trigger.
   const again = spontaneous
-    ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: spontaneous })
+    ? () => turns.runTurn({ channel, mode: spontaneous })
     : inner
-    ? () => turns.runTurn({ channel: fakeChannel(history, neighbours), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
-    : () => turns.runTurn({ channel: fakeChannel(history, neighbours), mode: 'reply', trigger: normalizedTrigger(history.at(-1)), triggerKind });
+    ? () => turns.runTurn({ channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
+    : () => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history.at(-1)), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, sends, hot, admin, again, port, turns };

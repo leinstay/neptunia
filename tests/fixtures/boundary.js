@@ -2,12 +2,12 @@
 // door, a real memory database and the fake interface adapter, with a scripted model. No network, no Discord client,
 // no data/. `innerRig` is one core; `rig.restart()` is the same core after a restart (a new inner life and a new door
 // over the same data directory and the same memory database).
-import { createTurnRunner } from '../../src/behavior/turn.js';
 import { createInnerLife } from '../../src/behavior/inner.js';
 import { createEventDoor } from '../../src/interface/door.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { skillRegistry } from '../../src/skills/registry.js';
-import { DISCORD, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
+import { createTurnRunner, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
+import { freshWorld, world } from './turn-world.ts';
 import { tempDir } from './tmp.js';
 import { openTestMemory } from './memory-db/service.js';
 
@@ -50,8 +50,11 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
   const memory = share?.memory ?? (await openTestMemory({ config: { memoryDb: { wakeRuns: true } }, now: () => clock.t }));
   const port = share?.port ?? createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => clock.t });
   const llm = share?.llm ?? sequenceLlm(answers);
-  const history = [rawMessage({ id: 'm1', ts: clock.t - 5 * MINUTE, content: 'καλημέρα' })];
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'καλημέρα' });
+  if (share === null) {
+    // A first core starts a world with #general (c1) and Alice's line; a restarted one finds them as they were.
+    freshWorld();
+    fakeChannel([rawMessage({ id: 'm1', ts: clock.t - 5 * MINUTE, content: 'καλημέρα' })]);
+  }
   const hot = hotWith({
     features: { innerLife: true, intentions: false, journal: false, coreTools: true },
     skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
@@ -71,19 +74,14 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     },
   });
   Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.' });
-  const client = connected
-    ? { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map(), fetch: (/** @type {string} */ id) => Promise.resolve(id === 'c1' ? fakeChannel(history) : null) } }
-    : null;
   const calibrator = { ratio: 1, apply: (/** @type {number} */ value) => value, observe: () => {} };
   // The runner's declared parameters are wider than what a test needs (a describer, a fetch), and the fakes are narrower
   // than the real client and port, so the whole argument is cast.
   const turns = createTurnRunner(/** @type {never} */ ({
-    discord: DISCORD,
     hot,
     store: fakeStore(),
     llm,
     calibrator,
-    client: client ?? { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } },
     now: () => clock.t,
     port,
     skills: skillRegistry(),
@@ -97,8 +95,9 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     dataDir,
     turns,
     record: spokeInC1(clock),
-    client,
-    discord: { canSend: () => true },
+    // With no interface connected there is nothing to ask about a conversation.
+    reads: connected ? world().adopt(port) : null,
+    iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
