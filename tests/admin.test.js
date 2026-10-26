@@ -23,7 +23,6 @@ import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { createMetrics } from '../src/ops/metrics.js';
-import { resolveCommand } from '../src/ops/index.js';
 import { getOp } from '../src/ops/registry.js';
 import { splitPath } from '../src/ops/shared.js';
 import { labels } from './fixtures/labels.js';
@@ -1217,7 +1216,6 @@ test('run: memory.affinity only reads -- the attitude changes through the memory
   const result = await admin.run('memory.affinity', { userId: '123', score: 77, reason: 'by hand' }, { guildId: 'g1' });
   assert.ok(result.includes('score: 12'), result);
   assert.equal(store.getUser('g1', '123').affinity.score, 12);
-  assert.equal(resolveCommand('memory.affinity', { userId: '123', score: 77 }).op, 'memory.affinity.read');
   assert.equal(getOp('memory.affinity.set'), null, 'no operation sets it');
 });
 

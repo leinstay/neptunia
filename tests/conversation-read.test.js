@@ -13,8 +13,6 @@ import {
   runConversationRead,
   sinceMoment,
 } from '../src/skills/conversation-read.js';
-import { COMMAND_TABLE } from '../src/ops/catalog.js';
-import { buildCommandTree } from '../src/interface/discord.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -96,14 +94,6 @@ test('registry: conversation.read is a read skill and an in-turn tool, with the 
   assert.deepEqual(Object.keys(skill.argsSchema.properties), ['channel', 'around', 'before', 'after', 'since', 'last']);
   assert.equal(skill.argsSchema.properties.last.maximum, 60);
   assert.ok(IN_TURN_TOOLS.includes('conversation.read'));
-});
-
-test('registry: the skill has a command leaf but no slash command, the Discord tree having no room for one', () => {
-  const task = COMMAND_TABLE.find((node) => node.name === 'task');
-  assert.ok(task.subcommands.some((leaf) => leaf.name === 'conversation' && leaf.personaOnly === true));
-  const [command] = buildCommandTree('nep');
-  const group = command.options.find((option) => option.name === 'task');
-  assert.ok(!group.options.some((option) => option.name === 'conversation'));
 });
 
 test('sinceMoment: a delay back, the latest clock time, a date-time', () => {

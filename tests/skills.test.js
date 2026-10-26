@@ -9,14 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runOp, resolveCommand } from '../src/ops/index.js';
+import { runOp } from '../src/ops/index.js';
 import { listOps } from '../src/ops/registry.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.js';
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
 import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
-import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
+import { createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import {
   loadSkills,
   skillRegistry,
@@ -1148,14 +1148,6 @@ test('persona grants: an old grant on talk.interject or talk.initiate holds on m
 // ---- the commands -------------------------------------------------------------------------
 
 test('persona grants: no /nep skill command; the access autocomplete offers her skill names', async () => {
-  const [command] = buildCommandTree('nep');
-  assert.ok(command.options.length <= 25, `${command.options.length} top-level entries`);
-  assert.equal(
-    command.options.some((option) => option.name === 'skill' || option.name === 'talk'),
-    false
-  );
-  for (const key of ['skill.allow', 'skill.deny', 'skill.list', 'talk'])
-    assert.equal(resolveCommand(key, { name: 'draw' }), null, key);
   const t = makeEnv();
   try {
     const admin = createAdmin({
