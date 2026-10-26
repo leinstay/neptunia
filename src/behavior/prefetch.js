@@ -21,9 +21,6 @@ import { fromTokens, isWordChar } from '../memory/mentions.js';
 import { foldText } from '../memory/recent.js';
 import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './recall.js';
 
-/** The lane kinds, in the order the query basis names them. */
-export const PREFETCH_LANES = Object.freeze(['message', 'reply', 'recent']);
-
 /** The trigger kinds a prefetch never runs for: an errand's result. */
 const NOT_EXTERNAL = new Set(['task']);
 

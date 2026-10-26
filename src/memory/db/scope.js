@@ -241,9 +241,6 @@ export const scopeWhere = (ctx, alias = '') =>
 /** The row check of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
 export const canRead = (row, ctx) => (ctx?.audienceColumn === true ? allowedAudience(row, ctx) : allowed(row, ctx));
 
-/** A context read through `audience_id` or the triple, as the live config says (`memoryDb.audienceColumn`). */
-export const withPredicate = (ctx, config) => ({ ...ctx, audienceColumn: config?.memoryDb?.audienceColumn === true });
-
 /**
  * `narrowest` on audiences: the meet of the audiences a derived row came from. none and X = X; internal and X = internal;
  * group(I) and group(I) = group(I); group(I) and dm(I, P) = dm(I, P); dm(P) and dm(P) = dm(P); different DM places, or

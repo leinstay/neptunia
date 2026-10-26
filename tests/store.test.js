@@ -4,7 +4,6 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createStore, writeJsonAtomic } from '../src/memory/store.js';
 import { applyDelta } from '../src/memory/affinity.js';
 import { mergeEpisodes } from '../src/memory/episodes.js';
@@ -14,7 +13,7 @@ import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { unitValue } from '../src/memory/db/readers/common.js';
-import { MEMORY_LIMIT_DEFAULTS, SELF_CHARS } from '../src/memory/text-limits.js';
+import { SELF_CHARS } from '../src/memory/text-limits.js';
 
 function tmpDataDir() {
   return tempDir('nep-store-');
@@ -461,7 +460,6 @@ test('updateGuild: a re-send identical to what is stored leaves updatedAt alone;
 // ---- the notes stamps: when the server and channel notes last changed, and were last re-checked ----
 
 const NOTES_EARLIER = '2000-01-01T00:00:00.000Z';
-const NOTES_CHECK_AT = Date.UTC(2026, 9, 5, 9, 0, 0);
 
 test('updateGuild: notesUpdatedAt moves for patterns, starters or injokes only', () => {
   const store = createStore({ dataDir: tmpDataDir() });
@@ -525,78 +523,15 @@ test('updateGuild: the notes stamps can never be set through the fields', () => 
   assert.deepEqual([guild.updatedAt, guild.notesUpdatedAt, guild.notesCheckedAt], [NOTES_EARLIER, NOTES_EARLIER, null]);
 });
 
-test('applySelfOps, applyLearnedOps: a self fact or a lesson never moves notesUpdatedAt', () => {
+test('applyLearnedOps: a lesson never moves notesUpdatedAt', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   store.updateGuild('g1', { patterns: 'μιμίδια' });
   Object.assign(store.getGuild('g1'), { updatedAt: NOTES_EARLIER, notesUpdatedAt: NOTES_EARLIER });
 
-  store.applySelfOps('g1', { add: ['πίνω τσάι'] }, { maxSelfFacts: 20, now: NOTES_CHECK_AT });
   store.applyLearnedOps('g1', { add: ['Café closes at nine'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   const guild = store.getGuild('g1');
   assert.notEqual(guild.updatedAt, NOTES_EARLIER);
   assert.equal(guild.notesUpdatedAt, NOTES_EARLIER);
-});
-
-test('markNotesChecked: stamps notesCheckedAt on each listed channel and on the guild, never updatedAt', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.updateGuild('g1', { patterns: 'μιμίδια' });
-  Object.assign(store.getGuild('g1'), { updatedAt: NOTES_EARLIER, notesUpdatedAt: NOTES_EARLIER });
-  for (const id of ['c1', 'c2', 'c3']) store.updateChannel('g1', id, { purpose: 'κουβέντα' }).updatedAt = NOTES_EARLIER;
-  const before = structuredClone({ guild: store.getGuild('g1'), channels: store.listChannels('g1') });
-
-  const marked = store.markNotesChecked('g1', { channels: ['c1', 'c2', 'c1'], guild: true }, NOTES_CHECK_AT);
-
-  const at = new Date(NOTES_CHECK_AT).toISOString();
-  assert.deepEqual(marked, { channels: 2, guild: true }, 'a channel listed twice is one channel');
-  assert.deepEqual(
-    store.getGuild('g1'),
-    { ...before.guild, notesCheckedAt: at },
-    'the guild: nothing but the check stamp'
-  );
-  const checked = (channel) => (channel.id === 'c3' ? channel : { ...channel, notesCheckedAt: at });
-  assert.deepEqual(
-    store.listChannels('g1'),
-    before.channels.map(checked),
-    'each listed channel: nothing but the check stamp'
-  );
-  assert.equal(store.getChannel('g1', 'c3').notesCheckedAt, null, 'a channel that was not listed keeps none');
-});
-
-test('markNotesChecked: guild false leaves the guild alone; a channel never seen is skipped, not created', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.updateChannel('g1', 'c1', { purpose: 'κουβέντα' });
-
-  assert.deepEqual(store.markNotesChecked('g1', { channels: ['c1', 'c9'], guild: false }, NOTES_CHECK_AT), {
-    channels: 1,
-    guild: false,
-  });
-  store.flush();
-
-  assert.equal(store.getChannel('g1', 'c9'), null);
-  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'channels', 'c9.json')), false);
-  assert.equal(
-    fs.existsSync(path.join(dir, 'guilds', 'g1', 'guild.json')),
-    false,
-    'no guild file appears for a channel-only check'
-  );
-  assert.equal(store.getGuild('g1').notesCheckedAt, null);
-});
-
-test('markNotesChecked: a guild never written gets its check stamp, and the stamps survive a restart', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.touchChannel('g1', 'c1', { name: 'αγορά', category: null, topic: null }, 1000);
-  storeA.markNotesChecked('g1', { channels: ['c1'], guild: true }, NOTES_CHECK_AT);
-  storeA.flush();
-  await storeA.flushSettled({});
-
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  const at = new Date(NOTES_CHECK_AT).toISOString();
-  assert.equal(storeB.getGuild('g1').notesCheckedAt, at);
-  assert.equal(storeB.getGuild('g1').notesUpdatedAt, null, 'checked, never written');
-  assert.equal(storeB.getChannel('g1', 'c1').notesCheckedAt, at);
-  assert.equal(storeB.getChannel('g1', 'c1').updatedAt, null);
 });
 
 test('markNotesFlagged: stamps notesFlaggedAt on existing channels and the guild only', () => {
@@ -2309,139 +2244,8 @@ test('getUser / getPrivate: a profile written before relationshipWrittenAt exist
 
 // --- self facts ----
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const VOICE_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-const VOICE_AT = new Date(VOICE_NOW).toISOString();
 const ELENI = '111111111111111111';
 const NIKOS = '222222222222222222';
-
-test('applySelfOps: adds, removes exact items, keeps at most maxSelfFacts', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.updateGuild('g1', { self: ['μου αρέσει η βροχή', `φοβάμαι τη <@${ELENI}>`] });
-
-  const counts = store.applySelfOps(
-    'g1',
-    {
-      remove: ['  ΜΟΥ αρέσει   η βροχή ', 'κάτι που δεν είπα'],
-      add: ['παίζω κιθάρα', `φοβάμαι τη <@${ELENI}>`, 'παίζω  κιθάρα', '', 42],
-    },
-    { maxSelfFacts: 3 }
-  );
-  assert.deepEqual(counts, { added: 1, removed: 1, evicted: 0 });
-  assert.deepEqual(store.getGuild('g1').self, [`φοβάμαι τη <@${ELENI}>`, 'παίζω κιθάρα']);
-
-  assert.deepEqual(store.applySelfOps('g1', { add: ['α', 'β'] }, { maxSelfFacts: 3 }), {
-    added: 2,
-    removed: 0,
-    evicted: 1,
-  });
-  assert.deepEqual(store.getGuild('g1').self, ['παίζω κιθάρα', 'α', 'β'], 'the oldest went');
-
-  assert.deepEqual(
-    store.applySelfOps('g1', { add: ['γ'] }, { maxSelfFacts: 0 }),
-    { added: 0, removed: 0, evicted: 0 },
-    'a cap of 0 adds nothing and evicts nothing'
-  );
-  assert.deepEqual(store.getGuild('g1').self, ['παίζω κιθάρα', 'α', 'β']);
-});
-
-test('applySelfOps: stamps updatedAt only when the list changes; garbage, a repeat or a miss changes nothing', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(store.applySelfOps('g1', { add: ['α'] }, { maxSelfFacts: 20, now: VOICE_NOW }), {
-    added: 1,
-    removed: 0,
-    evicted: 0,
-  });
-  assert.equal(store.getGuild('g1').updatedAt, VOICE_AT);
-  store.flush();
-  await store.flushSettled({});
-  const raw = unitText(memoryDb, 'guilds/g1/guild.json');
-
-  for (const ops of [null, 'α', [], { add: 'β' }, { add: ['α'] }, { remove: ['ω'] }, { remove: [7] }]) {
-    assert.deepEqual(
-      store.applySelfOps('g1', ops, { maxSelfFacts: 20, now: VOICE_NOW + 1 }),
-      { added: 0, removed: 0, evicted: 0 },
-      JSON.stringify(ops)
-    );
-  }
-  store.flush();
-  await store.flushSettled({});
-  assert.equal(unitText(memoryDb, 'guilds/g1/guild.json'), raw);
-});
-
-test('applySelfOps: maxSelfFacts is required, the store keeps no copy of its default; a fraction is floored', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  store.applySelfOps('g1', { add: ['α'] }, { maxSelfFacts: 20, now: VOICE_NOW });
-  store.flush();
-  await store.flushSettled({});
-  const raw = unitText(memoryDb, 'guilds/g1/guild.json');
-
-  for (const opts of [
-    undefined,
-    {},
-    { maxSelfFacts: undefined },
-    { maxSelfFacts: null },
-    { maxSelfFacts: -1 },
-    { maxSelfFacts: NaN },
-    { maxSelfFacts: Infinity },
-    { maxSelfFacts: '20' },
-  ]) {
-    assert.throws(
-      () => store.applySelfOps('g1', { add: ['β'], remove: ['α'] }, opts),
-      TypeError,
-      String(opts && opts.maxSelfFacts)
-    );
-  }
-  assert.throws(() => store.applySelfOps('g1', null), TypeError, 'checked before the ops');
-  store.flush();
-  await store.flushSettled({});
-  assert.equal(unitText(memoryDb, 'guilds/g1/guild.json'), raw, 'nothing changed');
-
-  // The caller's resolved cap: src/memory/text-limits.js#MEMORY_LIMIT_DEFAULTS holds config.json's fallback.
-  const cap = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).memory.maxSelfFacts;
-  assert.equal(MEMORY_LIMIT_DEFAULTS.maxSelfFacts, cap);
-  const facts = Array.from({ length: cap + 2 }, (_, i) => `γεγονός ${i}`);
-  assert.deepEqual(store.applySelfOps('g2', { add: facts }, { maxSelfFacts: MEMORY_LIMIT_DEFAULTS.maxSelfFacts }), {
-    added: cap + 2,
-    removed: 0,
-    evicted: 2,
-  });
-  assert.deepEqual(store.getGuild('g2').self, facts.slice(-cap));
-
-  assert.deepEqual(store.applySelfOps('g3', { add: ['α', 'β', 'γ'] }, { maxSelfFacts: 2.9 }), {
-    added: 3,
-    removed: 0,
-    evicted: 1,
-  });
-  assert.deepEqual(store.getGuild('g3').self, ['β', 'γ']);
-});
-
-test('applySelfOps: a call that only removes or only repeats never cuts a list stored above a lowered cap', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.applySelfOps('g1', { add: ['α', 'β', 'γ', 'δ', 'ε'] }, { maxSelfFacts: 20 });
-
-  assert.deepEqual(store.applySelfOps('g1', { remove: ['γ'] }, { maxSelfFacts: 2 }), {
-    added: 0,
-    removed: 1,
-    evicted: 0,
-  });
-  assert.deepEqual(store.getGuild('g1').self, ['α', 'β', 'δ', 'ε']);
-  assert.deepEqual(store.applySelfOps('g1', { add: [' Α '] }, { maxSelfFacts: 2 }), {
-    added: 0,
-    removed: 0,
-    evicted: 0,
-  });
-  assert.deepEqual(store.getGuild('g1').self, ['α', 'β', 'δ', 'ε']);
-
-  assert.deepEqual(
-    store.applySelfOps('g1', { add: ['ζ'] }, { maxSelfFacts: 2 }),
-    { added: 1, removed: 0, evicted: 3 },
-    'an add trims to the cap'
-  );
-  assert.deepEqual(store.getGuild('g1').self, ['ε', 'ζ']);
-});
 
 // --- the recent store (data/guilds/<id>/recent.json, src/memory/recent.js) ------
 
@@ -2983,15 +2787,6 @@ test('store: eviction returns the dropped items with their itemId', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir, newId: counterIds() });
 
-  store.applySelfOps('g1', { add: ['α', 'β', 'γ'] }, { maxSelfFacts: 5 });
-  const self = store.applySelfOps('g1', { add: ['δ'], remove: ['α'] }, { maxSelfFacts: 2 });
-  assert.deepEqual(self, { added: 1, removed: 1, evicted: 1 }, 'the counts stay what they were');
-  assert.deepEqual(
-    self.dropped.map((d) => d.text),
-    ['α', 'β']
-  );
-  assert.ok(self.dropped.every((d) => d.itemId.startsWith('sf-u')));
-
   let onDropped = null;
   store.updateGuild('g1', { injokes: ['ο café', 'η γάτα'] });
   store.updateGuild('g1', { injokes: ['η γάτα', 'το σκάκι'] }, { onDropped: (d) => (onDropped = d) });
@@ -3185,7 +2980,6 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
     [1, 2, 3].map((n) => ({ date: `2026-10-0${n}`, what: `στιγμή ${n}`, weight: 1 })),
     opts
   );
-  store.applySelfOps('g1', { add: ['α', 'β'] }, { maxSelfFacts: 2 });
 
   const from = store.archiveMark('g1');
   store.addEpisodes(
@@ -3197,21 +2991,18 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
     ],
     opts
   );
-  store.applySelfOps('g1', { add: ['γ'] }, { maxSelfFacts: 2 });
   const to = store.archiveMark('g1');
 
   const { logs, result: settled } = await withCapturedLogs(() => store.settleArchive('g1', { from, to }));
-  assert.deepEqual(settled, { archived: [], deferred: 3 });
+  assert.deepEqual(settled, { archived: [], deferred: 2 }); // this count and the ones below dropped by one: the self-fact setup went with applySelfOps
   assert.ok(
-    logs.some((entry) => entry.msg === 'store: archive failed' && entry.entries === 3),
+    logs.some((entry) => entry.msg === 'store: archive failed' && entry.entries === 2),
     'counts only'
   );
   assert.equal(store.getUser('g1', 'u1').episodes.length, 5, 'every victim stays hot');
-  assert.deepEqual(store.getGuild('g1').self, ['α', 'β', 'γ']);
   assert.deepEqual(archive.pending.map((item) => `${item.entry.itemKind} ${item.entry.event}`).sort(), [
     'episode evicted',
     'episode evicted',
-    'selfFact evicted',
   ]);
   store.flush();
   await store.flushSettled({});
@@ -3221,12 +3012,11 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
   // A later write drops the same victims again: nothing is queued twice.
   store.addEpisodes('g1', 'u1', [{ date: '2026-10-06', what: 'βαριά τρία', weight: 3 }], opts);
   await store.settleArchive('g1');
-  assert.equal(archive.pending.length, 4, 'only the new victim is queued');
+  assert.equal(archive.pending.length, 3, 'only the new victim is queued');
 
   const drained = await store.drainArchive('g1');
-  assert.deepEqual(drained, { archived: 4, left: 0 });
+  assert.deepEqual(drained, { archived: 3, left: 0 });
   assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['βαριά', 'βαριά δύο', 'βαριά τρία']);
-  assert.deepEqual(store.getGuild('g1').self, ['β', 'γ']);
   store.flush();
   await store.flushSettled({});
   assert.equal(JSON.parse(readRaw(file)).episodes.length, 3);

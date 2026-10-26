@@ -1,7 +1,9 @@
 // The skills as native tool definitions (OpenAI chat-completions `tools`): built from the registry
 // rows granted to the persona, the wording from the skills layer (`hot.prompts.skills`, read by the
 // caller at the moment of use). Our names stay dotted everywhere; only this boundary carries the API
-// name (`draw.create` <-> `draw_create`, src/skills/definitions.js). Nothing uses it in a turn yet.
+// name (`draw.create` <-> `draw_create`, src/skills/definitions.js). `buildTools` serves the live turn
+// (src/behavior/turn.js) and the replay sandbox (src/behavior/sandbox.js); `canonicalJson` also keeps the
+// text transport's description stable (src/llm/tool-text.js).
 
 import { skillRegistry, describeSkill, skillArgTexts } from './registry.js';
 import { apiNameOf, skillNameOfApi } from './definitions.js';

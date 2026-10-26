@@ -254,7 +254,7 @@ export function normalCode(code, values = null) {
  * The words of a code: `labels.skills.result.reasons[<code>]` with the code's values filled
  * (`{status}` as it is, `{what}` and `{feature}` through `labels.skills.result.params.<param>.<value>`
  * when that exists). The one lookup the call mark (src/format.js#callReason) and the `<result>`
- * block (src/behavior/prompt.js#skillResultBlock) share, so a restart that reseeds the mark from
+ * block (src/skills/tool-calls.js#toolResultText) share, so a restart that reseeds the mark from
  * the journal tells the same text. `null` when the code has no wording or a value its label names
  * is missing.
  * @param {object} labels

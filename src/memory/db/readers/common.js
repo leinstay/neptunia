@@ -62,14 +62,6 @@ export function byBytes(a, b) {
   return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 }
 
-/** Whether the unit `owner` has an active row in `table`. */
-export function hasRows(db, table, owner) {
-  return (
-    db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE owner_file = ? AND retired_at IS NULL LIMIT 1`).get(owner) !==
-    undefined
-  );
-}
-
 function infoOf(owner, format) {
   const info = classify(owner);
   if (!info || info.skipped || info.format !== format)

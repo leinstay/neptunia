@@ -27,8 +27,7 @@
 // Channels go the same way back out: `linkChannels` turns the `#handle` (exactly, from the
 // request's channel directory) or else the `#name` the
 // persona writes into the `<#id>` link the chat shows as a channel, and `linkMessageNumbers` turns a
-// transcript number `#93` into the jump link of that message. And a forget takes a member
-// out of a kept text (`redactUser`): their token and their names become a neutral word.
+// transcript number `#93` into the jump link of that message.
 // A written channel name is matched by its core too (`channelCore`, `matchChannel`): the name
 // without leading and trailing emoji or symbols, folded, since models copy those unreliably.
 // A URL the persona writes is never rewritten on the way out (`URL_PATTERN`, `outsideUrls`):
@@ -548,33 +547,4 @@ export function linkMessageNumbers(text, resolve) {
     index = match.index + match[0].length;
   }
   return result + convert(text.slice(index));
-}
-
-/** The fewest word characters a name needs before `redactUser` replaces it (a shorter one is too common a word). */
-const MIN_REDACT_NAME = 3;
-
-/**
- * `text` with one member taken out of it (a forget): every
- * `<@id>` / `<@!id>` token of `userId` and every one of `names` occurring as a whole word
- * (case-insensitive, any script; the longest first; a name with fewer than three word characters
- * is left alone) replaced by `token`. Anything that is not a string comes back unchanged.
- * @param {unknown} text
- * @param {{ userId: string, names?: string[], token: string }} opts
- * @returns {unknown}
- */
-export function redactUser(text, { userId, names = [], token }) {
-  if (typeof text !== 'string' || !text) return text;
-  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  let out = text.split(`<@${userId}>`).join(token).split(`<@!${userId}>`).join(token);
-  const usable = [
-    ...new Set(
-      (Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map((name) => name.trim())
-    ),
-  ]
-    .filter((name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_REDACT_NAME)
-    .sort((a, b) => b.length - a.length);
-  for (const name of usable) {
-    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escape(name)}(?![\\p{L}\\p{N}_])`, 'giu'), () => token);
-  }
-  return out;
 }

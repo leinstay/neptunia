@@ -3,8 +3,7 @@
 // `normalizeCalls` turns the transport's calls (`toolCallsOf` in src/llm/openrouter.js, or
 // `parseToolCallBlocks` in src/llm/tool-text.js) into records the step engine plans one by one;
 // `coerceArgs` reads `"true"` as true and `"5"` as 5 where the schema says so and tells which;
-// `toolResultText` is the body of the result she reads for each call (the `<result>` block's body of
-// the old loop, moved here; the old block stays in src/behavior/prompt.js until the cutover);
+// `toolResultText` is the text of the result she reads for each call;
 // `coversSpeech` says whether a finished call lets the speech of its step go out. No I/O, no clock,
 // no state. Every word comes from the labels; ids, names and statuses are protocol tokens.
 

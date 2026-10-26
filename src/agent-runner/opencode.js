@@ -38,9 +38,8 @@
 // text file that carries a secret); the result text is redacted in a
 // filtered scope. Resolves, never rejects.
 //
-// OpenCode's cost is a catalog estimate, not OpenRouter's billed cost (see
-// .agents/docs/references/opencode-and-beads.md): the usd cap is a soft cap;
-// the hard cap is the runner key's OpenRouter credit limit.
+// OpenCode's cost is a catalog estimate, not OpenRouter's billed cost, so the
+// usd cap is a soft cap; the hard cap is the runner key's OpenRouter credit limit.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';

@@ -322,10 +322,5 @@ export const UNIT_ORDER = Object.freeze([
   'decisions',
 ]);
 
-/** The predicates graph.js projects (the spec list less the deferred ones). */
-export const PROJECTED_PREDICATES = Object.freeze(
-  Object.keys(PREDICATES).filter((name) => PREDICATES[name].table !== null)
-);
-
 /** The relation predicates of `source_relations` that are graph predicates (`edits` and `references` are not in the list). */
 export const RELATION_EDGES = Object.freeze(['replies_to', 'quotes', 'reposts', 'mentions']);

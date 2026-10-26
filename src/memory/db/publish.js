@@ -36,9 +36,6 @@ import { legacyNativeKind, nativeAuthorityOf } from './ids.js';
 import { contextRow } from './scope.js';
 import { projectRow } from './graph.js';
 
-/** The states of a publication. */
-export const PUBLICATION_STATES = Object.freeze(['queued', 'sent', 'failed', 'unknown']);
-
 const dbOf = (handle) => handle?.db ?? handle;
 const txOf = (handle) => (typeof handle?.transaction === 'function' ? (fn) => handle.transaction(fn) : (fn) => fn());
 const filled = (value) => typeof value === 'string' && value !== '';

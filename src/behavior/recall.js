@@ -1245,14 +1245,6 @@ export function countFormsIn(texts, forms) {
   return formsMatched(Array.isArray(texts) ? texts : [], foldedForms(forms));
 }
 
-/** The searchable texts of a chat message as the record reader matches them (its text, its links' titles and descriptions). */
-export function searchableTexts(message) {
-  return recordTexts({
-    content: typeof message?.content === 'string' ? message.content : '',
-    links: Array.isArray(message?.links) ? message.links : [],
-  });
-}
-
 /** A time from an ISO string, or -Infinity. */
 function isoMs(value) {
   const ms = typeof value === 'string' ? Date.parse(value) : NaN;

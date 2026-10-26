@@ -211,10 +211,8 @@ test('updateGuild: patterns, starters, in-jokes and self facts are stored withou
   assert.deepEqual(guild.self, ['μου αρέσει το τσάι']);
 });
 
-test('applySelfOps / applyLearnedOps: self facts and lessons are stored without links; a link alone adds nothing', () => {
+test('applyLearnedOps: lessons are stored without links; a link alone adds nothing', () => {
   const store = tmpStore();
-  const self = store.applySelfOps('g1', { add: [`γράφω ποιήματα ${URL}`, URL] }, { maxSelfFacts: 10 });
-  assert.equal(self.added, 1);
   const learned = store.applyLearnedOps(
     'g1',
     { add: [{ text: `το café ανοίγει στις 8 ${URL}` }, URL] },
@@ -224,9 +222,7 @@ test('applySelfOps / applyLearnedOps: self facts and lessons are stored without 
     learned.map((item) => item.text),
     ['το café ανοίγει στις 8']
   );
-  const guild = store.getGuild('g1');
-  assert.deepEqual(guild.self, ['γράφω ποιήματα']);
-  noUrl(guild);
+  noUrl(store.getGuild('g1'));
 });
 
 // ---- channel notes ----

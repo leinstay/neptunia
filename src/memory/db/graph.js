@@ -86,8 +86,6 @@ function cacheOf(db) {
   }
   return cache;
 }
-/** Whether the database has the graph tables (schema v9). */
-export const hasGraph = (handle) => cacheOf(dbOf(handle)).has;
 function prepared(db, sql) {
   const { statements } = cacheOf(db);
   if (!statements.has(sql)) statements.set(sql, db.prepare(sql));

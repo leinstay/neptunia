@@ -390,7 +390,6 @@
     "maxDeltaPerUpdate": 15,
     "historySize": 10,
     "shownMoves": 4,
-    "directTriggerCount": 6,
     "damping": true,
     "dampingPower": 1,
     "decayPerDay": 0.04,
@@ -796,7 +795,6 @@
   },
   "journal": {
     "thinkChars": 4000,
-    "retentionDays": 0,
     "keepRequests": 3,
     "offWindowHours": 24
   },

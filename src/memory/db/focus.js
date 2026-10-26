@@ -672,12 +672,6 @@ export function setOverride(handle, { person, kind, approvedBy, expiresAt = null
   );
 }
 
-/** Removes a person's override. */
-export function clearOverride(handle, person) {
-  const db = dbOf(handle);
-  txOf(handle)(() => db.prepare('DELETE FROM focus_overrides WHERE person_id = ?').run(person));
-}
-
 /**
  * Her focus close set as person ids, the best scored first (an internal reader: the description reviews of her memory
  * session put these people first, writer-switch.js#openFlags). Empty without the table.

@@ -774,8 +774,6 @@ export const V10_TABLES = [
   'focus_events',
   'focus_overrides',
 ];
-/** The buckets of the focus set. */
-export const FOCUS_BUCKETS = ['close', 'exploring'];
 
 const V10_SQL = [
   `CREATE TABLE publication_grants (
@@ -980,17 +978,6 @@ const V13 = [
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
 export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
-
-/** Every table schema v7 adds. */
-export const V7_TABLES = [
-  'interfaces',
-  'authorities',
-  'connections',
-  'external_keys',
-  'audiences',
-  'account_person_links',
-  'execution_contexts',
-];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

@@ -2,8 +2,8 @@
 // speech may go out after them, the messages the next request appends (the same shape on both
 // transports), the note that ends them, the numbers of the lines that came in meanwhile, the room
 // that is left, and whether her answer began with her thinking. Nothing here reads a clock, a
-// config or the network; the turn (src/behavior/turn.js) passes in what it knows. Not used by a
-// turn yet.
+// config or the network; the turn (src/behavior/turn.js) and the replay sandbox (src/behavior/sandbox.js)
+// pass in what they know.
 
 import { fill } from '../format.js';
 import { clampWithEllipsis } from '../memory/clamp.js';
