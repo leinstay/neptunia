@@ -7,7 +7,7 @@
 // adapter; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
@@ -22,6 +22,11 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
 import { tempDir } from './fixtures/tmp.js';
+import { onWorld, useIface, world } from './fixtures/turn-world.ts';
+
+// The conversation is held by a fake interface named `fake`.
+useIface('fake');
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-19T12:00:00Z');
@@ -39,32 +44,6 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 60_0
     attachments: new Map(),
     stickers: new Map(),
   };
-}
-
-/** The channel c1 over `historyMessages`; `listed`: whether the guild's channel directory lists it. */
-function fakeChannel(historyMessages, { listed = true } = {}) {
-  const channel = {
-    id: 'c1',
-    name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    isTextBased: () => true,
-    isThread: () => false,
-    parent: null,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg)
-          return new Map(historyMessages.slice(-arg.limit).map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
-  };
-  if (listed) channel.guild.channels.cache.set(channel.id, channel);
-  return channel;
 }
 
 function fakeStore() {
@@ -214,21 +193,20 @@ async function liveTurn({
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };
   const intentions = intentionService(hot);
   seed?.(intentions);
+  const channel = world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages: history });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
+  const reads = world().adopt(port);
+  const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
   store.getLore = () => lore;
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, intentions });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, reads, intentions });
   const llm = sequenceLlm(typeof answers === 'function' ? answers(intentions) : answers);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store,
     llm,
     calibrator,
-    client,
     now: () => NOW,
     port,
     skills: skillRegistry(),
@@ -240,7 +218,7 @@ async function liveTurn({
   });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
+    turns.runTurn({ channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
   );
   const sends = port.calls.filter((call) => call.op === 'send');
   return { result, logs, llm, sends, intentions, hot, list: () => intentions.list('g1', { all: true, closed: true }) };
