@@ -86,7 +86,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Stage with explicit paths (`git add <paths>`), never `-A` or `.`.
 - Commit subject in English, imperative, under 72 characters; the body says why when the subject is not enough. End the message with a `Co-Authored-By:` trailer naming the model that did the work.
 - A pull request says what changed and why, how it was tested, and whether it adds a setting, a prompt file or a contract change. CI must be green before a merge; read the conclusion, do not assume it.
-- Never commit the local layer, `.env`, `.agents/`, `.claude/`, `.opencode/` or anything with a key in it. The pre-commit hook and CI refuse them; do not work around either.
+- Never commit the local layer, `.env`, `.agents/`, `.opencode/`, `.claude/` beyond its `settings.json`, or anything with a key in it. The pre-commit hook and CI refuse them; do not work around either.
 - Never force-push `main`, never rewrite published history, never delete a branch you did not create.
 
 ## Tests
@@ -119,6 +119,10 @@ Tests are written by agents, so the quality lives in the method, not in a review
 | `.agents/tools/` | Scripts of this deployment that the public `tools/` cannot hold. |
 
 Nothing from `.agents/` goes into a pull request. A script used a second time stops being scratch: it moves to `tools/` when it is generic and holds nothing private, otherwise to `.agents/tools/`.
+
+## Rule files
+
+`AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md`, `WRITING.md` and `CONTRIBUTING.md` at the root, and `.agents/AGENTS.md` of a deployment, change only with the maintainer's explicit approval of that one change. An agent that thinks one of them is wrong stops and says what it would change and why; it does not edit, and it does not write the change somewhere else instead. The hook in `.claude/settings.json` (`tools/hooks/rule-files-guard.sh`) refuses the edit in every clone; with the approval, the marker file `.agents/tmp/rules-unlock` lets one change through and is removed after the commit.
 
 ## Never
 

@@ -1,4 +1,14 @@
-# Runs the test suite on every push to main and on pull requests.
+# The checks of this repository, on every pull request and every push to main.
+#
+# For an agent reading this: the checks run here and nowhere else. Do not run `npm run lint`, `typecheck`, `health`
+# or `prose` on your machine (the lint alone loads the whole project for a minute); push the branch, open the pull
+# request and read the checks. A red check names the file and the line; fix that and push again. The whole run takes
+# about two minutes; a job that runs past its `timeout-minutes` is a bug of the check, not something to wait for.
+#
+# Four jobs run in parallel: `guard` (no private file tracked), `lint` (ESLint), `types` (the type check, the size
+# and structure ratchet, the prose rules, the result codes, the formatting of the changed files) and `tests` (the
+# whole suite). The last job, `test`, only waits for the four and is the one branch protection requires, so its name
+# stays `test (26.x)`.
 name: Tests
 
 on:
@@ -9,37 +19,66 @@ on:
 permissions:
   contents: read
 
+# A new push to the same branch cancels the run in progress: only the latest commit is checked.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  guard:
+    # The per-deployment private layer (agent rules, personality, live config, memory, keys) must never be
+    # committed. `.claude/settings.json` is public on purpose: it carries the rule-files guard every clone gets.
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node: ['26.x']
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: No private files tracked
+        run: |
+          bad=$(git ls-files -- CLAUDE.local.md .claude/settings.local.json .claude/agents .claude/worktrees .opencode .agents .local.git .secrets references prompts.local config.local.json data .env '.env.*' | grep -vx '.env.example' || true)
+          if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
+
+  lint:
+    # ESLint over the tree with the type-aware rules (eslint.config.js; the rules STYLEGUIDE.md names). Old
+    # violations live in eslint-suppressions.json and that file may only shrink. The cache keeps unchanged files
+    # from being linted again on the next run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.x'
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .eslintcache
+          key: eslint-${{ hashFiles('package-lock.json', 'eslint.config.js', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: eslint-${{ hashFiles('package-lock.json', 'eslint.config.js', 'tsconfig.json') }}-
+      - run: npx eslint . --pass-on-unpruned-suppressions --cache --cache-location .eslintcache
+
+  types:
+    # `typecheck`: tsc, strict, over the .ts files only (type-baseline.json may only shrink). `health`: file,
+    # function and nesting limits and the folder rules of structure.json (code-health-baseline.json may only
+    # shrink). `prose`: the objective rules of WRITING.md on the Markdown files. `check:codes`: the result codes
+    # against prompts/labels.json and the contract table. Then Prettier on the files this change touches only: a
+    # pull request diffs against its base, a push to main against the commit before it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: No private files tracked
-        # The per-deployment private layer (agent rules, personality, live config, state) must never be committed.
-        run: |
-          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local config.local.json data .env '.env.*' | grep -vx '.env.example' || true)
-          if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '26.x'
           cache: npm
       - run: npm ci
-      - run: npm run lint
       - run: npm run typecheck
       - run: npm run health
       - run: npm run prose
+      - run: npm run check:codes
       - name: Format of changed files
-        # Prettier checks only the files this change touches. A pull request diffs against its base; a push to main
-        # diffs against the commit before the push, and a first push (all-zero sha) is skipped.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
@@ -49,5 +88,27 @@ jobs:
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
           files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD | grep -E '\.(js|mjs|cjs|ts|json|ya?ml)$' || true)
           if [ -n "$files" ]; then printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 npx prettier --check; fi
-      - run: npm run check:codes
+
+  tests:
+    # The whole suite with node:test (tests/**). No network, no Discord, no model: every test runs on fakes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.x'
+          cache: npm
+      - run: npm ci
       - run: npm test
+
+  test:
+    # The one check branch protection requires (`test (26.x)`): green when the four above are.
+    needs: [guard, lint, types, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      matrix:
+        node: ['26.x']
+    steps:
+      - run: echo "lint, types, tests and the private-files guard passed on Node ${{ matrix.node }}"
