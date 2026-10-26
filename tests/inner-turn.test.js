@@ -12,7 +12,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createTurnRunner, loopSettings } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner, loopSettings } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
@@ -40,6 +40,11 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { tempDir } from './fixtures/tmp.js';
+import { onWorld, useIface, world } from './fixtures/turn-world.ts';
+
+// The conversation is held by a fake interface named `fake`.
+useIface('fake');
+const createTurnRunner = onWorld(createRealTurnRunner);
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 /** The test memory databases opened here; closed when the file is done. */
@@ -66,30 +71,9 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 60_0
   };
 }
 
-/** The channel c1 over `historyMessages`; `listed`: whether the guild's channel directory lists it. */
-function fakeChannel(historyMessages, { listed = true } = {}) {
-  const channel = {
-    id: 'c1',
-    name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    isTextBased: () => true,
-    isThread: () => false,
-    parent: null,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg)
-          return new Map(historyMessages.slice(-arg.limit).map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
-  };
-  if (listed) channel.guild.channels.cache.set(channel.id, channel);
-  return channel;
+/** The channel c1 of the community over `historyMessages`, in the test's world. */
+function fakeChannel(historyMessages) {
+  return world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
 }
 
 function fakeStore() {
@@ -240,7 +224,6 @@ async function innerTurn({
   errandConfigured = true,
   loop = null,
   skillsLoop = null,
-  listed = true,
   clock = () => NOW,
   slowMs = 0,
   gifs = null,
@@ -259,7 +242,6 @@ async function innerTurn({
   if (loop) hot.config.innerLife.loop = { ...loop };
   if (skillsLoop) hot.config.skills.loop = { ...hot.config.skills.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
   if (gifs) Object.assign(store, { findGif: (guildId, handle) => gifs[handle] ?? null, recordOwnGif: () => {} });
@@ -282,6 +264,7 @@ async function innerTurn({
     client,
     getGuildId: () => 'g1',
     port,
+    reads: world().adopt(port),
     ...(errands ? { errands } : {}),
   });
   const llm = sequenceLlm(answers, { onCall });
@@ -313,7 +296,7 @@ async function innerTurn({
   const inner = { wake: WAKE, shadow, mayAct: () => true, ...gate };
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({
-      channel: fakeChannel(history, { listed }),
+      channel: fakeChannel(history),
       guildId: 'g1',
       mode: 'inner',
       triggerKind: 'inner',
@@ -1625,7 +1608,6 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
   const requestOf = async (kind, withProfile) => {
     const hot = hotWith({ features: { intentions: true }, access: personaGrants(allowed) });
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-    for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
     const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
     const llm = sequenceLlm(['<skip/>']);
     const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
