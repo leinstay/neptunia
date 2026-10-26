@@ -105,6 +105,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
 - No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
 - For a change that adds behaviour, the tests and the code are written by different agents: one writes the tests from the brief and the signatures without seeing the code, the other makes them green without touching them, and the reviewer answers one question per test: which real bug it catches.
+- The specifier types its tests against the signatures in the brief, with no cast to `never` or `any` for a module that does not exist yet; the implementer's exports make those types true.
 - Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs once, before the pull request is opened. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
 ## The agents' folder
