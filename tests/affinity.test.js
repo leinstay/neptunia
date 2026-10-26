@@ -106,14 +106,22 @@ test('applyDelta: reason within the clamp tolerance is kept whole, trimmed', () 
 });
 
 test('applyDelta: each history entry records the reason of its own move, empty when none was given', () => {
-  const start = { score: 5, reason: 'παλιός λόγος', history: [{ ts: 't0', delta: 5, appliedDelta: 5, score: 5, reason: 'παλιός λόγος' }] };
+  const start = {
+    score: 5,
+    reason: 'παλιός λόγος',
+    history: [{ ts: 't0', delta: 5, appliedDelta: 5, score: 5, reason: 'παλιός λόγος' }],
+  };
   for (const reason of ['   ', 42]) {
     const result = applyDelta(start, 2, reason, OPTS);
     assert.equal(result.score, 7, String(reason));
     assert.equal(result.reason, 'παλιός λόγος', `${String(reason)}: the stored reason stays the last one given`);
     assert.equal(result.history.length, 2);
     assert.equal(result.history[0].reason, 'παλιός λόγος', 'an earlier entry is untouched');
-    assert.deepEqual(result.history[1], { ts: new Date(OPTS.now).toISOString(), delta: 2, appliedDelta: 2, score: 7, reason: '' }, String(reason));
+    assert.deepEqual(
+      result.history[1],
+      { ts: new Date(OPTS.now).toISOString(), delta: 2, appliedDelta: 2, score: 7, reason: '' },
+      String(reason)
+    );
   }
   const given = applyDelta(start, -3, '  νέος λόγος  ', OPTS);
   assert.equal(given.reason, 'νέος λόγος');
@@ -121,7 +129,12 @@ test('applyDelta: each history entry records the reason of its own move, empty w
 });
 
 test('REASON_CHARS: the limit applyDelta cuts a reason at, on the entry and the stored reason alike', () => {
-  const result = applyDelta(undefined, 5, 'α'.repeat(1000), { maxDelta: 15, historySize: 10, now: OPTS.now, clampTolerance: 1 });
+  const result = applyDelta(undefined, 5, 'α'.repeat(1000), {
+    maxDelta: 15,
+    historySize: 10,
+    now: OPTS.now,
+    clampTolerance: 1,
+  });
   assert.equal([...result.reason].length, REASON_CHARS);
   assert.equal(result.history[0].reason, result.reason);
 });
@@ -141,7 +154,11 @@ test('deltaCapOf: a finite number caps at its absolute value, anything else caps
 });
 
 test('applyDelta: the delta is clamped to deltaCapOf(maxDelta)', () => {
-  assert.equal(applyDelta(emptyAffinity(), -40, 'x', { ...OPTS, maxDelta: undefined }).score, -40, 'no cap: the delta lands whole');
+  assert.equal(
+    applyDelta(emptyAffinity(), -40, 'x', { ...OPTS, maxDelta: undefined }).score,
+    -40,
+    'no cap: the delta lands whole'
+  );
   const start = emptyAffinity();
   assert.equal(applyDelta(start, 40, 'x', { ...OPTS, maxDelta: 0 }), start, 'a cap of 0 lets nothing through');
 });
@@ -235,7 +252,12 @@ test('applyDelta: damping is symmetric for negative scores', () => {
 
 test('applyDelta: damping never lets the score exceed +-100, even for a huge delta', () => {
   const near = { score: 99, reason: 'r', history: [] };
-  const result = applyDelta(near, 1_000_000, 'x', { maxDelta: Infinity, historySize: 10, now: OPTS.now, damping: true });
+  const result = applyDelta(near, 1_000_000, 'x', {
+    maxDelta: Infinity,
+    historySize: 10,
+    now: OPTS.now,
+    damping: true,
+  });
   assert.equal(result.score, 100);
 
   const atCap = { score: 100, reason: 'r', history: [] };
@@ -259,7 +281,7 @@ test('applyDelta: tiny steps accumulate instead of rounding to zero forever', ()
   assert.notDeepEqual(step1, start);
 });
 
-test('applyDelta: history keeps the model\'s original (clamped) delta and, separately, the applied delta', () => {
+test("applyDelta: history keeps the model's original (clamped) delta and, separately, the applied delta", () => {
   const start = { score: 50, reason: 'r', history: [] };
   const result = applyDelta(start, 10, 'kind gesture', { maxDelta: 15, historySize: 10, now: OPTS.now, damping: true });
   assert.deepEqual(result.history[0], {
@@ -271,7 +293,7 @@ test('applyDelta: history keeps the model\'s original (clamped) delta and, separ
   });
 });
 
-test('applyDelta: truncate:false applies an exact (possibly fractional) delta -- the owner\'s absolute set', () => {
+test("applyDelta: truncate:false applies an exact (possibly fractional) delta -- the owner's absolute set", () => {
   // A score that carries two decimals (from a previous damped update), set to an exact target via
   // `delta = target - current`: truncating that delta first would strand the result off-target.
   const start = { score: 60.4, reason: 'r', history: [] };
@@ -292,7 +314,13 @@ test('applyDelta: truncate:false applies an exact (possibly fractional) delta --
 test('applyDelta: dampingPower > 1 flattens the curve less near zero, steepens it near the cap', () => {
   const start = { score: 60, reason: 'r', history: [] };
   // factor = (1 - 60/100) ** 2 = 0.16 -> applied delta = 0.16, smaller than power 1's 0.4.
-  const result = applyDelta(start, 1, 'x', { maxDelta: 15, historySize: 10, now: OPTS.now, damping: true, dampingPower: 2 });
+  const result = applyDelta(start, 1, 'x', {
+    maxDelta: 15,
+    historySize: 10,
+    now: OPTS.now,
+    damping: true,
+    dampingPower: 2,
+  });
   assert.equal(result.score, 60.16);
 });
 
@@ -300,7 +328,13 @@ test('applyDelta: dampingPower falls back to 1 for a non-positive, non-finite or
   const start = { score: 60, reason: 'r', history: [] };
   const cases = [0, NaN, 'not a number'];
   for (const dampingPower of cases) {
-    const result = applyDelta(start, 1, 'x', { maxDelta: 15, historySize: 10, now: OPTS.now, damping: true, dampingPower });
+    const result = applyDelta(start, 1, 'x', {
+      maxDelta: 15,
+      historySize: 10,
+      now: OPTS.now,
+      damping: true,
+      dampingPower,
+    });
     assert.equal(result.score, 60.4, `dampingPower ${dampingPower} should fall back to 1`);
   }
 });
@@ -484,7 +518,16 @@ function movesAround(count, before = 0) {
 
 /** A view of a member with a written text, overriding any field. */
 function writtenView(overrides = {}) {
-  return { text: 'Φίλοι από παλιά.', score: 30, writtenScore: 30, writtenAt: WRITTEN_AT, history: [], hasReason: true, hasEpisodes: true, ...overrides };
+  return {
+    text: 'Φίλοι από παλιά.',
+    score: 30,
+    writtenScore: 30,
+    writtenAt: WRITTEN_AT,
+    history: [],
+    hasReason: true,
+    hasEpisodes: true,
+    ...overrides,
+  };
 }
 
 const STALE_CFG = { rewriteOnBandChange: true, bandHysteresis: 2, rewriteOnDrift: 8, rewriteAfterMoves: 6 };
@@ -492,10 +535,18 @@ const STALE_CFG = { rewriteOnBandChange: true, bandHysteresis: 2, rewriteOnDrift
 test('relationshipStaleOf: a band change inside the hysteresis margin is not flagged, past it is cause band', () => {
   // Written at 59 (fond); 61 is devoted, but only 1 point past the edge at 60.
   assert.equal(relationshipStaleOf(writtenView({ writtenScore: 59, score: 61 }), STALE_CFG), null);
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 62 }), STALE_CFG), { writtenAt: 'fond', now: 'devoted', cause: 'band' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 62 }), STALE_CFG), {
+    writtenAt: 'fond',
+    now: 'devoted',
+    cause: 'band',
+  });
   // Downward the same: written at 9 (warm), 7 is neutral but 1 point under the edge at 8.
   assert.equal(relationshipStaleOf(writtenView({ writtenScore: 9, score: 7 }), STALE_CFG), null);
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 9, score: 6 }), STALE_CFG), { writtenAt: 'warm', now: 'neutral', cause: 'band' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 9, score: 6 }), STALE_CFG), {
+    writtenAt: 'warm',
+    now: 'neutral',
+    cause: 'band',
+  });
 });
 
 test('relationshipStaleOf: back and forth across one edge is never flagged inside the margin', () => {
@@ -507,15 +558,31 @@ test('relationshipStaleOf: back and forth across one edge is never flagged insid
 
 test('relationshipStaleOf: bandHysteresis 0 flags a band change at the edge itself, as before the margin existed', () => {
   const cfg = { ...STALE_CFG, bandHysteresis: 0 };
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 60 }), cfg), { writtenAt: 'fond', now: 'devoted', cause: 'band' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 60 }), cfg), {
+    writtenAt: 'fond',
+    now: 'devoted',
+    cause: 'band',
+  });
 });
 
 test('relationshipStaleOf: a drift of rewriteOnDrift points inside one band is cause drift', () => {
   assert.equal(relationshipStaleOf(writtenView({ writtenScore: 26, score: 33.99 }), STALE_CFG), null, '7.99 points');
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 26, score: 34 }), STALE_CFG), { writtenAt: 'fond', now: 'fond', cause: 'drift' });
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 51 }), STALE_CFG), { writtenAt: 'fond', now: 'fond', cause: 'drift' }, 'downward too');
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 26, score: 34 }), STALE_CFG), {
+    writtenAt: 'fond',
+    now: 'fond',
+    cause: 'drift',
+  });
+  assert.deepEqual(
+    relationshipStaleOf(writtenView({ writtenScore: 59, score: 51 }), STALE_CFG),
+    { writtenAt: 'fond', now: 'fond', cause: 'drift' },
+    'downward too'
+  );
   // Inside the band margin a move of 8 points can still cross an edge: drift names it.
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 0, score: 8.5 }), STALE_CFG), { writtenAt: 'neutral', now: 'warm', cause: 'drift' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 0, score: 8.5 }), STALE_CFG), {
+    writtenAt: 'neutral',
+    now: 'warm',
+    cause: 'drift',
+  });
 });
 
 test('relationshipStaleOf: band wins over drift and moves when several apply', () => {
@@ -525,14 +592,34 @@ test('relationshipStaleOf: band wins over drift and moves when several apply', (
 });
 
 test('relationshipStaleOf: rewriteAfterMoves moves since the text was written is cause moves; no stamp counts the whole history', () => {
-  assert.equal(relationshipStaleOf(writtenView({ history: movesAround(5) }), STALE_CFG), null, '5 moves since the text');
-  assert.deepEqual(relationshipStaleOf(writtenView({ history: movesAround(6) }), STALE_CFG), { writtenAt: 'fond', now: 'fond', cause: 'moves' });
-  assert.equal(relationshipStaleOf(writtenView({ history: movesAround(9, 4) }), STALE_CFG), null, 'only the 5 moves after the stamp count');
-  assert.equal(relationshipStaleOf(writtenView({ history: movesAround(10, 4) }), STALE_CFG).cause, 'moves', '6 after the stamp');
+  assert.equal(
+    relationshipStaleOf(writtenView({ history: movesAround(5) }), STALE_CFG),
+    null,
+    '5 moves since the text'
+  );
+  assert.deepEqual(relationshipStaleOf(writtenView({ history: movesAround(6) }), STALE_CFG), {
+    writtenAt: 'fond',
+    now: 'fond',
+    cause: 'moves',
+  });
+  assert.equal(
+    relationshipStaleOf(writtenView({ history: movesAround(9, 4) }), STALE_CFG),
+    null,
+    'only the 5 moves after the stamp count'
+  );
+  assert.equal(
+    relationshipStaleOf(writtenView({ history: movesAround(10, 4) }), STALE_CFG).cause,
+    'moves',
+    '6 after the stamp'
+  );
 
   const unstamped = writtenView({ writtenAt: undefined, history: movesAround(6, 6) });
   assert.equal(relationshipStaleOf(unstamped, STALE_CFG).cause, 'moves', 'no stamp: every stored move counts');
-  assert.equal(relationshipStaleOf({ ...unstamped, writtenAt: 'not a date' }, STALE_CFG).cause, 'moves', 'an unreadable stamp counts as none');
+  assert.equal(
+    relationshipStaleOf({ ...unstamped, writtenAt: 'not a date' }, STALE_CFG).cause,
+    'moves',
+    'an unreadable stamp counts as none'
+  );
   assert.equal(relationshipStaleOf({ ...unstamped, history: movesAround(5, 5) }, STALE_CFG), null);
 });
 
@@ -541,7 +628,11 @@ test('relationshipStaleOf: a move stamped at the moment the text was written is 
   const history = [...sameBatch, ...movesAround(5)];
   assert.equal(relationshipStaleOf(writtenView({ history }), STALE_CFG), null);
   const unreadable = [...movesAround(5), { ts: 'ποτέ', delta: 1 }, null];
-  assert.equal(relationshipStaleOf(writtenView({ history: unreadable }), STALE_CFG), null, 'a move with no readable time never counts');
+  assert.equal(
+    relationshipStaleOf(writtenView({ history: unreadable }), STALE_CFG),
+    null,
+    'a move with no readable time never counts'
+  );
 });
 
 test('relationshipStaleOf: zeros switch drift and moves off, rewriteOnBandChange false switches band off', () => {
@@ -551,7 +642,11 @@ test('relationshipStaleOf: zeros switch drift and moves off, rewriteOnBandChange
   assert.equal(relationshipStaleOf(moved, { ...STALE_CFG, rewriteAfterMoves: 0 }), null);
   const banded = writtenView({ writtenScore: 26, score: 64 });
   assert.equal(relationshipStaleOf(banded, { ...STALE_CFG, rewriteOnBandChange: false, rewriteOnDrift: 0 }), null);
-  assert.equal(relationshipStaleOf(banded, { ...STALE_CFG, rewriteOnBandChange: false }).cause, 'drift', 'the switch reaches only band (and first)');
+  assert.equal(
+    relationshipStaleOf(banded, { ...STALE_CFG, rewriteOnBandChange: false }).cause,
+    'drift',
+    'the switch reaches only band (and first)'
+  );
 });
 
 test('relationshipStaleOf: rewriteOnBandChange false keeps the first marker off too, as it always did', () => {
@@ -561,15 +656,39 @@ test('relationshipStaleOf: rewriteOnBandChange false keeps the first marker off 
 
 test('relationshipStaleOf: an empty text with a score, reason or episodes is cause first', () => {
   const empty = { text: '  ', score: 0, history: movesAround(8), hasReason: false, hasEpisodes: false };
-  assert.equal(relationshipStaleOf(empty, STALE_CFG), null, 'nothing to write a first version from; moves never apply to no text');
-  assert.deepEqual(relationshipStaleOf({ ...empty, score: 30 }, STALE_CFG), { writtenAt: 'none', now: 'fond', cause: 'first' });
-  assert.deepEqual(relationshipStaleOf({ ...empty, hasReason: true }, STALE_CFG), { writtenAt: 'none', now: 'neutral', cause: 'first' });
-  assert.deepEqual(relationshipStaleOf({ ...empty, hasEpisodes: true }, STALE_CFG), { writtenAt: 'none', now: 'neutral', cause: 'first' });
-  assert.deepEqual(relationshipStaleOf({ ...empty, text: undefined, score: -12 }, STALE_CFG), { writtenAt: 'none', now: 'cool', cause: 'first' });
+  assert.equal(
+    relationshipStaleOf(empty, STALE_CFG),
+    null,
+    'nothing to write a first version from; moves never apply to no text'
+  );
+  assert.deepEqual(relationshipStaleOf({ ...empty, score: 30 }, STALE_CFG), {
+    writtenAt: 'none',
+    now: 'fond',
+    cause: 'first',
+  });
+  assert.deepEqual(relationshipStaleOf({ ...empty, hasReason: true }, STALE_CFG), {
+    writtenAt: 'none',
+    now: 'neutral',
+    cause: 'first',
+  });
+  assert.deepEqual(relationshipStaleOf({ ...empty, hasEpisodes: true }, STALE_CFG), {
+    writtenAt: 'none',
+    now: 'neutral',
+    cause: 'first',
+  });
+  assert.deepEqual(relationshipStaleOf({ ...empty, text: undefined, score: -12 }, STALE_CFG), {
+    writtenAt: 'none',
+    now: 'cool',
+    cause: 'first',
+  });
 });
 
 test('relationshipStaleOf: a missing relationshipScore counts as 0, a missing score as 0', () => {
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: undefined, score: 30 }), STALE_CFG), { writtenAt: 'neutral', now: 'fond', cause: 'band' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: undefined, score: 30 }), STALE_CFG), {
+    writtenAt: 'neutral',
+    now: 'fond',
+    cause: 'band',
+  });
   assert.equal(relationshipStaleOf(writtenView({ writtenScore: undefined, score: undefined }), STALE_CFG), null);
 });
 
@@ -582,7 +701,11 @@ test('relationshipStaleOf: missing or unusable settings behave as RELATIONSHIP_S
     writtenView({ history: movesAround(5) }),
     writtenView({ history: movesAround(6) }),
   ];
-  for (const cfg of [undefined, {}, { rewriteOnBandChange: 'yes', bandHysteresis: -1, rewriteOnDrift: 'x', rewriteAfterMoves: NaN }]) {
+  for (const cfg of [
+    undefined,
+    {},
+    { rewriteOnBandChange: 'yes', bandHysteresis: -1, rewriteOnDrift: 'x', rewriteAfterMoves: NaN },
+  ]) {
     for (const view of views) assert.deepEqual(relationshipStaleOf(view, cfg), relationshipStaleOf(view, defaults));
   }
 });
@@ -597,17 +720,27 @@ test('relationshipStaleOf: an empty history never flags moves, stamped or not', 
 test('relationshipStaleOf: now is the band of the current score for drift and moves too, even across an edge', () => {
   // Written at 53 (fond), now 61 (devoted): 1 point past the edge, inside the margin, so not
   // band; 8 points of drift. `now` names where the score is, the band the request shows.
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 53, score: 61 }), STALE_CFG), { writtenAt: 'fond', now: 'devoted', cause: 'drift' });
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 59, score: 61, history: movesAround(6) }), STALE_CFG), {
-    writtenAt: 'fond',
-    now: 'devoted',
-    cause: 'moves',
-  });
-  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 26, score: 64 }), { ...STALE_CFG, rewriteOnBandChange: false }), {
+  assert.deepEqual(relationshipStaleOf(writtenView({ writtenScore: 53, score: 61 }), STALE_CFG), {
     writtenAt: 'fond',
     now: 'devoted',
     cause: 'drift',
   });
+  assert.deepEqual(
+    relationshipStaleOf(writtenView({ writtenScore: 59, score: 61, history: movesAround(6) }), STALE_CFG),
+    {
+      writtenAt: 'fond',
+      now: 'devoted',
+      cause: 'moves',
+    }
+  );
+  assert.deepEqual(
+    relationshipStaleOf(writtenView({ writtenScore: 26, score: 64 }), { ...STALE_CFG, rewriteOnBandChange: false }),
+    {
+      writtenAt: 'fond',
+      now: 'devoted',
+      cause: 'drift',
+    }
+  );
 });
 
 // --- strongestMoves --------------------------------------------------------
@@ -619,39 +752,63 @@ function move(day, delta, reason, appliedDelta = delta) {
 
 test('strongestMoves: the strongest by |appliedDelta| are chosen and returned oldest first', () => {
   const history = [move(1, 2, 'α'), move(2, 6, 'β'), move(3, 1, 'γ'), move(4, 4, 'δ')];
-  assert.deepEqual(strongestMoves(history, { max: 2 }).map((m) => m.reason), ['β', 'δ']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 2 }).map((m) => m.reason),
+    ['β', 'δ']
+  );
 });
 
 test('strongestMoves: a missing appliedDelta falls back to |delta|', () => {
   const history = [{ ...move(1, 9, 'α'), appliedDelta: undefined }, move(2, 3, 'β')];
-  assert.deepEqual(strongestMoves(history, { max: 1 }).map((m) => m.reason), ['α']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 1 }).map((m) => m.reason),
+    ['α']
+  );
 });
 
 test('strongestMoves: an equal strength goes to the newer move', () => {
   const history = [move(1, 3, 'α'), move(2, 3, 'β'), move(3, 3, 'γ')];
-  assert.deepEqual(strongestMoves(history, { max: 2 }).map((m) => m.reason), ['β', 'γ']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 2 }).map((m) => m.reason),
+    ['β', 'γ']
+  );
 });
 
 test('strongestMoves: both signs are kept when both exist and the cap allows', () => {
   const history = [move(1, -1, 'neg'), move(2, 5, 'α'), move(3, 4, 'β'), move(4, 3, 'γ')];
-  assert.deepEqual(strongestMoves(history, { max: 3 }).map((m) => m.reason), ['neg', 'α', 'β']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 3 }).map((m) => m.reason),
+    ['neg', 'α', 'β']
+  );
   const negatives = [move(1, -5, 'α'), move(2, -4, 'β'), move(3, 1, 'pos')];
-  assert.deepEqual(strongestMoves(negatives, { max: 2 }).map((m) => m.reason), ['α', 'pos']);
+  assert.deepEqual(
+    strongestMoves(negatives, { max: 2 }).map((m) => m.reason),
+    ['α', 'pos']
+  );
 });
 
 test('strongestMoves: a cap of one keeps the single strongest, whatever its sign', () => {
   const history = [move(1, -1, 'neg'), move(2, 5, 'α')];
-  assert.deepEqual(strongestMoves(history, { max: 1 }).map((m) => m.reason), ['α']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 1 }).map((m) => m.reason),
+    ['α']
+  );
 });
 
 test('strongestMoves: an empty reason and the current reason are skipped', () => {
   const history = [move(1, 9, ''), move(2, 8, '   '), move(3, 7, 'current'), move(4, 1, 'α')];
-  assert.deepEqual(strongestMoves(history, { max: 4, currentReason: 'current' }).map((m) => m.reason), ['α']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 4, currentReason: 'current' }).map((m) => m.reason),
+    ['α']
+  );
 });
 
 test('strongestMoves: a move with an unreadable time or no size is skipped', () => {
   const history = [{ ...move(1, 9, 'α'), ts: 'never' }, { ts: move(2, 0, '').ts, reason: 'β' }, move(3, 1, 'γ')];
-  assert.deepEqual(strongestMoves(history, { max: 4 }).map((m) => m.reason), ['γ']);
+  assert.deepEqual(
+    strongestMoves(history, { max: 4 }).map((m) => m.reason),
+    ['γ']
+  );
 });
 
 test('strongestMoves: a cap of 0, a bad cap or no history chooses nothing', () => {
@@ -662,28 +819,60 @@ test('strongestMoves: a cap of 0, a bad cap or no history chooses nothing', () =
 });
 
 test('relationshipStaleOf: a flagged non-empty text is cause rewrite before band, drift and moves', () => {
-  assert.deepEqual(relationshipStaleOf(writtenView({ rewrite: true }), STALE_CFG), { writtenAt: 'fond', now: 'fond', cause: 'rewrite' });
-  // A band change, a drift and enough moves would each fire too: the flag still wins, bands as computed.
-  assert.deepEqual(relationshipStaleOf(writtenView({ rewrite: true, writtenScore: 9, score: 70, history: movesAround(8) }), STALE_CFG), {
-    writtenAt: 'warm',
-    now: 'devoted',
+  assert.deepEqual(relationshipStaleOf(writtenView({ rewrite: true }), STALE_CFG), {
+    writtenAt: 'fond',
+    now: 'fond',
     cause: 'rewrite',
   });
+  // A band change, a drift and enough moves would each fire too: the flag still wins, bands as computed.
+  assert.deepEqual(
+    relationshipStaleOf(writtenView({ rewrite: true, writtenScore: 9, score: 70, history: movesAround(8) }), STALE_CFG),
+    {
+      writtenAt: 'warm',
+      now: 'devoted',
+      cause: 'rewrite',
+    }
+  );
   // Only `true` counts as the flag.
   assert.equal(relationshipStaleOf(writtenView({ rewrite: 'yes' }), STALE_CFG), null);
   assert.equal(relationshipStaleOf(writtenView({ rewrite: false }), STALE_CFG), null);
 });
 
 test('relationshipStaleOf: the rewrite flag on an empty text is ignored, the empty-text rules apply', () => {
-  assert.deepEqual(relationshipStaleOf(writtenView({ text: '  ', rewrite: true }), STALE_CFG), { writtenAt: 'none', now: 'fond', cause: 'first' });
+  assert.deepEqual(relationshipStaleOf(writtenView({ text: '  ', rewrite: true }), STALE_CFG), {
+    writtenAt: 'none',
+    now: 'fond',
+    cause: 'first',
+  });
   assert.equal(relationshipStaleOf({ text: '', score: 0, rewrite: true }, STALE_CFG), null);
 });
 
 test('affinity: eviction returns the dropped items with their itemId', () => {
-  const first = { ts: '2026-09-01T00:00:00.000Z', delta: 2, appliedDelta: 2, score: 2, reason: 'café', itemId: 'mv-first' };
-  const second = { ts: '2026-09-02T00:00:00.000Z', delta: 1, appliedDelta: 1, score: 3, reason: 'σκάκι', itemId: 'mv-second' };
-  const next = applyDelta({ score: 3, reason: 'σκάκι', history: [first, second] }, 2, 'τραγούδι', { maxDelta: 5, historySize: 2, now: Date.UTC(2026, 8, 3) });
-  assert.deepEqual(next.history.map((move) => move.itemId), ['mv-second', undefined]);
+  const first = {
+    ts: '2026-09-01T00:00:00.000Z',
+    delta: 2,
+    appliedDelta: 2,
+    score: 2,
+    reason: 'café',
+    itemId: 'mv-first',
+  };
+  const second = {
+    ts: '2026-09-02T00:00:00.000Z',
+    delta: 1,
+    appliedDelta: 1,
+    score: 3,
+    reason: 'σκάκι',
+    itemId: 'mv-second',
+  };
+  const next = applyDelta({ score: 3, reason: 'σκάκι', history: [first, second] }, 2, 'τραγούδι', {
+    maxDelta: 5,
+    historySize: 2,
+    now: Date.UTC(2026, 8, 3),
+  });
+  assert.deepEqual(
+    next.history.map((move) => move.itemId),
+    ['mv-second', undefined]
+  );
   assert.deepEqual(next.droppedMoves, [first]);
   assert.deepEqual(Object.keys(next), ['score', 'reason', 'history'], 'droppedMoves is never stored');
   assert.equal(JSON.parse(JSON.stringify(next)).droppedMoves, undefined);

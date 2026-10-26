@@ -16,21 +16,52 @@ test('replayFixture: every recorded event is a valid protocol event', () => {
     const { redeliver: _r, ...fields } = event;
     assert.deepEqual(validateEvent({ iface: fixture.iface, ...fields }), { ok: true }, event.kind);
   }
-  assert.deepEqual(new Set(fixture.events.map((e) => e.kind)), new Set(['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed']));
+  assert.deepEqual(
+    new Set(fixture.events.map((e) => e.kind)),
+    new Set(['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed'])
+  );
 });
 
 test('replayFixture: the events enter the door in order, a redelivery is a duplicate, handlers run once each', async () => {
   const handled = [];
   const names = ['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed'];
-  const door = createEventDoor({ handlers: Object.fromEntries(names.map((kind) => [kind, (event) => handled.push(event.kind + (event.deleted ? ':deleted' : ''))])), log: quiet });
+  const door = createEventDoor({
+    handlers: Object.fromEntries(
+      names.map((kind) => [kind, (event) => handled.push(event.kind + (event.deleted ? ':deleted' : ''))])
+    ),
+    log: quiet,
+  });
   const port = createFakeAdapter({ selfId: 'self' });
   const answers = await replayFixture(fixture, door, { port });
-  assert.deepEqual(answers.map((a) => a.status), ['ok', 'duplicate', 'ok', 'ok', 'ok', 'ok', 'ok']);
-  assert.deepEqual(answers.map((a) => a.id), [
-    'fake:message:m1', 'fake:message:m1', 'fake:reaction:m1:u2:1', 'fake:voice:u2:1', 'fake:member:u3:1', 'task.completed:t1:done', 'fake:delete:m1',
+  assert.deepEqual(
+    answers.map((a) => a.status),
+    ['ok', 'duplicate', 'ok', 'ok', 'ok', 'ok', 'ok']
+  );
+  assert.deepEqual(
+    answers.map((a) => a.id),
+    [
+      'fake:message:m1',
+      'fake:message:m1',
+      'fake:reaction:m1:u2:1',
+      'fake:voice:u2:1',
+      'fake:member:u3:1',
+      'task.completed:t1:done',
+      'fake:delete:m1',
+    ]
+  );
+  assert.deepEqual(handled, [
+    'message.received',
+    'reaction.changed',
+    'voice.changed',
+    'membership.changed',
+    'task.completed',
+    'message.received:deleted',
   ]);
-  assert.deepEqual(handled, ['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed', 'message.received:deleted']);
-  assert.deepEqual(port.messagesIn('c1').map((m) => [m.ref.messageId, m.authorId, m.text]), [['m1', 'u1', 'καλημέρα']], 'the message is in the fake conversation');
+  assert.deepEqual(
+    port.messagesIn('c1').map((m) => [m.ref.messageId, m.authorId, m.text]),
+    [['m1', 'u1', 'καλημέρα']],
+    'the message is in the fake conversation'
+  );
 });
 
 test('replayFixture: a handler sees a message whose origin says an answer is expected, and the persona answers through the fake port', async () => {
@@ -39,7 +70,13 @@ test('replayFixture: a handler sees a message whose origin says an answer is exp
     handlers: {
       'message.received': async (event) => {
         if (event.deleted || originOf(event).replyExpected !== true) return;
-        await port.send({ iface: 'fake', conversationId: event.conversation.id }, { text: 'γεια!', replyTo: { iface: 'fake', conversationId: event.conversation.id, messageId: event.message.id } });
+        await port.send(
+          { iface: 'fake', conversationId: event.conversation.id },
+          {
+            text: 'γεια!',
+            replyTo: { iface: 'fake', conversationId: event.conversation.id, messageId: event.message.id },
+          }
+        );
       },
     },
     log: quiet,
@@ -52,8 +89,18 @@ test('replayFixture: a handler sees a message whose origin says an answer is exp
 
 test('replayFixture: an event with an invalid shape is answered invalid and reaches no handler', async () => {
   let called = 0;
-  const door = createEventDoor({ handlers: { 'voice.changed': () => { called += 1; } }, log: quiet });
-  const answers = await replayFixture({ iface: 'fake', events: [{ kind: 'voice.changed', at: 1, id: 'v', guildId: 'g1' }] }, door);
+  const door = createEventDoor({
+    handlers: {
+      'voice.changed': () => {
+        called += 1;
+      },
+    },
+    log: quiet,
+  });
+  const answers = await replayFixture(
+    { iface: 'fake', events: [{ kind: 'voice.changed', at: 1, id: 'v', guildId: 'g1' }] },
+    door
+  );
   assert.deepEqual(answers, [{ id: null, status: 'invalid' }]);
   assert.equal(called, 0);
 });
