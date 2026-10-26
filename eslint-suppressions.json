@@ -6900,7 +6900,7 @@
       "count": 1
     }
   },
-  "tests/reactors.test.js": {
+  "tests/reactor-store.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },

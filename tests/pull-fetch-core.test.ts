@@ -12,7 +12,7 @@ import { captionPulled, checkPull, fetchPull } from '../src/behavior/pull-fetch.
 import type { PulledChannel } from '../src/behavior/pull-fetch.ts';
 import { historyLines } from '../src/behavior/lines.ts';
 import type { Line } from '../src/behavior/lines.ts';
-import { audienceAllows, isReadable, takeSnapshot } from '../src/behavior/snapshot.ts';
+import { isReadable, takeSnapshot } from '../src/behavior/snapshot.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { refTo, useSelf, world } from './fixtures/turn-world.ts';
 import type { Raw } from './fixtures/turn-world.ts';
@@ -614,17 +614,6 @@ test('fetchPull blocks a source that a role is denied on although everyone can v
   assert.equal(result.skip, 'audience', 'members of the muted role see the main channel but not the source');
 });
 
-test('audienceAllows passes the same audience and refuses a narrower source or no destination unless the rail is off', () => {
-  const main = mainChannel();
-  const open = addChannel({ id: '760000000000000044' });
-  const narrow = addChannel({ id: '760000000000000045', audience: audience({ memberDeny: [MEMBER.zoe] }) });
-  assert.equal(audienceAllows(main.info, open.info, config()), true);
-  assert.equal(audienceAllows(main.info, narrow.info, config()), false, 'a member denied on the source only');
-  assert.equal(audienceAllows(null, open.info, config()), false, 'no destination never qualifies');
-  assert.equal(audienceAllows(main.info, narrow.info, config({ pull: { sameAudience: false } })), true);
-  assert.equal(audienceAllows(null, narrow.info, config({ pull: { sameAudience: false } })), true);
-});
-
 test('checkPull checks the rails without a request and gives the conversation when they pass', async () => {
   const main = mainChannel();
   const diary = addChannel({ id: '760000000000000046', permissions: { send: false }, messages: [{ ts: LAST }] });
@@ -644,28 +633,6 @@ test('checkPull checks the rails without a request and gives the conversation wh
   assert.equal(check(diary.id, null, railOff).channel?.id, diary.id);
   assert.deepEqual(diary.calls(), []);
 });
-
-test('audienceAllows lets a private chat in on exactly the sources its partner can view, whatever the audience rail', () => {
-  const open = addChannel({ id: '760000000000000047', viewers: { [MEMBER.iason]: true, [MEMBER.zoe]: true } });
-  const closed = addChannel({ id: '760000000000000048', viewers: { [MEMBER.iason]: false, [MEMBER.zoe]: true } });
-  const named = addChannel({ id: '760000000000000049', viewers: { [MEMBER.iason]: true, [MEMBER.zoe]: false } });
-  const dm = privateChat();
-  for (const rail of [config(), config({ pull: { sameAudience: false } })]) {
-    const allows = (source: Held, partnerId: string | null) =>
-      audienceAllows(dm, withViewers(source.info), rail, { partnerId });
-    assert.equal(allows(open, MEMBER.iason), true);
-    assert.equal(allows(closed, MEMBER.zoe), true, 'her role views it');
-    assert.equal(allows(closed, MEMBER.iason), false, 'he holds no role that views it');
-    assert.equal(allows(named, MEMBER.zoe), false, 'denied by name');
-    assert.equal(allows(named, MEMBER.iason), true);
-    assert.equal(allows(open, null), false, 'no partner never qualifies');
-  }
-});
-
-/** The listing's entry of a conversation, which carries who of the named viewers can see it. */
-function withViewers(info: ConversationInfo): ConversationInfo {
-  return info;
-}
 
 test('checkPull lets a private chat with its partner pass what the partner can view and refuses the rest as audience', async () => {
   const open = addChannel({

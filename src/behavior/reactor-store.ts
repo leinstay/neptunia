@@ -6,16 +6,10 @@
 // evicted first. Her own reaction is the `mine` flag of the reaction already, so she is never listed as a reactor;
 // other bots count like anyone. Pure but for the timer of `runBackfill`.
 
+import { reactionKey } from '../protocol/reaction-key.ts';
 import type { ReactionChanged } from '../protocol/events.js';
 
-/**
- * The key one reaction is shown under: a custom emoji as `:name:`, a unicode one as itself, the same string the
- * interface gives a reaction's `emoji` in a message, so the store and the transcript meet on it. Null without a name.
- */
-export function reactionKey(emoji: { id?: string | null; name?: string | null } | null | undefined): string | null {
-  if (!emoji?.name) return null;
-  return emoji.id ? `:${emoji.name}:` : emoji.name;
-}
+export { reactionKey };
 
 /** Snowflakes oldest first: shorter digit strings first, then text order. */
 function olderFirst(a: string, b: string): number {

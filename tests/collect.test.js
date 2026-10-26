@@ -1791,3 +1791,11 @@ test('normalizeMessage: editedAt is the edit stamp, null for a message never edi
   assert.equal(normalizeMessage(rawMessage({ editedTimestamp: null }), 'self').editedAt, null);
   assert.equal(normalizeMessage(rawMessage(), 'self').editedAt, null);
 });
+
+test('fetchMessage: a partial message in the cache is fetched whole', async () => {
+  const whole = { id: 'm1', partial: false, author: { id: 'self' } };
+  const channel = {
+    messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
+  };
+  assert.equal(await fetchMessage(channel, 'm1'), whole);
+});

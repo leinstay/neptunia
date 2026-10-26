@@ -31,7 +31,7 @@ Model role: `vision`.
 
 ### Reactions
 
-When `features.seeReactions` is on (default `true`), reactions on the persona's messages are visible to her. The reactor store (`interfaces/discord/reactors.js`) tracks who reacted (in-process, never persisted, gone at restart). Reactions appear in the transcript; `features.reactionNames` (default `true`) shows the reactor's name alongside the emoji.
+When `features.seeReactions` is on (default `true`), reactions on the persona's messages are visible to her. The reactor store (`src/behavior/reactor-store.ts`) tracks who reacted (in-process, never persisted, gone at restart). Reactions appear in the transcript; `features.reactionNames` (default `true`) shows the reactor's name alongside the emoji.
 
 ### Video
 

@@ -21,7 +21,7 @@ import {
 import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
-import { reactionKey } from '../../src/behavior/reactor-store.ts';
+import { reactionKey } from '../../src/protocol/reaction-key.ts';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js';
 import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';

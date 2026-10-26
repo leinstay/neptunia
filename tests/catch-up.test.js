@@ -287,7 +287,6 @@ test('catch-up deliver: builds the event from the message and returns what onCat
   const seen = [];
   const deliver = createCatchUpDeliver({
     eventOf: () => event,
-    keep: () => {},
     onCatchUp: (caught, options) => {
       seen.push([caught, options]);
       return Promise.resolve('triggered');
@@ -298,30 +297,11 @@ test('catch-up deliver: builds the event from the message and returns what onCat
   assert.deepEqual(seen, [[event, { trigger: true }]]);
 });
 
-test('catch-up deliver: keeps the handles of the event before onCatchUp reads them', async () => {
-  const event = { id: 'e:m2', raw: { id: 'm2' } };
-  /** @type {unknown[]} */
-  const order = [];
-  const deliver = createCatchUpDeliver({
-    eventOf: () => event,
-    keep: (kept) => order.push(['keep', kept]),
-    onCatchUp: () => {
-      order.push(['catchUp']);
-      return Promise.resolve('observed');
-    },
-  });
-  await deliver(event.raw, { trigger: false });
-  assert.deepEqual(order, [['keep', event], ['catchUp']]);
-});
-
 test('catch-up deliver: answers ignored and calls nothing when the event cannot be built', async () => {
   let called = false;
   const deliver = createCatchUpDeliver({
     eventOf: () => {
       throw new Error('malformed message');
-    },
-    keep: () => {
-      called = true;
     },
     onCatchUp: () => {
       called = true;

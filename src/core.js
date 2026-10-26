@@ -765,7 +765,6 @@ async function buildCore(options, cleanups) {
     // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
     deliver: createCatchUpDeliver({
       eventOf: (message) => legacy.catchUp.eventOf(message),
-      keep: () => {},
       onCatchUp: (event, options) => onMessage.catchUp(event, options),
     }),
   });

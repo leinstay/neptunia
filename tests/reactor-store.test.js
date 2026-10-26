@@ -1,22 +1,18 @@
 // Tests for the reactor store of the core (src/behavior/reactor-store.ts: who reacted to the persona's own messages,
-// fed by `reaction.changed` events), its use in the history lines (src/behavior/lines.ts: the backfill and the names)
-// and the rendering of those names in src/format.js#formatTranscript. Fakes only: no Discord, no network.
+// fed by `reaction.changed` events), the backfill and the rendering of the names in src/format.js#formatTranscript.
+// Fakes only: no Discord, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyReactionChanged,
   backfillPlan,
   createReactorStore,
-  reactionKey,
   runBackfill,
   withReactors,
 } from '../src/behavior/reactor-store.ts';
-import { historyLines } from '../src/behavior/lines.ts';
-import { fetchMessage } from '../interfaces/discord/index.js';
 import { formatTranscript, reactorIdsOf } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';
-import { refTo, useSelf, world } from './fixtures/turn-world.ts';
 
 const SELF = '100';
 const GUILD = '900';
@@ -49,15 +45,6 @@ function reactionEvent(
 function feed(store, kind, parts = {}, where = served) {
   return applyReactionChanged(store, reactionEvent(kind, parts), where);
 }
-
-// --- reactionKey ---------------------------------------------------------------
-
-test('reactionKey: a unicode emoji reads as itself, a custom one as :name:, none without a name', () => {
-  assert.equal(reactionKey({ id: null, name: '🔥' }), '🔥');
-  assert.equal(reactionKey({ id: '55', name: 'kek' }), ':kek:');
-  assert.equal(reactionKey({ id: '55', name: null }), null);
-  assert.equal(reactionKey(null), null);
-});
 
 // --- the store through reaction.changed events ---------------------------------
 
@@ -263,81 +250,6 @@ test('withReactors: her reactions carry the known reactors resolved to names, un
   assert.equal(out[1].reactions[1].users, undefined);
   assert.equal(lines[1].reactions[0].users, undefined, 'the input is not mutated');
   assert.deepEqual(reactorIdsOf(out), ['5'], 'bots get no handle');
-});
-
-// --- the history with reactors -----------------------------------------------------
-
-useSelf(SELF);
-
-/** A discord.js-shaped history message with a reaction cache. */
-function historyMessage(id, authorId, reactions, ts) {
-  return {
-    id,
-    channelId: 'c1',
-    channel: { name: 'general' },
-    guild: { id: GUILD },
-    author: { id: authorId, bot: false, globalName: authorId === SELF ? 'Persona' : 'Zoé', username: 'u' },
-    member: { displayName: authorId === SELF ? 'Persona' : 'Zoé' },
-    cleanContent: 'hello',
-    createdTimestamp: ts,
-    reference: null,
-    attachments: new Map(),
-    stickers: new Map(),
-    embeds: [],
-    messageSnapshots: new Map(),
-    flags: { has: () => false },
-    reactions: { cache: new Map(reactions.map((reaction, i) => [String(i), reaction])) },
-  };
-}
-
-test('historyLines: with reactors, her missing reactors are read once and named like authors', async () => {
-  const w = world();
-  w.channel({
-    id: 'c1',
-    guildId: GUILD,
-    historyMessages: [
-      historyMessage('1', '7', [{ emoji: { name: '👍' }, count: 1, me: false }], 1000),
-      historyMessage('2', SELF, [{ emoji: { id: null, name: '😂' }, count: 2, me: false }], 2000),
-    ],
-  });
-  w.member(GUILD, { id: '7', name: 'Zoé', bot: false });
-  w.member(GUILD, { id: '8', name: 'helperbot', bot: true });
-  w.port.seedReactors({ ...refTo({ id: 'c1' }), messageId: '2' }, '😂', ['7', '8']);
-  const reads = () => w.port.calls.filter((call) => call.op === 'reactors');
-  const names = () => ({
-    store,
-    budgetMs: 2000,
-    fetchUsers: 10,
-    known: () => null,
-    cache: new Map(),
-    selfId: SELF,
-    communityId: GUILD,
-    log: { info() {}, warn() {}, error() {} },
-  });
-  const store = createReactorStore();
-  const lines = await historyLines(w.reads, refTo({ id: 'c1' }), { limit: 10, names: names() });
-  assert.deepEqual(
-    reads().map((call) => call.args[2]),
-    [10],
-    'the reactors of her one reaction, at most fetchUsers'
-  );
-  assert.deepEqual(lines[1].reactions[0].users, [
-    { id: '7', name: 'Zoé', bot: false },
-    { id: '8', name: 'helperbot', bot: true },
-  ]);
-  assert.equal(lines[0].reactions[0].users, undefined);
-  await historyLines(w.reads, refTo({ id: 'c1' }), { limit: 10, names: names() });
-  assert.equal(reads().length, 1, 'once per message and emoji');
-  const plain = await historyLines(w.reads, refTo({ id: 'c1' }), { limit: 10 });
-  assert.equal(plain[1].reactions[0].users, undefined, 'no names: counts only');
-});
-
-test('fetchMessage: a partial message in the cache is fetched whole', async () => {
-  const whole = { id: 'm1', partial: false, author: { id: SELF } };
-  const channel = {
-    messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
-  };
-  assert.equal(await fetchMessage(channel, 'm1'), whole);
 });
 
 // --- rendering ---------------------------------------------------------------------
