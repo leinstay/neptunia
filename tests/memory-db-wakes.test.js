@@ -37,6 +37,10 @@ import { SKILL_DEFINITIONS } from '../src/skills/definitions.js';
 import { NESTED_CAPABILITIES, WAKE_POLICY_VERSION } from '../src/skills/access.js';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 import { tempDir } from './fixtures/tmp.js';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+// The conversation she wakes in is held by a fake interface named `fake`.
+useIface('fake');
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const MINUTE = 60_000;
@@ -258,7 +262,7 @@ function innerHarness({ wakeRuns, actions = [], outcome = 'spoke' }) {
       return { outcome, inner: { actions, turnId: 'turn-x' } };
     },
   };
-  const channels = new Map([['c1', { id: 'c1', name: 'general', guild: { id: 'g1' } }]]);
+  world().channel({ id: 'c1', name: 'general', guildId: 'g1' });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -284,8 +288,8 @@ function innerHarness({ wakeRuns, actions = [], outcome = 'spoke' }) {
     dataDir: tempDir('nep-wakes-'),
     turns,
     intentions,
-    client: { channels: { cache: channels, fetch: async (id) => channels.get(id) ?? null } },
-    discord: { canSend: () => true },
+    reads: world().reads,
+    iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     getGuildId: () => 'g1',

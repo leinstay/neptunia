@@ -11,6 +11,10 @@ import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
 import { HOUR_MS, MINUTE_MS } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+// The conversation she wakes in is held by a fake interface named `fake`.
+useIface('fake');
 
 const T0 = Date.parse('2026-10-24T10:00:00Z');
 const J = 20;
@@ -157,7 +161,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   };
   let inner;
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
-  const channels = new Map([['c1', { id: 'c1', name: 'chan', guild: { id: 'g1' } }]]);
+  world().channel({ id: 'c1', name: 'chan', guildId: 'g1' });
   inner = createInnerLife({
     hot,
     dataDir,
@@ -165,8 +169,8 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
     intentions: service,
     record: null,
     journal: { inner: async () => {} },
-    client: { channels: { cache: channels, fetch: async (cid) => channels.get(cid) ?? null } },
-    discord: { canSend: () => true },
+    reads: world().reads,
+    iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     getGuildId: () => 'g1',
