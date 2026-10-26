@@ -2,13 +2,17 @@
 
 How the engine processes one event from start to finish: the event door, the pipeline, a turn, the tool loop, prompt assembly, model roles, and the safety rails.
 
+## The composition root
+
+`startCore` in `src/core.js` builds every subsystem in one order and starts it: the configuration and its hot reload, the memory database, the stores, the model clients, the link to the interface, the turn runner and the behaviours, the event door and the timers, then the startup steps. It takes the paths, the environment and the interfaces as arguments, so a test starts the whole core over temporary directories with a scripted model and the fake interface (`tests/core-slice.test.ts`). `src/index.js` is the entry that supplies the real ones and the Discord package. See [Starting the core](interfaces.md#starting-the-core).
+
 ## The event door
 
 Every event enters through one door (`src/interface/door.js`). An interface adapter (Discord today) normalizes what the platform delivers into a typed event (defined in `src/protocol/events.js`): a received message, a reaction, an owner command, a membership change, a voice state change. The core's own events (a scheduler tick, a completed errand, an inner-life wake) enter the same way.
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
-The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/index.js`.
+The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
 
 ## The pipeline
 

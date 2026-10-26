@@ -162,7 +162,7 @@ The core and the Discord side exchange envelopes over a Unix socket, even while 
 
 ### Starting up
 
-At start `src/index.js` makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. Then it loads the interface package with a dynamic `import()` and calls `start(host)` (see [Starting an interface](#starting-an-interface)). The interface connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
+At start `startCore` (`src/core.js`) makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. Then it calls `start(host)` of the interface it was given (see [Starting an interface](#starting-an-interface) and [Starting the core](#starting-the-core)). The interface connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
 
 ### Starting an interface
 
@@ -172,7 +172,7 @@ An interface package exports `start(host)`, which resolves with a running interf
 |---|---|
 | `connect()` | Opens the interface's end of the link. The core connects to its socket. |
 | `token` | The token of the link, sent in `hello`. |
-| `env` | The environment the interface reads its own keys from. The core passes `DISCORD_TOKEN` alone. |
+| `env` | The environment the interface reads its own keys from. The core passes none, and the entry adds `DISCORD_TOKEN` for the Discord package. |
 | `config()` | The live config. The core passes `() => hot.config`, and the interface reads it at the moment of use. |
 | `onConfigChange(fn)` | Calls `fn` with `config` or `prompts` after each reload that took, and returns the unsubscribe. |
 | `log` | The logger. An interface package never imports the core's. |
@@ -189,6 +189,21 @@ An interface package exports `start(host)`, which resolves with a running interf
 
 The core calls `open()` once its door has its handlers, because the door answers `unhandled` to a kind it has no handler for. Until then the interface holds what it sees, at most 1,000 events. Past that the oldest is dropped and one warn line says so.
 
+### Starting the core
+
+`startCore(options)` in `src/core.js` is the composition root. It builds the core and starts it over what it is given, and it resolves with `{ door, stop }`.
+
+| Option | What it is |
+|---|---|
+| `paths` | The checkout, the private directory and the data directory, as `resolvePaths` returns them. |
+| `env` | The environment the core reads its keys from. `OPENROUTER_CORE_KEY` is required. `YOUTUBE_API_KEY`, `BRAVE_SEARCH_API_KEY`, `EXA_API_KEY`, `OPENROUTER_SIM_KEY` and `OPENROUTER_MANAGEMENT_KEY` are optional. |
+| `interfaces` | The interfaces to start, each `{ name, start(host) }`. Exactly one is started. |
+| `llm`, `embedder` | Replace the provider client and the embedding client. Only a test passes them, so no test calls a provider. |
+| `now` | Replaces the clock of the scheduler. |
+
+A failed startup check, such as a private directory that does not exist, a missing key or a required prompt, rejects with a one-line error and never exits the process. `stop()` ends the timers, the stores, the memory database, the interface and the link, removes the socket file and the memory database's lock file, and runs once however often it is called.
+
+`src/index.js` is the entry. It reads the paths and the private directory's `.env`, loads `interfaces/discord/index.js` by path, calls `startCore` with the Discord token wrapped into the interface's `env`, handles `SIGINT`, `SIGTERM` and `unhandledRejection`, turns a rejected start into the exit code, and exits after `stop()`. Neither `src/index.js` nor `src/core.js` imports `discord.js`, `interfaces/` or `src/interface/discord.js`, and `structure.json` enforces it.
 ### Events
 
 `emit(event)` on the interface's end checks the event with `validateEvent`, drops the `raw` and `rawPrevious` keys, sends an `event` envelope whose id is the event's own id, and resolves with the status of the `ack` that answers it: `ok`, `duplicate`, `invalid`, `unhandled` or `failed`. An event that fails validation resolves `invalid` and is not sent. A closed transport resolves `failed`. Several events can wait for their acks at once. On the core's end each `event` envelope goes to `door.receive`, its ack goes back, and envelopes are handled concurrently.
@@ -223,7 +238,7 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 - A member or user update becomes `membership.changed` with the avatar hash and url from `members.ts#memberView`. A message's author carries the same pair as `author.avatar`.
 - A channel or thread that is created, edited or deleted becomes `conversation.changed`. At connect every readable channel and cached thread is announced as `updated`.
 - Voice states, presences, the guild snapshot and the shard's loss and return become `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`.
-- Slash command interactions go to the core's command handler, which the core builds once its admin exists and hands to `legacy.serveCommands`. The session registers the command tree again when `bot.commandName` or `features.adminCommands` change.
+- Slash command interactions go to the interaction handler that the session builds over the core's admin when the core calls `legacy.serveCommands(admin)`. The session registers the command tree again when `bot.commandName` or `features.adminCommands` change.
 - A new or edited channel of the served guild makes the audience warmer fetch the members its overwrites name. The warmer also runs once at `open()`.
 
 Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the core calls by name for everything it still asks Discord. These include:
@@ -238,7 +253,7 @@ Besides the port, `createDiscordInterface` returns a frozen capabilities object:
 - Audience: warming the member cache for the audience rail.
 - Commands: the slash command tree, registration and interaction handling.
 
-The core imports none of these directly. The session builds them once, `src/index.js` takes them from `legacy.capabilities` and passes them as `discord` to every module that needs them. A test or a tool hands in plain fakes of the same shape.
+The core imports none of these directly. The session builds them once, `src/core.js` takes them from `legacy.capabilities` and passes them as `discord` to every module that needs them. A test or a tool hands in plain fakes of the same shape.
 
 ### Gateway intents
 
@@ -282,6 +297,8 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 `src/interface/fake.js` is an in-memory adapter for tests. It keeps conversations and messages in memory, records every call in order (`calls`), and lets a test queue results for any operation (`failNext`). It validates every outbound action through `validateAction`, so a test driving the persona through the fake also proves she only asks for well-formed actions.
 
+`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. The fake has no `legacy` of its own. A test that needs a turn to run passes the discord.js-shaped seams that `tests/fixtures/fake-legacy.ts` builds, and `tests/core-slice.test.ts` starts the whole core this way over temporary directories with the tracked prompts and a scripted model.
+
 `replayFixture(fixture, door)` replays a recorded fixture of inbound events through the event door in order, the way a live adapter would deliver them. A `redeliver: n` field on an event sends it n extra times (the door answers `duplicate` to each), testing at-least-once delivery.
 
 The fake offers all capabilities by default. A test can restrict it to a subset (`operations` option) to verify the engine handles `unsupported` correctly, and set its limits with the `capabilities` option (`maxChars` 2000, `maxFiles` 10 and `maxFileBytes` 8 MiB by default).
@@ -296,13 +313,13 @@ To wire up a new chat platform:
 
 3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.js` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
 
-4. Export `start(host)` from the package's entry file. It builds the platform client, serves the adapter with `serveAdapter` over `host.connect()`, subscribes to the platform's events, builds protocol events from them and sends each through `emit`. It holds the events until `open()` is called. The core loads the package with a dynamic `import()` and injects the link's adapter into the engine's modules.
+4. Export `start(host)` from the package's entry file. It builds the platform client, serves the adapter with `serveAdapter` over `host.connect()`, subscribes to the platform's events, builds protocol events from them and sends each through `emit`. It holds the events until `open()` is called. The entry loads the package with a dynamic `import()` and passes `start` to `startCore`, which injects the link's adapter into the engine's modules.
 
 5. Map your platform's error responses to the result statuses. Once a request may have taken effect, the status must be `unknown`.
 
 ## What the core still reads from discord.js
 
-`start` resolves with `legacy`, one object whose every field is a named seam. The core's subsystems still take discord.js objects or functions, and each field hands over exactly what they read. The object goes when the last reader reads the protocol instead.
+`start` resolves with `legacy`, one object whose every field is a named seam. `src/interface/legacy.ts` types it from the core's side, with platform objects as `unknown`, so the core needs no type from `interfaces/`. The core's subsystems still take discord.js objects or functions, and each field hands over exactly what they read. The object goes when the last reader reads the protocol instead.
 
 | Field | What it holds | Read by |
 |---|---|---|
@@ -318,6 +335,6 @@ To wire up a new chat platform:
 | `fetchOwnMessages(channelId, count)` | The persona's last messages of a channel. | The journal's reconciliation |
 | `reactors`, `applyReaction(event)` | Who reacted to her messages, and the store's feed. | The turn runner and the door's `reaction.changed` handler |
 | `emoji` | The served guild's custom emoji. | The turn runner |
-| `serveCommands(onInteraction)` | Wires the slash command interactions and returns `{ register() }`, which pushes the command tree. | The core's command handler |
+| `serveCommands(admin)` | Builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. | `startCore` |
 
-The core keeps the handles of caught-up messages in its own registry, because a message fetched over REST never crosses the link as an event.
+`catchUp.eventOf` keeps the handles of a caught-up message in the session's own registry, because a message fetched over REST never crosses the link as an event, so `rawOf` finds it like a live one.

@@ -32,7 +32,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | Document | What it covers |
 |---|---|
 | [Getting started](getting-started.md) | Requirements, install, configuration layers, environment keys, first run, service setup, tests, contributing |
-| [The core](core.md) | The event door, a turn step by step, the tool loop, prompt assembly and cache layout, model roles and keys, safety rails |
+| [The core](core.md) | The composition root, the event door, a turn step by step, the tool loop, prompt assembly and cache layout, model roles and keys, safety rails |
 | [Memory](memory.md) | Concepts, data model, write and read paths, the memory session, recall, scopes, configuration |
 | [Inner life](inner-life.md) | Heartbeat, daily review, intentions, inner turns, caps, the kill switch, the virtual-week harness |
 | [Diary](diary.md) | The diary feature |

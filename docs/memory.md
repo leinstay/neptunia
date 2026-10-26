@@ -173,7 +173,7 @@ The embedder (`src/memory/embedder.js`) sends new lines to the embedding model i
 
 ### 5. Affinity decay
 
-Every stored attitude drifts toward zero at `relationships.decayPerDay` (default 0.04) per day. The sweep runs hourly (`src/index.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.js#decayAffinities`.
+Every stored attitude drifts toward zero at `relationships.decayPerDay` (default 0.04) per day. The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.js#decayAffinities`.
 
 ### The store, the outbox and pending writes
 
