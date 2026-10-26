@@ -329,7 +329,7 @@ const CALL_STATUS_RE = /^[a-z_]{1,32}$/;
  * (epoch ms), `skill` its `input.skill`, `status` the closing line's: `ok` for `succeeded`,
  * `unknown` for `unknown`, a `failed` line's `result.status` (`failed` when it has none: an older
  * line), `unknown` with no closing line; `code` and `reason` of a `failed` or `unknown` closing
- * line's `result`, each only when that line has it (src/skills/executors.js#outcomeDetail reads
+ * line's `result`, each only when that line has it (src/tools/executors.ts#outcomeDetail reads
  * them); `target` its `started` line's ids (`{ messageId, channelId
  * }`: `message`, else `reply`; null fields when unknown), `postedId` the message it posted
  * (`succeeded` with a `messageId`), `posted` every message its turn posted (its `turn` records'

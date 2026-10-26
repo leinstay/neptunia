@@ -11,8 +11,8 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.j
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';

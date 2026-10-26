@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import '../src/ops/index.js';
-import { expandPersonaGrant } from '../src/ops/access.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
+import '../src/tools/impl/index.ts';
+import { expandPersonaGrant } from '../src/tools/impl/access.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
@@ -325,7 +325,7 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
   const texts = { 'rule.add': { title: 'Add a rule', whenToUse: 'when asked' } };
   const input = { config, selfId: SELF, texts, conversationId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
-  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
   assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   assert.deepEqual(
     whole.find((row) => row.name === 'rule.add'),

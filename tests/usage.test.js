@@ -1,5 +1,5 @@
 // The costs fields of the owner's /nep status card (keys.base, costs.base, costs.errands, costs.development): today's per-role accumulator fed by the
-// `llm: usage` log lines (src/ops/usage.js), the OpenRouter key reads, and the pure renderers
+// `llm: usage` log lines (src/tools/impl/usage.ts), the OpenRouter key reads, and the pure renderers
 // over every key shape the owner may set.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ import {
   compactTokens,
   USAGE_FILE,
   KEEP_DAYS,
-} from '../src/ops/usage.js';
+} from '../src/tools/impl/usage.ts';
 import { createLlm, keyHashOf } from '../src/llm/openrouter.js';
 import { tempDir } from './fixtures/tmp.js';
 

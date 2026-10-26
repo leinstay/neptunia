@@ -384,7 +384,7 @@ test('opencode: a file the server agent copied into its task dir comes back as a
   assert.equal(doc.bytes, (await fsp.stat(source)).size);
   assert.equal(doc.path, path.join(ws.outDir, 'task-copy', 'north-star.md'));
   // The runner collects a file of any size with its true size; delivery refuses one over the
-  // interface's limit with `attachment-too-large` (src/ops/message.js).
+  // interface's limit with `attachment-too-large` (src/tools/impl/message.ts).
   const log = result.result.files.find((f) => f.name === 'big.log');
   assert.ok(log, 'big.log listed');
   assert.equal(log.bytes, 200 * 1024 * 1024);

@@ -1,18 +1,18 @@
 // Module hooks for tests/skills-no-command-table.test.js (loaded with `node --import <this file>`):
 // the owner's slash-command tree is taken away from the modules that hold it, so a child process
-// can prove the persona's skills do not need it. COMMAND_TABLE (src/ops/catalog.js) is exported
-// empty, and `resolveCommand` (src/ops/index.js) throws when called. Source text is rewritten as
+// can prove the persona's skills do not need it. COMMAND_TABLE (src/tools/impl/catalog.ts) is exported
+// empty, and `resolveCommand` (src/tools/impl/index.ts) throws when called. Source text is rewritten as
 // it loads; nothing on disk changes. Synchronous in-thread hooks (`module.registerHooks`), which
 // replace the deprecated `module.register`.
 import { registerHooks } from 'node:module';
 
-const CATALOG = /\/src\/ops\/catalog\.js$/;
-const OPS_INDEX = /\/src\/ops\/index\.js$/;
+const CATALOG = /\/src\/tools\/impl\/catalog\.ts$/;
+const OPS_INDEX = /\/src\/tools\/impl\/index\.ts$/;
 
 function load(url, context, nextLoad) {
   const loaded = nextLoad(url, context);
   const path = url.split('?')[0];
-  if (loaded.format !== 'module' || (!CATALOG.test(path) && !OPS_INDEX.test(path))) return loaded;
+  if (!String(loaded.format).startsWith("module") || (!CATALOG.test(path) && !OPS_INDEX.test(path))) return loaded;
   let source = String(loaded.source);
   if (CATALOG.test(path)) {
     const marker = 'export const COMMAND_TABLE = Object.freeze(';

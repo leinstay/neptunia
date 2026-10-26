@@ -95,7 +95,7 @@ export const STATUSES = Object.freeze(['ok', 'failed', 'unknown', 'unsupported',
 
 /**
  * The capability name of each port operation; the skills registry's `interfaceCapability` uses
- * the same names (src/skills/registry.js), and each is the `action` of the operation's action
+ * the same names (src/tools/registry.ts), and each is the `action` of the operation's action
  * object.
  */
 export const CAPABILITIES = Object.freeze({

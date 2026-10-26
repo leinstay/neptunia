@@ -6361,7 +6361,7 @@ test('buildRequest: another interlocutor changes the profiles part', () => {
 
 // --- skills discovery: the static protocol, the catalogue on request -------------------------
 
-/** Catalogue rows as src/skills/gateway.js#listSkills gives them. */
+/** Catalogue rows as src/tools/gateway.ts#listSkills gives them. */
 const SKILL_ROWS = [
   { name: 'message.create', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over' },
   { name: 'lore.list', title: '', whenToUse: '', allowed: true, reason: 'allowed' },

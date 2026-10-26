@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memberNameMap, untaggedNames, withUserHandles } from '../src/behavior/handles.js';
 import { formatTranscript } from '../src/format.js';
-import { toolResultText } from '../src/skills/tool-calls.js';
+import { toolResultText } from '../src/tools/tool-calls.ts';
 import { untaggedNote } from '../src/behavior/turn.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';

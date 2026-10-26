@@ -60,7 +60,7 @@ import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInp
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { diagnosticText } from './wake.js';
 import { callReason, withCalls } from '../format.js';
-import { grant as accessGrant, revoke as accessRevoke } from '../ops/grants.js';
+import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -70,19 +70,19 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { findGif } from '../memory/index.js';
 import { tokenIds } from '../memory/mentions.ts';
 import { liveRecent, recentSettings } from '../memory/recent.js';
-import { checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../skills/discovery.js';
-import { outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { coerceArgs, toolResultText, transportOf } from '../skills/tool-calls.js';
-import { buildTools } from '../skills/tools-json.js';
-import { skillRegistry } from '../skills/registry.js';
+import { checkSkill, listSkills } from '../tools/gateway.ts';
+import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
+import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { coerceArgs, toolResultText, transportOf } from '../tools/tool-calls.ts';
+import { buildTools } from '../tools/tools-json.ts';
+import { skillRegistry } from '../tools/registry.ts';
 import { toolsBlockText } from '../llm/tool-text.js';
 import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: () => 1 });
@@ -838,8 +838,8 @@ export function sandboxRequestInput({
 
 /**
  * Her tools for a sandbox request, as a live turn pins them at its start (src/behavior/turn.js): the names
- * (src/skills/discovery.js#exposedSkillNames over the view's config and `selfId`), their definitions
- * (src/skills/tools-json.js#buildTools over the skills layer of the view's prompts), the transport
+ * (src/tools/discovery.ts#exposedSkillNames over the view's config and `selfId`), their definitions
+ * (src/tools/tools-json.ts#buildTools over the skills layer of the view's prompts), the transport
  * (`skills.transport`, read now) and what the request carries of them -- the `<tools>` text on the text
  * transport, the calibrated tokens of the `tools` field on the native one. Nothing is sent here. Pure.
  * @param {{ view: object, selfId?: string|null, registry?: Map<string, object> }} input
@@ -1079,7 +1079,7 @@ export function handleMentions(text, handles) {
   return userIds.length > 0 || unknown > 0 ? { mentions: userIds, unknownHandles: unknown } : {};
 }
 
-/** The operations whose `text` argument is a message she posts (src/ops/message.js). */
+/** The operations whose `text` argument is a message she posts (src/tools/impl/message.ts). */
 const MESSAGE_TEXT_SKILLS = Object.freeze(['message.create', 'message.edit']);
 
 /** The text a tool call would post: the `text` argument of a message.create or message.edit; '' for none. Pure. */
@@ -1090,7 +1090,7 @@ function callTextOf(call) {
 
 // ---- skill scenarios -----------------------------------------------------------
 
-/** The persona as the principal of a call (src/skills/gateway.js), as a live turn names her. */
+/** The persona as the principal of a call (src/tools/gateway.ts), as a live turn names her. */
 const PERSONA = Object.freeze({ kind: 'persona' });
 
 /** The result a skill's `<result>` block is cut to when `skills.resultMaxChars` is not set (config.json's value). */
@@ -1099,9 +1099,9 @@ const RESULT_MAX_CHARS = 4500;
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
  * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
- * `/nep access` stores (src/ops/grants.js). People's grants are kept. The names are used as
+ * `/nep access` stores (src/tools/impl/grants.ts). People's grants are kept. The names are used as
  * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
- * for her (src/skills/access.js#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
+ * for her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
  * refusal of it shows. `config` is never changed. Pure.
  * @param {object} config  The live merged config.
  * @param {string} selfId  The bot's own user id.
@@ -1121,7 +1121,7 @@ export function personaGrantsConfig(config, selfId, names) {
 /**
  * The `<skills>` rows of a skill scenario, built as a live turn's skills discovery builds them
  * (src/behavior/turn.js#discoverSkills) for `requester` in `conversationId`: the catalogue
- * (src/skills/gateway.js#listSkills over `config`, `selfId`, the skills layer `texts`) whole
+ * (src/tools/gateway.ts#listSkills over `config`, `selfId`, the skills layer `texts`) whole
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
  * proposalVerdicts, proposedRows), none for `'none'`. Null with discovery off
@@ -1160,8 +1160,8 @@ const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: f
 /**
  * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
  * before the operation runs (src/behavior/turn.js#planToolCall and #runCall): resolved on the
- * server's side over `view` (src/skills/executors.js#resolveCall; src/behavior/turn.js#callViewOf),
- * checked by the gateway (src/skills/gateway.js#checkSkill: the persona as principal, `requester`,
+ * server's side over `view` (src/tools/executors.ts#resolveCall; src/behavior/turn.js#callViewOf),
+ * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,
  * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.js#budget's answer, as a

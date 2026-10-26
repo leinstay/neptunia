@@ -24,7 +24,7 @@ import {
   roleModel,
 } from '../src/llm/roles.js';
 import { readConfig } from '../src/config.js';
-import { MODEL_SET_ROLES } from '../src/ops/catalog.js';
+import { MODEL_SET_ROLES } from '../src/tools/impl/catalog.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

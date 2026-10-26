@@ -41,7 +41,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText as foldName } from '../memory/recent.js';
 import { externalOrigin } from './sources.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** Every status an intention may have. */
 export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired', 'dropped']);

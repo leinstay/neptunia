@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import {
   IN_TURN_TOOLS,
   lookPerTurn,
@@ -18,8 +18,8 @@ import {
   runMemorySearch,
   runWebRead,
   runWebSearch,
-} from '../src/skills/tools.js';
-import { runConversationRead, fetchSpan, recordMessages } from '../src/skills/conversation-read.js';
+} from '../src/tools/tools.ts';
+import { runConversationRead, fetchSpan, recordMessages } from '../src/tools/conversation-read.ts';
 import { pullPictures } from '../src/behavior/pull.js';
 import {
   callViewOf,
@@ -30,7 +30,7 @@ import {
   lookupClassifierInput,
   requesterOf,
 } from '../src/behavior/turn.js';
-import { transportOf } from '../src/skills/tool-calls.js';
+import { transportOf } from '../src/tools/tool-calls.ts';
 import { createTaskStore } from '../src/errands/store.js';
 import { createImageGen } from '../src/llm/images.js';
 import { tempDir } from './fixtures/tmp.js';

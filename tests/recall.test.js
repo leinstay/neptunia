@@ -2514,7 +2514,7 @@ test('buildRecallRequest: a time cue goes in <time_cue> right before <question> 
   assert.ok(!unlabelled.includes('<time_cue>'), 'a blank label adds nothing');
 });
 
-// memory.search (the persona's own call, src/skills/tools.js): her arguments, read without a helper.
+// memory.search (the persona's own call, src/tools/tools.ts): her arguments, read without a helper.
 
 test("memorySearchPlan: her terms and people first, then the question's long words and a stored name it holds; a time range bounds; a channel is kept", () => {
   const now = Date.UTC(2026, 9, 17, 12);

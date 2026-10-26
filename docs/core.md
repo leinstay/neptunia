@@ -39,13 +39,13 @@ A turn (`src/behavior/turn.js`) has four stages:
 
 ## The tool loop
 
-When `features.coreTools` is on, the persona's granted skills appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `skills.transport` set to `text`). Each `<call>` in the model's output passes the skills gateway (`src/skills/gateway.js`): it checks access, validates arguments against the skill's schema, checks the requester's rights and the budget.
+When `features.coreTools` is on, the persona's granted skills appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `skills.transport` set to `text`). Each `<call>` in the model's output passes the skills gateway (`src/tools/gateway.ts`): it checks access, validates arguments against the skill's schema, checks the requester's rights and the budget.
 
 After the calls of one answer run, their results come back in another LLM request. This loop repeats up to `skills.loop.maxSteps` times (default 3), with a time budget of `skills.loop.timeBudgetMs` (default 20 seconds) and at most `skills.loop.maxCallsPerStep` calls per answer (default 4). When the step or time limit runs out, the current answer is the persona's last.
 
 When `features.coreTools` is off (the default), the classifiers before the reply do the work instead: a lookup classifier picks web and server searches, a rewatch classifier picks a second look at media, and a route classifier picks another channel to show. The persona has no callable tools in this mode.
 
-The persona's tools are defined in `src/skills/definitions.js`: operations covering messages, reactions, drawing, voice, web search, memory reads, errands, intentions, config, media and more. Each is wired to an operation of the ops layer (`src/ops/`), and each has a declared effect (read, write, destructive, administrative, paid) that the gateway enforces.
+The persona's tools are defined in `src/tools/definitions.ts`: operations covering messages, reactions, drawing, voice, web search, memory reads, errands, intentions, config, media and more. Each is wired to an operation of the ops layer (`src/tools/impl/`), and each has a declared effect (read, write, destructive, administrative, paid) that the gateway enforces.
 
 ## Prompt assembly
 
@@ -97,7 +97,7 @@ A role never borrows another role's model. An unset role uses its own default (t
 
 ## Web search and page reading
 
-The persona can search the web and read pages behind links. Both require `features.webLookup` set to `true` (off by default). The code lives in `src/web/` (the clients) and `src/skills/tools.js` (the tool wrappers).
+The persona can search the web and read pages behind links. Both require `features.webLookup` set to `true` (off by default). The code lives in `src/web/` (the clients) and `src/tools/tools.ts` (the tool wrappers).
 
 ### How a search happens
 

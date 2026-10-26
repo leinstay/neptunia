@@ -2,7 +2,7 @@
 // (src/speech/prepare.js), the synthesis (synth.js) and the conversion to a voice note
 // (convert.js) -- under its own daily rail, `speech.maxPerDay`, counted on the same state as the
 // picture counter and only when the synthesis request is actually sent. Posting is the caller's
-// (src/ops/voice.js): this module makes the file and says what it cost.
+// (src/tools/impl/voice.ts): this module makes the file and says what it cost.
 //
 // Settings and prompts are read at the moment of use. Logs carry codes and counts, never the text.
 
@@ -10,7 +10,7 @@ import { log } from '../log.js';
 import { bumpDaily, countToday } from '../time.js';
 import { dailyCapOf } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import { prepareSpeech } from './prepare.js';
 import { SpeechSynthError, SPEECH_ROLE, synthesizeSpeech } from './synth.js';
 import { SpeechConvertError, toVoiceNote } from './convert.js';

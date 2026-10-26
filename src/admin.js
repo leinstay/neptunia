@@ -18,22 +18,22 @@
 // `{ text, embeds }` with the card), or throws an
 // `Error` with an operator-facing message on bad input. Mapping a
 // discord.js interaction's options onto `args` is interfaces/discord/commands.js's
-// job. The handlers themselves are typed operations under src/ops/ (one file
+// job. The handlers themselves are typed operations under src/tools/impl/ (one file
 // per area): `run` maps the command key onto its operation
-// (src/ops/index.js#COMMAND_TO_OP), runs it and renders the result. The pure
+// (src/tools/impl/index.ts#COMMAND_TO_OP), runs it and renders the result. The pure
 // functions (listRules, appendRule, removeRule, setPath, unsetPath,
-// buildProfileSummary) live in src/ops/shared.js and are re-exported from here.
+// buildProfileSummary) live in src/tools/impl/shared.ts and are re-exported from here.
 
-import { isAllowed as accessIsAllowed } from './ops/grants.js';
-import { createOpsEnv } from './ops/env.js';
-import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './ops/index.js';
-import { getOp, listOps } from './ops/registry.js';
-import { grantKeys, migrateStoredGrants } from './ops/access.js';
-import { skillNames } from './skills/registry.js';
-import { SELF_OWNED_OPS } from './ops/effects.js';
-import { CODE } from './skills/codes.js';
+import { isAllowed as accessIsAllowed } from './tools/impl/grants.ts';
+import { createOpsEnv } from './tools/impl/env.ts';
+import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './tools/impl/index.ts';
+import { getOp, listOps } from './tools/impl/registry.ts';
+import { grantKeys, migrateStoredGrants } from './tools/impl/access.ts';
+import { skillNames } from './tools/registry.ts';
+import { SELF_OWNED_OPS } from './tools/impl/effects.ts';
+import { CODE } from './tools/codes.ts';
 
-export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
+export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './tools/impl/shared.ts';
 
 /** How many archive entries `/nep memory restore`'s autocomplete offers (Discord's cap on choices). */
 const ARCHIVE_CHOICES = 25;
@@ -45,8 +45,8 @@ const ARCHIVE_CHOICES = 25;
  *   createDiscordInterface; src/index.js passes the one it builds), for the operations that still read the
  *   platform directly. The operations read it as `env.discord`.
  * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
- *   posting in another conversation (src/ops/shared.js#postingConversation), a message's event for a turn asked on
- *   a message (src/ops/message.js). The operations read it as `env.reads`.
+ *   posting in another conversation (src/tools/impl/shared.ts#postingConversation), a message's event for a turn asked on
+ *   a message (src/tools/impl/message.ts). The operations read it as `env.reads`.
  * `spontaneous` — the spontaneous scheduler: `force(conversation, mode)` and `status()`, the conversation as a
  *   reference `{ iface, conversationId }`.
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
@@ -90,14 +90,14 @@ const ARCHIVE_CHOICES = 25;
  * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
  *   `/nep status` card finds the record's month indexes for its memory coverage. Absent -> the
  *   record line says it is not available.
- * `metrics` — from src/ops/metrics.js#createMetrics, optional: `summary`, the owner card's speed
+ * `metrics` — from src/tools/impl/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
  * `lookup` — from src/web/lookup.js#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
  * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
  *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `/nep task look`.
  *   Absent -> that command reports it is not available.
- * `usage` — from src/ops/usage.js#createUsage, optional: `byRole`, today's requests per role on
+ * `usage` — from src/tools/impl/usage.ts#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of
  *   its limit on the owner card's costs field, never for a model request. Absent -> a "not set" line.
@@ -124,7 +124,7 @@ export function createAdmin(deps) {
   const env = createOpsEnv(deps);
   const { hot, resolvedGuildId } = env;
 
-  /** The operation descriptor a command key runs with `args` (src/ops/index.js#COMMAND_TO_OP);
+  /** The operation descriptor a command key runs with `args` (src/tools/impl/index.ts#COMMAND_TO_OP);
    * a command with no operation (an unknown key) is owner-only. */
   function opForCommand(commandKey, args = {}) {
     const target = resolveCommand(commandKey, args);
@@ -138,7 +138,7 @@ export function createAdmin(deps) {
   }
 
   /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
-   * `pings`): src/ops/grants.js#isAllowed on its operation, every input
+   * `pings`): src/tools/impl/grants.ts#isAllowed on its operation, every input
    * read now. For the autocomplete, which runs nothing; a command itself goes through
    * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
    * interfaces/discord/commands.js#createInteractionHandler, which reads them off the interaction. */
@@ -153,7 +153,7 @@ export function createAdmin(deps) {
   }
 
   /** `/nep access grant`'s autocomplete keys: `*`, the groups and the grantable operations, then
-   * the persona's other skill names (src/skills/registry.js), granted to her with her as the user. */
+   * the persona's other skill names (src/tools/registry.ts), granted to her with her as the user. */
   function accessKeys() {
     return [...new Set([...grantKeys(listOps()), ...skillNames()])];
   }
@@ -181,8 +181,8 @@ export function createAdmin(deps) {
 
   /**
    * One slash command for a caller (`context`: `{ guildId, channelId, userId, roleIds }`): the
-   * command key mapped to its operation (src/ops/index.js#COMMAND_TO_OP) and run through
-   * src/ops/index.js#runOp, the full rights check included; a key with no operation is
+   * command key mapped to its operation (src/tools/impl/index.ts#COMMAND_TO_OP) and run through
+   * src/tools/impl/index.ts#runOp, the full rights check included; a key with no operation is
    * `invalid`. Never throws: `{ status, code, summary, data }`.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
@@ -195,7 +195,7 @@ export function createAdmin(deps) {
   }
 
   /**
-   * One operation run for the persona by its name (src/ops/index.js#runOp), the requester's full
+   * One operation run for the persona by its name (src/tools/impl/index.ts#runOp), the requester's full
    * rights check included; no command key is resolved. Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
@@ -204,9 +204,9 @@ export function createAdmin(deps) {
   }
 
   /**
-   * One of the persona's own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) run for
+   * One of the persona's own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS) run for
    * her by its name, WITHOUT the requester's rights check: her grant, checked by the skill
-   * gateway, alone decides (src/skills/executors.js). Any other operation is refused
+   * gateway, alone decides (src/tools/executors.ts). Any other operation is refused
    * (`not-self-owned`): it goes through `runSkillOp`. Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
@@ -219,7 +219,7 @@ export function createAdmin(deps) {
   /**
    * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.js:
    * nobody asked) by its name, WITHOUT a requester's rights check: her grant, checked by the
-   * skill gateway as her own initiative, alone decides (src/skills/executors.js). Never throws.
+   * skill gateway as her own initiative, alone decides (src/tools/executors.ts). Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
   async function runInitiativeSkillOp(op, args = {}, context = {}) {
@@ -227,7 +227,7 @@ export function createAdmin(deps) {
   }
 
   /** Once per guild at start: the stored grants re-expanded under the operation names
-   * (src/ops/access.js#migrateStoredGrants). */
+   * (src/tools/impl/access.ts#migrateStoredGrants). */
   function migrateAccess(guildId) {
     return migrateStoredGrants(env, guildId, legacyGrantOps);
   }

@@ -23,7 +23,7 @@ import {
 } from '../../src/interface/port.js';
 import { READ_ACTIONS, deliveryOf, splitText } from '../../src/protocol/index.js';
 import { createDiscordReads } from './reads.ts';
-import { CODE, httpCode } from '../../src/skills/codes.js';
+import { CODE, httpCode } from '../../src/tools/codes.ts';
 
 /** The namespace of every Discord reference. */
 export const DISCORD_IFACE = 'discord';

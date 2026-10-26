@@ -1,4 +1,4 @@
-// Tests for src/ops/: the typed operations behind the owner commands -- the registry, the rights
+// Tests for src/tools/impl/: the typed operations behind the owner commands -- the registry, the rights
 // check of runOp, the result shape, and the old command keys' table (COMMAND_TO_OP).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,8 +6,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { legacyGrantOps, listOps, runOp } from '../src/ops/index.js';
-import { createOpsEnv } from '../src/ops/env.js';
+import { legacyGrantOps, listOps, runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { createTaskStore } from '../src/errands/store.js';

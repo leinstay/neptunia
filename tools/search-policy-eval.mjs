@@ -18,7 +18,7 @@
 // (tracked, or the deployment's prompts.local/lookup.md through the usual loader, src/hot.js)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
 // else the config's first `bot.nameTriggers`) and `{{skills}}` = the skills index when discovery
-// is on (src/skills/discovery.js), as the turn fills them. One completion on the `analyzer` role
+// is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `lookup`; `--model` pins another for this run only), with the turn's
 // helper options (helperRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
@@ -140,8 +140,8 @@ export async function main(
   const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.js');
   const { helperRequestOptions } = await import('../src/llm/openrouter.js');
   const { roleModel } = await import('../src/llm/roles.js');
-  const { discoveryOn, skillsIndex } = await import('../src/skills/discovery.js');
-  const { skillRegistry } = await import('../src/skills/registry.js');
+  const { discoveryOn, skillsIndex } = await import('../src/tools/discovery.ts');
+  const { skillRegistry } = await import('../src/tools/registry.ts');
   const { zonedDay } = await import('../src/time.js');
 
   let hot = givenHot;

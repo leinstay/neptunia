@@ -18,7 +18,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { contentText } from './fixtures/turn-harness.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 
 // The diary channel is held by a fake interface named `fake`; the persona is `self-id`.

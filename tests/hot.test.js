@@ -7,7 +7,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.js';
 import { composePreamble } from '../src/errands/preambles.js';
-import { createOpsEnv } from '../src/ops/env.js';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';

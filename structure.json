@@ -307,10 +307,9 @@
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
-        "src/ops/**",
         "src/protocol/**",
-        "src/skills/**",
         "src/speech/**",
+        "src/tools/**",
         "src/web/**",
         "src/interface/directory.ts",
         "src/interface/door.js",
@@ -400,7 +399,7 @@
       "test": "required"
     },
     {
-      "path": "src/ops/",
+      "path": "src/tools/impl/",
       "purpose": "The owner operations behind the /nep commands.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
@@ -428,7 +427,7 @@
       "test": "none"
     },
     {
-      "path": "src/skills/",
+      "path": "src/tools/",
       "purpose": "The tools the persona can call: definitions, registry, executors and the gateway.",
       "layer": "public",
       "imports": ["node:*", "src/**"],

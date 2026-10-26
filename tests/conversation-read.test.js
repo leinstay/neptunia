@@ -1,18 +1,18 @@
-// Tests for conversation.read (src/skills/conversation-read.js): the selection of her arguments,
+// Tests for conversation.read (src/tools/conversation-read.ts): the selection of her arguments,
 // the record reader, the runner over fakes (the three modes, the paging line, the interface's
 // history when the record lacks the span, a hidden channel refused), and the registry rows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { IN_TURN_TOOLS } from '../src/skills/tools.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { IN_TURN_TOOLS } from '../src/tools/tools.ts';
 import {
   pickSpan,
   readSelection,
   recordMessages,
   runConversationRead,
   sinceMoment,
-} from '../src/skills/conversation-read.js';
+} from '../src/tools/conversation-read.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');

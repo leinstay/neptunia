@@ -117,7 +117,7 @@ import {
   renderDirectory,
 } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
-import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../skills/discovery.js';
+import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../tools/discovery.ts';
 import { inertThink } from './previous-think.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
@@ -2041,7 +2041,7 @@ const ARG_VALUES_MORE = '…';
 
 /**
  * The `{args}` of one `labels.skills.line`: `forms.list` with `{list}` filled by the arguments
- * (src/skills/discovery.js#skillArgs, in their order) joined by ', ', each its name wrapped in
+ * (src/tools/discovery.ts#skillArgs, in their order) joined by ', ', each its name wrapped in
  * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
  * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
  * `forms.required` (`{arg}`);
@@ -2086,7 +2086,7 @@ function skillArgsText(args, forms) {
 
 /**
  * The `<skills>` body, compact whatever the size of the catalogue: only the rows the persona may
- * use now (`allowed`), grouped by family (src/skills/discovery.js#byFamily, an empty line between
+ * use now (`allowed`), grouped by family (src/tools/discovery.ts#byFamily, an empty line between
  * families), one `labels.skills.line` each with `{name}`, `{title}`, `{whenToUse}`, `{access}`
  * and `{args}` filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
  * `labels.skills.access.allowed`; `{args}` is skillArgsText of the row's `args`. A row without a
@@ -3277,12 +3277,12 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   and one `offPaused` / `offStopped` line per period (nowBlock). Omitted, null or empty -> none.
  * @param {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]|null} [input.skillsInventory]
  *   The persona's skills catalogue for this requester and conversation
- *   (src/skills/gateway.js#listSkills), given on a turn whose question was what she can do (the
+ *   (src/tools/gateway.ts#listSkills), given on a turn whose question was what she can do (the
  *   classifier's `skills: inventory`): `<skills>` in the tail right before `<chat>`, one
  *   `labels.skills.line` per row (skillsInventoryText), budget section `skills` (one piece,
  *   after `found`). Omitted or null -> no `<skills>`.
  * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
- *   (src/skills/discovery.js#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
+ *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
  *   `media.look`, `memory.search`) matter here, to `<senses>` under `features.coreTools` (the search
  *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
  * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text

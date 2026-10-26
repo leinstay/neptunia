@@ -44,7 +44,7 @@ import {
   readFixture,
   scriptedHistory,
 } from '../tools/inner-week.mjs';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { call as toolCall } from './fixtures/tool-answers.js';
 import { callBlock as toolCallBlock } from './fixtures/tool-answers.js';
 import { createStore } from '../src/memory/store.js';

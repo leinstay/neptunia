@@ -27,7 +27,7 @@ const {
 } = sandbox;
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);

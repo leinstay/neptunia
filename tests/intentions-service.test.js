@@ -1,5 +1,5 @@
 // Tests for the persona's intentions at work: src/intentions/service.js and store.js behind the
-// `/nep task intent` operations (src/ops/intent.js), over a real task store and errand service (a
+// `/nep task intent` operations (src/tools/impl/intent.ts), over a real task store and errand service (a
 // temp data/ directory) with a FAKE errand client and a fake clock. Reliable waiting: a failed
 // launch leaves nothing waiting, an errand of the same turn is linked whichever call came first,
 // its end moves the wait back to pending once (a duplicate end is a no-op), a missing end is found
@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runOp } from '../src/ops/index.js';
-import { createOpsEnv } from '../src/ops/env.js';
+import { runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { createTaskTurns, taskCompletedEvent } from '../src/errands/turns.js';
@@ -551,7 +551,7 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
     { id: 'm4', channelId: 'c1', self: true, content: 'θα θυμίζω την κλήρωση κάθε μέρα', ts: T0 - 2000 },
     { id: 'm5', channelId: 'c1', self: true, content: 'θα ξανακοιτάξω το νήμα αύριο', ts: T0 - 1000 },
   ];
-  // An inner turn's call context (src/skills/executors.js#executeCall adds ownInitiative and the chain).
+  // An inner turn's call context (src/tools/executors.ts#executeCall adds ownInitiative and the chain).
   const inner = (turnId, chainId) => hers(env, turnId, { ownInitiative: true, chainId });
   await withCapturedLogs(async () => {
     const out = await intentions.addCandidates(

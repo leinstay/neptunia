@@ -2357,7 +2357,7 @@ test('recall-run: a locator whose record reaches past the decay margin sends no 
   );
 });
 
-// The persona's own memory.search (src/skills/tools.js): what she is told when it finds nothing.
+// The persona's own memory.search (src/tools/tools.ts): what she is told when it finds nothing.
 
 test('recall-run outcome: a spent daily limit is named, for the day count and for the request cap', async () => {
   const day = scene({ recall: { maxPerDay: 3 }, state: { recallDay: '2026-10-05', recallCount: 3 } });

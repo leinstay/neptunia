@@ -43,7 +43,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState } from './store.js';
 import { createLedgerMirror } from './ledger.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds']);
@@ -321,7 +321,7 @@ export function createErrandService({
     return { ok: true, task: closed };
   }
 
-  /** The gateway's budget of a new `agent` task (src/skills/gateway.js): the store's caps. */
+  /** The gateway's budget of a new `agent` task (src/tools/gateway.ts): the store's caps. */
   function budget({ guildId = null, agent } = {}) {
     const store = storeOf(guildId);
     return store ? store.budget(agent) : null;

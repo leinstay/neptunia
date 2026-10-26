@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SKILL_DEFINITIONS } from '../src/skills/definitions.js';
+import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { CliError } from './lib/cli.mjs';
 import { pairOrder, renderSheet } from './lib/pair.mjs';
 import { pairAnswerOf } from './replay.mjs';

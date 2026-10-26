@@ -115,7 +115,7 @@
 // persona's grants are exactly `grants` in a copy of the config (never
 // written; src/behavior/sandbox.js#personaGrantsConfig): skill names, groups
 // and `*` expanded as `/nep access grant` expands them for her
-// (src/ops/access.js#expandPersonaGrant: a group or `*` is its read skills); a
+// (src/tools/impl/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
 // An errand (`task.run`) passes the gateway's budget exactly as live: the
 // open tasks against `agents.maxOpen` and today's tasks and dollars against
@@ -129,8 +129,8 @@
 // (`discovery` a list of up to four names, as after `skills: <names>`), or
 // none ("none"). Answered `runs` times (1..10, default 1) in the sandbox
 // (src/behavior/sandbox.js#answerSkillScenario). A tool call is resolved and
-// checked as live (#simulateCall: src/skills/executors.js#resolveCall over
-// the guild's channels, roles and stored members, src/skills/gateway.js#checkSkill
+// checked as live (#simulateCall: src/tools/executors.ts#resolveCall over
+// the guild's channels, roles and stored members, src/tools/gateway.ts#checkSkill
 // with the requester's real role ids, the image quota read from a copy of
 // the state); the operation never runs: a call that passed is recorded and
 // answered `ok` with `result` (the text an operation would have answered,
@@ -3756,7 +3756,7 @@ const SCENARIO_ID = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_RUNS = 10;
 /** Discord's longest message: the most a scenario's text or canned result may hold. */
 const MAX_SCENARIO_TEXT = 4000;
-/** The most skills a classifier's `skills:` line names (src/skills/discovery.js#MAX_PROPOSED). */
+/** The most skills a classifier's `skills:` line names (src/tools/discovery.ts#MAX_PROPOSED). */
 const MAX_DISCOVERY_NAMES = 4;
 /** How long after the anchor message the invented one is written. */
 const SCENARIO_AFTER_MS = 60_000;
@@ -4015,7 +4015,7 @@ export function loopRequestEstimate(settings) {
 
 /**
  * The skill names a scenario's `grants` store for the persona, in order, de-duplicated: each
- * key expanded by `expand` (src/ops/access.js#expandPersonaGrant: a skill by name, a group or
+ * key expanded by `expand` (src/tools/impl/access.ts#expandPersonaGrant: a skill by name, a group or
  * `*` as its read skills), a name no grant opens for her kept (`refused`) so the gateway
  * refuses it as live. A key that names no skill is a CliError naming the scenario.
  * @param {{ id: string, grants: string[] }} scenario
@@ -4151,7 +4151,7 @@ export function scenarioFileOf(task, parseFileHandle) {
 }
 
 /**
- * The errands' budget the sandbox gateway reads (src/skills/gateway.js, `context.tasks`), read
+ * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
  * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
  * tasks.json and tasks.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `agents.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
@@ -4179,7 +4179,7 @@ export function withCoreTools(config) {
   return { ...config, features: { ...(config?.features ?? {}), coreTools: true } };
 }
 
-/** The result of an in-turn tool that ran past its time (src/skills/executors.js#executeCall's). */
+/** The result of an in-turn tool that ran past its time (src/tools/executors.ts#executeCall's). */
 const TOOL_TIMEOUT_RESULT = Object.freeze({ status: 'unknown', code: 'timeout', data: Object.freeze({ text: '' }) });
 
 /**
@@ -4252,14 +4252,14 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log
  * `memory.search` through the live recall runner (src/behavior/recall-run.js#createRecall over a
  * private copy of the daily recall counter, the store's read methods, `sources` -- the record, the
  * archive and the vector index of the data read, iterated only -- and `embed`), each by its
- * src/skills/tools.js runner. `run(skill, args, { history, at })` resolves `{ result, usage }`
+ * src/tools/tools.ts runner. `run(skill, args, { history, at })` resolves `{ result, usage }`
  * (`usage`: the requests the call itself sent, their tokens and cost); `recallAvailable()` whether
  * the server search could run now (its senses line). `prefetch({ trigger, triggerKind, mode,
  * history, at })` the automatic memory prefetch a live turn with features.coreTools runs for that
  * trigger (src/behavior/prefetch.js#prefetchLanes and the recall runner's `prefetch`, as of `at`:
  * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
  * `prefetchOn`, `recallSettings` its pure parts). `conversation.read` runs the live reader
- * (src/skills/conversation-read.js, `conversation`: its runConversationRead, fetchSpan, recordMessages,
+ * (src/tools/conversation-read.ts, `conversation`: its runConversationRead, fetchSpan, recordMessages,
  * searchHandles and pullPictures) over `record` (iterated only) and the REST channel (GET only), its
  * handles numbered on past the request's own (`idByIndex`). Nothing reaches the store or data/.
  */
@@ -6990,7 +6990,7 @@ async function runMain(args, { root, signal, rng, answers }) {
   const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
   // Her turns run on the step engine in every mode that answers as a skill scenario (--skills, --pair-transport,
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
-  // below: src/ops/index.js.)
+  // below: src/tools/impl/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
   if (loopWanted) await load('ops/index.js');
   const turnMod = loopWanted ? await load('behavior/turn.js') : null;
@@ -7163,7 +7163,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;
-  // --skills: the operations register themselves and the command tree the skills derive from (src/ops/index.js).
+  // --skills: the operations register themselves and the command tree the skills derive from (src/tools/impl/index.ts).
   let skillMods = null;
   if (loopWanted) {
     await load('ops/index.js');

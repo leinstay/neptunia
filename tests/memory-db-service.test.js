@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createMemoryDb, turnReadRows } from '../src/memory/db/service.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
-import { memoryDbStatusLine } from '../src/ops/status.js';
+import { memoryDbStatusLine } from '../src/tools/impl/status.ts';
 import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.js';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));

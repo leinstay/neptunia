@@ -8,12 +8,12 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { createAdmin } from '../src/admin.js';
 import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.js';
 import { snowflakeAt } from '../src/behavior/recall.js';
-import { executeCall, resolveCall } from '../src/skills/executors.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import { executeCall, resolveCall } from '../src/tools/executors.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { journalTurnRecord } from '../src/behavior/turn.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';

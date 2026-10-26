@@ -9,8 +9,8 @@ import path from 'node:path';
 import { stripUrls } from '../src/memory/clamp.js';
 import { createStore } from '../src/memory/store.js';
 import { archiveEntry, archiveRevision } from '../src/memory/archive.js';
-import { runOp } from '../src/ops/index.js';
-import { createOpsEnv } from '../src/ops/env.js';
+import { runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 

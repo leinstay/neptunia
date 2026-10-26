@@ -12,12 +12,12 @@ import {
   createInteractionHandler,
   commandEvent,
 } from '../interfaces/discord/index.js';
-import { isValidCommandName, leafPaths, commandSize, STATUS_FIELDS, readFlag } from '../src/ops/catalog.js';
+import { isValidCommandName, leafPaths, commandSize, STATUS_FIELDS, readFlag } from '../src/tools/impl/catalog.ts';
 import { validateEvent } from '../src/protocol/index.js';
-import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
-import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
-import { getOp } from '../src/ops/registry.js';
-import { grantKeys } from '../src/ops/access.js';
+import { isAllowed as accessIsAllowed } from '../src/tools/impl/grants.ts';
+import { resolveCommand, asResult, listOps } from '../src/tools/impl/index.ts';
+import { getOp } from '../src/tools/impl/registry.ts';
+import { grantKeys } from '../src/tools/impl/access.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // ---------------------------------------------------------------------------
@@ -222,8 +222,8 @@ test('registerCommands: a command-too-large refusal logs the tree size and the l
 // createInteractionHandler
 // ---------------------------------------------------------------------------
 
-/** A fake admin whose rights check runs the real, pure src/ops/grants.js#isAllowed on the
- * real operation a command key maps to (src/ops/index.js#resolveCommand; a command with no
+/** A fake admin whose rights check runs the real, pure src/tools/impl/grants.ts#isAllowed on the
+ * real operation a command key maps to (src/tools/impl/index.ts#resolveCommand; a command with no
  * operation is owner-only) against `owners`/`access`, the way src/admin.js#createAdmin wires it --
  * so these tests exercise the real gating logic, not a stand-in for it. `runCommand` answers in
  * runOp's shape; `runCalls` holds the command keys that got past the rights. */

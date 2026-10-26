@@ -17,8 +17,8 @@ import path from 'node:path';
 
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
-import { createMetrics, metricsTap } from './ops/metrics.js';
-import { createUsage, usageTap } from './ops/usage.js';
+import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
+import { createUsage, usageTap } from './tools/impl/usage.ts';
 import { createMemoryDb } from './memory/db/service.js';
 import {
   createStore,
@@ -80,12 +80,12 @@ import { createReactorStore, applyReactionChanged } from './behavior/reactor-sto
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
-import { skillRegistry, missingDefinitions } from './skills/registry.js';
-import { grantedSkillNames } from './skills/discovery.js';
+import { skillRegistry, missingDefinitions } from './tools/registry.ts';
+import { grantedSkillNames } from './tools/discovery.ts';
 import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
-import { isValidCommandName } from './ops/catalog.js';
+import { isValidCommandName } from './tools/impl/catalog.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -226,12 +226,12 @@ async function buildCore(options, cleanups) {
   const identity = { iface: '', selfId: '', selfName: 'bot' };
   // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
   const members = createMemberDirectory();
-  // The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
+  // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
   // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
   const metrics = createMetrics({ dataDir, log });
   const untapMetrics = onLog(metricsTap(metrics));
   cleanups.push(untapMetrics);
-  // The costs field of /nep status (src/ops/usage.js): today's requests per role from the `llm: usage`
+  // The costs field of /nep status (src/tools/impl/usage.ts): today's requests per role from the `llm: usage`
   // lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
   const usage = createUsage({ dataDir, log });
   const untapUsage = onLog(usageTap(usage));
@@ -456,7 +456,7 @@ async function buildCore(options, cleanups) {
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: hello.capabilities.presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-  // after the skill gateway (src/skills/gateway.js) let the call pass.
+  // after the skill gateway (src/tools/gateway.ts) let the call pass.
   const iface = coreLink.adapter;
 
   // What the subsystems of PR 2b still read from the platform, as the interface hands it over (none for an
@@ -587,7 +587,7 @@ async function buildCore(options, cleanups) {
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.js#runSkillOp); read at call time, the admin being created below.
     runOp: (op, args, context) => admin.runSkillOp(op, args, context),
-    // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
+    // Her own messages, drawings and diary run on her grant alone (src/tools/impl/effects.ts#SELF_OWNED_OPS).
     runOwnOp: (op, args, context) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
@@ -1239,7 +1239,7 @@ async function buildCore(options, cleanups) {
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/ops/access.js).
+  // under the operation names, a journal record of what each covers now (src/tools/impl/access.ts).
   await startupStep('access.migrate', () => admin.migrateAccess(instance.guildId), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn

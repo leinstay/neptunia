@@ -1,4 +1,4 @@
-// Tests for her own tools in a turn (src/skills/tools.js over src/behavior/turn.js): web.search, web.read,
+// Tests for her own tools in a turn (src/tools/tools.ts over src/behavior/turn.js): web.search, web.read,
 // memory.search, media.look and draw.create run inside the turn and come back in it as the tool message of
 // her call; the step engine itself is tests/turn-tool-steps.test.js. Over a real admin and the fake interface
 // adapter (src/interface/fake.js); no network, no data/.

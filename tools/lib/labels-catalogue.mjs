@@ -1,4 +1,4 @@
-// The pure side of tools/labels-catalogue.mjs: the code catalogue (src/skills/codes.js) against the
+// The pure side of tools/labels-catalogue.mjs: the code catalogue (src/tools/codes.ts) against the
 // shipped labels (prompts/labels.json) and the contract's list of reason codes (docs/prompt-contract.md).
 // Every `skill` code needs a `skills.result.reasons.<code>`, every `wake` code a `wake.feedback.codes.<code>`,
 // no label may lack its code (`other` is the one fallback), and a label may only name values its code takes.

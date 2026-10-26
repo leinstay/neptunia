@@ -17,9 +17,9 @@ import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createJournal, callMarksOf } from '../src/memory/journal.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { checkSkill } from '../src/skills/gateway.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { checkSkill } from '../src/tools/gateway.ts';
 import { createAdmin } from '../src/admin.js';
 import {
   diagnosticLines,

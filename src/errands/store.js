@@ -22,7 +22,7 @@
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a
-// turn that showed its `<task_result>` completed, or `task.read` returned it, src/ops/task.js) and
+// turn that showed its `<task_result>` completed, or `task.read` returned it, src/tools/impl/task.ts) and
 // `resolvedAt` (she closed it: `task.resolve`, or an intention that waited on it moved to done).
 // `unread` lists the finished ones with neither, oldest first; `seen` only says the result turn
 // ran, and hides nothing. A record from before `readAt` existed counts as read when it was `seen`.
@@ -39,7 +39,7 @@ import { createReadSeam } from '../memory/db/readers/common.js';
 import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
 import { profileOf } from '../agent-runner/profiles.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** Every state a task may be in. */
 export const TASK_STATES = Object.freeze(['queued', 'running', 'done', 'failed', 'cancelled']);
@@ -543,7 +543,7 @@ export function createTaskStore({
   }
 
   /**
-   * The budget of `agent` for the skills gateway (src/skills/gateway.js): `{ spent, key }`, spent
+   * The budget of `agent` for the skills gateway (src/tools/gateway.ts): `{ spent, key }`, spent
    * when a cap would refuse a new task now (`key` the setting).
    */
   function budget(agent) {

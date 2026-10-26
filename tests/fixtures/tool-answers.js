@@ -3,7 +3,7 @@
 // `call` builds one tool call by the skill's dotted name (the API name is derived, the arguments are
 // JSON as the model writes them), `badCall` one whose arguments could not be read, `toolAnswer` the
 // answer holding them. A plain string is a speech-only answer and needs none of this.
-import { apiNameOf, skillNameOfApi } from '../../src/skills/definitions.js';
+import { apiNameOf, skillNameOfApi } from '../../src/tools/definitions.ts';
 
 /** A tool call of `name` (dotted) with `args`; `id` is hers (omitted: the engine makes `s<step>c<n>`). */
 export function call(name, args = {}, { id = null } = {}) {

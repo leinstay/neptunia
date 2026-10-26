@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
-import { memorySearchText, runMemorySearch } from '../src/skills/tools.js';
+import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js';
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';

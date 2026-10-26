@@ -20,7 +20,7 @@ import {
   readOnlyJournal,
   recordingLlm,
 } from '../tools/replay.mjs';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { parseOutput } from '../src/llm/parse.js';
 import { answerOf } from '../src/behavior/turn.js';
 import { call as toolCall } from './fixtures/tool-answers.js';

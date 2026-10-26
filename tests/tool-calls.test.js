@@ -1,13 +1,13 @@
-// Tests for src/skills/tool-calls.js: the calls of an answer as records, the narrow coercion of
+// Tests for src/tools/tool-calls.ts: the calls of an answer as records, the narrow coercion of
 // argument types, the words of a call's result, and when a finished call covers speech.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/ops/index.js';
-import { buildSkills } from '../src/skills/registry.js';
-import { SKILL_DEFINITIONS } from '../src/skills/definitions.js';
-import { schemaError } from '../src/skills/schema.js';
+import '../src/tools/impl/index.ts';
+import { buildSkills } from '../src/tools/registry.ts';
+import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
+import { schemaError } from '../src/tools/schema.ts';
 import { toolCallsOf } from '../src/llm/openrouter.js';
-import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/skills/tool-calls.js';
+import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/tools/tool-calls.ts';
 import { labels } from './fixtures/labels.js';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });

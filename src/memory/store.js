@@ -2595,7 +2595,7 @@ export function createStore({
      * people taught the persona, via src/memory/details.js#applyDetailOps --
      * the same confirmation/ranking/eviction mechanics as a member's
      * details, with the guild's own `learnedNextId` id counter. Used by the
-     * owner commands (src/ops/learning.js). The limits are the `config.memory` keys of the same name, so
+     * owner commands (src/tools/impl/learning.ts). The limits are the `config.memory` keys of the same name, so
      * a caller can pass `{ ...config.memory, seenAt }` as-is; `seenAt` falls
      * back to the wall clock. Garbage `ops` change nothing and never throw.
      * The guild is marked dirty (and `updatedAt` stamped) only when the list

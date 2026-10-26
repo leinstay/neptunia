@@ -25,7 +25,7 @@ Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; with
 
 | Tool | What it does | Writes under `data/` | Needs bot stopped | Spends model credit |
 |---|---|---|---|---|
-| `labels-catalogue.mjs` | Compares the code catalogue (`src/skills/codes.js`) with `prompts/labels.json` and the reason-codes table in `docs/prompt-contract.md`. `--check` is a CI step (`npm run check:codes`); `--write` regenerates the table | no | no | no |
+| `labels-catalogue.mjs` | Compares the code catalogue (`src/tools/codes.ts`) with `prompts/labels.json` and the reason-codes table in `docs/prompt-contract.md`. `--check` is a CI step (`npm run check:codes`); `--write` regenerates the table | no | no | no |
 | `journal-report.mjs` | Reads the journal day files and prints one markdown section per day: turns by outcome, actions, prompt tokens, cached share, items dropped, limits, message count, file size | no | no | no |
 | `request-report.mjs` | The same per-day numbers from the operational log, for the days before the journal: pipe `journalctl -u neptunia-bot -o cat` into it | no | no | no |
 | `replay.mjs` | Answers one real message again with the current code, prompts and memory. `--split` and `--recall` replay the splitter and the server search. `--snapshot <dir>` reads memory from a snapshot. `--show-request` prints the request. `--show-request <turnId>` prints a journal turn's request | no | no | yes, ~0.15 USD per request |

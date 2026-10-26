@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createSpeech, SpeechError } from '../src/speech/index.js';
-import '../src/ops/index.js';
-import { getOp } from '../src/ops/registry.js';
-import { CODE } from '../src/skills/codes.js';
+import '../src/tools/impl/index.ts';
+import { getOp } from '../src/tools/impl/registry.ts';
+import { CODE } from '../src/tools/codes.ts';
 
 function speechWith(complete) {
   const state = { data: {}, markDirty() {} };

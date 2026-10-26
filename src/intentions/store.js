@@ -8,7 +8,7 @@
 
 import { log as defaultLog } from '../log.js';
 import { checkInvariants, isOpen } from './model.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';

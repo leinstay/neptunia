@@ -1,12 +1,12 @@
 // The owner's Discord surface: one top-level guild slash command (name from
 // `config.bot.commandName`) whose tree is built here as plain JSON from one
-// declarative table (COMMAND_TABLE, src/ops/catalog.js: the nineteen top-level
+// declarative table (COMMAND_TABLE, src/tools/impl/catalog.ts: the nineteen top-level
 // entries, each leaf with its options and its option -> args mapping) — no
 // discord.js builder classes — so `buildCommandTree` is trivially unit-tested.
 // `registerCommands` pushes that tree to the single guild this instance
 // serves; `createInteractionHandler` turns a discord.js interaction into an
 // `admin.runCommand(commandKey, args, context)` call -- the command's
-// operation run through src/ops/index.js#runOp, rights included -- and
+// operation run through src/tools/impl/index.ts#runOp, rights included -- and
 // replies, never letting an error escape into discord.js. Every reply is
 // ephemeral (what a command posts in the channel -- a message, a drawing, a
 // diary entry -- is the persona's own post, not the reply); an operation that
@@ -14,15 +14,15 @@
 // interaction delivered twice runs once.
 // One subcommand, `pings`, is a member's own notification switch, open to
 // every member (its operations' `rights.member`); so is the `task` group, the
-// persona's errands (src/ops/task.js rules who may ask what).
+// persona's errands (src/tools/impl/task.ts rules who may ask what).
 //
-// Adding a command: see src/ops/catalog.js's header.
+// Adding a command: see src/tools/impl/catalog.ts's header.
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { COMMAND_REQUESTED, validateEvent } from '../../src/protocol/index.js';
 import { DISCORD_IFACE } from './port.js';
 import { displayNameOf } from './collect.js';
-import { isOwnerId } from '../../src/ops/grants.js';
+import { isOwnerId } from '../../src/tools/impl/grants.ts';
 import {
   COMMAND_TABLE,
   DEFER_AFTER_MS,
@@ -32,7 +32,7 @@ import {
   commandSize,
   isValidCommandName,
   leafPaths,
-} from '../../src/ops/catalog.js';
+} from '../../src/tools/impl/catalog.ts';
 import { roleModel } from '../../src/llm/roles.js';
 import { log } from '../../src/log.js';
 import { MINUTE_MS } from '../../src/time.js';
@@ -107,7 +107,7 @@ export function buildCommandTree(commandName) {
 /**
  * Every command key the interaction handler dispatches: every leaf
  * `<group>.<name>` (or bare top-level `<name>`) command key, and every
- * subcommand-group name — derived straight from the tree (src/ops/index.js#COMMAND_TO_OP
+ * subcommand-group name — derived straight from the tree (src/tools/impl/index.ts#COMMAND_TO_OP
  * maps each key onto its operation; access is granted by operation, not by key).
  * Pure — no discord.js object, no I/O.
  * @returns {{ keys: Set<string>, groups: Set<string> }}
@@ -299,7 +299,7 @@ export function commandEvent(interaction, commandKey, args, config, replyRef, at
 }
 
 /** `command`-option autocomplete choices for `/nep access grant|revoke`: `*`, the groups and
- * every grantable operation name (`admin.accessKeys`, src/ops/access.js#grantKeys), filtered by the
+ * every grantable operation name (`admin.accessKeys`, src/tools/impl/access.ts#grantKeys), filtered by the
  * typed text. Owner-only operations are never offered: no grant can open them; nor are the member
  * operations, open without one. */
 function accessKeyChoices(admin, typed) {
@@ -462,7 +462,7 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
         userId: requester.id,
         roleIds: requester.roles,
       };
-      // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
+      // The rights are checked by the operation's own runOp (src/tools/impl/index.ts), every time.
       const run = admin.runCommand(name, args, context);
       let result;
       if (mode.deferred) result = await run;

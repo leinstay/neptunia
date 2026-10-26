@@ -63,8 +63,8 @@ import {
   withChannelMap,
 } from './lib/inner-week.mjs';
 import { onLog } from '../src/log.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(ROOT, 'tools', 'fixtures', 'inner-week');

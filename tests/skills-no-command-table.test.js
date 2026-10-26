@@ -2,7 +2,7 @@
 // (tests/fixtures/no-command-table-hooks.mjs) that export COMMAND_TABLE empty and make
 // `resolveCommand` throw; it proves the registry still holds all 67 skills, the gateway passes her
 // 50 live grants, and calls resolve and run by operation name (tests/fixtures/no-command-table-child.mjs).
-// Plus a static guard: nothing under src/skills/ or src/behavior/ reads the tree or the old derivation.
+// Plus a static guard: nothing under src/tools/ or src/behavior/ reads the tree or the old derivation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,20 +24,17 @@ test('skills without the command tree: the registry, the gateway and her calls w
   assert.match(ran.stdout, /^ok$/m);
 });
 
-/** The .js files under `dir`, recursively. */
+/** The .js and .ts files under `dir`, recursively, except the operations themselves (src/tools/impl/). */
 function sourcesUnder(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return sourcesUnder(full);
-    return entry.name.endsWith('.js') ? [full] : [];
+    if (entry.isDirectory()) return full.endsWith(path.join('tools', 'impl')) ? [] : sourcesUnder(full);
+    return /\.(js|ts)$/.test(entry.name) ? [full] : [];
   });
 }
 
-test('skills static guard: nothing under src/skills/ or src/behavior/ imports the command catalog, or resolves a command', () => {
-  const files = [
-    ...sourcesUnder(path.join(ROOT, 'src', 'skills')),
-    ...sourcesUnder(path.join(ROOT, 'src', 'behavior')),
-  ];
+test('skills static guard: nothing under src/tools/ or src/behavior/ imports the command catalog, or resolves a command', () => {
+  const files = [...sourcesUnder(path.join(ROOT, 'src', 'tools')), ...sourcesUnder(path.join(ROOT, 'src', 'behavior'))];
   assert.ok(files.length > 10);
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
@@ -46,7 +43,7 @@ test('skills static guard: nothing under src/skills/ or src/behavior/ imports th
       ...text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm),
     ].map((m) => m[1] ?? m[2]);
     for (const spec of imports) {
-      assert.ok(!/ops\/catalog(\.js)?$/.test(spec), `${rel} imports ${spec}`);
+      assert.ok(!/impl\/catalog(\.(js|ts))?$/.test(spec), `${rel} imports ${spec}`);
     }
     assert.ok(!/\bresolveCommand\b/.test(text), `${rel} mentions resolveCommand`);
   }

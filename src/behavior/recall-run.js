@@ -104,7 +104,7 @@ import {
 } from './recall.js';
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.js';
 import { indexWords } from '../memory/record-index.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
 import { issueContext } from '../memory/db/scope.ts';
@@ -1343,7 +1343,7 @@ export function createRecall({
       if (trace) trace.meaning = meaning.trace;
     }
 
-    // The time of each step, for `recall: searched` (src/ops/metrics.js reads them off the log).
+    // The time of each step, for `recall: searched` (src/tools/impl/metrics.ts reads them off the log).
     const took = { memoryMs: 0, recordMs: 0, discordMs: 0 };
     let stepAt = now();
     // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
@@ -1819,7 +1819,7 @@ export function createRecall({
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
    * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
    * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
-   * `quotes` (the persona's own memory.search, src/skills/tools.js): the memory database's search
+   * `quotes` (the persona's own memory.search, src/tools/tools.ts): the memory database's search
    * (runDbQuotes): no summary is asked and the prompt is not needed; the run resolves `quotes`, the
    * stretches in rank order, with `text` and `stretch` null, and logs `recall: quoted`; while the
    * database is not open its `outcome` is `not-configured`.

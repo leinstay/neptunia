@@ -100,8 +100,8 @@ import {
 } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
-import { CODE } from '../skills/codes.js';
-import { WAKE_POLICY_VERSION } from '../skills/access.js';
+import { CODE } from '../tools/codes.ts';
+import { WAKE_POLICY_VERSION } from '../tools/access.ts';
 import { buildHeartbeatFacts } from './heartbeat-view.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
@@ -191,7 +191,7 @@ export const FEEDBACK_KINDS = Object.freeze([
   'interrupted',
   'diagnostic',
 ]);
-/** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
+/** The statuses of a call that did not go well (src/tools/executors.ts), as `callFailed` names them. */
 const CALL_STATUSES = new Set([
   'failed',
   'partial',

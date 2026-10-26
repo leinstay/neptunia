@@ -626,17 +626,17 @@
         "complexity": 35
       }
     },
-    "src/ops/draw.js": {
+    "src/tools/impl/draw.ts": {
       "<anonymous>>cmdDraw": {
         "complexity": 37
       }
     },
-    "src/ops/intent.js": {
+    "src/tools/impl/intent.ts": {
       "<anonymous>>cmdUpdate": {
         "complexity": 22
       }
     },
-    "src/ops/memory.js": {
+    "src/tools/impl/memory.ts": {
       "<anonymous>": {
         "function-length": 471
       },
@@ -647,7 +647,7 @@
         "complexity": 29
       }
     },
-    "src/ops/message.js": {
+    "src/tools/impl/message.ts": {
       "<anonymous>": {
         "function-length": 351
       },
@@ -658,17 +658,17 @@
         "complexity": 41
       }
     },
-    "src/ops/metrics.js": {
+    "src/tools/impl/metrics.ts": {
       "metricsTap><anonymous>": {
         "complexity": 29
       }
     },
-    "src/ops/shared.js": {
+    "src/tools/impl/shared.ts": {
       "buildProfileSummary": {
         "complexity": 22
       }
     },
-    "src/ops/status.js": {
+    "src/tools/impl/status.ts": {
       "<anonymous>#2": {
         "function-length": 652
       },
@@ -679,17 +679,17 @@
         "complexity": 24
       }
     },
-    "src/ops/task.js": {
+    "src/tools/impl/task.ts": {
       "<anonymous>>cmdRead": {
         "complexity": 26
       }
     },
-    "src/ops/usage.js": {
+    "src/tools/impl/usage.ts": {
       "keyLine": {
         "complexity": 30
       }
     },
-    "src/ops/voice.js": {
+    "src/tools/impl/voice.ts": {
       "<anonymous>>cmdVoice": {
         "complexity": 29
       }
@@ -699,7 +699,7 @@
         "complexity": 25
       }
     },
-    "src/skills/conversation-read.js": {
+    "src/tools/conversation-read.ts": {
       "conversationText": {
         "complexity": 29
       },
@@ -713,12 +713,12 @@
         "complexity": 37
       }
     },
-    "src/skills/definitions.js": {
+    "src/tools/definitions.ts": {
       "validateDefinitions": {
         "complexity": 30
       }
     },
-    "src/skills/executors.js": {
+    "src/tools/executors.ts": {
       "executeCall": {
         "complexity": 58
       },
@@ -729,7 +729,7 @@
         "complexity": 72
       }
     },
-    "src/skills/gateway.js": {
+    "src/tools/gateway.ts": {
       "checkSkill": {
         "complexity": 31
       },
@@ -737,22 +737,22 @@
         "complexity": 21
       }
     },
-    "src/skills/registry.js": {
+    "src/tools/registry.ts": {
       "loadSkills": {
         "complexity": 28
       }
     },
-    "src/skills/schema.js": {
+    "src/tools/schema.ts": {
       "schemaError": {
         "complexity": 38
       }
     },
-    "src/skills/tool-calls.js": {
+    "src/tools/tool-calls.ts": {
       "toolResultText": {
         "complexity": 27
       }
     },
-    "src/skills/tools.js": {
+    "src/tools/tools.ts": {
       "memorySearchText": {
         "complexity": 35
       },
@@ -974,8 +974,8 @@
       "interfaces/discord/commands.js": [
         "src/llm/roles.js",
         "src/log.js",
-        "src/ops/catalog.js",
-        "src/ops/grants.js",
+        "src/tools/impl/catalog.ts",
+        "src/tools/impl/grants.ts",
         "src/time.js"
       ],
       "interfaces/discord/emoji.js": [
@@ -983,7 +983,7 @@
       ],
       "interfaces/discord/port.js": [
         "src/interface/port.js",
-        "src/skills/codes.js"
+        "src/tools/codes.ts"
       ],
       "interfaces/discord/pull-fetch.js": [
         "src/behavior/elsewhere.ts",
@@ -1036,36 +1036,36 @@
       "src/memory/db/writer-worker.js",
       "src/memory/index.js",
       "src/memory/update.js",
-      "src/ops/alias.js",
-      "src/ops/catalog.js",
-      "src/ops/draw.js",
-      "src/ops/effects.js",
-      "src/ops/env.js",
-      "src/ops/grants.js",
-      "src/ops/index.js",
-      "src/ops/intent.js",
-      "src/ops/learning.js",
-      "src/ops/memory.js",
-      "src/ops/message.js",
-      "src/ops/model.js",
-      "src/ops/pause.js",
-      "src/ops/pings.js",
-      "src/ops/places.js",
-      "src/ops/registry.js",
-      "src/ops/rights.js",
-      "src/ops/rule.js",
-      "src/ops/shared.js",
-      "src/ops/status.js",
-      "src/ops/voice.js",
+      "src/tools/impl/alias.ts",
+      "src/tools/impl/catalog.ts",
+      "src/tools/impl/draw.ts",
+      "src/tools/impl/effects.ts",
+      "src/tools/impl/env.ts",
+      "src/tools/impl/grants.ts",
+      "src/tools/impl/index.ts",
+      "src/tools/impl/intent.ts",
+      "src/tools/impl/learning.ts",
+      "src/tools/impl/memory.ts",
+      "src/tools/impl/message.ts",
+      "src/tools/impl/model.ts",
+      "src/tools/impl/pause.ts",
+      "src/tools/impl/pings.ts",
+      "src/tools/impl/places.ts",
+      "src/tools/impl/registry.ts",
+      "src/tools/impl/rights.ts",
+      "src/tools/impl/rule.ts",
+      "src/tools/impl/shared.ts",
+      "src/tools/impl/status.ts",
+      "src/tools/impl/voice.ts",
       "src/protocol/actions.js",
       "src/protocol/envelope.js",
       "src/protocol/index.js",
       "src/protocol/origin.js",
       "src/protocol/validate.js",
-      "src/skills/call-args.js",
-      "src/skills/gateway.js",
-      "src/skills/registry.js",
-      "src/skills/schema.js",
+      "src/tools/call-args.ts",
+      "src/tools/gateway.ts",
+      "src/tools/registry.ts",
+      "src/tools/schema.ts",
       "src/speech/index.js",
       "src/speech/synth.js"
     ]

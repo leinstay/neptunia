@@ -12,7 +12,7 @@
 // Time gaps and date changes are spelled out because the model must tell a
 // live conversation from a dead chat that somebody has just poked.
 
-import { reasonText } from './skills/codes.js';
+import { reasonText } from './tools/codes.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.js';
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
@@ -506,7 +506,7 @@ function withoutCallFields(message) {
  * came back, `target` what it aimed at (a message and its channel; null fields when unknown; a
  * missing channel is the call's own), `postedId` the message the call itself posted (null when
  * none; in the target channel), `posted` every message id that turn posted, and optionally
- * `detail` (src/skills/executors.js#outcomeDetail: why a call that did not work did not; the mark
+ * `detail` (src/tools/executors.ts#outcomeDetail: why a call that did not work did not; the mark
  * carries it when it has a `kind`). Among `messages`
  * of the call's own channel, the last line of hers its turn posted carries it (`calls`); when the
  * turn posted none of them, the last line at or before `at` carries it as a line of hers of its
@@ -555,10 +555,10 @@ export function withCalls(messages, marks, { nameOf = () => null, linkOf = () =>
       targetLink: targetId ? link(targetChannelId, targetId) : null,
       targetChannel: name(targetChannelId),
       postedLink: postedId ? link(targetChannelId, postedId) : null,
-      // The call's main arguments, worded by src/skills/call-args.js when it ran (in process only).
+      // The call's main arguments, worded by src/tools/call-args.ts when it ran (in process only).
       ...(text(call.args) ? { args: call.args } : {}),
       ts: call.at,
-      // Why a call that did not work did not (src/skills/executors.js#outcomeDetail), when known.
+      // Why a call that did not work did not (src/tools/executors.ts#outcomeDetail), when known.
       ...(call.detail && typeof call.detail.kind === 'string' ? { detail: call.detail } : {}),
     };
     const posted = new Set(Array.isArray(call.posted) ? call.posted : []);
@@ -658,7 +658,7 @@ export function callReason(mark, labels) {
   // Before any generic phrase: the operation's own message, as it said it (one line, already cut),
   // which names what exactly went wrong.
   if (typeof detail.text === 'string' && detail.text) return detail.text;
-  // The code's own words with its values (src/skills/codes.js#reasonText, the lookup the `<result>` block shares), else `other`.
+  // The code's own words with its values (src/tools/codes.ts#reasonText, the lookup the `<result>` block shares), else `other`.
   const worded = reasonText(
     labels,
     detail.code,

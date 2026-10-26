@@ -4,16 +4,16 @@
 // operation name. Fakes only. Exits 0 and prints "ok" when every check holds; any failure throws.
 import assert from 'node:assert/strict';
 
-import { COMMAND_TABLE } from '../../src/ops/catalog.js';
-import { resolveCommand } from '../../src/ops/index.js';
+import { COMMAND_TABLE } from '../../src/tools/impl/catalog.ts';
+import { resolveCommand } from '../../src/tools/impl/index.ts';
 import { createAdmin } from '../../src/admin.js';
 import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createReads } from '../../src/interface/reads.ts';
-import { skillRegistry } from '../../src/skills/registry.js';
-import { SKILL_DEFINITIONS } from '../../src/skills/definitions.js';
-import { checkSkill } from '../../src/skills/gateway.js';
-import { executeCall, resolveCall } from '../../src/skills/executors.js';
+import { skillRegistry } from '../../src/tools/registry.ts';
+import { SKILL_DEFINITIONS } from '../../src/tools/definitions.ts';
+import { checkSkill } from '../../src/tools/gateway.ts';
+import { executeCall, resolveCall } from '../../src/tools/executors.ts';
 import { singleScene } from './core-tools-scenes.js';
 import { call, toolAnswer } from './tool-answers.js';
 

@@ -17,7 +17,7 @@ import type {
   PortError,
 } from '../protocol/adapter.ts';
 import { notOk, refRefusal } from './port.js';
-import { CODE as CODES } from '../skills/codes.js';
+import { CODE as CODES } from '../tools/codes.ts';
 
 const CODE: Record<string, string> = CODES as Record<string, string>;
 

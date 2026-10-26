@@ -151,6 +151,6 @@ The owner's `/nep status` card shows errand agents' models in `models.errands` a
 
 1. Create `agents/<id>/` with a `profile.json` and, for a worker, a `prompt.md`.
 2. If it needs a new model role, add it to `src/llm/roles.js` and to `models.errands` in `config.json`.
-3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/ops/catalog.js`) and who may ask for it in `src/ops/task.js`.
+3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/task.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`.
 5. Run `tests/agent-runner-profiles.test.js`.

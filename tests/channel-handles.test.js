@@ -3,11 +3,11 @@
 // text, `<channel_directory>` in the cached stable part of the persona's request (byte-identical
 // between turns), a channel a line mentions carrying its handle (src/format.js), her
 // `#handle` becoming `<#id>` (src/memory/mentions.ts#linkChannels) and resolving exactly in a
-// skill call (src/skills/executors.js#resolveCall), the name matching kept behind it, and the
+// skill call (src/tools/executors.ts#resolveCall), the name matching kept behind it, and the
 // sandbox carrying a linked channel on her line. Pure; fake prompts and config.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import {
   CHANNEL_HANDLE_PREFIX,
   HANDLE_DIGITS,
@@ -23,8 +23,8 @@ import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/disco
 import { formatTranscript } from '../src/format.js';
 import { withCacheMarker } from '../src/llm/openrouter.js';
 import { linkChannels } from '../src/memory/mentions.ts';
-import { resolveCall } from '../src/skills/executors.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import { resolveCall } from '../src/tools/executors.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 
 // Two ids whose four-digit hashes collide (the fixture of tests/handles.test.js).

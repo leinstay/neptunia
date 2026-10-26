@@ -1,7 +1,7 @@
-// Tests for src/skills/: the persona's skills ARE the owner's /nep commands (one skill per
+// Tests for src/tools/: the persona's skills ARE the owner's /nep commands (one skill per
 // operation, derived from the command that runs it), the rights gateway, the catalogue view, the
 // effect table, and how the owner opens a skill for her (`/nep access grant|revoke` with her as
-// the user, src/ops/access.js), with the rule she never changes her own authority. Nothing here
+// the user, src/tools/impl/access.ts), with the rule she never changes her own authority. Nothing here
 // executes a skill: the gateway only answers whether one may run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,12 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runOp } from '../src/ops/index.js';
-import { listOps } from '../src/ops/registry.js';
-import { createOpsEnv } from '../src/ops/env.js';
-import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.js';
-import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
-import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
+import { runOp } from '../src/tools/impl/index.ts';
+import { listOps } from '../src/tools/impl/registry.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/impl/effects.ts';
+import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/impl/rights.ts';
+import { RENAMED_OPS, renameGrants } from '../src/tools/impl/access.ts';
 import { createAdmin } from '../src/admin.js';
 import { createDiscordInterface, createInteractionHandler } from '../interfaces/discord/index.js';
 import {
@@ -24,7 +24,7 @@ import {
   describeSkill,
   skillArgTexts,
   missingDefinitions,
-} from '../src/skills/registry.js';
+} from '../src/tools/registry.ts';
 import {
   CARRIED_OVER,
   FEATURE_SKILLS,
@@ -33,11 +33,11 @@ import {
   grantedToPersona,
   skillAccess,
   wakeEnvelope,
-} from '../src/skills/access.js';
-import { executeCall } from '../src/skills/executors.js';
-import { postingConversation } from '../src/ops/shared.js';
-import { schemaError } from '../src/skills/schema.js';
-import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
+} from '../src/tools/access.ts';
+import { executeCall } from '../src/tools/executors.ts';
+import { postingConversation } from '../src/tools/impl/shared.ts';
+import { schemaError } from '../src/tools/schema.ts';
+import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -394,7 +394,7 @@ test('skills access: the irreversible and administrative operations are never op
   ]);
   assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
-    // The inner life's switch on, so its kill switch exists to be refused (src/skills/access.js#FEATURE_SKILLS).
+    // The inner life's switch on, so its kill switch exists to be refused (src/tools/access.ts#FEATURE_SKILLS).
     assert.deepEqual(
       skillAccess({
         skill: skillRegistry().get(name),
@@ -888,7 +888,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const cfg = granting(['message.edit', 'memory.restore', 'draw.create', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
-  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
   assert.equal(rows.length, skillNames().filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   const byName = new Map(rows.map((row) => [row.name, row]));
   const channel = { name: 'channel', required: false };

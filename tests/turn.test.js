@@ -30,8 +30,8 @@ import { findGif } from '../src/memory/gifs.js';
 import { callMarksOf, createJournal } from '../src/memory/journal.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import '../src/ops/index.js';
-import { loadSkills, skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
@@ -11529,7 +11529,7 @@ test("createTurnRunner: a helper's transcript names the trigger of her lines too
 });
 
 // ---------------------------------------------------------------------------
-// Every effect of a reply is checked (src/skills/gateway.js#checkReplyEffect: carried over in the
+// Every effect of a reply is checked (src/tools/gateway.ts#checkReplyEffect: carried over in the
 // current conversation, refused only under the full stop) and made through the interface port.
 
 /** One mention turn answered with `answer`, through `port` (the default Discord adapter when null). */
@@ -11711,7 +11711,7 @@ test('skills gateway: the GIF and the drawing are published through the port', a
 });
 
 // ---------------------------------------------------------------------------
-// Skill calls (src/skills/executors.js): her skills are the /nep commands; one `<call>` per turn,
+// Skill calls (src/tools/executors.ts): her skills are the /nep commands; one `<call>` per turn,
 // checked, run after the reply's own effects through the command's own path (a real admin over
 // the same fake port), and one follow-up request with its result when she needs it.
 

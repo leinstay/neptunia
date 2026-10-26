@@ -7,8 +7,8 @@
 
 import { fill } from '../format.js';
 import { clampWithEllipsis } from '../memory/clamp.js';
-import { apiNameOf } from '../skills/definitions.js';
-import { coversSpeech } from '../skills/tool-calls.js';
+import { apiNameOf } from '../tools/definitions.ts';
+import { coversSpeech } from '../tools/tool-calls.ts';
 
 /**
  * The calls of a step in the order they run, as segments `{ parallel, calls }`: a run of consecutive
@@ -30,7 +30,7 @@ export function segments(calls, isRead) {
 
 /**
  * What a step's calls mean for her speech and for the next request. `speak`: every call worked and
- * its definition's result is an effect or a job (src/skills/tool-calls.js#coversSpeech), so her
+ * its definition's result is an effect or a job (src/tools/tool-calls.ts#coversSpeech), so her
  * speech goes out after them; with no calls it is true. `fresh`: some call returned something to
  * read (a `data` result) or did not work (or has no definition), or an inner turn still has an open follow-up, so a request
  * follows when there is room.

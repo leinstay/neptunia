@@ -152,8 +152,8 @@ function fakeRecall() {
  */
 export async function singleScene(load, { content = 'γεια', classifier = 'none', answers, access = {}, images = null } = {}) {
   const { createTurnRunner } = await load('src/behavior/turn.js');
-  await load('src/ops/index.js');
-  const { skillRegistry } = await load('src/skills/registry.js');
+  await load('src/tools/impl/index.ts');
+  const { skillRegistry } = await load('src/tools/registry.ts');
   const { createAdmin } = await load('src/admin.js');
   const { createDiscordInterface } = await load('interfaces/discord/index.js');
   const discord = createDiscordInterface().capabilities;

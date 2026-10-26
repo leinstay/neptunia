@@ -28,7 +28,7 @@
 //   summary is never run again) nor any other failure. The daily web slot is
 //   taken once per lookup, whatever the attempts; each attempt logs its own
 //   `lookup: search` line with `engine` and `fallback` (false for the first).
-// - searchResults: the persona's own web.search (src/skills/tools.js): the same engines,
+// - searchResults: the persona's own web.search (src/tools/tools.ts): the same engines,
 //   fallbacks and daily slot, but the results come back raw -- title, url, site, the
 //   engine's snippet and date -- with no summary request. Brave and Exa return them as
 //   they are; `openrouter` sends one request with the web plugin and only the query
@@ -65,7 +65,7 @@ import { log } from '../log.js';
 import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
 import { hashedKey, touchKey, trimCache } from './cache.js';
 import { truncateText } from './readable.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 const READ_MISS_TTL_MS = 6 * 60 * MINUTE_MS;
 // An answer this short is the read-link prompt's "no real content" signal.

@@ -9,7 +9,7 @@
 // own, gitignored overrides — it may be entirely absent. A local file
 // replaces the base file of the same name once it is non-empty; the JSON
 // layers (labels.json, and skills.json: the persona's skill texts,
-// src/skills/registry.js) are deep-merged instead of replaced, each under its
+// src/tools/registry.ts) are deep-merged instead of replaced, each under its
 // own name in `hot.prompts`. A file that fails to parse (half
 // -written JSON, editor temp state) is ignored on reload: the previous good
 // value stays live and the error is logged. On the very first load, invalid

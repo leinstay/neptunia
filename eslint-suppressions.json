@@ -2903,7 +2903,7 @@
       "count": 2
     }
   },
-  "src/ops/access.js": {
+  "src/tools/impl/access.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 22
     },
@@ -2920,7 +2920,7 @@
       "count": 5
     }
   },
-  "src/ops/alias.js": {
+  "src/tools/impl/alias.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -2934,7 +2934,7 @@
       "count": 19
     }
   },
-  "src/ops/catalog.js": {
+  "src/tools/impl/catalog.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },
@@ -2951,7 +2951,7 @@
       "count": 3
     }
   },
-  "src/ops/config.js": {
+  "src/tools/impl/config.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -2968,7 +2968,7 @@
       "count": 1
     }
   },
-  "src/ops/draw.js": {
+  "src/tools/impl/draw.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -2982,7 +2982,7 @@
       "count": 18
     }
   },
-  "src/ops/env.js": {
+  "src/tools/impl/env.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -2999,7 +2999,7 @@
       "count": 10
     }
   },
-  "src/ops/grants.js": {
+  "src/tools/impl/grants.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3016,7 +3016,7 @@
       "count": 8
     }
   },
-  "src/ops/index.js": {
+  "src/tools/impl/index.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -3036,7 +3036,7 @@
       "count": 1
     }
   },
-  "src/ops/inner.js": {
+  "src/tools/impl/inner.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3053,7 +3053,7 @@
       "count": 1
     }
   },
-  "src/ops/intent.js": {
+  "src/tools/impl/intent.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 15
     },
@@ -3070,7 +3070,7 @@
       "count": 3
     }
   },
-  "src/ops/learning.js": {
+  "src/tools/impl/learning.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -3087,7 +3087,7 @@
       "count": 2
     }
   },
-  "src/ops/lore.js": {
+  "src/tools/impl/lore.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3104,7 +3104,7 @@
       "count": 4
     }
   },
-  "src/ops/media.js": {
+  "src/tools/impl/media.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 16
     },
@@ -3121,7 +3121,7 @@
       "count": 9
     }
   },
-  "src/ops/memory.js": {
+  "src/tools/impl/memory.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 53
     },
@@ -3138,7 +3138,7 @@
       "count": 5
     }
   },
-  "src/ops/message.js": {
+  "src/tools/impl/message.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 15
     },
@@ -3155,7 +3155,7 @@
       "count": 5
     }
   },
-  "src/ops/metrics.js": {
+  "src/tools/impl/metrics.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 11
     },
@@ -3172,7 +3172,7 @@
       "count": 5
     }
   },
-  "src/ops/model.js": {
+  "src/tools/impl/model.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3189,7 +3189,7 @@
       "count": 1
     }
   },
-  "src/ops/pause.js": {
+  "src/tools/impl/pause.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3206,7 +3206,7 @@
       "count": 1
     }
   },
-  "src/ops/pings.js": {
+  "src/tools/impl/pings.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -3220,7 +3220,7 @@
       "count": 4
     }
   },
-  "src/ops/places.js": {
+  "src/tools/impl/places.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3237,7 +3237,7 @@
       "count": 1
     }
   },
-  "src/ops/registry.js": {
+  "src/tools/impl/registry.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3251,7 +3251,7 @@
       "count": 2
     }
   },
-  "src/ops/rights.js": {
+  "src/tools/impl/rights.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },
@@ -3259,7 +3259,7 @@
       "count": 2
     }
   },
-  "src/ops/route.js": {
+  "src/tools/impl/route.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -3276,7 +3276,7 @@
       "count": 5
     }
   },
-  "src/ops/rule.js": {
+  "src/tools/impl/rule.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -3293,7 +3293,7 @@
       "count": 1
     }
   },
-  "src/ops/search.js": {
+  "src/tools/impl/search.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -3310,7 +3310,7 @@
       "count": 5
     }
   },
-  "src/ops/shared.js": {
+  "src/tools/impl/shared.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
     },
@@ -3333,7 +3333,7 @@
       "count": 2
     }
   },
-  "src/ops/skills.js": {
+  "src/tools/impl/skills.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3347,7 +3347,7 @@
       "count": 9
     }
   },
-  "src/ops/status.js": {
+  "src/tools/impl/status.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 37
     },
@@ -3364,7 +3364,7 @@
       "count": 27
     }
   },
-  "src/ops/task.js": {
+  "src/tools/impl/task.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 11
     },
@@ -3381,7 +3381,7 @@
       "count": 3
     }
   },
-  "src/ops/usage.js": {
+  "src/tools/impl/usage.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 19
     },
@@ -3401,7 +3401,7 @@
       "count": 1
     }
   },
-  "src/ops/voice.js": {
+  "src/tools/impl/voice.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -3467,7 +3467,7 @@
       "count": 90
     }
   },
-  "src/skills/access.js": {
+  "src/tools/access.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 7
     },
@@ -3487,7 +3487,7 @@
       "count": 1
     }
   },
-  "src/skills/call-args.js": {
+  "src/tools/call-args.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3501,7 +3501,7 @@
       "count": 1
     }
   },
-  "src/skills/codes.js": {
+  "src/tools/codes.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3518,7 +3518,7 @@
       "count": 3
     }
   },
-  "src/skills/conversation-read.js": {
+  "src/tools/conversation-read.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 17
     },
@@ -3535,7 +3535,7 @@
       "count": 3
     }
   },
-  "src/skills/definitions.js": {
+  "src/tools/definitions.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 14
     },
@@ -3552,7 +3552,7 @@
       "count": 5
     }
   },
-  "src/skills/discovery.js": {
+  "src/tools/discovery.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
     },
@@ -3572,7 +3572,7 @@
       "count": 3
     }
   },
-  "src/skills/executors.js": {
+  "src/tools/executors.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 16
     },
@@ -3589,7 +3589,7 @@
       "count": 12
     }
   },
-  "src/skills/gateway.js": {
+  "src/tools/gateway.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -3606,7 +3606,7 @@
       "count": 4
     }
   },
-  "src/skills/registry.js": {
+  "src/tools/registry.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 7
     },
@@ -3623,7 +3623,7 @@
       "count": 4
     }
   },
-  "src/skills/schema.js": {
+  "src/tools/schema.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -3637,7 +3637,7 @@
       "count": 5
     }
   },
-  "src/skills/tool-calls.js": {
+  "src/tools/tool-calls.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -3648,7 +3648,7 @@
       "count": 16
     }
   },
-  "src/skills/tools-json.js": {
+  "src/tools/tools-json.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -3662,7 +3662,7 @@
       "count": 9
     }
   },
-  "src/skills/tools.js": {
+  "src/tools/tools.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 30
     },

@@ -1,4 +1,4 @@
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 // What an inner turn's speech tags become (src/behavior/turn.js, docs/inner-life.md): in an
 // inner turn `<react>`, `<msg>` and `<gif>` are public actions in the turn's current channel,
 // lowered here into the same call objects her own tool calls are -- `message.react.add` and

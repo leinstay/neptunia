@@ -16,13 +16,13 @@ Operations with `member: true` are open to every member while `features.memberCo
 
 ## The operations layer
 
-Every `/nep` command runs one named operation through `src/ops/`. The same operations are the persona's skills when granted to her (`/nep access grant <operation> user:@bot`). A skill call from the persona passes the same rights check, the same arguments and the same gateway. See the granting rules in the table notes.
+Every `/nep` command runs one named operation through `src/tools/impl/`. The same operations are the persona's skills when granted to her (`/nep access grant <operation> user:@bot`). A skill call from the persona passes the same rights check, the same arguments and the same gateway. See the granting rules in the table notes.
 
-Each operation has a kind (`read` or `write`) and an effect (`src/ops/effects.js`): the kind gates access (a `*` or group grant stores only the reads), the effect governs cooldowns and cost labels.
+Each operation has a kind (`read` or `write`) and an effect (`src/tools/impl/effects.ts`): the kind gates access (a `*` or group grant stores only the reads), the effect governs cooldowns and cost labels.
 
 ## Command table
 
-The table follows the command tree in `src/ops/catalog.js`. Options that autocomplete are marked (ac). Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id`, `route set`/`route remove` autocomplete `model`, `memory restore` autocompletes `id`.
+The table follows the command tree in `src/tools/impl/catalog.ts`. Options that autocomplete are marked (ac). Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id`, `route set`/`route remove` autocomplete `model`, `memory restore` autocompletes `id`.
 
 | Command | Operation | Kind | What it does |
 |---|---|---|---|

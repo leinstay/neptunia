@@ -58,7 +58,7 @@ import {
 } from '../memory/mentions.ts';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
-import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
+import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 
 /**
  * Defaults of `recall.prefetch` (config.json carries the same values): the automatic retrieval
@@ -616,7 +616,7 @@ function parseRange(value, timezone, now) {
  * explicit none, or labelled lines that all say none or nothing), `unparsed`
  * (labelled lines with content none of which is usable), `ok` (a web query
  * or a server part). An `agent:` line is ignored (counted as nothing).
- * A `skills:` line (skills discovery, src/skills/discovery.js) is taken out
+ * A `skills:` line (skills discovery, src/tools/discovery.ts) is taken out
  * before the rest is read, so the other lines read exactly as without it;
  * with one, the result has `skills` (parseSkillsLines over `skillNames`:
  * `inventory`, up to four known names, `none` or `invalid`) and an answer of
@@ -2461,7 +2461,7 @@ const TOOL_LIST_SPLIT_RE = /[,;\n]/;
 
 /**
  * The server search the persona's own `memory.search` call asks for (features.coreTools,
- * src/skills/tools.js): no helper model, only the deterministic expansion -- her `terms` (exact
+ * src/tools/tools.ts): no helper model, only the deterministic expansion -- her `terms` (exact
  * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
  * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
  * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
