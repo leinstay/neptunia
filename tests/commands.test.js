@@ -62,14 +62,32 @@ test('buildCommandTree: no subcommand or group name anywhere in the tree contain
   for (const name of names) assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
 });
 
-test('status: an optional field option that autocompletes the field names of the card (no fixed choices: the command stays under Discord\'s size limit)', () => {
+test("status: an optional field option that autocompletes the field names of the card (no fixed choices: the command stays under Discord's size limit)", () => {
   const [command] = buildCommandTree('nep');
   const field = findOption(findOption(command.options, 'status').options, 'field');
   assert.equal(field.type, 3);
   assert.equal(field.required, false);
   assert.equal(field.autocomplete, true);
   assert.equal(Object.hasOwn(field, 'choices'), false);
-  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed'], 'the core\'s sections, then the agents\'');
+  assert.deepEqual(
+    [...STATUS_FIELDS],
+    [
+      'state',
+      'tasks',
+      'models.base',
+      'keys.base',
+      'costs.base',
+      'models.errands',
+      'costs.errands',
+      'models.development',
+      'costs.development',
+      'inner',
+      'limits',
+      'memory',
+      'speed',
+    ],
+    "the core's sections, then the agents'"
+  );
   for (const name of STATUS_FIELDS) assert.match(name, /^[a-z]+(\.[a-z]+)?$/, name);
 });
 
@@ -78,12 +96,18 @@ test('interaction handler: status passes the chosen field into its args, null wi
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   await handler(fakeInteraction({ subcommand: 'status', optionValues: { field: 'limits' } }));
   await handler(fakeInteraction({ subcommand: 'status' }));
-  assert.deepEqual(admin.runCalls.map((call) => call[1]), [{ field: 'limits' }, { field: null }]);
+  assert.deepEqual(
+    admin.runCalls.map((call) => call[1]),
+    [{ field: 'limits' }, { field: null }]
+  );
 });
 
 test('status: no detail option', () => {
   const [command] = buildCommandTree('nep');
-  assert.deepEqual(findOption(command.options, 'status').options.map((o) => o.name), ['field']);
+  assert.deepEqual(
+    findOption(command.options, 'status').options.map((o) => o.name),
+    ['field']
+  );
 });
 
 test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRING with lowercase true/false choices', () => {
@@ -96,16 +120,31 @@ test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRI
     }
   };
   walk(command.options);
-  assert.deepEqual(all.filter((option) => option.type === 5).map((option) => option.name), []);
+  assert.deepEqual(
+    all.filter((option) => option.type === 5).map((option) => option.name),
+    []
+  );
   const flags = all.filter((option) => option.type === 3 && option.choices?.some((choice) => choice.value === 'true'));
   assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'byok', 'fallbacks', 'self']);
-  for (const option of flags) assert.deepEqual(option.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }], option.name);
+  for (const option of flags)
+    assert.deepEqual(
+      option.choices,
+      [
+        { name: 'true', value: 'true' },
+        { name: 'false', value: 'false' },
+      ],
+      option.name
+    );
 });
 
 test('readFlag: true/false as text (any case) or as a boolean; anything else is null', () => {
   const reader = (value) => ({ getString: () => value });
-  assert.deepEqual(['true', 'false', ' TRUE ', 'False', true, false].map((value) => readFlag(reader(value), 'x')), [true, false, true, false, true, false]);
-  for (const value of [null, undefined, '', 'yes', '1', 1]) assert.equal(readFlag(reader(value), 'x'), null, String(value));
+  assert.deepEqual(
+    ['true', 'false', ' TRUE ', 'False', true, false].map((value) => readFlag(reader(value), 'x')),
+    [true, false, true, false, true, false]
+  );
+  for (const value of [null, undefined, '', 'yes', '1', 1])
+    assert.equal(readFlag(reader(value), 'x'), null, String(value));
 });
 
 test('interaction handler: a yes/no option reaches the args as a boolean, its default when left out', async () => {
@@ -113,7 +152,10 @@ test('interaction handler: a yes/no option reaches the args as a boolean, its de
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse', self: 'true' } }));
   await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse' } }));
-  assert.deepEqual(admin.runCalls.map((call) => call[1].self), [true, false]);
+  assert.deepEqual(
+    admin.runCalls.map((call) => call[1].self),
+    [true, false]
+  );
 });
 
 test('buildCommandTree: route set has an optional STRING byok option with the true/false choices, reaching the args as a boolean', async () => {
@@ -122,14 +164,24 @@ test('buildCommandTree: route set has an optional STRING byok option with the tr
   const byok = findOption(set.options, 'byok');
   assert.equal(byok.type, 3);
   assert.equal(byok.required, false);
-  assert.deepEqual(byok.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }]);
+  assert.deepEqual(byok.choices, [
+    { name: 'true', value: 'true' },
+    { name: 'false', value: 'false' },
+  ]);
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   for (const value of ['true', 'false', undefined]) {
-    const optionValues = { model: 'google/', providers: 'google-vertex', ...(value === undefined ? {} : { byok: value }) };
+    const optionValues = {
+      model: 'google/',
+      providers: 'google-vertex',
+      ...(value === undefined ? {} : { byok: value }),
+    };
     await handler(fakeInteraction({ group: 'route', subcommand: 'set', optionValues }));
   }
-  assert.deepEqual(admin.runCalls.map((call) => call[1].byok), [true, false, undefined]);
+  assert.deepEqual(
+    admin.runCalls.map((call) => call[1].byok),
+    [true, false, undefined]
+  );
 });
 
 test('MODEL_ROLES: the model-set, route and ping role choices are all derived from the one list', () => {
@@ -138,15 +190,31 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
   const agents = ['scout', 'server', 'thinker', 'dev'];
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing', ...agents], 'the base roles (models.base: the core, the helpers, drawing), then the errand and development roles');
+  assert.deepEqual(
+    values(setRole),
+    [...MODEL_ROLES, 'drawing', ...agents],
+    'the base roles (models.base: the core, the helpers, drawing), then the errand and development roles'
+  );
   assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
-  assert.ok(MODEL_ROLES.includes('core') && !MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
-  assert.ok(MODEL_ROLES.includes('analyzer') && MODEL_ROLES.includes('embedding') && !MODEL_ROLES.includes('reasoner'), 'the helper and the embedding roles are set and routed like the others; the reasoner is merged into the analyzer');
+  assert.ok(
+    MODEL_ROLES.includes('core') &&
+      !MODEL_ROLES.includes('voice') &&
+      !MODEL_ROLES.includes('talk') &&
+      !MODEL_ROLES.includes('drawing')
+  );
+  assert.ok(
+    MODEL_ROLES.includes('analyzer') && MODEL_ROLES.includes('embedding') && !MODEL_ROLES.includes('reasoner'),
+    'the helper and the embedding roles are set and routed like the others; the reasoner is merged into the analyzer'
+  );
   assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(values(role), [...MODEL_ROLES.filter((r) => r !== 'speech'), 'drawing'], `${sub}: no agent role (the bot routes none), no speech (routed by its prefix)`);
+    assert.deepEqual(
+      values(role),
+      [...MODEL_ROLES.filter((r) => r !== 'speech'), 'drawing'],
+      `${sub}: no agent role (the bot routes none), no speech (routed by its prefix)`
+    );
     assert.deepEqual(names(role), values(role), sub);
   }
 });
@@ -155,11 +223,33 @@ test('buildCommandTree: the exact top-level list (18 entries, no skill group, no
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
-    'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'media',
-    'model', 'route', 'rule', 'access', 'message', 'task', 'alias', 'learning', 'lore', 'memory',
+    'status',
+    'set',
+    'unset',
+    'pause',
+    'resume',
+    'draw',
+    'pings',
+    'media',
+    'model',
+    'route',
+    'rule',
+    'access',
+    'message',
+    'task',
+    'alias',
+    'learning',
+    'lore',
+    'memory',
   ]);
-  assert.deepEqual(COMMAND_TABLE.map((node) => node.name), top, 'the tree is the table');
-  const groups = Object.fromEntries(command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)]));
+  assert.deepEqual(
+    COMMAND_TABLE.map((node) => node.name),
+    top,
+    'the tree is the table'
+  );
+  const groups = Object.fromEntries(
+    command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)])
+  );
   assert.deepEqual(groups, {
     model: ['show', 'set'],
     route: ['list', 'set', 'remove'],
@@ -170,21 +260,47 @@ test('buildCommandTree: the exact top-level list (18 entries, no skill group, no
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
     lore: ['add', 'list', 'show', 'remove'],
-    memory: ['show', 'channel', 'server', 'recent', 'affinity', 'journal', 'archive', 'restore', 'snapshot', 'private', 'search'],
+    memory: [
+      'show',
+      'channel',
+      'server',
+      'recent',
+      'affinity',
+      'journal',
+      'archive',
+      'restore',
+      'snapshot',
+      'private',
+      'search',
+    ],
   });
   const choices = (option) => option.choices.map((c) => c.value);
   const message = findOption(command.options, 'message');
   const create = findOption(message.options, 'create');
   // A person gives a channel and a message to answer; her own text is never a Discord option.
-  assert.deepEqual(create.options.map((option) => option.name), ['channel', 'reply']);
+  assert.deepEqual(
+    create.options.map((option) => option.name),
+    ['channel', 'reply']
+  );
   assert.equal(JSON.stringify(command).includes('personaOptions'), false);
   assert.deepEqual(choices(findOption(findOption(message.options, 'react').options, 'action')), ['add', 'remove']);
   const media = findOption(command.options, 'media');
   assert.deepEqual(choices(findOption(media.options, 'kind')), ['emoji', 'gifs', 'pictures']);
-  assert.deepEqual([findOption(media.options, 'days').required, findOption(media.options, 'days').min_value, findOption(media.options, 'days').max_value], [false, 1, 60]);
+  assert.deepEqual(
+    [
+      findOption(media.options, 'days').required,
+      findOption(media.options, 'days').min_value,
+      findOption(media.options, 'days').max_value,
+    ],
+    [false, 1, 60]
+  );
   assert.deepEqual(choices(findOption(media.options, 'action')), ['status', 'rescan', 'recache']);
   const privateMemory = findOption(findOption(command.options, 'memory').options, 'private');
-  assert.deepEqual(privateMemory.options.map((o) => o.name), ['user'], 'it only reads');
+  assert.deepEqual(
+    privateMemory.options.map((o) => o.name),
+    ['user'],
+    'it only reads'
+  );
   assert.equal(findOption(privateMemory.options, 'user').required, true);
 });
 
@@ -204,7 +320,11 @@ test('buildCommandTree: option names are lowercase and no name carries a hyphen'
     assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
   }
   const restore = findOption(findOption(command.options, 'memory').options, 'restore');
-  assert.deepEqual(restore.options.map((o) => o.name), ['id'], 'restore takes `id`, not `item`');
+  assert.deepEqual(
+    restore.options.map((o) => o.name),
+    ['id'],
+    'restore takes `id`, not `item`'
+  );
 });
 
 test('buildCommandTree: the whole command with every description stays under the limit', () => {
@@ -231,7 +351,10 @@ test('buildCommandTree: pings is a top-level subcommand with an optional mode of
   const [mode] = pings.options;
   assert.equal(mode.name, 'mode');
   assert.equal(mode.required, false);
-  assert.deepEqual(mode.choices, [{ name: 'on', value: 'on' }, { name: 'off', value: 'off' }]);
+  assert.deepEqual(mode.choices, [
+    { name: 'on', value: 'on' },
+    { name: 'off', value: 'off' },
+  ]);
   assert.ok(commandKeys().keys.has('pings'));
 });
 
@@ -251,7 +374,20 @@ test('commandKeys: every group and every leaf command key, derived from the tree
   assert.ok(keys.has('memory.private'));
   assert.ok(keys.has('message.create'));
   assert.ok(keys.has('media'));
-  for (const gone of ['private.show', 'private.forget', 'private.purge', 'emoji.status', 'gifs.recache', 'interject', 'initiate', 'talk', 'skill.allow', 'ping', 'reload', 'learned.list']) {
+  for (const gone of [
+    'private.show',
+    'private.forget',
+    'private.purge',
+    'emoji.status',
+    'gifs.recache',
+    'interject',
+    'initiate',
+    'talk',
+    'skill.allow',
+    'ping',
+    'reload',
+    'learned.list',
+  ]) {
     assert.ok(!keys.has(gone), `${gone} is not in the tree`);
   }
 
@@ -390,7 +526,7 @@ test('registerCommands: a registration failure (missing applications.commands sc
 test('registerCommands: a command-too-large refusal logs the tree size and the limit, not the re-invite hint', async () => {
   const err = Object.assign(
     new Error('Invalid Form Body\n0[APPLICATION_COMMAND_TOO_LARGE]: Command exceeds maximum size (8000)'),
-    { name: 'DiscordAPIError[50035]', code: 50035 },
+    { name: 'DiscordAPIError[50035]', code: 50035 }
   );
   const guild = fakeGuild({
     setImpl: () => {
@@ -433,7 +569,8 @@ function fakeAdmin({ owners = ['owner1'], access = {}, runImpl } = {}) {
     operationFor: (commandKey, args = {}) => resolveCommand(commandKey, args)?.op ?? null,
     accessKeys: () => grantKeys(listOps()),
     runCommand: async (commandKey, args, context) => {
-      if (!isAllowed(commandKey, context, args)) return { status: 'denied', code: 'not-granted', summary: 'Not allowed', data: null };
+      if (!isAllowed(commandKey, context, args))
+        return { status: 'denied', code: 'not-granted', summary: 'Not allowed', data: null };
       runCalls.push([commandKey, args, context]);
       try {
         return asResult(runImpl ? await runImpl(commandKey, args, context) : `ok: ${commandKey}`);
@@ -510,7 +647,11 @@ function baseHot(featuresOverrides = {}) {
     config: {
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: { ...featuresOverrides },
-      llm: {}, memory: {}, relationships: {}, spontaneous: {}, mention: {},
+      llm: {},
+      memory: {},
+      relationships: {},
+      spontaneous: {},
+      mention: {},
     },
   };
 }
@@ -565,7 +706,10 @@ test('interaction handler: a non-owner is refused ephemerally and admin.run is n
 });
 
 test('interaction handler: a non-owner granted the exact operation by role is let through', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } });
+  const admin = fakeAdmin({
+    owners: ['owner1'],
+    access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } },
+  });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const interaction = fakeInteraction({ user: { id: 'helper1' }, member: { roles: ['staff'] }, subcommand: 'status' });
@@ -577,7 +721,10 @@ test('interaction handler: a non-owner granted the exact operation by role is le
 });
 
 test('interaction handler: a non-owner with a grant on a DIFFERENT operation, or on the old command key, is still refused', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { 'rule.list': { everyone: true, roles: [], users: [] }, status: { everyone: true, roles: [], users: [] } } });
+  const admin = fakeAdmin({
+    owners: ['owner1'],
+    access: { 'rule.list': { everyone: true, roles: [], users: [] }, status: { everyone: true, roles: [], users: [] } },
+  });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const interaction = fakeInteraction({ user: { id: 'helper1' }, subcommand: 'status' });
@@ -620,19 +767,23 @@ test('interaction handler: access.grant/revoke map command/role/user straight th
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
-  await handler(fakeInteraction({
-    group: 'access',
-    subcommand: 'grant',
-    optionValues: { command: 'memory', role: { id: 'role1' } },
-  }));
+  await handler(
+    fakeInteraction({
+      group: 'access',
+      subcommand: 'grant',
+      optionValues: { command: 'memory', role: { id: 'role1' } },
+    })
+  );
   assert.equal(admin.runCalls[0][0], 'access.grant');
   assert.deepEqual(admin.runCalls[0][1], { command: 'memory', roleId: 'role1', userId: undefined });
 
-  await handler(fakeInteraction({
-    group: 'access',
-    subcommand: 'revoke',
-    optionValues: { command: 'memory', user: { id: 'user1' } },
-  }));
+  await handler(
+    fakeInteraction({
+      group: 'access',
+      subcommand: 'revoke',
+      optionValues: { command: 'memory', user: { id: 'user1' } },
+    })
+  );
   assert.equal(admin.runCalls[1][0], 'access.revoke');
   assert.deepEqual(admin.runCalls[1][1], { command: 'memory', roleId: undefined, userId: 'user1' });
 });
@@ -659,9 +810,19 @@ test('interaction handler: pings maps mode (undefined when omitted) and runs for
   await handler(off);
   await handler(fakeInteraction({ subcommand: 'pings', user: { id: 'member1' } }));
 
-  assert.deepEqual(admin.runCalls.map(([key, args]) => [key, args]), [['pings', { mode: 'off' }], ['pings', { mode: undefined }]]);
+  assert.deepEqual(
+    admin.runCalls.map(([key, args]) => [key, args]),
+    [
+      ['pings', { mode: 'off' }],
+      ['pings', { mode: undefined }],
+    ]
+  );
   assert.deepEqual(admin.runCalls[0][2], { guildId: 'g1', channelId: 'c1', userId: 'member1', roleIds: [] });
-  assert.deepEqual(off.replies, [{ content: 'ok: pings', flags: MessageFlags.Ephemeral }], 'answered at once, not deferred');
+  assert.deepEqual(
+    off.replies,
+    [{ content: 'ok: pings', flags: MessageFlags.Ephemeral }],
+    'answered at once, not deferred'
+  );
 });
 
 test('interaction handler: features.adminCommands false disables pings too', async () => {
@@ -718,7 +879,9 @@ test('interaction handler: media kind:gifs action:recache replies at once, its w
   assert.deepEqual(admin.runCalls[0][1], { kind: 'gifs', action: 'recache' });
   assert.ok(!recache.replies.some((r) => r.deferred));
 
-  await handler(fakeInteraction({ subcommand: 'media', optionValues: { kind: 'pictures', action: 'recache', days: 30 } }));
+  await handler(
+    fakeInteraction({ subcommand: 'media', optionValues: { kind: 'pictures', action: 'recache', days: 30 } })
+  );
   assert.deepEqual(admin.runCalls[1][1], { kind: 'pictures', action: 'recache', days: 30 });
 });
 
@@ -726,7 +889,9 @@ test('interaction handler: memory.channel maps the optional channel option to ch
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
-  await handler(fakeInteraction({ group: 'memory', subcommand: 'channel', optionValues: { channel: { id: 'chan1' } } }));
+  await handler(
+    fakeInteraction({ group: 'memory', subcommand: 'channel', optionValues: { channel: { id: 'chan1' } } })
+  );
   assert.equal(admin.runCalls[0][0], 'memory.channel');
   assert.deepEqual(admin.runCalls[0][1], { channelId: 'chan1' });
 
@@ -789,7 +954,11 @@ test('commands: an interaction retry with the same id does not run the op twice'
     await handler(retry);
 
     assert.equal(admin.runCalls.length, 1, `${key}: ran once`);
-    assert.equal(retry.replies.length + retry.edits.length + retry.followUps.length, 0, `${key}: the retry answers nothing`);
+    assert.equal(
+      retry.replies.length + retry.edits.length + retry.followUps.length,
+      0,
+      `${key}: the retry answers nothing`
+    );
 
     // Past the 15-minute window the id is forgotten: a new delivery with it runs.
     clock += 15 * 60_000;
@@ -811,7 +980,11 @@ test('commands: every reply is ephemeral', async () => {
   ]) {
     const interaction = fakeInteraction(call);
     await handler(interaction);
-    assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } }, JSON.stringify(call));
+    assert.deepEqual(
+      interaction.replies[0],
+      { deferred: true, opts: { flags: MessageFlags.Ephemeral } },
+      JSON.stringify(call)
+    );
     assert.equal(interaction.edits[0].content, 'done', JSON.stringify(call));
   }
 
@@ -931,11 +1104,19 @@ test('interaction handler: multi-line output is wrapped in a code block', async 
 
 test('autocomplete: returns up to 25 leaf config paths filtered by the typed text', async () => {
   const admin = fakeAdmin();
-  const config = { bot: { commandName: 'nep', owners: ['owner1'] }, features: {}, llm: { model: 'x', maxOutputTokens: 1 } };
+  const config = {
+    bot: { commandName: 'nep', owners: ['owner1'] },
+    features: {},
+    llm: { model: 'x', maxOutputTokens: 1 },
+  };
   const hot = { config };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
 
-  const interaction = fakeInteraction({ kind: 'autocomplete', subcommand: 'set', focused: { name: 'path', value: 'llm.' } });
+  const interaction = fakeInteraction({
+    kind: 'autocomplete',
+    subcommand: 'set',
+    focused: { name: 'path', value: 'llm.' },
+  });
   await handler(interaction);
 
   assert.equal(interaction.respondCalls.length, 1);
@@ -966,9 +1147,17 @@ test('autocomplete: command-option choices for /nep access grant|revoke -- every
   assert.ok(!choices.some((c) => c.name === 'memory.affinity.set'), 'no operation sets the attitude');
   assert.ok(!choices.some((c) => c.name === 'memory.show'), 'never an old command key');
 
-  const lore = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand: 'grant', focused: { name: 'command', value: 'lore' } });
+  const lore = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'access',
+    subcommand: 'grant',
+    focused: { name: 'command', value: 'lore' },
+  });
   await handler(lore);
-  assert.ok(lore.respondCalls[0].some((c) => c.name === 'lore.add'), 'a write is offered by its name');
+  assert.ok(
+    lore.respondCalls[0].some((c) => c.name === 'lore.add'),
+    'a write is offered by its name'
+  );
 });
 
 test('autocomplete: command-option choices never offer the owner-only private memory commands', async () => {
@@ -976,12 +1165,28 @@ test('autocomplete: command-option choices never offer the owner-only private me
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   // [owner-only group, a typed prefix of it]
-  for (const [group, typed] of [['memory.private', 'priv'], ['memory.journal', 'jour'], ['memory.restore', 'rest']]) {
-    for (const [subcommand, value] of [['grant', typed], ['revoke', typed], ['grant', '']]) {
-      const interaction = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand, focused: { name: 'command', value } });
+  for (const [group, typed] of [
+    ['memory.private', 'priv'],
+    ['memory.journal', 'jour'],
+    ['memory.restore', 'rest'],
+  ]) {
+    for (const [subcommand, value] of [
+      ['grant', typed],
+      ['revoke', typed],
+      ['grant', ''],
+    ]) {
+      const interaction = fakeInteraction({
+        kind: 'autocomplete',
+        group: 'access',
+        subcommand,
+        focused: { name: 'command', value },
+      });
       await handler(interaction);
       const names = interaction.respondCalls[0].map((c) => c.name);
-      assert.ok(!names.some((name) => name === group || name.startsWith(`${group}.`)), `${group}: ${subcommand} "${value}"`);
+      assert.ok(
+        !names.some((name) => name === group || name.startsWith(`${group}.`)),
+        `${group}: ${subcommand} "${value}"`
+      );
     }
   }
 });
@@ -990,13 +1195,24 @@ test('autocomplete: command-option choices never offer the member command pings'
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
-  const interaction = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand: 'grant', focused: { name: 'command', value: 'pings' } });
+  const interaction = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'access',
+    subcommand: 'grant',
+    focused: { name: 'command', value: 'pings' },
+  });
   await handler(interaction);
   assert.deepEqual(interaction.respondCalls[0], []);
 });
 
 test('autocomplete: a non-owner granted config.set by role gets path choices, never command-key choices (access is owner-only)', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { 'config.set': { everyone: false, roles: ['staff'], users: [] }, 'access.grant': { everyone: false, roles: ['staff'], users: [] } } });
+  const admin = fakeAdmin({
+    owners: ['owner1'],
+    access: {
+      'config.set': { everyone: false, roles: ['staff'], users: [] },
+      'access.grant': { everyone: false, roles: ['staff'], users: [] },
+    },
+  });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const paths = fakeInteraction({
@@ -1023,7 +1239,12 @@ test('autocomplete: a non-owner granted config.set by role gets path choices, ne
   }
 
   // The owner still gets them, without any access key offered.
-  const owner = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand: 'grant', focused: { name: 'command', value: '' } });
+  const owner = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'access',
+    subcommand: 'grant',
+    focused: { name: 'command', value: '' },
+  });
   await handler(owner);
   const names = owner.respondCalls[0].map((c) => c.name);
   assert.ok(names.length > 0);
@@ -1062,7 +1283,7 @@ test('autocomplete: a foreign guild is ignored', async () => {
   assert.equal(interaction.respondCalls.length, 0);
 });
 
-test('buildCommandTree: every description fits Discord\'s 1..100 character limit', () => {
+test("buildCommandTree: every description fits Discord's 1..100 character limit", () => {
   const tree = buildCommandTree('nep');
   const top = Array.isArray(tree) ? tree[0] : tree;
   const walk = (o, path) => {
@@ -1104,7 +1325,10 @@ test('commandSize: sums names, descriptions, choice names and values through eve
                 type: 4,
                 name: 'num', // 3
                 description: 'N.', // 2
-                choices: [{ name: 'ten', value: 10 }, { name: 'neg', value: -2.5 }], // 3 + 2, 3 + 4
+                choices: [
+                  { name: 'ten', value: 10 },
+                  { name: 'neg', value: -2.5 },
+                ], // 3 + 2, 3 + 4
               },
             ],
           },
@@ -1131,7 +1355,10 @@ test('buildCommandTree: at most 25 options and 25 choices per level, valid names
     assert.ok((o.choices ?? []).length <= 25, `${path}: ${(o.choices ?? []).length} choices`);
     for (const choice of o.choices ?? []) {
       assert.ok(choice.name.length >= 1 && choice.name.length <= 100, `${path}: choice ${choice.name}`);
-      assert.ok(String(choice.value).length >= 1 && String(choice.value).length <= 100, `${path}: choice value ${choice.value}`);
+      assert.ok(
+        String(choice.value).length >= 1 && String(choice.value).length <= 100,
+        `${path}: choice value ${choice.value}`
+      );
     }
     for (const x of o.options ?? []) {
       assert.ok(isValidCommandName(x.name), `${path}/${x.name}: invalid name`);
@@ -1163,14 +1390,20 @@ test('interaction handler: draw maps text and self (self false when omitted)', a
 
 test('interaction handler: draw defers ephemerally, then edits the reply with the text and the file', async () => {
   const attachment = Buffer.from('fake-png');
-  const admin = fakeAdmin({ runImpl: () => ({ text: 'openai/x · 12.3s · cost 0.04', files: [{ attachment, name: 'image.png' }] }) });
+  const admin = fakeAdmin({
+    runImpl: () => ({ text: 'openai/x · 12.3s · cost 0.04', files: [{ attachment, name: 'image.png' }] }),
+  });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const interaction = fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a cat' } });
   await handler(interaction);
 
   assert.equal(interaction.deferred, true);
-  assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } }, 'ephemeral like every reply');
+  assert.deepEqual(
+    interaction.replies[0],
+    { deferred: true, opts: { flags: MessageFlags.Ephemeral } },
+    'ephemeral like every reply'
+  );
   assert.equal(interaction.edits.length, 1);
   assert.equal(interaction.edits[0].content, 'openai/x · 12.3s · cost 0.04');
   assert.deepEqual(interaction.edits[0].files, [{ attachment, name: 'image.png' }]);
@@ -1185,7 +1418,11 @@ test('interaction handler: an object result on a fast command replies ephemerall
   const interaction = fakeInteraction({ subcommand: 'status' });
   await handler(interaction);
 
-  assert.deepEqual(interaction.replies[0], { content: 'done', files: [{ attachment, name: 'image.png' }], flags: MessageFlags.Ephemeral });
+  assert.deepEqual(interaction.replies[0], {
+    content: 'done',
+    files: [{ attachment, name: 'image.png' }],
+    flags: MessageFlags.Ephemeral,
+  });
 });
 
 test('interaction handler: a failed draw is reported ephemerally as an error text with no file', async () => {
@@ -1215,13 +1452,22 @@ test('interaction handler: route.set is refused to a non-owner without a grant; 
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   const member = { roles: ['r1'] };
 
-  const set = fakeInteraction({ user: { id: 'u1' }, member, group: 'route', subcommand: 'set', optionValues: { model: 'google/', providers: 'x' } });
+  const set = fakeInteraction({
+    user: { id: 'u1' },
+    member,
+    group: 'route',
+    subcommand: 'set',
+    optionValues: { model: 'google/', providers: 'x' },
+  });
   await handler(set);
   const list = fakeInteraction({ user: { id: 'u1' }, member, group: 'route', subcommand: 'list' });
   await handler(list);
 
   assert.equal(set.replies[0].content, 'Not allowed');
-  assert.deepEqual(admin.runCalls.map(([key]) => key), ['route.list']);
+  assert.deepEqual(
+    admin.runCalls.map(([key]) => key),
+    ['route.list']
+  );
 });
 
 test('autocomplete: the route model option offers the route prefixes and the models in use, filtered', async () => {
@@ -1230,30 +1476,67 @@ test('autocomplete: the route model option offers the route prefixes and the mod
     config: {
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
-      llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
-      models: { base: { core: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x', drawing: 'openai/gpt-image-x' } },
+      llm: {
+        providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } },
+      },
+      models: {
+        base: {
+          core: 'anthropic/claude-opus-4.6',
+          analyzer: 'google/gemini-3.8-flash',
+          vision: 'google/gemini-3.8-flash',
+          video: 'google/gemini-3.8-flash',
+          embedding: 'openai/text-embedding-x',
+          drawing: 'openai/gpt-image-x',
+        },
+      },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
 
-  const all = fakeInteraction({ kind: 'autocomplete', group: 'route', subcommand: 'set', focused: { name: 'model', value: '' } });
+  const all = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'route',
+    subcommand: 'set',
+    focused: { name: 'model', value: '' },
+  });
   await handler(all);
-  assert.deepEqual(all.respondCalls[0].map((c) => c.value), ['google/', 'anthropic/claude-opus-4.6', 'google/gemini-3.8-flash', 'openai/text-embedding-x', 'openai/gpt-image-x']);
+  assert.deepEqual(
+    all.respondCalls[0].map((c) => c.value),
+    ['google/', 'anthropic/claude-opus-4.6', 'google/gemini-3.8-flash', 'openai/text-embedding-x', 'openai/gpt-image-x']
+  );
 
-  const typed = fakeInteraction({ kind: 'autocomplete', group: 'route', subcommand: 'remove', focused: { name: 'model', value: 'GOO' } });
+  const typed = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'route',
+    subcommand: 'remove',
+    focused: { name: 'model', value: 'GOO' },
+  });
   await handler(typed);
-  assert.deepEqual(typed.respondCalls[0].map((c) => c.value), ['google/', 'google/gemini-3.8-flash']);
+  assert.deepEqual(
+    typed.respondCalls[0].map((c) => c.value),
+    ['google/', 'google/gemini-3.8-flash']
+  );
 });
 
-test('autocomplete: status field offers the card\'s field names, filtered by the typed text', async () => {
+test("autocomplete: status field offers the card's field names, filtered by the typed text", async () => {
   const hot = { config: { bot: { commandName: 'nep', owners: ['owner1'] }, features: {} } };
   const handler = createInteractionHandler({ hot, admin: fakeAdmin(), getGuildId: () => 'g1' });
   const all = fakeInteraction({ kind: 'autocomplete', subcommand: 'status', focused: { name: 'field', value: '' } });
   await handler(all);
-  assert.deepEqual(all.respondCalls[0].map((c) => c.value), [...STATUS_FIELDS]);
-  const typed = fakeInteraction({ kind: 'autocomplete', subcommand: 'status', focused: { name: 'field', value: 'ERRANDS' } });
+  assert.deepEqual(
+    all.respondCalls[0].map((c) => c.value),
+    [...STATUS_FIELDS]
+  );
+  const typed = fakeInteraction({
+    kind: 'autocomplete',
+    subcommand: 'status',
+    focused: { name: 'field', value: 'ERRANDS' },
+  });
   await handler(typed);
-  assert.deepEqual(typed.respondCalls[0].map((c) => c.value), ['models.errands', 'costs.errands']);
+  assert.deepEqual(
+    typed.respondCalls[0].map((c) => c.value),
+    ['models.errands', 'costs.errands']
+  );
 });
 
 test('autocomplete: model set offers the model ids in use; memory restore offers the newest archive ids', async () => {
@@ -1275,22 +1558,46 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
 
-  const model = fakeInteraction({ kind: 'autocomplete', group: 'model', subcommand: 'set', focused: { name: 'id', value: 'GEM' } });
+  const model = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'model',
+    subcommand: 'set',
+    focused: { name: 'id', value: 'GEM' },
+  });
   await handler(model);
-  assert.deepEqual(model.respondCalls[0].map((c) => c.value), ['google/gemini-3.8-flash']);
+  assert.deepEqual(
+    model.respondCalls[0].map((c) => c.value),
+    ['google/gemini-3.8-flash']
+  );
 
-  const restore = fakeInteraction({ kind: 'autocomplete', group: 'memory', subcommand: 'restore', focused: { name: 'id', value: 'EP' } });
+  const restore = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'memory',
+    subcommand: 'restore',
+    focused: { name: 'id', value: 'EP' },
+  });
   await handler(restore);
   assert.deepEqual(archiveCalls, [['g1', 'ep']]);
   assert.deepEqual(restore.respondCalls[0], [{ name: 'ep-2 (episode)', value: 'ep-2' }]);
 
   // lore show's `id` is no autocomplete: nothing offered.
-  const lore = fakeInteraction({ kind: 'autocomplete', group: 'lore', subcommand: 'show', focused: { name: 'id', value: '' } });
+  const lore = fakeInteraction({
+    kind: 'autocomplete',
+    group: 'lore',
+    subcommand: 'show',
+    focused: { name: 'id', value: '' },
+  });
   await handler(lore);
   assert.deepEqual(lore.respondCalls[0], []);
 
   // A member without the right gets nothing, the archive unread.
-  const member = fakeInteraction({ kind: 'autocomplete', user: { id: 'helper1' }, group: 'memory', subcommand: 'restore', focused: { name: 'id', value: '' } });
+  const member = fakeInteraction({
+    kind: 'autocomplete',
+    user: { id: 'helper1' },
+    group: 'memory',
+    subcommand: 'restore',
+    focused: { name: 'id', value: '' },
+  });
   await handler(member);
   assert.deepEqual(member.respondCalls[0], []);
   assert.equal(archiveCalls.length, 1);
@@ -1313,7 +1620,15 @@ test('commandEvent: an interaction becomes a valid command.requested event', () 
   const interaction = fakeInteraction({
     id: 'i-event',
     user: { id: 'helper1', globalName: 'Ελένη' },
-    member: { displayName: 'Λένα', roles: { cache: new Map([['staff', {}], ['mods', {}]]) } },
+    member: {
+      displayName: 'Λένα',
+      roles: {
+        cache: new Map([
+          ['staff', {}],
+          ['mods', {}],
+        ]),
+      },
+    },
     group: 'memory',
     subcommand: 'show',
   });
@@ -1335,12 +1650,23 @@ test('commandEvent: an interaction becomes a valid command.requested event', () 
   assert.equal(owner.requester.name, null, 'no display name known');
 });
 
-test('interaction handler: the operation runs on the event\'s name, args and requester; the reply reaches the interaction', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } });
+test("interaction handler: the operation runs on the event's name, args and requester; the reply reaches the interaction", async () => {
+  const admin = fakeAdmin({
+    owners: ['owner1'],
+    access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } },
+  });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1', now: () => 5000 });
-  const interaction = fakeInteraction({ user: { id: 'helper1' }, member: { roles: ['staff'] }, channelId: 'c7', subcommand: 'status', optionValues: { field: 'limits' } });
+  const interaction = fakeInteraction({
+    user: { id: 'helper1' },
+    member: { roles: ['staff'] },
+    channelId: 'c7',
+    subcommand: 'status',
+    optionValues: { field: 'limits' },
+  });
   await handler(interaction);
-  assert.deepEqual(admin.runCalls, [['status', { field: 'limits' }, { guildId: 'g1', channelId: 'c7', userId: 'helper1', roleIds: ['staff'] }]]);
+  assert.deepEqual(admin.runCalls, [
+    ['status', { field: 'limits' }, { guildId: 'g1', channelId: 'c7', userId: 'helper1', roleIds: ['staff'] }],
+  ]);
   assert.equal(interaction.replies[0].content, 'ok: status');
 });
 
@@ -1352,5 +1678,8 @@ test('interaction handler: a malformed command event is dropped with one warn li
   assert.equal(admin.runCalls.length, 0);
   assert.equal(interaction.replies.length, 0);
   const warned = logs.filter((line) => line.msg === 'interface: invalid event');
-  assert.deepEqual(warned.map((line) => [line.kind, line.reason]), [['command.requested', 'requester.id:type']]);
+  assert.deepEqual(
+    warned.map((line) => [line.kind, line.reason]),
+    [['command.requested', 'requester.id:type']]
+  );
 });
