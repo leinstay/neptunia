@@ -1106,7 +1106,8 @@ test('memory.search: the hidden marker is one label line, with or without stretc
     labels: withHidden,
     guild: {},
     guildId: 'g1',
-    channel: { guild: {} },
+    // Changed with the contract: the channel is the conversation's info (a community conversation has `communityId`).
+    channel: { communityId: 'g1' },
     now: NOW,
   };
   const searched = await runMemorySearch({ ...base, args: { question: 'το σπιτι του δασκαλου' } });

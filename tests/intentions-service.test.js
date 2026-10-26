@@ -20,6 +20,7 @@ import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
@@ -34,6 +35,8 @@ function memoryOf(dataDir) {
 }
 
 const DISCORD = createDiscordInterface().capabilities;
+// The conversation an errand answers in is held by the fake interface of the test's world.
+useIface('fake');
 const OWNER = '42';
 const T0 = Date.parse('2026-10-18T10:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -107,10 +110,7 @@ function makeEnv({
       return { outcome: 'spoke' };
     },
   };
-  const gateway = {
-    user: { id: 'self' },
-    channels: { fetch: async (id) => ({ id, messages: { fetch: async () => null } }) },
-  };
+  world().channel({ id: 'c1' });
   const errands = createErrandService({
     client,
     stores,
@@ -129,8 +129,8 @@ function makeEnv({
   });
   const taskTurns = createTaskTurns({
     hot,
-    client: gateway,
-    discord: DISCORD,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     errands,
     intentions,
