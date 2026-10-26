@@ -43,6 +43,7 @@ import {
   withoutPictureKinds,
 } from './diary.js';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
+import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
 import { audienceCovers, createLinker, markSeen, messageLinkOf, resolveDestination, stampPings } from './elsewhere.ts';
 import { captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.ts';
 import { audienceAllows, everyMemberAudience, isReadable, isWritable, railAudience, takeSnapshot } from './snapshot.ts';
@@ -468,91 +469,6 @@ function trackStage(work, { clock, startedAt, onError }) {
 }
 
 /**
- * The deadline of a turn's preparation: `reached` resolves once `limitMs`
- * (counted from `startedAt` on `clock`; null = no deadline, never) has
- * passed. `extend(ms)` moves it to a later limit (null lifts it) while it has
- * not passed; `hold(work, ms)`, while it has not passed and has a limit, keeps
- * it from passing until `work` (a promise) settles, at most until `ms` (counted
- * the same way; null or not later than the limit: no hold; one hold at a
- * time): a limit that passed meanwhile passes as soon as `work` settles,
- * unless an `extend` moved it later first. `close()` ends it -- `passed` turns
- * true and the timer is cleared -- once the turn goes on. `leftMs()`: the time
- * left to its limit now (0 once that passed, a hold aside), null without a
- * limit. Also the turn's bar (pace.dropAfterMs).
- * @param {{ clock: () => number, startedAt: number, schedule: (fn: () => void, ms: number) => () => void,
- *   limitMs: number|null }} options
- */
-function createDeadline({ clock, startedAt, schedule, limitMs }) {
-  let passed = false;
-  let limit = null;
-  let cancel = null;
-  // While a hold is on: the latest limit it allows; `due` once the limit passed under it.
-  let holdUntil = null;
-  let due = false;
-  let release;
-  const reached = new Promise((resolve) => {
-    release = resolve;
-  });
-  const fire = () => {
-    cancel = null;
-    passed = true;
-    release();
-  };
-  const arm = (ms) => {
-    cancel?.();
-    cancel = null;
-    limit = ms;
-    due = false;
-    if (ms === null) return;
-    cancel = schedule(
-      () => {
-        cancel = null;
-        if (holdUntil !== null && holdUntil > ms) {
-          // Held: wait for the work, at most until the hold's own limit.
-          due = true;
-          cancel = schedule(fire, Math.max(0, holdUntil - (clock() - startedAt)));
-          return;
-        }
-        fire();
-      },
-      Math.max(0, ms - (clock() - startedAt))
-    );
-  };
-  arm(limitMs);
-  return {
-    reached,
-    get passed() {
-      return passed;
-    },
-    leftMs() {
-      if (limit === null) return null;
-      return passed ? 0 : Math.max(0, limit - (clock() - startedAt));
-    },
-    extend(ms) {
-      if (passed || limit === null) return;
-      if (ms === null || ms > limit) arm(ms);
-    },
-    hold(work, ms) {
-      if (passed || limit === null || ms === null || ms <= limit || holdUntil !== null) return;
-      holdUntil = ms;
-      const end = () => {
-        holdUntil = null;
-        if (due && !passed) {
-          cancel?.();
-          fire();
-        }
-      };
-      Promise.resolve(work).then(end, end);
-    },
-    close() {
-      passed = true;
-      cancel?.();
-      cancel = null;
-    },
-  };
-}
-
-/**
  * Whether someone asked for this turn: it has a trigger that is not an
  * overheard line (talk about the persona asks it nothing). An unasked turn
  * charges no member's
@@ -851,7 +767,6 @@ function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
  * channel's id, null for a chat line.
  * @returns {Promise<{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }>}
  * @param {import('../interface/reads.ts').Reads} reads
- * @param {Conv} channel
  */
 async function reactionChannel(reads, channel, targetId, pulledIds) {
   const source = pulledIds.get(targetId) ?? null;
@@ -1497,6 +1412,55 @@ export function continuationHistory({ history, fetched = [], own = [], selfName 
 }
 
 /**
+ * The reply request's options (role `core`, purpose `reply`): with a bar, each attempt's timeout is the smaller of
+ * llm.timeoutMs and the time left, and the bar's signal aborts it; nothing is asked once no time is left. With a bar the
+ * request is also hedged (pace.replyHedgeMs): no answer by then, a second identical request is sent and the first answer
+ * wins, the whole call still cut at the same timeout. A journalled attempt tells its collector what it hit.
+ */
+function replyOptionsOf(config, { draft, bar, barAbort }) {
+  const journalLimits = draft.started ? { limits: draft.limits } : {};
+  const left = bar.leftMs();
+  if (left === null) return { ...REPLY_REQUEST, ...journalLimits };
+  if (left <= 0) throw TOO_SLOW;
+  const configured = config.llm?.timeoutMs;
+  const timeoutMs = Number.isFinite(configured) && configured > 0 ? Math.min(configured, left) : left;
+  const hedgeMs = paceSettings(config).replyHedgeMs;
+  const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
+  return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
+}
+
+/**
+ * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one attention
+ * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
+ * a direct ping caught by this into a pending one). True when taken.
+ */
+function takeAttention(busy, id, config) {
+  if (busy.has(id)) return false;
+  if (config.mention?.oneAtATime !== false && busy.size > 0) return false;
+  busy.add(id);
+  return true;
+}
+
+/** The fields the journal's turn record starts with (src/memory/journal.js#start): who and what the turn is for. */
+function journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }) {
+  const woke = draft.inner
+    ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null }
+    : null;
+  return {
+    channelId: channel.id,
+    mode: journalMode(mode, triggerKind),
+    trigger: trigger
+      ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null }
+      : woke,
+    participants: trigger?.authorId ? [trigger.authorId] : [],
+    sourceMessageIds: trigger?.id ? [trigger.id] : [],
+    privateUserId: draft.privateUserId,
+    turnId: journalTurn?.turnId ?? null,
+    attemptId: journalTurn?.attemptId ?? null,
+  };
+}
+
+/**
  * The immutable envelope of the persona's skill call, built by code from the turn, never from
  * what the model wrote: the actor (the persona), the requester (the person who asked for the
  * turn, `requester` -- `/nep message create` -- else the author of the request the turn answers,
@@ -1627,78 +1591,6 @@ function linkHosts(links) {
     if (host && !hosts.includes(host)) hosts.push(host);
   }
   return hosts;
-}
-
-/**
- * The preparation steps of one attempt in the journal (link reads, video watches, captions,
- * searches): each step's operation is closed once its work settled and the turn took what it
- * had. `step(stage, op, offeredOf)` wraps an operation of the stage `stage`; its
- * `succeeded(result, offered?)` keeps the result until `take(stage, used)` says whether the
- * stage's value reached the request, then writes `succeeded` with `delivered` (taken and
- * something to offer: `offered`, else `offeredOf(result)`). A step that settles after its
- * take, or one never taken (`closeAll`), is written with `delivered: false`; a stage taken still
- * out with `hold` waits for `tell(stage)` (a later request showed its result) or `closeAll`.
- */
-function createPrepLedger() {
-  const entries = [];
-  const close = (entry) => {
-    if (entry.closed || entry.held || entry.result === undefined || entry.taken === null) return;
-    entry.closed = true;
-    entry.op.succeeded({ ...entry.result, delivered: entry.taken && entry.offered });
-  };
-  return {
-    step(stage, op, offeredOf = () => true) {
-      const entry = { stage, op, result: undefined, offered: false, taken: null, closed: false, held: false };
-      entries.push(entry);
-      return {
-        opId: op.opId,
-        started: (extra) => op.started(extra),
-        succeeded: (result = {}, offered) => {
-          entry.result = result;
-          entry.offered = typeof offered === 'boolean' ? offered : Boolean(offeredOf(result));
-          close(entry);
-          return Promise.resolve();
-        },
-        failed: (code) => {
-          entry.closed = true;
-          return op.failed(code);
-        },
-        unknown: () => {
-          entry.closed = true;
-          return op.unknown();
-        },
-      };
-    },
-    take(stage, used, { hold = false } = {}) {
-      for (const entry of entries) {
-        if (entry.stage !== stage || entry.taken !== null) continue;
-        entry.taken = Boolean(used);
-        // A stage still out when taken may yet reach a later request (tell): its record waits for that.
-        entry.held = hold && !used;
-        close(entry);
-      }
-    },
-    /** A held stage's result reached a later request: its record is written as delivered. */
-    tell(stage) {
-      for (const entry of entries) {
-        if (entry.stage !== stage || !entry.held) continue;
-        entry.held = false;
-        entry.taken = true;
-        close(entry);
-      }
-    },
-    closeAll() {
-      for (const entry of entries) {
-        if (entry.held) {
-          entry.held = false;
-          close(entry);
-        }
-        if (entry.taken !== null) continue;
-        entry.taken = false;
-        close(entry);
-      }
-    },
-  };
 }
 
 /**
@@ -2167,7 +2059,6 @@ export function createTurnRunner({
    * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
    * A private chat reads as a DM of its partner, anything else as the interface's group. Null without the dependency
    * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
-   * @param {Conv} channel
    */
   function turnContextOf(draft, channel) {
     if (!draft || typeof memoryContext !== 'function') return null;
@@ -2202,7 +2093,6 @@ export function createTurnRunner({
 
   /**
    * The port reference of a conversation (its info, a snapshot entry, anything with an `id`).
-   * @param {Conv} channel
    */
   function conversationOf(channel) {
     return { iface: iface.iface, conversationId: String(channel.id) };
@@ -2210,7 +2100,6 @@ export function createTurnRunner({
 
   /**
    * The port reference of message `messageId` in `channel`.
-   * @param {Conv} channel
    */
   function messageOf(channel, messageId) {
     return { ...conversationOf(channel), messageId: String(messageId) };
@@ -2224,7 +2113,6 @@ export function createTurnRunner({
    * @returns {{ ok: boolean, code?: string, reason?: string }}
    * @param {*} skill
    * @param {*} _args
-   * @param {{ channel: Conv }} context
    */
   function checkEffect(skill, _args, { channel }) {
     const verdict = checkReplyEffect({ skill, principal: PERSONA, config: hot.config });
@@ -2262,7 +2150,6 @@ export function createTurnRunner({
    * are returned marked `proposed` (`<skills>` then shows the allowed ones and names the others).
    * Null otherwise. Names and codes only, never a message.
    * @returns {object[]|null}
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function discoverSkills({ config, channel, trigger, answer, draft }) {
     if (!answer || !discoveryOn(config)) return null;
@@ -2292,7 +2179,6 @@ export function createTurnRunner({
 
   /**
    * The tasks `<tasks>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function listedTasks({ guildId, channel, isPrivate, taskResult }) {
     let shown = [];
@@ -2314,7 +2200,6 @@ export function createTurnRunner({
    * errand's end opened (`taskResult`, trigger kind `task`), the `<task_result>` body cut to
    * `agents.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
    * turn that completed (src/errands/turns.js) or by `task.read`. Null when there is nothing to show.
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
@@ -2330,7 +2215,6 @@ export function createTurnRunner({
    * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
    * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.js).
    * '' with the switch off, without the service, or with nothing to show.
-   * @param {{ snapshot?: Snap|null, [key: string]: * }} params
    */
   function intentionsInputFor({ guildId, channel, snapshot = null, isPrivate, config, labels, now }) {
     if (!intentions || config.features?.intentions !== true) return '';
@@ -2419,7 +2303,6 @@ export function createTurnRunner({
    * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
    * `skill: refused`.
    * @param {*} resolved
-   * @param {{ channel: Conv, [key: string]: * }} context
    */
   function checkCall(resolved, { channel, envelope, draft = null }) {
     const verdict = checkSkill({
@@ -2469,7 +2352,6 @@ export function createTurnRunner({
    * destination for a picture --, resolved on the server's side (`view`: callView's) and checked (checkCall). Resolves
    * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
    * no -- logged `skill: refused`. Nothing runs here.
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   async function planToolCall({ call: given, channel, envelope, draft, view }) {
     let call = given;
@@ -2613,7 +2495,6 @@ export function createTurnRunner({
    * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean }|null}
    * @param {*} inner
    * @param {*} skill
-   * @param {{ channel: Conv, [key: string]: * }} context
    */
   function innerVerdict(inner, skill, { channel, args }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
@@ -2668,7 +2549,7 @@ export function createTurnRunner({
     const renderText = (text) =>
       (rendered = renderPost(text, {
         channel,
-        snapshot: draft?.snapshot ?? null,
+        snapshot: snapshotOfDraft(draft),
         guildId,
         privateChat,
         idByIndex,
@@ -2856,7 +2737,6 @@ export function createTurnRunner({
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
    * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (innerLife.chatMessages).
    * Throws when the interface cannot read the history.
-   * @param {Conv} channel
    */
   function readHistory(channel, config, { inner = false, draft = null, guildId = null } = {}) {
     const namesOn = reactors && config.features?.reactionNames !== false && config.features?.seeReactions !== false;
@@ -2985,7 +2865,6 @@ export function createTurnRunner({
    * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
    * toward this turn's channel, a private chat on its partner's behalf); this channel always does.
    * `not_configured` without the community's snapshot or in a private chat without its partner. Never throws.
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   async function readConversation({ args, channel, snapshot, guildId, partner, selfName, draft }) {
     if (!snapshot || (!inCommunity(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
@@ -3246,67 +3125,6 @@ export function createTurnRunner({
   }
 
   /**
-   * What the request showed as not ready and is ready now, told once in a step's note: a video the
-   * transcript rendered `pending` (the video stage past the deadline) whose watch finished, and,
-   * when the caption stage was late, every line with a picture once the captions are in. The lines
-   * come back re-rendered with their original handles. A stage still out says nothing; a line is
-   * told once. `pending` is what the request showed (`videoIds` the itemIds, `captions` whether the
-   * caption stage was late); `onTold(stage)` closes the journal's step as delivered.
-   * @returns {() => string}  The text for the next note ('' when nothing new).
-   */
-  function lateMediaTeller({
-    lines,
-    idByIndex,
-    handles,
-    memberNames = null,
-    selfName,
-    videoStage,
-    videoItems,
-    captions,
-    captionItems,
-    pending,
-    onTold,
-  }) {
-    const told = { videos: new Set(), captions: false };
-    return () => {
-      const states = videoStage?.done && videoStage.value?.videos instanceof Map ? videoStage.value.videos : null;
-      const ids = new Set();
-      const newVideos = [];
-      for (const itemId of pending.videoIds) {
-        const state = states?.get(itemId);
-        if (told.videos.has(itemId) || !state || state.state === 'pending') continue;
-        newVideos.push(itemId);
-        const item = videoItems.find((one) => one.itemId === itemId);
-        if (item) ids.add(item.messageId);
-      }
-      const newCaptions = pending.captions && !told.captions && Boolean(captions?.done);
-      if (newCaptions) for (const item of captionItems) ids.add(item.messageId);
-      if (ids.size === 0) return '';
-      const handleById = new Map([...idByIndex].map(([index, id]) => [id, index]));
-      const media = {
-        videos: states ?? undefined,
-        descriptions: captions?.done ? captions.value?.descriptions : undefined,
-      };
-      const out = [];
-      for (const line of lines) {
-        const index = handleById.get(line.id);
-        if (!ids.has(line.id) || !index) continue;
-        const item = stepTranscript([line], { selfName, handles, memberNames, indexOffset: index - 1, media }).find(
-          (one) => one.id === line.id
-        );
-        if (item) out.push(item.text);
-      }
-      for (const itemId of newVideos) told.videos.add(itemId);
-      if (newVideos.length > 0) onTold('videos');
-      if (newCaptions) {
-        told.captions = true;
-        onTold('captions');
-      }
-      return out.join('\n');
-    };
-  }
-
-  /**
    * The steps of one turn, for every kind of chat turn (a reply, a follow-up, a mention, a name, a private chat, a part of a
    * split message, a finished errand, an interjection, an initiative, an overheard line, an inner turn, a heartbeat).
    * `first` is the reply request's answer (readAnswer's); the request in hand is `messages`, append-only from then on.
@@ -3342,9 +3160,7 @@ export function createTurnRunner({
     }
   }
 
-  /**
-   * @param {{ channel: Conv, [key: string]: * }} params
-   */
+  /** @param {{ channel: Conv, [key: string]: * }} params */
   async function runStepsIn({
     channel,
     guildId,
@@ -3427,10 +3243,7 @@ export function createTurnRunner({
       timeoutMs,
     });
 
-    /**
-     * The lines that came in since the last request, numbered on past every number in use (tool-step.js#deltaLines), her
-     * own left out, rendered like the chat. A failed fetch logs `skills: continuation fetch failed` and gives none.
-     */
+    /** The lines that came in since the last request, her own left out (tool-step.js#deltaLines); a failed fetch gives none. */
     const deltaOf = async () => {
       const none = { text: '', lines: [], idByIndex: new Map() };
       let fetched;
@@ -3986,7 +3799,6 @@ export function createTurnRunner({
 
   /**
    * The key of the place a channel is (interface + server or private chat + channel).
-   * @param {Conv} channel
    */
   function placeOf(channel, guildId = null) {
     return placeKey({
@@ -4000,7 +3812,6 @@ export function createTurnRunner({
    * `turn: previous think` with the source (turn id, relation, age) or why there is none. Null when
    * nothing is carried.
    * @returns {{ text: string, relation: 'earlier', ageMs: number }|null}
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function earlierThinkFor({ channel, guildId, isPrivate, draft, mode }) {
     if (!previousThinkOn() || draft.inner || mode === 'diary') return null;
@@ -4074,7 +3885,6 @@ export function createTurnRunner({
    * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
    * features.callMarkers off (a missing key counts as on, read now).
    * @param {*} lines
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} options
    */
   function linkCalls(lines, { channel, snapshot = null, guildId, extra = null }) {
     if (hot.config.features?.callMarkers === false) return lines;
@@ -4252,7 +4062,7 @@ export function createTurnRunner({
    * community's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
    * handle first, exactly). A private chat has no guild: only its handles, if any, are linked.
    * @param {Conv} channel
-   * @param {Snap|null} snapshot
+   * @param {Snap|null} [snapshot]
    */
   function withChannelLinks(channel, text, channelHandles = null, snapshot = null) {
     const handles = channelHandles instanceof Map ? channelHandles : null;
@@ -4361,7 +4171,6 @@ export function createTurnRunner({
    * The bare name of the diary channel (`diary.channelId`, in `config`: the turn's live config)
    * for `<senses>`: null with no channel set, `features.diary` off, or a channel neither the turn's snapshot
    * nor the conversation directory knows by name.
-   * @param {Snap|null} snapshot
    */
   function diaryChannelName(guildId, config, snapshot = null) {
     const id = config.diary?.channelId;
@@ -4380,7 +4189,6 @@ export function createTurnRunner({
    * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
    * log which wait it covers (the preparation, or the tool loop's calls).
    * @returns {() => void}  Stops the lease.
-   * @param {Conv} channel
    */
   function startChannelTyping(channel, preparing) {
     const send = () =>
@@ -4406,7 +4214,6 @@ export function createTurnRunner({
    * an inner or a diary turn, with features.typingSimulation on, where the bot can send, in no dry run, with skills on.
    * Not gated by pace.typingWhilePreparing (that one is the preparation's).
    * @returns {() => void}  Stops the lease; `() => {}` when it does not show.
-   * @param {Conv} channel
    */
   function typingWhileCalls(channel, triggerKind, draft) {
     const off = () => {};
@@ -4429,7 +4236,6 @@ export function createTurnRunner({
    * is silent). Sent through the port; one that does not answer `ok` logs
    * `turn: typing failed` and changes nothing else.
    * @returns {() => void}  Stops the indicator's refresh.
-   * @param {Conv} channel
    */
   function typingWhilePreparing(channel, triggerKind, config) {
     const off = () => {};
@@ -4583,7 +4389,7 @@ export function createTurnRunner({
       // Same deliberate exception as above: the persona's own output, dry-run only.
       const { text } = renderPost(message.text, {
         channel,
-        snapshot: draft?.snapshot ?? null,
+        snapshot: snapshotOfDraft(draft),
         guildId,
         privateChat: false,
         idByIndex,
@@ -4691,7 +4497,6 @@ export function createTurnRunner({
    * (one picture, or `diary.set.pictures[1]` for a set kind: `draft.diary.set`). Never throws.
    * @returns {Promise<{ status: string, code?: string, ref?: object|null, at?: number, error?: object|null, data: { text: string } }>}
    * @param {*} args
-   * @param {{ channel: Conv, [key: string]: * }} context
    */
   async function drawTool(
     args,
@@ -4868,7 +4673,6 @@ export function createTurnRunner({
    * A fresh URL of an attached GIF: its original message is fetched again
    * (Discord attachment URLs expire) and the attachment found by id, in the
    * message itself or in a forwarded snapshot. Null when anything fails.
-   * @param {Conv} channel
    */
   async function freshAttachmentUrl(channel, entry) {
     return sharedFreshAttachmentUrl({
@@ -4896,7 +4700,6 @@ export function createTurnRunner({
    * null; `link`: the jump link it carries after its URL (withLink, so the
    * URL comes first and still embeds), or null; `trigger`: the turn's (the requester).
    * @returns {Promise<{ message: object, op: object }|null>}
-   * @param {Conv} channel
    */
   async function postGif(channel, guildId, gif, replyId, link, { openOp = () => NO_OP, trigger = null } = {}) {
     const { entry } = gif;
@@ -5075,7 +4878,6 @@ export function createTurnRunner({
    * `gifs: pick late` (`channel`, `graceMs`) and journaled as a `helper-timeout` limit on
    * `gif-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
    * @param {Promise<object|null>} picking
-   * @param {{ channelId: string, draft: object|null }} where
    * @returns {Promise<object|null>}
    */
   async function pickedInTime(picking, { channelId, draft }) {
@@ -5208,8 +5010,7 @@ export function createTurnRunner({
     };
     // Every effect's skill call names the turn's channel and its trigger's author.
     const effect = { channel, trigger };
-    // Whether anything reached the chat (the caller of a routed turn marks its call by it), and
-    // the pulled lines it answered (the ring of calls marks them by it).
+    // Whether anything reached the chat (a routed turn's caller marks its call by it) and the pulled lines it answered.
     let delivered = false;
     const answered = new Set();
     // For the journal: every post that reached the chat with the message it answers, every
@@ -5263,8 +5064,7 @@ export function createTurnRunner({
       }
     }
 
-    // Each posted message as the next fetchHistory will normalize it (its own id and time, the
-    // persona's text as written).
+    // Each posted message as the next history read will give it (its own id and time, her text as written).
     const ownPosted = [];
     // The texts posted, as the persona wrote them, and the handles of the GIFs posted.
     const postedTexts = [];
@@ -5300,7 +5100,7 @@ export function createTurnRunner({
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
       const { spoken: first, text: firstText } = renderPost(head.text, {
         channel,
-        snapshot: draft?.snapshot ?? null,
+        snapshot: snapshotOfDraft(draft),
         guildId,
         privateChat,
         idByIndex,
@@ -5375,7 +5175,7 @@ export function createTurnRunner({
       // Links on the text sent; the typing time stays on the text before them.
       const { text, spoken, userIds } = renderPost(message.text, {
         channel,
-        snapshot: draft?.snapshot ?? null,
+        snapshot: snapshotOfDraft(draft),
         guildId,
         privateChat,
         idByIndex,
@@ -6422,7 +6222,6 @@ export function createTurnRunner({
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
    * a server channel that is not the diary channel (`diary.channelId`), and a store that keeps
    * one. Recording, the pick classifier and the `<participation>` block all ask this.
-   * @param {Conv} channel
    */
   function participationOn(channel, config) {
     const features = config.features ?? {};
@@ -6438,9 +6237,10 @@ export function createTurnRunner({
    * (src/behavior/snapshot.ts#audienceAllows, `context.pull.sameAudience`: everyone who can
    * read this channel can read that one). A conversation the snapshot does not hold, or a check that
    * throws, is refused.
-   * @returns {(channelId: string) => boolean}
    * @param {Conv} channel
-   * @param {Snap|null} snapshot
+   * @param {*} config
+   * @param {Snap|null} [snapshot]
+   * @returns {(channelId: string) => boolean}
    */
   function participationAudience(channel, config, snapshot = null) {
     return (channelId) => {
@@ -6459,7 +6259,6 @@ export function createTurnRunner({
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.
-   * @param {{ snapshot?: Snap|null, [key: string]: * }} params
    */
   function aroundInputFor({ config, mode, isPrivate, snapshot = null }) {
     if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
@@ -6475,8 +6274,6 @@ export function createTurnRunner({
 
   /**
    * A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note.
-   * @param {Conv} channel
-   * @param {Snap|null} snapshot
    */
   function liveChannelName(channel, snapshot = null) {
     return (channelId) => {
@@ -6522,7 +6319,6 @@ export function createTurnRunner({
    * something changed, then logged `participation: recorded` (`channel`, `episodes`: how many
    * the store holds). Never throws: a failure logs `participation: failed` (`reason:
    * 'record-error'`).
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function recordOwnParticipation({ channel, guildId, history, earlier, own, replyId, selfName, descriptions }) {
     try {
@@ -6568,8 +6364,8 @@ export function createTurnRunner({
    * key counts as on) or for a store without the recent store (tests' fakes);
    * a read that throws is logged (`recent: failed`) and is nothing either: the
    * block is never worth a turn.
-   * @returns {{ lines: object[]|undefined, audience: ((channelId: string|null) => boolean)|undefined }}
    * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
+   * @returns {{ lines: object[]|undefined, audience: ((channelId: string|null) => boolean)|undefined }}
    */
   function recentInput({ channel, snapshot = null, guildId, isPrivate, config, now }) {
     const settings = recentSettings(config);
@@ -6622,7 +6418,6 @@ export function createTurnRunner({
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    * @returns {Promise<{ posts: object[], plan: { kind: string|null, brief: string, search: string,
    *   picture: boolean, fallback: boolean, topic?: string }, found: string|null, pictureAllowed: boolean, seeds: string }>}
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   async function prepareDiary({ config, guildId, channel, selfName, history, now, params, memoryOn, draft = null }) {
     const prompts = hot.prompts;
@@ -6645,7 +6440,7 @@ export function createTurnRunner({
     const planPrompt = prompts?.['diary-plan'];
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
       const recent = memoryOn
-        ? recentInput({ channel, snapshot: draft?.snapshot ?? null, guildId, isPrivate: false, config, now })
+        ? recentInput({ channel, snapshot: snapshotOfDraft(draft), guildId, isPrivate: false, config, now })
         : NO_RECENT;
       const seedsText = renderSeedsBlock(
         pickSeeds(parseSeedFamilies(prompts['diary-seeds']), diaryCfg.seedSets ?? 2, rng),
@@ -6769,7 +6564,6 @@ export function createTurnRunner({
    * daily cap (`image.maxPerDay`); a closed cap names its key and counts. Settings come
    * from `config`, the turn's live config.
    * @returns {{ allowed: boolean, limit: { key: string, used: number, cap: number }|null }}
-   * @param {Conv} channel
    */
   function diaryPictureGate(config, channel, now) {
     const closed = (limit = null) => ({ allowed: false, limit });
@@ -7637,27 +7431,15 @@ export function createTurnRunner({
     // requested is left to finish naturally; admin.js's pause handler waits
     // for it via waitIdle() below instead of aborting it here.
     if (store.state.data.paused) return { outcome: 'paused' };
-    // A turn of a chain runs under the attention the chain already holds. The attention is taken before anything is
-    // awaited, so two turns started together cannot both take it.
+    // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
     const attentionId = conversation.conversationId;
-    if (!owned) {
-      if (busy.has(attentionId)) return { outcome: 'busy' };
-      // One attention (config.mention.oneAtATime, default on): while a turn is
-      // running anywhere else, nothing else may start. src/behavior/pipeline.js
-      // is the only caller that turns a direct ping caught by this into a
-      // pending one instead of just dropping it -- this rail applies to every
-      // caller (a reply, an interject, an initiate, an eavesdrop) alike.
-      const oneAtATime = hot.config.mention?.oneAtATime !== false;
-      if (oneAtATime && busy.size > 0) return { outcome: 'busy' };
-      busy.add(attentionId);
-    }
+    if (!owned && !takeAttention(busy, attentionId, hot.config)) return { outcome: 'busy' };
     const letGo = () => {
       if (owned) return;
       busy.delete(attentionId);
       notifyIdle();
     };
-    // The conversation as the interface describes it now: its permissions, its audience, when it last heard from
-    // anyone. One the interface no longer knows ends the turn before anything is asked of the model.
+    // The conversation as the interface describes it now; one it no longer knows ends the turn before any model call.
     const found = await ifaceReads.conversationInfo(conversation, { audience: true, viewers: [] });
     if (found === null) {
       letGo();
@@ -7680,20 +7462,10 @@ export function createTurnRunner({
       draft.channelId = channel.id;
       draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       draft.mode = mode;
-      draft.started = journal.start(guildId, {
-        channelId: channel.id,
-        mode: journalMode(mode, triggerKind),
-        trigger: trigger
-          ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null }
-          : draft.inner
-            ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null }
-            : null,
-        participants: trigger?.authorId ? [trigger.authorId] : [],
-        sourceMessageIds: trigger?.id ? [trigger.id] : [],
-        privateUserId: draft.privateUserId,
-        turnId: journalTurn?.turnId ?? null,
-        attemptId: journalTurn?.attemptId ?? null,
-      });
+      draft.started = journal.start(
+        guildId,
+        journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn })
+      );
     }
     // A turn answering a person first lets them finish writing (pace.settleMs), holding the
     // attention meanwhile; the turn's clocks (its deadline, its bar) start after this wait. The
@@ -7731,14 +7503,12 @@ export function createTurnRunner({
         const gate = diaryPictureGate(config, channel, now);
         if (!gate.allowed) return { outcome: 'refused', reason: 'pictures', limit: gate.limit };
       }
-      // The turn's pace. A turn nobody waits for (unhurried: a spontaneous or an overheard one,
-      // with pace.unpromptedWaits on) has neither the bar nor the preparation's deadline below.
+      // The turn's pace: an unhurried turn (spontaneous or overheard, pace.unpromptedWaits on) has no bar or deadline.
       const pace = paceSettings(config);
       const waitsForAll = unhurried(triggerKind, pace);
-      // The bar (pace.dropAfterMs, from the turn's start): the
-      // answer must be in hand by then, or the turn is dropped unposted. At the bar every wait
-      // below gives up (beforeBar throws TOO_SLOW), the typing indicator stops, and the reply
-      // request is aborted -- its client sends no retry once its signal is aborted.
+      // The bar (pace.dropAfterMs, from the turn's start): the answer must be in hand by then, or the turn is dropped
+      // unposted. At the bar every wait below gives up (beforeBar throws TOO_SLOW), the typing stops and the reply request
+      // is aborted.
       bar = createDeadline({ clock, startedAt, schedule, limitMs: waitsForAll ? null : pace.dropAfterMs });
       const barAbort = new AbortController();
       bar.reached.then(() => {
@@ -7754,23 +7524,7 @@ export function createTurnRunner({
                 throw TOO_SLOW;
               }),
             ]);
-      // The reply request's options (role `core`, purpose `reply`): with a bar, each attempt's
-      // timeout is the smaller of llm.timeoutMs (read now) and the time left, and the bar's
-      // signal aborts it; nothing is asked once no time is left. With a bar the request is also
-      // hedged (pace.replyHedgeMs, read now): no answer by then, a second identical request is
-      // sent and the first answer wins, the whole call still cut at the same timeout.
-      const replyOptions = () => {
-        // A journalled attempt's reply request tells its collector what it hit (src/llm/openrouter.js#complete).
-        const journalLimits = draft.started ? { limits: draft.limits } : {};
-        const left = bar.leftMs();
-        if (left === null) return { ...REPLY_REQUEST, ...journalLimits };
-        if (left <= 0) throw TOO_SLOW;
-        const configured = hot.config.llm?.timeoutMs;
-        const timeoutMs = Number.isFinite(configured) && configured > 0 ? Math.min(configured, left) : left;
-        const hedgeMs = paceSettings(hot.config).replyHedgeMs;
-        const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
-        return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
-      };
+      const replyOptions = () => replyOptionsOf(hot.config, { draft, bar, barAbort });
       // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
       const asked = askedFor(trigger, triggerKind);
       // A turn a returned errand opened answers with its result: the engine's own search
@@ -7790,15 +7544,13 @@ export function createTurnRunner({
       const partnerPending = isPrivate
         ? privatePartner({ guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
         : Promise.resolve(null);
-      // The groups the requester holds in the community, read once for the attempt: the rights of her calls are
-      // checked against them. None for a private chat, for a turn nobody asked or an interface that does not say.
+      // The groups the requester holds in the community, read once: the rights of her calls are checked against them.
       const requesterPending =
         !isPrivate && trigger?.authorId
           ? ifaceReads.memberInfo({ communityId: guildId, memberId: String(trigger.authorId) })
           : Promise.resolve(null);
-      // The listing of the community, once for the attempt: the neighbours, the pulls, the routing, the places she
-      // is shown and the audience rails all read it. A private chat is listed for the partner's sake: which
-      // conversations they can view.
+      // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
+      // chat is listed for its partner's sake.
       const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
       const historyStartedAt = clock();
@@ -7824,10 +7576,8 @@ export function createTurnRunner({
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
       draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
-      // A private chat on its partner's behalf: pulls and the server search from the served community.
+      // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
       const likeServer = isPrivate && partner !== null;
-      // The served community as the server search takes it: its id, none for a private chat that does not work like
-      // a server turn. `servedSnapshot` is its listing under the same condition.
       const servedGuild = isPrivate && !likeServer ? null : { id: guildId };
       const servedSnapshot = servedGuild ? snapshot : null;
       // What the helpers judge: the trigger, or on a part of a split message the trigger with
@@ -9387,6 +9137,7 @@ export function createTurnRunner({
               captionItems: captionCandidates,
               pending: pendingMedia,
               onTold: (stage) => prep.tell(stage),
+              transcript: stepTranscript,
             })
           : null;
       // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
