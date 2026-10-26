@@ -2,6 +2,7 @@
 // (REST only) and hands the engine's skills what a live turn gets from the interface instead. Every function takes
 // `unknown` and narrows, so the objects of any platform fixture pass.
 
+import type { MessageEvent } from '../../src/protocol/adapter.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import { createDiscordAdapter } from '../../interfaces/discord/index.js';
@@ -130,4 +131,85 @@ export function hiddenReads<T extends Reads>(reads: T, hide: Hide): T {
     },
   };
   return hidden as T;
+}
+
+/**
+ * The `message.received` event of a scripted line (the shape of src/behavior/line-of.js's output), as the interface's
+ * history read gives it: the line a turn makes of the event is the line.
+ */
+export function eventOfLine(line: unknown, iface: string): MessageEvent {
+  const found = obj(line);
+  const at = found.ts;
+  const event: Obj = {
+    kind: 'message.received',
+    iface,
+    at,
+    id: `${iface}:message:${String(found.id)}`,
+    conversation: {
+      id: found.channelId,
+      kind: 'channel',
+      communityId: null,
+      name: found.channelName,
+      topic: found.channelTopic,
+      category: found.channelCategory,
+    },
+    message: {
+      id: found.id,
+      author: { id: found.authorId, name: found.authorName, self: found.self, bot: found.bot },
+      content: found.content,
+      sourceText: found.content,
+      system: false,
+      at,
+      replyToId: found.replyToId,
+      replyPingUserId: found.replyPingUserId,
+      forwardedFrom: found.forwardedFrom,
+      attachments: found.attachments,
+      links: found.links,
+      forwarded: found.forwarded,
+      stickers: found.stickers,
+      emojis: found.emojis,
+      reactions: found.reactions,
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+  };
+  return event as unknown as MessageEvent;
+}
+
+/**
+ * The reads with the history of a conversation replaced by a script: `lines(ref, limit)` gives the lines (the shape of
+ * src/behavior/line-of.js's output) the newest `limit` of the conversation holds, and the history read answers them as
+ * events.
+ */
+export function scriptedReads<T extends Reads>(
+  found: T,
+  lines: (ref: { iface: string; conversationId: string }, limit: number) => ReadonlyArray<unknown>
+): T {
+  const scripted: Reads = {
+    ...found,
+    history: (ref, query) =>
+      Promise.resolve({
+        events: lines(ref, query.limit ?? 30).map((line) => eventOfLine(line, ref.iface)),
+        complete: true,
+      }),
+  };
+  return scripted as T;
+}
+
+/**
+ * The scripted chat of the conversation a week's turn runs in: the lines the week's `world.chat` holds for it and the
+ * name the fixture gives the channel.
+ */
+export function scriptedChatOf(
+  world: unknown,
+  fixture: unknown,
+  conversation: unknown
+): { lines: Array<unknown>; name: string | null } {
+  const asked = String(obj(conversation).conversationId);
+  const chat: unknown = obj(world).chat;
+  const lines: unknown = chat instanceof Map ? (chat as Map<string, unknown>).get(asked) : undefined;
+  const channels: unknown = obj(fixture).channels;
+  const listed: Array<unknown> = Array.isArray(channels) ? (channels as Array<unknown>) : [];
+  const channel = listed.find((entry) => obj(entry).id === asked);
+  const name = obj(channel).name;
+  return { lines: Array.isArray(lines) ? lines : [], name: typeof name === 'string' ? name : null };
 }

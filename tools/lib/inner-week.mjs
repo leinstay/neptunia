@@ -54,6 +54,8 @@ import {
   POSTING_SKILLS,
 } from '../../src/behavior/inner.js';
 import { createEventDoor } from '../../src/interface/door.js';
+import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createReads } from '../../src/interface/reads.ts';
 import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
@@ -815,13 +817,26 @@ export async function runWeek({
     for (const fn of listeners) fn(entry);
   };
 
-  const channelObjects = new Map(
-    fixture.channels.map((channel) => [
-      channel.id,
-      { id: channel.id, name: channel.name, guild: { id: guildId }, writable: channel.writable },
-    ])
-  );
-  const client = { channels: { cache: channelObjects, fetch: async (id) => channelObjects.get(String(id)) ?? null } };
+  // The week's interface: the fixture's channels as conversations, writable or not, and the reads over them.
+  const adapter = createFakeAdapter({ iface: 'inner-week', selfId: 'self' });
+  for (const channel of fixture.channels)
+    adapter.seedConversation({
+      id: channel.id,
+      kind: 'channel',
+      communityId: guildId,
+      name: channel.name,
+      topic: null,
+      category: null,
+      chatType: 'channel',
+      iface: adapter.iface,
+      permissions: { read: true, send: channel.writable !== false, attach: true, react: true },
+      owner: null,
+      lastMessageAt: null,
+      voice: false,
+      public: true,
+      audience: null,
+    });
+  const reads = createReads(adapter, log);
   // The record: her lines of the history (the review's hours) and every line of the week's chat
   // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
@@ -879,7 +894,7 @@ export async function runWeek({
       voice: live ? 'live' : 'stub',
       kind: wake.kind,
       chainId: wake.chainId ?? null,
-      channelId: String(params.channel?.id ?? ''),
+      channelId: String(params.conversation?.conversationId ?? ''),
       items,
       notes: wake.notes ?? null,
       places: wake.places ?? null,
@@ -1114,8 +1129,8 @@ export async function runWeek({
         inner: async (_guild, fields) =>
           journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }),
       },
-      client,
-      discord: { canSend: (channel) => channel?.writable !== false },
+      reads,
+      iface: () => adapter.iface,
       submit: (event) => door.submit(event),
       store: { state: { data: {} } },
       getGuildId: () => guildId,

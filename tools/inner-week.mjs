@@ -49,6 +49,7 @@ import {
   spendGate,
 } from './lib/cli.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
+import { scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
 import {
   computeGates,
   gatesTable,
@@ -290,19 +291,23 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     // The turn's history: the fixture's chat of the conversation the scheduler picked.
     let scripted = { lines: [], name: null };
     const capabilities = mods.createDiscordInterface({ client }).capabilities;
-    const scriptedCapabilities = {
-      ...capabilities,
-      fetchHistory: async (_channel, options = {}) =>
+    // The turn's history is the fixture's chat, as the interface's history read gives it.
+    /**
+     * @param {*} found
+     * @returns {unknown}
+     */
+    const scriptedChat = (found) =>
+      scriptedReads(found, (ref, limit) =>
         scriptedHistory(scripted.lines, {
-          channel: { id: channel.id, name: scripted.name ?? channel.name },
+          channel: { id: ref.conversationId, name: scripted.name ?? channel.name },
           selfId: self.id,
           selfName: self.name,
           now: clock.now(),
-          limit: options.limit ?? 30,
-        }),
-    };
+          limit,
+        })
+      );
     const port = mods.createFakeAdapter({
-      iface: 'inner-week',
+      iface: 'discord',
       selfId: self.id,
       now: clock.now,
       capabilities: { maxFileBytes: 64 * 1024 * 1024 },
@@ -325,7 +330,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
       hot,
       store,
       client,
-      discord: scriptedCapabilities,
+      discord: capabilities,
       port,
       intentions,
       errands,
@@ -344,8 +349,8 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
       state,
       port,
       now: clock.now,
+      wrapReads: scriptedChat,
       extra: {
-        discord: scriptedCapabilities,
         skills: skillRegistry(),
         runOp: admin.runSkillOp,
         runOwnOp: admin.runOwnSkillOp,
@@ -366,12 +371,12 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
       },
       async runTurn(params, { world }) {
         if (budget !== null && spent() + INNER_REQUESTS * USD_PER_ANSWER > budget) return null;
-        scripted = { lines: world.chat.get(String(params.channel.id)) ?? [], name: params.channel.name ?? null };
+        scripted = scriptedChatOf(world, fixture, params.conversation);
         const before = calls.length;
         let result;
         try {
           result = await turns.runTurn({
-            channel,
+            conversation: replay.conversationRef(channel),
             guildId,
             mode: 'inner',
             triggerKind: 'inner',
