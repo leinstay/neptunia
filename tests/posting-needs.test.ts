@@ -6,23 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Permissions } from '../src/protocol/adapter.ts';
-import type { Reads } from '../src/interface/reads.ts';
 import { COMMUNITY, IFACE, channel, rig } from './fixtures/reads-rig.ts';
+import { postingConversation } from '../src/tools/impl/shared.ts';
 
 type Need = 'send' | 'reply' | 'attach' | 'read' | 'react';
-type Posting = {
-  postingConversation: (args: {
-    reads: Reads | null;
-    iface: string;
-    guildId: string | null;
-    channelId: string | null | undefined;
-    context: { channelId?: string };
-    need: Need;
-  }) => Promise<string>;
-};
-
-const shared = (await import('../src/tools/impl/shared.ts')) as Posting;
-
 /** The permissions each need requires, as the keys that must all be true. */
 const REQUIRES: Record<Need, Array<keyof Permissions>> = {
   send: ['send'],
@@ -77,7 +64,7 @@ for (const need of Object.keys(REQUIRES) as Array<Need>) {
 
 test('returns the id of the conversation it runs in without asking the interface', async () => {
   const { reads, asked } = rig();
-  const id = await shared.postingConversation({
+  const id = await postingConversation({
     reads,
     iface: IFACE,
     guildId: COMMUNITY,
@@ -93,7 +80,7 @@ test('refuses a conversation of another community even with every permission', a
   const { reads, fake } = rig();
   fake.seedConversation(channel('c2', { communityId: 'g2' }));
   await assert.rejects(
-    shared.postingConversation({
+    postingConversation({
       reads,
       iface: IFACE,
       guildId: COMMUNITY,
@@ -109,7 +96,7 @@ test('refuses a private chat even with every permission', async () => {
   const { reads, fake } = rig();
   fake.seedConversation(channel('dm2', { kind: 'dm', communityId: COMMUNITY, chatType: 'dm', partnerId: 'u9' }));
   await assert.rejects(
-    shared.postingConversation({
+    postingConversation({
       reads,
       iface: IFACE,
       guildId: COMMUNITY,
@@ -124,7 +111,7 @@ test('refuses a private chat even with every permission', async () => {
 test('refuses a conversation the interface does not know', async () => {
   const { reads } = rig();
   await assert.rejects(
-    shared.postingConversation({
+    postingConversation({
       reads,
       iface: IFACE,
       guildId: COMMUNITY,
@@ -139,7 +126,7 @@ test('refuses a conversation the interface does not know', async () => {
 test('refuses another conversation when the interface cannot describe conversations', async () => {
   const { reads } = rig({ reads: ['messages.fetch'] });
   await assert.rejects(
-    shared.postingConversation({
+    postingConversation({
       reads,
       iface: IFACE,
       guildId: COMMUNITY,
@@ -154,7 +141,7 @@ test('refuses another conversation when the interface cannot describe conversati
 test('refuses a call with neither a target nor a current conversation', async () => {
   const { reads } = rig();
   await assert.rejects(
-    shared.postingConversation({
+    postingConversation({
       reads,
       iface: IFACE,
       guildId: COMMUNITY,

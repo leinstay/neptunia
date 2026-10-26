@@ -6,37 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
-import type { Reads } from '../src/interface/reads.ts';
 import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
+import { createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.js';
 
 type Delivery = { event: MessageEvent; trigger: boolean };
-type Tally = {
-  channelId: string;
-  fetched: number;
-  observed: number;
-  triggered: number;
-  duplicate: number;
-  ignored: number;
-};
-type Module = {
-  planChannel: (
-    events: Array<MessageEvent>,
-    options: { lastSeenAt: number; nowMs: number; windowMs: number }
-  ) => Array<{ event: MessageEvent; ts: number; trigger: boolean }>;
-  createOfflineCatchUp: (deps: {
-    hot: { config: object };
-    store: { state: { data: object }; listChannels: (guildId: string) => Array<{ id: string; lastMessageAt: number }> };
-    iface: string;
-    reads: Reads;
-    deliver: (event: MessageEvent, options: { trigger: boolean }) => Promise<string>;
-    journal?: { system: (guildId: string, record: object) => Promise<void> } | null;
-    now: () => number;
-    log: { info: () => void; warn: () => void; error: () => void };
-  }) => { run: (guildId: string) => Promise<{ channels: Array<Tally>; failed: number } | null> };
-};
-
-const { createOfflineCatchUp, planChannel } = (await import('../src/behavior/catch-up.js')) as unknown as Module;
-
 const MIN = 60_000;
 const NOW = Date.parse('2026-10-18T12:00:00Z');
 const LAST_SEEN = NOW - 30 * MIN;
@@ -230,7 +203,7 @@ test('plans the events after the last seen, oldest first, from their own times a
   ];
   const plan = planChannel(events, { lastSeenAt: LAST_SEEN, nowMs: NOW, windowMs: 15 * MIN });
   assert.deepEqual(
-    plan.map((item) => [item.event.message.id, item.trigger]),
+    plan.map((item: { event: MessageEvent; trigger: boolean }) => [item.event.message.id, item.trigger]),
     [
       ['b', false],
       ['c', false],

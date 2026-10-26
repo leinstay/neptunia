@@ -4,21 +4,8 @@
 // list is the only thing that brings a change in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Reads } from '../src/interface/reads.ts';
 import { COMMUNITY, rig } from './fixtures/reads-rig.ts';
-
-type EmojiRef = { id: string; name: string; animated: boolean };
-type EmojiIndex = {
-  refresh: () => Promise<void>;
-  byName: (name: string) => EmojiRef | null;
-  list: () => Array<EmojiRef>;
-  urlOf: (id: string) => string | null;
-};
-type Module = {
-  createEmojiIndex: (deps: { reads: Reads; communityId: () => string | null; now: () => number }) => EmojiIndex;
-};
-
-const { createEmojiIndex } = (await import('../src/behavior/emoji-index.ts')) as Module;
+import { createEmojiIndex } from '../src/behavior/emoji-index.ts';
 
 const MINUTE = 60_000;
 const START = 1_700_000_000_000;

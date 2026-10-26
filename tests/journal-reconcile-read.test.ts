@@ -5,17 +5,10 @@
 // recorded in, never the text as the chat shows it.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Reads } from '../src/interface/reads.ts';
 import { createJournal } from '../src/memory/journal.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 import { IFACE, SELF_ID, channel, rig, message } from './fixtures/reads-rig.ts';
-
-type Own = { id: string; content: string; replyToId: string | null; createdAt: number };
-type Module = {
-  ownMessagesOf: (reads: Reads, iface: string) => (conversationId: string, count: number) => Promise<Array<Own>>;
-};
-
-const { ownMessagesOf } = (await import('../src/behavior/own-messages.ts')) as Module;
+import { ownMessagesOf } from '../src/behavior/own-messages.ts';
 
 const DAY = Date.UTC(2026, 9, 13, 23, 59, 50);
 const GUILD = 'g1';

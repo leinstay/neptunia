@@ -13,14 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { readConfig } from '../src/config.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
+import { moveConfigKeys } from '../src/config-moves.ts';
 
 type Settings = Record<string, unknown>;
-type Move = { from: string; to: string };
-type Moved = { config: Settings; moved: Array<Move>; shadowed: Array<Move> };
-type Module = { moveConfigKeys: (config: Settings) => Moved };
-
-const { moveConfigKeys } = (await import('../src/config-moves.ts')) as Module;
-
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GRANT = { everyone: false, roles: [], users: ['self-1'] };
 

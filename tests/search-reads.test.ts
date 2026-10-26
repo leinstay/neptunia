@@ -17,6 +17,9 @@ import type { Snapshot } from '../src/behavior/snapshot.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
 import { COMMUNITY, SELF_ID, channel, member, message, privateChannel, rig } from './fixtures/reads-rig.ts';
+import { createRecall } from '../src/behavior/recall-run.js';
+import * as recall from '../src/behavior/recall.js';
+import { searchPlan } from '../src/behavior/recall.js';
 
 type Line = {
   id: string;
@@ -39,27 +42,6 @@ type RunArgs = {
   candidate: Line;
   server: Server;
 };
-type Found = {
-  text: string | null;
-  stretch: { channelId: string; channelName: string | null } | null;
-  people: Array<{ id: string; name: string; count: number; newestTs: number | null }>;
-};
-type Module = {
-  createRecall: (deps: {
-    hot: { config: object; prompts: object };
-    store: { state: { data: object; markDirty: () => void }; listUserProfiles: () => Array<object> };
-    llm: {
-      capLeft: () => number;
-      complete: (messages: Array<{ content: string }>, options: object) => Promise<{ text: string }>;
-    };
-    reads: Reads;
-    describer: null;
-    now: () => number;
-  }) => { run: (args: RunArgs) => Promise<Found> };
-};
-
-const { createRecall } = (await import('../src/behavior/recall-run.js')) as unknown as Module;
-
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')) as Record<string, object>;
 const MINUTE = 60_000;
@@ -151,7 +133,7 @@ async function scene(options: Scene = {}) {
     store: { state: { data, markDirty() {} }, listUserProfiles: () => options.profiles ?? [] },
     llm: {
       capLeft: () => 100,
-      complete: (messages) => {
+      complete: (messages: Array<{ content: string }>) => {
         prompts.push(messages);
         return Promise.resolve({ text: 'stretch: 1\nAna did it on October 1.' });
       },
@@ -359,21 +341,8 @@ test('returns nothing when hits are found but the interface cannot read their wi
   assert.deepEqual([result.text, result.stretch], [null, null]);
 });
 
-type Plan = Array<{ kind: string; content?: string; authorId?: string; after: number | null; before: number | null }>;
-type RecallModule = {
-  searchPlan: (params: {
-    forms?: Array<string>;
-    who?: Array<string>;
-    memberIds?: Array<string>;
-    from?: number | null;
-    to?: number | null;
-    maxForms?: number;
-  }) => Plan;
-};
-const recall = (await import('../src/behavior/recall.js')) as unknown as RecallModule & Record<string, unknown>;
-
 test('plans each query over a range as times: after the start, before the instant past the end', () => {
-  const plan = recall.searchPlan({ forms: ['κουνέλι'], memberIds: ['u7'], from: 1000, to: 1999, maxForms: 8 });
+  const plan = searchPlan({ forms: ['κουνέλι'], memberIds: ['u7'], from: 1000, to: 1999, maxForms: 8 });
   assert.deepEqual(plan, [
     { kind: 'form', content: 'κουνέλι', after: 1000, before: 2000 },
     { kind: 'author', authorId: 'u7', after: 1000, before: 2000 },
@@ -381,14 +350,12 @@ test('plans each query over a range as times: after the start, before the instan
 });
 
 test('plans a query with no range unbounded, and a range alone as one query of its own', () => {
-  assert.deepEqual(recall.searchPlan({ forms: ['κουνέλι'], maxForms: 8 }), [
+  assert.deepEqual(searchPlan({ forms: ['κουνέλι'], maxForms: 8 }), [
     { kind: 'form', content: 'κουνέλι', after: null, before: null },
   ]);
-  assert.deepEqual(recall.searchPlan({ from: 1000, to: 1999, maxForms: 8 }), [
-    { kind: 'range', after: 1000, before: 2000 },
-  ]);
+  assert.deepEqual(searchPlan({ from: 1000, to: 1999, maxForms: 8 }), [{ kind: 'range', after: 1000, before: 2000 }]);
 });
 
 test('keeps no snowflake arithmetic in the core', () => {
-  assert.equal(recall.snowflakeAt, undefined);
+  assert.equal('snowflakeAt' in recall, false);
 });

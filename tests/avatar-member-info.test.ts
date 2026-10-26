@@ -4,35 +4,10 @@
 // the answer carried. Fakes for the store, the model and the image download; the interface is the fake adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Reads } from '../src/interface/reads.ts';
 import { COMMUNITY, SELF_ID, member, rig } from './fixtures/reads-rig.ts';
+import { createAvatarQueue } from '../src/memory/avatar-queue.js';
 
 type Profile = { id: string; names: Array<string>; avatar?: unknown };
-type Queue = {
-  scan: (guildId: string) => Promise<{ profiles: number; queued: number; gone: number }>;
-  tick: () => Promise<string>;
-  pending: () => Array<string>;
-};
-type Deps = {
-  hot: { config: object; prompts: object };
-  store: {
-    getUser: (guildId: string, id: string) => Profile | null;
-    listUserProfiles: (guildId: string) => Array<Profile>;
-    setAvatar: (guildId: string, id: string, avatar: object) => Profile | null;
-  };
-  llm: { complete: (messages: unknown, options: unknown) => Promise<{ text: string }>; capLeft: () => number };
-  imageFetcher: { fetchAsDataUrl: (url: string, options: unknown) => Promise<{ dataUrl: string } | null> };
-  state: { data: Record<string, unknown>; markDirty: () => void };
-  getGuildId: () => string | null;
-  selfId: () => string | null;
-  reads: Reads;
-  now: () => number;
-  log: { info: () => void; warn: () => void; error: () => void };
-};
-type Module = { createAvatarQueue: (deps: Deps) => Queue };
-
-const { createAvatarQueue } = (await import('../src/memory/avatar-queue.js')) as unknown as Module;
-
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
 const HASH = 'a1b2c3';
 const URL_OF_U1 = 'https://cdn.example/avatars/u1/a1b2c3.png?size=256';
@@ -55,22 +30,22 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
       prompts: { avatar: 'Describe the avatar in at most {{maxChars}} characters.' },
     },
     store: {
-      getUser: (guildId, id) => (guildId === COMMUNITY ? (profiles.get(id) ?? null) : null),
-      listUserProfiles: (guildId) => (guildId === COMMUNITY ? [...profiles.values()] : []),
-      setAvatar(_guildId, id, avatar) {
+      getUser: (guildId: string, id: string) => (guildId === COMMUNITY ? (profiles.get(id) ?? null) : null),
+      listUserProfiles: (guildId: string) => (guildId === COMMUNITY ? [...profiles.values()] : []),
+      setAvatar(_guildId: string, id: string, avatar: object) {
         written.push({ id, avatar });
         return profiles.get(id) ?? null;
       },
     },
     llm: {
       capLeft: () => 100,
-      complete: (messages) => {
+      complete: (messages: unknown) => {
         requests.push(messages);
         return Promise.resolve({ text: 'a scarf-wearing fox' });
       },
     },
     imageFetcher: {
-      fetchAsDataUrl: (url) => {
+      fetchAsDataUrl: (url: string) => {
         fetched.push(url);
         return Promise.resolve({ dataUrl: 'data:image/png;base64,ZmFrZQ==' });
       },
