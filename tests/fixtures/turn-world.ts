@@ -604,6 +604,12 @@ export function worldChannels(
   return out;
 }
 
+/** How many files a send carried. */
+export function attachmentCount(content: unknown): number {
+  const files = (content as { attachments?: ReadonlyArray<unknown> }).attachments;
+  return Array.isArray(files) ? files.length : 0;
+}
+
 /** The conversation reference a turn call carried. */
 export function callConversation(call: unknown): { iface: string; conversationId: string } | null {
   return (call as { conversation?: { iface: string; conversationId: string } }).conversation ?? null;
