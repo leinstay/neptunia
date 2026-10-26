@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/inner.js": 2555,
+    "src/behavior/inner.js": 2529,
     "src/behavior/pipeline.js": 3104,
     "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2347,
@@ -24,7 +24,7 @@
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 13028,
     "tools/lib/inner-week.mjs": 2204,
-    "tools/replay.mjs": 7752
+    "tools/replay.mjs": 7751
   },
   "functions": {
     "interfaces/discord/collect.js": {
@@ -86,7 +86,7 @@
     },
     "src/behavior/inner.js": {
       "createInnerLife": {
-        "function-length": 1596
+        "function-length": 1569
       },
       "createInnerLife>drain": {
         "complexity": 108,
