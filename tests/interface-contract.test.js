@@ -410,6 +410,8 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
 });
 
+// Changed with the contract: the reply parents, the neighbours, the text previews, the pull and the reactor store moved
+// into the core over the interface's reads, and `normalizedOf` is `lineOf` there, so the package no longer lists them.
 test("createDiscordInterface: the capabilities are the package's own functions, by name, frozen", () => {
   const { capabilities } = createDiscordInterface({ client: { user: { id: SELF } } });
   assert.deepEqual(Object.keys(capabilities), [
@@ -427,24 +429,16 @@ test("createDiscordInterface: the capabilities are the package's own functions, 
     'fetchHistory',
     'fetchHistoryWindow',
     'fetchMessage',
-    'fetchReplyParents',
-    'fetchNeighbors',
-    'withTextPreviews',
     'normalizeMessage',
     'normalizeOptions',
     'PAGE',
     'audienceAllows',
-    'captionPulled',
     'checkPull',
-    'createPullViews',
-    'fetchPull',
     'searchMessages',
     'searchMembers',
     'fetchAround',
     'fetchAfter',
     'fetchBefore',
-    'reactorIdsOf',
-    'normalizedOf',
     'toEvent',
   ]);
   for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
