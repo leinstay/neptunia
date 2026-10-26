@@ -99,7 +99,7 @@ async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx:
       },
     ],
     llm: llm as never,
-    embedder: { embed: () => Promise.resolve([]) } as never,
+    embedder: { embed: () => Promise.resolve([]) },
   });
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
@@ -208,7 +208,7 @@ test('a private directory that does not exist rejects the start with an error an
           env: { OPENROUTER_CORE_KEY: 'test-key' },
           interfaces: [],
           llm: scriptedLlm() as never,
-          embedder: { embed: () => Promise.resolve([]) } as never,
+          embedder: { embed: () => Promise.resolve([]) },
         }),
         /private directory/
       )
