@@ -1,5 +1,6 @@
 {
   "files": {
+    "src/behavior/inner.js": 2555,
     "src/behavior/pipeline.js": 3104,
     "src/behavior/prompt.js": 4310,
     "src/behavior/recall.js": 2508,
@@ -10,7 +11,7 @@
     "tests/describe.test.js": 3190,
     "tests/events.test.js": 9310,
     "tests/openrouter.test.js": 3082,
-    "tests/prompt.test.js": 5060,
+    "tests/prompt.test.js": 7073,
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 13028,
     "tools/replay.mjs": 7752
@@ -75,11 +76,11 @@
     },
     "src/behavior/inner.js": {
       "createInnerLife": {
-        "function-length": 1204
+        "function-length": 1596
       },
       "createInnerLife>drain": {
         "complexity": 108,
-        "function-length": 301
+        "function-length": 485
       },
       "createInnerLife>refreshPlaces": {
         "complexity": 23

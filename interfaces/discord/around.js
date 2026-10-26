@@ -73,7 +73,12 @@ export function presenceRecord(presence) {
     if (activities.length >= MAX_ACTIVITIES) continue;
     const name = cleanText(activity?.name);
     if (!name) continue;
-    activities.push({ type: Number.isInteger(activity.type) ? activity.type : -1, name, details: cleanText(activity.details), state: cleanText(activity.state) });
+    activities.push({
+      type: Number.isInteger(activity.type) ? activity.type : -1,
+      name,
+      details: cleanText(activity.details),
+      state: cleanText(activity.state),
+    });
   }
   return {
     memberId,

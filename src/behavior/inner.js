@@ -88,7 +88,16 @@ import { log as defaultLog, onLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { localHour } from '../format.js';
-import { attendCounter, expiredToShow, intentionsOn, isAttend, nextOccurrence, openFromHeartbeat, wakeTimeOf, HEARTBEAT_ORIGIN } from '../intentions/model.js';
+import {
+  attendCounter,
+  expiredToShow,
+  intentionsOn,
+  isAttend,
+  nextOccurrence,
+  openFromHeartbeat,
+  wakeTimeOf,
+  HEARTBEAT_ORIGIN,
+} from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../skills/codes.js';
@@ -96,7 +105,14 @@ import { WAKE_POLICY_VERSION } from '../skills/access.js';
 import { buildHeartbeatFacts } from './heartbeat-view.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
-export const WAKE_KINDS = Object.freeze(['intention_due', 'review', 'errand_deadline', 'attend', 'feedback', 'heartbeat']);
+export const WAKE_KINDS = Object.freeze([
+  'intention_due',
+  'review',
+  'errand_deadline',
+  'attend',
+  'feedback',
+  'heartbeat',
+]);
 
 /** The defaults of the `innerLife` section (config.json carries the same). */
 export const INNER_DEFAULTS = Object.freeze({
@@ -105,7 +121,23 @@ export const INNER_DEFAULTS = Object.freeze({
   queueMax: 20,
   chatMessages: 30,
   review: Object.freeze({ enabled: true, historyDays: 14, expiredMax: 5 }),
-  heartbeat: Object.freeze({ enabled: true, everyMinutes: 180, jitterMinutes: 60, people: 8, filteredShown: 10, closedShown: 10, historyDays: 14, placesHours: 6, placesShown: 6, placeLines: 2, maxTokens: 2500, intentionsOnly: true, maxOpen: 3, maxRecurring: 1, dueJitterMinutes: 20 }),
+  heartbeat: Object.freeze({
+    enabled: true,
+    everyMinutes: 180,
+    jitterMinutes: 60,
+    people: 8,
+    filteredShown: 10,
+    closedShown: 10,
+    historyDays: 14,
+    placesHours: 6,
+    placesShown: 6,
+    placeLines: 2,
+    maxTokens: 2500,
+    intentionsOnly: true,
+    maxOpen: 3,
+    maxRecurring: 1,
+    dueJitterMinutes: 20,
+  }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -146,9 +178,30 @@ export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'v
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'task.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
-export const FEEDBACK_KINDS = Object.freeze(['callFailed', 'doneWithoutDelivery', 'loopCut', 'wakeDropped', 'wakeHeld', 'turnFailed', 'sendFailed', 'stateLost', 'memoryFailed', 'interrupted', 'diagnostic']);
+export const FEEDBACK_KINDS = Object.freeze([
+  'callFailed',
+  'doneWithoutDelivery',
+  'loopCut',
+  'wakeDropped',
+  'wakeHeld',
+  'turnFailed',
+  'sendFailed',
+  'stateLost',
+  'memoryFailed',
+  'interrupted',
+  'diagnostic',
+]);
 /** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
-const CALL_STATUSES = new Set(['failed', 'partial', 'invalid', 'denied', 'not_configured', 'refused', 'unknown', 'timeout']);
+const CALL_STATUSES = new Set([
+  'failed',
+  'partial',
+  'invalid',
+  'denied',
+  'not_configured',
+  'refused',
+  'unknown',
+  'timeout',
+]);
 /** The most facts one turn is shown; the rest stay for the next one. */
 export const FACTS_SHOWN_MAX = 12;
 
@@ -183,23 +236,53 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     const refused = action.status === 'refused';
     const result = typeof action.result === 'string' ? action.result : 'ok';
     if (!refused && result === 'ok') continue;
-    const status = refused ? 'refused' : result === 'timeout' || action.code === CODE.TIMEOUT ? 'timeout' : CALL_STATUSES.has(result) ? result : 'failed';
-    facts.push({ kind: 'callFailed', skill: action.skill, status, code: typeof action.code === 'string' && action.code ? action.code : null, ...(typeof action.text === 'string' && action.text ? { text: action.text } : {}) });
+    const status = refused
+      ? 'refused'
+      : result === 'timeout' || action.code === CODE.TIMEOUT
+        ? 'timeout'
+        : CALL_STATUSES.has(result)
+          ? result
+          : 'failed';
+    facts.push({
+      kind: 'callFailed',
+      skill: action.skill,
+      status,
+      code: typeof action.code === 'string' && action.code ? action.code : null,
+      ...(typeof action.text === 'string' && action.text ? { text: action.text } : {}),
+    });
   }
-  const delivered = actions.some((action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill));
+  const delivered = actions.some(
+    (action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill)
+  );
   if (!delivered) {
     const ids = list(named ?? inner.intentIds).map(String);
     const closed = [];
     for (const action of actions) {
-      if (action?.skill !== 'intent.update' || action.status !== 'executed' || action.result !== 'ok' || action.state !== 'done') continue;
-      const id = typeof action.intentionId === 'string' && action.intentionId ? action.intentionId : ids.length === 1 ? ids[0] : null;
+      if (
+        action?.skill !== 'intent.update' ||
+        action.status !== 'executed' ||
+        action.result !== 'ok' ||
+        action.state !== 'done'
+      )
+        continue;
+      const id =
+        typeof action.intentionId === 'string' && action.intentionId
+          ? action.intentionId
+          : ids.length === 1
+            ? ids[0]
+            : null;
       if (id && !closed.includes(id)) closed.push(id);
     }
     for (const id of closed) facts.push({ kind: 'doneWithoutDelivery', intentionId: id, purpose: purposeOf(id) });
   }
   const loop = inner.loop;
   if (loop && typeof loop.cut === 'string' && loop.cut && Number.isFinite(loop.droppedCalls) && loop.droppedCalls > 0) {
-    facts.push({ kind: 'loopCut', cut: loop.cut, droppedCalls: loop.droppedCalls, steps: Number.isFinite(loop.steps) ? loop.steps : 0 });
+    facts.push({
+      kind: 'loopCut',
+      cut: loop.cut,
+      droppedCalls: loop.droppedCalls,
+      steps: Number.isFinite(loop.steps) ? loop.steps : 0,
+    });
   }
   // What the parser did with her output that no later step told her (src/llm/parse.js diagnostics).
   for (const diagnostic of list(inner.diagnostics)) {
@@ -225,7 +308,14 @@ export function pendingFactsOf(state, { channelId = null, privateChat = false, a
 /** `fact` (`{ kind, channelId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
 export function addFactTo(state, fact, id) {
   const { channelId = null, privateChat = false, at, ...payload } = fact;
-  const stored = { ...payload, id, channelId: channelId === null || channelId === undefined ? null : String(channelId), privateChat: privateChat === true, at: Number.isFinite(at) ? at : 0, told: false };
+  const stored = {
+    ...payload,
+    id,
+    channelId: channelId === null || channelId === undefined ? null : String(channelId),
+    privateChat: privateChat === true,
+    at: Number.isFinite(at) ? at : 0,
+    told: false,
+  };
   state.facts = [...list(state.facts), stored];
   return stored;
 }
@@ -270,7 +360,8 @@ const count = (value, fallback) => (Number.isFinite(value) && value >= 0 ? value
 /** A whole number of at least `min`, else `fallback`. */
 const whole = (value, fallback, min = 1) => (Number.isInteger(value) && value >= min ? value : fallback);
 /** A positive finite number, else `fallback`. */
-const positive = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
+const positive = (value, fallback) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 
 /**
  * The `innerLife` section with every number checked against INNER_DEFAULTS (a missing or bad value
@@ -294,7 +385,11 @@ export function innerSettings(config) {
     tickSeconds: Math.max(1, count(raw.tickSeconds, d.tickSeconds)),
     queueMax: Math.max(1, Math.floor(count(raw.queueMax, d.queueMax))),
     chatMessages: Math.max(1, Math.floor(count(raw.chatMessages, d.chatMessages))),
-    review: { enabled: review.enabled !== false, historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)), expiredMax: Math.floor(count(review.expiredMax, d.review.expiredMax)) },
+    review: {
+      enabled: review.enabled !== false,
+      historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)),
+      expiredMax: Math.floor(count(review.expiredMax, d.review.expiredMax)),
+    },
     heartbeat: {
       enabled: heartbeat.enabled !== false,
       everyMinutes: Math.max(1, count(heartbeat.everyMinutes, d.heartbeat.everyMinutes)),
@@ -332,7 +427,12 @@ export function innerSettings(config) {
     factsKeepDays: positive(raw.factsKeepDays, d.factsKeepDays),
     // A failed turn's wakes come back after the next of these delays while the first failure is younger than maxHours.
     retry: {
-      delaysMinutes: Array.isArray(retry.delaysMinutes) && retry.delaysMinutes.length > 0 && retry.delaysMinutes.every((m) => positive(m, 0) > 0) ? [...retry.delaysMinutes] : [...d.retry.delaysMinutes],
+      delaysMinutes:
+        Array.isArray(retry.delaysMinutes) &&
+        retry.delaysMinutes.length > 0 &&
+        retry.delaysMinutes.every((m) => positive(m, 0) > 0)
+          ? [...retry.delaysMinutes]
+          : [...d.retry.delaysMinutes],
       maxHours: positive(retry.maxHours, d.retry.maxHours),
     },
   };
@@ -340,7 +440,21 @@ export function innerSettings(config) {
 
 /** A fresh state. */
 export function emptyState() {
-  return { v: VERSION, stopped: false, stoppedAt: null, stoppedBy: null, queue: [], handled: {}, review: null, heartbeat: null, turns: [], spend: [], turnIds: [], facts: [], inflight: null };
+  return {
+    v: VERSION,
+    stopped: false,
+    stoppedAt: null,
+    stoppedBy: null,
+    queue: [],
+    handled: {},
+    review: null,
+    heartbeat: null,
+    turns: [],
+    spend: [],
+    turnIds: [],
+    facts: [],
+    inflight: null,
+  };
 }
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -348,10 +462,25 @@ const object = (value) => (value && typeof value === 'object' && !Array.isArray(
 
 /** The in-flight mark of a turn read from disk (`state.inflight`), or null when it is not whole. */
 function inflightOf(raw) {
-  if (!raw || typeof raw !== 'object' || typeof raw.turnId !== 'string' || !raw.turnId || !Number.isFinite(raw.startedAt)) return null;
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    typeof raw.turnId !== 'string' ||
+    !raw.turnId ||
+    !Number.isFinite(raw.startedAt)
+  )
+    return null;
   const wakeIds = list(raw.wakeIds).filter((id) => typeof id === 'string');
   if (wakeIds.length === 0) return null;
-  return { turnId: raw.turnId, wakeIds, kind: typeof raw.kind === 'string' ? raw.kind : '', startedAt: raw.startedAt, channelId: raw.channelId == null ? null : String(raw.channelId), privateChat: raw.privateChat === true, privateUserId: raw.privateUserId == null ? null : String(raw.privateUserId) };
+  return {
+    turnId: raw.turnId,
+    wakeIds,
+    kind: typeof raw.kind === 'string' ? raw.kind : '',
+    startedAt: raw.startedAt,
+    channelId: raw.channelId == null ? null : String(raw.channelId),
+    privateChat: raw.privateChat === true,
+    privateUserId: raw.privateUserId == null ? null : String(raw.privateUserId),
+  };
 }
 
 /** A state read from disk made whole (a missing part empty). */
@@ -366,7 +495,15 @@ export function normalizeState(raw) {
     queue: list(raw.queue).filter((wake) => wake && typeof wake.id === 'string' && WAKE_KINDS.includes(wake.kind)),
     handled: object(raw.handled),
     review: raw.review && typeof raw.review.day === 'string' ? raw.review : null,
-    heartbeat: raw.heartbeat && typeof raw.heartbeat === 'object' && (Number.isFinite(raw.heartbeat.nextAt) || Number.isFinite(raw.heartbeat.lastAt)) ? { nextAt: Number.isFinite(raw.heartbeat.nextAt) ? raw.heartbeat.nextAt : null, lastAt: Number.isFinite(raw.heartbeat.lastAt) ? raw.heartbeat.lastAt : null } : null,
+    heartbeat:
+      raw.heartbeat &&
+      typeof raw.heartbeat === 'object' &&
+      (Number.isFinite(raw.heartbeat.nextAt) || Number.isFinite(raw.heartbeat.lastAt))
+        ? {
+            nextAt: Number.isFinite(raw.heartbeat.nextAt) ? raw.heartbeat.nextAt : null,
+            lastAt: Number.isFinite(raw.heartbeat.lastAt) ? raw.heartbeat.lastAt : null,
+          }
+        : null,
     turns: list(raw.turns).filter((turn) => Number.isFinite(turn?.at)),
     spend: list(raw.spend).filter((item) => Number.isFinite(item?.at) && Number.isFinite(item?.usd)),
     turnIds: list(raw.turnIds).filter((id) => typeof id === 'string'),
@@ -380,7 +517,9 @@ export function normalizeState(raw) {
  */
 export function pruneState(state, now, { factsKeepMs = INNER_DEFAULTS.factsKeepDays * DAY_MS } = {}) {
   const since = now - KEEP_MS;
-  const handled = Object.fromEntries(Object.entries(state.handled).filter(([, entry]) => Number.isFinite(entry?.at) && entry.at >= now - CHAIN_KEEP_MS));
+  const handled = Object.fromEntries(
+    Object.entries(state.handled).filter(([, entry]) => Number.isFinite(entry?.at) && entry.at >= now - CHAIN_KEEP_MS)
+  );
   return {
     ...state,
     handled,
@@ -395,7 +534,9 @@ export function pruneState(state, now, { factsKeepMs = INNER_DEFAULTS.factsKeepD
 /** Where an intention lands: its destination, else the conversation it came from; and whether that is a private chat. */
 function targetOf(intention) {
   const privateChat = intention?.provenance?.scope === 'dm';
-  const channelId = privateChat ? (intention.provenance?.channelId ?? null) : (intention?.destination ?? intention?.provenance?.channelId ?? null);
+  const channelId = privateChat
+    ? (intention.provenance?.channelId ?? null)
+    : (intention?.destination ?? intention?.provenance?.channelId ?? null);
   return { channelId: channelId ? String(channelId) : null, privateChat };
 }
 
@@ -415,7 +556,10 @@ function targetOf(intention) {
 export function currentChannelOf(group, records = []) {
   const cause = list(group).find((wake) => wake && !channelless(wake)) ?? null;
   if (!cause) return { channelId: null, why: null };
-  const pick = (id, why) => (id !== null && id !== undefined && String(id) !== '' ? { channelId: String(id), why } : { channelId: null, why: null });
+  const pick = (id, why) =>
+    id !== null && id !== undefined && String(id) !== ''
+      ? { channelId: String(id), why }
+      : { channelId: null, why: null };
   switch (cause.kind) {
     case 'intention_due': {
       const record = list(records).find((item) => item && String(item.id) === String(list(cause.intentionIds)[0]));
@@ -445,11 +589,17 @@ export function wakeOfDue({ intention, reason, at }) {
   const taskId = deadline ? (intention.awaitingTaskId ?? intention.lastTaskId ?? null) : null;
   const { channelId, privateChat } = targetOf(intention);
   return {
-    id: deadline ? `inner.wake:errand_deadline:${intention.id}:${taskId}` : `inner.wake:intention_due:${intention.id}:${at}`,
+    id: deadline
+      ? `inner.wake:errand_deadline:${intention.id}:${taskId}`
+      : `inner.wake:intention_due:${intention.id}:${at}`,
     kind,
     reason: deadline ? 'wait-deadline' : 'due',
     intentionIds: [intention.id],
-    chainId: intention.chainId ? `chain:${intention.chainId}` : intention.every && !deadline ? `intention:${intention.id}:${at}` : `intention:${intention.id}`,
+    chainId: intention.chainId
+      ? `chain:${intention.chainId}`
+      : intention.every && !deadline
+        ? `intention:${intention.id}:${at}`
+        : `intention:${intention.id}`,
     dueAt: at,
     channelId,
     privateChat,
@@ -465,7 +615,13 @@ export function wakeOfDue({ intention, reason, at }) {
 export function deadlineWakes(records) {
   return list(records)
     .filter((record) => record?.status === 'pending' && record.note === 'wait-deadline' && record.lastTaskId)
-    .map((record) => wakeOfDue({ intention: { ...record, awaitingTaskId: record.lastTaskId }, reason: 'wait-deadline', at: record.updatedAt ?? record.createdAt ?? 0 }));
+    .map((record) =>
+      wakeOfDue({
+        intention: { ...record, awaitingTaskId: record.lastTaskId },
+        reason: 'wait-deadline',
+        at: record.updatedAt ?? record.createdAt ?? 0,
+      })
+    );
 }
 
 /**
@@ -481,7 +637,13 @@ export function attendWake(record, lines, { now, since = null }) {
   const attend = record?.attend;
   if (!attend?.place) return null;
   const people = Array.isArray(attend.people) ? attend.people : [];
-  const counted = list(lines).filter((line) => line && !line.said && Number.isFinite(line.at) && (people.length === 0 || (line.by && people.includes(String(line.by)))));
+  const counted = list(lines).filter(
+    (line) =>
+      line &&
+      !line.said &&
+      Number.isFinite(line.at) &&
+      (people.length === 0 || (line.by && people.includes(String(line.by))))
+  );
   if (counted.length === 0) return null;
   const newest = counted.reduce((best, line) => (line.at > best.at ? line : best));
   const settleMs = (Number.isFinite(attend.settle) ? attend.settle : 0) * 1000;
@@ -515,8 +677,11 @@ export function attendWake(record, lines, { now, since = null }) {
  */
 export function placesPage(entries, { filter = null, sort = 'recent', page = 1, pageSize = 12 } = {}) {
   const needle = typeof filter === 'string' && filter.trim() ? foldText(filter) : null;
-  const kept = list(entries).filter((entry) => entry && (needle === null || foldText(String(entry.name ?? entry.id ?? '')).includes(needle)));
-  const byName = (a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id)) || String(a.id).localeCompare(String(b.id));
+  const kept = list(entries).filter(
+    (entry) => entry && (needle === null || foldText(String(entry.name ?? entry.id ?? '')).includes(needle))
+  );
+  const byName = (a, b) =>
+    String(a.name ?? a.id).localeCompare(String(b.name ?? b.id)) || String(a.id).localeCompare(String(b.id));
   const sorted = [...kept].sort((a, b) => {
     if (sort === 'name') return byName(a, b);
     if (sort === 'lines') return (b.lines ?? 0) - (a.lines ?? 0) || byName(a, b);
@@ -526,7 +691,13 @@ export function placesPage(entries, { filter = null, sort = 'recent', page = 1, 
   const number = Math.max(1, Math.floor(page));
   const start = (number - 1) * size;
   const items = sorted.slice(start, start + size);
-  return { total: sorted.length, page: number, pageSize: size, more: Math.max(0, sorted.length - start - items.length), items };
+  return {
+    total: sorted.length,
+    page: number,
+    pageSize: size,
+    more: Math.max(0, sorted.length - start - items.length),
+    items,
+  };
 }
 
 /** The wakes that belong to no place: the day's review and the heartbeat (their turn runs in a channel she was lately active in, posts name their channel). */
@@ -534,7 +705,16 @@ const channelless = (wake) => wake?.kind === 'review' || wake?.kind === 'heartbe
 
 /** The heartbeat wake due at `at` (its own chain, no place). */
 export function heartbeatWake(at) {
-  return { id: `inner.wake:heartbeat:${at}`, kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], chainId: `heartbeat:${at}`, dueAt: at, channelId: null, privateChat: false };
+  return {
+    id: `inner.wake:heartbeat:${at}`,
+    kind: 'heartbeat',
+    reason: 'heartbeat',
+    intentionIds: [],
+    chainId: `heartbeat:${at}`,
+    dueAt: at,
+    channelId: null,
+    privateChat: false,
+  };
 }
 
 /**
@@ -550,7 +730,16 @@ export function drawHeartbeatAt({ from, everyMinutes, jitterMinutes = 0, rng }) 
 
 /** The day's review wake. */
 export function reviewWake(day, at) {
-  return { id: `inner.wake:review:${day}`, kind: 'review', reason: 'review', intentionIds: [], chainId: `review:${day}`, dueAt: at, channelId: null, privateChat: false };
+  return {
+    id: `inner.wake:review:${day}`,
+    kind: 'review',
+    reason: 'review',
+    intentionIds: [],
+    chainId: `review:${day}`,
+    dueAt: at,
+    channelId: null,
+    privateChat: false,
+  };
 }
 
 /**
@@ -613,12 +802,19 @@ export function drawReviewAt({ day, weights, timezone, rng, notBefore = -Infinit
  * @returns {object[]}
  */
 export function coalesceGroup(queue, isHeld = () => false) {
-  const sorted = list(queue).filter((wake) => !isHeld(wake)).sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
+  const sorted = list(queue)
+    .filter((wake) => !isHeld(wake))
+    .sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
   if (sorted.length === 0) return [];
   const feedback = sorted.filter((wake) => wake.kind === 'feedback');
   if (feedback.length > 0) {
     const first = feedback[0];
-    return feedback.filter((wake) => wake.channelId === first.channelId && Boolean(wake.privateChat) === Boolean(first.privateChat) && retryKey(wake) === retryKey(first));
+    return feedback.filter(
+      (wake) =>
+        wake.channelId === first.channelId &&
+        Boolean(wake.privateChat) === Boolean(first.privateChat) &&
+        retryKey(wake) === retryKey(first)
+    );
   }
   // The heartbeat is never coalesced and never waits behind another wake (a running turn holds the whole drain, so it comes at the next tick): it goes alone, after the feedback wakes.
   const beat = sorted.find((wake) => wake.kind === 'heartbeat');
@@ -628,7 +824,11 @@ export function coalesceGroup(queue, isHeld = () => false) {
   const key = retryKey(anchor ?? sorted[0]);
   const same = sorted.filter((wake) => retryKey(wake) === key);
   if (!anchor) return same;
-  return same.filter((wake) => (wake.kind === 'review' ? !anchor.privateChat : wake.channelId === anchor.channelId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)));
+  return same.filter((wake) =>
+    wake.kind === 'review'
+      ? !anchor.privateChat
+      : wake.channelId === anchor.channelId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)
+  );
 }
 
 /** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
@@ -656,7 +856,10 @@ export function turnsToday(state, { now, timezone }) {
  */
 export function planRetry(group, at, settings, code = CODE.ERROR) {
   const n = group.reduce((most, wake) => Math.max(most, Number.isInteger(wake.retry) ? wake.retry : 0), 0) + 1;
-  const firstFailedAt = group.reduce((first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at), at);
+  const firstFailedAt = group.reduce(
+    (first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at),
+    at
+  );
   const { delaysMinutes, maxHours } = settings.retry;
   if (at - firstFailedAt >= maxHours * HOUR_MS) return { action: 'drop', n, firstFailedAt, notBefore: null, code };
   const delay = delaysMinutes[Math.min(n - 1, delaysMinutes.length - 1)] * MINUTE_MS;
@@ -670,8 +873,11 @@ export function planRetry(group, at, settings, code = CODE.ERROR) {
  */
 export function chainBudget(state, chainId, cap, { now, timezone }) {
   const { start } = dayBounds(now, timezone);
-  const feedbackOnly = (turn) => Array.isArray(turn.kinds) && turn.kinds.length > 0 && turn.kinds.every((kind) => kind === 'feedback');
-  const used = state.turns.filter((turn) => turn.chainId === chainId && turn.failed !== true && !feedbackOnly(turn) && turn.at >= start).length;
+  const feedbackOnly = (turn) =>
+    Array.isArray(turn.kinds) && turn.kinds.length > 0 && turn.kinds.every((kind) => kind === 'feedback');
+  const used = state.turns.filter(
+    (turn) => turn.chainId === chainId && turn.failed !== true && !feedbackOnly(turn) && turn.at >= start
+  ).length;
   return { used, cap, left: Math.max(0, cap - used) };
 }
 
@@ -836,7 +1042,10 @@ export function createInnerLife({
   function save(guildId) {
     const key = String(guildId);
     // Pruned in place: whoever holds the state object keeps seeing the one that is written.
-    const next = Object.assign(stateOf(key), pruneState(stateOf(key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS }));
+    const next = Object.assign(
+      stateOf(key),
+      pruneState(stateOf(key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
+    );
     try {
       writeJsonAtomic(fileOf(key), next);
     } catch (err) {
@@ -893,7 +1102,17 @@ export function createInnerLife({
   /** The fact about `wake` (`wakeDropped` or `wakeHeld`) with its `code`, where it belongs and what `extra` adds. */
   function wakeFact(guildId, wake, kind, code, extra = {}) {
     const intentionId = list(wake.intentionIds).map(String)[0] ?? null;
-    return { kind, wakeId: wake.id, wake: wake.kind, code, intentionId, purpose: intentionId ? purposeOf(guildId, intentionId) : '', ...extra, channelId: wake.channelId ?? null, privateChat: wake.privateChat === true };
+    return {
+      kind,
+      wakeId: wake.id,
+      wake: wake.kind,
+      code,
+      intentionId,
+      purpose: intentionId ? purposeOf(guildId, intentionId) : '',
+      ...extra,
+      channelId: wake.channelId ?? null,
+      privateChat: wake.privateChat === true,
+    };
   }
 
   /**
@@ -908,7 +1127,16 @@ export function createInnerLife({
       state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}) };
       if (DROP_OUTCOMES.has(outcome)) {
         const reason = typeof why === 'function' ? why(wake) : why;
-        addFact(state, { at, ...wakeFact(guildId, wake, 'wakeDropped', outcome, typeof reason === 'string' && reason ? { why: reason } : {}) });
+        addFact(state, {
+          at,
+          ...wakeFact(
+            guildId,
+            wake,
+            'wakeDropped',
+            outcome,
+            typeof reason === 'string' && reason ? { why: reason } : {}
+          ),
+        });
       }
     }
     const ids = new Set(wakes.map((wake) => wake.id));
@@ -917,7 +1145,14 @@ export function createInnerLife({
     const touched = named instanceof Set ? named : new Set(Array.isArray(named) ? named.map(String) : []);
     for (const id of new Set(wakes.flatMap((wake) => (Array.isArray(wake.intentionIds) ? wake.intentionIds : [])))) {
       const result = intentions.advance(guildId, id, { named: touched.has(String(id)) });
-      if (result?.changed) note(guildId, { event: 'recurred', intentionId: String(id), code: result.intention?.history?.at?.(-1)?.code ?? null, dueAt: result.intention?.dueAt ?? null, outcome });
+      if (result?.changed)
+        note(guildId, {
+          event: 'recurred',
+          intentionId: String(id),
+          code: result.intention?.history?.at?.(-1)?.code ?? null,
+          dueAt: result.intention?.dueAt ?? null,
+          outcome,
+        });
     }
   }
 
@@ -959,7 +1194,9 @@ export function createInnerLife({
       dueAt: wake.dueAt ?? null,
       intentionIds: wake.intentionIds ?? [],
       chainId: wake.chainId ?? null,
-      ...(wake.retry ? { retry: wake.retry, firstFailedAt: wake.firstFailedAt ?? null, notBefore: wake.notBefore ?? null } : {}),
+      ...(wake.retry
+        ? { retry: wake.retry, firstFailedAt: wake.firstFailedAt ?? null, notBefore: wake.notBefore ?? null }
+        : {}),
       ...(wake.taskId ? { taskId: wake.taskId } : {}),
       ...(wake.attend ? { place: wake.attend.place, lines: wake.attend.lines, people: wake.attend.people.length } : {}),
       ...(wake.kind === 'feedback' ? { turnId: wake.turnId ?? null, facts: list(wake.facts) } : {}),
@@ -1014,7 +1251,12 @@ export function createInnerLife({
           const bucket = index.places.get(place);
           if (bucket.ids.has(id)) continue;
           bucket.ids.add(id);
-          bucket.lines.push({ id, at: lineAt, by: line.kind === 'said' ? null : (typeof line.by === 'string' ? line.by : null), said: line.kind === 'said' });
+          bucket.lines.push({
+            id,
+            at: lineAt,
+            by: line.kind === 'said' ? null : typeof line.by === 'string' ? line.by : null,
+            said: line.kind === 'said',
+          });
         }
       } catch (err) {
         log.warn('inner: record read failed', { guildId, code: err?.code ?? null });
@@ -1037,9 +1279,16 @@ export function createInnerLife({
    */
   function lastLookAt(guildId, place) {
     let last = -Infinity;
-    for (const line of placeIndexOf(guildId).places.get(String(place))?.lines ?? []) if (line.said && line.at > last) last = line.at;
+    for (const line of placeIndexOf(guildId).places.get(String(place))?.lines ?? [])
+      if (line.said && line.at > last) last = line.at;
     for (const [id, entry] of Object.entries(stateOf(guildId).handled)) {
-      if (id.startsWith(ATTEND_PREFIX) && entry?.place === String(place) && Number.isFinite(entry.at) && entry.at > last) last = entry.at;
+      if (
+        id.startsWith(ATTEND_PREFIX) &&
+        entry?.place === String(place) &&
+        Number.isFinite(entry.at) &&
+        entry.at > last
+      )
+        last = entry.at;
     }
     return last;
   }
@@ -1053,7 +1302,9 @@ export function createInnerLife({
   function openAttentions(guildId) {
     try {
       if (typeof intentions?.attending === 'function') return intentions.attending(guildId) ?? [];
-      return (intentions?.list?.(guildId, { all: true }) ?? []).filter((record) => record?.status === 'pending' && isAttend(record));
+      return (intentions?.list?.(guildId, { all: true }) ?? []).filter(
+        (record) => record?.status === 'pending' && isAttend(record)
+      );
     } catch (err) {
       log.warn('inner: attentions unreadable', { guildId, code: err?.code ?? null });
       return [];
@@ -1065,8 +1316,14 @@ export function createInnerLife({
     const out = [];
     for (const record of openAttentions(guildId)) {
       const place = String(record.attend.place);
-      const since = Math.max(lastLookAt(guildId, place), Number.isFinite(record.createdAt) ? record.createdAt : -Infinity);
-      const wake = attendWake(record, linesSince(guildId, place, since), { now: at, since: Number.isFinite(since) ? since : null });
+      const since = Math.max(
+        lastLookAt(guildId, place),
+        Number.isFinite(record.createdAt) ? record.createdAt : -Infinity
+      );
+      const wake = attendWake(record, linesSince(guildId, place, since), {
+        now: at,
+        since: Number.isFinite(since) ? since : null,
+      });
       if (wake) out.push(wake);
     }
     return out;
@@ -1083,14 +1340,24 @@ export function createInnerLife({
     let listed = [];
     if (typeof placesOf === 'function') {
       try {
-        listed = list(placesOf(String(guildId))).filter((entry) => entry && (typeof entry.id === 'string' || typeof entry.id === 'number'));
+        listed = list(placesOf(String(guildId))).filter(
+          (entry) => entry && (typeof entry.id === 'string' || typeof entry.id === 'number')
+        );
       } catch (err) {
         log.warn('inner: places unreadable', { guildId, code: err?.code ?? null });
         listed = [];
       }
-      return listed.map((entry) => ({ id: String(entry.id), name: typeof entry.name === 'string' && entry.name ? entry.name : String(entry.id), writable: typeof entry.writable === 'boolean' ? entry.writable : null }));
+      return listed.map((entry) => ({
+        id: String(entry.id),
+        name: typeof entry.name === 'string' && entry.name ? entry.name : String(entry.id),
+        writable: typeof entry.writable === 'boolean' ? entry.writable : null,
+      }));
     }
-    return [...placeIndexOf(guildId).places.keys()].map((id) => ({ id, name: client?.channels?.cache?.get?.(id)?.name ?? id, writable: null }));
+    return [...placeIndexOf(guildId).places.keys()].map((id) => ({
+      id,
+      name: client?.channels?.cache?.get?.(id)?.name ?? id,
+      writable: null,
+    }));
   }
 
   /**
@@ -1109,7 +1376,12 @@ export function createInnerLife({
     const attended = new Set(openAttentions(guildId).map((record) => String(record.attend.place)));
     const directory = directoryOf(guildId);
     const known = new Set(directory.map((entry) => entry.id));
-    const entries = [...directory, ...[...attended].filter((id) => !known.has(id)).map((id) => ({ id, name: placeNameOf(guildId, id), writable: null }))];
+    const entries = [
+      ...directory,
+      ...[...attended]
+        .filter((id) => !known.has(id))
+        .map((id) => ({ id, name: placeNameOf(guildId, id), writable: null })),
+    ];
     const rows = entries.map((entry) => {
       const lines = linesSince(guildId, entry.id, lastLookAt(guildId, entry.id)).filter((line) => !line.said);
       return {
@@ -1133,7 +1405,8 @@ export function createInnerLife({
     const day = zonedDay(at, timezone);
     if (state.review?.day !== day) {
       const previous = state.review;
-      if (previous && previous.done !== true && Number.isFinite(previous.at)) note(guildId, { event: 'review-missed', day: previous.day });
+      if (previous && previous.done !== true && Number.isFinite(previous.at))
+        note(guildId, { event: 'review-missed', day: previous.day });
       const lines = await ownLines(guildId, settings.review.historyDays);
       const weights = hourWeights(lines, timezone);
       const reviewAt = drawReviewAt({ day, weights, timezone, rng, notBefore: at });
@@ -1168,7 +1441,13 @@ export function createInnerLife({
   function heartbeatDue(guildId, settings, at) {
     if (!settings.heartbeat.enabled) return null;
     const state = stateOf(guildId);
-    const draw = (from) => drawHeartbeatAt({ from, everyMinutes: settings.heartbeat.everyMinutes, jitterMinutes: settings.heartbeat.jitterMinutes, rng });
+    const draw = (from) =>
+      drawHeartbeatAt({
+        from,
+        everyMinutes: settings.heartbeat.everyMinutes,
+        jitterMinutes: settings.heartbeat.jitterMinutes,
+        rng,
+      });
     if (!state.heartbeat || !Number.isFinite(state.heartbeat.nextAt)) {
       state.heartbeat = { nextAt: draw(at), lastAt: state.heartbeat?.lastAt ?? null };
       save(guildId);
@@ -1243,7 +1522,10 @@ export function createInnerLife({
         if (state.handled[wake.id] || state.queue.some((queued) => queued.id === wake.id)) continue;
         // One queued wake per attention: a newer burst replaces the queued one (its history covers the gap).
         if (wake.kind === 'attend') {
-          const older = state.queue.filter((queued) => queued.kind === 'attend' && queued.intentionIds?.[0] === wake.intentionIds[0] && !running.has(queued.id));
+          const older = state.queue.filter(
+            (queued) =>
+              queued.kind === 'attend' && queued.intentionIds?.[0] === wake.intentionIds[0] && !running.has(queued.id)
+          );
           if (older.length > 0) {
             state.queue = state.queue.filter((queued) => !older.includes(queued));
             save(guildId);
@@ -1319,10 +1601,32 @@ export function createInnerLife({
         const id = list(wake.intentionIds)[0];
         const record = id ? intentions.store(guildId)?.get?.(id) : null;
         if (record?.origin !== HEARTBEAT_ORIGIN) continue;
-        const closing = actions.some((a) => a.status === 'executed' && a.result === 'ok' && a.intentionId === id && (a.skill === 'intent.cancel' || a.state === 'done' || a.state === 'dropped'));
-        const acted = actions.some((a) => a.status === 'executed' && a.result === 'ok' && !String(a.skill).startsWith('intent.'));
-        const result = outcome === 'error' || outcome === 'refused' ? 'failed' : closing ? 'done' : acted || named.includes(id) ? 'acted' : 'no-op';
-        log.info('inner: heartbeat intention due', { guildId, intentionId: id, recurring: Boolean(record.every), turn: outcome, result, actions: actions.length });
+        const closing = actions.some(
+          (a) =>
+            a.status === 'executed' &&
+            a.result === 'ok' &&
+            a.intentionId === id &&
+            (a.skill === 'intent.cancel' || a.state === 'done' || a.state === 'dropped')
+        );
+        const acted = actions.some(
+          (a) => a.status === 'executed' && a.result === 'ok' && !String(a.skill).startsWith('intent.')
+        );
+        const result =
+          outcome === 'error' || outcome === 'refused'
+            ? 'failed'
+            : closing
+              ? 'done'
+              : acted || named.includes(id)
+                ? 'acted'
+                : 'no-op';
+        log.info('inner: heartbeat intention due', {
+          guildId,
+          intentionId: id,
+          recurring: Boolean(record.every),
+          turn: outcome,
+          result,
+          actions: actions.length,
+        });
       }
     } catch (err) {
       log.warn('inner: due outcome not logged', { guildId, code: err?.code ?? null });
@@ -1338,9 +1642,21 @@ export function createInnerLife({
     try {
       const calls = actions.filter((action) => typeof action?.skill === 'string' && action.skill.startsWith('intent.'));
       const changed = calls.find((action) => action.status === 'executed' && action.result === 'ok') ?? null;
-      const refused = actions.filter((action) => action?.status === 'refused' || (action?.status === 'executed' && action.result !== 'ok')).map((action) => `${action.skill}:${action.code ?? action.result}`);
-      const open = intentions && typeof intentions.list === 'function' ? openFromHeartbeat(intentions.list(guildId, { all: true })).length : null;
-      log.info('inner: heartbeat outcome', { guildId, turn: outcome, result: changed ? 'change' : 'skip', ...(changed ? { skill: changed.skill, intentionId: changed.createdId ?? changed.intentionId ?? null } : {}), openFromHeartbeat: open, refused });
+      const refused = actions
+        .filter((action) => action?.status === 'refused' || (action?.status === 'executed' && action.result !== 'ok'))
+        .map((action) => `${action.skill}:${action.code ?? action.result}`);
+      const open =
+        intentions && typeof intentions.list === 'function'
+          ? openFromHeartbeat(intentions.list(guildId, { all: true })).length
+          : null;
+      log.info('inner: heartbeat outcome', {
+        guildId,
+        turn: outcome,
+        result: changed ? 'change' : 'skip',
+        ...(changed ? { skill: changed.skill, intentionId: changed.createdId ?? changed.intentionId ?? null } : {}),
+        openFromHeartbeat: open,
+        refused,
+      });
     } catch (err) {
       log.warn('inner: heartbeat outcome not logged', { guildId, code: err?.code ?? null });
     }
@@ -1381,7 +1697,10 @@ export function createInnerLife({
         selfId: guarded(() => heartbeatSources.selfId?.(), null),
         record,
         journal,
-        intentions: guarded(() => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true, closed: true }) : []), []),
+        intentions: guarded(
+          () => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true, closed: true }) : []),
+          []
+        ),
         tasks: guarded(() => heartbeatSources.tasks?.(guildId), []),
         diary: guarded(() => store?.getDiary?.(guildId)?.posts, []),
         places: placesInWakeOf(guildId, settings),
@@ -1391,7 +1710,8 @@ export function createInnerLife({
         nameOf: (id) => (typeof nameOf === 'function' ? nameOf(String(guildId), id) : null),
         placeName: (id) => placeNameOf(guildId, id),
         activePlaces: (memberId) => activePlacesOf(guildId, memberId),
-        focusPeople: typeof heartbeatSources.focusPeople === 'function' ? () => heartbeatSources.focusPeople(guildId) : null,
+        focusPeople:
+          typeof heartbeatSources.focusPeople === 'function' ? () => heartbeatSources.focusPeople(guildId) : null,
         log,
       });
     } catch (err) {
@@ -1427,7 +1747,13 @@ export function createInnerLife({
    * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
    */
   /** What an operation of a cut-off turn is called in the `interrupted` fact. */
-  const opLabel = (op) => (op.name === 'skill' ? `skill ${op.skill ?? ''}` : op.name === 'post' && op.text ? `post "${op.text}"` : String(op.name ?? 'operation')).trim();
+  const opLabel = (op) =>
+    (op.name === 'skill'
+      ? `skill ${op.skill ?? ''}`
+      : op.name === 'post' && op.text
+        ? `post "${op.text}"`
+        : String(op.name ?? 'operation')
+    ).trim();
 
   /**
    * An in-flight mark left behind by a process that died in a turn (`state.inflight`): resolved from the journal
@@ -1443,13 +1769,20 @@ export function createInnerLife({
     try {
       await ready();
     } catch (err) {
-      log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', { guildId, code: err?.code ?? null });
+      log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', {
+        guildId,
+        code: err?.code ?? null,
+      });
     }
     let ops = [];
     if (hot.config?.features?.journal === true && typeof journal?.turnOperations === 'function') {
       try {
         const at = now();
-        ops = await journal.turnOperations(guildId, { turnId: mark.turnId, days: [...new Set([utcDay(mark.startedAt), utcDay(at)])], privateUserId: mark.privateUserId });
+        ops = await journal.turnOperations(guildId, {
+          turnId: mark.turnId,
+          days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
+          privateUserId: mark.privateUserId,
+        });
       } catch (err) {
         log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: err?.code ?? null });
       }
@@ -1458,19 +1791,42 @@ export function createInnerLife({
     for (const op of ops) {
       if (op.by !== 'persona' || op.dryRun || op.shadow) continue;
       if (op.phase === 'succeeded') done.push(opLabel(op));
-      else if (op.phase === 'open' || (op.phase === 'unknown' && op.name !== 'post')) done.push(`${opLabel(op)} (unclear)`);
+      else if (op.phase === 'open' || (op.phase === 'unknown' && op.name !== 'post'))
+        done.push(`${opLabel(op)} (unclear)`);
     }
     const ids = new Set(mark.wakeIds);
     const wakes = state.queue.filter((wake) => ids.has(wake.id));
     const at = now();
     state.inflight = null;
     if (done.length > 0 && wakes.length > 0) {
-      markHandled(state, wakes, 'interrupted', at, { guildId, named: wakes.flatMap((wake) => list(wake.intentionIds)) });
-      addFact(state, { at, kind: 'interrupted', wake: mark.kind, done: done.join('; '), channelId: mark.channelId, privateChat: mark.privateChat });
+      markHandled(state, wakes, 'interrupted', at, {
+        guildId,
+        named: wakes.flatMap((wake) => list(wake.intentionIds)),
+      });
+      addFact(state, {
+        at,
+        kind: 'interrupted',
+        wake: mark.kind,
+        done: done.join('; '),
+        channelId: mark.channelId,
+        privateChat: mark.privateChat,
+      });
     }
     save(guildId);
-    log.warn('inner: a turn was cut off by a restart', { guildId, turnId: mark.turnId, wakes: wakes.length, done: done.length, rerun: !(done.length > 0 && wakes.length > 0) });
-    note(guildId, { event: 'interrupted', turnId: mark.turnId, wakes: wakes.map(wakeFields), done: done.length, handled: done.length > 0 && wakes.length > 0 });
+    log.warn('inner: a turn was cut off by a restart', {
+      guildId,
+      turnId: mark.turnId,
+      wakes: wakes.length,
+      done: done.length,
+      rerun: !(done.length > 0 && wakes.length > 0),
+    });
+    note(guildId, {
+      event: 'interrupted',
+      turnId: mark.turnId,
+      wakes: wakes.map(wakeFields),
+      done: done.length,
+      handled: done.length > 0 && wakes.length > 0,
+    });
   }
 
   async function drain(guildId) {
@@ -1489,7 +1845,9 @@ export function createInnerLife({
       const intention = intentions?.store?.(guildId)?.get?.(id) ?? null;
       return intention && ['pending', 'waiting'].includes(intention.status) ? intention : null;
     };
-    const stale = state.queue.filter((wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id)));
+    const stale = state.queue.filter(
+      (wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id))
+    );
     if (stale.length > 0) {
       // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
       const staleWhy = (wake) => {
@@ -1503,8 +1861,14 @@ export function createInnerLife({
     }
 
     // A feedback wake whose facts a turn of hers already carried has nothing left to say.
-    const untold = new Set(list(state.facts).filter((fact) => !fact.told).map((fact) => fact.id));
-    const spent = state.queue.filter((wake) => wake.kind === 'feedback' && list(wake.factIds).length > 0 && !wake.factIds.some((id) => untold.has(id)));
+    const untold = new Set(
+      list(state.facts)
+        .filter((fact) => !fact.told)
+        .map((fact) => fact.id)
+    );
+    const spent = state.queue.filter(
+      (wake) => wake.kind === 'feedback' && list(wake.factIds).length > 0 && !wake.factIds.some((id) => untold.has(id))
+    );
     if (spent.length > 0) {
       markHandled(state, spent, 'told', at, { guildId });
       save(guildId);
@@ -1523,7 +1887,8 @@ export function createInnerLife({
     const chainOf = (chainId) => chainBudget(state, chainId, settings.caps.perChain, { now: at, timezone });
     const overChain = (wake) => chainOf(wake.chainId).left <= 0;
     // A feedback wake is never held: what it carries must reach her.
-    const holdOf = (wake) => (wake.kind === 'feedback' ? null : overDay(wake) ? 'attend-per-day' : overChain(wake) ? 'per-chain' : null);
+    const holdOf = (wake) =>
+      wake.kind === 'feedback' ? null : overDay(wake) ? 'attend-per-day' : overChain(wake) ? 'per-chain' : null;
     const held = [];
     const heldFresh = {};
     const freshHolds = [];
@@ -1539,7 +1904,13 @@ export function createInnerLife({
       wake.capped = cap;
       heldFresh[cap] = (heldFresh[cap] ?? 0) + 1;
       // A hold is a fact once: what holds it and when it is expected to run (the next local midnight).
-      freshHolds.push({ wake, fact: addFact(state, { at, ...wakeFact(guildId, wake, 'wakeHeld', cap, { until: dayBounds(at, timezone).next }) }) });
+      freshHolds.push({
+        wake,
+        fact: addFact(state, {
+          at,
+          ...wakeFact(guildId, wake, 'wakeHeld', cap, { until: dayBounds(at, timezone).next }),
+        }),
+      });
       note(guildId, { event: 'capped', cap, wake: wakeFields(wake) });
     }
     const freshCaps = Object.keys(heldFresh);
@@ -1552,7 +1923,20 @@ export function createInnerLife({
       // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
       for (const { wake, fact } of freshHolds) {
         if (!['intention_due', 'errand_deadline'].includes(wake.kind) || !wake.channelId) continue;
-        await enqueue(guildId, { id: `inner.wake:feedback:held:${wake.id}:${fact.id}`, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId: wake.chainId, dueAt: at, channelId: String(wake.channelId), privateChat: wake.privateChat === true, here: String(wake.channelId), turnId: null, facts: [factPayload(fact)], factIds: [fact.id] });
+        await enqueue(guildId, {
+          id: `inner.wake:feedback:held:${wake.id}:${fact.id}`,
+          kind: 'feedback',
+          reason: 'feedback',
+          intentionIds: [],
+          chainId: wake.chainId,
+          dueAt: at,
+          channelId: String(wake.channelId),
+          privateChat: wake.privateChat === true,
+          here: String(wake.channelId),
+          turnId: null,
+          facts: [factPayload(fact)],
+          factIds: [fact.id],
+        });
       }
       return { refused: held[0].capped };
     }
@@ -1585,7 +1969,10 @@ export function createInnerLife({
     // A review tells her once which intentions of hers expired untouched: the expired records not yet
     // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
     const isReview = group.some((wake) => wake.kind === 'review');
-    const expired = isReview && intentions && intentionsOn(hot.config) ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax }) : null;
+    const expired =
+      isReview && intentions && intentionsOn(hot.config)
+        ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
+        : null;
     const shadow = settings.mode !== 'live';
     // An attend wake's facts for `<wake>`: the place's name and the people's names (ids when unknown).
     const attendOf = (wake) => {
@@ -1597,18 +1984,52 @@ export function createInnerLife({
           return id;
         }
       };
-      return { attend: { ...wake.attend, placeName: placeNameOf(guildId, wake.attend.place), peopleNames: wake.attend.people.map(name) } };
+      return {
+        attend: {
+          ...wake.attend,
+          placeName: placeNameOf(guildId, wake.attend.place),
+          peopleNames: wake.attend.people.map(name),
+        },
+      };
     };
     const placesInWake = settings.attention.placesInWake;
     const current = currentChannelOf(group, records);
     // The facts a feedback wake carries that are still untold, and the other facts this conversation may be shown (not told yet).
     const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => list(wake.factIds)));
-    const factsOfWake = (wake) => (list(wake.factIds).length > 0 ? list(state.facts).filter((fact) => !fact.told && wake.factIds.includes(fact.id)).map(factPayload) : list(wake.facts));
-    const shownFacts = pendingFactsOf(state, { channelId: String(channel.id), privateChat: !channel.guild, anywhere: true }).filter((fact) => !ownFactIds.has(fact.id)).slice(0, FACTS_SHOWN_MAX);
-    const heartbeat = group.some((wake) => wake.kind === 'heartbeat') ? await heartbeatFacts(guildId, settings, at) : null;
+    const factsOfWake = (wake) =>
+      list(wake.factIds).length > 0
+        ? list(state.facts)
+            .filter((fact) => !fact.told && wake.factIds.includes(fact.id))
+            .map(factPayload)
+        : list(wake.facts);
+    const shownFacts = pendingFactsOf(state, {
+      channelId: String(channel.id),
+      privateChat: !channel.guild,
+      anywhere: true,
+    })
+      .filter((fact) => !ownFactIds.has(fact.id))
+      .slice(0, FACTS_SHOWN_MAX);
+    const heartbeat = group.some((wake) => wake.kind === 'heartbeat')
+      ? await heartbeatFacts(guildId, settings, at)
+      : null;
     const info = {
       kind: anchor.kind,
-      items: group.map((wake) => ({ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null, ...attendOf(wake), ...(wake.retry ? { delayed: { minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)), code: wake.lastCode ?? 'error' } } : {}), ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}) })),
+      items: group.map((wake) => ({
+        kind: wake.kind,
+        reason: wake.reason,
+        intentionIds: wake.intentionIds,
+        taskId: wake.taskId ?? null,
+        ...attendOf(wake),
+        ...(wake.retry
+          ? {
+              delayed: {
+                minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)),
+                code: wake.lastCode ?? 'error',
+              },
+            }
+          : {}),
+        ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}),
+      })),
       ...(shownFacts.length > 0 ? { facts: shownFacts.map(factPayload) } : {}),
       intentions: records,
       ...(Object.keys(notes).length > 0 ? { notes } : {}),
@@ -1627,7 +2048,15 @@ export function createInnerLife({
     for (const wake of group) running.add(wake.id);
     // The turn is on record before it runs: a process that dies in it leaves this mark (resolveInflight).
     const turnKey = `t-${uuid()}`;
-    state.inflight = { turnId: turnKey, wakeIds: group.map((wake) => wake.id), kind: anchor.kind, startedAt: at, channelId: String(channel.id), privateChat: !channel.guild, privateUserId: channel.guild ? null : (channel.recipientId == null ? null : String(channel.recipientId)) };
+    state.inflight = {
+      turnId: turnKey,
+      wakeIds: group.map((wake) => wake.id),
+      kind: anchor.kind,
+      startedAt: at,
+      channelId: String(channel.id),
+      privateChat: !channel.guild,
+      privateUserId: channel.guild ? null : channel.recipientId == null ? null : String(channel.recipientId),
+    };
     save(guildId);
     // The wake run (memoryDb.wakeRuns): what this turn's view showed, ids with their versions; the journal and the
     // `day` rows stay as they are.
@@ -1643,7 +2072,10 @@ export function createInnerLife({
         policyVersion: WAKE_POLICY_VERSION,
         inputs: {
           wakes: group.map((wake) => wake.id),
-          intentions: records.map((record) => ({ id: record.id, updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : null })),
+          intentions: records.map((record) => ({
+            id: record.id,
+            updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : null,
+          })),
           facts: [...shownFacts.map((fact) => fact.id), ...ownFactIds],
           channelId: current.channelId ?? null,
           ...(heartbeat ? { heartbeat: true } : {}),
@@ -1665,7 +2097,7 @@ export function createInnerLife({
             shadow,
             mayAct: () => mayAct(guildId),
           },
-        }),
+        })
       );
     } catch (err) {
       const code = errorCodeOf(err);
@@ -1681,9 +2113,29 @@ export function createInnerLife({
     // The run's actions, each once by its number (a restarted run records nothing twice), then its end.
     const runActions = list(result.inner?.actions);
     if (runActions.length > 0) {
-      wakeWrite({ kind: 'wake', op: 'actions', actions: runActions.map((action, index) => ({ runId: turnKey, n: index + 1, kind: String(action?.skill ?? 'unknown'), target: action?.target ?? null, status: String(action?.status ?? 'unknown'), at: now() })) });
+      wakeWrite({
+        kind: 'wake',
+        op: 'actions',
+        actions: runActions.map((action, index) => ({
+          runId: turnKey,
+          n: index + 1,
+          kind: String(action?.skill ?? 'unknown'),
+          target: action?.target ?? null,
+          status: String(action?.status ?? 'unknown'),
+          at: now(),
+        })),
+      });
     }
-    wakeWrite({ kind: 'wake', op: 'finish', finish: { id: turnKey, status: outcome === 'error' || HELD.has(outcome) ? 'failed' : 'succeeded', outcome, finishedAt: now() } });
+    wakeWrite({
+      kind: 'wake',
+      op: 'finish',
+      finish: {
+        id: turnKey,
+        status: outcome === 'error' || HELD.has(outcome) ? 'failed' : 'succeeded',
+        outcome,
+        finishedAt: now(),
+      },
+    });
     if (HELD.has(outcome)) {
       // Stopped while it waited: its wakes go with the rest of the queue.
       if (after.stopped) {
@@ -1695,18 +2147,28 @@ export function createInnerLife({
       return { deferred: outcome };
     }
     const ended = now();
-    const errorCode = outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
-    after.turns.push({ at: ended, chainId, usd: measured.usd, outcome, kinds: [...new Set(group.map((wake) => wake.kind))], ...(errorCode ? { code: errorCode, failed: true } : {}) });
+    const errorCode =
+      outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
+    after.turns.push({
+      at: ended,
+      chainId,
+      usd: measured.usd,
+      outcome,
+      kinds: [...new Set(group.map((wake) => wake.kind))],
+      ...(errorCode ? { code: errorCode, failed: true } : {}),
+    });
     // Each attention woken for counts the wake on its day (its own per-day bound).
     if (typeof intentions?.countAttendWake === 'function') {
-      for (const id of new Set(group.filter((wake) => wake.kind === 'attend').flatMap((wake) => wake.intentionIds))) intentions.countAttendWake(guildId, id);
+      for (const id of new Set(group.filter((wake) => wake.kind === 'attend').flatMap((wake) => wake.intentionIds)))
+        intentions.countAttendWake(guildId, id);
     }
     if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
     // The facts this turn showed are told once a model answer carried them (not after an error).
     if (outcome !== 'error') markFactsTold(after, [...shownFacts.map((fact) => fact.id), ...ownFactIds], ended);
-    const retry = errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
+    const retry =
+      errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
     // A wake of hers that comes back (a retry, or the one more try of a one-off) carries the facts of this turn.
     let comesBack = false;
     const requeue = (wakes, fields) => {
@@ -1715,23 +2177,65 @@ export function createInnerLife({
       comesBack = comesBack || wakes.length > 0;
     };
     if (retry?.action === 'requeue') {
-      requeue(group, { retry: retry.n, firstFailedAt: retry.firstFailedAt, notBefore: retry.notBefore, lastCode: errorCode });
-      log.info('inner: turn failed, wakes retried', { guildId, code: errorCode, retry: retry.n, wakes: group.length, notBefore: retry.notBefore });
-      note(guildId, { event: 'retry', code: errorCode, retry: retry.n, notBefore: retry.notBefore, wakes: group.map(wakeFields) });
+      requeue(group, {
+        retry: retry.n,
+        firstFailedAt: retry.firstFailedAt,
+        notBefore: retry.notBefore,
+        lastCode: errorCode,
+      });
+      log.info('inner: turn failed, wakes retried', {
+        guildId,
+        code: errorCode,
+        retry: retry.n,
+        wakes: group.length,
+        notBefore: retry.notBefore,
+      });
+      note(guildId, {
+        event: 'retry',
+        code: errorCode,
+        retry: retry.n,
+        notBefore: retry.notBefore,
+        wakes: group.map(wakeFields),
+      });
     } else {
       if (isReview && after.review) after.review = { ...after.review, done: true };
       if (retry?.action === 'drop') {
         markHandled(after, group, 'provider', ended, { guildId, why: errorCode });
-        log.warn('inner: turn failed, wakes dropped', { guildId, code: errorCode, retry: retry.n, wakes: group.length });
+        log.warn('inner: turn failed, wakes dropped', {
+          guildId,
+          code: errorCode,
+          retry: retry.n,
+          wakes: group.length,
+        });
       } else if (errorCode && !after.stopped) {
         // An error that is not a provider failure: a one-off intention's due moment gets one more try, then she is told.
-        const oneOff = (wake) => (wake.kind === 'intention_due' || wake.kind === 'errand_deadline') && wake.retry !== 'error' && !intentions?.store?.(guildId)?.get?.(list(wake.intentionIds)[0])?.every;
+        const oneOff = (wake) =>
+          (wake.kind === 'intention_due' || wake.kind === 'errand_deadline') &&
+          wake.retry !== 'error' &&
+          !intentions?.store?.(guildId)?.get?.(list(wake.intentionIds)[0])?.every;
         const again = group.filter(oneOff);
         if (again.length > 0) {
-          requeue(again, { retry: 'error', firstFailedAt: ended, notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS, lastCode: errorCode });
-          note(guildId, { event: 'retry', code: errorCode, retry: 'error', notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS, wakes: again.map(wakeFields) });
+          requeue(again, {
+            retry: 'error',
+            firstFailedAt: ended,
+            notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS,
+            lastCode: errorCode,
+          });
+          note(guildId, {
+            event: 'retry',
+            code: errorCode,
+            retry: 'error',
+            notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS,
+            wakes: again.map(wakeFields),
+          });
         }
-        markHandled(after, group.filter((wake) => !again.includes(wake)), outcome, ended, { guildId, named: result.inner?.intentIds ?? [], why: errorCode });
+        markHandled(
+          after,
+          group.filter((wake) => !again.includes(wake)),
+          outcome,
+          ended,
+          { guildId, named: result.inner?.intentIds ?? [], why: errorCode }
+        );
       } else {
         markHandled(after, group, outcome, ended, { guildId, named: result.inner?.intentIds ?? [], why: errorCode });
       }
@@ -1740,14 +2244,41 @@ export function createInnerLife({
     // misses queue no second wake; any other turn's queue one feedback wake in its chain and conversation, due at
     // the next tick, unless its own wakes come back and carry them.
     const isFeedback = anchor.kind === 'feedback';
-    const failure = outcome === 'error' || outcome === 'refused' ? [{ kind: 'turnFailed', code: errorCode ?? (typeof result.reason === 'string' && result.reason ? result.reason : 'refused'), wake: anchor.kind }] : [];
-    const feedback = [...failure, ...feedbackFacts(result, { named: result.inner?.intentIds ?? [], intentions: records })];
-    const keptFacts = feedback.map((fact) => addFact(after, { at: ended, channelId: String(channel.id), privateChat: !channel.guild, ...fact }));
+    const failure =
+      outcome === 'error' || outcome === 'refused'
+        ? [
+            {
+              kind: 'turnFailed',
+              code: errorCode ?? (typeof result.reason === 'string' && result.reason ? result.reason : 'refused'),
+              wake: anchor.kind,
+            },
+          ]
+        : [];
+    const feedback = [
+      ...failure,
+      ...feedbackFacts(result, { named: result.inner?.intentIds ?? [], intentions: records }),
+    ];
+    const keptFacts = feedback.map((fact) =>
+      addFact(after, { at: ended, channelId: String(channel.id), privateChat: !channel.guild, ...fact })
+    );
     save(guildId);
     let feedbackWakeId = null;
     if (feedback.length > 0 && !isFeedback && !comesBack) {
       feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
-      await enqueue(guildId, { id: feedbackWakeId, kind: 'feedback', reason: 'feedback', intentionIds: [], chainId, dueAt: ended, channelId: String(channel.id), privateChat: !channel.guild, here: current.channelId, turnId: turnId ? String(turnId) : null, facts: feedback, factIds: keptFacts.map((fact) => fact.id) });
+      await enqueue(guildId, {
+        id: feedbackWakeId,
+        kind: 'feedback',
+        reason: 'feedback',
+        intentionIds: [],
+        chainId,
+        dueAt: ended,
+        channelId: String(channel.id),
+        privateChat: !channel.guild,
+        here: current.channelId,
+        turnId: turnId ? String(turnId) : null,
+        facts: feedback,
+        factIds: keptFacts.map((fact) => fact.id),
+      });
     }
     // The expired intentions the review listed were read: a turn that erred shows them again next time.
     if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
@@ -1756,7 +2287,16 @@ export function createInnerLife({
     const actions = result.inner?.actions ?? [];
     if (anchor.kind === 'heartbeat') logHeartbeatOutcome(guildId, { outcome, actions });
     else logDueOutcome(guildId, group, { outcome, actions, named: result.inner?.intentIds ?? [] });
-    log.info('inner: turn', { guildId, outcome, reason: result.reason ?? null, wakes: group.length, shadow, actions: actions.length, usd: measured.usd, voice: measured.voice });
+    log.info('inner: turn', {
+      guildId,
+      outcome,
+      reason: result.reason ?? null,
+      wakes: group.length,
+      shadow,
+      actions: actions.length,
+      usd: measured.usd,
+      voice: measured.voice,
+    });
     note(guildId, {
       event: 'turn',
       channelId: channel.guild ? String(channel.id) : null,
@@ -1860,14 +2400,18 @@ export function createInnerLife({
   /** The earliest moment something will wake her (null when nothing is known), and what: `queue`, `intention` or `review`. */
   function nextWakeOf(state, open, at, settings) {
     const found = [];
-    for (const wake of state.queue) if (Number.isFinite(wake.notBefore ?? wake.dueAt)) found.push({ at: wake.notBefore ?? wake.dueAt, kind: 'queue' });
+    for (const wake of state.queue)
+      if (Number.isFinite(wake.notBefore ?? wake.dueAt))
+        found.push({ at: wake.notBefore ?? wake.dueAt, kind: 'queue' });
     // A time already past that she handled counts no more; one not yet handled wakes her at the next tick.
-    const upcoming = (record, reason, when, wakeAt = when) => Number.isFinite(when) && (wakeAt > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
+    const upcoming = (record, reason, when, wakeAt = when) =>
+      Number.isFinite(when) && (wakeAt > at || !state.handled[wakeOfDue({ intention: record, reason, at: when }).id]);
     for (const record of open) {
       if (record.status !== 'pending' && record.status !== 'waiting') continue;
       const wakeAt = wakeTimeOf(record, settings.heartbeat.dueJitterMinutes);
       if (upcoming(record, 'due', record.dueAt, wakeAt)) found.push({ at: wakeAt, kind: 'intention' });
-      if (record.status === 'waiting' && upcoming(record, 'wait-deadline', record.waitDeadline)) found.push({ at: record.waitDeadline, kind: 'intention' });
+      if (record.status === 'waiting' && upcoming(record, 'wait-deadline', record.waitDeadline))
+        found.push({ at: record.waitDeadline, kind: 'intention' });
     }
     const review = state.review;
     if (review && review.done !== true && Number.isFinite(review.at)) found.push({ at: review.at, kind: 'review' });
@@ -1881,7 +2425,22 @@ export function createInnerLife({
    */
   function status(guildId = getGuildId()) {
     const settings = innerSettings(hot.config);
-    if (!guildId) return { on: innerOn(hot.config), mode: settings.mode, stopped: false, queue: [], review: null, turnsToday: null, chains: 0, spentUsd: 0, intentions: null, attention: null, next: null, lastTurn: null, lastError: null };
+    if (!guildId)
+      return {
+        on: innerOn(hot.config),
+        mode: settings.mode,
+        stopped: false,
+        queue: [],
+        review: null,
+        turnsToday: null,
+        chains: 0,
+        spentUsd: 0,
+        intentions: null,
+        attention: null,
+        next: null,
+        lastTurn: null,
+        lastError: null,
+      };
     const state = stateOf(guildId);
     const at = now();
     const timezone = timezoneOf();
@@ -1889,16 +2448,28 @@ export function createInnerLife({
     let open = [];
     if (intentions && intentionsOn(hot.config)) {
       try {
-        open = (intentions.list(guildId, { all: true }) ?? []).filter((record) => ['pending', 'waiting', 'proposed'].includes(record?.status));
+        open = (intentions.list(guildId, { all: true }) ?? []).filter((record) =>
+          ['pending', 'waiting', 'proposed'].includes(record?.status)
+        );
       } catch (err) {
         log.warn('inner: status intentions failed', { guildId, code: err?.code ?? null });
       }
     }
     const countOf = (name) => open.filter((record) => record.status === name).length;
     const last = state.turns.reduce((latest, turn) => (!latest || turn.at >= latest.at ? turn : latest), null);
-    const lastFailed = state.turns.reduce((latest, turn) => (turn.outcome === 'error' && (!latest || turn.at >= latest.at) ? turn : latest), null);
+    const lastFailed = state.turns.reduce(
+      (latest, turn) => (turn.outcome === 'error' && (!latest || turn.at >= latest.at) ? turn : latest),
+      null
+    );
     // Her attention today: the attend wakes handled (run: a turn ran for it) and the queued ones.
-    const attention = { open: open.filter((record) => record.status === 'pending' && isAttend(record)).length, listed: 0, run: 0, spoken: 0, skipped: 0, waiting: 0 };
+    const attention = {
+      open: open.filter((record) => record.status === 'pending' && isAttend(record)).length,
+      listed: 0,
+      run: 0,
+      spoken: 0,
+      skipped: 0,
+      waiting: 0,
+    };
     for (const [id, entry] of Object.entries(state.handled)) {
       if (!id.startsWith(ATTEND_PREFIX) || !(entry?.at >= start)) continue;
       attention.listed += 1;
@@ -1916,17 +2487,30 @@ export function createInnerLife({
       mode: settings.mode,
       stopped: state.stopped,
       stoppedAt: state.stoppedAt,
-      queue: state.queue.map((wake) => ({ id: wake.id, kind: wake.kind, dueAt: wake.dueAt ?? null, capped: wake.capped ?? null })),
-      review: state.review ? { day: state.review.day, at: state.review.at ?? null, done: state.review.done === true } : null,
-      heartbeat: settings.heartbeat.enabled ? { nextAt: state.heartbeat?.nextAt ?? null, lastAt: state.heartbeat?.lastAt ?? null } : null,
+      queue: state.queue.map((wake) => ({
+        id: wake.id,
+        kind: wake.kind,
+        dueAt: wake.dueAt ?? null,
+        capped: wake.capped ?? null,
+      })),
+      review: state.review
+        ? { day: state.review.day, at: state.review.at ?? null, done: state.review.done === true }
+        : null,
+      heartbeat: settings.heartbeat.enabled
+        ? { nextAt: state.heartbeat?.nextAt ?? null, lastAt: state.heartbeat?.lastAt ?? null }
+        : null,
       turnsToday: turnsToday(state, { now: at, timezone }),
       chains: new Set(state.turns.filter((turn) => turn.at >= start).map((turn) => turn.chainId)).size,
-      spentUsd: Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) / 10000,
+      spentUsd:
+        Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) /
+        10000,
       intentions: { pending: countOf('pending'), waiting: countOf('waiting'), proposed: countOf('proposed') },
       attention,
       next: nextWakeOf(state, open, at, settings),
       lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,
-      lastError: lastFailed ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR } : null,
+      lastError: lastFailed
+        ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR }
+        : null,
     };
   }
 
@@ -1953,5 +2537,19 @@ export function createInnerLife({
     timer = null;
   }
 
-  return { tick, drain, onWake, onTaskFinished, mayAct, stop, start, status, places, startTimer, stopTimer, state: stateOf, facts: factsApi };
+  return {
+    tick,
+    drain,
+    onWake,
+    onTaskFinished,
+    mayAct,
+    stop,
+    start,
+    status,
+    places,
+    startTimer,
+    stopTimer,
+    state: stateOf,
+    facts: factsApi,
+  };
 }
