@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTurnRunner } from '../src/behavior/turn.js';
+import { createReads } from '../src/interface/reads.ts';
 import { userText } from '../src/behavior/prompt.js';
 import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
@@ -73,10 +74,9 @@ const wakeBlockOf = (text) => /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? 
  */
 function makeChat() {
   let stamp = 0;
+  /** @type {Record<string, string>} */
   const names = { u1: 'Alice', u2: 'Zoë', [SELF]: 'Bot' };
   const port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => clock.t - 5000 + (stamp += 1) });
-  const guildChannels = new Map();
-  const channels = new Map();
   const injected = []; // the sends a fault turned into a failure: { n, conversation, text }
   const failures = new Map(); // send attempt number -> the result it gets
   const dyingAfter = new Set(); // send attempt numbers after which the process dies: the message is in the chat, the answer never comes
@@ -96,23 +96,36 @@ function makeChat() {
     return result;
   };
 
-  const rawOf = (message) => ({
-    id: message.ref.messageId,
-    channelId: message.ref.conversationId,
-    author: {
-      id: message.authorId,
-      bot: false,
-      globalName: names[message.authorId] ?? message.authorId,
-      username: names[message.authorId] ?? message.authorId,
-    },
-    member: { displayName: names[message.authorId] ?? message.authorId },
-    cleanContent: message.text,
-    createdTimestamp: message.at,
-    reference: null,
-    attachments: new Map(),
-    stickers: new Map(),
+  // The conversations of the chat: #c1, #c2 and #c3 of the community and the direct chat d1 (c9 is unknown to the interface).
+  const infoOf = (id, { send = true } = {}) => ({
+    id,
+    kind: id === 'd1' ? 'dm' : 'channel',
+    communityId: id === 'd1' ? null : GUILD,
+    name: id === 'd1' ? null : `chan-${id}`,
+    topic: null,
+    category: null,
+    chatType: id === 'd1' ? 'dm' : 'channel',
+    ...(id === 'd1' ? { partnerId: 'u1' } : {}),
+    iface: 'fake',
+    permissions: { read: true, send, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+    audience:
+      id === 'd1'
+        ? null
+        : {
+            everyone: true,
+            groups: [],
+            groupAllow: [],
+            groupDeny: [],
+            memberAllow: [],
+            memberDeny: [],
+            memberGroups: {},
+          },
   });
-  const rawIn = (conversationId) => port.messagesIn(conversationId).map(rawOf);
+  for (const id of ['c1', 'c2', 'c3', 'd1']) port.seedConversation(infoOf(id));
 
   const chat = {
     port,
@@ -136,45 +149,56 @@ function makeChat() {
     get sendAttempts() {
       return attempts;
     },
-    channel(id, { dm = false } = {}) {
-      if (!channels.has(id)) {
-        const guild = dm
-          ? null
-          : { id: GUILD, members: { me: { displayName: 'Bot' } }, channels: { cache: guildChannels } };
-        const channel = {
-          id,
-          name: dm ? null : `chan-${id}`,
-          guild,
-          viewable: true,
-          isTextBased: () => true,
-          isThread: () => false,
-          parent: null,
-          permissionsFor: dm
-            ? () => {
-                throw new Error('a DM channel has no member permissions');
-              }
-            : () => ({ has: () => true }),
-          sendTyping: async () => {},
-          send: async () => ({ id: 'sent' }),
-          messages: {
-            cache: new Map(),
-            fetch: async (arg) => {
-              const all = rawIn(id);
-              if (arg && typeof arg === 'object' && 'limit' in arg)
-                return new Map(all.slice(-arg.limit).map((message) => [message.id, message]));
-              return all.find((message) => message.id === arg) ?? null;
-            },
-          },
-        };
-        channels.set(id, channel);
-        if (!dm) guildChannels.set(id, channel);
-      }
-      return channels.get(id);
+    /** Where she may write: the conversations in `unwritable` may not be written in, the others may. */
+    permit(unwritable = []) {
+      for (const id of ['c1', 'c2', 'c3', 'd1']) port.seedConversation(infoOf(id, { send: !unwritable.includes(id) }));
     },
     /** A line by `authorId` in `conversationId` (the persona's own when it is `SELF`); its raw form. */
+    /**
+     * @param {string} conversationId
+     * @param {string} authorId
+     * @param {string} text
+     */
     say(conversationId, authorId, text) {
-      const ref = port.seed(conversationId, { authorId, text });
-      return rawOf(port.messages.get(`${conversationId}/${ref.messageId}`));
+      stamp += 1;
+      const at = clock.t - 5000 + stamp;
+      const id = `s${stamp}`;
+      if (authorId === SELF) {
+        port.seed(conversationId, { authorId, text, messageId: id });
+      } else {
+        // A member's line is a whole event, the way an interface reports it, with the name the member goes by.
+        port.seedEvent({
+          kind: 'message.received',
+          iface: 'fake',
+          at,
+          id: `fake:message:${id}`,
+          conversation: {
+            id: conversationId,
+            kind: conversationId === 'd1' ? 'dm' : 'channel',
+            communityId: conversationId === 'd1' ? null : GUILD,
+            name: conversationId === 'd1' ? null : `chan-${conversationId}`,
+          },
+          message: {
+            id,
+            author: { id: authorId, name: names[authorId] ?? authorId, self: false, bot: false },
+            content: text,
+            sourceText: text,
+            system: false,
+            at,
+            replyToId: null,
+            replyPingUserId: null,
+            forwardedFrom: null,
+            attachments: [],
+            links: [],
+            forwarded: [],
+            stickers: [],
+            emojis: [],
+            reactions: [],
+          },
+          addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+        });
+      }
+      return { id, channelId: conversationId, cleanContent: text, createdTimestamp: at };
     },
     ownMessages(conversationId, n = 20) {
       return port
@@ -378,18 +402,12 @@ function boot(
   const intentions = fakeIntentions(records);
   const timers = [];
   const accepted = new Set();
-  const client = {
-    user: { id: SELF, username: 'Bot' },
-    channels: {
-      cache: new Map(),
-      fetch: async (id) => {
-        if (!['c1', 'c2', 'c3', 'c9', 'd1'].includes(String(id)) || String(id) === 'c9') return null;
-        return chat.channel(String(id), { dm: String(id) === 'd1' });
-      },
-    },
-  };
+  const client = { user: { id: SELF, username: 'Bot' } };
+  /** @type {ReturnType<typeof createFakeAdapter>} */
   const port = chat.port;
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port });
+  chat.permit(unwritable);
+  const reads = createReads(port, SILENT);
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port, reads });
   const runOp =
     failOps.length === 0
       ? admin.runSkillOp
@@ -416,14 +434,18 @@ function boot(
   });
 
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store,
     llm: chat.llm,
     calibrator: { ratio: 1, apply: (value) => value, observe: () => {} },
-    client,
     now: () => clock.t,
     port,
+    reads,
+    selfId: () => SELF,
+    getSelfName: () => 'Bot',
+    memberOf: (communityId, memberId) => (memberId in names ? { name: names[memberId], bot: false } : null),
+    membersOf: () => Object.entries(names).map(([id, name]) => ({ id, name, bot: false })),
+    conversationName: (id) => (id === 'd1' ? null : `chan-${id}`),
     skills: skillRegistry(),
     journal,
     runOp,
@@ -437,11 +459,11 @@ function boot(
     isAnyBusy: () => turns.isAnyBusy?.() ?? false,
     isBusy: (id) => turns.isBusy?.(id) ?? false,
     runTurn: async (params) => {
-      chat.audience = params.channel?.id ?? null;
+      chat.audience = params.conversation?.conversationId ?? null;
       const before = chat.sendAttempts;
       const result = await turns.runTurn(params);
       chat.results.push({
-        channelId: params.channel?.id ?? null,
+        channelId: params.conversation?.conversationId ?? null,
         mode: params.mode,
         result,
         failedSends: chat.injected.filter((f) => f.n > before && f.n <= chat.sendAttempts),
@@ -451,8 +473,8 @@ function boot(
   };
   taskTurns = createTaskTurns({
     hot,
-    client,
-    discord: DISCORD,
+    reads,
+    iface: () => 'fake',
     turns: recorded,
     errands,
     getGuildId: () => GUILD,
@@ -461,7 +483,6 @@ function boot(
     log: SILENT,
   });
 
-  const unwritableIds = new Set(unwritable);
   let inner;
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
   inner = createInnerLife({
@@ -471,8 +492,8 @@ function boot(
     intentions,
     record,
     journal,
-    client,
-    discord: { canSend: (channel) => !unwritableIds.has(String(channel.id)) },
+    reads,
+    iface: () => 'fake',
     ...(ready ? { ready } : {}),
     submit: (event) => {
       accepted.add(event.id);
@@ -495,6 +516,7 @@ function boot(
     store,
     client,
     port,
+    reads,
     turns,
     inner,
     errands,
@@ -528,7 +550,7 @@ function boot(
           stickers: [],
         };
         return recorded.runTurn({
-          channel: chat.channel(conversationId, { dm }),
+          conversation: { iface: 'fake', conversationId },
           ...(dm ? { guildId: GUILD } : {}),
           mode: 'reply',
           trigger,
@@ -878,6 +900,7 @@ test("row 3: the process dies after an errand's result was stored and before its
     hot: after.hot,
     store: after.store,
     client: after.client,
+    reads: after.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
     getGuildId: () => GUILD,
@@ -1262,6 +1285,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     hot: run.hot,
     store: run.store,
     client: run.client,
+    reads: run.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
     getGuildId: () => GUILD,
