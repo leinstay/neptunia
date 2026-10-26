@@ -2938,18 +2938,13 @@ function hotForDraw(rootDir, { model = 'openai/image-model', ...image } = {}) {
 
 function drawClient() {
   const guild = { id: 'g1', name: 'The Server', members: { me: { displayName: 'Persona' } } };
-  // The address of her large avatar is the interface's to give (`memberInfo` of herself); `avatarAsks` lists those reads.
-  const avatarAsks = [];
+  // The address of her large avatar is the interface's to give (`memberInfo` of herself).
   world().member('g1', {
     id: 'self-id',
     name: 'Persona',
     avatar: { hash: null, url: null, largeUrl: 'https://cdn.example/avatar.png' },
   });
-  world().tap('memberInfo', ([member]) => {
-    if (member.memberId === 'self-id') avatarAsks.push(member.memberId);
-  });
   return {
-    avatarAsks,
     guilds: { cache: new Map([['g1', guild]]) },
     user: { id: 'self-id', username: 'persona-bot' },
   };
@@ -3011,7 +3006,6 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
 
   await admin.run('draw', { text: 'at the beach', self: true }, { guildId: 'g1' });
 
-  assert.deepEqual(client.avatarAsks, ['self-id']);
   assert.deepEqual(imageFetcher.calls, [
     { url: 'https://cdn.example/avatar.png', opts: { maxBytes: 4000000, timeoutMs: 7000 } },
   ]);

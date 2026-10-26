@@ -124,7 +124,8 @@ test('fetchReplyParents skips a deleted parent and logs it once with ids only', 
   );
   assert.deepEqual(result, []);
   assert.deepEqual(asked, ['gone']);
-  const missing = logs.filter((entry: { msg: string }) => entry.msg === 'collect: parent missing');
+  const entries = logs as Array<{ msg?: string; channel?: string; messageId?: string }>;
+  const missing = entries.filter((entry) => entry.msg === 'collect: parent missing');
   assert.equal(missing.length, 1);
   assert.equal(missing[0]?.channel, 'c1');
   assert.equal(missing[0]?.messageId, 'gone');

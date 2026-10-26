@@ -14,6 +14,7 @@ import type {
   MemberInfo,
   MessageEvent,
   MessageRef,
+  PortError,
 } from '../protocol/adapter.ts';
 import { notOk, refRefusal } from './port.js';
 import { CODE as CODES } from '../skills/codes.js';
@@ -164,9 +165,13 @@ export function createFakeReads(deps: Deps): {
     return takeQueued(op);
   }
 
-  const failure = (result: PortResult): { status: 'failed'; error: { code: string; retryable: boolean } } => ({
+  const failure = (result: PortResult): { status: 'failed'; error: PortError } => ({
     status: 'failed',
-    error: { code: result.error?.code ?? CODE.ERROR, retryable: result.error?.retryable ?? false },
+    error: {
+      code: result.error?.code ?? CODE.ERROR,
+      retryable: result.error?.retryable ?? false,
+      retryAfterMs: result.error?.retryAfterMs ?? null,
+    },
   });
 
   /** A queued or refused result of `front`, as the error answer of a read. */

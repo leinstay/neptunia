@@ -39,9 +39,8 @@ import { bridgeRecall } from '../src/interface/recall-bridge.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
 
-/** The channels of the test community, by id. */
-const worldChannelsOf = (/** @type {ReadonlyArray<ReadonlyArray<unknown>>} */ channels) =>
-  worldChannels(GUILD, channels);
+/** @param {Parameters<typeof worldChannels>[1]} channels */
+const worldChannelsOf = (channels) => worldChannels(GUILD, channels);
 import { withTextPreviews } from '../src/media/text-preview.ts';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { createDescriber } from '../src/memory/describe.js';
@@ -1374,10 +1373,7 @@ function discordGuild(channels) {
   return guild;
 }
 
-/**
- * The client of `guild`: the persona's user, the guild cached.
- * @param {{ channels: { cache: Map<string, unknown> } }} guild
- */
+/** The client of `guild` (the persona's user, the guild cached). @param {{ channels: { cache: Map<string, unknown> } }} guild */
 function discordClient(guild) {
   return {
     user: { id: SELF_ID, username: SELF_NAME },

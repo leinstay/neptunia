@@ -155,7 +155,7 @@ const applied = (changed: boolean): 'applied' | 'ignored' => (changed ? 'applied
 
 type Reaction = { emoji?: string; count?: number; mine?: boolean };
 type Line = { id?: string; self?: boolean; reactions?: ReadonlyArray<Reaction> };
-type ReactorName = { id: string; name: string; bot: boolean };
+export type ReactorName = { id: string; name: string; bot: boolean };
 
 /** How many members other than the persona put `reaction` (its count less her own). */
 function othersOf(reaction: Reaction): number {
@@ -248,6 +248,11 @@ export async function runBackfill(
   return { ...stats, timedOut };
 }
 
+/** A line with the names of the reactors added to its reactions. */
+type WithNames<L extends { reactions: ReadonlyArray<Reaction> }> = Omit<L, 'reactions'> & {
+  reactions: Array<L['reactions'][number] & { users?: Array<ReactorName> }>;
+};
+
 /**
  * `messages` with each reaction on the persona's lines carrying its known reactors as `users` (`{ id, name, bot }`, in
  * the store's order), each resolved by `resolveUser(id)` (null: not known, left out, the line keeps counting them).
@@ -257,9 +262,9 @@ export function withReactors<L extends { id: string; self?: boolean; reactions: 
   messages: ReadonlyArray<L>,
   store: ReactorStore,
   resolveUser: (id: string) => { name: string; bot?: boolean } | null
-): Array<Omit<L, 'reactions'> & { reactions: Array<L['reactions'][number] & { users?: Array<ReactorName> }> }> {
+): Array<WithNames<L>> {
   return messages.map((message) => {
-    if (!message.self || message.reactions.length === 0) return message;
+    if (!message.self || message.reactions.length === 0) return message as unknown as WithNames<L>;
     let changed = false;
     const reactions = message.reactions.map((reaction) => {
       const ids = reaction.emoji ? store.reactors(message.id, reaction.emoji) : null;
@@ -273,6 +278,6 @@ export function withReactors<L extends { id: string; self?: boolean; reactions: 
       changed = true;
       return { ...reaction, users };
     });
-    return changed ? { ...message, reactions } : message;
+    return (changed ? { ...message, reactions } : message) as unknown as WithNames<L>;
   });
 }

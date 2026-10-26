@@ -11,10 +11,12 @@ import type {
   Adapter,
   Audience,
   ConversationInfo,
+  FetchedMessage,
   HistoryQuery,
   MemberInfo,
   MessageEvent,
   MessageRef,
+  PortError,
 } from '../../src/protocol/adapter.ts';
 import { emojiUrl } from '../../src/media/classify.js';
 import {
@@ -34,7 +36,7 @@ import { memberView } from './members.ts';
 import { searchMembers, searchMessages } from './search.js';
 
 type Obj = Record<string, unknown>;
-type Failure = { status: 'failed' | 'unsupported' | 'forbidden'; error: { code: string; retryable: boolean } };
+type Failure = { status: 'failed' | 'unsupported' | 'forbidden'; error: PortError };
 
 /** The first millisecond of Discord's snowflakes (2015-01-01). */
 const DISCORD_EPOCH_MS = 1_420_070_400_000;
@@ -143,7 +145,10 @@ function memberInfoOf(member: Obj, memberId: string, selfId: string, client: Obj
 /** The searches, the emoji list and the link parse of a read: answers over the client and the guild of a community. */
 function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communityId: string | null) => Obj | null }) {
   const { client, iface, guildOf } = deps;
-  const failed = (code: string): Failure => ({ status: 'failed', error: { code, retryable: false } });
+  const failed = (code: string): Failure => ({
+    status: 'failed',
+    error: { code, retryable: false, retryAfterMs: null },
+  });
   return {
     async searchMessages(
       scope: { communityId: string },
@@ -225,6 +230,21 @@ function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communi
   };
 }
 
+/** One attachment of a message read by id, as the contract lists it. */
+function fetchedFile(file: Obj): NonNullable<FetchedMessage['attachments']>[number] {
+  const finite = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const duration = finite(file.duration);
+  return {
+    url: text(file.url) ?? undefined,
+    name: text(file.name) ?? undefined,
+    contentType: text(file.contentType) ?? undefined,
+    size: finite(file.size),
+    ...(duration === undefined ? {} : { durationSec: duration }),
+    ...(typeof file.waveform === 'string' ? { waveform: file.waveform } : {}),
+  };
+}
+
 /**
  * @param deps `client` the discord.js client, `config` the live config, `resolveChannel` the adapter's lookup of a
  *   channel by reference, `failure` its mapping of a thrown error, `refusal` its check of a reference.
@@ -254,8 +274,11 @@ export function createDiscordReads(deps: {
 }): DiscordReads {
   const { client, iface, resolveChannel, resolveMessage, failure, refusal } = deps;
   const selfId = (): string => text(obj(client.user).id) ?? '';
-  const options = (): Obj => normalizeOptions(deps.config());
-  const failed = (code: string): Failure => ({ status: 'failed', error: { code, retryable: false } });
+  const options = (): Obj => normalizeOptions(deps.config() as Parameters<typeof normalizeOptions>[0]);
+  const failed = (code: string): Failure => ({
+    status: 'failed',
+    error: { code, retryable: false, retryAfterMs: null },
+  });
   const guildOf = (communityId: string | null): Obj | null =>
     communityId === null
       ? null
@@ -266,7 +289,7 @@ export function createDiscordReads(deps: {
 
   /** The event of a discord.js message without its handles. */
   function eventOf(message: unknown, extra: Obj = {}): MessageEvent {
-    const { raw, rawPrevious, ...event } = toEvent(message, selfId(), { ...options(), ...extra }) as Obj;
+    const { raw, rawPrevious, ...event } = toEvent(message as object, selfId(), { ...options(), ...extra }) as Obj;
     void [raw, rawPrevious];
     return event as unknown as MessageEvent;
   }
@@ -428,8 +451,8 @@ export function createDiscordReads(deps: {
       if (result || channel === undefined) return result ?? failed('error');
       const messages = obj(channel.messages);
       if (typeof messages.fetch !== 'function')
-        return { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false } };
-      const out: Array<Obj> = [];
+        return { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false, retryAfterMs: null } };
+      const out: Array<FetchedMessage> = [];
       for (const id of Array.isArray(messageIds) ? messageIds : []) {
         try {
           const found = obj(await (messages.fetch as (id: string) => Promise<unknown>).call(messages, String(id)));
@@ -444,14 +467,7 @@ export function createDiscordReads(deps: {
           out.push({
             messageId: String(id),
             text: typeof found.content === 'string' ? found.content : '',
-            attachments: files.map((file) => ({
-              url: file.url,
-              name: file.name,
-              contentType: file.contentType ?? undefined,
-              size: Number.isFinite(file.size) ? file.size : undefined,
-              ...(Number.isFinite(file.duration) ? { durationSec: file.duration } : {}),
-              ...(typeof file.waveform === 'string' ? { waveform: file.waveform } : {}),
-            })),
+            attachments: files.map(fetchedFile),
             event: eventOf(found),
           });
         } catch (err) {

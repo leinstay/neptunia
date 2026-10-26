@@ -164,6 +164,33 @@ function payloadOf(given: unknown): Posted {
   return payload;
 }
 
+/** The conversation a spec describes: its community (null for a private chat), its name and the interface's info. */
+function infoOf(id: string, spec: ChannelSpec): { guildId: string | null; name: string | null; info: ConversationInfo } {
+  const guildId = spec.dm === true ? null : spec.guildId === undefined ? 'g1' : spec.guildId;
+  const name = spec.dm === true ? null : spec.name === undefined ? 'general' : spec.name;
+  const info: ConversationInfo = {
+    id,
+    kind: spec.kind ?? (guildId === null ? 'dm' : 'channel'),
+    communityId: guildId,
+    name,
+    topic: null,
+    category: spec.category ?? null,
+    chatType: guildId === null ? 'dm' : (spec.kind ?? 'channel'),
+    ...(guildId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
+    ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),
+    iface: worldIface,
+    permissions: { ...ALL, ...spec.permissions },
+    owner: null,
+    lastMessageAt: spec.lastMessageAt ?? null,
+    voice: spec.voice === true,
+    public: spec.public ?? true,
+    audience: spec.audience === undefined ? (guildId === null ? null : EVERYONE) : spec.audience,
+    ...(spec.viewers === undefined ? {} : { viewers: spec.viewers }),
+    ...spec.extra,
+  };
+  return { guildId, name, info };
+}
+
 function create(): World {
   // The clock the messages she sends are stamped by: the one the runner is given, else the real one.
   let clock: () => number = Date.now;
@@ -317,7 +344,7 @@ function create(): World {
   };
 
   function renormalize(config: unknown): void {
-    const next = normalizeOptions(config);
+    const next = normalizeOptions(config as Parameters<typeof normalizeOptions>[0]);
     if (JSON.stringify(next) === JSON.stringify(options)) return;
     options = next;
     for (const [channelId, raw] of stubs) seedOne(channelId, raw);
@@ -325,28 +352,7 @@ function create(): World {
 
   function channel(spec: ChannelSpec = {}, options: { keep?: boolean } = {}): Channel {
     const id = spec.id ?? 'c1';
-    const guildId = spec.dm === true ? null : spec.guildId === undefined ? 'g1' : spec.guildId;
-    const name = spec.dm === true ? null : spec.name === undefined ? 'general' : spec.name;
-    const info: ConversationInfo = {
-      id,
-      kind: spec.kind ?? (guildId === null ? 'dm' : 'channel'),
-      communityId: guildId,
-      name,
-      topic: null,
-      category: spec.category ?? null,
-      chatType: guildId === null ? 'dm' : (spec.kind ?? 'channel'),
-      ...(guildId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
-      ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),
-      iface: worldIface,
-      permissions: { ...ALL, ...spec.permissions },
-      owner: null,
-      lastMessageAt: spec.lastMessageAt ?? null,
-      voice: spec.voice === true,
-      public: spec.public ?? true,
-      audience: spec.audience === undefined ? (guildId === null ? null : EVERYONE) : spec.audience,
-      ...(spec.viewers === undefined ? {} : { viewers: spec.viewers }),
-      ...spec.extra,
-    };
+    const { guildId, name, info } = infoOf(id, spec);
     // A conversation made again starts over (unless `keep`): no message, no id counted, and the calls before now are
     // not its own.
     if (options.keep !== true) {

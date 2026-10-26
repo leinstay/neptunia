@@ -5,6 +5,7 @@
 import type { MessageEvent } from '../../src/protocol/adapter.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createDiscordAdapter } from '../../interfaces/discord/index.js';
 
 type Obj = Record<string, unknown>;
@@ -212,4 +213,20 @@ export function scriptedChatOf(
   const channel = listed.find((entry) => obj(entry).id === asked);
   const name = obj(channel).name;
   return { lines: Array.isArray(lines) ? lines : [], name: typeof name === 'string' ? name : null };
+}
+
+/** The inner week's interface: the fixture's channels as conversations, writable or not, and the reads over them. */
+export function weekReads(
+  channels: ReadonlyArray<{ id: string; name: string; writable?: boolean }>,
+  communityId: string,
+  log: Parameters<typeof createReads>[1]
+): { reads: Reads; iface: string } {
+  const adapter = createFakeAdapter({ iface: 'inner-week', selfId: 'self' });
+  const base = { kind: 'channel', communityId, chatType: 'channel', iface: adapter.iface } as const;
+  const rest = { topic: null, category: null, owner: null, lastMessageAt: null, voice: false, public: true } as const;
+  for (const { id, name, writable } of channels) {
+    const permissions = { read: true, send: writable !== false, attach: true, react: true };
+    adapter.seedConversation({ ...base, ...rest, audience: null, id, name, permissions });
+  }
+  return { reads: createReads(adapter, log), iface: adapter.iface };
 }

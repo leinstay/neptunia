@@ -52,7 +52,7 @@ import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } f
  * operations receive them through this object, which the composition root (src/index.js) builds
  * once and injects, instead of importing them (stage 4b-2).
  * @param {{ client: object, lookupChannel?: ((id: string) => object|null)|null, operations?: Iterable<string>|null,
- *   limits?: object }} options
+ *   limits?: object, config?: () => unknown }} options
  *   `client` the logged-in discord.js client; the other options go to createDiscordAdapter as
  *   they are (port.js).
  * @returns {{ port: import('../../src/interface/port.js').Port, capabilities: Readonly<object>, client: object }}

@@ -49,7 +49,7 @@ export type Capabilities = {
   publish: ReadonlyArray<string>;
   search: boolean;
   /** The wire names of the reads the interface answers (READ_ACTIONS in src/protocol/actions.js). */
-  reads: ReadonlyArray<string>;
+  reads?: ReadonlyArray<string>;
   /** Absent or null: the platform gives a message no address. */
   messageUrl?: MessageUrlTemplate | null;
 };

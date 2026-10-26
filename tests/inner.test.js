@@ -37,9 +37,7 @@ import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
 import { useIface, world } from './fixtures/turn-world.ts';
 
-// The conversations she wakes in are held by a fake interface named `fake`.
 useIface('fake');
-
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const SILENT = { info() {}, warn() {}, error() {} };
 const GUILD = 'g1';
@@ -109,20 +107,9 @@ function fakeTurns({ answer = null } = {}) {
   return turns;
 }
 
-/**
- * The conversations `ids` of the community in the test's world (`canSend` says where she may write), with the names the
- * directory would hold, and the core's reads over them.
- * @param {string[]} [ids]
- * @param {(channel: { id: string }) => boolean} [canSend]
- */
-function fakeClient(ids = ['c1', 'c2', 'c3'], canSend = () => true) {
-  /** @type {Map<string, string>} */
-  const names = new Map();
-  for (const id of ids) {
-    world().channel({ id, name: `chan-${id}`, guildId: GUILD, permissions: { send: canSend({ id }) } });
-    names.set(id, `chan-${id}`);
-  }
-  return { reads: world().reads, names };
+function fakeClient(ids = ['c1', 'c2', 'c3'], can = () => true) {
+  for (const id of ids) world().channel({ id, name: `chan-${id}`, guildId: GUILD, permissions: { send: can({ id }) } });
+  return { reads: world().reads };
 }
 
 function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
@@ -174,7 +161,7 @@ function setup({
     reads: client.reads,
     iface: () => 'fake',
     // The names come from the directory of `conversation.changed` events in the core; the fake client's names stand in for it.
-    conversationName: (id) => client.names.get(id) ?? null,
+    conversationName: (id) => (id === 'd1' ? 'dm' : `chan-${id}`),
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
@@ -1111,7 +1098,6 @@ function attentionSetup({
   canSend = () => true,
 } = {}) {
   const dataDir = tempDir('nep-inner-');
-  const client = fakeClient(undefined, canSend);
   const hot = hotWith({ innerLife });
   const service = realIntentions(hot, dataDir);
   const record = fakeRecord(lines);
@@ -1127,7 +1113,7 @@ function attentionSetup({
     places,
     nameOf,
     journal: { inner: async (guildId, fields) => journal.push(fields) },
-    reads: client.reads,
+    reads: fakeClient(undefined, canSend).reads,
     iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
@@ -1352,8 +1338,7 @@ test('inner: her own line in the place is a look; a newer burst replaces the que
 
 test("inner: past the attention's own perDay the wake waits as capped and runs the next local day; the other wakes go on; a read-only place still wakes her", async () => {
   const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
-  const canSend = (channel) => channel.id !== 'c2';
-  const run = attentionSetup({ lines, perDay: 1, canSend });
+  const run = attentionSetup({ lines, perDay: 1, canSend: (channel) => channel.id !== 'c2' });
   // A due intention elsewhere and the attention: both run; the attention in a place she cannot write in.
   run.service.set(GUILD, { purpose: 'say hi', dueAt: NOW - MINUTE_MS, channelId: 'c1', scope: 'group' });
   await run.inner.tick();
@@ -1756,9 +1741,7 @@ test('inner: a fact is told only after a model answer that carried it completed 
 });
 
 test('inner: every wake outcome other than a turn is a wakeDropped fact at the moment: stopped, overflow, stale (done, cancelled, forgotten), no-channel (unavailable, dm-off)', async () => {
-  const client = fakeClient();
   world().channel({ id: 'd1', dm: true });
-  client.names.set('d1', 'dm');
   const direct = {
     ...intention('i5', { channelId: 'd1' }),
     provenance: { kind: 'self', channelId: 'd1', scope: 'dm' },
@@ -1766,7 +1749,7 @@ test('inner: every wake outcome other than a turn is a wakeDropped fact at the m
   const run = setup({
     records: [intention('i1'), intention('i2'), intention('i3')],
     hot: hotWith({ innerLife: { queueMax: 4 } }),
-    client,
+    client: fakeClient(),
   });
   run.turns.busy = true;
   await run.inner.tick();

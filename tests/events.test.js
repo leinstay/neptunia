@@ -32,7 +32,6 @@ import {
   world,
 } from './fixtures/turn-world.ts';
 
-// The conversations of these tests live in a fake interface named `fake`, as its notices always said.
 useIface('fake');
 useSelf('self1');
 
@@ -78,10 +77,7 @@ function fakeGuild(id = 'g1', displayName = 'Ζωή') {
   return { id, members: { me: { displayName } } };
 }
 
-/**
- * A discord.js-shaped channel for the stubs of a message (`toEvent` reads its name and guild), and the same
- * conversation in the fake interface the pipeline asks for its permissions and history.
- */
+/** A discord.js-shaped channel for `toEvent`, and the same conversation in the fake interface. */
 function fakeChannel(id, guild, overrides = {}) {
   const channel = {
     id,
@@ -247,7 +243,6 @@ function makeHandler({
   const discord = client ?? fakeClient();
   const names = { self: 'Ζωή' };
   const port = world().port;
-  // A client of the private-chat tests says which members the interface knows, and records its member reads.
   if (discord.knows) {
     world().knowMembers('g1', discord.knows);
     world().tap('memberInfo', ([member]) => {
@@ -259,7 +254,6 @@ function makeHandler({
     store: store ?? fakeStore(),
     reads: world().reads,
     selfId: () => discord.user.id,
-    // Her name in the community, as the member directory of the core tells it: the one the last message's guild gave her.
     getSelfName: () => names.self,
     turns: turns ?? fakeTurns(),
     spontaneous: spontaneous ?? fakeSpontaneous(),
@@ -1718,7 +1712,6 @@ test('events: a pending ping whose message fetch fails is dropped as fetch-faile
     const guild = fakeGuild();
     const channel = fakeChannel('c1', guild);
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
-    // The message is not in the interface's hands: asking for it fails, or finds it gone.
     breakLookup();
 
     const { logs } = await withCapturedLogs(() => handler.drainPending());
@@ -3259,7 +3252,6 @@ function privateConfig(overrides = {}) {
 
 function fakeDmChannel(id = 'dm1', recipientId = 'u1', overrides = {}) {
   const sent = [];
-  // The same private chat in the fake interface, holding the message `dm-m1` the stub's cache holds.
   world().channel({ id, dm: true, partnerId: recipientId ?? null }, { keep: true });
   seedExisting(id, 'dm-m1');
   return {
@@ -3293,8 +3285,6 @@ function fakeDmMessage(overrides = {}) {
 /** A client of a served community the interface knows `members` and `fetchable` ones of; `fetchCalls` lists each member read. */
 function fakeDmClient({ members = ['u1', 'owner1'], fetchable = [] } = {}) {
   const fetchCalls = [];
-  // The interface knows a member or it does not; whether its own cache held him is its business. The handler made
-  // with this client seeds the members and records each member read in `fetchCalls`.
   return { user: { id: 'self1', username: 'Neptunia' }, fetchCalls, knows: [...members, ...fetchable] };
 }
 
@@ -3784,7 +3774,6 @@ test('limits: in dry-run the notice is logged and mirrored, never sent to the ch
   assert.equal(line.used, 800);
   assert.equal(line.cap, 800);
   assert.equal(mirror.sent.length, 1);
-  // The mirror goes through the port, which says outright that nobody is notified.
   assert.deepEqual(mirror.sent[0].allowedMentions, { parse: [], users: [], repliedUser: false });
 });
 
@@ -4805,7 +4794,6 @@ const WAITING_LINE_BLOCKERS = [
         options: { channelOverrides: { permissionsFor } },
         block: () => {
           sendAllowed = false;
-          // The interface says it too: she may no longer send in c1.
           world().channel({ id: 'c1', guildId: 'g1', name: null, permissions: { send: false } }, { keep: true });
         },
       };
@@ -5034,7 +5022,6 @@ test('events: a message that replies to nothing fetches no message; a reply targ
   const fetched = [];
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
-  // The target m0 is a message of hers; each message the pipeline asks the interface for by id is noted.
   world().seed('c1', [
     rawHistoryMessage({ id: 'm0', authorId: 'self1', authorName: 'Neptunia', ts: Date.now() - 1000, channelId: 'c1' }),
   ]);
@@ -5469,8 +5456,7 @@ function routeGuild() {
 /**
  * A text channel of a routeGuild, no overwrites. `send`: the bot may send there (it may always
  * view, read and react). `viewers`: the ids of the roles that can view it (@everyone is `g1`).
- * Its message cache answers `messages.fetch` too (a message deleted from it is gone); `sent`
- * records what the bot posted.
+ * `sent` records what the bot posted.
  * @param {{ id: string, members: { me: object } }} guild
  * @param {string} id
  */
@@ -5487,22 +5473,17 @@ function routeChannel(guild, id, { send = true, viewers = ['g1', 'r1'] } = {}) {
         : { has: (flag) => flag === VIEW && viewers.includes(target?.id) },
     messages: { cache, fetch: async (messageId) => cache.get(messageId) ?? null },
   });
-  // The interface tells who can view it: @everyone is `g1`, the groups are the other roles.
+  const noOverwrites = { groupAllow: [], groupDeny: [], memberAllow: [], memberDeny: [], memberGroups: {} };
   const audienceOf = (/** @type {string[]} */ roles) => ({
+    ...noOverwrites,
     everyone: roles.includes('g1'),
     groups: roles.filter((role) => role !== 'g1'),
-    groupAllow: [],
-    groupDeny: [],
-    memberAllow: [],
-    memberDeny: [],
-    memberGroups: {},
   });
   const held = world().channel(
     { id, guildId: guild.id, name: id, permissions: { send }, audience: audienceOf(viewers) },
     { keep: true }
   );
   Object.defineProperty(channel, 'sent', { get: () => held.sent });
-  // Who can view it changes (the roles that can, by id).
   channel.setViewers = (/** @type {string[]} */ roles) => held.update({ audience: audienceOf(roles) });
   channel.revokeSend = () => held.permit({ send: false });
   guild.channels.cache.set(id, channel);
@@ -5526,7 +5507,6 @@ function routeScene({
   tagHistory,
   spontaneous,
 } = {}) {
-  // Each scene is a world of its own: the conversations, their lines and the persona's posts start over.
   freshWorld();
   const config = baseConfig(
     deepMerge({ memory: { mainChannelIds: ['d1'] }, bot: { nameTriggers: ['νεπτούνια'] } }, overrides)
@@ -5943,12 +5923,7 @@ test('events: a settled call the ring holds as answered starts no turn, though n
   );
 });
 
-/**
- * Replace the message lookup (the interface's `fetchMessages`) of `channel` with `answer`, counted: `count` is how
- * many lookups were made. `answer` returns null for a message that is gone, an object for one that is there, or throws.
- * @param {{ id: string }} channel
- * @param {() => Promise<unknown>} answer
- */
+/** Replace the `fetchMessages` of `channel` with `answer` (null: gone, an object: there, a throw: fails), counted. */
 function countLookups(channel, answer) {
   const lookups = { count: 0 };
   world().intercept('fetchMessages', async ([ref, ids]) => {
@@ -5957,9 +5932,7 @@ function countLookups(channel, answer) {
     try {
       const found = await answer();
       if (found === null) return { status: 'ok', messages: ids.map((messageId) => ({ messageId, missing: true })) };
-      // There: the interface answers as for any message of the conversation.
       seedExisting(channel.id, ids[0]);
-      return undefined;
     } catch {
       return { status: 'failed', error: { code: 'http-503', retryable: true, retryAfterMs: null } };
     }
@@ -6244,7 +6217,7 @@ for (const [reason, change] of [
   ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
-  ['audience', dropEveryoneFromSource],
+  ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
 ]) {
   test(`events: the route is checked again when the settle fires (${reason})`, async () => {
     const scene = routeScene();
@@ -6312,11 +6285,6 @@ test('events: the busy rules of a routed call are keyed by the main channel', as
 });
 
 /** Lets the bot keep viewing `channel` but no longer send there. */
-/** @param {{ source: { setViewers(roles: string[]): void }, sourceViewers: string[] }} scene */
-function dropEveryoneFromSource(scene) {
-  scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'));
-}
-
 function revokeSend(scene, channel) {
   channel.revokeSend();
 }
@@ -6516,7 +6484,7 @@ for (const [reason, change] of [
   ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
-  ['audience', dropEveryoneFromSource],
+  ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
 ]) {
   test(`events: the drain checks the route of a queued routed ping again (${reason})`, async () => {
     let busy = true;
@@ -8172,7 +8140,6 @@ function liveScene({
   };
   let t = LIVE_T0;
   const now = () => t;
-  // Every message sent so far is the history of the conversation, in the interface.
   const history = [];
   const client = fakeDmClient();
   const store = fakePrivateStore();

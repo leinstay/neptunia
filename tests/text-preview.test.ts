@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchTextPreview, withTextPreviews } from '../src/media/text-preview.ts';
 
+type Attached = {
+  id: string;
+  attachments: Array<{ id: string; kind: string; name: string; url: string; previewText?: string }>;
+};
 type Answer = { ok: boolean; headers: { get(name: string): string | null }; text(): Promise<string> };
 
 function fakeFetch(body: string, { ok = true, headers = {} }: { ok?: boolean; headers?: Record<string, string> } = {}) {
@@ -38,7 +42,7 @@ test('fetchTextPreview falls back to null instead of throwing when the fetch fai
 });
 
 test('withTextPreviews fills previewText on text attachments only and leaves the input untouched', async () => {
-  const messages = [
+  const messages: Array<Attached> = [
     { id: 'm1', attachments: [{ id: 't1', kind: 'text', name: 'a.txt', url: 'https://x/a.txt' }] },
     { id: 'm2', attachments: [{ id: 'i1', kind: 'image', name: 'b.png', url: 'https://x/b.png' }] },
   ];
@@ -49,7 +53,9 @@ test('withTextPreviews fills previewText on text attachments only and leaves the
 });
 
 test('withTextPreviews leaves the attachment without previewText when the fetch fails', async () => {
-  const messages = [{ id: 'm1', attachments: [{ id: 't1', kind: 'text', name: 'a.txt', url: 'https://x/a.txt' }] }];
+  const messages: Array<Attached> = [
+    { id: 'm1', attachments: [{ id: 't1', kind: 'text', name: 'a.txt', url: 'https://x/a.txt' }] },
+  ];
   const result = await withTextPreviews(messages, 20, () => Promise.reject(new Error('boom')));
   assert.equal(result[0]?.attachments[0]?.previewText, undefined);
 });

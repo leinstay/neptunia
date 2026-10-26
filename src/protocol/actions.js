@@ -43,7 +43,7 @@ import { readAction } from './reads.ts';
  * A normalised error: a kebab-case or `http-<status>` code and whether trying again later could
  * succeed. Adapters may add `cause` (the platform's own error) for the logs; it never reaches the
  * model.
- * @typedef {{ code: string, retryable: boolean, cause?: unknown }} PortError
+ * @typedef {{ code: string, retryable: boolean, retryAfterMs?: number | null, cause?: unknown }} PortError
  */
 
 /**

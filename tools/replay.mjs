@@ -3060,7 +3060,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     };
     const hide = hideSetsOf(args);
     const capabilities = mods.createDiscordInterface({ client }).capabilities;
-    // What the turn and the scheduler read of the interface, minus what the run hides.
     const discordPort = mods.createDiscordInterface({ client, config: () => hot.config }).port;
     const reads = hiddenReads(mods.createReads(discordPort, log), hide);
 
@@ -5597,8 +5596,7 @@ async function runSkills({
         at: ts,
         tagged,
       });
-    // The config with her grants, read now and kept for the scenario (both sides); never written.
-    // --core-tools: features.coreTools on in that copy; --transport: the tools' transport.
+    // The config with her grants, read now and kept for the scenario (both sides), never written; --core-tools and --transport set it.
     const scenarioConfig = personaGrantsConfig(
       withTransport(args.coreTools ? withCoreTools(hot.config) : hot.config, args.transport),
       self.id,
@@ -6391,8 +6389,7 @@ export async function runTriggerLoops({
     const requester = requesterOf(triggerLine, channel);
     const answers = {};
     const runs = {};
-    // What a live turn runs before her reply, once for every side: the memory prefetch with features.coreTools on,
-    // else the search classifier and its searches (preTurnLookup over private copies).
+    // What a live turn runs before her reply, once per side: the memory prefetch (coreTools on), else the search classifier.
     const baseConfig = structuredClone(hot.config);
     const baseHot = {
       get prompts() {
@@ -7172,8 +7169,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     await load('ops/index.js');
     const { skillRegistry } = await load('skills/registry.js');
     const { expandPersonaGrant } = await load('ops/access.js');
-    const { requesterOf: turnRequesterOf, callViewOf } = await load('behavior/turn.js');
-    const requesterOf = requesterOfChannel(turnRequesterOf);
+    const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('skills/discovery.js');
     // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.
@@ -7186,7 +7182,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       personaGrantsConfig,
       replayMedia,
       fetchHistoryWindow,
-      requesterOf,
+      requesterOf: requesterOfChannel(requesterOf),
       callViewOf,
       skillRegistry,
       expandPersonaGrant,

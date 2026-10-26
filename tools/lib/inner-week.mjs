@@ -54,8 +54,6 @@ import {
   POSTING_SKILLS,
 } from '../../src/behavior/inner.js';
 import { createEventDoor } from '../../src/interface/door.js';
-import { createFakeAdapter } from '../../src/interface/fake.js';
-import { createReads } from '../../src/interface/reads.ts';
 import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
@@ -63,6 +61,7 @@ import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
 import { answerOf } from '../../src/behavior/turn.js';
+import { weekReads } from './platform-objects.ts';
 
 /** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
 const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'task.status', 'task.list']);
@@ -817,26 +816,7 @@ export async function runWeek({
     for (const fn of listeners) fn(entry);
   };
 
-  // The week's interface: the fixture's channels as conversations, writable or not, and the reads over them.
-  const adapter = createFakeAdapter({ iface: 'inner-week', selfId: 'self' });
-  for (const channel of fixture.channels)
-    adapter.seedConversation({
-      id: channel.id,
-      kind: 'channel',
-      communityId: guildId,
-      name: channel.name,
-      topic: null,
-      category: null,
-      chatType: 'channel',
-      iface: adapter.iface,
-      permissions: { read: true, send: channel.writable !== false, attach: true, react: true },
-      owner: null,
-      lastMessageAt: null,
-      voice: false,
-      public: true,
-      audience: null,
-    });
-  const reads = createReads(adapter, log);
+  const { reads, iface } = weekReads(fixture.channels, guildId, log);
   // The record: her lines of the history (the review's hours) and every line of the week's chat
   // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
@@ -1130,7 +1110,7 @@ export async function runWeek({
           journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }),
       },
       reads,
-      iface: () => adapter.iface,
+      iface: () => iface,
       submit: (event) => door.submit(event),
       store: { state: { data: {} } },
       getGuildId: () => guildId,

@@ -25,7 +25,7 @@ import type { Snapshot } from './snapshot.ts';
 
 type Config = {
   bot?: { dryRunChannelId?: unknown };
-  features?: { mediaDescriptions?: unknown };
+  features?: { mediaDescriptions?: unknown; elsewhere?: unknown; channelPull?: unknown };
 } & Record<string, unknown>;
 
 type Timers = { set(fn: () => void, ms: number): unknown; clear(timer: unknown): void };
