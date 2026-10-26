@@ -11,7 +11,7 @@
     "tests/admin.test.js": 3882,
     "tests/collect.test.js": 2137,
     "tests/describe.test.js": 3748,
-    "tests/events.test.js": 9310,
+    "tests/events.test.js": 9301,
     "tests/format.test.js": 2078,
     "tests/inner.test.js": 2447,
     "tests/memory-db-session.test.js": 2111,
@@ -126,7 +126,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2810
+        "function-length": 2808
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21
@@ -710,7 +710,7 @@
     },
     "src/protocol/envelope.js": {
       "validateEnvelope": {
-        "complexity": 32
+        "complexity": 25
       }
     },
     "src/skills/conversation-read.js": {
@@ -976,9 +976,6 @@
   },
   "structure": {
     "imports": {
-      "interfaces/discord/around.js": [
-        "src/behavior/around.js"
-      ],
       "interfaces/discord/audience-warm.js": [
         "src/log.js"
       ],
