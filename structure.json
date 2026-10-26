@@ -316,7 +316,7 @@
     },
     {
       "path": "src/interface/",
-      "purpose": "The core side of the interface port: the door that admits events, the fake interface and typing leases.",
+      "purpose": "The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -372,7 +372,7 @@
     },
     {
       "path": "src/protocol/",
-      "purpose": "The neutral protocol of events, actions and envelopes between the core and its interfaces.",
+      "purpose": "The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

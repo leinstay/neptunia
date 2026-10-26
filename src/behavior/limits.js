@@ -132,11 +132,13 @@ export async function mirrorDryRun({ client, dryRunChannelId, header, body }) {
  * instead of sent. `labels` and `config` are the caller's `hot.prompts.labels`
  * and `hot.config`, read at the moment of use. A missing label or limit posts
  * nothing. Never throws: a failed send is logged.
- * @param {{ channel: object, trigger?: { id?: string }|null, limit: { key: string, used: number, cap: number }|null,
- *   asReply: boolean, labels: object, config: object, client: object }} args
+ * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null,
+ *   limit: { key: string, used: number, cap: number }|null, asReply: boolean, labels: object, config: object,
+ *   client: object, port: { iface: string, send: Function } }} args
+ *   `port` is the interface adapter the notice goes out through; `client` is only the dry-run mirror's.
  * @returns {Promise<'sent'|'dry-run'|'none'|'failed'>}
  */
-export async function postLimitNotice({ channel, trigger, limit, asReply, labels, config, client }) {
+export async function postLimitNotice({ channel, trigger, limit, asReply, labels, config, client, port }) {
   const text = limit ? limitNotice(labels, limit) : '';
   if (!text) return 'none';
   return sendNotice({
@@ -146,6 +148,7 @@ export async function postLimitNotice({ channel, trigger, limit, asReply, labels
     asReply,
     config,
     client,
+    port,
     tag: 'limit',
     dryRunLog: ['dry-run: would notify limit', { key: limit.key, used: limit.used, cap: limit.cap }],
     sentLog: ['limits: notice sent', { key: limit.key }],
@@ -159,11 +162,11 @@ export async function postLimitNotice({ channel, trigger, limit, asReply, labels
  * of sent with `features.dryRun`). `kind` is how the persona was called (a
  * trigger kind or `private`), for the log. A missing label posts nothing.
  * Never throws.
- * @param {{ channel: object, trigger?: { id?: string }|null, kind: string, asReply: boolean,
- *   labels: object, config: object, client: object }} args
+ * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null, kind: string,
+ *   asReply: boolean, labels: object, config: object, client: object, port: { iface: string, send: Function } }} args
  * @returns {Promise<'sent'|'dry-run'|'none'|'failed'>}
  */
-export async function postPauseNotice({ channel, trigger, kind, asReply, labels, config, client }) {
+export async function postPauseNotice({ channel, trigger, kind, asReply, labels, config, client, port }) {
   const text = pauseNotice(labels);
   if (!text) return 'none';
   return sendNotice({
@@ -173,6 +176,7 @@ export async function postPauseNotice({ channel, trigger, kind, asReply, labels,
     asReply,
     config,
     client,
+    port,
     tag: 'pause',
     dryRunLog: ['dry-run: would notify pause', { kind }],
     sentLog: ['limits: pause notice', { kind }],
@@ -181,11 +185,16 @@ export async function postPauseNotice({ channel, trigger, kind, asReply, labels,
 
 /**
  * The one sender behind both notices: in dry-run log `dryRunLog` and mirror
- * `text` under a `· <tag>` header; otherwise send it (a Discord reply to
- * `trigger` when `asReply`, no mentions) and log `sentLog`. Each log is
- * `[event, fields]`; the channel id is added. Never throws.
+ * `text` under a `· <tag>` header; otherwise send it through `port` (a reply
+ * to `trigger` when `asReply`, no mentions) and log `sentLog`. Each log is
+ * `[event, fields]`; the channel id is added. A send the adapter does not
+ * answer `ok` is `failed`. Never throws.
+ * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null, text: string, asReply: boolean,
+ *   config: any, client: any, port: import('../protocol/adapter.ts').Adapter, tag: string,
+ *   dryRunLog: [string, object], sentLog: [string, object] }} args
+ * @returns {Promise<'sent'|'dry-run'|'failed'>}
  */
-async function sendNotice({ channel, trigger, text, asReply, config, client, tag, dryRunLog, sentLog }) {
+async function sendNotice({ channel, trigger, text, asReply, config, client, port, tag, dryRunLog, sentLog }) {
   try {
     if (config?.features?.dryRun === true) {
       log.info(dryRunLog[0], { channel: channel.id, ...dryRunLog[1] });
@@ -198,11 +207,16 @@ async function sendNotice({ channel, trigger, text, asReply, config, client, tag
       return 'dry-run';
     }
     const replyId = asReply ? (trigger?.id ?? null) : null;
-    await channel.send({
-      content: text,
-      reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
-      allowedMentions: { parse: [] },
+    const conversation = { iface: port.iface, conversationId: channel.id };
+    const delivery = await port.send(conversation, {
+      text,
+      ...(replyId ? { replyTo: { ...conversation, messageId: replyId } } : {}),
+      mentions: { users: [], repliedUser: false },
     });
+    if (delivery.status !== 'ok') {
+      log.warn('limits: notice failed', { channel: channel.id, status: delivery.status, code: delivery.error?.code });
+      return 'failed';
+    }
     log.info(sentLog[0], { channel: channel.id, ...sentLog[1] });
     return 'sent';
   } catch (err) {

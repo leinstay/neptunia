@@ -23,14 +23,8 @@
     }
   },
   "interfaces/discord/around.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 12
+      "count": 1
     }
   },
   "interfaces/discord/audience-warm.js": {
@@ -324,7 +318,7 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 43
+      "count": 42
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
@@ -484,16 +478,16 @@
   },
   "src/behavior/limits.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 16
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 16
+      "count": 7
     }
   },
   "src/behavior/mention.js": {
@@ -593,16 +587,16 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 165
+      "count": 159
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 411
+      "count": 382
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 54
+      "count": 50
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 479
+      "count": 413
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
@@ -1119,13 +1113,13 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 42
+      "count": 41
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 89
+      "count": 88
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 27
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 86
@@ -3565,11 +3559,8 @@
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 5
     },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 14
+      "count": 1
     }
   },
   "src/protocol/origin.js": {

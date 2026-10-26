@@ -34,7 +34,7 @@ export function eventIdOf(event) {
 
 /**
  * @param {object} options
- * @param {Record<string, (event: object) => unknown>} options.handlers  By event kind. A kind without one is `unhandled`.
+ * @param {Record<string, (event: never) => unknown>} options.handlers  By event kind, each taking the event type of its kind. A kind without one is `unhandled`.
  * @param {number} [options.capacity]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
@@ -84,8 +84,8 @@ export function createEventDoor({ handlers, capacity = DEFAULT_CAPACITY, log = d
   }
 
   /**
-   * One envelope through the door; answers an `ack` envelope (never throws).
-   * @param {unknown} value
+   * One envelope through the door; answers an `ack` envelope (never throws). Whatever arrives is checked first.
+   * @param {{ id: string, type: string, body: object }} value
    */
   async function receive(value) {
     const verdict = validateEnvelope(value);

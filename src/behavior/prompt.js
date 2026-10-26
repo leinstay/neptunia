@@ -3291,7 +3291,7 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  * @param {number|null} [input.toolsTokens]  The calibrated tokens the request's `tools` field costs
  *   (the native transport): taken off the room the sections share, so the request stays under the cap.
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
- *   The live glance at the server's sidebar (interfaces/discord/around.js): `snapshot` is the
+ *   The live glance at the server's sidebar (src/behavior/around-store.ts): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
  *   null: left out). It is the live part of `<people_now>`, in the tail right after `<skills>`
  *   and before `<chat>`, never in a cached part: one entry per person

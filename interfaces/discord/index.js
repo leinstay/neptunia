@@ -2,7 +2,7 @@
 // adapter of the interface port (port.js), message normalization and the inbound protocol events
 // with the history and permission reads (collect.js), pulling and searching other channels
 // (pull-fetch.js, search.js), the reactor store (reactors.js), the live voice and presence
-// records (around.js), the custom emoji index (emoji.js), the served guild (guild.js), member
+// event builders (around.js), the handles kept off the events (raw-registry.ts), the custom emoji index (emoji.js), the served guild (guild.js), member
 // cache warming (audience-warm.js) and the slash commands (commands.js), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
 // through src/interface/discord.js; what it still imports from the core is by relative path
@@ -14,6 +14,7 @@ export * from './pull-fetch.js';
 export * from './search.js';
 export * from './reactors.js';
 export * from './around.js';
+export * from './raw-registry.ts';
 export * from './emoji.js';
 export * from './guild.js';
 export * from './audience-warm.js';

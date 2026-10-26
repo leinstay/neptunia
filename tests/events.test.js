@@ -26,6 +26,7 @@ import {
 } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
+import { createFakeAdapter } from '../src/interface/fake.js';
 
 /** The Discord functions the pipeline is given, the real ones src/index.js passes. */
 const DISCORD = createDiscordInterface().capabilities;
@@ -195,6 +196,22 @@ function fakeDescriber() {
   };
 }
 
+/** @typedef {{ text: string, replyTo: { messageId: string } | null, mentions: object }} Notice The notices a handler's fake adapter holds (`handler.port`). */
+/** @type {(handler: { port: ReturnType<typeof createFakeAdapter> }, id: string) => Notice[]} */
+const noticesOf = (handler, id) =>
+  /** @type {Notice[]} */ (/** @type {unknown} */ (handler.port.messagesIn(id))).map(({ text, replyTo, mentions }) => ({
+    text,
+    replyTo,
+    mentions,
+  }));
+const textsOf = (/** @type {Parameters<typeof noticesOf>[0]} */ handler, /** @type {string} */ id) =>
+  noticesOf(handler, id).map((notice) => notice.text);
+const lineOf = (/** @type {string} */ text, /** @type {string} */ conversationId = '', messageId = '') => ({
+  text,
+  replyTo: messageId ? { iface: 'fake', conversationId, messageId } : null,
+  mentions: { users: [], repliedUser: false },
+});
+
 function makeHandler({
   config,
   turns,
@@ -218,6 +235,7 @@ function makeHandler({
 } = {}) {
   const hot = prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() };
   const discord = client ?? fakeClient();
+  const port = createFakeAdapter();
   const handler = createMessageHandler({
     hot,
     store: store ?? fakeStore(),
@@ -238,8 +256,9 @@ function makeHandler({
     activity,
     record,
     missed,
+    port,
   });
-  return asDiscordEvents(handler, hot, discord);
+  return Object.assign(asDiscordEvents(handler, hot, discord), { port });
 }
 
 /**
@@ -3346,7 +3365,7 @@ test('private: every gate reason drops the DM without a turn or an observe', asy
     assert.equal(turns.calls.length, 0, `${reason}: no turn`);
     assert.equal(memory.observeCalls.length, 0, `${reason}: no observe`);
     assert.equal(spontaneous.onMessageCalls.length, 0, `${reason}: no eavesdrop`);
-    assert.equal(message.channel.sent.length, 0, `${reason}: nothing sent`);
+    assert.deepEqual(noticesOf(handler, 'dm1'), [], `${reason}: nothing sent`);
   }
 });
 
@@ -3435,10 +3454,11 @@ test('private: the daily cap posts the limit notice once a day and marks it noti
   await handler(fakeDmMessage({ channel, id: 'dm-m2' }));
   await settle();
 
-  assert.equal(channel.sent.length, 1, 'one notice, not one per message');
-  assert.equal(channel.sent[0].content, 'limit reached (private.maxPerUserPerDay, 100/100)');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [] });
-  assert.equal(channel.sent[0].reply.messageReference, 'dm-m1');
+  assert.deepEqual(
+    noticesOf(handler, channel.id),
+    [lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1')],
+    'one notice, not one per message'
+  );
   assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
   assert.equal(turns.calls.length, 0);
   assert.equal(memory.observeCalls.length, 0);
@@ -3452,8 +3472,7 @@ test("private: an owner's cap notice names private.maxPerOwnerPerDay", async () 
     fakeDmMessage({ channel, author: { id: 'owner1', bot: false, globalName: 'Owner', username: 'owner' } })
   );
   await settle();
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'limit reached (private.maxPerOwnerPerDay, 200/200)');
+  assert.deepEqual(textsOf(handler, channel.id), ['limit reached (private.maxPerOwnerPerDay, 200/200)']);
 });
 
 test('private: a DM that passes is observed privately, answered with the pinned guildId, then counted', async () => {
@@ -3480,7 +3499,7 @@ test('private: a DM that passes is observed privately, answered with the pinned 
   assert.equal(args.trigger.id, 'dm-m1');
   assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
   assert.equal(spontaneous.onMessageCalls.length, 0);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
 });
 
 test('private: a turn that never reached the model is not counted against the daily cap', async () => {
@@ -3508,8 +3527,7 @@ test('private: a DM refused by a rail posts the limit notice', async () => {
   const handler = makeDmHandler({ turns, store });
   await handler(fakeDmMessage({ channel }));
   await settle();
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'limit reached (llm.maxRequestsPerDay, 800/800)');
+  assert.deepEqual(textsOf(handler, channel.id), ['limit reached (llm.maxRequestsPerDay, 800/800)']);
   assert.deepEqual(store.bumps, []);
 });
 
@@ -3591,39 +3609,39 @@ async function drainAfter(change, { privates = {} } = {}) {
   change({ profiles, privates, config });
   busy = false;
   const { logs } = await withCapturedLogs(() => handler.drainPending());
-  return { turns, store, channel, logs };
+  return { turns, store, channel, logs, handler };
 }
 
 test('private: a queued DM whose author was forgotten meanwhile is dropped at drain time', async () => {
-  const { turns, store, channel, logs } = await drainAfter(({ profiles }) => {
+  const { turns, store, channel, logs, handler } = await drainAfter(({ profiles }) => {
     delete profiles.u1; // /nep memory forget
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.bumps, []);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'unknown');
 });
 
 test('private: a queued DM is dropped at drain time once the previous turn hit the cap, with the once-a-day notice', async () => {
-  const { turns, store, channel, logs } = await drainAfter(({ privates }) => {
+  const { turns, store, channel, logs, handler } = await drainAfter(({ privates }) => {
     privates.u1 = { replies: { day: TODAY, count: 100, noticedDay: '' } };
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.bumps, []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'cap');
   assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'limit reached (private.maxPerUserPerDay, 100/100)');
-  assert.equal(channel.sent[0].reply.messageReference, 'dm-m1');
+  assert.deepEqual(noticesOf(handler, channel.id), [
+    lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1'),
+  ]);
 });
 
 test('private: a queued DM is dropped at drain time when features.privateMessages was switched off', async () => {
-  const { turns, store, channel, logs } = await drainAfter(({ config }) => {
+  const { turns, store, channel, logs, handler } = await drainAfter(({ config }) => {
     config.features.privateMessages = false;
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.bumps, []);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'off');
 });
 
@@ -3699,17 +3717,7 @@ function refusedTurns() {
   return recordingTurns({ outcome: 'refused', limit: { key: 'llm.maxRequestsPerDay', used: 800, cap: 800 } });
 }
 
-function sendingChannel(id = 'c1', guild = fakeGuild()) {
-  const sent = [];
-  const channel = fakeChannelWithMessage(id, guild, 'm1', {
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: 'notice1' };
-    },
-  });
-  channel.sent = sent;
-  return channel;
-}
+const sendingChannel = (id = 'c1', guild = fakeGuild()) => fakeChannelWithMessage(id, guild, 'm1');
 
 test('limits: a mention refused by a rail posts the notice as a plain reply to the trigger', async () => {
   const turns = refusedTurns();
@@ -3720,10 +3728,7 @@ test('limits: a mention refused by a rail posts the notice as a plain reply to t
   await settle();
 
   assert.equal(turns.calls.length, 1);
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'limit reached (llm.maxRequestsPerDay, 800/800)');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [] });
-  assert.equal(channel.sent[0].reply.messageReference, 'm1');
+  assert.deepEqual(noticesOf(handler, 'c1'), [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)', 'c1', 'm1')]);
 });
 
 test('limits: a pending mention refused at drain time posts the notice', async () => {
@@ -3740,8 +3745,7 @@ test('limits: a pending mention refused at drain time posts the notice', async (
   await handler.drainPending();
 
   assert.equal(turns.calls.length, 1);
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'limit reached (llm.maxRequestTokens, 51000/50000)');
+  assert.deepEqual(textsOf(handler, 'c1'), ['limit reached (llm.maxRequestTokens, 51000/50000)']);
 });
 
 test('limits: a refusal with no limit, or another outcome, posts nothing', async () => {
@@ -3751,7 +3755,7 @@ test('limits: a refusal with no limit, or another outcome, posts nothing', async
     const handler = makeHandler({ turns: recordingTurns(result), rng: scripted([0.99]), prompts: { labels } });
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, JSON.stringify(result));
+    assert.deepEqual(noticesOf(handler, 'c1'), [], JSON.stringify(result));
   }
 });
 
@@ -3769,7 +3773,7 @@ test('limits: in dry-run the notice is logged and mirrored, never sent to the ch
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
   });
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, 'c1'), []);
   const line = logs.find((l) => l.msg === 'dry-run: would notify limit');
   assert.ok(line);
   assert.equal(line.key, 'llm.maxRequestsPerDay');
@@ -3783,13 +3787,7 @@ test('limits: a follow-up turn refused by a rail posts the notice', async () => 
   const llm = fakeFollowUpLlm();
   const turns = refusedTurns();
   const guild = fakeGuild();
-  const sent = [];
-  const channel = fakeChannelWithHistory('c1', guild, [], {
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: 'notice1' };
-    },
-  });
+  const channel = fakeChannelWithHistory('c1', guild, []);
   const handler = makeHandler({ turns, llm, prompts: fakeAddressPrompts() });
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
 
@@ -3802,10 +3800,11 @@ test('limits: a follow-up turn refused by a rail posts the notice', async () => 
   await settle();
 
   assert.equal(turns.calls.length, 1);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].content, 'limit reached (llm.maxRequestsPerDay, 800/800)');
-  assert.deepEqual(sent[0].allowedMentions, { parse: [] });
-  assert.equal(sent[0].reply, undefined, 'a follow-up never posts as a Discord reply, its notice neither');
+  assert.deepEqual(
+    noticesOf(handler, 'c1'),
+    [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)')],
+    'a follow-up never posts as a reply, its notice neither'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -4574,15 +4573,7 @@ test('follow-up: with mention.pendingOverheard off, an "overheard" answer that f
 });
 
 test('limits: an overheard turn refused by a rail posts no notice', async () => {
-  const sent = [];
-  const send = async (payload) => {
-    sent.push(payload);
-    return { id: 'notice1' };
-  };
-  const { llm, handler, guild, channel, turns } = await overheardScene({
-    turns: refusedTurns(),
-    channelOverrides: { send },
-  });
+  const { llm, handler, guild, channel, turns } = await overheardScene({ turns: refusedTurns() });
 
   const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'she again' }));
   await tick();
@@ -4592,7 +4583,7 @@ test('limits: an overheard turn refused by a rail posts no notice', async () => 
 
   assert.equal(turns.calls.length, 1);
   assert.equal(turns.calls[0].triggerKind, 'overheard');
-  assert.equal(sent.length, 0, 'nobody asked: no limit notice');
+  assert.deepEqual(noticesOf(handler, 'c1'), [], 'nobody asked: no limit notice');
 });
 
 /**
@@ -4985,7 +4976,7 @@ test('private: a pause landing during the switch pause drops the drained DM: no 
 
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.noticed, [], 'nothing marked while paused');
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
 });
 
 test('follow-up persistence: while paused an expired window stays in state and nothing is marked dirty', () => {
@@ -7059,11 +7050,11 @@ test('events: a refused routed turn posts the notice in the destination, not as 
 
     assert.equal(turns.calls.length, 1, `queued ${queued}`);
     assert.deepEqual(
-      scene.main.sent,
-      [{ content: 'limit reached (llm.maxRequestsPerDay, 800/800)', reply: undefined, allowedMentions: { parse: [] } }],
+      noticesOf(scene.handler, 'd1'),
+      [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)')],
       `queued ${queued}: one plain line in the main channel, quoting nothing`
     );
-    assert.equal(scene.source.sent.length, 0, 'never in the channel it cannot write in');
+    assert.deepEqual(noticesOf(scene.handler, 's1'), [], 'never in the channel it cannot write in');
     assert.deepEqual(
       byMsg(logs, 'limits: notice sent').map((entry) => entry.channel),
       ['d1']
@@ -7084,8 +7075,10 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     ...fakeClient(),
     channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
   };
+  const port = createFakeAdapter();
   scene.handler = asDiscordEvents(
     createMessageHandler({
+      port,
       hot: mirrorHot,
       store: scene.store,
       client: mirrorClient,
@@ -7103,10 +7096,11 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     mirrorHot,
     mirrorClient
   );
+  scene.handler.port = port;
   await routeSend(scene, scene.source, 0, { id: 'm1' });
   const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
-  assert.deepEqual([scene.main.sent, scene.source.sent], [[], []]);
+  assert.deepEqual([noticesOf(scene.handler, 'd1'), noticesOf(scene.handler, 's1')], [[], []]);
   assert.deepEqual(
     byMsg(logs, 'dry-run: would notify limit').map((entry) => entry.channel),
     ['d1']
@@ -7806,10 +7800,7 @@ for (const { kind, extra } of PAUSED_CALLS) {
       await scene.handler(directPingMessage({ guild, channel, channelId: 'c1', ...extra }));
       await settle();
     });
-    assert.equal(channel.sent.length, 1);
-    assert.equal(channel.sent[0].content, labels.limits.paused);
-    assert.equal(channel.sent[0].reply.messageReference, 'm1');
-    assert.deepEqual(channel.sent[0].allowedMentions, { parse: [] });
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [lineOf(labels.limits.paused, 'c1', 'm1')]);
     const lines = logs.filter((l) => l.msg === 'limits: pause notice');
     assert.deepEqual(
       lines.map((l) => [l.channel, l.kind]),
@@ -7872,7 +7863,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
     const channel = pausedChannel('c1', guild);
     await scene.handler(message(guild, channel));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7890,7 +7881,7 @@ test('pause notice: a call where the bot may not answer stays silent', async () 
     const channel = pausedChannel('c1', guild, overrides);
     await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7906,14 +7897,14 @@ test('pause notice: a second call inside the interval posts nothing and logs not
     await scene.handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1' }));
     await scene.handler(directPingMessage({ id: 'm3', guild, channel: other, channelId: 'c2' }));
   });
-  assert.equal(channel.sent.length, 1, 'inside the interval: nothing');
-  assert.equal(other.sent.length, 1, 'the interval is per channel');
+  assert.equal(noticesOf(scene.handler, 'c1').length, 1, 'inside the interval: nothing');
+  assert.equal(noticesOf(scene.handler, 'c2').length, 1, 'the interval is per channel');
   assert.equal(logs.filter((l) => l.msg === 'limits: pause notice').length, 2);
 
   scene.now.set(PAUSE_T0 + 10 * 60 * 1000);
   await scene.handler(directPingMessage({ id: 'm4', guild, channel, channelId: 'c1' }));
-  assert.equal(channel.sent.length, 2, 'after the interval: again');
-  assert.equal(channel.sent[1].reply.messageReference, 'm4');
+  assert.equal(noticesOf(scene.handler, 'c1').length, 2, 'after the interval: again');
+  assert.equal(noticesOf(scene.handler, 'c1')[1]?.replyTo?.messageId, 'm4');
   assertPausedQuiet(scene, 'interval');
 });
 
@@ -7923,7 +7914,7 @@ test('pause notice: an interval of 0 lets every call get one', async () => {
   const channel = pausedChannel('c1', guild);
   await scene.handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1' }));
   await scene.handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1' }));
-  assert.equal(channel.sent.length, 2);
+  assert.equal(noticesOf(scene.handler, 'c1').length, 2);
 });
 
 test('pause notice: the switch off or a missing label posts nothing', async () => {
@@ -7947,7 +7938,7 @@ test('pause notice: the switch off or a missing label posts nothing', async () =
     const channel = pausedChannel('c1', guild);
     await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7966,7 +7957,7 @@ test('pause notice: in a dry run it is mirrored, never posted', async () => {
   const channel = pausedChannel('c1', guild);
   await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
   await settle();
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(scene.handler, 'c1'), []);
   assert.equal(mirrored.length, 1);
   assert.ok(mirrored[0].content.endsWith(`\n${labels.limits.paused}`));
   assertPausedQuiet(scene, 'dry run');
@@ -7999,10 +7990,11 @@ test('pause notice: a private message from someone the gate lets through gets it
     await scene.handler(message);
     await settle();
   });
-  assert.equal(message.channel.sent.length, 1);
-  assert.equal(message.channel.sent[0].content, labels.limits.paused);
-  assert.equal(message.channel.sent[0].reply.messageReference, 'dm-m1', 'quoted like the private limit notice');
-  assert.deepEqual(message.channel.sent[0].allowedMentions, { parse: [] });
+  assert.deepEqual(
+    noticesOf(scene.handler, 'dm1'),
+    [lineOf(labels.limits.paused, 'dm1', 'dm-m1')],
+    'quoted like the private limit notice'
+  );
   assert.deepEqual(
     logs.filter((l) => l.msg === 'limits: pause notice').map((l) => [l.channel, l.kind]),
     [['dm1', 'private']]
@@ -8016,8 +8008,7 @@ test('pause notice: the private daily cap alone does not withhold it', async () 
   const message = fakeDmMessage();
   await scene.handler(message);
   await settle();
-  assert.equal(message.channel.sent.length, 1);
-  assert.equal(message.channel.sent[0].content, labels.limits.paused);
+  assert.deepEqual(textsOf(scene.handler, 'dm1'), [labels.limits.paused]);
   assert.deepEqual(scene.store.noticed, [], 'no cap notice is marked while paused');
   assertPausedQuiet(scene, 'cap');
 });
@@ -8033,7 +8024,7 @@ test('pause notice: a private message the gate refuses gets nothing', async () =
     const message = fakeDmMessage();
     await scene.handler(message);
     await settle();
-    assert.equal(message.channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'dm1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });

@@ -6403,7 +6403,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The live part of `<people_now>` (interfaces/discord/around.js): the snapshot of the voice channels and
+   * The live part of `<people_now>` (src/behavior/around-store.ts): the snapshot of the voice channels and
    * of the statuses (the prompt builder computes each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
@@ -6413,7 +6413,7 @@ export function createTurnRunner({
     if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
     const guild = channel.guild;
     return {
-      snapshot: around.snapshot(),
+      snapshot: around.view(),
       channelNameOf: (channelId) => {
         const voice = guild?.channels?.cache?.get?.(channelId);
         const visible = voice?.permissionsFor?.(guild.roles?.everyone)?.has?.('ViewChannel') === true;

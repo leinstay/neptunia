@@ -17,8 +17,7 @@
 // interfaces/discord/collect.js, so it can be driven with plain fake objects in
 // tests. The few Discord functions it calls (a permission check, the history
 // and message fetches, the normalization and the event builder) come injected
-// as `discord` by its caller, src/index.js: nothing here imports the Discord
-// interface package.
+// as `discord` by its caller, src/index.js: nothing here imports the Discord interface package.
 
 import { isOwnerId } from '../ops/grants.js';
 import {
@@ -62,6 +61,8 @@ import { roomQuestionChance } from './spontaneous.js';
 import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
 import { privateGate } from './private.js';
+import { defaultRawOf, handlesOf } from './raw-handles.ts';
+/** @typedef {{ message: import('discord.js').Message, previous: import('discord.js').Message|null }} RawPair */
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
 import {
   isVideoVisionOn,
@@ -273,11 +274,12 @@ function mediaIdsOf(message) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @returns {(event: import('../protocol/index.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
+ * @param {(event: { id: string }) => RawPair|null} [deps.rawOf]  The discord.js message of an event and the old one of an edit. With the link the Discord side keeps them under the event id.
+ * @param {{ iface: string, send: Function }} [deps.port]  The adapter the limit and pause notices go out through.
+ * @returns {(event: import('../protocol/index.js').MessageReceived & { raw?: import('discord.js').Message }) => Promise<void>}
  *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
  *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
- *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
- *   stage 4 of the structure rework) only for its channel, guild, history and sends. Also carries a
+ *   from the event, and the discord.js message (through `rawOf`) only for its channel, guild, history and sends. Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
  *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a
@@ -315,6 +317,8 @@ export function createMessageHandler({
   record = null,
   missed = null,
   memoryDb = null,
+  rawOf = defaultRawOf,
+  port,
 }) {
   const { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } = discord;
 
@@ -1251,6 +1255,7 @@ export function createMessageHandler({
       labels: hot.prompts?.labels,
       config: hot.config,
       client,
+      port,
     });
   }
 
@@ -2531,7 +2536,7 @@ export function createMessageHandler({
    * ignore roll, follow-up window, eavesdrop or address classifier here.
    */
   async function onPrivateMessage(event, config) {
-    const message = event.raw;
+    const message = rawOf(event)?.message;
     const features = config.features ?? {};
     if (features.privateMessages !== true) return;
     const selfId = client.user.id;
@@ -2614,7 +2619,7 @@ export function createMessageHandler({
    * (an untagged follow-up included: it would need the address classifier).
    */
   async function pausedCall(event, config) {
-    const message = event.raw;
+    const message = rawOf(event)?.message;
     const features = config.features ?? {};
     const selfId = client.user.id;
     if (message.author?.bot || message.author?.id === selfId) return null;
@@ -2664,7 +2669,7 @@ export function createMessageHandler({
     const t = now();
     if (minutes > 0 && last !== undefined && t - last < minutes * MINUTE_MS) return;
     pauseNoticeAt.set(call.channel.id, t);
-    await postPauseNotice({ ...call, asReply: true, labels, config, client });
+    await postPauseNotice({ ...call, asReply: true, labels, config, client, port });
   }
 
   /**
@@ -2750,9 +2755,7 @@ export function createMessageHandler({
 
   async function handleMessage(event, catchUp) {
     try {
-      // The discord.js message behind the event: still needed for the channel, the guild and
-      // the sends of this stage; everything the normaliser gave is read from the event.
-      const message = event.raw;
+      const message = rawOf(event)?.message;
       // 1. System / webhook messages are not conversation.
       if (message.system || message.webhookId) return 'ignored';
 
@@ -2941,7 +2944,7 @@ export function createMessageHandler({
       const features = config.features ?? {};
       if (features.embedUpdates === false || features.memory === false) return;
       if (store?.state?.data?.paused) return;
-      let message = event.raw;
+      let message = rawOf(event)?.message;
       let edited = event;
       const guildId = message?.guild?.id ?? message?.guildId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
@@ -2962,10 +2965,8 @@ export function createMessageHandler({
       const options = { ...normalizeOptions(config), now };
       const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...options, edit: true }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
-      const previous =
-        event.rawPrevious && !event.rawPrevious.partial
-          ? normalizedOf(toEvent(event.rawPrevious, selfId, options))
-          : null;
+      const old = rawOf(event)?.previous;
+      const previous = old && !old.partial ? normalizedOf(toEvent(old, selfId, options)) : null;
       if (!previous) {
         log.info('events: embeds late', fields);
         return;
@@ -3008,8 +3009,7 @@ export function createMessageHandler({
   async function recordEdit(event) {
     try {
       const config = hot.config;
-      const newMessage = event?.raw;
-      const oldMessage = event?.rawPrevious ?? null;
+      const { message: newMessage, previous: oldMessage } = /** @type {RawPair} */ (handlesOf(rawOf, event));
       if (!newMessage || newMessage.partial || event.partial || !recordable(newMessage, config)) return;
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;
@@ -3059,7 +3059,7 @@ export function createMessageHandler({
   async function onMessageDelete(event) {
     try {
       const config = hot.config;
-      const message = event?.raw;
+      const message = event ? rawOf(event)?.message : undefined;
       const id = event?.message?.id;
       if (!id || !recordable(message, config)) return;
       const guildId = message.guild?.id ?? message.guildId;

@@ -64,20 +64,10 @@
  */
 
 /**
- * An interface adapter. Every operation resolves a PortResult and never rejects. The incoming
- * hooks register a handler and return its unsubscribe; they are declared, not wired yet (no
- * adapter delivers events through them in this phase: the core still receives them from its
- * own wiring, see events.js).
- * @typedef {{
- *   iface: string,
- *   send(conversation: ConversationRef, content: Content): Promise<Delivery>,
- *   edit(message: MessageRef, content: Content): Promise<PortResult>,
- *   delete(message: MessageRef): Promise<PortResult>,
- *   react(message: MessageRef, emoji: string): Promise<PortResult>,
- *   unreact(message: MessageRef, emoji: string): Promise<PortResult>,
- *   typing(conversation: ConversationRef): Promise<PortResult>,
- *   fetchMessages(conversation: ConversationRef, messageIds: string[]): Promise<PortResult & { messages?: ({ messageId: string, missing: true } | { messageId: string, text: string, attachments: { url?: string, name?: string, contentType?: string, size?: number }[] })[] }>,
- *   capabilities(): Capabilities,
+ * An interface adapter, as src/protocol/adapter.ts types it. Every operation resolves a result and never rejects. The
+ * incoming hooks register a handler and return its unsubscribe; they are declared, not wired: no adapter
+ * delivers events through them, the core receives them over the link (src/protocol/serve.ts).
+ * @typedef {import('./adapter.ts').Adapter & {
  *   onMessage(handler: (event: object) => void): () => void,
  *   onEdit(handler: (event: object) => void): () => void,
  *   onDelete(handler: (event: object) => void): () => void,
@@ -94,6 +84,7 @@
  *   | { action: 'message.delete', message: MessageRef }
  *   | { action: 'message.react.add'|'message.react.remove', message: MessageRef, emoji: string }
  *   | { action: 'conversation.typing', conversation: ConversationRef }
+ *   | { action: 'messages.fetch', conversation: ConversationRef, messageIds: string[] }
  *   | { action: 'command.result', replyRef: string, text: string, files?: Attachment[], ephemeral?: boolean }} Action
  */
 
@@ -113,6 +104,9 @@ export const CAPABILITIES = Object.freeze({
   unreact: 'message.react.remove',
   typing: 'conversation.typing',
 });
+
+/** The read action of the port: the messages of a conversation by id. It changes nothing, so it is not a capability. */
+export const MESSAGES_FETCH = 'messages.fetch';
 
 /** The action that answers an owner command (command.requested's `replyRef`). */
 export const COMMAND_RESULT = 'command.result';
@@ -148,6 +142,8 @@ export function portAction(operation, args) {
       return { action: CAPABILITIES[operation], message: target, emoji: second };
     case 'typing':
       return { action: CAPABILITIES.typing, conversation: target };
+    case 'fetchMessages':
+      return { action: MESSAGES_FETCH, conversation: target, messageIds: second };
     default:
       return { action: String(operation) };
   }

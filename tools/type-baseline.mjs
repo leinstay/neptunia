@@ -125,6 +125,13 @@ function main() {
   const { grew, shrank } = compareToBaseline(baseline, current);
   if (grew.length > 0) {
     console.error(`New type errors (${grew.length} file and code pairs grew):\n${listChanges(grew)}`);
+    // The errors themselves, so a red run names the file, the line and the message.
+    const grown = new Set(grew.map((c) => `${c.file} ${c.code}`));
+    const lines = output.split('\n').filter((line) => {
+      const match = ERROR_LINE.exec(line);
+      return match !== null && grown.has(`${match[1] ?? '(global)'} ${match[2]}`);
+    });
+    console.error(lines.slice(0, 60).join('\n'));
     return 1;
   }
   if (shrank.length > 0) {

@@ -1,4 +1,4 @@
-// The `<people_now>` rows of the live snapshot interfaces/discord/around.js keeps: for each person a
+// The `<people_now>` rows of the live snapshot src/behavior/around-store.ts keeps: for each person a
 // request is about, the voice channel they sit in (muted, deafened, streaming,
 // camera on) and what they are doing; and who else sits in a voice channel.
 // src/behavior/prompt.js puts them in the `<people_now>` rows, one per person.
@@ -20,9 +20,8 @@ export const AROUND_TEXT_CHARS = 80;
 export const NOW_DETAIL_CHARS = 40;
 
 export const STATUSES = new Set(['online', 'idle', 'dnd', 'offline']);
-// discord.js ActivityType, by number: the keys of `labels.peopleNow.activity`.
-const ACTIVITY_KEYS = { 0: 'playing', 1: 'streaming', 2: 'listening', 3: 'watching', 5: 'competing' };
-const LISTENING = 2;
+// An activity's `kind` (the protocol's word) is the key of `labels.peopleNow.activity`; an unknown kind uses `other`.
+const LISTENING = 'listening';
 
 /**
  * One line of member-supplied text, at most AROUND_TEXT_CHARS code points, without angle brackets.
@@ -69,17 +68,17 @@ function yesNo(l, flag) {
 }
 
 /**
- * One activity as a phrase: `labels.peopleNow.activity[type]` (else `other`; `{name}`), then a
+ * One activity as a phrase: `labels.peopleNow.activity[kind]` (else `other`; `{name}`), then a
  * listening activity of Spotify with a track (details) and an artist (state) as `activityTrack`
  * (`{activity}` `{track}` `{artist}`), any other with details or state as `activityDetails`
  * (`{activity}` `{details}`, the two joined by ` / `, clamped to NOW_DETAIL_CHARS).
  */
 function activityPhrase(activity, l) {
   const forms = l.activity ?? {};
-  const template = forms[ACTIVITY_KEYS[activity.type]] ?? forms.other;
+  const template = forms[activity.kind] ?? forms.other;
   if (!template) return '';
   const phrase = fill(template, { name: activity.name });
-  const spotify = activity.type === LISTENING && activity.name.toLowerCase() === 'spotify';
+  const spotify = activity.kind === LISTENING && activity.name.toLowerCase() === 'spotify';
   if (spotify && activity.details && activity.state && l.activityTrack) {
     return fill(l.activityTrack, { activity: phrase, track: activity.details, artist: activity.state });
   }
@@ -102,7 +101,7 @@ function activityPhrase(activity, l) {
  *   `activityPhrase`, joined by `; `, else `values.none` -- also for an offline member, whose
  *   activities are not kept. Unavailable with the presences intent off or a status Discord does not define, stale when stale: never `none` then.
  * Custom statuses are never kept. [] with no snapshot, no member id or no labels.
- * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().snapshot().
+ * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().view().
  * @param {string} memberId
  * @param {{ labels: object, channelNameOf?: (channelId: string) => string|null, now?: number }} options
  *   The whole labels object; `now` the request's clock (ms).
