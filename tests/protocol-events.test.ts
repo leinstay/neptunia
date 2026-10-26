@@ -8,7 +8,7 @@ import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.js
 
 type Json = Record<string, unknown>;
 
-const conversation = { id: 'c1', kind: 'channel', guildId: 'g1', name: 'general', topic: null, category: null };
+const conversation = { id: 'c1', kind: 'channel', communityId: 'g1', name: 'general', topic: null, category: null };
 
 const activity = { kind: 'playing', name: 'Chess', details: 'Endgame', state: 'Winning' };
 
@@ -20,7 +20,7 @@ const presence = {
 };
 
 const voice = {
-  guildId: 'g1',
+  communityId: 'g1',
   userId: 'u1',
   name: 'Eleni',
   conversationId: 'v1',
@@ -220,7 +220,7 @@ const voiceChanged: Json = {
   iface: 'discord',
   at: 1000,
   id: 'discord:voice:g1:u1:1000',
-  guildId: 'g1',
+  communityId: 'g1',
   userId: 'u1',
   conversationId: 'v1',
   previousId: null,
@@ -293,7 +293,7 @@ const membershipChanged: Json = {
   iface: 'discord',
   at: 1000,
   id: 'discord:member:g1:u1:joined:1000',
-  guildId: 'g1',
+  communityId: 'g1',
   userId: 'u1',
   change: 'joined',
   member: { id: 'u1', name: 'Eleni', bot: false },

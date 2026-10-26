@@ -10,11 +10,10 @@
 //
 // toRows(rel, dump, ctx) -> { operational, sources? }      fromRows(rows) -> the dump
 
-import { IFACE } from '../ids.js';
-import { SCOPE_INTERNAL } from '../scope.js';
+import { SCOPE_INTERNAL } from '../scope.ts';
 import { operationalRow } from './verbatim.js';
 import { fromRows as verbatimFrom } from './verbatim.js';
-import { isPlainObject } from './common.js';
+import { ifaceOf, isPlainObject } from './common.js';
 
 export const fromRows = verbatimFrom;
 
@@ -38,7 +37,7 @@ export function toRows(rel, dump, ctx = {}) {
       {
         id: stepSourceId(dump.turnId, attempt, dump.step),
         kind: 'answer',
-        iface: IFACE,
+        iface: ifaceOf(ctx),
         place_id: null,
         occurred_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,
         recorded_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,

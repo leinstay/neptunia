@@ -7,12 +7,17 @@
 // the fake has none of its own, so a test that needs a turn to run builds it (tests/fixtures/fake-legacy.ts) and
 // passes it in `options.legacy`.
 //
+// `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
+//
 // The fake holds no event back before `open()`: the core's end of the link makes an envelope wait for its door.
 
 import { serveAdapter } from '../protocol/serve.ts';
-import type { AckStatus } from '../protocol/serve.ts';
+import type { AckStatus, Named } from '../protocol/serve.ts';
 import type { InterfaceHost, RunningInterface } from '../protocol/host.ts';
 import { createFakeAdapter } from './fake.js';
+
+/** The community the fake serves when a test names none: the one fake guild of the legacy fixture. */
+const DEFAULT_COMMUNITY: Named = { id: 'g1', name: 'Fake community' };
 
 export type FakeInterface = RunningInterface & {
   /** Injects an inbound event over the link and resolves with the status of the core's ack. */
@@ -23,12 +28,21 @@ export type FakeInterface = RunningInterface & {
 
 export async function start(
   host: InterfaceHost,
-  options: { legacy?: unknown; selfId?: string } = {}
+  options: { legacy?: unknown; selfId?: string; self?: Named; community?: Named | null } = {}
 ): Promise<FakeInterface> {
-  const adapter = createFakeAdapter(options.selfId === undefined ? {} : { selfId: options.selfId });
+  const adapter = createFakeAdapter(
+    options.self !== undefined
+      ? { selfId: options.self.id }
+      : options.selfId === undefined
+        ? {}
+        : { selfId: options.selfId }
+  );
+  // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
+  const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
+  const community = options.community === undefined ? DEFAULT_COMMUNITY : options.community;
   const served = serveAdapter({
     transport: await host.connect(),
-    hello: { iface: adapter.iface, capabilities: adapter.capabilities(), resume: null },
+    hello: { iface: adapter.iface, self, community, capabilities: adapter.capabilities(), resume: null },
     token: host.token,
     adapter,
     log: host.log,

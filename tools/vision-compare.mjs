@@ -102,7 +102,7 @@ async function connectDiscord(token) {
  */
 async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }) {
   const { emojiUrl, collectPictures, collectVideos } = await import('../src/media/classify.js');
-  const { normalizeMessage } = await import('../src/interface/discord.js');
+  const { normalizeMessage } = await import('../interfaces/discord/index.js');
   const { normalizeGifs } = await import('../src/memory/gifs.js');
   const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');
   const found = new Map();

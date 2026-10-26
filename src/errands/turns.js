@@ -40,7 +40,7 @@ export function taskCompletedEvent(task, guildId = null, now = Date.now) {
   return {
     kind: 'task.completed',
     at: now(),
-    guildId: guildId ?? null,
+    communityId: guildId ?? null,
     taskId: task.id,
     status: task.state,
     raw: { task },
@@ -206,7 +206,7 @@ export function createTaskTurns({
    * @param {ReturnType<typeof taskCompletedEvent>} event
    */
   function onEvent(event) {
-    const guildId = event?.guildId ?? null;
+    const guildId = event?.communityId ?? null;
     const task = event?.raw?.task ?? errands?.store?.(guildId)?.get?.(event?.taskId) ?? null;
     if (!task) {
       log.warn('errands: finished task not found', { id: event?.taskId ?? null });

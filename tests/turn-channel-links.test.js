@@ -1,5 +1,5 @@
 // Tests for the channel links on the way out (src/behavior/turn.js with
-// src/memory/mentions.js#linkChannels): a `#name` of one of the guild's text
+// src/memory/mentions.ts#linkChannels): a `#name` of one of the guild's text
 // channels in a `<msg>` is sent as the `<#id>` link, behind
 // features.channelLinks. Fake discord.js-shaped objects, a fake LLM and store.
 import { test } from 'node:test';
@@ -8,7 +8,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { handleOf } from '../src/behavior/handles.js';
 import { labels } from './fixtures/labels.js';
-import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;

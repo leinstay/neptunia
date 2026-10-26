@@ -21,15 +21,8 @@ import {
   sweep,
   validateAnswer,
 } from '../src/memory/db/session.js';
-import {
-  channelPlaceId,
-  dmPlaceId,
-  guildPlaceId,
-  messageSourceId,
-  personId,
-  SELF_PERSON,
-} from '../src/memory/db/ids.js';
-import { groupContext, whereFor } from '../src/memory/db/scope.js';
+import * as memoryIds from '../src/memory/db/ids.ts';
+import { groupContext, whereFor } from '../src/memory/db/scope.ts';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
 import { estimateMessages } from '../src/llm/tokens.js';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.js';
@@ -38,6 +31,13 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import fs from 'node:fs';
+
+// The ids of the Discord namespace the fixtures of this file write.
+const personOf = (id) => memoryIds.personId('discord', id);
+const dmPlaceOf = (id) => memoryIds.dmPlaceId('discord', id);
+const guildPlaceOf = (id) => memoryIds.guildPlaceId('discord', id);
+const channelPlaceOf = (id) => memoryIds.channelPlaceId('discord', id);
+const messageSourceOf = (id, revision, kind) => memoryIds.messageSourceId('discord', id, revision, kind);
 import os from 'node:os';
 import path from 'node:path';
 
@@ -47,7 +47,7 @@ const HOUR = 60 * MINUTE;
 const ADA = 'u-ada';
 const BOB = 'u-bob';
 const GUILD = 'G1';
-const CHANNEL = channelPlaceId('c1');
+const CHANNEL = channelPlaceOf('c1');
 const SELF_ACCOUNT = 'discord:u-self';
 
 const prompts = {
@@ -109,7 +109,7 @@ function fixture() {
         `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, occurred_at, recorded_at, text, direct,
         scope_kind, scope_iface, scope_dm) VALUES (?, ?, 'discord', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        messageSourceId(native, revision, kind),
+        messageSourceOf(native, revision, kind),
         kind,
         String(native),
         revision,
@@ -123,7 +123,7 @@ function fixture() {
         scope.scope_iface,
         scope.scope_dm
       );
-      return messageSourceId(native, revision, kind);
+      return messageSourceOf(native, revision, kind);
     },
     claim({
       id,
@@ -144,26 +144,26 @@ function fixture() {
       handle.close();
     },
   };
-  db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 5)").run(personId(ADA));
-  db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 0)").run(personId(BOB));
+  db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 5)").run(personOf(ADA));
+  db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 0)").run(personOf(BOB));
   db.prepare("INSERT INTO accounts (id, iface, native_id, person_id, names) VALUES (?, 'discord', ?, ?, ?)").run(
     `discord:${ADA}`,
     ADA,
-    personId(ADA),
+    personOf(ADA),
     JSON.stringify(['Ada', 'Old Ada'])
   );
   db.prepare("INSERT INTO accounts (id, iface, native_id, person_id, names) VALUES (?, 'discord', ?, ?, ?)").run(
     `discord:${BOB}`,
     BOB,
-    personId(BOB),
+    personOf(BOB),
     JSON.stringify(['Βασίλης'])
   );
   db.prepare(
     "INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, topic) VALUES (?, 'discord', 'guild', ?, NULL, 'group', 'Server', NULL)"
-  ).run(guildPlaceId(GUILD), GUILD);
+  ).run(guildPlaceOf(GUILD), GUILD);
   db.prepare(
     "INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, topic) VALUES (?, 'discord', 'channel', 'c1', ?, 'group', 'general', 'chat')"
-  ).run(CHANNEL, guildPlaceId(GUILD));
+  ).run(CHANNEL, guildPlaceOf(GUILD));
   return api;
 }
 
@@ -251,11 +251,11 @@ test('the request: the her-turn system text then the session prompt; blocks in t
   const env = fixture();
   try {
     chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), kind: 'interest', text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), kind: 'interest', text: 'likes café mornings' });
     env.claim({
       id: 'cl-self',
       subjectKind: 'self',
-      subjectId: SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'keeps a small garden',
       scope: { scope_kind: 'none', scope_iface: null, scope_dm: null },
@@ -263,16 +263,16 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     env.claim({
       id: 'cl-place',
       subjectKind: 'place',
-      subjectId: guildPlaceId(GUILD),
+      subjectId: guildPlaceOf(GUILD),
       kind: 'injoke',
       text: 'the soup incident',
     });
-    env.claim({ id: 'cl-gone', subjectId: personId(ADA), text: 'hidden one', shown: 0 });
+    env.claim({ id: 'cl-gone', subjectId: personOf(ADA), text: 'hidden one', shown: 0 });
     env.db
       .prepare(
         "INSERT INTO episodes (id, kind, subject_id, date, what, feeling, status, scope_kind, scope_iface) VALUES ('ep-1', 'profile', ?, '2026-10-10', 'Ada helped with the move', 'warm', 'open', 'group', 'discord')"
       )
-      .run(personId(ADA));
+      .run(personOf(ADA));
     env.db
       .prepare(
         "INSERT INTO intentions (id, record, status, scope_kind, scope_iface, archived) VALUES ('i1', ?, 'pending', 'group', 'discord', 0)"
@@ -332,7 +332,7 @@ test('the request: the her-turn system text then the session prompt; blocks in t
       [...built.maps.places.entries()],
       [
         ['p1', CHANNEL],
-        ['p2', guildPlaceId(GUILD)],
+        ['p2', guildPlaceOf(GUILD)],
       ]
     );
   } finally {
@@ -340,7 +340,7 @@ test('the request: the her-turn system text then the session prompt; blocks in t
   }
 });
 
-const chat_ids = (env) => ({ a: messageSourceId('m1', 1, 'seen') });
+const chat_ids = (env) => ({ a: messageSourceOf('m1', 1, 'seen') });
 
 test('the answer: a block after the thinking; a fence around it, a missing close tag and a thinking block with braces are read; the rest is refused by code', () => {
   assert.deepEqual(parseSessionAnswer(memoryBlock({ claims: [] })), { ok: true, value: { claims: [] } });
@@ -365,11 +365,11 @@ test('validation: ids map back to the database; what the request did not carry i
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     env.claim({
       id: 'cl-self',
       subjectKind: 'self',
-      subjectId: SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'keeps a small garden',
     });
@@ -391,7 +391,7 @@ test('validation: ids map back to the database; what the request did not carry i
         { op: 'add', subject: 'ada', kind: 'detail', text: 'same person by a folded name', how: 'saw', sources: [5] },
         { op: 'add', subject: 'place', place: 'p2', kind: 'injoke', text: 'a joke', how: 'saw', sources: ['#1'] },
         { op: 'add', subject: 'self', kind: 'self_fact', text: 'I answered a greeting', how: 'saw', sources: ['#4'] },
-        { op: 'add', subject: personId(BOB), kind: 'interest', text: 'Greek texts', how: 'inferred', sources: ['#2'] },
+        { op: 'add', subject: personOf(BOB), kind: 'interest', text: 'Greek texts', how: 'inferred', sources: ['#2'] },
         { op: 'confirm', id: label, sources: ['#1'] },
         { op: 'revise', id: label, text: 'likes tea mornings', how: 'said', sources: ['#5'], reason: 'said so' },
         { op: 'retire', id: selfLabel, truth: 'disputed', reason: 'contradicted', sources: ['#3'] },
@@ -430,11 +430,11 @@ test('validation: ids map back to the database; what the request did not carry i
     assert.deepEqual(
       plan.claims.map((claim) => [claim.op, claim.subjectKind, claim.subjectId]),
       [
-        ['add', 'person', personId(ADA)],
-        ['add', 'person', personId(ADA)],
-        ['add', 'place', guildPlaceId(GUILD)],
-        ['add', 'self', SELF_PERSON],
-        ['add', 'person', personId(BOB)],
+        ['add', 'person', personOf(ADA)],
+        ['add', 'person', personOf(ADA)],
+        ['add', 'place', guildPlaceOf(GUILD)],
+        ['add', 'self', memoryIds.SELF_PERSON],
+        ['add', 'person', personOf(BOB)],
         ['confirm', undefined, undefined],
         ['revise', undefined, undefined],
         ['retire', undefined, undefined],
@@ -443,19 +443,19 @@ test('validation: ids map back to the database; what the request did not carry i
     assert.deepEqual(plan.claims[0].sources, [ids.e], 'a #n is the line it numbered');
     assert.equal(plan.claims[0].when, '2026-10');
     assert.deepEqual(plan.claims[2].sources, [ids.a]);
-    assert.equal(plan.claims[2].subjectId, guildPlaceId(GUILD), 'a place is the one the handle names');
+    assert.equal(plan.claims[2].subjectId, guildPlaceOf(GUILD), 'a place is the one the handle names');
     assert.equal(plan.claims[5].id, 'cl-ada', 'cN back to the claim id');
     assert.equal(plan.claims[7].id, 'cl-self');
     assert.deepEqual(plan.episodes, [
-      { subjectId: personId(ADA), what: 'helped with the move', feeling: 'warm', sources: [ids.e] },
+      { subjectId: personOf(ADA), what: 'helped with the move', feeling: 'warm', sources: [ids.e] },
     ]);
     assert.deepEqual(
       plan.affinity,
-      [{ personId: personId(BOB), delta: 2, reason: 'kind', sources: [ids.b] }],
+      [{ personId: personOf(BOB), delta: 2, reason: 'kind', sources: [ids.b] }],
       'a name resolves, the delta is whole'
     );
     assert.deepEqual(plan.descriptions, [
-      { subjectKind: 'person', subjectId: personId(ADA), field: 'character', why: 'new facts' },
+      { subjectKind: 'person', subjectId: personOf(ADA), field: 'character', why: 'new facts' },
     ]);
     assert.equal(counts.kept, 8 + 1 + 1 + 1);
     assert.deepEqual(counts.dropped, {
@@ -514,7 +514,7 @@ test('a shadow sweep: one request on the memory role, every proposal a decisions
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     const label = () => [...request(env).maps.claims.entries()].find(([, id]) => id === 'cl-ada')[0];
     const llm = fakeLlm(() =>
       memoryBlock({
@@ -573,7 +573,7 @@ test('a shadow sweep: one request on the memory role, every proposal a decisions
       before,
       'shadow touches no claim, episode or attitude'
     );
-    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 5);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity, 5);
     const run = env.db.prepare('SELECT * FROM session_runs').get();
     assert.equal(run.mode, 'shadow');
     assert.equal(run.scope_key, 'group:discord');
@@ -737,11 +737,11 @@ test('private conversations are scopes of their own: one request each, the partn
   const env = fixture();
   try {
     chat(env);
-    const dm = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personId(ADA) };
-    env.say({ native: 'd1', minutesAgo: 50, text: 'a private word', scope: dm, place: dmPlaceId(ADA), direct: 1 });
-    env.say({ native: 'd2', minutesAgo: 45, text: 'private reply', scope: dm, place: dmPlaceId(ADA), kind: 'said' });
-    env.claim({ id: 'cl-dm', subjectId: personId(ADA), text: 'only in private', scope: dm });
-    env.claim({ id: 'cl-pub', subjectId: personId(ADA), text: 'public one' });
+    const dm = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personOf(ADA) };
+    env.say({ native: 'd1', minutesAgo: 50, text: 'a private word', scope: dm, place: dmPlaceOf(ADA), direct: 1 });
+    env.say({ native: 'd2', minutesAgo: 45, text: 'private reply', scope: dm, place: dmPlaceOf(ADA), kind: 'said' });
+    env.claim({ id: 'cl-dm', subjectId: personOf(ADA), text: 'only in private', scope: dm });
+    env.claim({ id: 'cl-pub', subjectId: personOf(ADA), text: 'public one' });
     assert.deepEqual(
       scopesOf(env.db).map((scope) => scope.key),
       ['dm:discord:person:discord:u-ada', 'group:discord']
@@ -781,10 +781,10 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
-    env.claim({ id: 'cl-old', subjectId: personId(ADA), kind: 'detail', text: 'lives in Athens' });
-    env.claim({ id: 'cl-gone', subjectId: personId(ADA), kind: 'detail', text: 'plays chess' });
-    env.claim({ id: 'cl-fresh', subjectId: personId(ADA), kind: 'detail', text: 'owns a bicycle' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-old', subjectId: personOf(ADA), kind: 'detail', text: 'lives in Athens' });
+    env.claim({ id: 'cl-gone', subjectId: personOf(ADA), kind: 'detail', text: 'plays chess' });
+    env.claim({ id: 'cl-fresh', subjectId: personOf(ADA), kind: 'detail', text: 'owns a bicycle' });
     const labelOf = (id) => [...request(env).maps.claims.entries()].find(([, value]) => value === id)[0];
     const llm = fakeLlm(() =>
       memoryBlock({
@@ -820,7 +820,7 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
     const added = env.db.prepare("SELECT * FROM claims WHERE author = 'her'").get();
     assert.equal(added.text, 'lives in Thessaloniki');
     assert.equal(added.subject_kind, 'person');
-    assert.equal(added.subject_id, personId(ADA));
+    assert.equal(added.subject_id, personOf(ADA));
     assert.deepEqual(
       [added.how, added.truth, added.shown, added.scope_kind, added.scope_iface],
       ['said', 'current', 1, 'group', 'discord']
@@ -860,7 +860,7 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
     const episode = env.db.prepare('SELECT * FROM episodes').get();
     assert.deepEqual(
       [episode.subject_id, episode.what, episode.feeling, episode.kind, episode.scope_kind],
-      [personId(ADA), 'told me about the move', 'glad', 'session', 'group']
+      [personOf(ADA), 'told me about the move', 'glad', 'session', 'group']
     );
     assert.deepEqual(
       env.db
@@ -876,7 +876,7 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
       'the step is capped by relationships.maxDeltaPerUpdate'
     );
     assert.equal(
-      env.db.prepare('SELECT affinity, affinity_reason FROM people WHERE id = ?').get(personId(ADA)).affinity,
+      env.db.prepare('SELECT affinity, affinity_reason FROM people WHERE id = ?').get(personOf(ADA)).affinity,
       10
     );
     const actions = env.db
@@ -1046,7 +1046,7 @@ test('writes from the main thread go through the worker: a session write lands i
         {
           op: 'add',
           subjectKind: 'self',
-          subjectId: SELF_PERSON,
+          subjectId: memoryIds.SELF_PERSON,
           kind: 'self_fact',
           text: 'a fact',
           how: 'saw',
@@ -1160,7 +1160,7 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
 // ---------- before any `apply`: modes, idempotent runs, evidence, batches, stored answers ----------
 
 const GROUP = { scope_kind: 'group', scope_iface: 'discord', scope_dm: null };
-const DM_ADA = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personId(ADA) };
+const DM_ADA = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personOf(ADA) };
 const runOf = (extra = {}) => ({
   id: 'run:t',
   sweepId: 'sweep:t',
@@ -1190,7 +1190,7 @@ test('modes: the writer itself refuses any mode but shadow and apply', () => {
         {
           op: 'add',
           subjectKind: 'self',
-          subjectId: SELF_PERSON,
+          subjectId: memoryIds.SELF_PERSON,
           kind: 'self_fact',
           text: 'a fact',
           how: 'saw',
@@ -1236,13 +1236,13 @@ test('a run is applied once: a retried batch returns the first result and change
   try {
     const ids = chat(env);
     const plan = emptyPlan({
-      episodes: [{ subjectId: personId(ADA), what: 'a kind moment', feeling: '', sources: [ids.a] }],
-      affinity: [{ personId: personId(ADA), delta: 3, reason: 'kind', sources: [ids.a] }],
+      episodes: [{ subjectId: personOf(ADA), what: 'a kind moment', feeling: '', sources: [ids.a] }],
+      affinity: [{ personId: personOf(ADA), delta: 3, reason: 'kind', sources: [ids.a] }],
       claims: [
         {
           op: 'add',
           subjectKind: 'person',
-          subjectId: personId(ADA),
+          subjectId: personOf(ADA),
           kind: 'detail',
           text: 'new fact',
           how: 'said',
@@ -1255,13 +1255,13 @@ test('a run is applied once: a retried batch returns the first result and change
     const update = { plan, advance: { key: cursor, value: 9, expect: 0 } };
     const first = applyOf(env, update);
     assert.deepEqual([first.added, first.episodes, first.affinity, first.replayed], [1, 1, 1, undefined]);
-    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 8);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity, 8);
     const again = applyOf(env, update);
     assert.deepEqual([again.replayed, again.added, again.affinity], [true, 1, 1], 'the first result comes back');
     const otherRun = applyOf(env, { ...update, run: runOf({ id: 'run:retry' }) });
     assert.equal(otherRun.replayed, true, 'a retry under another run id is the same batch');
     assert.equal(
-      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity,
+      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity,
       8,
       'the attitude moved once'
     );
@@ -1278,7 +1278,7 @@ test('a run is applied once: a retried batch returns the first result and change
     // the same event id never applies twice, whatever the batch key
     const sameEvent = applyOf(env, { run: runOf({ batchKey: 'apply|other' }), plan });
     assert.equal(sameEvent.duplicate, 1);
-    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 8);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity, 8);
   } finally {
     env.done();
   }
@@ -1289,7 +1289,7 @@ test('the cursor moves by compare-and-set in the transaction of the write: a sta
   try {
     const ids = chat(env);
     const cursor = cursorKey('apply', 'group:discord');
-    const plan = emptyPlan({ episodes: [{ subjectId: personId(ADA), what: 'x', feeling: '', sources: [ids.a] }] });
+    const plan = emptyPlan({ episodes: [{ subjectId: personOf(ADA), what: 'x', feeling: '', sources: [ids.a] }] });
     env.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(cursor, '4');
     assert.throws(
       () => applyOf(env, { plan, advance: { key: cursor, value: 9, expect: 0 } }),
@@ -1388,13 +1388,13 @@ test('evidence: an op with a source that does not exist is rejected whole; a rev
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     const plan = emptyPlan({
       claims: [
         {
           op: 'add',
           subjectKind: 'person',
-          subjectId: personId(ADA),
+          subjectId: personOf(ADA),
           kind: 'detail',
           text: 'half evidence',
           how: 'said',
@@ -1405,8 +1405,8 @@ test('evidence: an op with a source that does not exist is rejected whole; a rev
         { op: 'retire', id: 'cl-ada', truth: 'historical', sources: [ids.a] },
         { op: 'confirm', id: 'cl-ada', sources: [] },
       ],
-      affinity: [{ personId: personId(ADA), delta: 2, reason: '', sources: [ids.a] }],
-      episodes: [{ subjectId: personId(ADA), what: 'x', feeling: '', sources: ['src:missing'] }],
+      affinity: [{ personId: personOf(ADA), delta: 2, reason: '', sources: [ids.a] }],
+      episodes: [{ subjectId: personOf(ADA), what: 'x', feeling: '', sources: ['src:missing'] }],
     });
     const counts = applyOf(env, { plan });
     assert.equal(counts.rejected, 6);
@@ -1452,13 +1452,13 @@ test('a revised or confirmed claim takes its scope from the evidence of the new 
       minutesAgo: 50,
       text: 'I moved to Lyon, keep it quiet',
       scope: DM_ADA,
-      place: dmPlaceId(ADA),
+      place: dmPlaceOf(ADA),
     });
-    const groupLine = messageSourceId('m5', 1, 'seen');
-    env.claim({ id: 'cl-home', subjectId: personId(ADA), kind: 'detail', text: 'lives in Athens' });
-    env.claim({ id: 'cl-tea', subjectId: personId(ADA), kind: 'interest', text: 'likes tea' });
-    env.claim({ id: 'cl-chess', subjectId: personId(ADA), kind: 'interest', text: 'plays chess' });
-    const dmRun = runOf({ id: 'run:dm', scope: DM_ADA, scopeKey: `dm:discord:${personId(ADA)}`, batchKey: 'apply|dm' });
+    const groupLine = messageSourceOf('m5', 1, 'seen');
+    env.claim({ id: 'cl-home', subjectId: personOf(ADA), kind: 'detail', text: 'lives in Athens' });
+    env.claim({ id: 'cl-tea', subjectId: personOf(ADA), kind: 'interest', text: 'likes tea' });
+    env.claim({ id: 'cl-chess', subjectId: personOf(ADA), kind: 'interest', text: 'plays chess' });
+    const dmRun = runOf({ id: 'run:dm', scope: DM_ADA, scopeKey: `dm:discord:${personOf(ADA)}`, batchKey: 'apply|dm' });
     const counts = applyOf(env, {
       run: dmRun,
       plan: emptyPlan({
@@ -1496,9 +1496,9 @@ test('a revised or confirmed claim takes its scope from the evidence of the new 
     assert.deepEqual(
       derived.map((row) => [row.text, row.scope_kind, row.scope_dm, row.truth]),
       [
-        ['likes tea', 'dm', personId(ADA), 'current'],
-        ['lives in Lyon', 'dm', personId(ADA), 'current'],
-        ['plays chess', 'dm', personId(ADA), 'historical'],
+        ['likes tea', 'dm', personOf(ADA), 'current'],
+        ['lives in Lyon', 'dm', personOf(ADA), 'current'],
+        ['plays chess', 'dm', personOf(ADA), 'historical'],
       ]
     );
     assert.equal(JSON.parse(derived[1].extra).derivedFrom, 'cl-home');
@@ -1521,7 +1521,7 @@ test('a revised or confirmed claim takes its scope from the evidence of the new 
     const group = whereFor(groupContext('discord'), 'c');
     const seen = env.db
       .prepare(`SELECT c.text FROM claims c WHERE c.subject_id = ? AND ${group.sql} ORDER BY c.text`)
-      .all(personId(ADA), ...group.params)
+      .all(personOf(ADA), ...group.params)
       .map((row) => row.text);
     assert.deepEqual(seen, ['lives in Athens', 'likes tea', 'plays chess'].sort());
     // a revision from group evidence stays on the group claim
@@ -1543,7 +1543,7 @@ test('a revised or confirmed claim takes its scope from the evidence of the new 
     assert.deepEqual([inPlace.revised, inPlace.derived], [1, 0]);
     assert.equal(env.db.prepare("SELECT text FROM claims WHERE id = 'cl-home'").get().text, 'lives in Thessaloniki');
     // a group run cannot touch a private claim
-    env.claim({ id: 'cl-private', subjectId: personId(ADA), text: 'private thing', scope: DM_ADA });
+    env.claim({ id: 'cl-private', subjectId: personOf(ADA), text: 'private thing', scope: DM_ADA });
     const out = applyOf(env, {
       run: runOf({ id: 'run:o', batchKey: 'apply|o' }),
       plan: emptyPlan({ claims: [{ op: 'confirm', id: 'cl-private', sources: [groupLine] }] }),
@@ -1558,7 +1558,7 @@ test('child links: a retired link is not a link; the links the database writes c
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     env.db
       .prepare(
         "INSERT INTO claim_sources (claim_id, source_id, position, retired_at, owner_file) VALUES ('cl-ada', ?, 0, '2026-10-01T00:00:00.000Z', 'guilds/G/users/x.json')"
@@ -1638,13 +1638,13 @@ test('batches are read in event time and each line names its place; the cursor s
   }
 });
 
-const SECOND = channelPlaceId('c2');
+const SECOND = channelPlaceOf('c2');
 function db_second_channel(env) {
   env.db
     .prepare(
       "INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, topic) VALUES (?, 'discord', 'channel', 'c2', ?, 'group', 'second', NULL)"
     )
-    .run(SECOND, guildPlaceId(GUILD));
+    .run(SECOND, guildPlaceOf(GUILD));
 }
 
 test('every person of a batch is a subject: the people are paged over requests of the same batch, the cursor moves after the last', async () => {
@@ -1719,7 +1719,7 @@ test('apply over pages: a page applied before is not asked again, and the cursor
       undefined,
       'a page is missing: the cursor stays'
     );
-    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity, 7);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity, 7);
     const llm = fakeLlm([page('Βασίλης', 'bob fact', '#2')]);
     const second = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
     assert.deepEqual(
@@ -1729,11 +1729,11 @@ test('apply over pages: a page applied before is not asked again, and the cursor
     assert.equal(llm.calls.length, 1, 'only the missing page is asked');
     assert.ok(Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursor).value) > 0);
     assert.equal(
-      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity,
+      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity,
       7,
       'the first page was not applied again'
     );
-    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(BOB)).affinity, 2);
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(BOB)).affinity, 2);
     assert.equal(count(env.db, 'claims', "author = 'her'"), 2);
     // when the last page is the one applied before, the cursor still moves
     const env2 = fixture();
@@ -1769,13 +1769,13 @@ test('the context is as of the batch cutoff: claims and episodes created or seen
   const env = fixture();
   try {
     chat(env);
-    env.claim({ id: 'cl-old', subjectId: personId(ADA), text: 'known before the batch ended' });
-    env.claim({ id: 'cl-new', subjectId: personId(ADA), text: 'created after the cutoff' });
-    env.claim({ id: 'cl-seen', subjectId: personId(ADA), text: 'seen again after the cutoff' });
+    env.claim({ id: 'cl-old', subjectId: personOf(ADA), text: 'known before the batch ended' });
+    env.claim({ id: 'cl-new', subjectId: personOf(ADA), text: 'created after the cutoff' });
+    env.claim({ id: 'cl-seen', subjectId: personOf(ADA), text: 'seen again after the cutoff' });
     env.claim({
       id: 'cl-self-new',
       subjectKind: 'self',
-      subjectId: SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'a later self fact',
     });
@@ -1798,12 +1798,12 @@ test('the context is as of the batch cutoff: claims and episodes created or seen
       .prepare(
         "INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface, created_at) VALUES ('ep-old', 'profile', ?, '2026-10-10', 'before', 'open', 'group', 'discord', '2026-10-10T00:00:00.000Z')"
       )
-      .run(personId(ADA));
+      .run(personOf(ADA));
     env.db
       .prepare(
         "INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface, created_at) VALUES ('ep-new', 'profile', ?, '2026-10-24', 'after', 'open', 'group', 'discord', '2026-10-24T11:40:00.000Z')"
       )
-      .run(personId(ADA));
+      .run(personOf(ADA));
     const built = request(env);
     const claimed = [...built.maps.claims.values()];
     assert.ok(claimed.includes('cl-old'));
@@ -1884,7 +1884,7 @@ test('a batch retried from the same cursor keeps its lines: lines that settled s
       'the cursor stops where the old batch ended'
     );
     assert.equal(
-      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId(ADA)).affinity,
+      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity,
       7,
       'the first page was not applied again'
     );
@@ -1904,7 +1904,7 @@ test("a run records what its request rendered: turn_reads of reader kind session
   const env = fixture();
   try {
     const ids = chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     env.db
       .prepare(
         "INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('cv-ada-1', 'cl-ada', 'likes café', '2026-10-02T00:00:00.000Z', 'add')"
@@ -1948,7 +1948,7 @@ test('a claim edit carries the version its request showed: a claim that moved on
   const env = fixture();
   try {
     chat(env);
-    env.claim({ id: 'cl-ada', subjectId: personId(ADA), text: 'likes café mornings' });
+    env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     env.db
       .prepare(
         "INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('cv-ada-1', 'cl-ada', 'likes café', '2026-10-02T00:00:00.000Z', 'add')"

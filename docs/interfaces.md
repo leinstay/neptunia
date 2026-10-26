@@ -19,7 +19,7 @@ A conversation has:
 | `id` | The conversation's opaque id |
 | `kind` | `channel`, `dm` or `thread` |
 | `chatType` | `dm`, `group_dm`, `channel` or `thread` (optional) |
-| `guildId` | The community it belongs to (null or absent for a direct chat) |
+| `communityId` | The community it belongs to (null or absent for a direct chat) |
 | `name`, `topic`, `category` | What the people in it see (null when unknown) |
 | `parentId` | The conversation a thread belongs to (absent or null otherwise) |
 | `partnerId` | The other person of a one-to-one chat (optional) |
@@ -55,6 +55,11 @@ A message looks like this:
 | `replyPingUserId` | The replied-to author when only the reply notified them, or null |
 | `forwardedFrom` | The name of the conversation a forward came from, or null |
 | `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` | Arrays of the items on the message |
+| `messageRefs` | The messages the text links to, in the order written, each `{ iface, conversationId, messageId, url, text }` (optional) |
+
+A reference to a message names it with ids the core never parses. `text` is the span of the message text that names it, brackets included when the platform wrote them, and `url` is the message's address on its platform (null when it has none). The core replaces the `text` of a reference to a message of the turn's window with that message's `#n` and leaves every other link as written. An address in the text with no reference on the message stays text.
+
+An attachment and a link carry `expiring`, true when the platform's address for the file stops working after a while (a signed address). An attachment also carries `previewUrl`, the address the describer downloads the picture from, sized by the adapter for its platform (`null` for a file that is no picture). A link with a thumbnail carries the `previewUrl` of that thumbnail. The core downloads `previewUrl` when it is there and the item's own `url` otherwise, and it never rewrites an address by its host. A gif that is `expiring` is not kept in the GIF library, because posted back later it would not embed.
 
 The addressing record:
 
@@ -123,9 +128,12 @@ capabilities() → {
   operations: string[],  // the action names it offers
   maxChars,              // code points of text in one message
   maxFiles,              // attachments in one message
-  maxFileBytes           // bytes in one attachment
+  maxFileBytes,          // bytes in one attachment
+  messageUrl             // how a message is addressed: { community, direct } templates, or absent
 }
 ```
+
+The turn reads `maxFiles` (how many pictures of a diary set go in one message) and `maxChars` (how long a part of a mirrored prompt is) from `capabilities()` of its port. `messageUrl` holds two templates with `{community}`, `{conversation}` and `{message}`, one for a message of a community and one for a message of a private chat. The core fills them in to link a message it names (a `#n` the persona writes, a call mark, a failed message) and sends no link when the interface declares none.
 
 A call to an action the adapter does not offer returns `unsupported` without contacting the platform.
 
@@ -162,7 +170,7 @@ The core and the Discord side exchange envelopes over a Unix socket, even while 
 
 ### Starting up
 
-At start `startCore` (`src/core.js`) makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. Then it calls `start(host)` of the interface it was given (see [Starting an interface](#starting-an-interface) and [Starting the core](#starting-the-core)). The interface connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
+At start `startCore` (`src/core.js`) makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. Then it calls `start(host)` of the interface it was given (see [Starting an interface](#starting-an-interface) and [Starting the core](#starting-the-core)). The interface connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, self, community, capabilities, resume, token }`. `self` is `{ id, name }`, the persona's account on the interface and the name people see for her there. `community` is `{ id, name }`, the community the interface serves, or null when it serves none. `capabilities` is what the adapter's `capabilities()` returns. `validateEnvelope` refuses a `hello` without `self`. The core opens one link per connection and keeps `iface`, `self` and `community` for it. The namespace of every memory id, the persona's own id and the served community come from them. Her name in a request is the one the member directory of the core holds for her (`src/interface/members.ts`), which `membership.changed` events feed, and the name in `hello` before the directory knows her. The Discord interface sends the cached members of the served guild as `membership.changed` events when the core opens its door, and sends one whenever a nickname changes. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
 
 ### Starting an interface
 
@@ -203,7 +211,7 @@ The core calls `open()` once its door has its handlers, because the door answers
 
 A failed startup check, such as a private directory that does not exist, a missing key or a required prompt, rejects with a one-line error and never exits the process. `stop()` ends the timers, the stores, the memory database, the interface and the link, removes the socket file and the memory database's lock file, and runs once however often it is called.
 
-`src/index.js` is the entry. It reads the paths and the private directory's `.env`, loads `interfaces/discord/index.js` by path, calls `startCore` with the Discord token wrapped into the interface's `env`, handles `SIGINT`, `SIGTERM` and `unhandledRejection`, turns a rejected start into the exit code, and exits after `stop()`. Neither `src/index.js` nor `src/core.js` imports `discord.js`, `interfaces/` or `src/interface/discord.js`, and `structure.json` enforces it.
+`src/index.js` is the entry. It reads the paths and the private directory's `.env`, loads `interfaces/discord/index.js` by path, calls `startCore` with the Discord token wrapped into the interface's `env`, handles `SIGINT`, `SIGTERM` and `unhandledRejection`, turns a rejected start into the exit code, and exits after `stop()`. Neither `src/index.js` nor `src/core.js` imports `discord.js` or `interfaces/`, and `structure.json` enforces it.
 ### Events
 
 `emit(event)` on the interface's end checks the event with `validateEvent`, drops the `raw` and `rawPrevious` keys, sends an `event` envelope whose id is the event's own id, and resolves with the status of the `ack` that answers it: `ok`, `duplicate`, `invalid`, `unhandled` or `failed`. An event that fails validation resolves `invalid` and is not sent. A closed transport resolves `failed`. Several events can wait for their acks at once. On the core's end each `event` envelope goes to `door.receive`, its ack goes back, and envelopes are handled concurrently.
@@ -228,7 +236,7 @@ Observations from a community channel are scoped to the community (`group`). Obs
 
 ## The Discord adapter
 
-The Discord adapter lives in `interfaces/discord/` as the npm workspace package `@neptunia/interface-discord`. It depends on discord.js 14 and is the only place in the project that imports it. The engine reaches it through `src/interface/discord.js`.
+The Discord adapter lives in `interfaces/discord/` as the npm workspace package `@neptunia/interface-discord`. It depends on discord.js 14 and is the only place in the project that imports it. The entry loads it by path, and the tests and tools import `interfaces/discord/index.js`.
 
 ### What it maps
 
@@ -275,7 +283,7 @@ The two privileged intents are controlled by `discord.intents.presences` (defaul
 
 ### Limits and error mapping
 
-Discord allows 2000 characters per message, 10 files per message and 10 MiB per file (on a server without boosts). The adapter declares these as `maxChars`, `maxFiles` and `maxFileBytes`.
+Discord allows 2000 characters per message, 10 files per message and 10 MiB per file (on a server without boosts). The adapter declares these as `maxChars`, `maxFiles` and `maxFileBytes`, and the jump-link forms as `messageUrl`.
 
 Discord errors map to result statuses:
 
@@ -297,7 +305,7 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 `src/interface/fake.js` is an in-memory adapter for tests. It keeps conversations and messages in memory, records every call in order (`calls`), and lets a test queue results for any operation (`failNext`). It validates every outbound action through `validateAction`, so a test driving the persona through the fake also proves she only asks for well-formed actions.
 
-`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. The fake has no `legacy` of its own. A test that needs a turn to run passes the discord.js-shaped seams that `tests/fixtures/fake-legacy.ts` builds, and `tests/core-slice.test.ts` starts the whole core this way over temporary directories with the tracked prompts and a scripted model.
+`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId, self, community })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. `self` and `community` are what its `hello` tells the core, and a test that names neither gets the account of `selfId` and the community `g1`. The fake has no `legacy` of its own. A test that needs a turn to run passes the discord.js-shaped seams that `tests/fixtures/fake-legacy.ts` builds, and `tests/core-slice.test.ts` starts the whole core this way over temporary directories with the tracked prompts and a scripted model.
 
 `replayFixture(fixture, door)` replays a recorded fixture of inbound events through the event door in order, the way a live adapter would deliver them. A `redeliver: n` field on an event sends it n extra times (the door answers `duplicate` to each), testing at-least-once delivery.
 
@@ -326,9 +334,6 @@ To wire up a new chat platform:
 | `client` | The discord.js client. | The turn runner, the memory jobs, the admin, the spontaneous and diary behaviours, the inner life's channel fetch |
 | `capabilities` | The functions the core asks Discord for by name. | Every module that takes `discord` |
 | `rawOf(event)` | The discord.js message behind a message event. | The message pipeline |
-| `guildId` | The one guild this instance serves. | The core's `instance` |
-| `selfId()`, `selfName(guildId)` | The persona's id and display name. | The avatar queue, every request |
-| `memberName(guildId, userId)` | A cached member's name. | The embedding queue |
 | `resolveMember(guildId, userId)` | One member by REST, as the avatar queue reads it. | The avatar queue |
 | `dmConversationOf(userId)` | A member's private conversation, when the client knows it. | The memory session failure fact |
 | `catchUp` | `channelInfo`, `fetchRecent` and `eventOf` for the offline catch-up. | `createOfflineCatchUp` |

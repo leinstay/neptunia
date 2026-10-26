@@ -3,7 +3,7 @@
   "events": [
     {
       "kind": "message.received", "at": 1000, "id": "fake:message:m1",
-      "conversation": { "id": "c1", "kind": "channel", "guildId": "g1", "name": "γενικά", "topic": null, "category": null },
+      "conversation": { "id": "c1", "kind": "channel", "communityId": "g1", "name": "γενικά", "topic": null, "category": null },
       "message": { "id": "m1", "author": { "id": "u1", "name": "Ελένη", "self": false, "bot": false }, "content": "καλημέρα", "at": 1000, "replyToId": null, "replyPingUserId": null, "forwardedFrom": null, "attachments": [], "links": [], "forwarded": [], "stickers": [], "emojis": [], "reactions": [] },
       "addressing": { "mentioned": true, "replyToSelf": false, "mentionedUserIds": ["self"], "mentionedConversationIds": [] },
       "origin": { "chatType": "channel", "place": "c1", "parent": null, "thread": null, "replyToAuthorId": null, "replyExpected": true },
@@ -11,15 +11,15 @@
     },
     {
       "kind": "reaction.changed", "at": 1100, "id": "fake:reaction:m1:u2:1",
-      "conversation": { "id": "c1", "kind": "channel", "guildId": "g1", "name": "γενικά", "topic": null, "category": null },
+      "conversation": { "id": "c1", "kind": "channel", "communityId": "g1", "name": "γενικά", "topic": null, "category": null },
       "messageId": "m1", "emoji": { "name": "\u2764" }, "userId": "u2", "added": true
     },
-    { "kind": "voice.changed", "at": 1200, "id": "fake:voice:u2:1", "guildId": "g1", "userId": "u2", "conversationId": "v1", "previousId": null, "muted": false },
-    { "kind": "membership.changed", "at": 1300, "id": "fake:member:u3:1", "guildId": "g1", "userId": "u3", "change": "joined", "member": { "id": "u3", "name": "Σοφία", "bot": false } },
-    { "kind": "task.completed", "at": 1400, "guildId": "g1", "taskId": "t1", "status": "done" },
+    { "kind": "voice.changed", "at": 1200, "id": "fake:voice:u2:1", "communityId": "g1", "userId": "u2", "conversationId": "v1", "previousId": null, "muted": false },
+    { "kind": "membership.changed", "at": 1300, "id": "fake:member:u3:1", "communityId": "g1", "userId": "u3", "change": "joined", "member": { "id": "u3", "name": "Σοφία", "bot": false } },
+    { "kind": "task.completed", "at": 1400, "communityId": "g1", "taskId": "t1", "status": "done" },
     {
       "kind": "message.received", "at": 1500, "id": "fake:delete:m1",
-      "conversation": { "id": "c1", "kind": "channel", "guildId": "g1", "name": "γενικά", "topic": null, "category": null },
+      "conversation": { "id": "c1", "kind": "channel", "communityId": "g1", "name": "γενικά", "topic": null, "category": null },
       "message": { "id": "m1" }, "deleted": true
     }
   ]

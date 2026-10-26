@@ -15,7 +15,7 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createStore } from '../src/memory/store.js';
@@ -507,7 +507,7 @@ function boot(
     /** A wake handed to the door, as the scheduler would; remembered as accepted work. */
     accept: (wake) => {
       accepted.add(wake.id);
-      return door.submit({ kind: 'inner.wake', at: clock.t, id: wake.id, guildId: GUILD, wake });
+      return door.submit({ kind: 'inner.wake', at: clock.t, id: wake.id, communityId: GUILD, wake });
     },
     tick: () => quiet(() => inner.tick()),
     /** Alice's line in `conversationId`, answered by an addressed turn (the model's next answers are `chat.script`). */

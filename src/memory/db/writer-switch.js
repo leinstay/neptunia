@@ -26,8 +26,9 @@ import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.js';
 import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
 import { batchOf, cursorKey, DESCRIPTION_FIELDS, scopeSweepsToday, scopesOf, sessionSettings } from './session.js';
 import { descriptionIdFor, scopeOfContext } from './describe.js';
-import { dmContext, groupContext } from './scope.js';
-import { SELF_PERSON } from './ids.js';
+import { dmContext, groupContext } from './scope.ts';
+import { SELF_PERSON } from './ids.ts';
+import { LEGACY_IFACE } from './legacy-namespace.ts';
 import { closePeople } from './focus.js';
 
 const MINUTE = 60_000;
@@ -118,7 +119,7 @@ export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) 
     )
       continue;
     const scope = extra.scope ?? {};
-    const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : 'discord';
+    const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : LEGACY_IFACE;
     const base = scope.scope_kind === 'dm' && scope.scope_dm ? dmContext(scope.scope_dm, iface) : groupContext(iface);
     const readCtx = audienceColumn ? { ...base, audienceColumn: true } : base;
     const subject = { kind, id: kind === 'self' ? SELF_PERSON : op.subjectId };

@@ -139,7 +139,7 @@ export async function singleScene(load, { content = 'γεια', classifier = 'no
   await load('src/ops/index.js');
   const { skillRegistry } = await load('src/skills/registry.js');
   const { createAdmin } = await load('src/admin.js');
-  const { createDiscordAdapter, createDiscordInterface } = await load('src/interface/discord.js');
+  const { createDiscordAdapter, createDiscordInterface } = await load('interfaces/discord/index.js');
   const discord = createDiscordInterface().capabilities;
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const history = [

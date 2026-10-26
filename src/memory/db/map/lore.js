@@ -6,9 +6,9 @@
 // toRows(rel, entries, ctx) -> { claims }      ctx: { guildId }
 // fromRows(rows, ctx) -> the array
 
-import { guildPlaceId, uniqueIds } from '../ids.js';
-import { groupScope } from '../scope.js';
-import { extraText, join, ordered, parseExtra, put, split } from './common.js';
+import { guildPlaceId, uniqueIds } from '../ids.ts';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, join, ordered, parseExtra, put, split } from './common.js';
 
 const SPEC = [
   { col: 'text', key: 'text', type: 'text' },
@@ -21,9 +21,10 @@ const SPEC = [
 const PREFIX = 'lore:';
 
 export function toRows(rel, entries, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const uniq = uniqueIds();
-  const placeId = guildPlaceId(ctx.guildId ?? 'unknown');
+  const placeId = guildPlaceId(iface, ctx.guildId ?? 'unknown');
   entries.forEach((entry, position) => {
     const part = split(entry, SPEC);
     const wanted = typeof entry.id === 'string' && entry.id !== '' ? `${PREFIX}${entry.id}` : null;
@@ -41,7 +42,7 @@ export function toRows(rel, entries, ctx = {}) {
       shown: 1,
       ...part.cols,
       extra: extraText(part.rest),
-      ...groupScope(),
+      ...groupScope(iface),
       created_at: null,
       retired_at: null,
       origin_file: rel,

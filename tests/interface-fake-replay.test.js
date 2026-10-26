@@ -87,7 +87,7 @@ test('replayFixture: an event with an invalid shape is answered invalid and reac
     log: quiet,
   });
   const answers = await replayFixture(
-    { iface: 'fake', events: [{ kind: 'voice.changed', at: 1, id: 'v', guildId: 'g1' }] },
+    { iface: 'fake', events: [{ kind: 'voice.changed', at: 1, id: 'v', communityId: 'g1' }] },
     door
   );
   assert.deepEqual(answers, [{ id: null, status: 'invalid' }]);

@@ -5,11 +5,12 @@
 // event builders (around.js), the handles kept off the events (raw-registry.ts), the custom emoji index (emoji.js), the served guild (guild.js), member
 // cache warming (audience-warm.js) and the slash commands (commands.js), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
-// through src/interface/discord.js; what it still imports from the core is by relative path
+// by path (src/index.js); what it still imports from the core is by relative path
 // (`../../src/...`) until the workspaces are declared and later stages cut those imports.
 
 export * from './port.js';
 export * from './collect.js';
+export * from './media.js';
 export * from './pull-fetch.js';
 export * from './search.js';
 export * from './reactors.js';

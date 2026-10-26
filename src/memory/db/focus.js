@@ -39,7 +39,7 @@
 // challenges. Both are internal-only (docs/memory.md): no outward reader selects from them.
 
 import { DAY_MS, HOUR_MS, utcDay } from '../../time.js';
-import { nativeAuthorityOf, survivorOf } from './ids.js';
+import { nativeAuthorityOf, survivorOf } from './ids.ts';
 
 /** The defaults of `focus` (config.json carries the same). */
 export const FOCUS_DEFAULTS = Object.freeze({
@@ -694,7 +694,7 @@ export function closePeople(db) {
  * each the best scored first): for the heartbeat's people view, an internal reader. A person with no current verified
  * account on that interface is left out.
  */
-export function focusView(db, { iface = 'discord' } = {}) {
+export function focusView(db, { iface }) {
   const authority = nativeAuthorityOf(iface);
   const rows = dbOf(db)
     .prepare(

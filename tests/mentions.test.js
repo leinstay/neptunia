@@ -1,5 +1,7 @@
-// Tests for src/memory/mentions.js: toTokens/fromTokens (the analyzer's
+// Tests for src/memory/mentions.ts: toTokens/fromTokens (the analyzer's
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
+// The core's own stored mention grammar (`<@id>`) lives here; message links are the Discord package's
+// (tests/collect.test.js#messageRefsOf).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -9,13 +11,12 @@ import {
   linkChannels,
   linkMessageNumbers,
   matchChannel,
-  numberMessageLinks,
   toTokens,
   fromTokens,
   occursAsWholeWord,
   occursAsWordStem,
   teacherToken,
-} from '../src/memory/mentions.js';
+} from '../src/memory/mentions.ts';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -354,56 +355,13 @@ test('linkChannels: text without # comes back unchanged', () => {
   assert.equal(linkChannels('#γενικά', []), '#γενικά');
 });
 
-// ---- numberMessageLinks -----------------------------------------------------
-
-test('numberMessageLinks: a link to a message of the window becomes its #n, any host form', () => {
-  const numbers = new Map([
-    ['300', 4],
-    ['301', 9],
-  ]);
-  const numberOf = (id) => numbers.get(id);
-  assert.equal(numberMessageLinks('εδώ https://discord.com/channels/1/2/300 είπες', numberOf), 'εδώ #4 είπες');
-  assert.equal(numberMessageLinks('https://ptb.discord.com/channels/1/2/300/', numberOf), '#4');
-  assert.equal(
-    numberMessageLinks(
-      'https://canary.discordapp.com/channels/1/2/301 και https://discordapp.com/channels/@me/2/300',
-      numberOf
-    ),
-    '#9 και #4'
-  );
-  assert.equal(numberMessageLinks('voilà <https://discord.com/channels/1/2/301>.', numberOf), 'voilà #9.');
-  assert.equal(numberMessageLinks('(https://discord.com/channels/1/2/300), ok', numberOf), '(#4), ok');
-});
-
-test('numberMessageLinks: a link outside the window or not a bare message link stays as written', () => {
-  const numberOf = (id) => (id === '300' ? 4 : undefined);
-  for (const text of [
-    'https://discord.com/channels/1/2/999',
-    'https://discord.com/channels/1/2/3000',
-    'https://discord.com/channels/1/2/300?x=1',
-    'https://discord.com/channels/1/300',
-    'https://example.com/channels/1/2/300',
-    'xhttps://discord.com/channels/1/2/300',
-    'plain #12 text',
-  ]) {
-    assert.equal(numberMessageLinks(text, numberOf), text, text);
-  }
-  assert.equal(numberMessageLinks('', numberOf), '');
-  assert.equal(numberMessageLinks(null, numberOf), null);
-  assert.equal(
-    numberMessageLinks('https://discord.com/channels/1/2/300', null),
-    'https://discord.com/channels/1/2/300'
-  );
-});
-
 // ---- linkMessageNumbers -----------------------------------------------------
 
-const jump = (n) =>
-  n === 93 ? 'https://discord.com/channels/1/2/3' : n === 7 ? 'https://discord.com/channels/1/9/8' : null;
+const jump = (n) => (n === 93 ? 'https://chat.example/m/3' : n === 7 ? 'https://chat.example/m/8' : null);
 
 test('linkMessageNumbers: a mapped #n becomes its message link', () => {
-  assert.equal(linkMessageNumbers('see #93 there', jump), 'see https://discord.com/channels/1/2/3 there');
-  assert.equal(linkMessageNumbers('#93', jump), 'https://discord.com/channels/1/2/3');
+  assert.equal(linkMessageNumbers('see #93 there', jump), 'see https://chat.example/m/3 there');
+  assert.equal(linkMessageNumbers('#93', jump), 'https://chat.example/m/3');
 });
 
 test('linkMessageNumbers: an unmapped number stays', () => {
@@ -418,7 +376,7 @@ test('linkMessageNumbers: glued, entity and doubled forms stay', () => {
 test('linkMessageNumbers: two numbers in one text both convert', () => {
   assert.equal(
     linkMessageNumbers('#93 and #7, #93.', jump),
-    'https://discord.com/channels/1/2/3 and https://discord.com/channels/1/9/8, https://discord.com/channels/1/2/3.'
+    'https://chat.example/m/3 and https://chat.example/m/8, https://chat.example/m/3.'
   );
 });
 

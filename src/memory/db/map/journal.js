@@ -11,8 +11,8 @@
 // toRows(rel, line, ctx) -> { day|decisions|sources|affinity_events: [...] }      ctx: { position? }
 // fromRows(rows, ctx) -> the line
 
-import { IFACE, answerSourceId, nativeOf, personId } from '../ids.js';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
+import { answerSourceId, nativeOfAny, personId } from '../ids.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.js';
 
 const DAY_SPEC = [
@@ -35,7 +35,7 @@ const DECISION_SPEC = [
 const ANSWER_SPEC = [{ col: 'think', key: 'think', type: 'text' }];
 
 const ATTITUDE_SPEC = [
-  { col: 'person_id', key: 'userId', type: 'text', enc: personId, dec: nativeOf },
+  { col: 'person_id', key: 'userId', type: 'text', enc: (v, iface) => personId(iface, v), dec: nativeOfAny },
   { col: 'delta', key: 'delta', type: 'num' },
   { col: 'applied', key: 'applied', type: 'num' },
   { col: 'reason', key: 'reason', type: 'text' },
@@ -47,6 +47,7 @@ const markHas = (rest, key) => {
 };
 
 function memoryRows(rel, line, ctx, privateUser) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const body = { ...line };
   delete body.attitude;
@@ -65,9 +66,9 @@ function memoryRows(rel, line, ctx, privateUser) {
   });
   if (mappable) {
     const scopeRest = {};
-    const scope = scopeInto(scopeRest, line.scope, privateUser);
+    const scope = scopeInto(scopeRest, line.scope, privateUser, iface);
     attitude.forEach((entry, index) => {
-      const part = split(entry, ATTITUDE_SPEC);
+      const part = split(entry, ATTITUDE_SPEC, iface);
       put(rows, 'affinity_events', {
         id: `aff:${line.id}:${index}`,
         ...part.cols,
@@ -86,6 +87,7 @@ function memoryRows(rel, line, ctx, privateUser) {
 }
 
 export function toRows(rel, line, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const privateUser = privateUserOf(rel);
   if (line.kind === 'memory') return memoryRows(rel, line, ctx, privateUser);
   const rows = {};
@@ -102,7 +104,7 @@ export function toRows(rel, line, ctx = {}) {
     );
   }
   const { cols, rest } = split(body, DAY_SPEC);
-  const scope = scopeInto(rest, line.scope, privateUser);
+  const scope = scopeInto(rest, line.scope, privateUser, iface);
   put(rows, 'day', {
     ...cols,
     place_id: scope.place_id,
@@ -122,7 +124,7 @@ export function toRows(rel, line, ctx = {}) {
     put(rows, 'sources', {
       id: sourceId,
       kind: 'answer',
-      iface: IFACE,
+      iface,
       place_id: scope.place_id,
       occurred_at: typeof line.occurredAt === 'string' ? line.occurredAt : null,
       recorded_at: typeof line.recordedAt === 'string' ? line.recordedAt : null,
@@ -154,7 +156,7 @@ export function fromRows(rows) {
   }
   const day = rows.day[0];
   const rest = parseExtra(day.extra);
-  const scope = scopeFrom(day, rest, privateUserOf(day.owner_file));
+  const scope = scopeFrom(day, rest, privateUserOf(day.owner_file), ifaceOf(day, 'scope_iface'));
   const line = join(day, rest, DAY_SPEC);
   if (scope !== undefined) line.scope = scope;
   const answer = rowsOf(rows, 'sources')[0];

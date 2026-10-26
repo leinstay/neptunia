@@ -6,7 +6,7 @@
 // values are read at the moment of use, through `hot`, never copied.
 
 import path from 'node:path';
-import { fromTokens } from '../memory/mentions.js';
+import { fromTokens } from '../memory/mentions.ts';
 import { familyOf as imageFamilyOf } from '../llm/images.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
@@ -131,7 +131,7 @@ export function createOpsEnv({
 
   /** `nameOf` (a member's current stored name, or null) and `resolve` (`<@id>` -> `name (id:…)`,
    * an id with no stored name keeping its token) for this guild: the resolution every view of
-   * analyzer-written text uses (src/memory/mentions.js#fromTokens, mode `'analyzer'`). */
+   * analyzer-written text uses (src/memory/mentions.ts#fromTokens, mode `'analyzer'`). */
   function tokenResolver(guildId) {
     const nameOf = (id) => store.getUser(guildId, id)?.names?.[0] ?? null;
     const resolve = (text) => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');

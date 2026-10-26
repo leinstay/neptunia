@@ -10,7 +10,7 @@ import { CliError, parseFlags } from './cli.mjs';
 import { escapeHtml } from './pair.mjs';
 import { costOf, percentile } from './recall-eval.mjs';
 import { createDescriber } from '../../src/memory/index.js';
-import { classifyAttachment, discordCdnVideo } from '../../src/media/classify.js';
+import { classifyAttachment } from '../../src/media/classify.js';
 import { videoSiteFor } from '../../src/media/video-sites.js';
 import { PURPOSE_ROLES } from '../../src/llm/roles.js';
 import { railReason } from '../../src/llm/openrouter.js';
@@ -120,7 +120,7 @@ function fileNameOf(url) {
  * (src/media/classify.js#collectPictures, collectEmojiItems, collectVideos): a picture as an
  * image attachment, a GIF as a gif attachment (its URL is the animation the watch downloads),
  * an emoji and a sticker as their own kinds, a video as an attachment when the URL is a video
- * file (a Discord CDN upload or a video file name), else as a link of one of `videoSites`.
+ * file name (a CDN upload included), else as a link of one of `videoSites`.
  * Null for a video URL that is neither.
  */
 function describerItem(kind, url, itemId, videoSites) {
@@ -129,7 +129,7 @@ function describerItem(kind, url, itemId, videoSites) {
   if (kind === 'emoji') return { source: 'emoji', itemId, kind: 'emoji', url, name: null };
   if (kind === 'sticker') return { source: 'sticker', itemId, kind: 'sticker', url, name: null };
   const name = fileNameOf(url);
-  if (discordCdnVideo(url) || classifyAttachment({ name }) === 'video') {
+  if (classifyAttachment({ name }) === 'video') {
     return { source: 'attachment', itemId, kind: 'video', url, name, durationSec: null, bytes: null };
   }
   const site = videoSiteFor(url, videoSites);

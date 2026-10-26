@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto';
 import { clampText, stripUrls } from './clamp.js';
-import { occursAsWholeWord } from './mentions.js';
+import { occursAsWholeWord } from './mentions.ts';
 
 const MAX_TITLE = 80;
 const DEFAULT_MAX_TEXT = 600; // config.json's lore.textChars, used only when a caller passes none

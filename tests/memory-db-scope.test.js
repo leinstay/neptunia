@@ -1,4 +1,4 @@
-// Tests for src/memory/db/scope.js and ids.js: scope columns of old scope objects, read contexts, the allowed matrix,
+// Tests for src/memory/db/scope.ts and ids.js: scope columns of old scope objects, read contexts, the allowed matrix,
 // the SQL filter (checked against the same matrix over a real table), narrowest, and the deterministic ids.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ import {
   narrowest,
   scopeColumns,
   whereFor,
-} from '../src/memory/db/scope.js';
+} from '../src/memory/db/scope.ts';
 import {
   accountId,
   answerSourceId,
@@ -29,24 +29,24 @@ import {
   personId,
   shortHash,
   uniqueIds,
-} from '../src/memory/db/ids.js';
+} from '../src/memory/db/ids.ts';
 
-const ALICE = personId('100000000000000001');
-const BOB = personId('100000000000000002');
+const ALICE = personId('discord', '100000000000000001');
+const BOB = personId('discord', '100000000000000002');
 
 test('scope columns from an old scope object', () => {
-  assert.deepEqual(scopeColumns({ channel: '200000000000000001' }), groupScope());
-  assert.deepEqual(scopeColumns({ guild: true }), groupScope());
+  assert.deepEqual(scopeColumns({ channel: '200000000000000001' }), groupScope('discord'));
+  assert.deepEqual(scopeColumns({ guild: true }), groupScope('discord'));
   assert.deepEqual(scopeColumns({}), SCOPE_INTERNAL, 'an unknown legacy scope is never shown outward');
   assert.deepEqual(scopeColumns(undefined), SCOPE_INTERNAL);
-  assert.deepEqual(scopeColumns({ user: '100000000000000001' }), dmScope(ALICE));
+  assert.deepEqual(scopeColumns({ user: '100000000000000001' }), dmScope(ALICE, 'discord'));
 });
 
 test('a private layer of user U is a DM scope with U whatever the line names', () => {
   const opts = { privateUser: '100000000000000001' };
-  assert.deepEqual(scopeColumns({ channel: '200000000000000009' }, opts), dmScope(ALICE));
-  assert.deepEqual(scopeColumns({}, opts), dmScope(ALICE));
-  assert.deepEqual(scopeColumns(undefined, opts), dmScope(ALICE));
+  assert.deepEqual(scopeColumns({ channel: '200000000000000009' }, opts), dmScope(ALICE, 'discord'));
+  assert.deepEqual(scopeColumns({}, opts), dmScope(ALICE, 'discord'));
+  assert.deepEqual(scopeColumns(undefined, opts), dmScope(ALICE, 'discord'));
 });
 
 const ROWS = {
@@ -159,11 +159,11 @@ test('a row with an unknown scope kind is shown to nobody but the internal conte
 test('narrowest: none yields to anything, a DM beats a group, two DMs are internal', () => {
   assert.deepEqual(narrowest([]), SCOPE_NONE);
   assert.deepEqual(narrowest([ROWS.none, ROWS.none]), SCOPE_NONE);
-  assert.deepEqual(narrowest([ROWS.none, ROWS.group]), groupScope());
-  assert.deepEqual(narrowest([ROWS.group, ROWS.group]), groupScope());
-  assert.deepEqual(narrowest([ROWS.group, ROWS.dmAlice]), dmScope(ALICE));
-  assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.group, ROWS.none]), dmScope(ALICE));
-  assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.dmAlice]), dmScope(ALICE));
+  assert.deepEqual(narrowest([ROWS.none, ROWS.group]), groupScope('discord'));
+  assert.deepEqual(narrowest([ROWS.group, ROWS.group]), groupScope('discord'));
+  assert.deepEqual(narrowest([ROWS.group, ROWS.dmAlice]), dmScope(ALICE, 'discord'));
+  assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.group, ROWS.none]), dmScope(ALICE, 'discord'));
+  assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.dmAlice]), dmScope(ALICE, 'discord'));
   assert.equal(narrowest([ROWS.dmAlice, ROWS.dmBob]).scope_kind, 'internal');
   assert.equal(narrowest([ROWS.dmBob, ROWS.group, ROWS.dmAlice]).scope_kind, 'internal');
   assert.equal(narrowest([ROWS.group, ROWS.groupOther]).scope_kind, 'internal');
@@ -178,12 +178,12 @@ test('an internal row derived from two DMs is never shown outward', () => {
 });
 
 test('ids are deterministic text', () => {
-  assert.equal(personId('1'), 'person:discord:1');
-  assert.equal(accountId('1'), 'discord:1');
-  assert.equal(guildPlaceId('2'), 'discord:guild:2');
-  assert.equal(channelPlaceId('3'), 'discord:channel:3');
-  assert.equal(dmPlaceId('4'), 'discord:dm:4');
-  assert.equal(messageSourceId('5', 2, 'seen'), 'src:discord:5:2:seen');
+  assert.equal(personId('discord', '1'), 'person:discord:1');
+  assert.equal(accountId('discord', '1'), 'discord:1');
+  assert.equal(guildPlaceId('discord', '2'), 'discord:guild:2');
+  assert.equal(channelPlaceId('discord', '3'), 'discord:channel:3');
+  assert.equal(dmPlaceId('discord', '4'), 'discord:dm:4');
+  assert.equal(messageSourceId('discord', '5', 2, 'seen'), 'src:discord:5:2:seen');
   assert.equal(answerSourceId('t-1', 0), 'src:turn:t-1:0');
   assert.equal(otherSourceId('felt', 'f-1'), 'src:felt:f-1');
   assert.equal(shortHash('a', 'b'), shortHash('a', 'b'));
@@ -192,11 +192,11 @@ test('ids are deterministic text', () => {
 });
 
 test('nativeOf reads the native id back out of person, account and place ids', () => {
-  assert.equal(nativeOf(personId('9')), '9');
-  assert.equal(nativeOf(accountId('9')), '9');
-  assert.equal(nativeOf(channelPlaceId('9')), '9');
-  assert.equal(nativeOf(dmPlaceId('9')), '9');
-  assert.equal(nativeOf(guildPlaceId('9')), '9');
+  assert.equal(nativeOf(personId('discord', '9')), '9');
+  assert.equal(nativeOf(accountId('discord', '9')), '9');
+  assert.equal(nativeOf(channelPlaceId('discord', '9')), '9');
+  assert.equal(nativeOf(dmPlaceId('discord', '9')), '9');
+  assert.equal(nativeOf(guildPlaceId('discord', '9')), '9');
   assert.equal(nativeOf('person:self'), null);
 });
 

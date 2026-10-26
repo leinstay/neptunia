@@ -1,5 +1,5 @@
 // Tests for the message links on the way out (src/behavior/turn.js with
-// src/memory/mentions.js#linkMessageNumbers): a transcript number `#n` in a `<msg>` is sent as the
+// src/memory/mentions.ts#linkMessageNumbers) and, at the end, on the way in: a transcript number `#n` in a `<msg>` is sent as the
 // jump link of that message, behind features.messageLinks. Fake discord.js-shaped objects, a fake
 // LLM and store.
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { labels } from './fixtures/labels.js';
-import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -169,4 +169,41 @@ test('runTurn: features.messageLinks false sends the number as written', async (
 test('runTurn: a private chat links with @me instead of the guild id', async () => {
   const { channel } = await runLinkTurn(true, '<msg>see #1</msg>', { dm: true });
   assert.equal(channel.sent[0].content, `see https://discord.com/channels/@me/c1/${MESSAGE_ID}`);
+});
+
+// The other direction: a link in a message of the window to another message of the window reads as that message's
+// number in the request, through the reference the Discord package put on the message.
+test('runTurn: a message link in the window reads as the #n of the message it names', async () => {
+  const first = rawMessage({ id: MESSAGE_ID, content: 'γεια' });
+  const second = {
+    ...rawMessage({ id: '900000000000000002', content: `see https://discord.com/channels/1/2/${MESSAGE_ID} please` }),
+    createdTimestamp: NOW - 500,
+  };
+  const channel = fakeTurnChannel([first, second]);
+  /** @type {string[]} */
+  const requests = [];
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(true),
+    store: fakeStore(),
+    llm: {
+      complete: (/** @type {unknown} */ messages) => {
+        requests.push(JSON.stringify(messages));
+        return Promise.resolve({ text: '<skip/>', usage: {}, estimated: 10 });
+      },
+    },
+    calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
+    client: { user: { id: 'self-id', username: 'Bot' } },
+  });
+  await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(second),
+    triggerKind: 'mention',
+    guildId: 'g1',
+  });
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].includes('see #1 please'), 'the link is the number of the first line');
+  assert.equal(requests[0].includes('discord.com/channels'), false, 'the address is not in the request');
 });

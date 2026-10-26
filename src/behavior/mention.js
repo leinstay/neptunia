@@ -5,7 +5,7 @@
 // (<skip/>) for calls that are simply not interesting.
 
 import { ignoreAdjustment } from '../memory/index.js';
-import { occursAsWholeWord } from '../memory/mentions.js';
+import { occursAsWholeWord } from '../memory/mentions.ts';
 import { MINUTE_MS } from '../time.js';
 
 /** How the persona was called. Order matters: a pinged reply is a 'reply', not a 'mention'. */

@@ -61,7 +61,7 @@ export function membershipUpdatedEvent(value: unknown, at: number): Record<strin
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:membership:${guildId}:${view.id}:updated:${at}`,
-    guildId,
+    communityId: guildId,
     userId: view.id,
     change: 'updated',
     member: {

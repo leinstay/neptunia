@@ -14,10 +14,11 @@
 // toRows(rel, entry, ctx) -> { claim_versions: [row], claims?: [stub] }     ctx: { position?, hotClaimIds? }
 // fromRows(rows, ctx) -> the entry
 
-import { shortHash } from '../ids.js';
-import { scopeColumns } from '../scope.js';
+import { shortHash } from '../ids.ts';
+import { scopeColumns } from '../scope.ts';
 import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
 import { privateUserOf } from './scope-parts.js';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
 
 const SPEC = [
   { col: 'id', key: 'id', type: 'text' },
@@ -34,9 +35,9 @@ export function claimStub(rel, entry) {
   const scope = entry.scope ?? {};
   const subject =
     typeof scope.user === 'string' && scope.user
-      ? { subject_kind: 'person', subject_id: `person:discord:${scope.user}` }
+      ? { subject_kind: 'person', subject_id: `person:${LEGACY_IFACE}:${scope.user}` }
       : typeof scope.channel === 'string' && scope.channel
-        ? { subject_kind: 'place', subject_id: `discord:channel:${scope.channel}` }
+        ? { subject_kind: 'place', subject_id: `${LEGACY_IFACE}:channel:${scope.channel}` }
         : { subject_kind: null, subject_id: null };
   return {
     id: entry.itemId,

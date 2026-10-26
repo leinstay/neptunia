@@ -26,7 +26,7 @@ import {
 } from '../src/protocol/index.js';
 import * as port from '../src/interface/port.js';
 
-const conversation = { id: 'c1', kind: 'channel', guildId: 'g1', name: 'γενικά', topic: null, category: null };
+const conversation = { id: 'c1', kind: 'channel', communityId: 'g1', name: 'γενικά', topic: null, category: null };
 
 function messageEvent(overrides = {}) {
   return {
@@ -86,7 +86,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:member:g1:u1:joined:1000',
-    guildId: 'g1',
+    communityId: 'g1',
     userId: 'u1',
     change: 'joined',
     member: { id: 'u1', name: 'Ελένη', bot: false },
@@ -96,7 +96,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:voice:g1:u1:1000',
-    guildId: 'g1',
+    communityId: 'g1',
     userId: 'u1',
     conversationId: 'v1',
     previousId: null,
@@ -107,7 +107,7 @@ const EVENTS = {
     kind: 'inner.wake',
     at: 1000,
     id: 'inner.wake:review:2026-10-19',
-    guildId: 'g1',
+    communityId: 'g1',
     wake: { kind: 'review' },
   },
   // Stage 2 PR 4 added these four kinds; the detailed refusals are in protocol-events.test.ts.
@@ -438,7 +438,7 @@ test('validateEvent: membership and voice events need their community, member an
   const { member: _m, ...left } = { ...member, change: 'left' };
   assert.deepEqual(validateEvent(left), { ok: true });
   assert.deepEqual(validateEvent({ ...member, change: 'banned' }), { ok: false, reason: 'change:unknown' });
-  assert.deepEqual(validateEvent({ ...member, guildId: undefined }), { ok: false, reason: 'guildId:required' });
+  assert.deepEqual(validateEvent({ ...member, communityId: undefined }), { ok: false, reason: 'communityId:required' });
   assert.deepEqual(validateEvent({ ...member, member: { id: 'u1', name: null } }), {
     ok: false,
     reason: 'member.bot:required',
@@ -529,11 +529,47 @@ test('originOf: the origin an adapter sent wins; else it is read off the convers
   assert.doesNotThrow(() => originOf(null));
 });
 
+// A hello names who the persona is on the interface and the community it serves.
+const HELLO_BODY = {
+  iface: 'discord',
+  self: { id: 'bot1', name: 'Νέπτυν' },
+  community: { id: 'g1', name: 'Alpha' },
+};
+
+test('envelope: a hello without self is refused', () => {
+  const body = { ...HELLO_BODY, self: undefined };
+  const verdict = validateEnvelope(envelope('hello', body, { id: 'h1' }));
+  assert.equal(verdict.ok, false);
+  assert.match(String(verdict.reason), /self/);
+});
+
+test('envelope: a hello whose self has no id or no name is refused', () => {
+  for (const self of [{ name: 'Νέπτυν' }, { id: 'bot1' }, { id: '', name: 'x' }, 'bot1', null]) {
+    const verdict = validateEnvelope(envelope('hello', { ...HELLO_BODY, self }, { id: 'h1' }));
+    assert.equal(verdict.ok, false, JSON.stringify(self));
+    assert.match(String(verdict.reason), /self/);
+  }
+});
+
+test('envelope: a hello for an interface with no community carries null and is valid', () => {
+  assert.deepEqual(validateEnvelope(envelope('hello', { ...HELLO_BODY, community: null }, { id: 'h1' })), {
+    ok: true,
+  });
+});
+
+test('envelope: a hello whose community is not an id and a name is refused', () => {
+  for (const community of [{ name: 'Alpha' }, { id: '', name: 'Alpha' }, 'g1']) {
+    const verdict = validateEnvelope(envelope('hello', { ...HELLO_BODY, community }, { id: 'h1' }));
+    assert.equal(verdict.ok, false, JSON.stringify(community));
+    assert.match(String(verdict.reason), /community/);
+  }
+});
+
 test('envelope: every type validates in its documented body, and a bad one is refused with a reason', () => {
   assert.deepEqual([...ENVELOPE_TYPES], ['hello', 'event', 'ack', 'action', 'action_result', 'ping']);
   const event = EVENTS['reaction.changed'];
   const valid = [
-    envelope('hello', { iface: 'discord', capabilities: ['message.send'], resume: null }, { id: 'h1' }),
+    envelope('hello', { ...HELLO_BODY, capabilities: ['message.send'], resume: null }, { id: 'h1' }),
     envelope('event', event, { id: event.id }),
     envelope('ack', { status: 'duplicate' }, { id: 'a1', replyTo: event.id }),
     envelope('action', ACTION_SAMPLES['message.send'], { id: 'x1' }),

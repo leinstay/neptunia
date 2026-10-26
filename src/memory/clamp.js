@@ -35,7 +35,7 @@
 // archive. The record, the journal and the meaning index keep links: they are
 // the record of what was said.
 
-import { URL_PATTERN } from './mentions.js';
+import { URL_PATTERN } from './mentions.ts';
 
 const SENTENCE_ENDERS = new Set(['.', '!', '?', '…']);
 const SENTENCE_CLOSERS = new Set(['"', "'", '’', '”', ')', ']', '»']);
@@ -294,7 +294,7 @@ const URL_CLOSERS = { ')': '(', ']': '[', '}': '{' };
 // A bracket or quote pair a removed link left empty.
 const EMPTY_PAIR = /\(\s*\)|\[\s*\]|\{\s*\}|<\s*>|«\s*»|“\s*”|""/gu;
 
-/** A fresh URL regex, built at the moment of use: mentions.js reaches this module back through recent.js. */
+/** A fresh URL regex, built at the moment of use: mentions.ts reaches this module back through recent.js. */
 function urlRegex() {
   return new RegExp(URL_PATTERN, 'giu');
 }
@@ -331,7 +331,7 @@ function tidyLine(line) {
 }
 
 /**
- * `text` without its http(s) links (src/memory/mentions.js#URL_PATTERN, any
+ * `text` without its http(s) links (src/memory/mentions.ts#URL_PATTERN, any
  * letter case): a Markdown link keeps its label, a `<url>` goes with its
  * brackets, and punctuation that ends the sentence right after a link stays.
  * Each line that held a link is tidied (brackets and quotes left empty,

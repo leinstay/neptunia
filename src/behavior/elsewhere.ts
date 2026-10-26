@@ -8,7 +8,7 @@
 // the same content, the ordinary liveness rule a noticed comment found on a
 // tick must pass (a count the writable channels' chooser can share), the
 // audience comparison that keeps a narrower channel's content out of a wider
-// one, the destination pick and the jump link of a message.
+// one, the destination pick and the link of a message (the address the interface gave it).
 //
 // No I/O, no discord.js: the clock is passed in, Discord objects are read by
 // the callers and handed over as plain values (ids, timestamps, sets of ids,
@@ -20,9 +20,20 @@
 import { memberIdOf as idOf } from '../memory/recent.js';
 import { mainChannelSet } from '../memory/index.js';
 import { MINUTE_MS, DAY_MS } from '../time.js';
+import type { MessageUrlTemplate } from '../protocol/adapter.ts';
+import { portIface, portMessageUrl } from '../interface/capabilities.ts';
 
 const SECOND_MS = 1000;
-const LINK_BASE = 'https://discord.com/channels';
+
+/** The parts of the live config this module reads. */
+type Config =
+  | {
+      elsewhere?: Partial<Record<'settleSeconds' | 'settleMaxSeconds' | 'rememberPings' | 'pingMaxAgeDays', unknown>>;
+      features?: { elsewhere?: unknown };
+      memory?: { mainChannelIds?: unknown };
+    }
+  | null
+  | undefined;
 
 /**
  * Defaults of the `elsewhere` config block (config.json carries the same
@@ -47,13 +58,13 @@ export const LIVENESS_DEFAULTS = Object.freeze({
 });
 
 /** A finite number >= 0 from `value`, else `fallback`. */
-function nonNegativeOr(value, fallback) {
-  return Number.isFinite(value) && value >= 0 ? value : fallback;
+function nonNegativeOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 /** A finite number from `value`, else null. */
-function finiteOrNull(value) {
-  return Number.isFinite(value) ? value : null;
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -61,10 +72,13 @@ function finiteOrNull(value) {
  * milliseconds, each falling back to `ELSEWHERE_DEFAULTS` when missing or not
  * a finite number >= 0. `rememberPings` 0 keeps no call; `pingMaxAgeDays` 0
  * means no age limit (the ring is then bounded by its size only).
- * @param {object} [config]  The live config.
- * @returns {{ settleMs: number, settleMaxMs: number, rememberPings: number, pingMaxAgeMs: number }}
  */
-export function elsewhereSettings(config) {
+export function elsewhereSettings(config?: Config): {
+  settleMs: number;
+  settleMaxMs: number;
+  rememberPings: number;
+  pingMaxAgeMs: number;
+} {
   const e = config?.elsewhere ?? {};
   const d = ELSEWHERE_DEFAULTS;
   return {
@@ -78,10 +92,8 @@ export function elsewhereSettings(config) {
 /**
  * `features.elsewhere` (a missing key counts as on). On its own it does not
  * make the feature act: see `resolveDestination`.
- * @param {object} [config]  The live config.
- * @returns {boolean}
  */
-export function elsewhereOn(config) {
+export function elsewhereOn(config?: Config): boolean {
   return config?.features?.elsewhere !== false;
 }
 
@@ -93,11 +105,20 @@ export function elsewhereOn(config) {
  * call or the noticed message that armed it). The wait is a timer of the
  * caller and holds no attention; a restart during it loses the wait (the
  * ring keeps the call, unanswered).
- * @param {{ firstAt: number, lastAt?: number, settleMs: number, maxMs: number }} times
- * @returns {number}  Epoch ms.
+ * @returns Epoch ms.
  */
-export function settleDueAt({ firstAt, lastAt, settleMs, maxMs }) {
-  const last = Number.isFinite(lastAt) ? lastAt : firstAt;
+export function settleDueAt({
+  firstAt,
+  lastAt,
+  settleMs,
+  maxMs,
+}: {
+  firstAt: number;
+  lastAt?: number;
+  settleMs: number;
+  maxMs: number;
+}): number {
+  const last = lastAt !== undefined && Number.isFinite(lastAt) ? lastAt : firstAt;
   return Math.min(last + settleMs, firstAt + maxMs);
 }
 
@@ -106,28 +127,31 @@ export function settleDueAt({ firstAt, lastAt, settleMs, maxMs }) {
 /**
  * One call to the persona received in a channel it cannot write in, as kept
  * in `state.json` `elsewherePings`: ids and a time only (no author, no text).
- * @typedef {object} RingPing
- * @property {string} messageId
- * @property {string} channelId
- * @property {number} ts               when the call was written (epoch ms)
- * @property {number|null} answeredAt  when a turn that showed it spoke (a reaction counts)
- * @property {number|null} skippedAt   when the persona chose to let it pass
+ * `ts` is when the call was written (epoch ms), `answeredAt` when a turn that showed it spoke (a reaction counts),
+ * `skippedAt` when the persona chose to let it pass.
  */
+export type RingPing = {
+  messageId: string;
+  channelId: string;
+  ts: number;
+  answeredAt: number | null;
+  skippedAt: number | null;
+};
 
 /** Whether a call written at `ts` is past `maxAgeMs` at `now`; a `maxAgeMs` that is not positive is no limit. */
-function isExpired(ts, now, maxAgeMs) {
+function isExpired(ts: number, now: number, maxAgeMs: number): boolean {
   return Number.isFinite(maxAgeMs) && maxAgeMs > 0 && now - ts > maxAgeMs;
 }
 
 /** The well-formed entries of a stored ring, each copied with its stamps normalised. */
-function ringEntries(ring) {
+function ringEntries(ring: unknown): Array<RingPing> {
   if (!Array.isArray(ring)) return [];
-  const entries = [];
-  for (const entry of ring) {
+  const entries: Array<RingPing> = [];
+  for (const entry of ring as Array<Record<string, unknown>>) {
     if (!entry || typeof entry !== 'object') continue;
     const messageId = idOf(entry.messageId);
     const channelId = idOf(entry.channelId);
-    if (!messageId || !channelId || !Number.isFinite(entry.ts)) continue;
+    if (!messageId || !channelId || typeof entry.ts !== 'number' || !Number.isFinite(entry.ts)) continue;
     entries.push({
       messageId,
       channelId,
@@ -140,7 +164,7 @@ function ringEntries(ring) {
 }
 
 /** Entries oldest first; equal times keep their stored order. */
-function oldestFirst(entries) {
+function oldestFirst(entries: ReadonlyArray<RingPing>): Array<RingPing> {
   return [...entries].sort((a, b) => a.ts - b.ts);
 }
 
@@ -150,12 +174,13 @@ function oldestFirst(entries) {
  * unanswered and unskipped, and the newest `cap` entries are kept (oldest
  * first). A malformed call or one already past `maxAgeMs` is not recorded.
  * Garbage in the stored ring is dropped, never thrown on.
- * @param {RingPing[]|unknown} ring  The stored ring (not mutated).
- * @param {{ messageId: string, channelId: string, ts: number }} ping
- * @param {{ cap: number, maxAgeMs: number, now: number }} opts  `elsewhereSettings`' `rememberPings` / `pingMaxAgeMs`.
- * @returns {RingPing[]}
+ * `opts` are `elsewhereSettings`' `rememberPings` (`cap`) and `pingMaxAgeMs` (`maxAgeMs`). The stored ring is not mutated.
  */
-export function recordPing(ring, { messageId, channelId, ts }, { cap, maxAgeMs, now }) {
+export function recordPing(
+  ring: unknown,
+  { messageId, channelId, ts }: { messageId: string; channelId: string; ts: number },
+  { cap, maxAgeMs, now }: { cap: number; maxAgeMs: number; now: number }
+): Array<RingPing> {
   const entries = ringEntries(ring).filter((entry) => !isExpired(entry.ts, now, maxAgeMs));
   const id = idOf(messageId);
   const channel = idOf(channelId);
@@ -176,12 +201,9 @@ export function recordPing(ring, { messageId, channelId, ts }, { cap, maxAgeMs, 
  * Stamp a call answered (a turn that showed it spoke, a reaction alone
  * included; never in dry-run -- the caller's rule). An earlier stamp is kept.
  * An answer wins over an earlier skip (`pingStatus`).
- * @param {RingPing[]|unknown} ring  The stored ring (not mutated).
- * @param {string} messageId
- * @param {number} now
- * @returns {RingPing[]}
+ * The stored ring is not mutated.
  */
-export function markPingAnswered(ring, messageId, now) {
+export function markPingAnswered(ring: unknown, messageId: string, now: number): Array<RingPing> {
   const id = idOf(messageId);
   return ringEntries(ring).map((entry) =>
     entry.messageId === id && entry.answeredAt === null ? { ...entry, answeredAt: now } : entry
@@ -194,12 +216,9 @@ export function markPingAnswered(ring, messageId, now) {
  * call stays answered; an earlier skip stamp is kept. A call lost before any
  * turn saw it (a restart during the settle) is never stamped and stays
  * unanswered.
- * @param {RingPing[]|unknown} ring  The stored ring (not mutated).
- * @param {string} messageId
- * @param {number} now
- * @returns {RingPing[]}
+ * The stored ring is not mutated.
  */
-export function markPingSkipped(ring, messageId, now) {
+export function markPingSkipped(ring: unknown, messageId: string, now: number): Array<RingPing> {
   const id = idOf(messageId);
   return ringEntries(ring).map((entry) =>
     entry.messageId === id && entry.answeredAt === null && entry.skippedAt === null
@@ -211,10 +230,10 @@ export function markPingSkipped(ring, messageId, now) {
 /**
  * The state of one ring entry: `'answered'` once answered (even after a
  * skip), else `'skipped'` once skipped, else `'unanswered'`.
- * @param {RingPing|null|undefined} entry
- * @returns {'answered'|'skipped'|'unanswered'}
  */
-export function pingStatus(entry) {
+export function pingStatus(
+  entry: Pick<RingPing, 'answeredAt' | 'skippedAt'> | null | undefined
+): 'answered' | 'skipped' | 'unanswered' {
   if (Number.isFinite(entry?.answeredAt)) return 'answered';
   if (Number.isFinite(entry?.skippedAt)) return 'skipped';
   return 'unanswered';
@@ -228,23 +247,31 @@ export function pingStatus(entry) {
  * are passed over. `marked` lists each stamp that changed its call's state,
  * with the call's channel and its state after it, so the caller logs those
  * and marks the state dirty only when there is one.
- * @param {RingPing[]|unknown} ring  The stored ring (not mutated).
- * @param {{ messageId: string, status: 'answered'|'skipped' }[]|unknown} stamps
- * @param {number} now
- * @returns {{ ring: RingPing[], marked: { messageId: string, channelId: string, status: 'answered'|'skipped' }[] }}
+ * The stored ring is not mutated; `stamps` are `{ messageId, status: 'answered'|'skipped' }`, anything else is passed over.
  */
-export function stampPings(ring, stamps, now) {
+export function stampPings(
+  ring: unknown,
+  stamps: unknown,
+  now: number
+): {
+  ring: Array<RingPing>;
+  marked: Array<{ messageId: string; channelId: string; status: 'answered' | 'skipped' | 'unanswered' }>;
+} {
   let entries = ringEntries(ring);
-  const marked = [];
-  for (const stamp of Array.isArray(stamps) ? stamps : []) {
+  const marked: Array<{ messageId: string; channelId: string; status: 'answered' | 'skipped' | 'unanswered' }> = [];
+  for (const stamp of (Array.isArray(stamps) ? stamps : []) as Array<{
+    messageId?: unknown;
+    status?: unknown;
+  } | null>) {
     const mark = stamp?.status === 'answered' ? markPingAnswered : stamp?.status === 'skipped' ? markPingSkipped : null;
     const id = idOf(stamp?.messageId);
     const index = entries.findIndex((entry) => entry.messageId === id);
-    if (!mark || index === -1) continue;
-    const before = pingStatus(entries[index]);
+    const found = entries[index];
+    if (!mark || id === null || found === undefined) continue;
+    const before = pingStatus(found);
     entries = mark(entries, id, now);
     const after = pingStatus(entries[index]);
-    if (after !== before) marked.push({ messageId: id, channelId: entries[index].channelId, status: after });
+    if (after !== before) marked.push({ messageId: id, channelId: found.channelId, status: after });
   }
   return { ring: entries, marked };
 }
@@ -252,12 +279,12 @@ export function stampPings(ring, stamps, now) {
 /**
  * The ring's calls in one channel that are not past `maxAgeMs` at `now`,
  * oldest first (a `maxAgeMs` that is not positive is no limit).
- * @param {RingPing[]|unknown} ring
- * @param {string} channelId
- * @param {{ now: number, maxAgeMs: number }} opts
- * @returns {RingPing[]}
  */
-export function pingsIn(ring, channelId, { now, maxAgeMs }) {
+export function pingsIn(
+  ring: unknown,
+  channelId: string,
+  { now, maxAgeMs }: { now: number; maxAgeMs: number }
+): Array<RingPing> {
   const channel = idOf(channelId);
   return oldestFirst(
     ringEntries(ring).filter((entry) => entry.channelId === channel && !isExpired(entry.ts, now, maxAgeMs))
@@ -272,13 +299,11 @@ export function pingsIn(ring, channelId, { now, maxAgeMs }) {
  * to `ts`, never backwards. A missing map starts empty, a garbage mark is
  * replaced, a non-finite `ts` changes nothing. The mark is not a limit: it
  * only keeps the persona from commenting twice on the same content.
- * @param {Record<string, number>|unknown} seen  The stored map (not mutated).
- * @param {string} channelId
- * @param {number} ts
- * @returns {Record<string, number>}
+ * The stored map is not mutated.
  */
-export function markSeen(seen, channelId, ts) {
-  const next = seen && typeof seen === 'object' && !Array.isArray(seen) ? { ...seen } : {};
+export function markSeen(seen: unknown, channelId: string, ts: number): Record<string, number> {
+  const next: Record<string, number> =
+    seen && typeof seen === 'object' && !Array.isArray(seen) ? { ...(seen as Record<string, number>) } : {};
   const channel = idOf(channelId);
   if (!channel || !Number.isFinite(ts)) return next;
   const current = finiteOrNull(next[channel]);
@@ -290,19 +315,18 @@ export function markSeen(seen, channelId, ts) {
  * Whether a channel holds something its seen mark does not cover: its last
  * message (`lastActivity`, 0 for none) is newer than the mark. No mark counts
  * as nothing seen.
- * @param {number} lastTs
- * @param {number|null|undefined} seenTs
- * @returns {boolean}
  */
-export function hasUnseen(lastTs, seenTs) {
-  return Number.isFinite(lastTs) && lastTs > (Number.isFinite(seenTs) ? seenTs : 0);
+export function hasUnseen(lastTs: number, seenTs: number | null | undefined): boolean {
+  return Number.isFinite(lastTs) && lastTs > (typeof seenTs === 'number' && Number.isFinite(seenTs) ? seenTs : 0);
 }
 
 // ---- the liveness of a noticed comment --------------------------------------------------
 
 /** Whether a normalized message is a member's: neither the persona's own nor a bot's. */
-function isMemberMessage(message) {
-  return Boolean(message) && !message.self && !message.bot;
+type LiveMessage = { ts: number; self?: boolean; bot?: boolean };
+
+function isMemberMessage(message: LiveMessage | null | undefined): message is LiveMessage {
+  return message !== null && message !== undefined && !message.self && !message.bot;
 }
 
 /**
@@ -313,22 +337,25 @@ function isMemberMessage(message) {
  * `chooseMode` in src/behavior/spontaneous.js does: a `windowMinutes` of 0
  * counts only messages written at `now`, a garbage one counts nothing. Kept
  * free of Discord so that chooser can count with it too (`sinceTs` omitted).
- * @param {object[]|unknown} messages  Normalized messages (`{ ts, self, bot }`), any order.
- * @param {{ now: number, windowMinutes: number, sinceTs?: number|null }} opts
- * @returns {number}
+ * `messages` are normalized messages (`{ ts, self, bot }`), any order.
  */
-export function liveMemberCount(messages, { now, windowMinutes, sinceTs }) {
+export function liveMemberCount(
+  messages: unknown,
+  { now, windowMinutes, sinceTs }: { now: number; windowMinutes: number; sinceTs?: number | null }
+): number {
   const windowStart = now - windowMinutes * MINUTE_MS;
-  const since = Number.isFinite(sinceTs) ? sinceTs : -Infinity;
+  const since = typeof sinceTs === 'number' && Number.isFinite(sinceTs) ? sinceTs : -Infinity;
   let count = 0;
-  for (const m of Array.isArray(messages) ? messages : []) {
+  for (const m of (Array.isArray(messages) ? messages : []) as Array<LiveMessage | null>) {
     if (isMemberMessage(m) && m.ts >= windowStart && m.ts > since) count += 1;
   }
   return count;
 }
 
 /** The two liveness settings read as `chooseMode` reads them, falling back only when a key is missing. */
-function livenessSettings(cfg) {
+type LivenessConfig = { liveMinMessages?: number; liveWindowMinutes?: number };
+
+function livenessSettings(cfg: LivenessConfig | undefined): { need: number; windowMinutes: number } {
   return {
     need: cfg?.liveMinMessages ?? LIVENESS_DEFAULTS.liveMinMessages,
     windowMinutes: cfg?.liveWindowMinutes ?? LIVENESS_DEFAULTS.liveWindowMinutes,
@@ -345,13 +372,14 @@ function livenessSettings(cfg) {
  * A `liveMinMessages` of 0 makes any source live, as it makes any writable
  * channel interject; the seen-mark rule of `chooseElsewhereMode` still
  * applies.
- * @param {object[]} messages  Normalized messages of the source (`{ ts, self, bot }`), any order.
- * @param {number} now
- * @param {number|null|undefined} seenTs
- * @param {{ liveMinMessages?: number, liveWindowMinutes?: number }} [cfg]  config.spontaneous
- * @returns {boolean}
+ * `messages` are the source's normalized messages (`{ ts, self, bot }`), any order; `cfg` is config.spontaneous.
  */
-export function isSourceLive(messages, now, seenTs, cfg) {
+export function isSourceLive(
+  messages: ReadonlyArray<LiveMessage>,
+  now: number,
+  seenTs: number | null | undefined,
+  cfg?: LivenessConfig
+): boolean {
   const { need, windowMinutes } = livenessSettings(cfg);
   return liveMemberCount(messages, { now, windowMinutes, sinceTs: seenTs }) >= need;
 }
@@ -364,13 +392,14 @@ export function isSourceLive(messages, now, seenTs, cfg) {
  * window. A source whose new content went quiet longer than the window ago
  * stops being a candidate. It cannot tell members from bots: a source where
  * only bots post still passes it.
- * @param {number} lastTs
- * @param {number} now
- * @param {number|null|undefined} seenTs
- * @param {{ liveMinMessages?: number, liveWindowMinutes?: number }} [cfg]  config.spontaneous
- * @returns {boolean}
+ * `cfg` is config.spontaneous.
  */
-export function mayBeLive(lastTs, now, seenTs, cfg) {
+export function mayBeLive(
+  lastTs: number,
+  now: number,
+  seenTs: number | null | undefined,
+  cfg?: LivenessConfig
+): boolean {
   if (!hasUnseen(lastTs, seenTs)) return false;
   const { need, windowMinutes } = livenessSettings(cfg);
   return need > 0 ? lastTs >= now - windowMinutes * MINUTE_MS : true;
@@ -385,14 +414,15 @@ export function mayBeLive(lastTs, now, seenTs, cfg) {
  * `eavesdropChance` roll that armed the settle is the gate, so one new member
  * message is enough; a caller that wants the liveness rule on that path too
  * passes `'tick'`. Else null (`not-now`).
- * @param {object[]} messages
- * @param {number} now
- * @param {number|null|undefined} seenTs
- * @param {{ liveMinMessages?: number, liveWindowMinutes?: number }} [cfg]  config.spontaneous
- * @param {{ path?: 'tick'|'eavesdrop' }} [opts]
- * @returns {'elsewhere'|null}
+ * `cfg` is config.spontaneous.
  */
-export function chooseElsewhereMode(messages, now, seenTs, cfg, { path } = {}) {
+export function chooseElsewhereMode(
+  messages: ReadonlyArray<LiveMessage>,
+  now: number,
+  seenTs: number | null | undefined,
+  cfg?: LivenessConfig,
+  { path }: { path?: 'tick' | 'eavesdrop' } = {}
+): 'elsewhere' | null {
   if (liveMemberCount(messages, { now, windowMinutes: Infinity, sinceTs: seenTs }) === 0) return null;
   if (path === 'eavesdrop') return 'elsewhere';
   return isSourceLive(messages, now, seenTs, cfg) ? 'elsewhere' : null;
@@ -403,35 +433,40 @@ export function chooseElsewhereMode(messages, now, seenTs, cfg, { path } = {}) {
 /**
  * Who can view one channel, read by the caller from Discord's permissions.
  * `@everyone`'s overwrite belongs to `everyone` and `roles`, never to
- * `roleAllow` / `roleDeny`.
- * @typedef {object} Audience
- * @property {boolean} everyone          @everyone can view it (its overwrite applied)
- * @property {Set<string>} roles         ids of the roles that can view it, each on its own (@everyone's and that
- *                                       role's overwrite applied; Administrator views everything)
- * @property {Set<string>} roleAllow     ids of the roles whose overwrite allows ViewChannel
- * @property {Set<string>} roleDeny      ids of the roles whose overwrite denies ViewChannel
- * @property {Set<string>} memberAllow   members with an overwrite allowing ViewChannel
- * @property {Set<string>} memberDeny    members with an overwrite denying ViewChannel
- * @property {Map<string, Set<string>>} [memberRoles]  for the members named by an overwrite, the ids of the roles
- *                                       they hold (from the member cache); a member missing from it is unknown
+ * `roleAllow` / `roleDeny`. `everyone`: @everyone can view it (its overwrite applied). `roles`: ids of the roles that
+ * can view it, each on its own (@everyone's and that role's overwrite applied; Administrator views everything).
+ * `roleAllow`, `roleDeny`: ids of the roles whose overwrite allows or denies ViewChannel. `memberAllow`, `memberDeny`:
+ * members with an overwrite allowing or denying ViewChannel. `memberRoles` (optional): for the members named by an
+ * overwrite, the ids of the roles they hold (from the member cache); a member missing from it is unknown.
  */
+export type Audience = {
+  everyone: boolean;
+  roles: Set<string>;
+  roleAllow: Set<string>;
+  roleDeny: Set<string>;
+  memberAllow: Set<string>;
+  memberDeny: Set<string>;
+  memberRoles?: Map<string, Set<string>>;
+};
 
 /** Whether `value` has the Audience shape. */
-function isAudience(value) {
+function isAudience(value: unknown): value is Audience {
+  const audience = value as Partial<Audience> | null | undefined;
   return (
-    Boolean(value) &&
-    typeof value === 'object' &&
-    typeof value.everyone === 'boolean' &&
-    value.roles instanceof Set &&
-    value.roleAllow instanceof Set &&
-    value.roleDeny instanceof Set &&
-    value.memberAllow instanceof Set &&
-    value.memberDeny instanceof Set
+    audience !== null &&
+    audience !== undefined &&
+    typeof audience === 'object' &&
+    typeof audience.everyone === 'boolean' &&
+    audience.roles instanceof Set &&
+    audience.roleAllow instanceof Set &&
+    audience.roleDeny instanceof Set &&
+    audience.memberAllow instanceof Set &&
+    audience.memberDeny instanceof Set
   );
 }
 
 /** Whether every item of `inner` is in `outer`. */
-function isSubset(inner, outer) {
+function isSubset(inner: Iterable<string>, outer: ReadonlySet<string>): boolean {
   for (const item of inner) if (!outer.has(item)) return false;
   return true;
 }
@@ -449,7 +484,7 @@ function isSubset(inner, outer) {
  * the source does not (whoever holds such a role reaches the destination only
  * through an allow that the source repeats). Otherwise blocks.
  */
-function roleDeniesContained(dest, source) {
+function roleDeniesContained(dest: Audience, source: Audience): boolean {
   if (dest.everyone === false && isSubset(dest.roles, source.roleAllow)) return true;
   return isSubset(source.roleDeny, dest.roleDeny) && isSubset(dest.roleAllow, source.roleAllow);
 }
@@ -461,11 +496,9 @@ function roleDeniesContained(dest, source) {
  * source is viewable by @everyone or one of his roles views it. With his
  * roles unknown only the source's @everyone view with no role denied and no
  * deny of that member proves it (he may hold a denied role).
- * @param {string} memberId
- * @param {Audience} source
- * @param {Set<string>|undefined} [heldRoles]  the member's role ids, when known
+ * `heldRoles` is the member's role ids, when known.
  */
-function memberViewsSource(memberId, source, heldRoles) {
+function memberViewsSource(memberId: string, source: Audience, heldRoles?: Set<string>): boolean {
   if (source.memberAllow.has(memberId)) return true;
   if (source.memberDeny.has(memberId)) return false;
   if (!(heldRoles instanceof Set)) return source.everyone && source.roleDeny.size === 0;
@@ -498,17 +531,14 @@ function memberViewsSource(memberId, source, heldRoles) {
  * shape says which role has it); it never covers a pair where some
  * combination of roles and overwrites shows the destination and hides the
  * source. A missing or malformed audience never covers.
- * @param {Audience|null|undefined} dest
- * @param {Audience|null|undefined} source
- * @returns {boolean}
  */
-export function audienceCovers(dest, source) {
+export function audienceCovers(dest: unknown, source: unknown): boolean {
   if (!isAudience(dest) || !isAudience(source)) return false;
   if (dest.everyone && !source.everyone) return false;
   if (!isSubset(dest.roles, source.roles)) return false;
   if (source.roleDeny.size > 0 && !roleDeniesContained(dest, source)) return false;
   for (const memberId of dest.memberAllow)
-    if (!memberViewsSource(memberId, source, dest.memberRoles?.get?.(memberId))) return false;
+    if (!memberViewsSource(memberId, source, dest.memberRoles?.get(memberId))) return false;
   return isSubset(source.memberDeny, dest.memberDeny);
 }
 
@@ -519,11 +549,8 @@ export function audienceCovers(dest, source) {
  * in list order) for which `isUsable(id)` holds, else null. Usable is the
  * caller's check (a known text channel of the guild, not a thread, the bot
  * can send there, not the source).
- * @param {unknown} mainChannelIds
- * @param {(id: string) => boolean} isUsable
- * @returns {string|null}
  */
-export function pickDestinationId(mainChannelIds, isUsable) {
+export function pickDestinationId(mainChannelIds: unknown, isUsable: (id: string) => boolean): string | null {
   if (typeof isUsable !== 'function') return null;
   for (const id of mainChannelSet(mainChannelIds)) {
     if (isUsable(id)) return id;
@@ -537,29 +564,95 @@ export function pickDestinationId(mainChannelIds, isUsable) {
  * false, `'no-destination'` when no id of `memory.mainChannelIds` is usable
  * (the public default is an empty list, so the feature is inert until a main
  * channel is set). The reason is the kebab-case code logged as `route`.
- * @param {object} [config]  The live config.
- * @param {(id: string) => boolean} isUsable  See `pickDestinationId`.
- * @returns {{ destinationId: string, reason: null } | { destinationId: null, reason: 'off'|'no-destination' }}
+ * `isUsable` is `pickDestinationId`'s.
  */
-export function resolveDestination(config, isUsable) {
+export function resolveDestination(
+  config: Config,
+  isUsable: (id: string) => boolean
+): { destinationId: string; reason: null } | { destinationId: null; reason: 'off' | 'no-destination' } {
   if (!elsewhereOn(config)) return { destinationId: null, reason: 'off' };
   const destinationId = pickDestinationId(config?.memory?.mainChannelIds, isUsable);
   return destinationId ? { destinationId, reason: null } : { destinationId: null, reason: 'no-destination' };
 }
 
-// ---- the jump link ----------------------------------------------------------------------
+// ---- the link of a message ----------------------------------------------------------------
+
+/** A message as the interface named it: where it is, and `url`, its address on the platform when it has one. */
+export type MessageReference = { iface: string; conversationId: string; messageId: string; url?: string | null };
 
 /**
- * Discord's jump link to one message (a URL built by code, not wording; the
- * text around it comes from `labels.elsewhere.link`). Null when an id is
- * missing.
- * @param {string} guildId
- * @param {string} channelId
- * @param {string} messageId
- * @returns {string|null}
+ * The reference of a message with the address the interface's template gives it (`url` null when the interface
+ * declared no template, or an id is missing). A message of no community (`communityId` null) is a private chat.
  */
-export function messageLink(guildId, channelId, messageId) {
-  const ids = [idOf(guildId), idOf(channelId), idOf(messageId)];
-  if (ids.some((id) => id === null)) return null;
-  return `${LINK_BASE}/${ids.join('/')}`;
+export function messageReference(
+  iface: string,
+  template: MessageUrlTemplate | null | undefined,
+  { communityId, conversationId, messageId }: { communityId: unknown; conversationId: unknown; messageId: unknown }
+): MessageReference {
+  const ids = [idOf(conversationId), idOf(messageId)];
+  const community = communityId === null ? null : idOf(communityId);
+  let url: string | null = null;
+  if (template && ids[0] && ids[1] && (communityId === null || community !== null)) {
+    url = (communityId === null ? template.direct : template.community)
+      .replaceAll('{community}', community ?? '')
+      .replaceAll('{conversation}', ids[0])
+      .replaceAll('{message}', ids[1]);
+  }
+  return { iface, conversationId: ids[0] ?? '', messageId: ids[1] ?? '', url };
+}
+
+/**
+ * The link to one message: the address the interface put on its reference (a URL given by the interface, not
+ * wording; the text around it comes from `labels.elsewhere.link`). Null when the reference has none or an id is
+ * missing.
+ */
+export function messageLink(ref: MessageReference | null | undefined): string | null {
+  if (!ref || idOf(ref.conversationId) === null || idOf(ref.messageId) === null) return null;
+  return typeof ref.url === 'string' && ref.url !== '' ? ref.url : null;
+}
+
+/**
+ * The link to a message of a conversation in the address form of `port` (its `capabilities().messageUrl`), null when
+ * the port gives none. A message of no community (`communityId` null) is in a private chat.
+ */
+export function messageLinkOf(
+  port: unknown,
+  communityId: unknown,
+  conversationId: unknown,
+  messageId: unknown
+): string | null {
+  return messageLink(
+    messageReference(portIface(port), portMessageUrl(port), { communityId, conversationId, messageId })
+  );
+}
+
+/** A message a post may link to: the channel it is in and its id. */
+export type LinkTarget = { channelId: string; messageId: string };
+
+/**
+ * The jump links (`messageLink`) of one turn's posts -- its messages, then the GIF, then the picture -- asked in
+ * posting order; act and dryAct share the rule, so a rehearsal shows the links a real turn posts. A post answering a
+ * pulled line (`pulledId`) links to that line; on a turn about another channel the first post links to `sourceTarget`
+ * when it answers none. One line is linked at most once per turn: a second answer to it carries no link. `linkOf`
+ * gives the link of a message of a channel, `pulledIds` maps every pulled line to its channel.
+ * @returns The next post's link, or null.
+ */
+export function createLinker({
+  linkOf,
+  pulledIds,
+  sourceTarget,
+}: {
+  linkOf: (channelId: string | undefined, messageId: string) => string | null;
+  pulledIds: ReadonlyMap<string, string>;
+  sourceTarget: LinkTarget | null;
+}): (pulledId: string | null) => string | null {
+  const linked = new Set<string>();
+  let first = true;
+  return (pulledId) => {
+    const target = pulledId ? { channelId: pulledIds.get(pulledId), messageId: pulledId } : first ? sourceTarget : null;
+    first = false;
+    if (!target || linked.has(target.messageId)) return null;
+    linked.add(target.messageId);
+    return linkOf(target.channelId, target.messageId);
+  };
 }

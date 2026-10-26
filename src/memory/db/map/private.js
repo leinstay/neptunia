@@ -8,26 +8,27 @@
 // toRows(rel, value, ctx) -> { claims, episodes, ..., operational }
 // fromRows(rows, ctx) -> the file's value
 
-import { personId } from '../ids.js';
-import { dmScope } from '../scope.js';
+import { personId } from '../ids.ts';
+import { dmScope } from '../scope.ts';
 import { historyFrom, profileFrom, profileRows } from './lists.js';
-import { isPlainObject, parseExtra, put, rowsOf } from './common.js';
+import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './common.js';
 
 const FIELDS = ['relationship'];
 
 /** The member id in `private/<id>.json`. */
 export const privateIdOf = (rel) => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const userId = privateIdOf(rel);
-  const person = personId(userId);
+  const person = personId(iface, userId);
   const rows = {};
   const { rest, affinity } = profileRows(rows, value, {
     rel,
     person,
     owner: `${person}:dm`,
     tag: ':dm',
-    scope: dmScope(person),
+    scope: dmScope(person, iface),
     descFields: FIELDS,
   });
   if (affinity) rest.affinity = affinity;

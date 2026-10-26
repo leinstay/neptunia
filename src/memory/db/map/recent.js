@@ -5,32 +5,34 @@
 //
 // toRows(rel, value, ctx) -> { claims, operational }     fromRows(rows, ctx) -> the file's value
 
-import { channelPlaceId, itemOrDerivedId, nativeOf, uniqueIds } from '../ids.js';
-import { groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
+import { channelPlaceId, itemOrDerivedId, nativeOf, nativeOfAny, uniqueIds } from '../ids.ts';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [
   {
     col: 'subject_id',
     key: 'channelId',
     type: 'text',
-    ok: (v) => nativeOf(channelPlaceId(v)) === v,
-    enc: channelPlaceId,
-    dec: nativeOf,
+    ok: (v) => nativeOf(channelPlaceId(LEGACY_IFACE, v)) === v,
+    enc: (v, iface) => channelPlaceId(iface, v),
+    dec: nativeOfAny,
   },
   { col: 'text', key: 'text', type: 'text' },
   { col: 'weight', key: 'weight', type: 'num' },
   { col: 'created_at', key: 'addedAt', type: 'text' },
 ];
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const rest = { ...value };
   const has = [];
   if (Array.isArray(value.lines) && value.lines.every(isPlainObject)) {
     const uniq = uniqueIds();
     value.lines.forEach((line, position) => {
-      const part = split(line, SPEC);
+      const part = split(line, SPEC, iface);
       const itemId = typeof line.itemId === 'string' && line.itemId ? line.itemId : null;
       const base =
         itemId ?? itemOrDerivedId(null, 'recent_line', line.channelId ?? '', line.at ?? '', line.id ?? position);
@@ -52,7 +54,7 @@ export function toRows(rel, value) {
         from_person: null,
         truth: 'current',
         shown: 1,
-        ...groupScope(),
+        ...groupScope(iface),
         retired_at: null,
         origin_file: rel,
         owner_file: rel,

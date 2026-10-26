@@ -3,8 +3,9 @@
 // kept in the remainder (`dmChannel`). When the columns cannot rebuild the old scope exactly, the old scope is kept
 // verbatim in the remainder (`scope`), or `$noScope` marks that the line had none, so the round trip is exact either way.
 
-import { channelPlaceId, dmPlaceId, nativeOf } from '../ids.js';
-import { dmUserOf, scopeColumns } from '../scope.js';
+import { channelPlaceId, dmPlaceId } from '../ids.ts';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { dmUserOf, scopeColumns } from '../scope.ts';
 import { jsonEqual } from './common.js';
 
 /** The member id of a private layer file or directory path (`private/<id>.json`, `private/<id>/...`, with or without the `guilds/<g>/` prefix of a full unit path), else null. */
@@ -17,14 +18,14 @@ export function privateUserOf(rel) {
  * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild.
  * @returns {{ place_id: string|null, scope_kind: string, scope_iface: string|null, scope_dm: string|null }}
  */
-export function scopeInto(rest, oldScope, privateUser) {
+export function scopeInto(rest, oldScope, privateUser, iface = LEGACY_IFACE) {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
   const cols = {
-    place_id: privateUser ? dmPlaceId(privateUser) : channel ? channelPlaceId(channel) : null,
-    ...scopeColumns(oldScope, { privateUser }),
+    place_id: privateUser ? dmPlaceId(iface, privateUser) : channel ? channelPlaceId(iface, channel) : null,
+    ...scopeColumns(oldScope, { privateUser, iface }),
   };
   if (privateUser && channel) rest.dmChannel = channel;
-  const rebuilt = scopeFrom(cols, { ...rest }, privateUser);
+  const rebuilt = scopeFrom(cols, { ...rest }, privateUser, iface);
   if (oldScope === undefined || !jsonEqual(rebuilt, oldScope)) {
     delete rest.dmChannel;
     if (oldScope === undefined) rest.$noScope = true;
@@ -34,7 +35,7 @@ export function scopeInto(rest, oldScope, privateUser) {
 }
 
 /** The old scope from the columns and the remainder; removes the scope markers from `rest`. */
-export function scopeFrom(cols, rest, privateUser) {
+export function scopeFrom(cols, rest, privateUser, iface = LEGACY_IFACE) {
   const verbatim = Object.hasOwn(rest, 'scope');
   const verbatimScope = rest.scope;
   const none = rest.$noScope === true;
@@ -48,8 +49,8 @@ export function scopeFrom(cols, rest, privateUser) {
   const place = String(cols.place_id ?? '');
   if (privateUser) {
     if (typeof dmChannel === 'string') scope.channel = dmChannel;
-  } else if (place.startsWith('discord:channel:')) {
-    scope.channel = nativeOf(place);
+  } else if (place.startsWith(`${iface}:channel:`)) {
+    scope.channel = place.slice(`${iface}:channel:`.length);
   } else if (cols.scope_kind === 'group') {
     scope.guild = true;
   }

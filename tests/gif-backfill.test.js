@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import { createGifBackfill } from '../src/memory/gif-backfill.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

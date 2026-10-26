@@ -1,7 +1,7 @@
 // Pure logic for which names people actually use for a member: a profile's `addressedAs`, a map
 // name -> `{ score, last }` the analyzer's batch fills by counting, with no model involved. A
 // stored display name or open alias of a member that occurs as a word in someone else's line
-// (src/memory/mentions.js#occursAsWordStem, so an inflected form counts) is one use of that name
+// (src/memory/mentions.ts#occursAsWordStem, so an inflected form counts) is one use of that name
 // for that member; the persona's own lines count like anyone's, the member's own never. The
 // score decays with a half-life (`memory.addressHalfLifeDays`), so the order says how he is
 // called now, and the map keeps the best `MAX_ADDRESSED` names. A name two members share, or one
@@ -9,7 +9,7 @@
 
 import { foldText } from './recent.js';
 import { isOpen } from './interests.js';
-import { isWordChar, occursAsWholeWord, occursAsWordStem } from './mentions.js';
+import { isWordChar, occursAsWholeWord, occursAsWordStem } from './mentions.ts';
 import { DAY_MS } from '../time.js';
 
 /** `memory.addressHalfLifeDays` when it is missing (config.json carries the same). */
@@ -199,10 +199,10 @@ function countableText(content, foldedNames) {
 /**
  * Count the uses of members' names in a batch: for every message with text, every candidate
  * member other than its author (`authorId`; the persona's own lines, `self`, count for every
- * member) whose name occurs in the text (src/memory/mentions.js#occursAsWordStem over folded
+ * member) whose name occurs in the text (src/memory/mentions.ts#occursAsWordStem over folded
  * text, see `countableText`) gets one use of that name, each name once per message, dated the
  * message's `ts`. When several names of one member match and some of them occur as a whole word
- * (src/memory/mentions.js#occursAsWholeWord), only those count: `Niko` written out is not also
+ * (src/memory/mentions.ts#occursAsWholeWord), only those count: `Niko` written out is not also
  * a use of `Nikos` by its stem.
  * @param {object[]} messages  Slim buffered messages (`authorId`, `self`, `content`, `ts` read).
  * @param {Array<{ userId: string, names: string[] }>} candidates  From `addressCandidates`.

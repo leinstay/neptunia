@@ -37,6 +37,15 @@ export const DISCORD_LIMITS = Object.freeze({
   maxFileBytes: 10 * 1024 * 1024,
 });
 
+/**
+ * How a message is addressed on Discord (`capabilities().messageUrl`): a message of a guild and one of a private chat
+ * (`@me`), the links the persona sends and the chat shows as a jump to a message.
+ */
+export const DISCORD_MESSAGE_URL = Object.freeze({
+  community: 'https://discord.com/channels/{community}/{conversation}/{message}',
+  direct: 'https://discord.com/channels/@me/{conversation}/{message}',
+});
+
 /** Error names and codes of a request that timed out or lost its connection. */
 const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError']);
 const NETWORK_CODES = new Set([
@@ -347,7 +356,7 @@ export function createDiscordAdapter({
     },
 
     capabilities() {
-      return { operations: [...offered], ...caps };
+      return { operations: [...offered], ...caps, messageUrl: DISCORD_MESSAGE_URL };
     },
 
     ...declaredHooks(),

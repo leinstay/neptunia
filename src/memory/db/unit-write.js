@@ -35,6 +35,7 @@
 // text.
 
 import { classify } from './map/index.js';
+import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.js';
 import { unitRows } from './export.js';
 import { assignDiaryDestination } from './publish.js';
@@ -152,7 +153,9 @@ function writeLines(db, update, at) {
   let position = nextPosition(db, unit.full);
   // An archive line of an item hot memory does not hold brings its retired claim (map/archive.js).
   const archive = unit.kind === 'archive';
-  const ctx = archive ? { guildId: unit.guildId, hotClaimIds: hotClaimIds(db) } : { guildId: unit.guildId };
+  const ctx = archive
+    ? { guildId: unit.guildId, iface: ifaceOf(update), hotClaimIds: hotClaimIds(db) }
+    : { guildId: unit.guildId, iface: ifaceOf(update) };
   for (const line of lines) {
     const mapping = unit.mapper.toRows(unit.rel, line, { ...ctx, position });
     const source = unit.kind === 'record' ? mapping.sources?.[0] : null;
@@ -191,7 +194,10 @@ const NOT_VALUE_KINDS = new Set(['requests']);
 function writeValue(db, update, at) {
   const unit = unitOf(update.owner);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
-  const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { guildId: unit.guildId }), unit);
+  const mapping = qualify(
+    unit.mapper.toRows(unit.rel, update.value ?? {}, { guildId: unit.guildId, iface: ifaceOf(update) }),
+    unit
+  );
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
@@ -216,7 +222,7 @@ function writeDiary(db, update, at) {
     posts: posts.slice(-max),
     updatedAt: Number.isFinite(update.updatedAt) ? update.updatedAt : Date.parse(at),
   };
-  const mapping = qualify(unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId }), unit);
+  const mapping = qualify(unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId, iface: ifaceOf(update) }), unit);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
@@ -227,8 +233,9 @@ function writeDiary(db, update, at) {
 }
 
 /** A whole month of vectors (its rows linked to their lines, the rows it no longer holds retired). */
-function writeMonth(db, unit, value, at) {
-  const mapping = unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId });
+/** @param {string} iface */
+function writeMonth(db, unit, value, at, iface) {
+  const mapping = unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId, iface });
   for (const row of mapping.vectors ?? []) row.owner_file = unit.rel;
   linkVectors(db, mapping.vectors ?? []);
   qualify(mapping, unit);
@@ -244,7 +251,7 @@ function writeVectors(db, update, at) {
   let manifest;
   if (update.value) {
     manifest = update.value.manifest;
-    done = writeMonth(db, unit, update.value, at);
+    done = writeMonth(db, unit, update.value, at, ifaceOf(update));
   } else {
     const delta = update.delta ?? {};
     manifest = delta.manifest;
@@ -261,7 +268,7 @@ function writeVectors(db, update, at) {
       .prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?')
       .all(unit.full)
       .map((row) => row.chunk_key);
-    const rows = previous ? unit.mapper.appendRows(unit.rel, delta, { previous, keys }) : null;
+    const rows = previous ? unit.mapper.appendRows(unit.rel, delta, { previous, keys, iface: ifaceOf(update) }) : null;
     if (rows) {
       for (const row of rows.vectors ?? []) row.owner_file = unit.rel;
       linkVectors(db, rows.vectors ?? []);
@@ -283,7 +290,7 @@ function writeVectors(db, update, at) {
           i8: Buffer.concat([Buffer.from(held.i8).subarray(0, counted), value.i8]),
         };
       }
-      done = writeMonth(db, unit, value, at);
+      done = writeMonth(db, unit, value, at, ifaceOf(update));
     }
   }
   noteUnit(db, unit.full, unit.kind, {

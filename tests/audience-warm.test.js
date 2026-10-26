@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OverwriteType } from 'discord.js';
-import { overwriteMemberIds, fetchMembers, createAudienceWarmer } from '../src/interface/discord.js';
+import { overwriteMemberIds, fetchMembers, createAudienceWarmer } from '../interfaces/discord/index.js';
 
 /** A channel with permission overwrites `{ id, type }`; `null` for a channel without them (a thread). */
 function channel(overwrites) {

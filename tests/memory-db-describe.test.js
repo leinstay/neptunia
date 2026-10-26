@@ -12,8 +12,8 @@ import {
   reviewDescription,
   showsClaim,
 } from '../src/memory/db/describe.js';
-import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.js';
-import { dmContext } from '../src/memory/db/scope.js';
+import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.ts';
+import { dmContext } from '../src/memory/db/scope.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -43,13 +43,13 @@ function fixture() {
   const handle = openMemoryDb(':memory:');
   const { db } = handle;
   const group = { scope_kind: 'group', scope_iface: 'discord', scope_dm: null };
-  const person = personId(ADA);
+  const person = personId('discord', ADA);
   const src = (native, at, text) => {
     db.prepare(
       `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, occurred_at, text, direct, scope_kind, scope_iface)
       VALUES (?, 'seen', 'discord', ?, 1, 'discord:channel:c1', ?, ?, ?, 0, 'group', 'discord')`
-    ).run(messageSourceId(native, 1, 'seen'), native, `discord:${ADA}`, at, text);
-    return messageSourceId(native, 1, 'seen');
+    ).run(messageSourceId('discord', native, 1, 'seen'), native, `discord:${ADA}`, at, text);
+    return messageSourceId('discord', native, 1, 'seen');
   };
   const claim = (
     id,
@@ -327,13 +327,13 @@ const applyConfig = (extra = {}) => ({
 test('a description is identified by its scope: a private review of the same subject and field is a description of its own', async () => {
   const env = fixture();
   try {
-    const dm = dmContext(personId(ADA), 'discord');
+    const dm = dmContext(personId('discord', ADA), 'discord');
     const llm = fakeLlm(answer('A private draft.', 'r'), answer('A private final.', 'r'));
     const result = await reviewDescription(env.db, subjectOf(env), 'character', {
       ctx: { ...ctxOf(env, { llm }), readCtx: dm },
     });
     assert.equal(result.status, 'ok');
-    assert.equal(result.row.descriptionId, `desc:dm.discord.${personId(ADA)}:${env.person}:character`);
+    assert.equal(result.row.descriptionId, `desc:dm.discord.${personId('discord', ADA)}:${env.person}:character`);
     assert.doesNotMatch(llm.calls[1].messages[1].content, /<current>/, 'the group description is not the private one');
     // the stored group description keeps the id it has and is found again
     const group = fakeLlm(answer('g', 'r'), answer('h', 'r'));
@@ -353,7 +353,7 @@ test('the version stores its exact evidence: claim and source ids, model, prompt
       .prepare(
         "INSERT INTO claim_sources (claim_id, source_id, position, retired_at) VALUES ('k-cafe', ?, -1, '2026-10-01T00:00:00.000Z')"
       )
-      .run(messageSourceId('s3', 1, 'seen'));
+      .run(messageSourceId('discord', 's3', 1, 'seen'));
     const llm = fakeLlm(answer('A draft.', 'because'), answer('The final.', 'longer'));
     const result = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm }) });
     assert.equal(result.status, 'ok');
@@ -367,9 +367,9 @@ test('the version stores its exact evidence: claim and source ids, model, prompt
       'only the claim that changed since the last accepted review is evidence'
     );
     assert.deepEqual(extra.evidenceSourceIds.sort(), [
-      messageSourceId('s1', 1, 'seen'),
-      messageSourceId('s2', 1, 'seen'),
-      messageSourceId('s3', 1, 'seen'),
+      messageSourceId('discord', 's1', 1, 'seen'),
+      messageSourceId('discord', 's2', 1, 'seen'),
+      messageSourceId('discord', 's3', 1, 'seen'),
     ]);
     assert.ok(extra.evidence.some((line) => line.includes('moved to Thessaloniki')));
     assert.equal(extra.model, 'x/memory');

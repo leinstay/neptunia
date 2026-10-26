@@ -18,8 +18,9 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { contentText } from './fixtures/turn-harness.js';
+import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/ops/index.js';
-import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -916,6 +917,86 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   assert.equal(post.pictures, 6);
   assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 1);
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 6);
+});
+
+/**
+ * A runner whose port is a fake adapter with the given limits: the turn reads them from `capabilities()`.
+ * @param {{ hot: object, llm: object, images: object, store?: object, limits: { maxFiles?: number, maxChars?: number }, client?: object }} options
+ */
+function limitedRunner({ hot, llm, images, store = fakeStore(), limits, client: clientOverride = client() }) {
+  const adapter = createFakeAdapter({ iface: 'fake', selfId: 'self-id', capabilities: limits });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot,
+    store,
+    llm,
+    calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
+    client: clientOverride,
+    images,
+    port: adapter,
+    rng: () => 0.5,
+    now: () => NOW,
+  });
+  return { turns, adapter };
+}
+
+test('diary set: the adapter that allows two files per message gets the six pictures in messages of two files', async () => {
+  const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
+  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
+  const hot = setHot({ set: { pictures: [3, 6], maxMessageBytes: 1_000_000 } });
+  const { turns, adapter } = limitedRunner({ hot, llm, images, limits: { maxFiles: 2 } });
+  const result = await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  assert.equal(result.outcome, 'spoke');
+  const withFiles = adapter.messagesIn('d1').filter((message) => message.attachments.length > 0);
+  assert.deepEqual(
+    withFiles.map((message) => message.attachments.length),
+    [2, 2, 2]
+  );
+});
+
+test('diary set: an adapter that allows twelve files per message gets the same six pictures in one message', async () => {
+  const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
+  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
+  const hot = setHot({ set: { pictures: [3, 6], maxMessageBytes: 1_000_000 } });
+  const { turns, adapter } = limitedRunner({ hot, llm, images, limits: { maxFiles: 12 } });
+  await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  const withFiles = adapter.messagesIn('d1').filter((message) => message.attachments.length > 0);
+  assert.deepEqual(
+    withFiles.map((message) => message.attachments.length),
+    [6]
+  );
+});
+
+test('diary set: a dry run mirrors the image prompt in messages no longer than the maxChars of the adapter', async () => {
+  const scene = 'x'.repeat(600);
+  const llm = fakeLlm(TOUR_PLAN, toolAnswer('<msg>x</msg>', [call('draw.create', { text: scene })]));
+  /** @type {string[]} */
+  const mirrored = [];
+  const mirrorChannel = {
+    id: 'dry',
+    send: (/** @type {{ content: string }} */ payload) => {
+      mirrored.push(payload.content);
+      return Promise.resolve();
+    },
+  };
+  const client = {
+    user: { id: 'self-id', username: 'Bot' },
+    channels: {
+      cache: new Map([['d1', { id: 'd1', name: 'journal' }]]),
+      fetch: (/** @type {string} */ id) => Promise.resolve(id === 'dry' ? mirrorChannel : null),
+    },
+  };
+  const hot = setHot({ features: { dryRun: true }, set: { minPosted: 1 } });
+  hot.config.bot.dryRunChannelId = 'dry';
+  const { turns } = limitedRunner({ hot, llm, images: fakeSetImages([]), limits: { maxChars: 250 }, client });
+  await withCapturedLogs(() => turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} }));
+  const parts = mirrored.filter((content) => content.includes('x'.repeat(20)));
+  assert.ok(parts.length >= 2, 'a 600 character scene does not fit one message of 250');
+  assert.ok(
+    parts.every((content) => content.length <= 250),
+    parts.map((content) => content.length).join(',')
+  );
+  assert.ok(parts.join('').split('x').length - 1 >= 600, 'no part of the prompt is lost');
 });
 
 test('diary set: calls past diary.set.pictures[1] in one answer are loop-cap results; the speech waits and step 2 posts what was staged', async () => {

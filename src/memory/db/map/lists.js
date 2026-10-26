@@ -8,7 +8,7 @@
 // stays absent. A claim's id is the item's `itemId` when it had one; an item without one gets a derived id and the
 // claim's remainder says so (`$derived`), which is what keeps the old item without an `itemId` after the round trip.
 
-import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from '../ids.js';
+import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from '../ids.ts';
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const BASE_SPEC = [

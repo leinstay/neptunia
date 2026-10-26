@@ -135,24 +135,6 @@ test('formatDuration: rounding at 23 h 59.5 min rolls over to the day form, not 
   assert.ok(!text.includes('24'));
 });
 
-// --- formatTranscript: message links into the window ---------------------
-
-test('formatTranscript: messageNumbers maps a link to a line of the list to its #n, others stay', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const link = (id) => `https://discord.com/channels/9/22/${id}`;
-  const messages = [
-    msg('101', t0, { content: 'γεια' }),
-    msg('102', t0 + MIN, { content: `εδώ ${link('101')} και ${link('555')}` }),
-  ];
-  const base = { timezone: TZ, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
-  const on = formatTranscript(messages, { ...base, messageNumbers: true });
-  assert.ok(on[1].text.endsWith(`Nick: εδώ #7 και ${link('555')}`), on[1].text);
-  const off = formatTranscript(messages, base);
-  assert.ok(off[1].text.endsWith(`Nick: εδώ ${link('101')} και ${link('555')}`), off[1].text);
-  const memory = formatTranscript(messages, { ...base, mode: 'memory', messageNumbers: true });
-  assert.ok(memory[1].text.includes(link('101')), 'memory mode has no numbers to point at');
-});
-
 // --- formatTranscript: gap markers and date changes -----------------------
 
 test('formatTranscript: no marker for a gap under the threshold, same day', () => {

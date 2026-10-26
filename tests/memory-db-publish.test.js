@@ -27,7 +27,7 @@ import {
   revokeGrant,
   unsettled,
 } from '../src/memory/db/publish.js';
-import { issueContext } from '../src/memory/db/scope.js';
+import { issueContext } from '../src/memory/db/scope.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 

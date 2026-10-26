@@ -17,7 +17,7 @@ import {
   fetchPull,
   isReadableChannel,
   normalizeMessage,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const MIN = 60_000;

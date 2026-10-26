@@ -8,7 +8,7 @@ import { createCatchUpDeliver, createOfflineCatchUp, planChannel } from '../src/
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { deepMerge } from '../src/config.js';
-import { createDiscordInterface, normalizeOptions, toEvent } from '../src/interface/discord.js';
+import { createDiscordInterface, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
 
 const DISCORD = createDiscordInterface().capabilities;
 const SHIPPED = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));

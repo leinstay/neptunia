@@ -80,12 +80,12 @@ export const CONVERSATION_CHANGES = Object.freeze(['created', 'updated', 'delete
 export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
- * Where an event happened. `guildId`: the community the conversation belongs to (none for a
+ * Where an event happened. `communityId`: the community the conversation belongs to (none for a
  * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
  * `parentId`: the conversation a thread belongs to (absent or null for any other).
  * `chatType` (optional, CONVERSATION_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
  * thread; `partnerId` (optional): the other person of a one-to-one chat, null when unknown.
- * @typedef {{ id: string, kind: 'channel'|'dm'|'thread', guildId?: string|null, name?: string|null,
+ * @typedef {{ id: string, kind: 'channel'|'dm'|'thread', communityId?: string|null, name?: string|null,
  *   topic?: string|null, category?: string|null, parentId?: string|null,
  *   chatType?: 'dm'|'group_dm'|'channel'|'thread', partnerId?: string|null }} Conversation
  */
@@ -93,6 +93,13 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 /**
  * A member's picture: `hash` identifies it, `url` is where to fetch it; either is null when unknown.
  * @typedef {{ hash: string|null, url: string|null }} Avatar
+ */
+
+/**
+ * A message the text of another message links to: where it is (`iface`, `conversationId`, `messageId`), `url` (the
+ * address of the message on its platform, null when it has none) and `text`, the span of the text that names it as
+ * written, so the core can replace exactly that span.
+ * @typedef {{ iface: string, conversationId: string, messageId: string, url: string|null, text: string }} MessageReference
  */
 
 /**
@@ -106,10 +113,12 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  * replies to (a forward replies to nothing); `replyPingUserId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the conversation a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes of
- * interfaces/discord/collect.js#normalizeMessage.
+ * interfaces/discord/collect.js#normalizeMessage. `messageRefs` (optional): the messages the text links to, as
+ * `MessageReference`s, in the order they are written.
  * @typedef {{ id: string, author: Author, content: string, at: number, replyToId: string|null,
  *   replyPingUserId: string|null, forwardedFrom: string|null, attachments: object[], links: object[],
- *   forwarded: object[], stickers: object[], emojis: object[], reactions: object[] }} Message
+ *   forwarded: object[], stickers: object[], emojis: object[], reactions: object[],
+ *   messageRefs?: MessageReference[] }} Message
  */
 
 /**
@@ -163,8 +172,8 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
  * `membership.changed`: `change` says what happened to the member `userId` of the community
- * `guildId`; `member` is who they are now (absent when they left and the adapter no longer knows).
- * @typedef {{ kind: 'membership.changed', iface: string, at: number, id: string, guildId: string,
+ * `communityId`; `member` is who they are now (absent when they left and the adapter no longer knows).
+ * @typedef {{ kind: 'membership.changed', iface: string, at: number, id: string, communityId: string,
  *   userId: string, change: 'joined'|'left'|'updated', member?: { id: string, name: string|null, bot: boolean, avatar?: Avatar } }} MembershipChanged
  */
 
@@ -172,7 +181,7 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  * `voice.changed`: `conversationId` is the voice conversation the member is in now (null: none),
  * `previousId` the one they were in (null: none); the flags are what the adapter knows.
  * `name` (optional): the name people see for the member, null when unknown; `camera` (optional): whether their camera is on.
- * @typedef {{ kind: 'voice.changed', iface: string, at: number, id: string, guildId: string, userId: string,
+ * @typedef {{ kind: 'voice.changed', iface: string, at: number, id: string, communityId: string, userId: string,
  *   name?: string|null, conversationId: string|null, previousId: string|null, muted?: boolean, deafened?: boolean,
  *   streaming?: boolean, camera?: boolean }} VoiceChanged
  */
@@ -224,9 +233,9 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
  * `task.completed`: an errand ended with `status` and its `result` (as src/errands defines them);
- * `guildId` is the community whose ledger holds the task. The core derives `id` (`taskId` and
+ * `communityId` is the community whose ledger holds the task. The core derives `id` (`taskId` and
  * `status`) when it has none, so a second delivery of the same end is the same event.
- * @typedef {{ kind: 'task.completed', at: number, id?: string, guildId?: string|null, taskId: string, status: string,
+ * @typedef {{ kind: 'task.completed', at: number, id?: string, communityId?: string|null, taskId: string, status: string,
  *   result?: unknown }} TaskCompleted
  */
 
@@ -235,7 +244,7 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  * intention, a deadline of an errand she waits for, or her daily review. `id` is always given
  * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
  * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`, `heartbeat`).
- * @typedef {{ kind: 'inner.wake', at: number, id: string, guildId?: string|null, wake: { kind: string } }} InnerWake
+ * @typedef {{ kind: 'inner.wake', at: number, id: string, communityId?: string|null, wake: { kind: string } }} InnerWake
  */
 
 /**

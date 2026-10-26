@@ -1327,7 +1327,7 @@ async function loadRecallMods(load) {
   const describe = await load('memory/describe.js');
   const lookup = await load('web/lookup.js');
   const media = await load('media/classify.js');
-  const pull = await load('interface/discord.js');
+  const pull = await load('../interfaces/discord/index.js');
   const youtube = await load('memory/youtube-check.js');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
@@ -2198,7 +2198,7 @@ export async function loadDiaryMods(load) {
     ...(await load('behavior/turn.js')),
     ...(await load('behavior/route-channel.js')),
     ...(await load('behavior/recall-run.js')),
-    ...(await load('interface/discord.js')),
+    ...(await load('../interfaces/discord/index.js')),
     ...(await load('interface/fake.js')),
     ...(await load('memory/describe.js')),
     ...(await load('media/fetch-image.js')),
@@ -6750,7 +6750,7 @@ async function loopDepsOf({
   const { createExaSearch } = await load('web/exa.js');
   const { createRecall } = await load('behavior/recall-run.js');
   const { createDescriber } = await load('memory/describe.js');
-  const { createDiscordInterface } = await load('interface/discord.js');
+  const { createDiscordInterface } = await load('../interfaces/discord/index.js');
   const {
     runWebSearch,
     runMemorySearch,
@@ -7157,8 +7157,8 @@ async function runMain(args, { root, signal, rng, answers }) {
     burstTurns,
     seededSelfLine,
   } = await load('behavior/sandbox.js');
-  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, createEmojiIndex, resolveGuild } =
-    await load('interface/discord.js');
+  const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.js'));
+  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, createEmojiIndex, resolveGuild } = discordPackage;
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split
     ? {

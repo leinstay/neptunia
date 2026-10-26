@@ -18,7 +18,7 @@ import {
   withReactors,
   fetchHistory,
   fetchMessage,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { formatTranscript } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';

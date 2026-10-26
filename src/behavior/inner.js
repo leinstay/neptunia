@@ -1161,7 +1161,7 @@ export function createInnerLife({
    * and handled so it is never dropped unseen). Answers what happened.
    */
   function onWake(event) {
-    const guildId = event?.guildId ?? getGuildId();
+    const guildId = event?.communityId ?? getGuildId();
     const wake = event?.wake;
     if (!guildId || !wake || !WAKE_KINDS.includes(wake.kind)) return { status: 'invalid' };
     const state = stateOf(guildId);
@@ -1203,7 +1203,7 @@ export function createInnerLife({
   }
 
   async function enqueue(guildId, wake) {
-    const event = { kind: 'inner.wake', at: now(), id: wake.id, guildId: String(guildId), wake };
+    const event = { kind: 'inner.wake', at: now(), id: wake.id, communityId: String(guildId), wake };
     if (typeof submit === 'function') return submit(event);
     return { status: 'ok', result: onWake(event) };
   }

@@ -15,7 +15,7 @@
 //
 // The run's `inputs` are what its view showed, ids with their versions (an intention with its `updatedAt`, a fact by
 // id); `policy_version` is the envelope's (src/skills/access.js#WAKE_POLICY_VERSION). The context a run was issued
-// (`context`, an execution context row of scope.js#contextRow) is recorded in `execution_contexts` in the same
+// (`context`, an execution context row of scope.ts#contextRow) is recorded in `execution_contexts` in the same
 // transaction. Every time is an ISO string; `now` may be given in milliseconds. Imports nothing heavy (the sync
 // worker loads it). Codes only, never a text.
 

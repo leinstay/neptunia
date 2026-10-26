@@ -5,7 +5,7 @@
 // redelivery is the same envelope: delivery is at-least-once and the receiver deduplicates by
 // id), `type` one of ENVELOPE_TYPES, `replyTo` the id of the envelope this one answers (null for
 // the first of a conversation), `body` the type's payload:
-//   hello          { iface, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, what it offers
+//   hello          { iface, self: { id, name }, community: { id, name }|null, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the community it serves, what it offers
 //   event          an inbound event (events.js)                           interface -> core
 //   ack            { status: 'ok'|'duplicate'|'invalid'|'unhandled'|'failed', reason? }  the event is taken (or not)
 //   action         an outbound action (actions.js)                        core -> interface
@@ -22,6 +22,12 @@ export const ACK_STATUSES = Object.freeze(['ok', 'duplicate', 'invalid', 'unhand
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isId = (value) => typeof value === 'string' && value !== '';
+/** An id with a display name: `{ id, name }`. */
+/** @param {unknown} value */
+const isNamed = (value) =>
+  isObject(value) &&
+  isId(/** @type {Record<string, unknown>} */ (value).id) &&
+  typeof (/** @type {Record<string, unknown>} */ (value).name) === 'string';
 
 /**
  * An envelope. `replyTo` defaults to null.
@@ -45,13 +51,18 @@ export function ackOf(of, status, reason = undefined) {
 }
 
 /**
- * The shape of a `hello` body: who speaks, what it offers (a list of names or a capabilities object), the token and
- * the resume point.
+ * The shape of a `hello` body: who speaks, the persona's account on that interface (`self`, always given), the
+ * community the interface serves (`community`, an id and a name, or null when it serves none), what it offers (a list
+ * of names or a capabilities object), the token and the resume point.
  * @param {Record<string, any>} body
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 function checkHello(body) {
   if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
+  if (body.self === undefined) return { ok: false, reason: 'body.self:required' };
+  if (!isNamed(body.self)) return { ok: false, reason: 'body.self:type' };
+  if (body.community !== undefined && body.community !== null && !isNamed(body.community))
+    return { ok: false, reason: 'body.community:type' };
   const offers = body.capabilities;
   if (offers !== undefined && !isObject(offers) && !(Array.isArray(offers) && offers.every(isId)))
     return { ok: false, reason: 'body.capabilities:type' };

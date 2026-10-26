@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { audienceOf } from './scope.js';
+import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.js';
 import { projectRow } from './graph.js';
 
@@ -98,7 +98,7 @@ export function pendingDiaryRows(db) {
 
 /**
  * Writes one row's result on the writer connection: `{ id, text, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
- * The media rows take the diary row's scope and its audience (scope.js#audienceOf, the one resolver). One transaction.
+ * The media rows take the diary row's scope and its audience (scope.ts#audienceOf, the one resolver). One transaction.
  */
 export function applyDiaryUpdate(handle, update) {
   handle.transaction(() => {

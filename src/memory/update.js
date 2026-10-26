@@ -98,10 +98,17 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
 /**
  * The media of one normalized message part (the message itself or one
  * forwarded snapshot) as a slim message keeps it. No URL ever survives
- * into it -- but the item `id` does. A sticker keeps `id`/`name`/`format` (its URL is
- * rebuilt from those via stickerUrl when needed); a custom emoji keeps only
- * `id`/`name` (its URL is rebuilt via emojiUrl).
+ * into it -- but the item `id` does. A sticker keeps `id`/`name`/`format` and its `url` (a fixed picture address,
+ * null for a sticker with no picture); a custom emoji keeps only `id`/`name` (its URL is rebuilt via emojiUrl).
  */
+/**
+ * A sticker as a slim message keeps it: `id`, `name`, `format` and the `url` of its picture (null for a sticker with none).
+ * @param {{ id?: unknown, name?: unknown, format?: unknown, url?: unknown }} sticker
+ */
+function slimSticker(sticker) {
+  return { id: sticker.id, name: sticker.name, format: sticker.format, url: sticker.url ?? null };
+}
+
 function slimMedia(part) {
   return {
     attachments: (part.attachments ?? []).map((a) => ({
@@ -116,7 +123,7 @@ function slimMedia(part) {
       id: l.id,
       durationSec: null,
     })),
-    stickers: (part.stickers ?? []).map((s) => ({ id: s.id, name: s.name, format: s.format })),
+    stickers: (part.stickers ?? []).map(slimSticker),
     emojis: (part.emojis ?? []).map((e) => ({ id: e.id, name: e.name })),
   };
 }

@@ -12,8 +12,8 @@
 // toRows(rel, value, ctx) -> { description_versions, operational }     ctx: { guildId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { channelPlaceId, guildPlaceId, personId } from '../ids.js';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
+import { channelPlaceId, guildPlaceId, personId } from '../ids.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [
   { col: 'written_at', key: 'at', type: 'text' },
@@ -35,9 +35,10 @@ export function versionKeyOf(rel) {
 /** The prefix of the description ids of a version file: `desc:<subject id>`. */
 export function descriptionPrefix(rel, ctx = {}) {
   const [kind, key] = versionKeyOf(rel);
-  if (kind === 'users') return `desc:${personId(key)}`;
-  if (kind === 'channels') return `desc:${channelPlaceId(key)}`;
-  if (kind === 'guild') return `desc:${guildPlaceId(ctx.guildId ?? 'unknown')}`;
+  const iface = ifaceOf(ctx);
+  if (kind === 'users') return `desc:${personId(iface, key)}`;
+  if (kind === 'channels') return `desc:${channelPlaceId(iface, key)}`;
+  if (kind === 'guild') return `desc:${guildPlaceId(iface, ctx.guildId ?? 'unknown')}`;
   return `desc:${kind}:${key}`;
 }
 

@@ -13,7 +13,7 @@ import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-19T12:00:00Z');

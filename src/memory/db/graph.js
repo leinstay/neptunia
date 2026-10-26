@@ -25,7 +25,7 @@
 // reply to a retired line) still reaches it: the node is known in that edge's audience, and a reader of its typed row
 // sees that the row is retired.
 //
-// Traversal (a context is required, as for every memory read; scope.js#audiencesOf gives its audiences)
+// Traversal (a context is required, as for every memory read; scope.ts#audiencesOf gives its audiences)
 //   walk(db, ctx, { from, predicates, direction, maxDepth, maxRows, after })   a recursive CTE over the live edges whose
 //       audience the context may read, to nodes the context may see (a witness in `node_access`), the audience checked
 //       inside the recursion, cycles cut by the path, breadth first in a fixed order (depth, node, path). Returns
@@ -38,8 +38,8 @@
 
 import { createHash } from 'node:crypto';
 import { log as engineLog } from '../../log.js';
-import { canonicalKey } from './ids.js';
-import { AUD_INTERNAL, audienceParts, audiencesOf, dmAudienceId, groupAudienceId } from './scope.js';
+import { canonicalKey } from './ids.ts';
+import { AUD_INTERNAL, audienceParts, audiencesOf, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.js';
 
 export const EPOCH = '1970-01-01T00:00:00.000Z';
@@ -856,7 +856,7 @@ function filterOf(ctx) {
 /**
  * A traversal from one node or several (see the head of this file).
  * @param {object} db  a connection that can read
- * @param {object} ctx  a read context (scope.js): group, DM or internal
+ * @param {object} ctx  a read context (scope.ts): group, DM or internal
  * @param {{ from: string|string[], predicates?: string[], direction?: 'out'|'in'|'both', maxDepth?: number, maxRows?: number,
  *   after?: number, config?: object }} opts  `after`: the `next` of a previous page
  * @returns {{ rows: Array<{ node: string, kind: string, rowId: string, depth: number, via: string|null, predicate: string|null, parent: string|null }>,

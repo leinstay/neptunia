@@ -16,7 +16,7 @@ import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.j
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
 import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
-import { createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
+import { createDiscordInterface, createInteractionHandler } from '../interfaces/discord/index.js';
 import {
   loadSkills,
   skillRegistry,

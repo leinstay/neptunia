@@ -3,7 +3,7 @@
 // nothing, so every memory module can take its limits from here without an import cycle. The
 // episode, attitude and teacher rules have their own homes: src/memory/episodes.js (EPISODE_CHARS,
 // episodeDate, isSameEpisode), src/memory/affinity.js (REASON_CHARS, deltaCapOf)
-// and src/memory/mentions.js (teacherToken).
+// and src/memory/mentions.ts (teacherToken).
 
 /**
  * Fallbacks of the memory limits, equal to config.json's own values -- used only when a

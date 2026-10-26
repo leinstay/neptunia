@@ -58,10 +58,6 @@ export type DiscordLegacy = {
   client: Client;
   capabilities: ReturnType<typeof createDiscordInterface>['capabilities'];
   rawOf(event: { id: string }): RawHandles | null;
-  guildId: string;
-  selfId(): string | null;
-  selfName(guildId: string): string;
-  memberName(guildId: string, userId: string): string | null;
   resolveMember(guildId: string, userId: string): Promise<MemberView | null>;
   dmConversationOf(userId: string): string | null;
   catchUp: {
@@ -98,7 +94,7 @@ function conversationOfChannel(channel: Obj, guildId: string): Obj {
   return {
     id: String(channel.id),
     kind: isThread ? 'thread' : 'channel',
-    guildId,
+    communityId: guildId,
     name: text(channel.name),
     topic: text(channel.topic),
     category: parentName,
@@ -129,6 +125,29 @@ const liveConfig = (read: () => Obj) => ({
     return read();
   },
 });
+
+// The persona's display name in a guild, the name her hello gives the core: her nickname there, else her username.
+function displayNameIn(guild: Obj | null, user: { username?: string } | null): string {
+  const member = obj(obj(guild).members).me as { displayName?: string } | undefined;
+  return member?.displayName ?? user?.username ?? 'bot';
+}
+
+// The members the client holds, as `membership.changed` events: the core's member directory (names, nicknames) starts
+// from them. Delivered on `open()` before anything held, never counted against the held events.
+function memberEvents(guild: Obj | null): Array<Obj> {
+  const members = obj(guild?.members) as { cache?: Map<string, Obj> };
+  const at = Date.now();
+  const events: Array<Obj> = [];
+  for (const member of members.cache?.values() ?? []) {
+    if (memberView(member) === null) continue;
+    try {
+      events.push(membershipUpdatedEvent(member, at));
+    } catch {
+      // A member without a guild is not one of this guild's members.
+    }
+  }
+  return events;
+}
 
 export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const token = text(host.env.DISCORD_TOKEN);
@@ -163,7 +182,13 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const discord = createDiscordInterface({ client });
   const served = serveAdapter({
     transport: await host.connect(),
-    hello: { iface: discord.port.iface, capabilities: discord.port.capabilities(), resume: null },
+    hello: {
+      iface: discord.port.iface,
+      self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
+      community: { id: guildId, name: guilds.find((guild) => guild.id === guildId)?.name ?? guildId },
+      capabilities: discord.port.capabilities(),
+      resume: null,
+    },
     token: host.token,
     adapter: discord.port,
     log,
@@ -333,18 +358,6 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     capabilities: discord.capabilities,
     // The discord.js message behind a message event, by the event id (the message pipeline).
     rawOf: (event: { id: string }) => handles.rawOf(event),
-    guildId,
-    selfId,
-    // The persona's display name in a guild (every request's name for her).
-    selfName: (id: string): string => {
-      const member = obj(obj(client.guilds.cache.get(id)).members).me as { displayName?: string } | undefined;
-      return member?.displayName ?? client.user?.username ?? 'bot';
-    },
-    // The name of a cached member (the embedding queue).
-    memberName: (id: string, userId: string): string | null => {
-      const members = obj(client.guilds.cache.get(id)?.members) as { cache?: Map<string, Obj> };
-      return text(members.cache?.get(userId)?.displayName);
-    },
     // A member by one REST fetch, as the avatar queue reads it (null: not in the guild).
     resolveMember: async (id: string, userId: string): Promise<MemberView | null> => {
       const members = obj(client.guilds.cache.get(id)?.members) as { fetch?: (id: string) => Promise<Obj> };
@@ -411,6 +424,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       if (held === null) return;
       const waiting = held;
       held = null;
+      for (const event of memberEvents(guildNow())) deliver('membership.changed', event);
       if (dropped > 0) log.warn('interface: events dropped before open', { dropped });
       for (const { kind, event } of waiting) deliver(kind, event);
       // The members named by channel overwrites, fetched so the audience rail knows which are bots.

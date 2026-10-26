@@ -59,7 +59,7 @@ import { between } from './random.js';
 import { block, fillPromptTemplate } from './prompt.js';
 import { roomQuestionChance } from './spontaneous.js';
 import { routeFor } from './turn.js';
-import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
+import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.ts';
 import { privateGate } from './private.js';
 import { defaultRawOf, handlesOf } from './raw-handles.ts';
 /** @typedef {{ message: import('discord.js').Message, previous: import('discord.js').Message|null }} RawPair */
@@ -1364,7 +1364,7 @@ export function createMessageHandler({
   /**
    * The calls of `sourceId` the ring holds (state.json `elsewherePings`, read
    * now), oldest first, those past elsewhere.pingMaxAgeDays left out
-   * (src/behavior/elsewhere.js#pingsIn). Read-only.
+   * (src/behavior/elsewhere.ts#pingsIn). Read-only.
    * @param {string} sourceId
    */
   function ringCalls(sourceId) {
@@ -1374,7 +1374,7 @@ export function createMessageHandler({
 
   /**
    * Whether the ring holds the routed call `messageId` of `sourceId` as
-   * answered (src/behavior/elsewhere.js#pingStatus): a turn that showed it
+   * answered (src/behavior/elsewhere.ts#pingStatus): a turn that showed it
    * spoke and stamped it. Read from state.json, so it holds across a restart
    * and after a later turn's view of the source (turns.spokeAfterSeeing, in
    * memory) left the call out. A call the ring does not hold (never recorded,
@@ -1388,7 +1388,7 @@ export function createMessageHandler({
 
   /**
    * Stamp calls of the ring (state.json `elsewherePings`) `answered` or
-   * `skipped` (src/behavior/elsewhere.js#stampPings: an answer wins over a
+   * `skipped` (src/behavior/elsewhere.ts#stampPings: an answer wins over a
    * skip, a stamp is never moved), log `elsewhere: marked` for each call
    * whose state changed and mark the state dirty once. A message id the ring
    * does not hold is passed over. Nothing changes while paused (the owner may

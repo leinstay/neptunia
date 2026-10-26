@@ -232,9 +232,9 @@
     },
     {
       "path": "interfaces/discord/",
-      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol.",
+      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier, a pure module.",
       "layer": "public",
-      "imports": ["node:*", "discord.js", "src/protocol/**"],
+      "imports": ["node:*", "discord.js", "src/media/classify.js", "src/protocol/**"],
       "test": "required"
     },
     {
@@ -315,6 +315,7 @@
         "src/interface/directory.ts",
         "src/interface/door.js",
         "src/interface/link.ts",
+        "src/interface/members.ts",
         "src/interface/socket.ts"
       ],
       "test": "none"

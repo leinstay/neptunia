@@ -63,6 +63,27 @@ test('says hello as the fake interface with the capabilities of the fake adapter
   await running.stop();
 });
 
+test('says hello with the persona and the community it was given', async () => {
+  const { host, link } = rig();
+  const running = await start(host, {
+    self: { id: 'bot-7', name: 'Νόβα' },
+    community: { id: 'g9', name: 'Beta' },
+  });
+  const hello = await link.hello;
+  assert.deepEqual(hello.self, { id: 'bot-7', name: 'Νόβα' });
+  assert.deepEqual(hello.community, { id: 'g9', name: 'Beta' });
+  await running.stop();
+});
+
+test('says hello with the selfId option as the persona id when no self is given', async () => {
+  const { host, link } = rig();
+  const running = await start(host, { selfId: SELF_ID });
+  const hello = await link.hello;
+  assert.equal(hello.self.id, SELF_ID);
+  assert.notEqual(hello.self.name, '');
+  await running.stop();
+});
+
 test('an emitted event reaches the door of the core and is acknowledged ok', async () => {
   const { host, link, handled } = rig();
   const running = await start(host, { selfId: SELF_ID });

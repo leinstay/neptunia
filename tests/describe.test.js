@@ -383,85 +383,42 @@ test('describe: the media cache is persisted across store instances', async () =
   assert.equal(storeB.getMediaCache('g1').a1.text, 'a cat');
 });
 
-test('describe: video items request a webp poster frame via the media proxy, without width/height', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot();
-  const llm = fakeLlm({ text: 'a dog runs' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe('g1', pictureItem('v1', { kind: 'video', url: 'https://cdn.discordapp.com/x/clip.mp4' }));
-  const fetchedUrl = imageFetcher.calls[0].url;
-  const parsed = new URL(fetchedUrl);
-  assert.equal(parsed.searchParams.get('format'), 'webp');
-  assert.equal(parsed.searchParams.get('width'), null);
-  // The model only ever sees the downloaded data: URL, never the CDN one.
-  assert.equal(llm.calls[0].messages[1].content[0].image_url.url, SUCCESSFUL_DOWNLOAD.dataUrl);
-});
-
-test('describe: a gif item of known size requests a single still png frame fitted to media.imageSize, never an animated webp', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
-  const llm = fakeLlm({ text: 'a cat spins' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe(
-    'g1',
-    pictureItem('gif1', {
-      kind: 'gif',
-      url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=1',
-      width: 498,
-      height: 280,
-    })
-  );
-  assert.equal(
-    imageFetcher.calls[0].url,
-    'https://media.discordapp.net/attachments/1/2/anim.gif?ex=1&width=256&height=144&format=png&animated=false'
-  );
-});
-
-test('describe: a tenor gif embed on images-ext keeps its host and asks for a still png frame', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 512 } } });
-  const llm = fakeLlm({ text: 'a cat spins' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  const url = 'https://images-ext-1.discordapp.net/external/abc/https/media.tenor.com/x/anim.gif?ex=1';
-  await describer.describe('g1', pictureItem('link:t1', { kind: 'gif', url, width: 220, height: 124 }));
-  assert.equal(imageFetcher.calls[0].url, `${url}&width=220&height=124&format=png&animated=false`);
-});
-
-test('describe: an image item of known size gets the aspect-kept webp proxy URL with no animated param', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
-  const llm = fakeLlm({ text: 'a cat' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe('g1', pictureItem('a1', { width: 988, height: 1306 }));
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?width=194&height=256&format=webp');
-});
-
-test('describe: a picture or gif of unknown size goes through the proxy with no width or height at all', async () => {
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
+// The picture the vision model gets is the item's `previewUrl`, which the adapter sized for the platform it came from
+// (tests/collect.test.js); the core never rewrites an address by its host.
+test('describe: an item with a preview url is downloaded from the preview, never from its own url', async () => {
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({
-    hot,
+    hot: fakeHot(),
+    store: createStore({ dataDir: tmpDataDir() }),
+    llm: fakeLlm({ text: 'a dog runs' }),
+    imageFetcher,
+  });
+  const preview = 'https://previews.example/p/1.webp?w=194';
+  await describer.describe(
+    'g1',
+    pictureItem('v1', { kind: 'video', url: 'https://files.example/clip.mp4', previewUrl: preview })
+  );
+  assert.deepEqual(
+    imageFetcher.calls.map((/** @type {{ url: string }} */ call) => call.url),
+    [preview]
+  );
+});
+
+test('describe: an item with no preview url is downloaded from its own url exactly as given', async () => {
+  const imageFetcher = fakeImageFetcher();
+  const describer = createDescriber({
+    hot: fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } }),
     store: createStore({ dataDir: tmpDataDir() }),
     llm: fakeLlm({ text: 'a cat' }),
     imageFetcher,
   });
-
-  await describer.describe('g1', pictureItem('a1', { width: 988 }));
-  await describer.describe('g1', pictureItem('gif1', { kind: 'gif', url: 'https://cdn.discordapp.com/x/anim.gif' }));
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?format=webp');
-  assert.equal(imageFetcher.calls[1].url, 'https://media.discordapp.net/x/anim.gif?format=png&animated=false');
+  const url = 'https://cdn.discordapp.com/x/pic.png?ex=1';
+  await describer.describe('g1', pictureItem('a1', { url, width: 988, height: 1306 }));
+  assert.deepEqual(
+    imageFetcher.calls.map((/** @type {{ url: string }} */ call) => call.url),
+    [url],
+    'no host rewriting and no size parameters of the core'
+  );
 });
 
 // --- stickers, custom emoji, link thumbnails -------------------------
@@ -2436,17 +2393,14 @@ function relookDescriber({
 
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
   const { describer, store, llm, imageFetcher, state } = relookDescriber({ now: clock() });
-  const result = await describer.relookImage('g1', pictureItem('a1'), 'Y a-t-il un chargeur dans la pupille ?');
-
+  const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
+  const result = await describer.relookImage('g1', item, 'Y a-t-il un chargeur dans la pupille ?');
   assert.deepEqual(result, {
     question: 'Y a-t-il un chargeur dans la pupille ?',
     text: 'pas de chargeur, juste un reflet',
   });
   assert.equal(imageFetcher.calls.length, 1);
-  assert.ok(
-    imageFetcher.calls[0].url.startsWith('https://media.discordapp.net/x/pic.png'),
-    'through the media proxy, sized'
-  );
+  assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp', 'the preview address as given');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 1200 characters.');
@@ -2472,7 +2426,8 @@ test('relookImage: one download and one vision request with the question; the an
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
   const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
-  await describer.relookImage('g1', pictureItem('a1', { width: 1306, height: 988 }), 'Quelle couleur ?');
+  const item = pictureItem('a1', { width: 1306, height: 988, previewUrl: 'https://previews.example/a1.webp' });
+  await describer.relookImage('g1', item, 'Quelle couleur ?');
 
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'Answer in at most 1200 characters.');
@@ -2482,7 +2437,7 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
     { type: 'text', text: 'Quelle couleur ?' },
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
   ]);
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?width=512&height=387&format=webp');
+  assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp');
 });
 
 test('relookImage: the same question within an hour is free; another question asks again', async () => {
@@ -2611,8 +2566,7 @@ test('cachedVideos: returns cached video states only, never fetches or spends a 
   assert.equal(state.data.videoCount, undefined, 'no daily video slot is reserved');
 });
 
-// Provider routing: every request says which role makes it (llm.providerByModel
-// keys of the form "<prefix>@<role>").
+// Provider routing: every request says which role makes it (llm.providerByModel keys of the form "<prefix>@<role>").
 
 // --- GIFs: watched like a short video --------------------------------------
 
@@ -2664,6 +2618,7 @@ function gifDescriber({
 }
 
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
+const GIF_STILL_PREVIEW = 'https://previews.example/still.png'; // the adapter's preview, downloaded as given
 
 /** A tenor gifv embed's picture item (src/media/classify.js#collectPictures). */
 function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
@@ -2674,6 +2629,7 @@ function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
     kind: 'gif',
     url: 'https://images-ext-1.discordapp.net/external/t/https/media.tenor.com/x/AAAAe/still.png',
     animationUrl: TENOR_MP4,
+    previewUrl: GIF_STILL_PREVIEW,
     name: 'Tenor',
     ...overrides,
   };
@@ -2687,6 +2643,7 @@ function gifAttachmentItem(itemId = 'a9', overrides = {}) {
     itemId,
     kind: 'gif',
     url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=secret',
+    previewUrl: GIF_STILL_PREVIEW,
     name: 'anim.gif',
     ...overrides,
   };
@@ -2781,10 +2738,10 @@ test('describe: the watched caption keeps media.descriptionChars, collapsed to o
   assert.ok(result.text.startsWith('Première ligne. mot0é'));
 });
 
-/** Asserts the one-frame path ran: the still frame through the proxy, the picture model, a `gif` entry. */
+/** Asserts the one-frame path ran: the still frame from the preview address, the picture model, a `gif` entry. */
 function assertOneFrame({ imageFetcher, llm, store }, itemId, { watchFailed = false } = {}) {
   assert.equal(imageFetcher.calls.length, 1, 'the still frame is fetched');
-  assert.equal(new URL(imageFetcher.calls[0].url).searchParams.get('animated'), 'false');
+  assert.equal(imageFetcher.calls[0].url, GIF_STILL_PREVIEW);
   const last = llm.calls[llm.calls.length - 1];
   assert.equal(last.options.role, 'vision');
   assert.equal(last.messages[1].content[0].type, 'image_url');

@@ -123,7 +123,7 @@ function checkConversation(conversation) {
   need(conversation, 'conversation', isObject);
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', (kind) => CONVERSATION_KINDS.includes(kind), { problem: 'unknown' });
-  for (const key of ['guildId', 'name', 'topic', 'category', 'parentId'])
+  for (const key of ['communityId', 'name', 'topic', 'category', 'parentId'])
     need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
   need(conversation.chatType, 'conversation.chatType', (value) => CONVERSATION_CHAT_TYPES.includes(value), {
     required: false,
@@ -220,18 +220,18 @@ function checkCommandRequested(event) {
 function checkTaskCompleted(event) {
   need(event.taskId, 'taskId', isId);
   need(event.status, 'status', isId);
-  need(event.guildId, 'guildId', isNullableString, { required: false });
+  need(event.communityId, 'communityId', isNullableString, { required: false });
 }
 
 function checkInnerWake(event) {
   need(event.id, 'id', isId);
-  need(event.guildId, 'guildId', isNullableString, { required: false });
+  need(event.communityId, 'communityId', isNullableString, { required: false });
   need(event.wake, 'wake', isObject);
   need(event.wake.kind, 'wake.kind', isId);
 }
 
 function checkMembershipChanged(event) {
-  need(event.guildId, 'guildId', isId);
+  need(event.communityId, 'communityId', isId);
   need(event.userId, 'userId', isId);
   need(event.change, 'change', (value) => MEMBERSHIP_CHANGES.includes(value), { problem: 'unknown' });
   need(event.member, 'member', isObject, { required: false });
@@ -250,7 +250,7 @@ function checkMembershipChanged(event) {
  */
 function checkVoiceState(event, prefix) {
   const state = asRecord(event);
-  need(state.guildId, `${prefix}guildId`, isId);
+  need(state.communityId, `${prefix}communityId`, isId);
   need(state.userId, `${prefix}userId`, isId);
   need(state.name, `${prefix}name`, isNullableString, { required: false });
   for (const key of ['conversationId', 'previousId']) need(state[key], `${prefix}${key}`, isIdOrNull);

@@ -1,6 +1,6 @@
 // Recall over the memory database (spec 2026-10-24-memory-store, section 8): what `memory.search` and the memory
 // prefetch use. It reads the `sources` table of the record (every chat line, its
-// scope and place) and the `vectors` table, always inside a scope context (src/memory/db/scope.js): a row the context
+// scope and place) and the `vectors` table, always inside a scope context (src/memory/db/scope.ts): a row the context
 // may not open is never searched, never counted and never read into a stretch. The caller's place rule (`allowPlace`)
 // is resolved once into a set of places and runs inside every stream's query, before any LIMIT, ranking or fusion.
 //
@@ -23,7 +23,7 @@
 // A group context that has a better match only in a DM it may not open gets `hidden: true` and nothing else about it:
 // no text, no count (the owner, 2026-10-20).
 //
-// A context with `audienceColumn: true` (`memoryDb.audienceColumn`) is read through `audience_id` (scope.js#scopeWhere,
+// A context with `audienceColumn: true` (`memoryDb.audienceColumn`) is read through `audience_id` (scope.ts#scopeWhere,
 // #canRead) instead of the three scope columns; both give the same rows on a database the resolver filled.
 //
 // window(db, { ctx, anchor, move, messages, minutes }) reads the lines of a place up (earlier) or down (later) from a
@@ -48,8 +48,9 @@ import {
 import { log } from '../../log.js';
 import { foldText } from '../recent.js';
 import { indexWords } from '../record-index.js';
-import { channelPlaceId, nativeOf } from './ids.js';
-import { audienceOf, canRead, dmScope, scopeWhere, whereFor } from './scope.js';
+import { channelPlaceId, nativeOf } from './ids.ts';
+import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
+import { audienceOf, canRead, dmScope, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.js';
 
 /** How many reply parents a hit's chain follows at most (as the record recall does). */
@@ -574,7 +575,7 @@ function readerOf(db, ctx, { nameOf = null, selfName = '', channelNameOf = null,
       const given = typeof channelNameOf === 'function' ? channelNameOf(channelId) : null;
       if (given) return given;
       places ??= placeNames(db, ctx);
-      return places.get(placeId) ?? places.get(channelPlaceId(channelId)) ?? null;
+      return places.get(placeId) ?? places.get(channelPlaceId(ifaceOf(ctx), channelId)) ?? null;
     },
   };
 }
@@ -628,7 +629,8 @@ export function search(
   const scopeArgs = {
     from: Number.isFinite(plan?.from) ? plan.from : null,
     to: Number.isFinite(plan?.to) ? plan.to : null,
-    placeId: typeof plan?.channelId === 'string' && plan.channelId ? channelPlaceId(plan.channelId) : null,
+    placeId:
+      typeof plan?.channelId === 'string' && plan.channelId ? channelPlaceId(ifaceOf(ctx), plan.channelId) : null,
     // The caller's place rule runs inside every stream's query (see placesAllowed).
     places: placesAllowed(db, ctx, allowPlace),
   };

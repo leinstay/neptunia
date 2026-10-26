@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createTaskStore } from '../src/errands/store.js';
 import { usageTap, createUsage } from '../src/ops/usage.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

@@ -8,8 +8,8 @@
 // toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, guildId? }
 // fromRows(rows, ctx) -> the line
 
-import { IFACE, accountId, messageSourceId, nativeOf } from '../ids.js';
-import { extraText, join, parseExtra, split } from './common.js';
+import { accountId, messageSourceId, nativeOfAny } from '../ids.ts';
+import { extraText, ifaceOf, join, parseExtra, split } from './common.js';
 import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.js';
 
 // Kinds whose source id carries the message revision. A deleted or felt line, and any line without a revision, has no
@@ -27,29 +27,30 @@ const SPEC = [
   { col: 'mentions', key: 'mentions', type: 'json' },
   { col: 'direct', key: 'direct', type: 'bool' },
   { col: 'reply_to', key: 'replyTo', type: 'text' },
-  { col: 'author_account', key: 'by', type: 'text', enc: accountId, dec: nativeOf },
+  { col: 'author_account', key: 'by', type: 'text', enc: (v, iface) => accountId(iface, v), dec: nativeOfAny },
   { col: 'turn_id', key: 'turnId', type: 'text' },
   { col: 'op_id', key: 'opId', type: 'text' },
   { col: 'origin', key: 'origin', type: 'text' },
 ];
 
-function sourceIdOf(line) {
+function sourceIdOf(line, iface) {
   const kind = typeof line.kind === 'string' ? line.kind : 'unknown';
   const messageId = typeof line.messageId === 'string' ? line.messageId : null;
   if (REVISIONED_KINDS.has(kind) && messageId && Number.isFinite(line.revision))
-    return messageSourceId(messageId, line.revision, kind);
-  return `src:${IFACE}:${messageId ?? 'none'}:${kind}:${line.id ?? 'unknown'}`;
+    return messageSourceId(iface, messageId, line.revision, kind);
+  return `src:${iface}:${messageId ?? 'none'}:${kind}:${line.id ?? 'unknown'}`;
 }
 
 export function toRows(rel, line, ctx = {}) {
-  const { cols, rest } = split(line, SPEC);
+  const iface = ifaceOf(ctx);
+  const { cols, rest } = split(line, SPEC, iface);
   delete rest.scope;
   const scopeRest = {};
-  const scope = scopeInto(scopeRest, line.scope, privateUserOf(rel));
+  const scope = scopeInto(scopeRest, line.scope, privateUserOf(rel), iface);
   Object.assign(rest, scopeRest);
   const row = {
-    id: sourceIdOf(line),
-    iface: IFACE,
+    id: sourceIdOf(line, iface),
+    iface,
     ...cols,
     ...scope,
     seen_at: line.kind === 'seen' && typeof line.recordedAt === 'string' && line.recordedAt ? line.recordedAt : null,
@@ -63,7 +64,7 @@ export function toRows(rel, line, ctx = {}) {
 export function fromRows(rows) {
   const row = rows.sources[0];
   const rest = parseExtra(row.extra);
-  const scope = scopeFrom(row, rest, privateUserOf(row.owner_file));
+  const scope = scopeFrom(row, rest, privateUserOf(row.owner_file), ifaceOf(row));
   const line = join(row, rest, SPEC);
   if (scope !== undefined) line.scope = scope;
   return line;

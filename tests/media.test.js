@@ -1,15 +1,13 @@
-// Tests for src/media/classify.js: pure media classification, label choice,
-// media-proxy URL rewriting and vision picture selection.
+// Tests for src/media/classify.js (pure media classification, label choice and vision picture selection) and for the
+// Discord package's media addresses (interfaces/discord/media.js: media-proxy rewriting, stickers, CDN video links).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyAttachment,
   classifyEmbed,
   formatDurationShort,
-  mediaProxyUrl,
   mediaLabelFor,
   stickerLabelFor,
-  stickerUrl,
   linkThumbnailCacheKey,
   collectPictures,
   collectEmojiItems,
@@ -17,7 +15,6 @@ import {
   lateVideoStates,
   collectReadableLinks,
   isDescribable,
-  discordCdnVideo,
   mediaParts,
   siteOf,
   clipWithEllipsis,
@@ -25,6 +22,8 @@ import {
   fitBox,
   watchedLengths,
 } from '../src/media/classify.js';
+// The Discord CDN hosts, the media proxy, the sticker address and the CDN video link are the package's.
+import { discordCdnVideo, mediaProxyUrl, stickerUrl } from '../interfaces/discord/media.js';
 
 // --- siteOf --------------------------------------------------------------------
 

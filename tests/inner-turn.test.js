@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { createTurnRunner, loopSettings } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createJournal, callMarksOf } from '../src/memory/journal.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';

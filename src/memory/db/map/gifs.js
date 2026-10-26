@@ -8,8 +8,8 @@
 //
 // toRows(rel, value, ctx) -> { media, operational }     fromRows(rows, ctx) -> the file's value
 
-import { groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.js';
 
 const PREFIX = 'media:gif:';
 
@@ -19,7 +19,8 @@ const SPEC = [
   { col: 'description', key: 'name', type: 'text' },
 ];
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const rest = { ...value };
   const has = [];
@@ -37,7 +38,7 @@ export function toRows(rel, value) {
         sha1: null,
         bytes: null,
         mime: null,
-        ...groupScope(),
+        ...groupScope(iface),
         extra: extraText(part.rest),
         owner_file: rel,
       });

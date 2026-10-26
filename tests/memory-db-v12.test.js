@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { channelPlaceId } from '../src/memory/db/ids.js';
+import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.js';
 
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
@@ -45,11 +45,11 @@ test('schema v12: the legacy diary mirrors get the diary channel as destination,
     } finally {
       plain.close();
     }
-    const known = openMemoryDb(file, { context: { diaryPlaceId: channelPlaceId(CHANNEL) } });
+    const known = openMemoryDb(file, { context: { diaryPlaceId: channelPlaceId('discord', CHANNEL) } });
     try {
       assert.equal(
         known.db.prepare("SELECT destination_place_id AS d FROM publications WHERE row_kind = 'diary'").get().d,
-        channelPlaceId(CHANNEL)
+        channelPlaceId('discord', CHANNEL)
       );
       assert.equal(
         known.db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(),

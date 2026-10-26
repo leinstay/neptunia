@@ -45,8 +45,8 @@ import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { estimateMessages } from '../../llm/tokens.js';
 import { exportOne } from './export.js';
-import { SELF_PERSON, nativeOf, shortHash } from './ids.js';
-import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.js';
+import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
+import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
 import { columnsOf } from './rows.js';
 import { turnReadRows } from './service.js';
 
@@ -223,7 +223,7 @@ function scopeOf(row, audienceColumn = false) {
 /**
  * The scopes that have chat lines, group first, in a stable order. `audienceColumn`: read them through `audience_id`.
  * A triple that names no valid audience (a DM whose partner is not a person id of its interface) is not a scope of its
- * own: its lines are internal (scope.js#audienceOf), never read as a conversation.
+ * own: its lines are internal (scope.ts#audienceOf), never read as a conversation.
  */
 export function scopesOf(db, { audienceColumn = false } = {}) {
   const rows = db
@@ -692,10 +692,12 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
 /**
  * The read-set of an assembled request, resolved now (service.js#turnReadRows: the claim version, the description version
  * and the source revision each read showed), and `maps.versions`: the version each `cN` / `sN` showed (null for a claim
- * with no version), the `base` of an op on it. Mutates `request.maps`; returns the rows.
+ * with no version), the `base` of an op on it. Mutates `request.maps`; returns the rows. `iface` names the interface
+ * of the scope the request reads.
+ * @param {string} [iface]
  */
-export function resolveSessionReads(db, request) {
-  const rows = turnReadRows(db, request.reads ?? []);
+export function resolveSessionReads(db, request, iface) {
+  const rows = turnReadRows(db, request.reads ?? [], { iface });
   const versionOf = new Map(
     rows.filter((row) => row.row_kind === 'claims').map((row) => [row.row_id, row.version_id ?? null])
   );
@@ -1450,7 +1452,7 @@ async function runScope(
       now: () => startedAt,
       newId: () => `ctx:session:${runId}`,
     });
-    readSet = { rows: resolveSessionReads(db, request), context: contextRow(issued) };
+    readSet = { rows: resolveSessionReads(db, request, issued.iface), context: contextRow(issued) };
   } catch (error) {
     // The run goes on without its read-set (and without bases): logged with a code, counted in its errors.
     run.errors.push(`reads:${codeOf(error)}`);

@@ -105,7 +105,7 @@ import {
   recentView,
 } from '../memory/recent.js';
 import { mediaParts } from '../media/classify.js';
-import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
+import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { mergeProfiles } from './private.js';
 import {
   assignChannelHandles,

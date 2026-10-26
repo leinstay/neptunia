@@ -118,7 +118,7 @@ test("door: the core's own events get derived ids: an errand end by task and sta
     handlers: { 'task.completed': (e) => seen.push(e.taskId), 'scheduler.tick': () => seen.push('tick') },
     log: quiet(),
   });
-  const done = { kind: 'task.completed', at: 5, taskId: 't1', status: 'done', guildId: 'g1' };
+  const done = { kind: 'task.completed', at: 5, taskId: 't1', status: 'done', communityId: 'g1' };
   assert.equal(eventIdOf(done), 'task.completed:t1:done');
   assert.equal((await door.submit(done)).status, 'ok');
   assert.equal((await door.submit({ ...done, at: 9 })).status, 'duplicate', 'the same end delivered twice');
@@ -147,7 +147,12 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
     replyTo,
     body: reason ? { status, reason } : { status },
   });
-  assert.deepEqual(await door.receive(envelope('hello', { iface: 'fake' }, { id: 'h1' })), ack('h1', 'ok'));
+  assert.deepEqual(
+    await door.receive(
+      envelope('hello', { iface: 'fake', self: { id: 'bot-1', name: 'Bot' }, community: null }, { id: 'h1' })
+    ),
+    ack('h1', 'ok')
+  );
   assert.deepEqual(await door.receive(envelope('ping', {}, { id: 'p1' })), ack('p1', 'ok'));
   const event = reaction();
   assert.deepEqual(await door.receive(envelope('event', event, { id: event.id })), ack(event.id, 'ok'));
@@ -171,7 +176,8 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
 });
 
 test('door: two removals of the same emoji at different times both pass; the same instant is a duplicate', async () => {
-  const { reactionEvent, reactionClearAllEvent, reactionClearEmojiEvent } = await import('../src/interface/discord.js');
+  const { reactionEvent, reactionClearAllEvent, reactionClearEmojiEvent } =
+    await import('../interfaces/discord/index.js');
   const message = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: false, author: { id: 'a1' } };
   const react = { message, emoji: { name: '\u{1F389}' } };
   const user = { id: 'u1' };

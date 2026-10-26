@@ -10,33 +10,35 @@
 //
 // toRows(rel, value, ctx) -> { episodes, episode_sources, operational }     fromRows(rows, ctx) -> the file's value
 
-import { channelPlaceId, itemOrDerivedId, nativeOf, uniqueIds } from '../ids.js';
-import { groupScope } from '../scope.js';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
+import { channelPlaceId, itemOrDerivedId, nativeOf, nativeOfAny, uniqueIds } from '../ids.ts';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { groupScope } from '../scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [
   {
     col: 'place_id',
     key: 'channelId',
     type: 'text',
-    ok: (v) => nativeOf(channelPlaceId(v)) === v,
-    enc: channelPlaceId,
-    dec: nativeOf,
+    ok: (v) => nativeOf(channelPlaceId(LEGACY_IFACE, v)) === v,
+    enc: (v, iface) => channelPlaceId(iface, v),
+    dec: nativeOfAny,
   },
   { col: 'start_ms', key: 'startAt', type: 'num' },
   { col: 'last_ms', key: 'lastAt', type: 'num' },
 ];
 
-export const messageSourceRef = (messageId) => `src:discord:${messageId}`;
+export const messageSourceRef = (iface, messageId) => `src:${iface}:${messageId}`;
 
-export function toRows(rel, value) {
+export function toRows(rel, value, ctx = {}) {
+  const iface = ifaceOf(ctx);
   const rows = {};
   const rest = { ...value };
   const has = [];
   if (Array.isArray(value.episodes) && value.episodes.every(isPlainObject)) {
     const uniq = uniqueIds();
     value.episodes.forEach((episode, position) => {
-      const part = split(episode, SPEC);
+      const part = split(episode, SPEC, iface);
       const itemId = typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null;
       const base =
         itemId ??
@@ -50,7 +52,7 @@ export function toRows(rel, value) {
         kind: 'participation',
         subject_id: null,
         extra: extraText(part.rest),
-        ...groupScope(),
+        ...groupScope(iface),
         created_at: null,
         retired_at: null,
         owner_file: rel,
@@ -59,7 +61,11 @@ export function toRows(rel, value) {
       const messages = Array.isArray(episode.messages) ? episode.messages : [];
       messages.forEach((message, index) => {
         if (isPlainObject(message) && typeof message.id === 'string') {
-          put(rows, 'episode_sources', { episode_id: id, source_id: messageSourceRef(message.id), position: index });
+          put(rows, 'episode_sources', {
+            episode_id: id,
+            source_id: messageSourceRef(iface, message.id),
+            position: index,
+          });
         }
       });
     });

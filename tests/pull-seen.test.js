@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { createPullViews } from '../src/interface/discord.js';
+import { createPullViews } from '../interfaces/discord/index.js';
 import { fill, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 

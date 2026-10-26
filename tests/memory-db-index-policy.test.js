@@ -21,8 +21,8 @@ import {
 } from '../src/memory/db/index-policy.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { search, dbSettings } from '../src/memory/db/recall.js';
-import { channelPlaceId, messageSourceId } from '../src/memory/db/ids.js';
-import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.js';
+import { channelPlaceId, messageSourceId } from '../src/memory/db/ids.ts';
+import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.js';
 import { recordChunk } from '../src/memory/chunks.js';
 import { main, tableHashes } from '../tools/memory-db.mjs';
@@ -31,7 +31,7 @@ import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.
 const DAY = 86_400_000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const OLD = NOW - 200 * DAY;
-const MAIN = channelPlaceId('main');
+const MAIN = channelPlaceId('discord', 'main');
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const config = (db = {}) => ({ recall: { db: { vectorDays: 90, touchDays: 30, vectorEviction: true, ...db } } });
 const run = (...argv) => {
@@ -48,8 +48,8 @@ function fixture() {
     "INSERT INTO places (id, iface, kind, native_id, scope_kind, name) VALUES (?, 'discord', 'channel', 'main', 'group', 'main')"
   ).run(MAIN);
   db.prepare("INSERT INTO accounts (id, iface, native_id) VALUES ('discord:u-alice', 'discord', 'u-alice')").run();
-  const say = ({ native, at, text, kind = 'seen', scope = groupScope(), direct = 0, author = 'u-alice' }) => {
-    const id = messageSourceId(native, 1, kind);
+  const say = ({ native, at, text, kind = 'seen', scope = groupScope('discord'), direct = 0, author = 'u-alice' }) => {
+    const id = messageSourceId('discord', native, 1, kind);
     db.prepare(
       `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, occurred_at, recorded_at, text, direct, scope_kind, scope_iface, scope_dm)
       VALUES (?, ?, 'discord', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -92,7 +92,7 @@ function fixture() {
     before: say({ native: 'm-before', at: OLD - 1000, text: 'πριν από αυτό' }),
     cited: say({ native: 'm-cited', at: OLD, text: 'she remembers this café' }),
     self: say({ native: 'm-self', at: OLD, text: 'my own old line', kind: 'said' }),
-    dm: say({ native: 'm-dm', at: OLD, text: 'a private old line', scope: dmScope('u-alice') }),
+    dm: say({ native: 'm-dm', at: OLD, text: 'a private old line', scope: dmScope('u-alice', 'discord') }),
     addressed: say({ native: 'm-addressed', at: OLD, text: 'hey, you', direct: 1 }),
     captured: say({ native: 'm-captured', at: OLD, text: 'a foreign post' }),
     pinned: say({ native: 'm-pinned', at: OLD, text: 'a pinned line' }),
@@ -193,7 +193,7 @@ test('index policy: eviction drops only the bytes, keeps every text, row and met
         .all()
         .map((row) => [row.rowid, metaOf(row)])
     );
-    const ctx = groupContext();
+    const ctx = groupContext('discord');
     const query = (vector) =>
       search(db, {
         ctx,

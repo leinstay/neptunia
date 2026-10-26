@@ -25,7 +25,7 @@ import {
   isReadableChannel,
   isWritableChannel,
   audienceOf,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import {
   ChannelType,
   Embed,
@@ -37,7 +37,7 @@ import {
 } from 'discord.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { collectPictures, collectVideos } from '../src/media/classify.js';
-import { audienceCovers } from '../src/behavior/elsewhere.js';
+import { audienceCovers } from '../src/behavior/elsewhere.ts';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { formatTranscript } from '../src/format.js';
@@ -67,37 +67,6 @@ function rawMessage(overrides = {}) {
     ...overrides,
   };
 }
-
-test('normalizeMessage: classifies attachments through media.js, keeping url/size/duration', () => {
-  const raw = rawMessage({
-    attachments: new Map([
-      ['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png', size: 123 }],
-      [
-        'a2',
-        {
-          id: 'a2',
-          contentType: 'video/mp4',
-          name: 'clip.mp4',
-          url: 'https://cdn/clip.mp4',
-          size: 456,
-          duration: null,
-        },
-      ],
-    ]),
-  });
-  const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.attachments[0], {
-    id: 'a1',
-    kind: 'image',
-    name: 'pic.png',
-    url: 'https://cdn/pic.png',
-    size: 123,
-    durationSec: null,
-    width: null,
-    height: null,
-  });
-  assert.equal(m.attachments[1].kind, 'video');
-});
 
 test('normalizeMessage: an attachment carries its pixel size from discord.js, null when Discord gives none', () => {
   const raw = rawMessage({
@@ -1865,7 +1834,7 @@ function guildMessage(overrides = {}) {
   };
   return rawMessage({
     guild: { id: 'g1' },
-    guildId: 'g1',
+    communityId: 'g1',
     channel,
     content: 'hello <@self> <#222222222222222222>',
     cleanContent: 'hello @Bot #news',
@@ -1891,7 +1860,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.deepEqual(event.conversation, {
     id: 'c1',
     kind: 'channel',
-    guildId: 'g1',
+    communityId: 'g1',
     name: 'γενικά',
     topic: 'κουβέντα',
     category: 'κοινότητα',
@@ -1931,20 +1900,12 @@ test("normalizedOf: the event gives back normalizeMessage's result, key for key 
   }
 });
 
-test('normalizeOptions: the three normaliser settings from the config, absent ones left to its defaults', () => {
-  assert.deepEqual(
-    normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } }),
-    { embedTextChars: 50, videoSites: ['a'], maxUrlChars: 30 }
-  );
-  assert.deepEqual(normalizeOptions({}), { embedTextChars: undefined, videoSites: undefined, maxUrlChars: undefined });
-});
-
 test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
   assert.deepEqual(dm.conversation, {
     id: 'd1',
     kind: 'dm',
-    guildId: null,
+    communityId: null,
     name: null,
     topic: null,
     category: null,
@@ -2064,7 +2025,7 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
   assert.deepEqual(deleted.conversation, {
     id: 'c1',
     kind: 'channel',
-    guildId: 'g1',
+    communityId: 'g1',
     name: null,
     topic: null,
     category: null,
@@ -2076,7 +2037,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
   const message = {
     id: 'm1',
     channelId: 'c1',
-    guildId: 'g1',
+    communityId: 'g1',
     channel: { id: 'c1', name: 'γενικά', isThread: () => false },
   };
   const reaction = { message, emoji: { name: '\u{1F389}', id: null } };

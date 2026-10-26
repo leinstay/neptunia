@@ -2,7 +2,7 @@
 // base-36 digits of the id's hash, distinct from a member's), the channel directory's entries and
 // text, `<channel_directory>` in the cached stable part of the persona's request (byte-identical
 // between turns), a channel a line mentions carrying its handle (src/format.js), her
-// `#handle` becoming `<#id>` (src/memory/mentions.js#linkChannels) and resolving exactly in a
+// `#handle` becoming `<#id>` (src/memory/mentions.ts#linkChannels) and resolving exactly in a
 // skill call (src/skills/executors.js#resolveCall), the name matching kept behind it, and the
 // sandbox carrying a linked channel on her line. Pure; fake prompts and config.
 import { test } from 'node:test';
@@ -19,10 +19,10 @@ import {
 } from '../src/behavior/handles.js';
 import { buildRequest, userText } from '../src/behavior/prompt.js';
 import { afterScenarioTurn } from '../src/behavior/sandbox.js';
-import { channelDirectoryOf as guildChannelDirectory } from '../src/interface/discord.js';
+import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/discord/index.js';
 import { formatTranscript } from '../src/format.js';
 import { withCacheMarker } from '../src/llm/openrouter.js';
-import { linkChannels } from '../src/memory/mentions.js';
+import { linkChannels } from '../src/memory/mentions.ts';
 import { resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';

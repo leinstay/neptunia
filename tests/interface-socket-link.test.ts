@@ -39,7 +39,13 @@ const CAPABILITIES: Capabilities = {
   publish: [],
   search: false,
 };
-const HELLO: Hello = { iface: 'fake', capabilities: CAPABILITIES, resume: null };
+const HELLO: Hello = {
+  iface: 'fake',
+  self: { id: 'bot-1', name: 'Νέπτυν' },
+  community: { id: 'g1', name: 'Alpha' },
+  capabilities: CAPABILITIES,
+  resume: null,
+};
 
 async function until(check: () => boolean, ms = 2000): Promise<void> {
   const deadline = Date.now() + ms;

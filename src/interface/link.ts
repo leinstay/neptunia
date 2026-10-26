@@ -8,7 +8,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ackOf, declaredHooks, envelope, portAction } from '../protocol/index.js';
 import type { Adapter, Capabilities, Delivery, FetchedMessages } from '../protocol/adapter.ts';
-import type { Hello, Logger } from '../protocol/serve.ts';
+import type { Hello, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';
 
 /** How many actions may wait for an answer at once. */
@@ -81,6 +81,8 @@ export function openAdapterLink(options: {
     }
     greeting = {
       iface: body.iface as string,
+      self: body.self as Named,
+      community: (body.community ?? null) as Named | null,
       capabilities: (body.capabilities ?? NO_CAPABILITIES) as Capabilities,
       resume: typeof body.resume === 'string' ? body.resume : null,
     };

@@ -32,7 +32,7 @@
 // rank a line but never show one.
 
 import { foldText } from './recent.js';
-import { URL_PATTERN, isWordChar } from './mentions.js';
+import { URL_PATTERN, isWordChar } from './mentions.ts';
 
 /** A URL in a text: its words (scheme, host, path, ids) are no words of the chat. */
 const URL_RE = new RegExp(URL_PATTERN, 'g');

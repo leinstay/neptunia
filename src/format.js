@@ -13,11 +13,11 @@
 // live conversation from a dead chat that somebody has just poked.
 
 import { reasonText } from './skills/codes.js';
-import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './media/classify.js';
+import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.js';
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
 import { clampWithEllipsis, oneLine } from './memory/clamp.js';
-import { isWordChar, numberMessageLinks, outsideUrls } from './memory/mentions.js';
+import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.js';
 
 // config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
@@ -332,12 +332,9 @@ function mediaTags(message, labels, context = {}) {
     const description = labels.transcript.stickerDescribed
       ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? null)
       : null;
-    // A slim message keeps no `url` (see src/memory/update.js#slimMessage)
-    // -- rebuild it from id/format when absent, so a memory
-    // transcript tells a picture-format sticker from a Lottie one exactly
-    // like a live chat transcript does.
-    const url = sticker.url ?? stickerUrl(sticker.id, sticker.format);
-    pushLabel(stickerLabelFor({ ...sticker, url }, { description }));
+    // `url` is null for a sticker with no picture. A slim message keeps `url` too (src/memory/update.js#slimMessage), so a
+    // memory transcript tells a picture sticker from one without exactly like a live chat transcript does.
+    pushLabel(stickerLabelFor(sticker, { description }));
   }
   // `context.emojiInline === false`: the request lists the emoji once in its
   // `<emoji>` block (src/behavior/prompt.js), so the line keeps the bare `:name:`.
@@ -750,6 +747,31 @@ function withChannelHandles(content, mentionedIds, channels, template) {
 }
 
 /**
+ * `text` with every written span of a message reference (`ref.text`, as the interface found it in the text, brackets
+ * included) to a message `numberOf` knows turned into that message's transcript number `#n`; a reference to any other
+ * message, and a span the text no longer holds, stays as written. The references come in the order they are written.
+ * Pure.
+ * @param {string} text
+ * @param {Array<{ messageId?: string, text?: string }>|undefined} refs
+ * @param {(messageId: string) => (number|null|undefined)} numberOf
+ * @returns {string}
+ */
+function numberMessageRefs(text, refs, numberOf) {
+  if (typeof text !== 'string' || !text || !Array.isArray(refs)) return text;
+  let result = '';
+  let cursor = 0;
+  for (const ref of refs) {
+    if (typeof ref?.text !== 'string' || ref.text === '') continue;
+    const at = text.indexOf(ref.text, cursor);
+    if (at === -1) continue;
+    const n = numberOf(String(ref.messageId));
+    result += text.slice(cursor, at) + (Number.isInteger(n) ? `#${n}` : ref.text);
+    cursor = at + ref.text.length;
+  }
+  return result + text.slice(cursor);
+}
+
+/**
  * Format messages (oldest first) into transcript items, one per message.
  * `item.text` already carries the gap/date marker that precedes the message,
  * so dropping items from the start keeps the rest self-explanatory.
@@ -845,9 +867,9 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  *   label with `{name}` and `{handle}` (both with their `#`; withChannelHandles). Omitted, or
  *   without the label: the text as it came.
  * @param {boolean} [options.messageNumbers]  Default false (features.messageLinks, read by the
- *   caller): in `mode: 'chat'`, a Discord message link in a line's text to a message of this list
- *   reads as that line's `#index` (src/memory/mentions.js#numberMessageLinks); a link to anything
- *   else stays as written.
+ *   caller): in `mode: 'chat'`, a message reference of a line (`messageRefs`, put on the message by
+ *   the interface) to a message of this list reads as that line's `#index`; a reference to
+ *   anything else, and a link in the text with no reference, stays as written.
  * @param {(message: object) => boolean} [options.skip]  A message it holds true for keeps its
  *   number (`#index`, reply markers and message links to it read as that number) but renders no
  *   item, and a gap marker is measured from the last line that does render: the request builder
@@ -1027,7 +1049,7 @@ export function formatTranscript(messages, options) {
     const marked = channelMarks
       ? withChannelHandles(named, message.mentionedChannelIds, channelMarks, channelLabel)
       : named;
-    const content = linkNumbers ? numberMessageLinks(marked, (id) => indexById.get(id)) : marked;
+    const content = linkNumbers ? numberMessageRefs(marked, message.messageRefs, (id) => indexById.get(id)) : marked;
     if (content) body.push(clipWithEllipsis(content, maxChars));
     if (message.replyToId) {
       const target = indexById.get(message.replyToId);

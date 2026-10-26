@@ -14,7 +14,7 @@
 
 import { archiveText } from './archive.js';
 import { clampChars, oneLine } from './clamp.js';
-import { fromTokens } from './mentions.js';
+import { fromTokens } from './mentions.ts';
 import { isoOf } from './record.js';
 
 /** The preceding lines of the same channel a record chunk carries. */

@@ -16,8 +16,6 @@ import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 type Fake = Record<string, unknown>;
 type Legacy = {
   client: unknown;
-  guildId: string;
-  selfId(): string | null;
   serveCommands(admin: unknown): unknown;
   rawOf(event: { id: string }): { message: unknown; previous: unknown } | null;
   catchUp: { eventOf(message: object): { id: string } };
@@ -289,18 +287,47 @@ const messageIdsOf = (h: Harness): Array<unknown> =>
 
 // ---- the guild and the token ------------------------------------------------------------------
 
-test('serves the only guild the bot is in when bot.guildId is unset', async () => {
-  await withSession({}, (_h, running) => {
-    assert.equal((running.legacy as Legacy).guildId, 'g1');
-    return Promise.resolve();
+test('says hello with the only guild the bot is in as its community when bot.guildId is unset', async () => {
+  await withSession({}, async (h) => {
+    assert.deepEqual((await h.link.hello).community, { id: 'g1', name: 'Alpha' });
   });
 });
 
-test('serves the configured guild when the bot is in two and bot.guildId names one', async () => {
-  await withSession({ twoGuilds: true, botGuildId: 'g2' }, (_h, running) => {
-    assert.equal((running.legacy as Legacy).guildId, 'g2');
-    return Promise.resolve();
+test('says hello with the configured guild as its community when the bot is in two and bot.guildId names one', async () => {
+  await withSession({ twoGuilds: true, botGuildId: 'g2' }, async (h) => {
+    assert.deepEqual((await h.link.hello).community, { id: 'g2', name: 'Beta' });
   });
+});
+
+test('says hello with the persona account id and its display name in the served guild', async () => {
+  await withSession({}, async (h) => {
+    assert.deepEqual((await h.link.hello).self, { id: SELF_ID, name: 'Neptunia' });
+  });
+});
+
+test('sends the cached members of the served guild as membership.changed events once opened', async () => {
+  const h = harness();
+  const members = asFake(h.guild.members).cache as Map<string, Fake>;
+  members.set('u5', {
+    id: 'u5',
+    guild: { id: 'g1' },
+    avatar: null,
+    displayName: 'Μαρία',
+    user: { id: 'u5', bot: false, avatar: null, username: 'maria' },
+    displayAvatarURL: () => 'https://cdn.example/u5/default.png',
+  });
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await until(() => h.events('membership.changed').some((event) => event.userId === 'u5'));
+    const event = h.events('membership.changed').find((entry) => entry.userId === 'u5') ?? {};
+    assert.equal(event.communityId, 'g1');
+    assert.equal(asFake(event.member).name, 'Μαρία');
+    assert.deepEqual(validateEvent(event), { ok: true });
+  } finally {
+    await running.stop();
+  }
 });
 
 test('rejects naming both guilds when the bot is in two and bot.guildId is unset', async () => {
@@ -398,7 +425,7 @@ test('gives no voice.changed for a voice state of another guild', async () => {
     await until(() => h.events('voice.changed').length >= 1);
     await flush();
     assert.deepEqual(
-      h.events('voice.changed').map((event) => [event.guildId, event.userId]),
+      h.events('voice.changed').map((event) => [event.communityId, event.userId]),
       [['g1', 'u5']]
     );
   });
@@ -429,7 +456,7 @@ test('turns GuildMemberUpdate into a membership.changed with the avatar hash and
     await until(() => h.events('membership.changed').length === 1);
     const event = h.events('membership.changed')[0] ?? {};
     assert.equal(event.change, 'updated');
-    assert.equal(event.guildId, 'g1');
+    assert.equal(event.communityId, 'g1');
     assert.equal(event.userId, 'u3');
     assert.deepEqual(asFake(event.member).avatar, { hash: 'h3', url: 'https://cdn.example/u3/h3.png?size=256' });
   });
@@ -557,7 +584,6 @@ test('hands the core exactly the named seams of legacy, over the client it built
   await withSession({}, (h, running) => {
     const legacy = running.legacy as Legacy;
     assert.equal(legacy.client, h.client);
-    assert.equal(legacy.selfId(), SELF_ID);
     assert.deepEqual(
       Object.keys(legacy).sort(),
       [
@@ -568,13 +594,9 @@ test('hands the core exactly the named seams of legacy, over the client it built
         'dmConversationOf',
         'emoji',
         'fetchOwnMessages',
-        'guildId',
-        'memberName',
         'reactors',
         'rawOf',
         'resolveMember',
-        'selfId',
-        'selfName',
         'serveCommands',
       ].sort()
     );

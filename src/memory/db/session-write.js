@@ -23,7 +23,7 @@
 //       One `description_versions` row. `shadow`: origin `shadow`, never current. `apply`: origin
 //       `review`, and in the same transaction the `descriptions` row is created or moved to this version.
 //   { kind: 'context', context }
-//       One `execution_contexts` row (scope.js#contextRow of a context the core issued); a context already recorded is
+//       One `execution_contexts` row (scope.ts#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode.
 //   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
@@ -35,7 +35,7 @@
 //       The daily backup (backup.js#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
 //       a consistent copy, no WAL file copied. Not a memory write: no mode; returns the manifest.
 //
-// Every row with the scope triple is written with its `audience_id` from the one resolver (scope.js#audienceOf, through
+// Every row with the scope triple is written with its `audience_id` from the one resolver (scope.ts#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
 // by the service from `memoryDb.audienceColumn`) makes the scope check of a target claim read `audience_id`.
 //
@@ -71,8 +71,8 @@
 // Counts and codes only, never a text.
 
 import { randomUUID } from 'node:crypto';
-import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.js';
-import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.js';
+import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.ts';
+import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.ts';
 import { ensureAudience, ensureInterface } from './rows.js';
 import { projectRow } from './graph.js';
 import { applyWakeWrite } from './wakes.js';
@@ -844,7 +844,7 @@ export function writeTurnReadRows(db, turnId, step, rows) {
   }
 }
 
-/** One issued context as an `execution_contexts` row (scope.js#contextRow); one already recorded is left alone. */
+/** One issued context as an `execution_contexts` row (scope.ts#contextRow); one already recorded is left alone. */
 function writeContext(handle, update) {
   const row = update.context;
   if (!contextOk(row)) throw coded('BAD_CONTEXT');

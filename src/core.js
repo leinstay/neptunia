@@ -64,7 +64,8 @@ import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
 import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
-import { channelPlaceId } from './memory/db/ids.js';
+import { channelPlaceId } from './memory/db/ids.ts';
+import { createMemberDirectory } from './interface/members.ts';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
@@ -119,8 +120,8 @@ function needOrFail(env, key) {
  *   paths: ReturnType<typeof import('./paths.js').resolvePaths>,
  *   env: Readonly<Record<string, string | undefined>>,
  *   interfaces: ReadonlyArray<{ name: string, start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }>,
- *   llm?: ReturnType<typeof createLlm>,
- *   embedder?: ReturnType<typeof createEmbedder>,
+ *   llm?: Pick<ReturnType<typeof createLlm>, 'complete'> & Partial<ReturnType<typeof createLlm>>,
+ *   embedder?: Pick<ReturnType<typeof createEmbedder>, 'embed'> & Partial<ReturnType<typeof createEmbedder>>,
  *   now?: () => number,
  * }} options
  * @returns {Promise<{ door: ReturnType<typeof createEventDoor>, stop(signal?: string): Promise<void> }>}
@@ -192,6 +193,10 @@ export async function startCore(options) {
     log.warn('index: deprecated model key ignored', { key, use });
 
   const dataDir = paths.dataDir;
+  // Who the persona is on the interface and which namespace its ids belong to: set once from `hello`, read at each use.
+  const identity = { iface: '', selfId: '', selfName: 'bot' };
+  // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
+  const members = createMemberDirectory();
   // The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
   // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
   const metrics = createMetrics({ dataDir, log });
@@ -211,6 +216,8 @@ export async function startCore(options) {
     dataDir,
     log,
     diaryMediaDeps: () => ({ port: iface, imageFetcher }),
+    // The interface the unit writes name their rows with: the one of `hello`, known once the link is up.
+    iface: () => identity.iface || null,
     embed: (texts, options) => embedder.embed(texts, options),
     selfName: () => getSelfName(getGuildId()),
     sessionLlm: () => llm,
@@ -289,7 +296,7 @@ export async function startCore(options) {
     embed: embedder.embed,
     record: recordWriter,
     log,
-    nameOf: (guildId, userId) => store.getUser(guildId, userId)?.names?.[0] ?? legacy.memberName(guildId, userId),
+    nameOf: (guildId, userId) => store.getUser(guildId, userId)?.names?.[0] ?? members.nameOf(guildId, userId),
     selfName: (guildId) => getSelfName(guildId),
     // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
     paused: () => store.state.data.paused === true,
@@ -346,7 +353,7 @@ export async function startCore(options) {
     imageFetcher,
     state: store.state,
     getGuildId,
-    selfId: () => legacy.selfId(),
+    selfId: () => identity.selfId,
     paused: () => store.state.data.paused === true,
     resolveMember: (guildId, userId) => legacy.resolveMember(guildId, userId),
   });
@@ -366,8 +373,9 @@ export async function startCore(options) {
   // in process memory, fed by the interface's voice, presence and connection events through the door
   // below, never written anywhere.
   const around = createAroundStore({ presences: presencesIntent });
-  // The persona's display name in a guild: the one name every request uses.
-  const getSelfName = (guildId) => legacy.selfName(guildId);
+  // The persona's display name in a community: the one name every request uses. Her nickname there when the member
+  // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
+  const getSelfName = (guildId) => members.nameOf(guildId, identity.selfId) ?? identity.selfName;
 
   // The link between the core and the Discord side (docs/interfaces.md). Both still run in this process:
   // the core listens on a Unix socket under the data directory, the Discord interface connects with a token made
@@ -411,7 +419,10 @@ export async function startCore(options) {
   const coreLink = await linkOpened.promise;
   // Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
   // `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
-  await coreLink.hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
+  const hello = await coreLink.hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
+  identity.iface = hello.iface;
+  identity.selfId = hello.self.id;
+  identity.selfName = hello.self.name;
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/skills/gateway.js) let the call pass.
   const iface = coreLink.adapter;
@@ -421,9 +432,6 @@ export async function startCore(options) {
   //   client            the modules that take the discord.js client (turn runner, memory jobs, admin, spontaneous, diary)
   //   capabilities      the functions asked of Discord by name, passed to every module below as `discord`
   //   rawOf             the discord.js message behind a message event (the message pipeline)
-  //   guildId           the one guild this instance serves, set once at start
-  //   selfId, selfName  the persona's id and display name (the avatar queue, every request)
-  //   memberName        a cached member's name (the embedding queue)
   //   resolveMember     one member by REST, as the avatar queue reads it
   //   dmConversationOf  a member's private conversation (the memory session failure fact)
   //   catchUp           channelInfo, fetchRecent and eventOf (the offline catch-up)
@@ -433,7 +441,7 @@ export async function startCore(options) {
   //   serveCommands     the slash command interactions (the command handler)
   const legacy = /** @type {import('./interface/legacy.ts').InterfaceLegacy} */ (running.legacy);
   const { client, capabilities: discord, reactors, emoji } = legacy;
-  instance.guildId = legacy.guildId;
+  instance.guildId = hello.community?.id ?? null;
   // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
   const routeChannels = createChannelRouter({ hot, store, llm, discord });
   // The search of the server's own history beside the web search (features.recall): the lookup's server part.
@@ -450,6 +458,7 @@ export async function startCore(options) {
     vectors,
     embed: embedder.embed,
     memoryDb,
+    iface: identity.iface,
   });
   // When each person last wrote in each channel (fed by the message handler): a turn answering
   // someone waits until they stop writing (pace.settleMs).
@@ -471,7 +480,7 @@ export async function startCore(options) {
         `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
       )
-      .all(channelPlaceId(String(channelId)), count);
+      .all(channelPlaceId(identity.iface, String(channelId)), count);
     const lines = [];
     for (const row of rows) {
       let name = '';
@@ -510,7 +519,7 @@ export async function startCore(options) {
     // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
     memoryReads: (args) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
-    memoryContext: (spec) => memoryDb.issueContext(spec),
+    memoryContext: (spec) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
     llm,
     calibrator,
     client,
@@ -611,10 +620,11 @@ export async function startCore(options) {
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
     heartbeat: {
       tasks: (guildId) => taskStores.get(guildId).recent(100),
-      skills: () => grantedSkillNames({ config: hot.config, selfId: legacy.selfId(), registry: skillRegistry() }),
+      skills: () => grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }),
       agents: () => Object.keys(AGENT_PROFILES),
-      selfId: () => legacy.selfId(),
-      focusPeople: () => (hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople() : null),
+      selfId: () => identity.selfId,
+      focusPeople: () =>
+        hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople({ iface: identity.iface }) : null,
     },
     log,
   });
@@ -704,7 +714,7 @@ export async function startCore(options) {
     hot,
     store,
     journal,
-    selfId: () => legacy.selfId(),
+    selfId: () => identity.selfId,
     channelInfo: (channelId) => legacy.catchUp.channelInfo(channelId),
     fetchRecent: (channelId, limit) => legacy.catchUp.fetchRecent(channelId, limit),
     // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
@@ -1006,7 +1016,7 @@ export async function startCore(options) {
         if (event.deleted) return onMessage.onMessageDelete(event);
         if (event.edit) return onMessage.onMessageUpdate(event);
         // A member's own message carries their avatar: a changed one is queued for a description.
-        offerAvatar(event.conversation?.guildId, event.message?.author);
+        offerAvatar(event.conversation?.communityId, event.message?.author);
         return onMessage(event);
       },
       // The reactor store follows the reactions on the persona's messages in the served guild, whatever
@@ -1015,8 +1025,8 @@ export async function startCore(options) {
       'task.completed': (event) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
         inner.onTaskFinished(
-          event?.raw?.task ?? errands.store?.(event?.guildId ?? null)?.get?.(event?.taskId) ?? null,
-          event?.guildId ?? instance.guildId
+          event?.raw?.task ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.taskId) ?? null,
+          event?.communityId ?? instance.guildId
         );
         return taskTurns.onEvent(event);
       },
@@ -1033,7 +1043,10 @@ export async function startCore(options) {
       'connection.changed': (event) => around.connection(event),
       // The names of the conversations (the inner life shows them), and a changed avatar of a member.
       'conversation.changed': (event) => directory.apply(event),
-      'membership.changed': (event) => offerAvatar(event.guildId, event.member),
+      'membership.changed': (event) => {
+        members.apply(event);
+        offerAvatar(event.communityId, event.member);
+      },
     },
     log,
   });

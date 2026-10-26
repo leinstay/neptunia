@@ -1,6 +1,6 @@
 // Tests for src/memory/recent.js: the recent store's pure logic (merge with
 // expiry, dedupe, caps and remove; the live view; the purge of a member; the
-// fold) and src/memory/mentions.js#tokenIds, plus the store's read path where a
+// fold) and src/memory/mentions.ts#tokenIds, plus the store's read path where a
 // rule is about "on read" versus "at the next write".
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ import {
   recentSettings,
   recentView,
 } from '../src/memory/recent.js';
-import { tokenIds } from '../src/memory/mentions.js';
+import { tokenIds } from '../src/memory/mentions.ts';
 import { createStore } from '../src/memory/store.js';
 import { HOUR_MS } from '../src/time.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

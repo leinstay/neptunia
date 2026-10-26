@@ -5,7 +5,7 @@
 // Schema v7 (spec 2026-10-24-memory-schema-v7, sections 1, 2 and 11): every writer fills the derived columns from the
 // row itself through `deriveRow` (the sync's upsert, `insertRows`, the database's own writers in session-write.js and
 // diary-media.js), so a remap of a file re-derives them instead of nulling them:
-//   - a row of a table with the scope triple gets `audience_id` from scope.js#audienceOf (the one resolver); the
+//   - a row of a table with the scope triple gets `audience_id` from scope.ts#audienceOf (the one resolver); the
 //     audience row, its interface and, for a DM, the DM place of the partner are created when missing. A given
 //     `audience_id` that is not the triple's audience is a conflict: the row is quarantined to internal and logged;
 //   - an account gets its authority and native key, a place its authority, native key and conversation, a source its
@@ -43,8 +43,8 @@ import {
   placeNativeKey,
   SELF_PERSON,
   sourceTargetKey,
-} from './ids.js';
-import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.js';
+} from './ids.ts';
+import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.ts';
 import { SELF_SOURCE_KINDS } from './schema.js';
 import { projectRow } from './graph.js';
 import { deriveMirrorPublication, projectPublicationsNaming } from './publish.js';

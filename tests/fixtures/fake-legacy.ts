@@ -1,5 +1,5 @@
 // The discord.js-shaped seams the core still reads while it runs on the fake interface (src/interface/fake-interface.ts):
-// the `legacy` object of the 15 seams the Discord session hands over (interfaces/discord/session.ts#DiscordLegacy),
+// the `legacy` object of the 11 seams the Discord session hands over (interfaces/discord/session.ts#DiscordLegacy),
 // built over one fake guild with one channel, #general (c1), and no network. The pipeline and the turn still take
 // a discord.js message, a channel and a client, so `mentionEvent` builds a member's message that names the persona
 // the way the gateway delivers it, turns it into the event the real adapter builds (collect.js#toEvent), keeps the
@@ -11,7 +11,7 @@ import {
   createReactorStore,
   normalizeOptions,
   toEvent,
-} from '../../src/interface/discord.js';
+} from '../../interfaces/discord/index.js';
 
 type Raw = Record<string, unknown>;
 type Handles = { message: unknown; previous: unknown };
@@ -20,10 +20,6 @@ export type FakeLegacy = {
   client: Raw;
   capabilities: ReturnType<typeof createDiscordInterface>['capabilities'];
   rawOf(event: { id: string }): Handles | null;
-  guildId: string;
-  selfId(): string | null;
-  selfName(guildId: string): string;
-  memberName(guildId: string, userId: string): string | null;
   resolveMember(guildId: string, userId: string): Promise<null>;
   dmConversationOf(userId: string): string | null;
   catchUp: {
@@ -102,10 +98,6 @@ export function createFakeLegacy(
     client,
     capabilities: createDiscordInterface({ client }).capabilities,
     rawOf: (event) => held.get(event.id) ?? null,
-    guildId,
-    selfId: () => selfId,
-    selfName: () => selfName,
-    memberName: () => null,
     resolveMember: () => Promise.resolve(null),
     dmConversationOf: () => null,
     catchUp: {

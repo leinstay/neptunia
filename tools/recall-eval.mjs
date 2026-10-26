@@ -366,7 +366,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
   const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { createDiscordInterface } = await import('../src/interface/discord.js');
+  const { createDiscordInterface } = await import('../interfaces/discord/index.js');
   const { recallSettings } = await import('../src/behavior/recall.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
@@ -576,7 +576,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
   const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { createDiscordInterface } = await import('../src/interface/discord.js');
+  const { createDiscordInterface } = await import('../interfaces/discord/index.js');
   const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');

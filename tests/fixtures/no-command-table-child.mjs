@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { COMMAND_TABLE } from '../../src/ops/catalog.js';
 import { resolveCommand } from '../../src/ops/index.js';
 import { createAdmin } from '../../src/admin.js';
-import { createDiscordInterface } from '../../src/interface/discord.js';
+import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { skillRegistry } from '../../src/skills/registry.js';
 import { SKILL_DEFINITIONS } from '../../src/skills/definitions.js';

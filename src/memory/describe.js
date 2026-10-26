@@ -125,7 +125,7 @@
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
-import { fitBox, mediaProxyUrl, watchedLengths } from '../media/classify.js';
+import { watchedLengths } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { createVideoFetcher } from '../media/fetch-video.js';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
@@ -282,23 +282,12 @@ function questionKey(itemId, question, prefix = 'video') {
 }
 
 /**
- * The URL a picture is downloaded from for the vision model: a sticker or
- * emoji URL as it is (already sized by its own builder; the proxy must never
- * touch either), every other kind through the media proxy -- a video
- * poster as webp, a gif as one still png frame (as webp the proxy serves the
- * whole animation, often above `context.vision.maxBytes`), anything else as
- * webp. A gif or a picture of known size has its longer side scaled to at
- * most `media.imageSize`, the aspect kept (fitBox: the proxy crops any box
- * of another aspect); of unknown size it gets no size at all and the
- * original is served, `context.vision.maxBytes` still capping the download.
- * A no-op for a non-Discord host such as a YouTube thumbnail's i.ytimg.com.
+ * The URL a picture is downloaded from for the vision model: the item's `previewUrl`, the address the interface sized
+ * for its platform (a picture at most `media.imageSize` long, a GIF as one still frame, a video as a poster frame),
+ * else the item's own `url` exactly as it came (a sticker or emoji address is already sized by its own builder).
  */
-function pictureImageUrl(item, mediaCfg) {
-  if (item.kind === 'sticker' || item.kind === 'emoji') return item.url;
-  const sized = fitBox(item.width, item.height, mediaCfg.imageSize) ?? {};
-  if (item.kind === 'video') return mediaProxyUrl(item.url, { format: 'webp' });
-  if (item.kind === 'gif') return mediaProxyUrl(item.url, { ...sized, format: 'png', animated: false });
-  return mediaProxyUrl(item.url, { ...sized, format: 'webp' });
+function pictureImageUrl(item) {
+  return item.previewUrl ?? item.url;
 }
 
 /** A stand-in for the persistent state when none is wired (tests, tools): the daily count lives in memory. */
@@ -626,11 +615,8 @@ export function createDescriber({
       watchFailed = watched?.state === 'failed';
     }
 
-    // A sticker/emoji URL is already fully sized by its own pure builder
-    // (stickerUrl/emojiUrl -- `size=`, not width/height/format, and the
-    // emoji CDN host is deliberately not media.discordapp.net); every other
-    // kind goes through the media proxy (pictureImageUrl).
-    const imageUrl = pictureImageUrl(item, mediaCfg);
+    // The interface's preview address when it gave one, else the item's own URL (pictureImageUrl).
+    const imageUrl = pictureImageUrl(item);
 
     // A failure: the previous caption kept, else a miss cached (`mark` false: the daily cap, nothing cached).
     const fail = (mark = true) => {

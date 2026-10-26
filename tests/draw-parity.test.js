@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { familyOf } from '../src/llm/images.js';
-import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
