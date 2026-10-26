@@ -19,7 +19,7 @@ import {
   usesFollowUpTask,
 } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
-import { createAroundStore } from '../src/interface/discord.js';
+import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';

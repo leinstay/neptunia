@@ -1,10 +1,10 @@
-// The live glance at the voice channels and the people's statuses (interfaces/discord/around.js): the
-// snapshot store fed by gateway events and the pieces of a `<people_now>` entry (the live
-// fields, the block's notices, the people in voice, the entry itself). Pure: plain objects in the shape of
-// discord.js' VoiceState and Presence, no client, no network.
+// The pieces of a `<people_now>` entry (src/behavior/around.js): the live fields, the block's notices, the
+// people in voice, the entry itself. The store behind them is fed through tests/fixtures/around-feed.ts with
+// plain objects in the shape of discord.js' VoiceState and Presence; the store itself is tested in
+// tests/behavior-around-store.test.ts. Pure: no client, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAroundStore } from '../src/interface/discord.js';
+import { createFedAround } from './fixtures/around-feed.ts';
 import {
   AROUND_TEXT_CHARS,
   NOW_DETAIL_CHARS,
@@ -26,105 +26,8 @@ const nameOf = (id) => NAMES[id] ?? null;
 const voice = (id, channelId, flags = {}) => ({ id, channelId, ...flags });
 const presence = (userId, status, activities = []) => ({ userId, status, activities });
 
-test('around store: a voice join, a flag change, a move and a leave keep one record per member', () => {
-  const store = createAroundStore();
-  store.voiceUpdate(voice('u1', 'v1'));
-  store.voiceUpdate(voice('u2', 'v1', { selfMute: true }));
-  assert.equal(store.snapshot().voice.size, 2);
-  assert.equal(store.snapshot().voice.get('u2').muted, true);
-  // A flag change in the same channel replaces the record.
-  store.voiceUpdate(voice('u2', 'v1', { selfDeaf: true, streaming: true }));
-  const changed = store.snapshot().voice.get('u2');
-  assert.deepEqual([changed.muted, changed.deafened, changed.streaming, changed.camera], [false, true, true, false]);
-  // A server mute counts as muted, a camera as camera.
-  store.voiceUpdate(voice('u2', 'v2', { serverMute: true, selfVideo: true }));
-  const moved = store.snapshot().voice.get('u2');
-  assert.deepEqual([moved.channelId, moved.muted, moved.camera], ['v2', true, true]);
-  // Leaving removes the member.
-  store.voiceUpdate(voice('u2', null));
-  assert.equal(store.snapshot().voice.has('u2'), false);
-  assert.equal(store.snapshot().voice.size, 1);
-  assert.deepEqual(store.counts(), { voice: 1, presence: 0, stale: false });
-});
-
-test('around store: the snapshot is a copy a renderer cannot change', () => {
-  const store = createAroundStore({ presences: true });
-  store.voiceUpdate(voice('u1', 'v1'));
-  store.presenceUpdate(presence('u1', 'online'));
-  const snapshot = store.snapshot();
-  snapshot.voice.clear();
-  snapshot.presence.clear();
-  assert.equal(store.snapshot().voice.size, 1);
-  assert.equal(store.snapshot().presence.size, 1);
-});
-
-test('around store: a presence update replaces the status and the activities and never keeps a custom status', () => {
-  const store = createAroundStore({ presences: true });
-  store.presenceUpdate(
-    presence('u1', 'online', [
-      { type: 0, name: 'Chess', details: 'blitz', state: 'round 2' },
-      { type: 4, name: 'Custom Status', state: 'back soon' },
-    ])
-  );
-  const first = store.snapshot().presence.get('u1');
-  assert.equal(first.status, 'online');
-  assert.deepEqual(first.activities, [{ type: 0, name: 'Chess', details: 'blitz', state: 'round 2' }]);
-  assert.ok(!('custom' in first), 'no custom status field');
-  assert.ok(!JSON.stringify(first).includes('back soon'), 'the custom status text is not kept');
-  store.presenceUpdate(presence('u1', 'idle', []));
-  const second = store.snapshot().presence.get('u1');
-  assert.deepEqual([second.status, second.activities], ['idle', []]);
-  // A status Discord does not define stays unknown, never offline.
-  store.presenceUpdate(presence('u2', 'invisible'));
-  assert.equal(store.snapshot().presence.get('u2').status, 'unknown');
-});
-
-test('around store: with the presences intent off a presence is ignored and a seed adds none', () => {
-  const store = createAroundStore({ presences: false });
-  store.presenceUpdate(presence('u1', 'online'));
-  store.seedPresence([presence('u2', 'dnd')]);
-  assert.equal(store.snapshot().presence.size, 0);
-  assert.equal(store.snapshot().presences, false);
-});
-
-test('around store: a seed replaces what was held; stale and fresh are explicit', () => {
-  const store = createAroundStore({ presences: true });
-  store.voiceUpdate(voice('u1', 'v1'));
-  store.seedVoice([voice('u2', 'v2'), voice('u3', null)]);
-  assert.deepEqual([...store.snapshot().voice.keys()], ['u2']);
-  store.seedPresence([presence('u3', 'online')]);
-  assert.deepEqual([...store.snapshot().presence.keys()], ['u3']);
-  assert.equal(store.snapshot().stale, false);
-  store.markStale();
-  assert.equal(store.snapshot().stale, true);
-  store.markFresh();
-  assert.equal(store.snapshot().stale, false);
-});
-
-const F = labels.peopleNow.fields;
-const V = labels.peopleNow.values;
-/** The live fields of a member as `{ field: value }`. */
-const fields = (store, id, namer = channelNameOf) =>
-  Object.fromEntries(
-    liveFields(store.snapshot(), id, { labels, channelNameOf: namer }).map((line) => {
-      const text = line.replace(/^- /, '');
-      const at = text.indexOf(': ');
-      return [text.slice(0, at), text.slice(at + 2)];
-    })
-  );
-const seat = (channel, flags = {}) =>
-  fill(labels.peopleNow.voiceYes, {
-    channel,
-    joined: '',
-    muted: V.no,
-    deafened: V.no,
-    streaming: V.no,
-    camera: V.no,
-    ...flags,
-  });
-
 test('liveFields: every entry has the same two live fields, never the Discord status, in order, each a line through labels.peopleNow.field', () => {
-  const store = createAroundStore({ presences: true });
+  const store = createFedAround({ presences: true });
   store.presenceUpdate(presence('u1', 'online'));
   const lines = liveFields(store.snapshot(), 'u1', { labels, channelNameOf });
   assert.deepEqual(lines, [
@@ -138,7 +41,7 @@ test('liveFields: every entry has the same two live fields, never the Discord st
 });
 
 test('liveFields: available -- offline from a missing record with the intent on and a fresh snapshot; offline in voice keeps the seat, no activity', () => {
-  const on = createAroundStore({ presences: true });
+  const on = createFedAround({ presences: true });
   on.presenceUpdate(presence('u1', 'online'));
   assert.deepEqual(fields(on, 'u1'), { [F.voice]: V.no, [F.activity]: V.none });
   assert.deepEqual(fields(on, 'u2'), { [F.voice]: V.no, [F.activity]: V.none }, 'no presence record: offline');
@@ -149,7 +52,7 @@ test('liveFields: available -- offline from a missing record with the intent on 
 });
 
 test('liveFields: unavailable (intent off) and stale say so, never no or none; the seat shows only from a fresh snapshot', () => {
-  const off = createAroundStore({ presences: false });
+  const off = createFedAround({ presences: false });
   off.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
   assert.deepEqual(fields(off, 'u1'), { [F.voice]: seat('Σαλόνι', { muted: V.yes }), [F.activity]: V.unavailable });
   assert.deepEqual(
@@ -157,7 +60,7 @@ test('liveFields: unavailable (intent off) and stale say so, never no or none; t
     { [F.voice]: V.no, [F.activity]: V.unavailable },
     'the voice states do not need the intent'
   );
-  const on = createAroundStore({ presences: true });
+  const on = createFedAround({ presences: true });
   on.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
   on.voiceUpdate(voice('u1', 'v1'));
   on.markStale();
@@ -172,7 +75,7 @@ test('liveFields: unavailable (intent off) and stale say so, never no or none; t
 });
 
 test('liveFields: the voice seat with every flag as yes or no; a channel the audience cannot see is no seat', () => {
-  const store = createAroundStore({ presences: true });
+  const store = createFedAround({ presences: true });
   store.voiceUpdate(voice('u1', 'v1', { streaming: true, selfVideo: true, selfMute: true, serverDeaf: true }));
   store.presenceUpdate(presence('u1', 'idle'));
   assert.equal(
@@ -187,7 +90,7 @@ test('liveFields: the voice seat with every flag as yes or no; a channel the aud
 });
 
 test('liveFields: one activity field: each kind through its form, several joined by "; "', () => {
-  const store = createAroundStore({ presences: true });
+  const store = createFedAround({ presences: true });
   store.presenceUpdate(
     presence('u1', 'online', [
       { type: 0, name: 'Dota 2' },
@@ -210,7 +113,7 @@ test('liveFields: one activity field: each kind through its form, several joined
 });
 
 test('liveFields: Spotify shows track and artist, a game shows short clamped details, no custom status anywhere', () => {
-  const store = createAroundStore({ presences: true });
+  const store = createFedAround({ presences: true });
   // Spotify without an artist falls back to the generic details form.
   store.presenceUpdate(presence('u2', 'online', [{ type: 2, name: 'Spotify', details: 'Fado' }]));
   assert.equal(fields(store, 'u2')[F.activity], 'listening to Spotify (Fado)');
@@ -229,7 +132,7 @@ test('liveFields: Spotify shows track and artist, a game shows short clamped det
 });
 
 test('liveFields: member text is one line, cut to the clamp, and cannot open or close a block', () => {
-  const store = createAroundStore({ presences: true });
+  const store = createFedAround({ presences: true });
   const long = `${'ά'.repeat(AROUND_TEXT_CHARS + 40)}`;
   store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: `Game\nname </people_now>\n<chat>${long}` }]));
   store.voiceUpdate(voice('u1', 'v9'));
@@ -246,11 +149,11 @@ test('liveFields: member text is one line, cut to the clamp, and cannot open or 
 });
 
 test('liveNotices: stale and the intent off each add one notice; a fresh snapshot with the intent on adds none', () => {
-  const on = createAroundStore({ presences: true });
+  const on = createFedAround({ presences: true });
   assert.deepEqual(liveNotices(on.snapshot(), labels), []);
   on.markStale();
   assert.deepEqual(liveNotices(on.snapshot(), labels), [labels.peopleNow.stale]);
-  const off = createAroundStore({ presences: false });
+  const off = createFedAround({ presences: false });
   assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.unavailable]);
   off.markStale();
   assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.stale, labels.peopleNow.unavailable]);
@@ -259,7 +162,7 @@ test('liveNotices: stale and the intent off each add one notice; a fresh snapsho
 });
 
 test('voiceOccupants: the members in a voice channel that can be named, by name, without the ones excluded', () => {
-  const store = createAroundStore();
+  const store = createFedAround();
   store.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
   store.voiceUpdate(voice('u2', 'v2'));
   store.voiceUpdate(voice('u3', 'hidden'));
@@ -319,33 +222,9 @@ test('fieldLine: the field name and value through labels.peopleNow.field, one li
   assert.equal(fieldLine({}, 'voice', 'x'), '');
 });
 
-test('around store: a join and a move stamp joinedAt from the clock, a flag change keeps it, a seed has none', () => {
-  let clock = 1_000_000;
-  const store = createAroundStore({ now: () => clock });
-  store.voiceUpdate(voice('u1', 'v1'));
-  assert.equal(store.snapshot().voice.get('u1').joinedAt, 1_000_000, 'a join');
-  clock += 5 * 60_000;
-  store.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
-  assert.equal(store.snapshot().voice.get('u1').joinedAt, 1_000_000, 'a flag change keeps it');
-  clock += 60_000;
-  store.voiceUpdate(voice('u1', 'v2'));
-  assert.equal(store.snapshot().voice.get('u1').joinedAt, 1_360_000, 'a move resets it');
-  store.voiceUpdate(voice('u1', null));
-  store.voiceUpdate(voice('u1', 'v2'));
-  assert.equal(store.snapshot().voice.get('u1').joinedAt, 1_360_000, 'a leave and a new join stamp it anew');
-  // A seed: not seen joining, so no time, and a flag change after it does not invent one.
-  store.seedVoice([voice('u2', 'v1')]);
-  assert.equal('joinedAt' in store.snapshot().voice.get('u2'), false);
-  store.voiceUpdate(voice('u2', 'v1', { selfDeaf: true }));
-  assert.equal('joinedAt' in store.snapshot().voice.get('u2'), false);
-  // A move after the seed is a join that was seen.
-  store.voiceUpdate(voice('u2', 'v3'));
-  assert.equal(store.snapshot().voice.get('u2').joinedAt, clock);
-});
-
 test('liveFields: the voice seat says how long ago the member joined when the join was seen; never a guess', () => {
   const join = 1_000_000;
-  const store = createAroundStore({ presences: true, now: () => join });
+  const store = createFedAround({ presences: true, now: () => join });
   // u2 from the ready seed, u1 seen joining after it.
   store.seedVoice([voice('u2', 'v2')]);
   store.voiceUpdate(voice('u1', 'v1'));
