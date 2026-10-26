@@ -538,6 +538,14 @@ function conversationOf(message) {
 }
 
 /**
+ * The protocol conversation of a discord.js channel: the record `conversationOf` builds for a message in it.
+ * @param {object} channel  A discord.js channel.
+ */
+export function conversationOfChannel(channel) {
+  return conversationOf({ channel, channelId: channel?.id, guild: channel?.guild ?? null, guildId: channel?.guildId });
+}
+
+/**
  * Whether the message `replyToId` names is one of the persona's own, as far as the channel's
  * cache knows (the first step of fetchMessage, without its fetch): a missing or partial cached
  * message is no answer here, and the message pipeline still asks fetchMessage then.
@@ -928,7 +936,7 @@ export async function fetchHistory(
  * The ids of the members who put `emoji` (a reactionKey) on discord.js message `message`: one
  * REST page of at most `fetchUsers` (1..100). Throws when the message or the reaction is gone.
  */
-async function fetchReactorIds(message, emoji, fetchUsers) {
+export async function fetchReactorIds(message, emoji, fetchUsers) {
   const reaction = [...(message?.reactions?.cache?.values?.() ?? [])].find(
     (item) => reactionKey(emojiOf(item)) === emoji
   );
