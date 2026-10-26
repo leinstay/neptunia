@@ -3364,7 +3364,7 @@ test('private: every gate reason drops the DM without a turn or an observe', asy
     assert.equal(turns.calls.length, 0, `${reason}: no turn`);
     assert.equal(memory.observeCalls.length, 0, `${reason}: no observe`);
     assert.equal(spontaneous.onMessageCalls.length, 0, `${reason}: no eavesdrop`);
-    assert.equal(message.channel.sent.length, 0, `${reason}: nothing sent`);
+    assert.deepEqual(noticesOf(handler, 'dm1'), [], `${reason}: nothing sent`);
   }
 });
 
@@ -3507,7 +3507,7 @@ test('private: a DM that passes is observed privately, answered with the pinned 
   assert.equal(args.trigger.id, 'dm-m1');
   assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
   assert.equal(spontaneous.onMessageCalls.length, 0);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
 });
 
 test('private: a turn that never reached the model is not counted against the daily cap', async () => {
@@ -3624,12 +3624,12 @@ async function drainAfter(change, { privates = {} } = {}) {
 }
 
 test('private: a queued DM whose author was forgotten meanwhile is dropped at drain time', async () => {
-  const { turns, store, channel, logs } = await drainAfter(({ profiles }) => {
+  const { turns, store, channel, logs, handler } = await drainAfter(({ profiles }) => {
     delete profiles.u1; // /nep memory forget
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.bumps, []);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'unknown');
 });
 
@@ -3648,12 +3648,12 @@ test('private: a queued DM is dropped at drain time once the previous turn hit t
 });
 
 test('private: a queued DM is dropped at drain time when features.privateMessages was switched off', async () => {
-  const { turns, store, channel, logs } = await drainAfter(({ config }) => {
+  const { turns, store, channel, logs, handler } = await drainAfter(({ config }) => {
     config.features.privateMessages = false;
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.bumps, []);
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'off');
 });
 
@@ -3782,7 +3782,7 @@ test('limits: a refusal with no limit, or another outcome, posts nothing', async
     const handler = makeHandler({ turns: recordingTurns(result), rng: scripted([0.99]), prompts: { labels } });
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, JSON.stringify(result));
+    assert.deepEqual(noticesOf(handler, 'c1'), [], JSON.stringify(result));
   }
 });
 
@@ -3800,7 +3800,7 @@ test('limits: in dry-run the notice is logged and mirrored, never sent to the ch
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
   });
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, 'c1'), []);
   const line = logs.find((l) => l.msg === 'dry-run: would notify limit');
   assert.ok(line);
   assert.equal(line.key, 'llm.maxRequestsPerDay');
@@ -4600,15 +4600,7 @@ test('follow-up: with mention.pendingOverheard off, an "overheard" answer that f
 });
 
 test('limits: an overheard turn refused by a rail posts no notice', async () => {
-  const sent = [];
-  const send = async (payload) => {
-    sent.push(payload);
-    return { id: 'notice1' };
-  };
-  const { llm, handler, guild, channel, turns } = await overheardScene({
-    turns: refusedTurns(),
-    channelOverrides: { send },
-  });
+  const { llm, handler, guild, channel, turns } = await overheardScene({ turns: refusedTurns() });
 
   const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'she again' }));
   await tick();
@@ -4618,7 +4610,7 @@ test('limits: an overheard turn refused by a rail posts no notice', async () => 
 
   assert.equal(turns.calls.length, 1);
   assert.equal(turns.calls[0].triggerKind, 'overheard');
-  assert.equal(sent.length, 0, 'nobody asked: no limit notice');
+  assert.deepEqual(noticesOf(handler, channel.id), [], 'nobody asked: no limit notice');
 });
 
 /**
@@ -5011,7 +5003,7 @@ test('private: a pause landing during the switch pause drops the drained DM: no 
 
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(store.noticed, [], 'nothing marked while paused');
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(handler, channel.id), []);
 });
 
 test('follow-up persistence: while paused an expired window stays in state and nothing is marked dirty', () => {
@@ -7900,7 +7892,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
     const channel = pausedChannel('c1', guild);
     await scene.handler(message(guild, channel));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7918,7 +7910,7 @@ test('pause notice: a call where the bot may not answer stays silent', async () 
     const channel = pausedChannel('c1', guild, overrides);
     await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7975,7 +7967,7 @@ test('pause notice: the switch off or a missing label posts nothing', async () =
     const channel = pausedChannel('c1', guild);
     await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
-    assert.equal(channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
@@ -7994,7 +7986,7 @@ test('pause notice: in a dry run it is mirrored, never posted', async () => {
   const channel = pausedChannel('c1', guild);
   await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
   await settle();
-  assert.equal(channel.sent.length, 0);
+  assert.deepEqual(noticesOf(scene.handler, 'c1'), []);
   assert.equal(mirrored.length, 1);
   assert.ok(mirrored[0].content.endsWith(`\n${labels.limits.paused}`));
   assertPausedQuiet(scene, 'dry run');
@@ -8064,7 +8056,7 @@ test('pause notice: a private message the gate refuses gets nothing', async () =
     const message = fakeDmMessage();
     await scene.handler(message);
     await settle();
-    assert.equal(message.channel.sent.length, 0, label);
+    assert.deepEqual(noticesOf(scene.handler, 'dm1'), [], label);
     assertPausedQuiet(scene, label);
   }
 });
