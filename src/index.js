@@ -5,7 +5,9 @@
 // src/behavior, src/memory, src/llm and the Discord interface (interfaces/discord/, through
 // src/interface/discord.js).
 
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -48,15 +50,18 @@ import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import {
   applyReactionEvent,
-  createAroundStore,
+  connectionEvent,
   createAudienceWarmer,
   createDiscordClient,
   createDiscordInterface,
   createEmojiIndex,
   Events,
   createInteractionHandler,
+  createRawRegistry,
   createReactorStore,
   normalizeOptions,
+  presenceEvent,
+  presenceSnapshotEvent,
   reactionEvent,
   reactionClearAllEvent,
   reactionClearEmojiEvent,
@@ -64,6 +69,7 @@ import {
   registerCommands,
   resolveGuild,
   toEvent,
+  voiceEvent,
 } from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { createInnerLife } from './behavior/inner.js';
@@ -81,6 +87,11 @@ import { createErrandService } from './errands/service.js';
 import { channelPlaceId } from './memory/db/ids.js';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
+import { openAdapterLink } from './interface/link.ts';
+import { listenSocket } from './interface/socket.ts';
+import { connectSocket } from './protocol/wire.ts';
+import { serveAdapter } from './protocol/serve.ts';
+import { createAroundStore } from './behavior/around-store.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
 import { skillRegistry, missingDefinitions } from './skills/registry.js';
@@ -371,7 +382,8 @@ const lookup = createLookup({
   keys: { brave: braveApiKey, exa: exaApiKey },
 });
 // The live glance at the voice channels and the scene's statuses (features.around): a snapshot
-// in process memory, fed by the gateway events below, never written anywhere.
+// in process memory, fed by the interface's voice, presence and connection events through the door
+// below, never written anywhere.
 const around = createAroundStore({ presences: presencesIntent });
 // Who reacted to the persona's own messages (features.reactionNames): in process memory only,
 // at most context.reactions.maxMessages of her messages (read at each insertion), fed by the
@@ -382,14 +394,54 @@ const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request uses.
 const getSelfName = (guildId) =>
   client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
-// The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-// after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
-// (interfaces/discord/) builds it, and its capabilities object: what the core asks Discord for
-// (permissions, history, pulled channels, searches), passed below as `discord` to every module
-// that needs it -- nothing in the core but this file imports the interface.
+// The Discord interface (interfaces/discord/) builds the adapter of the interface port and the capabilities
+// object: what the core asks Discord for (permissions, history, pulled channels, searches), passed below
+// as `discord` to every module that needs it -- nothing in the core but this file imports the interface.
 const discordInterface = createDiscordInterface({ client });
-const iface = discordInterface.port;
 const discord = discordInterface.capabilities;
+
+// The link between the core and the Discord side (docs/interfaces.md). Both still run in this process:
+// the core listens on a Unix socket under the data directory, the Discord side connects with a token made
+// at boot, says hello and serves the Discord adapter. Every inbound event travels as an envelope to the
+// core's door and every effect of the persona travels back as an action. The socket folder is created
+// at mode 0700 and the file at 0600 (src/interface/socket.ts).
+const LINK_SOCKET = path.join(dataDir, 'run', 'core.sock');
+// Ten files of 10 MiB in base64 (a third larger) and the rest of an envelope fit in one frame.
+const LINK_MAX_FRAME_BYTES = 150 * 1024 * 1024;
+const linkToken = randomBytes(32).toString('hex');
+// The door is created below, once its handlers exist; an envelope that arrives sooner waits for it.
+/** @type {PromiseWithResolvers<{ receive(value: unknown): Promise<import('./protocol/wire.ts').Envelope> }>} */
+const doorReady = Promise.withResolvers();
+const linkDoor = { receive: async (/** @type {unknown} */ value) => (await doorReady.promise).receive(value) };
+/** @type {PromiseWithResolvers<ReturnType<typeof openAdapterLink>>} */
+const linkOpened = Promise.withResolvers();
+const linkServer = await listenSocket({
+  path: LINK_SOCKET,
+  maxFrameBytes: LINK_MAX_FRAME_BYTES,
+  log,
+  onConnection: (transport) => {
+    // Only the one connection of this process is served; the file is 0600 and the token is needed anyway.
+    const link = openAdapterLink({ transport, door: linkDoor, token: linkToken, log });
+    linkOpened.resolve(link);
+  },
+});
+const discordPort = discordInterface.port;
+const linkServed = serveAdapter({
+  transport: await connectSocket({ path: LINK_SOCKET, maxFrameBytes: LINK_MAX_FRAME_BYTES }),
+  hello: { iface: discordPort.iface, capabilities: discordPort.capabilities(), resume: null },
+  token: linkToken,
+  adapter: discordPort,
+  log,
+});
+const coreLink = await linkOpened.promise;
+// Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
+// `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
+await coreLink.hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
+// The persona's interface (src/interface/port.js): every effect of her replies goes through it,
+// after the skill gateway (src/skills/gateway.js) let the call pass.
+const iface = coreLink.adapter;
+// The discord.js messages behind the message events stay on the Discord side, under the event id.
+const rawHandles = createRawRegistry({ capacity: 2000 });
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
 const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
@@ -643,6 +695,12 @@ const onMessage = createMessageHandler({
   missed,
   // Every observed message goes to the memory database as an observation: the record of the line.
   memoryDb,
+  // The discord.js messages of an event come from the Discord side's registry; an event built in
+  // process still carries its own.
+  rawOf: (event) =>
+    rawHandles.rawOf(event) ?? (event.raw ? { message: event.raw, previous: event.rawPrevious ?? null } : null),
+  // The limit and pause notices go out through the interface like any other effect.
+  port: iface,
 });
 
 // The messages posted while the bot was down (src/behavior/catch-up.js): once at start, fetched
@@ -1056,12 +1114,13 @@ hot.on('change', ({ what }) => {
   }
 });
 
-// The gateway's messages and reactions reach the core as protocol events (src/protocol/,
-// built by interfaces/discord/collect.js) through the event door (src/interface/door.js), the one
-// entry of the mind: it validates each event at the boundary, drops a repeated id, and hands the
-// event to the handler of its kind. An event that cannot be built or is malformed is dropped with
-// one warn line (its kind and the reason, never its content), so nothing behind it ever sees a
-// half-formed one. The core's own events (an errand's end) come through the same door.
+// The gateway's events reach the core as protocol events (src/protocol/, built by
+// interfaces/discord/collect.js and around.js) over the link, through the event door
+// (src/interface/door.js), the one entry of the mind: it validates each event at the boundary,
+// drops a repeated id, and hands the event to the handler of its kind. An event that cannot be built
+// or is malformed is dropped with one warn line (its kind and the reason, never its content), so
+// nothing behind it ever sees a half-formed one. The core's own events (an errand's end) come
+// through the same door, in process.
 const door = createEventDoor({
   handlers: {
     'message.received': (event) => {
@@ -1078,10 +1137,28 @@ const door = createEventDoor({
       return taskTurns.onEvent(event);
     },
     'inner.wake': (event) => inner.onWake(event),
+    // The live glance at the voice channels and the statuses (`<people_now>`).
+    'voice.changed': (event) => around.voiceChanged(event),
+    'presence.changed': (event) => around.presenceChanged(event),
+    'presence.snapshot': (event) => {
+      around.snapshot(event);
+      log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
+    },
+    'connection.changed': (event) => around.connection(event),
   },
   log,
 });
+doorReady.resolve(door);
+/**
+ * One gateway event to the core: built, its discord.js handles kept in the registry under its id
+ * (a message event only: the pipeline reads them back through `rawOf`), then emitted over the link
+ * without them. The answer is the core's ack; one that is neither taken nor a repeat is logged.
+ * @typedef {{ id: string, raw?: unknown, rawPrevious?: unknown }} Event
+ * @param {string} kind
+ * @param {() => Event} build
+ */
 function inbound(kind, build) {
+  /** @type {Event} */
   let event;
   try {
     event = build();
@@ -1089,7 +1166,11 @@ function inbound(kind, build) {
     log.warn('interface: invalid event', { kind, reason: 'build-failed', name: err?.name ?? null });
     return;
   }
-  door.submit(event);
+  if (kind === 'message.received' && event.raw)
+    rawHandles.put(event.id, { message: event.raw, previous: event.rawPrevious ?? null });
+  linkServed.emit(event).then((status) => {
+    if (status !== 'ok' && status !== 'duplicate') log.warn('interface: event not taken', { kind, status });
+  });
 }
 const selfIdNow = () => client.user?.id ?? null;
 client.on('messageCreate', (message) => {
@@ -1113,22 +1194,22 @@ client.on(Events.ChannelCreate, warmOnChannel);
 client.on(Events.ChannelUpdate, (_old, channel) => warmOnChannel(channel));
 client.on('interactionCreate', onInteraction);
 
-// The live snapshot (`<people_now>`) follows the gateway: the events are cheap map updates and run whatever
-// features.around says (a switch turned on later finds a snapshot that is current); a lost
+// The live snapshot (`<people_now>`) follows the gateway: the events are cheap map updates in the core and run
+// whatever features.around says (a switch turned on later finds a snapshot that is current); a lost
 // connection marks it stale until the shard is back. Only the served guild is tracked.
 function seedAround() {
   const guild = instance.guildId ? client.guilds.cache.get(instance.guildId) : null;
   if (!guild) return;
-  around.seedVoice(guild.voiceStates?.cache?.values() ?? []);
-  around.seedPresence(guild.presences?.cache?.values() ?? []);
-  around.markFresh();
-  log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
+  inbound('presence.snapshot', () => presenceSnapshotEvent(guild, Date.now()));
+  inbound('connection.changed', () => connectionEvent('resumed', Date.now()));
 }
-client.on(Events.VoiceStateUpdate, (_old, state) => {
-  if (instance.guildId && state?.guild?.id === instance.guildId) around.voiceUpdate(state);
+client.on(Events.VoiceStateUpdate, (old, state) => {
+  if (instance.guildId && state?.guild?.id === instance.guildId)
+    inbound('voice.changed', () => voiceEvent(state, Date.now(), old));
 });
 client.on(Events.PresenceUpdate, (_old, presence) => {
-  if (instance.guildId && presence?.guild?.id === instance.guildId) around.presenceUpdate(presence);
+  if (instance.guildId && presence?.guild?.id === instance.guildId)
+    inbound('presence.changed', () => presenceEvent(presence, Date.now()));
 });
 // A changed avatar of a profiled member is queued for a description (features.avatars): the member
 // and user updates need discord.intents.members; a member's own message works without it. The
@@ -1168,9 +1249,9 @@ client.on(Events.MessageReactionRemoveAll, (message) => {
 client.on(Events.MessageReactionRemoveEmoji, (reaction) => {
   inbound('reaction.changed', () => reactionClearEmojiEvent(reaction));
 });
-client.on(Events.ShardDisconnect, () => around.markStale());
-client.on(Events.ShardReconnecting, () => around.markStale());
-client.on(Events.ShardResume, () => around.markFresh());
+client.on(Events.ShardDisconnect, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
+client.on(Events.ShardReconnecting, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
+client.on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
 // A fresh session (not a resume) delivers the guild's state again: reseed from the cache.
 client.on(Events.ShardReady, () => seedAround());
 
@@ -1214,6 +1295,10 @@ async function shutdown(signal) {
   await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
   // After the last flush of every store the database closes and releases its lock.
   await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
+  // The link and the socket close, and the socket file goes with the server.
+  linkServed.close();
+  coreLink.close();
+  await linkServer.close().catch((err) => log.warn('index: link socket close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }
