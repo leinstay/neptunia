@@ -37,7 +37,7 @@ export {
   participationSettings,
   selectEpisodes,
 } from './participation.js';
-export { memberView, normalizeAvatar } from './avatars.js';
+export { normalizeAvatar } from './avatars.js';
 export { rankEmojiUsage } from './emoji-usage.js';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.js';
 export { gifPostsToday, gifWatchBlocker, gifWatchesToday } from './gif-watch.js';
