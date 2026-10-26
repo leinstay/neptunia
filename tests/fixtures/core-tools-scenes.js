@@ -8,43 +8,57 @@ import { completionOf } from './tool-answers.js';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
-/** A discord.js-shaped raw message of #general (c1). */
-function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
-  return {
-    id,
-    channelId: 'c1',
-    author: { id: authorId, bot: false, globalName: authorName, username: authorName },
-    member: { displayName: authorName },
-    cleanContent: content,
-    createdTimestamp: ts,
-    reference: null,
-    attachments: new Map(),
-    stickers: new Map(),
-  };
-}
-
-function normalizedTrigger(raw) {
-  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
-}
-
-function fakeChannel(historyMessages) {
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
+/** The conversation #general (c1) as the fake interface reports it: everything allowed, public. */
+function generalInfo(iface) {
   return {
     id: 'c1',
+    kind: 'channel',
+    communityId: 'g1',
     name: 'general',
-    guild,
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
+    topic: null,
+    category: null,
+    chatType: 'channel',
+    iface,
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: NOW - 1000,
+    voice: false,
+    public: true,
+    audience: { everyone: true, groups: [], groupAllow: [], groupDeny: [], memberAllow: [], memberDeny: [], memberGroups: {} },
   };
+}
+
+/** A member's `message.received` event in #general (c1), as an interface delivers it. */
+function messageEvent(iface, { id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
+  return {
+    kind: 'message.received',
+    iface,
+    at: ts,
+    id: `${iface}:message:${id}`,
+    conversation: { id: 'c1', kind: 'channel', communityId: 'g1', name: 'general' },
+    message: {
+      id,
+      author: { id: authorId, name: authorName, self: false, bot: false },
+      content,
+      sourceText: content,
+      system: false,
+      at: ts,
+      replyToId: null,
+      replyPingUserId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+  };
+}
+
+function normalizedTrigger({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
+  return { id, channelId: 'c1', authorId, authorName, self: false, bot: false, content, ts, replyToId: null, attachments: [], stickers: [] };
 }
 
 function fakeStore() {
@@ -139,22 +153,31 @@ export async function singleScene(load, { content = 'γεια', classifier = 'no
   await load('src/ops/index.js');
   const { skillRegistry } = await load('src/skills/registry.js');
   const { createAdmin } = await load('src/admin.js');
-  const { createDiscordAdapter, createDiscordInterface } = await load('interfaces/discord/index.js');
+  const { createDiscordInterface } = await load('interfaces/discord/index.js');
+  const { createFakeAdapter } = await load('src/interface/fake.js');
+  const { createReads } = await load('src/interface/reads.ts');
   const discord = createDiscordInterface().capabilities;
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+  port.seedConversation(generalInfo(port.iface));
   const history = [
-    rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }),
-    rawMessage({ id: 'm1', ts: NOW - 1000, content }),
+    { id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' },
+    { id: 'm1', ts: NOW - 1000, content },
   ];
+  for (const line of history) port.seedEvent(messageEvent(port.iface, line));
+  const reads = createReads(port, { info() {}, warn() {}, error() {} });
   const hot = sceneHot({ coreTools: true, access });
   const store = fakeStore();
   const llm = sceneLlm({ classifier, answers });
-  const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1' });
+  const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1', reads, port });
   const turns = createTurnRunner({
-    discord, createPort: createDiscordAdapter, hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client,
+    hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, port, reads, selfId: () => 'self-id', getSelfName: () => 'Bot',
+    memberOf: () => null, membersOf: () => [], conversationName: (id) => (id === 'c1' ? 'general' : null),
     lookup: fakeLookup(), recall: fakeRecall(), images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,AAAA', bytes: 3, contentType: 'image/png' }) },
     skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
   });
-  const { result } = await turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }).then((result) => ({ result }));
+  const { result } = await turns
+    .runTurn({ conversation: { iface: port.iface, conversationId: 'c1' }, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' })
+    .then((result) => ({ result }));
   return { requests: JSON.parse(JSON.stringify(llm.requests)), result };
 }
