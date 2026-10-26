@@ -36,6 +36,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run health
+      - run: npm run prose
       - name: Format of changed files
         # Prettier checks only the files this change touches. A pull request diffs against its base; a push to main
         # diffs against the commit before the push, and a first push (all-zero sha) is skipped.

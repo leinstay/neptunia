@@ -2,6 +2,7 @@
 package-lock.json
 type-baseline.json
 code-health-baseline.json
+prose-baseline.json
 eslint-suppressions.json
 node_modules
 data

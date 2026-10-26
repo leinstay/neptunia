@@ -1,0 +1,52 @@
+{
+  ".github/PULL_REQUEST_TEMPLATE.md": {
+    "dash": 1,
+    "label": 1
+  },
+  "AGENTS.md": {
+    "label": 6
+  },
+  "CONTRIBUTING.md": {
+    "slash": 1
+  },
+  "WRITING.md": {
+    "label": 7,
+    "slash": 1
+  },
+  "docs/configuration.md": {
+    "label": 7,
+    "slash": 4
+  },
+  "docs/core.md": {
+    "label": 3
+  },
+  "docs/errands.md": {
+    "label": 4
+  },
+  "docs/getting-started.md": {
+    "slash": 1
+  },
+  "docs/inner-life.md": {
+    "label": 12,
+    "slash": 1
+  },
+  "docs/interfaces.md": {
+    "label": 12,
+    "slash": 2
+  },
+  "docs/media.md": {
+    "label": 9,
+    "slash": 3
+  },
+  "docs/memory.md": {
+    "label": 13
+  },
+  "docs/owner-commands.md": {
+    "slash": 4
+  },
+  "docs/prompt-contract.md": {
+    "dash": 18,
+    "label": 44,
+    "slash": 8
+  }
+}

@@ -25,6 +25,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
 | `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |
+| `prose-baseline.json` | public | The recorded prose violations that may only shrink. | nothing | none |
 | `structure.json` | public | This manifest of the tracked tree. | nothing | none |
 | `.prettierrc` | public | The Prettier options. | nothing | none |
 | `.prettierignore` | public | The files Prettier never formats. | nothing | none |
