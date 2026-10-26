@@ -62,7 +62,7 @@ import { roomQuestionChance } from './spontaneous.js';
 import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
 import { privateGate } from './private.js';
-import { defaultRawOf, handlesOf } from './raw-handles.js';
+import { defaultRawOf, handlesOf } from './raw-handles.ts';
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
 import {
   isVideoVisionOn,
