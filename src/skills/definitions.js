@@ -382,13 +382,13 @@ const ENTRIES = [
   }),
   def('access.grant', {
     params: ACCESS_PARAMS(),
-    refs: { role: 'role', user: 'user' },
+    refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
     toArgs: accessArgs,
   }),
   def('access.revoke', {
     params: ACCESS_PARAMS(),
-    refs: { role: 'role', user: 'user' },
+    refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
     toArgs: accessArgs,
   }),
