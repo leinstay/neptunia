@@ -64,20 +64,10 @@
  */
 
 /**
- * An interface adapter. Every operation resolves a PortResult and never rejects. The incoming
- * hooks register a handler and return its unsubscribe; they are declared, not wired yet (no
- * adapter delivers events through them in this phase: the core still receives them from its
- * own wiring, see events.js).
- * @typedef {{
- *   iface: string,
- *   send(conversation: ConversationRef, content: Content): Promise<Delivery>,
- *   edit(message: MessageRef, content: Content): Promise<PortResult>,
- *   delete(message: MessageRef): Promise<PortResult>,
- *   react(message: MessageRef, emoji: string): Promise<PortResult>,
- *   unreact(message: MessageRef, emoji: string): Promise<PortResult>,
- *   typing(conversation: ConversationRef): Promise<PortResult>,
- *   fetchMessages(conversation: ConversationRef, messageIds: string[]): Promise<PortResult & { messages?: ({ messageId: string, missing: true } | { messageId: string, text: string, attachments: { url?: string, name?: string, contentType?: string, size?: number }[] })[] }>,
- *   capabilities(): Capabilities,
+ * An interface adapter, as src/protocol/adapter.ts types it. Every operation resolves a result and never rejects. The
+ * incoming hooks register a handler and return its unsubscribe; they are declared, not wired: no adapter
+ * delivers events through them, the core receives them over the link (src/protocol/serve.ts).
+ * @typedef {import('./adapter.ts').Adapter & {
  *   onMessage(handler: (event: object) => void): () => void,
  *   onEdit(handler: (event: object) => void): () => void,
  *   onDelete(handler: (event: object) => void): () => void,

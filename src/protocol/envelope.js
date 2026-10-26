@@ -33,7 +33,12 @@ export function envelope(type, body, { id, replyTo = null }) {
   return { v: ENVELOPE_VERSION, id, type, replyTo, body };
 }
 
-/** The `ack` envelope answering `of` (an envelope or its id). */
+/**
+ * The `ack` envelope answering `of` (an envelope or its id).
+ * @param {string | { id: string }} of
+ * @param {string} status
+ * @param {string} [reason]
+ */
 export function ackOf(of, status, reason = undefined) {
   const replyTo = typeof of === 'string' ? of : of.id;
   return envelope('ack', reason === undefined ? { status } : { status, reason }, { id: `ack:${replyTo}`, replyTo });

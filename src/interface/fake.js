@@ -51,6 +51,13 @@ export const FAKE_CAPABILITIES = Object.freeze({
 });
 
 /**
+ * A message the fake keeps: who wrote it, when, what it says and carries, and what people did to it.
+ * @typedef {{ ref: import('../protocol/adapter.ts').MessageRef, authorId: string, at: number, text: string,
+ *   attachments: Array<{ name: string, data?: Uint8Array, url?: string, contentType?: string }>,
+ *   replyTo: object|null, mentions: import('./port.js').Mentions, reactions: Set<string>, deleted: boolean }} StoredMessage
+ */
+
+/**
  * An in-memory port.
  * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null,
  *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'>>, now?: () => number }} [options]
@@ -59,11 +66,11 @@ export const FAKE_CAPABILITIES = Object.freeze({
  *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.
  * @returns {import('./port.js').Port & {
  *   calls: { op: string, args: unknown[] }[],
- *   messages: Map<string, object>,
+ *   messages: Map<string, StoredMessage>,
  *   typings: string[],
- *   seed(conversationId: string, message: { authorId: string, text?: string, messageId?: string }): import('./port.js').MessageRef,
+ *   seed(conversationId: string, message: { authorId: string, text?: string, messageId?: string }): import('../protocol/adapter.ts').MessageRef,
  *   failNext(op: string, result: import('./port.js').PortResult): void,
- *   messagesIn(conversationId: string): object[],
+ *   messagesIn(conversationId: string): StoredMessage[],
  * }}
  *   `seed` puts someone's message (its `messageId`, else a new one) into a conversation;
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,

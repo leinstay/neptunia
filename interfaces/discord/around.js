@@ -22,7 +22,7 @@ import { DISCORD_IFACE } from './port.js';
 
 /**
  * The fields of a discord.js `Presence` the builders read.
- * @typedef {{ userId?: string, user?: { id?: string }|null, member?: { id?: string, displayName?: string }|null,
+ * @typedef {{ userId?: string, guild?: { id?: string }|null, user?: { id?: string }|null, member?: { id?: string, displayName?: string }|null,
  *   status?: string, activities?: Array<{ type?: number, name?: string, details?: string|null, state?: string|null }> }} PresenceLike
  */
 
@@ -106,6 +106,7 @@ function presenceFields(presence) {
  * @param {VoiceStateLike} state
  * @param {number} at  When the change was seen (ms).
  * @param {{ channelId?: string|null }|null} [previous]
+ * @returns {import('../../src/protocol/index.js').VoiceChanged}
  */
 export function voiceEvent(state, at, previous = null) {
   const fields = voiceFields(state, null, idOf(previous?.channelId));
@@ -123,6 +124,7 @@ export function voiceEvent(state, at, previous = null) {
  * dropped.
  * @param {PresenceLike} presence
  * @param {number} at
+ * @returns {import('../../src/protocol/index.js').PresenceChanged}
  */
 export function presenceEvent(presence, at) {
   const fields = presenceFields(presence);
@@ -140,6 +142,7 @@ export function presenceEvent(presence, at) {
  * cache holds, which replace what the core holds.
  * @param {GuildLike} guild
  * @param {number} at
+ * @returns {import('../../src/protocol/index.js').PresenceSnapshot}
  */
 export function presenceSnapshotEvent(guild, at) {
   /** @type {Array<ReturnType<typeof voiceFields>>} */
@@ -164,6 +167,7 @@ export function presenceSnapshotEvent(guild, at) {
  * it is back.
  * @param {'lost'|'resumed'} state
  * @param {number} at
+ * @returns {import('../../src/protocol/index.js').ConnectionChanged}
  */
 export function connectionEvent(state, at) {
   return {
