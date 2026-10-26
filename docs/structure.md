@@ -50,7 +50,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
-| `src/interface/` | public | The core side of the interface port: the door that admits events, the fake interface and typing leases. | `node:*`, `src/**` | required |
+| `src/interface/` | public | The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases. | `node:*`, `src/**` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
@@ -58,7 +58,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
 | `src/ops/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
-| `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces. | `node:*`, `src/**` | required |
+| `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
 | `src/skills/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |
 | `src/speech/` | public | Voice messages: text preparation, synthesis and audio conversion. | `node:*`, `src/**` | required |
 | `src/web/` | public | Web search, page fetching and link reading. | `node:*`, `src/**` | required |

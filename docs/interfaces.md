@@ -2,7 +2,7 @@
 
 The engine talks to people through an interface adapter. The adapter translates between a chat platform and the engine's own protocol: plain serialisable objects with opaque string ids. The engine never imports a platform library. Today one adapter exists (Discord). A second one, the fake adapter, stands in for tests.
 
-The protocol lives in `src/protocol/`. The port contract lives in `src/interface/port.js` (which re-exports the outbound half of the protocol). The event door, the single entry for all inbound events, lives in `src/interface/door.js`.
+The protocol lives in `src/protocol/`. The port contract lives in `src/interface/port.js`, which re-exports the outbound half of the protocol. The event door, the single entry for all inbound events, lives in `src/interface/door.js`. The link that carries both between the core and an adapter is described in [the link](#the-link).
 
 ## The protocol
 
@@ -94,7 +94,7 @@ A `conversation` reference is `{ iface, conversationId }`. A `message` reference
 
 `content` is `{ text?, attachments?, replyTo?, mentions? }`. Attachments are `{ name, data?, url?, contentType? }` (bytes or a URL). `replyTo` is a message reference of the same interface. `mentions` is `{ users, repliedUser }`, the members the message may notify. When mentions are absent, nobody is notified.
 
-An adapter also exposes `fetchMessages(conversation, messageIds)`, which reads messages by id (their text and attachments, or `missing` for a gone message). This is a read, not a capability.
+An adapter also exposes `fetchMessages(conversation, messageIds)`, which reads messages by id (their text and attachments, or `missing` for a gone message). This is a read, not a capability. Over the link it travels as the action `messages.fetch`, `{ action: 'messages.fetch', conversation, messageIds }`, which `portAction` builds and `validateAction` checks.
 
 ### Results
 
@@ -148,13 +148,37 @@ The door keeps the newest 10,000 ids in memory. A restart forgets them; the inte
 
 The core's own events (`scheduler.tick`, `task.completed`, `inner.wake`) carry no id. The door derives one: an errand's end by its task id and status, a tick by its time. A second delivery of the same end is the same event.
 
-The door also accepts the wire envelope form (`{ v, id, type, replyTo, body }`), designed for the future process boundary between the core and its adapters. Envelope types: `hello`, `event`, `ack`, `action`, `action_result`, `ping`. Today everything runs in one process, so events go through the door as plain objects.
+The door also accepts the wire envelope form, `{ v, id, type, replyTo, body }`. Envelope types are `hello`, `event`, `ack`, `action`, `action_result` and `ping`. The core's own events go through `door.submit` as plain objects, and an interface's events arrive as `event` envelopes over the link.
 
-An envelope travels as one line of JSON ending in a newline. `encodeEnvelope` and `decodeEnvelope` (`src/protocol/wire.ts`) write a `Uint8Array` as `{ "$bytes": base64 }` and read it back as a `Buffer`. A `Transport` sends envelopes, reports incoming ones and reports its close with a reason. `createLoopback` gives two connected ends in one process for tests, with every envelope passing the codec. `connectSocket` is the client of a Unix socket and `listenSocket` (`src/interface/socket.ts`) is the server: it creates its folder at mode `0700`, sets the socket to `0600`, removes a stale file before listening and removes the file on close. A line longer than `maxFrameBytes` closes the link with the reason `frame-too-large`. A line that is not a valid envelope is skipped and the link stays open. Nothing listens yet.
+An envelope travels as one line of JSON ending in a newline. `encodeEnvelope` and `decodeEnvelope` (`src/protocol/wire.ts`) write a `Uint8Array` as `{ "$bytes": base64 }` and read it back as a `Buffer`. A `Transport` sends envelopes, reports incoming ones and reports its close with a reason. `createLoopback` gives two connected ends in one process for tests, with every envelope passing the codec. `connectSocket` is the client of a Unix socket and `listenSocket` (`src/interface/socket.ts`) is the server: it creates its folder at mode `0700`, sets the socket to `0600`, removes a stale file before listening and removes the file on close. A line longer than `maxFrameBytes` closes the link with the reason `frame-too-large`. A line that is not a valid envelope is skipped and the link stays open.
 
 ### The typing lease
 
 The typing indicator is held as a lease (`src/interface/typing.js`). The turn starts it; the lease refreshes the platform's indicator on a timer until the turn stops it. If the turn hangs or a code path forgets, the lease expires on its own after 5 minutes (`TYPING_LEASE_MS`).
+
+## The link
+
+The core and the Discord side exchange envelopes over a Unix socket, even while both run in one process. `openAdapterLink` in `src/interface/link.ts` is the core's end. `serveAdapter` in `src/protocol/serve.ts` is the interface's end and holds no core state. No discord.js object crosses the socket.
+
+### Starting up
+
+At start `src/index.js` makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. The Discord side connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
+
+### Events
+
+`emit(event)` on the interface's end checks the event with `validateEvent`, drops the `raw` and `rawPrevious` keys, sends an `event` envelope whose id is the event's own id, and resolves with the status of the `ack` that answers it: `ok`, `duplicate`, `invalid`, `unhandled` or `failed`. An event that fails validation resolves `invalid` and is not sent. A closed transport resolves `failed`. Several events can wait for their acks at once. On the core's end each `event` envelope goes to `door.receive`, its ack goes back, and envelopes are handled concurrently.
+
+The discord.js message behind a message event stays on the Discord side. `createRawRegistry` in `interfaces/discord/raw-registry.ts` keeps the newest 2,000 messages under the event id, and the message pipeline reads them through an injected `rawOf(event)`.
+
+### Actions
+
+Every method of the core's adapter, `link.adapter`, sends one `action` envelope and resolves with the `action_result` whose `replyTo` is the action's id. The actions are the port's capabilities and the read `messages.fetch`. A `send` carries an `idempotencyKey` the link generates. The interface's end remembers the last 1,000 keys and answers a repeated key with the stored result, without calling the adapter again. An action that fails validation is answered `failed` with the code `invalid-action`. The platform error in `error.cause` is removed before a result is sent, because it may not serialise.
+
+At most 256 actions wait for an answer. A call past that answers `failed` with the retryable code `link-busy`. When the link closes, every waiting effect answers `unknown` with the code `link-closed` and a waiting `fetchMessages` answers `failed`. A call made after the close gets the same answers at once. An action has no deadline.
+
+### What crosses
+
+Plain data crosses: events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
 
 ## Conversations and memory scope
 
@@ -180,7 +204,7 @@ Besides the port, `createDiscordInterface` returns a frozen capabilities object:
 - Pulling: fetching another channel's recent messages for the `<channel_view>` prompt block.
 - Searching: guild message search and member search for recall.
 - Reactors: who reacted to the persona's messages (in-process, never persisted).
-- Around: voice and presence state of members, a live snapshot for the `<people_now>` prompt block (never persisted, gone at restart).
+- Around: builders that turn voice states, presences and a guild's snapshot into protocol events. The core's around store keeps the live view for the `<people_now>` prompt block, never persisted and gone at restart.
 - Emoji: the server's custom emoji index.
 - Audience: warming the member cache for the audience rail.
 - Commands: the slash command tree, registration and interaction handling.
@@ -243,10 +267,10 @@ To wire up a new chat platform:
 
 3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.js` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
 
-4. Wire it into the composition root (`src/index.js`): create the adapter, subscribe to your platform's gateway events, build protocol events from them, and submit them to the event door. Inject your adapter's port and capabilities into the engine's modules.
+4. Wire it into the composition root (`src/index.js`): create the adapter, serve it with `serveAdapter`, subscribe to your platform's gateway events, build protocol events from them, and send each through `emit`. Inject the link's adapter and your capabilities into the engine's modules.
 
 5. Map your platform's error responses to the result statuses. Once a request may have taken effect, the status must be `unknown`.
 
-## Not built yet
+## What stays on the gateway
 
-The core and its adapters run in one process. The wire envelope protocol (`src/protocol/envelope.js`) and its transports (`src/protocol/wire.ts`) define the format for when they become separate processes. Several gateway events (voice state updates, presence updates, member updates) still bypass the event door and go straight to their stores. The scheduler tick is still a direct call, not a `scheduler.tick` event through the door.
+The Discord side is still created in `src/index.js`. The members, avatars, the channel warmer and the slash command interactions still use the gateway directly and do not pass the link. The scheduler tick is a direct call and not a `scheduler.tick` event through the door.
