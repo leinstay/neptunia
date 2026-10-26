@@ -29,7 +29,7 @@ import { openDoor } from './door.ts';
 - Open every file with one comment paragraph that says what the file does and who calls it.
 - Use named exports, and export only what another module uses.
 
-Lint: `'import/no-default-export': 'error'`
+Lint: `'import-x/no-default-export': 'error'`
 
 - Import types with `import type`, so type stripping can drop them without guessing.
 

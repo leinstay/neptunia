@@ -31,7 +31,15 @@ npm install
 node --test --test-reporter=dot tests/<module>.test.js   # the tests of the module you changed
 npm test                                                  # the whole suite, once before a pull request
 npm run check:codes                                       # the result codes against labels and docs
+npm run lint                                              # ESLint over the tree; fails on a violation not in eslint-suppressions.json
+npm run lint:prune                                        # after fixing violations: drops the stale entries from eslint-suppressions.json
+npm run typecheck                                         # tsc errors against type-baseline.json; fails when a count grows or shrinks
+npm run typecheck:update                                  # after fixing type errors: rewrites type-baseline.json
+npm run format:check -- <files>                           # Prettier on the files you changed, never on the whole tree
+sh tools/pre-commit.sh                                    # format and lint on the staged files
 ```
+
+The two baselines may only shrink: new code adds no lint violation and no type error, and a fix is recorded in the same change with `lint:prune` or `typecheck:update`.
 
 Set `TMPDIR` to a scratch folder before running tests. Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 
