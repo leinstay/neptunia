@@ -7,7 +7,7 @@
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ackOf, declaredHooks, envelope, portAction } from '../protocol/index.js';
-import type { Adapter, Capabilities, Delivery, FetchedMessages } from '../protocol/adapter.ts';
+import type { Adapter, Capabilities, Delivery } from '../protocol/adapter.ts';
 import type { Hello, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';
 
@@ -32,6 +32,7 @@ const NO_CAPABILITIES: Capabilities = {
   voiceFormats: [],
   publish: [],
   search: false,
+  reads: [],
 };
 
 // An effect that may have happened is `unknown`; a refusal before anything was sent, and a read, is `failed`.
@@ -139,6 +140,9 @@ export function openAdapterLink(options: {
 
   const effect = (operation: string, args: Array<unknown>, extra: Record<string, unknown> = {}): Promise<Result> =>
     call({ ...portAction(operation, args), ...extra }, 'effect');
+  // A read changes nothing: a closed link answers it `failed`, never `unknown`.
+  const read = (operation: string, args: ReadonlyArray<unknown>): Promise<Result> =>
+    call(portAction(operation, [...args]), 'read');
 
   // The declared hooks give the adapter the shape of today's port; nothing delivers events through them.
   const adapter = {
@@ -159,7 +163,22 @@ export function openAdapterLink(options: {
     typing: (conversation: Parameters<Adapter['typing']>[0]) =>
       effect('typing', [conversation]) as ReturnType<Adapter['typing']>,
     fetchMessages: (conversation: Parameters<Adapter['fetchMessages']>[0], messageIds: ReadonlyArray<string>) =>
-      call(portAction('fetchMessages', [conversation, messageIds]), 'read') as unknown as Promise<FetchedMessages>,
+      read('fetchMessages', [conversation, messageIds]) as ReturnType<Adapter['fetchMessages']>,
+    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) =>
+      read('conversationInfo', args) as ReturnType<Adapter['conversationInfo']>,
+    conversations: (...args: Parameters<Adapter['conversations']>) =>
+      read('conversations', args) as ReturnType<Adapter['conversations']>,
+    history: (...args: Parameters<Adapter['history']>) => read('history', args) as ReturnType<Adapter['history']>,
+    memberInfo: (...args: Parameters<Adapter['memberInfo']>) =>
+      read('memberInfo', args) as ReturnType<Adapter['memberInfo']>,
+    searchMessages: (...args: Parameters<Adapter['searchMessages']>) =>
+      read('searchMessages', args) as ReturnType<Adapter['searchMessages']>,
+    searchMembers: (...args: Parameters<Adapter['searchMembers']>) =>
+      read('searchMembers', args) as ReturnType<Adapter['searchMembers']>,
+    emoji: (...args: Parameters<Adapter['emoji']>) => read('emoji', args) as ReturnType<Adapter['emoji']>,
+    parseLinks: (...args: Parameters<Adapter['parseLinks']>) =>
+      read('parseLinks', args) as ReturnType<Adapter['parseLinks']>,
+    reactors: (...args: Parameters<Adapter['reactors']>) => read('reactors', args) as ReturnType<Adapter['reactors']>,
   };
   return { hello, adapter, close: () => shut('closed') };
 }

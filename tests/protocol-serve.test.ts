@@ -252,10 +252,16 @@ test('runs messages.fetch on the adapter and answers the messages it found and t
     'a-fetch'
   );
   assert.equal(body.status, 'ok');
-  assert.deepEqual(body.messages, [
-    { messageId, text: 'findable', attachments: [] },
-    { messageId: 'nope', missing: true },
-  ]);
+  // Each message found also carries its whole event (stage 3: a read returns events), which the fake builds from what
+  // it stores; the expectation names the fields this test is about and checks the event is there.
+  const items = body.messages as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    items.map(({ event, ...rest }) => (event === undefined ? rest : { ...rest, event: 'present' })),
+    [
+      { messageId, text: 'findable', attachments: [], event: 'present' },
+      { messageId: 'nope', missing: true },
+    ]
+  );
   r.served.close();
 });
 

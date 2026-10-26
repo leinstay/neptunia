@@ -109,16 +109,19 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  */
 
 /**
- * One message, as the core reads it. `at`: when it was written. `replyToId`: the message it
+ * One message, as the core reads it. `content`: the text as the chat shows it (mentions read as names, links to
+ * embedded media cut out). `sourceText` (optional, `content` when absent): the text as written, with mentions in the
+ * core's `<@id>` grammar, which edit detection and the journal's reconciliation compare. `system` (optional, false when
+ * absent): the platform's own message (a member joined, a webhook post), never a person's. `at`: when it was written. `replyToId`: the message it
  * replies to (a forward replies to nothing); `replyPingUserId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the conversation a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes of
  * interfaces/discord/collect.js#normalizeMessage. `messageRefs` (optional): the messages the text links to, as
  * `MessageReference`s, in the order they are written.
- * @typedef {{ id: string, author: Author, content: string, at: number, replyToId: string|null,
- *   replyPingUserId: string|null, forwardedFrom: string|null, attachments: object[], links: object[],
- *   forwarded: object[], stickers: object[], emojis: object[], reactions: object[],
- *   messageRefs?: MessageReference[] }} Message
+ * @typedef {{ id: string, author: Author, content: string, sourceText?: string, system?: boolean, at: number,
+ *   replyToId: string|null, replyPingUserId: string|null, forwardedFrom: string|null, attachments: object[],
+ *   links: object[], forwarded: object[], stickers: object[], emojis: object[], reactions: object[],
+ *   editedAt?: number|null, messageRefs?: MessageReference[] }} Message
  */
 
 /**
@@ -143,12 +146,13 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  */
 
 /**
- * `message.received`. An edit carries the same message id with `edit: true`; a deletion carries
- * only `message.id` with `deleted: true`; an edit the adapter could not read whole carries only
+ * `message.received`. An edit carries the same message id with `edit: true` and `previous`, the message as it was
+ * (null when the adapter did not hold it); a deletion carries `message.id` with `deleted: true` and, when the
+ * adapter still knew them, `message.at` and `message.author`; an edit the adapter could not read whole carries only
  * `message.id` with `edit: true, partial: true` (the core asks the adapter for the rest).
  * @typedef {{ kind: 'message.received', iface: string, at: number, id: string, conversation: Conversation,
- *   message: Message|{ id: string }, addressing?: Addressing, origin?: Origin, edit?: boolean, deleted?: boolean,
- *   partial?: boolean }} MessageReceived
+ *   message: Message|{ id: string, at?: number, author?: Author }, addressing?: Addressing, origin?: Origin,
+ *   edit?: boolean, deleted?: boolean, partial?: boolean, previous?: Message|null }} MessageReceived
  */
 
 /**

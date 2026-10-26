@@ -8,6 +8,7 @@
 import type { Adapter, Capabilities } from './adapter.ts';
 import { ackOf, envelope } from './envelope.js';
 import { MESSAGES_FETCH } from './actions.js';
+import { isReadAction } from './reads.ts';
 import { validateAction, validateEvent } from './validate.js';
 import type { Envelope, Transport } from './wire.ts';
 
@@ -74,10 +75,63 @@ export function serveAdapter(options: {
     waiting.clear();
   }
 
+  // The adapter method each read action runs, by the method's name; an adapter without it answers `unsupported`.
+  const READ_METHODS: Record<string, string> = {
+    'conversation.info': 'conversationInfo',
+    'conversations.list': 'conversations',
+    [MESSAGES_FETCH]: 'fetchMessages',
+    'messages.history': 'history',
+    'member.info': 'memberInfo',
+    'messages.search': 'searchMessages',
+    'members.search': 'searchMembers',
+    'emoji.list': 'emoji',
+    'links.parse': 'parseLinks',
+    'message.reactors': 'reactors',
+  };
+
+  // The fields of `body` named by `keys` that it carries, as the options object of an adapter method.
+  const pick = (body: Record<string, unknown>, keys: ReadonlyArray<string>): Record<string, unknown> =>
+    Object.fromEntries(keys.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
+
+  // The arguments a read action carries, in the argument order of the adapter's method.
+  function readArguments(body: Record<string, unknown>): Array<unknown> {
+    const community = pick(body, ['communityId']);
+    switch (body.action) {
+      case 'conversation.info':
+        return [body.conversation, pick(body, ['audience', 'viewers'])];
+      case 'conversations.list':
+        return [pick(body, ['communityId', 'audience', 'viewers'])];
+      case MESSAGES_FETCH:
+        return [body.conversation, body.messageIds];
+      case 'messages.history':
+        return [body.conversation, pick(body, ['limit', 'before', 'after', 'around', 'since'])];
+      case 'member.info':
+        return [pick(body, ['communityId', 'memberId'])];
+      case 'messages.search':
+        return [community, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
+      case 'members.search':
+        return [community, pick(body, ['prefix', 'limit'])];
+      case 'emoji.list':
+        return [community];
+      case 'links.parse':
+        return [body.texts];
+      default:
+        return [body.message, body.emoji, body.limit];
+    }
+  }
+
+  async function runRead(body: Record<string, unknown>): Promise<Result> {
+    const method = READ_METHODS[body.action as string];
+    const target: unknown = method === undefined ? undefined : (adapter as unknown as Record<string, unknown>)[method];
+    if (typeof target !== 'function') return refusal('unsupported', 'unsupported');
+    return (await Reflect.apply(target, adapter, readArguments(body))) as Result;
+  }
+
   async function run(body: Record<string, unknown>): Promise<Result> {
     const conversation = body.conversation as Parameters<Adapter['send']>[0];
     const message = body.message as Parameters<Adapter['edit']>[0];
     const content = body.content as Parameters<Adapter['send']>[1];
+    if (isReadAction(body.action)) return await runRead(body);
     switch (body.action) {
       case 'message.send':
         return await adapter.send(conversation, content);
@@ -92,8 +146,6 @@ export function serveAdapter(options: {
       // The action carries no lease: the platform's typing indicator ends by itself.
       case 'conversation.typing':
         return await adapter.typing(conversation, { untilMs: 0 });
-      case MESSAGES_FETCH:
-        return await adapter.fetchMessages(conversation, body.messageIds as Array<string>);
       default:
         return refusal('unsupported', 'unsupported');
     }
@@ -104,7 +156,8 @@ export function serveAdapter(options: {
       return crossable(await run(body));
     } catch (err) {
       log.warn('link: adapter threw', { action: body.action, name: err instanceof Error ? err.name : null });
-      return refusal(body.action === MESSAGES_FETCH ? 'failed' : 'unknown', 'adapter-threw');
+      // A read changed nothing, so a throw is a plain failure; an effect that threw may have happened.
+      return refusal(isReadAction(body.action) ? 'failed' : 'unknown', 'adapter-threw');
     }
   }
 

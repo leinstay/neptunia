@@ -9,9 +9,18 @@
 // the fake also proves she only ever asks for well-formed actions. A `send` splits a text longer
 // than `maxChars` into parts, stores each as a message of the self member and answers a Delivery
 // (src/protocol/adapter.ts), the way every adapter does.
+//
+// The conversation reads (src/protocol/adapter.ts) answer from what a test seeds: `seedConversation(info)`,
+// `seedGroups(communityId, groups)`, `seedMember(communityId, member)`, `seedEmoji(communityId, emoji)`,
+// `seedReactors(ref, emoji, memberIds)` and `seedEvent(event)`, a whole `message.received` event kept as the
+// message it carries. Every message the fake holds, seeded or sent, is history: `history` reads them oldest
+// first, ordered by time and then by arrival, and answers each as the event an interface would deliver.
+// `reads` names the wire actions the fake offers (all of READ_ACTIONS when absent); a read it does not offer
+// answers `unsupported`. Reads are recorded in `calls` under the method's name, like every other call.
 
-import { deliveryOf, portAction, splitText, validateAction } from '../protocol/index.js';
+import { MESSAGES_FETCH, READ_ACTIONS, deliveryOf, portAction, splitText, validateAction } from '../protocol/index.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
+import { createFakeReads } from './fake-reads.ts';
 import { CODE } from '../skills/codes.js';
 
 /**
@@ -57,16 +66,16 @@ export const FAKE_CAPABILITIES = Object.freeze({
 
 /**
  * A message the fake keeps: who wrote it, when, what it says and carries, and what people did to it.
- * @typedef {{ ref: import('../protocol/adapter.ts').MessageRef, authorId: string, at: number, text: string,
- *   attachments: Array<{ name: string, data?: Uint8Array, url?: string, contentType?: string }>,
- *   replyTo: object|null, mentions: import('./port.js').Mentions, reactions: Set<string>, deleted: boolean }} StoredMessage
+ * @typedef {import('./fake-reads.ts').StoredMessage} StoredMessage
  */
 
 /**
  * An in-memory port.
  * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null,
- *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'|'messageUrl'>>, now?: () => number }} [options]
- *   `operations`: the capability names offered (all of CAPABILITIES when absent); `capabilities`:
+ *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'|'messageUrl'>>, now?: () => number,
+ *   reads?: Iterable<string>|null }} [options]
+ *   `operations`: the capability names offered (all of CAPABILITIES when absent); `reads`: the wire names of the
+ *   reads offered (all of READ_ACTIONS when absent); `capabilities`:
  *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) over FAKE_CAPABILITIES; `selfId`: the
  *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.
  * @returns {import('./port.js').Port & {
@@ -76,6 +85,12 @@ export const FAKE_CAPABILITIES = Object.freeze({
  *   seed(conversationId: string, message: { authorId: string, text?: string, messageId?: string }): import('../protocol/adapter.ts').MessageRef,
  *   failNext(op: string, result: import('./port.js').PortResult): void,
  *   messagesIn(conversationId: string): StoredMessage[],
+ *   seedConversation(info: import('../protocol/adapter.ts').ConversationInfo): void,
+ *   seedGroups(communityId: string, list: import('../protocol/adapter.ts').GroupInfo[]): void,
+ *   seedMember(communityId: string, member: import('../protocol/adapter.ts').MemberInfo): void,
+ *   seedEmoji(communityId: string, list: import('../protocol/adapter.ts').EmojiInfo[]): void,
+ *   seedReactors(ref: import('../protocol/adapter.ts').MessageRef, emoji: string, memberIds: string[]): void,
+ *   seedEvent(event: import('../protocol/adapter.ts').MessageEvent): void,
  * }}
  *   `seed` puts someone's message (its `messageId`, else a new one) into a conversation;
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,
@@ -87,16 +102,21 @@ export function createFakeAdapter({
   operations = null,
   capabilities: declared = {},
   now = Date.now,
+  reads = null,
 } = {}) {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
+  const offeredReads = new Set(reads ? [...reads] : READ_ACTIONS);
   const caps = { ...FAKE_CAPABILITIES, ...declared };
+  /** @type {Array<{ op: string, args: unknown[] }>} */
   const calls = [];
-  // `${conversationId}/${messageId}` -> { ref, authorId, text, attachments, replyTo, mentions, reactions, deleted }
+  // `${conversationId}/${messageId}` -> the stored message
+  /** @type {Map<string, StoredMessage>} */
   const messages = new Map();
   const typings = [];
   const queued = new Map();
   let nextId = 0;
   let nextKey = 0;
+  let nextSeq = 0;
 
   const keyOf = (ref) => `${ref.conversationId}/${ref.messageId}`;
   const supports = (operation) => offered.has(CAPABILITIES[operation]);
@@ -122,13 +142,15 @@ export function createFakeAdapter({
     return message && !message.deleted ? { message } : { result: notOk('failed', CODE.UNKNOWN_MESSAGE) };
   }
 
-  /** A stored message for `content`, authored by `authorId` (`messageId`: its id, else a new one). */
-  function store(conversationId, authorId, content, messageId = null) {
+  /** A stored message for `content`, authored by `authorId` (`messageId`: its id, else a new one; `extra`: `at` and `event` of a seeded one). */
+  function store(conversationId, authorId, content, messageId = null, extra = {}) {
     nextId += 1;
+    nextSeq += 1;
     const ref = { iface, conversationId, messageId: messageId ?? `${iface}-${nextId}`, memberId: authorId };
     const message = {
       ref,
       authorId,
+      seq: nextSeq,
       at: now(),
       text: typeof content.text === 'string' ? content.text : '',
       attachments: Array.isArray(content.attachments)
@@ -138,10 +160,22 @@ export function createFakeAdapter({
       mentions: mentionsOf(content),
       reactions: new Set(),
       deleted: false,
+      ...extra,
     };
     messages.set(keyOf(ref), message);
     return message;
   }
+
+  const world = createFakeReads({
+    iface,
+    selfId,
+    messages,
+    offered: offeredReads,
+    calls,
+    takeQueued,
+    store,
+    messageUrl: () => caps.messageUrl,
+  });
 
   return {
     iface,
@@ -238,6 +272,7 @@ export function createFakeAdapter({
       calls.push({ op: 'fetchMessages', args: [conversation, messageIds] });
       const early = takeQueued('fetchMessages');
       if (early) return early;
+      if (!offeredReads.has(MESSAGES_FETCH)) return notOk('unsupported', CODE.UNSUPPORTED);
       const refused = refRefusal(conversation, iface);
       if (refused) return refused;
       const out = (Array.isArray(messageIds) ? messageIds : []).map((id) => {
@@ -247,10 +282,14 @@ export function createFakeAdapter({
           messageId: String(id),
           text: message.text,
           attachments: message.attachments.map((attachment) => ({ ...attachment })),
+          event: world.eventOf(message),
         };
       });
       return { ...ok(), messages: out };
     },
+
+    ...world.methods,
+    ...world.seeders,
 
     async typing(conversation) {
       const early = front('typing', [conversation]);
@@ -262,7 +301,7 @@ export function createFakeAdapter({
     },
 
     capabilities() {
-      return { operations: [...offered], ...caps };
+      return { operations: [...offered], ...caps, reads: [...offeredReads] };
     },
 
     ...declaredHooks(),

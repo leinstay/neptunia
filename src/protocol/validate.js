@@ -9,6 +9,7 @@
 // packages) and are never looked at.
 
 import { ACTIONS, CAPABILITIES, COMMAND_RESULT, MESSAGES_FETCH } from './actions.js';
+import { isReadAction, messageExtrasProblem, readActionProblem } from './reads.ts';
 import {
   ACTIVITY_KINDS,
   CHAT_TYPES,
@@ -37,8 +38,9 @@ import {
 const VALID = Object.freeze({ ok: true });
 
 /** A refusal naming `field` and its `problem`. */
-class Refusal {
+class Refusal extends Error {
   constructor(field, problem) {
+    super(`${field}:${problem}`);
     this.reason = `${field}:${problem}`;
   }
 }
@@ -168,6 +170,24 @@ function checkOrigin(origin) {
   need(origin.replyExpected, 'origin.replyExpected', (value) => value === null || typeof value === 'boolean');
 }
 
+/**
+ * Throws the Refusal of a problem a typed check found; nothing for null.
+ * @param {readonly [string, string]|null} problem  `[field, problem]`.
+ */
+function throwProblem(problem) {
+  if (problem !== null) throw new Refusal(problem[0], problem[1]);
+}
+
+/** Whether `message` passes the whole-message check (`previous` of an edit). */
+function wholeMessage(message) {
+  try {
+    checkMessage(message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function checkMessageReceived(event) {
   checkConversation(event.conversation);
   if (event.origin !== undefined) checkOrigin(event.origin);
@@ -175,6 +195,7 @@ function checkMessageReceived(event) {
     need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
   need(event.message, 'message', isObject);
   need(event.message.id, 'message.id', isId);
+  throwProblem(messageExtrasProblem(event, wholeMessage));
   if (event.deleted === true) return;
   if (event.partial === true) {
     if (event.edit !== true) throw new Refusal('partial', 'edit-only');
@@ -385,11 +406,22 @@ function checkCommandResult(action) {
 export function validateAction(action) {
   return verdict(() => {
     need(action, 'action', isObject);
-    need(action.action, 'action', (name) => ACTIONS.includes(name) || name === MESSAGES_FETCH, {
+    need(action.action, 'action', (name) => ACTIONS.includes(name) || isReadAction(name), {
       problem: 'unknown',
     });
     need(action.idempotencyKey, 'idempotencyKey', isId, { required: false });
+    throwProblem(readActionProblem(action));
     switch (action.action) {
+      case 'conversation.info':
+      case 'conversations.list':
+      case 'messages.history':
+      case 'member.info':
+      case 'messages.search':
+      case 'members.search':
+      case 'emoji.list':
+      case 'links.parse':
+      case 'message.reactors':
+        return;
       case MESSAGES_FETCH:
         checkRef(action.conversation, 'conversation', { needMessage: false });
         needIds(action.messageIds, 'messageIds');

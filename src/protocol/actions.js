@@ -10,6 +10,8 @@
 // Moved here from src/interface/port.js, which re-exports all of it, so the contract lives in
 // one place no platform touches: no discord.js type, no service, no logging.
 
+import { readAction } from './reads.ts';
+
 /**
  * A conversation of one interface (a channel, a direct chat).
  * @typedef {{ iface: string, conversationId: string }} ConversationRef
@@ -105,8 +107,8 @@ export const CAPABILITIES = Object.freeze({
   typing: 'conversation.typing',
 });
 
-/** The read action of the port: the messages of a conversation by id. It changes nothing, so it is not a capability. */
-export const MESSAGES_FETCH = 'messages.fetch';
+// The read actions of the port (src/protocol/reads.ts): they change nothing, so none is a capability.
+export { MESSAGES_FETCH, READ_ACTIONS } from './reads.ts';
 
 /** The action that answers an owner command (command.requested's `replyRef`). */
 export const COMMAND_RESULT = 'command.result';
@@ -130,6 +132,8 @@ export const NO_MENTIONS = Object.freeze({ users: Object.freeze([]), repliedUser
  */
 export function portAction(operation, args) {
   const [target, second] = Array.isArray(args) ? args : [];
+  const read = readAction(String(operation), Array.isArray(args) ? args : []);
+  if (read !== null) return read;
   switch (operation) {
     case 'send':
       return { action: CAPABILITIES.send, conversation: target, content: second };
@@ -142,8 +146,6 @@ export function portAction(operation, args) {
       return { action: CAPABILITIES[operation], message: target, emoji: second };
     case 'typing':
       return { action: CAPABILITIES.typing, conversation: target };
-    case 'fetchMessages':
-      return { action: MESSAGES_FETCH, conversation: target, messageIds: second };
     default:
       return { action: String(operation) };
   }
