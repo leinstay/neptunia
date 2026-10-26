@@ -2393,17 +2393,15 @@ function relookDescriber({
 
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
   const { describer, store, llm, imageFetcher, state } = relookDescriber({ now: clock() });
-  const result = await describer.relookImage('g1', pictureItem('a1'), 'Y a-t-il un chargeur dans la pupille ?');
+  const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
+  const result = await describer.relookImage('g1', item, 'Y a-t-il un chargeur dans la pupille ?');
 
   assert.deepEqual(result, {
     question: 'Y a-t-il un chargeur dans la pupille ?',
     text: 'pas de chargeur, juste un reflet',
   });
   assert.equal(imageFetcher.calls.length, 1);
-  assert.ok(
-    imageFetcher.calls[0].url.startsWith('https://media.discordapp.net/x/pic.png'),
-    'through the media proxy, sized'
-  );
+  assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp', 'the preview address as given');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 1200 characters.');
@@ -2429,7 +2427,8 @@ test('relookImage: one download and one vision request with the question; the an
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
   const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
-  await describer.relookImage('g1', pictureItem('a1', { width: 1306, height: 988 }), 'Quelle couleur ?');
+  const item = pictureItem('a1', { width: 1306, height: 988, previewUrl: 'https://previews.example/a1.webp' });
+  await describer.relookImage('g1', item, 'Quelle couleur ?');
 
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'Answer in at most 1200 characters.');
@@ -2439,7 +2438,7 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
     { type: 'text', text: 'Quelle couleur ?' },
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
   ]);
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?width=512&height=387&format=webp');
+  assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp');
 });
 
 test('relookImage: the same question within an hour is free; another question asks again', async () => {
@@ -2623,6 +2622,9 @@ function gifDescriber({
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
 
 /** A tenor gifv embed's picture item (src/media/classify.js#collectPictures). */
+// The one still frame of a GIF is the preview address the adapter gave the item; the core downloads it as given.
+const GIF_STILL_PREVIEW = 'https://previews.example/still.png';
+
 function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
   return {
     source: 'embed',
@@ -2631,6 +2633,7 @@ function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
     kind: 'gif',
     url: 'https://images-ext-1.discordapp.net/external/t/https/media.tenor.com/x/AAAAe/still.png',
     animationUrl: TENOR_MP4,
+    previewUrl: GIF_STILL_PREVIEW,
     name: 'Tenor',
     ...overrides,
   };
@@ -2644,6 +2647,7 @@ function gifAttachmentItem(itemId = 'a9', overrides = {}) {
     itemId,
     kind: 'gif',
     url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=secret',
+    previewUrl: GIF_STILL_PREVIEW,
     name: 'anim.gif',
     ...overrides,
   };
@@ -2738,10 +2742,10 @@ test('describe: the watched caption keeps media.descriptionChars, collapsed to o
   assert.ok(result.text.startsWith('Première ligne. mot0é'));
 });
 
-/** Asserts the one-frame path ran: the still frame through the proxy, the picture model, a `gif` entry. */
+/** Asserts the one-frame path ran: the still frame from the preview address, the picture model, a `gif` entry. */
 function assertOneFrame({ imageFetcher, llm, store }, itemId, { watchFailed = false } = {}) {
   assert.equal(imageFetcher.calls.length, 1, 'the still frame is fetched');
-  assert.equal(new URL(imageFetcher.calls[0].url).searchParams.get('animated'), 'false');
+  assert.equal(imageFetcher.calls[0].url, GIF_STILL_PREVIEW);
   const last = llm.calls[llm.calls.length - 1];
   assert.equal(last.options.role, 'vision');
   assert.equal(last.messages[1].content[0].type, 'image_url');

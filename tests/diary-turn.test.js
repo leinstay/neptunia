@@ -976,7 +976,7 @@ test('diary set: a dry run mirrors the image prompt in messages no longer than t
       fetch: async (id) => (id === 'dry' ? mirrorChannel : null),
     },
   };
-  const hot = setHot({ features: { dryRun: true } });
+  const hot = setHot({ features: { dryRun: true }, set: { minPosted: 1 } });
   hot.config.bot.dryRunChannelId = 'dry';
   const { turns } = limitedRunner({ hot, llm, images: fakeSetImages([]), limits: { maxChars: 250 }, client });
   await withCapturedLogs(() => turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} }));

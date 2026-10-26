@@ -147,7 +147,12 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
     replyTo,
     body: reason ? { status, reason } : { status },
   });
-  assert.deepEqual(await door.receive(envelope('hello', { iface: 'fake' }, { id: 'h1' })), ack('h1', 'ok'));
+  assert.deepEqual(
+    await door.receive(
+      envelope('hello', { iface: 'fake', self: { id: 'bot-1', name: 'Bot' }, community: null }, { id: 'h1' })
+    ),
+    ack('h1', 'ok')
+  );
   assert.deepEqual(await door.receive(envelope('ping', {}, { id: 'p1' })), ack('p1', 'ok'));
   const event = reaction();
   assert.deepEqual(await door.receive(envelope('event', event, { id: event.id })), ack(event.id, 'ok'));

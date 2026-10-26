@@ -308,7 +308,11 @@ test('every send carries its own idempotency key', async () => {
     if (value.type === 'action') keys.push((value.body as { idempotencyKey?: string }).idempotencyKey ?? '');
   });
   client.send(
-    envelope('hello', { iface: 'fake', capabilities: CAPABILITIES, resume: null, token: 'tok' }, { id: 'h1' })
+    envelope(
+      'hello',
+      { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: null, token: 'tok' },
+      { id: 'h1' }
+    )
   );
   await link.hello;
   void link.adapter.send(CONVERSATION, { text: 'one' });
@@ -403,7 +407,11 @@ test('accepts a new action once an answer has freed a slot', async () => {
 test('an ack envelope the link never asked for does not disturb it', async () => {
   const { link, client, handled } = core();
   client.send(
-    envelope('hello', { iface: 'fake', capabilities: CAPABILITIES, resume: null, token: 'tok' }, { id: 'h1' })
+    envelope(
+      'hello',
+      { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: null, token: 'tok' },
+      { id: 'h1' }
+    )
   );
   await link.hello;
   client.send(ackOf('nothing', 'ok'));

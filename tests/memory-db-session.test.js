@@ -21,7 +21,7 @@ import {
   sweep,
   validateAnswer,
 } from '../src/memory/db/session.js';
-import * as ids from '../src/memory/db/ids.ts';
+import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
 import { estimateMessages } from '../src/llm/tokens.js';
@@ -33,11 +33,11 @@ import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import fs from 'node:fs';
 
 // The ids of the Discord namespace the fixtures of this file write.
-const personOf = (id) => ids.personId('discord', id);
-const dmPlaceOf = (id) => ids.dmPlaceId('discord', id);
-const guildPlaceOf = (id) => ids.guildPlaceId('discord', id);
-const channelPlaceOf = (id) => ids.channelPlaceId('discord', id);
-const messageSourceOf = (id, revision, kind) => ids.messageSourceId('discord', id, revision, kind);
+const personOf = (id) => memoryIds.personId('discord', id);
+const dmPlaceOf = (id) => memoryIds.dmPlaceId('discord', id);
+const guildPlaceOf = (id) => memoryIds.guildPlaceId('discord', id);
+const channelPlaceOf = (id) => memoryIds.channelPlaceId('discord', id);
+const messageSourceOf = (id, revision, kind) => memoryIds.messageSourceId('discord', id, revision, kind);
 import os from 'node:os';
 import path from 'node:path';
 
@@ -255,7 +255,7 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     env.claim({
       id: 'cl-self',
       subjectKind: 'self',
-      subjectId: ids.SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'keeps a small garden',
       scope: { scope_kind: 'none', scope_iface: null, scope_dm: null },
@@ -369,7 +369,7 @@ test('validation: ids map back to the database; what the request did not carry i
     env.claim({
       id: 'cl-self',
       subjectKind: 'self',
-      subjectId: ids.SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'keeps a small garden',
     });
@@ -433,7 +433,7 @@ test('validation: ids map back to the database; what the request did not carry i
         ['add', 'person', personOf(ADA)],
         ['add', 'person', personOf(ADA)],
         ['add', 'place', guildPlaceOf(GUILD)],
-        ['add', 'self', ids.SELF_PERSON],
+        ['add', 'self', memoryIds.SELF_PERSON],
         ['add', 'person', personOf(BOB)],
         ['confirm', undefined, undefined],
         ['revise', undefined, undefined],
@@ -1046,7 +1046,7 @@ test('writes from the main thread go through the worker: a session write lands i
         {
           op: 'add',
           subjectKind: 'self',
-          subjectId: ids.SELF_PERSON,
+          subjectId: memoryIds.SELF_PERSON,
           kind: 'self_fact',
           text: 'a fact',
           how: 'saw',
@@ -1190,7 +1190,7 @@ test('modes: the writer itself refuses any mode but shadow and apply', () => {
         {
           op: 'add',
           subjectKind: 'self',
-          subjectId: ids.SELF_PERSON,
+          subjectId: memoryIds.SELF_PERSON,
           kind: 'self_fact',
           text: 'a fact',
           how: 'saw',
@@ -1775,7 +1775,7 @@ test('the context is as of the batch cutoff: claims and episodes created or seen
     env.claim({
       id: 'cl-self-new',
       subjectKind: 'self',
-      subjectId: ids.SELF_PERSON,
+      subjectId: memoryIds.SELF_PERSON,
       kind: 'self_fact',
       text: 'a later self fact',
     });
