@@ -73,7 +73,15 @@ import { emptyAffinity, applyDelta, decayAffinity } from './affinity.js';
 import { mergeEpisodes } from './episodes.js';
 import { loreVersionKey, upsertLore } from './lore.js';
 import { sentenceDiff } from './prose.js';
-import { applyInterestOps, applyValidity, attachDropped, normalizeInterests, normalizeTopic, stripTrailingParenthetical, validDay } from './interests.js';
+import {
+  applyInterestOps,
+  applyValidity,
+  attachDropped,
+  normalizeInterests,
+  normalizeTopic,
+  stripTrailingParenthetical,
+  validDay,
+} from './interests.js';
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { applyAddressUses, normalizeAddressedAs } from './addressed.js';
@@ -81,7 +89,15 @@ import { clampText, stripUrls } from './clamp.js';
 import { feltLine } from './record.js';
 import { sortByRank } from './ranking.js';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.js';
-import { emptyGifs, findGif, markOwnGif, mergeGifs, normalizeBackfillStamp, normalizeGifs, resetGifCounts } from './gifs.js';
+import {
+  emptyGifs,
+  findGif,
+  markOwnGif,
+  mergeGifs,
+  normalizeBackfillStamp,
+  normalizeGifs,
+  resetGifCounts,
+} from './gifs.js';
 import { SELF_CHARS } from './text-limits.js';
 import { emptyRecent, mergeRecent, normalizeRecent } from './recent.js';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.js';
@@ -139,7 +155,9 @@ function hasItemId(item) {
  */
 function withItemIds(list, prefix, newId) {
   if (!Array.isArray(list)) return [];
-  return list.map((item) => (isPlainObject(item) && !hasItemId(item) ? { ...item, itemId: `${prefix}${newId()}` } : item));
+  return list.map((item) =>
+    isPlainObject(item) && !hasItemId(item) ? { ...item, itemId: `${prefix}${newId()}` } : item
+  );
 }
 
 /**
@@ -179,8 +197,12 @@ function stringItems(texts, prefix, newId) {
  * @returns {Array<{ itemId: string, text: string }>}
  */
 function droppedStrings(stored, next, prefix, newId) {
-  const held = new Set((Array.isArray(next) ? next : []).filter((text) => typeof text === 'string').map(normalizeTopic));
-  const gone = (Array.isArray(stored) ? stored : []).filter((text) => typeof text === 'string' && text.trim() && !held.has(normalizeTopic(text)));
+  const held = new Set(
+    (Array.isArray(next) ? next : []).filter((text) => typeof text === 'string').map(normalizeTopic)
+  );
+  const gone = (Array.isArray(stored) ? stored : []).filter(
+    (text) => typeof text === 'string' && text.trim() && !held.has(normalizeTopic(text))
+  );
   return stringItems(gone, prefix, newId);
 }
 
@@ -230,14 +252,17 @@ function reinsert(previous, current, victims, strings) {
   const result = [...current];
   const before = Array.isArray(previous) ? previous : [];
   const beforeKeys = before.map((item) => anchorKey(strings, item));
-  const sameAs = (a, b) => anchorKey(strings, a) === anchorKey(strings, b) || (!strings && identOf(false, a) !== null && identOf(false, a) === identOf(false, b));
+  const sameAs = (a, b) =>
+    anchorKey(strings, a) === anchorKey(strings, b) ||
+    (!strings && identOf(false, a) !== null && identOf(false, a) === identOf(false, b));
   for (const victim of victims) {
     if (result.some((item) => sameAs(item, victim))) continue;
     const from = beforeKeys.indexOf(anchorKey(strings, victim));
     let at = result.length;
     if (from !== -1) {
       at = -1;
-      for (let i = from + 1; i < before.length && at === -1; i += 1) at = result.findIndex((item) => sameAs(item, before[i]));
+      for (let i = from + 1; i < before.length && at === -1; i += 1)
+        at = result.findIndex((item) => sameAs(item, before[i]));
       // Nothing after it is left: right after the nearest earlier one still there, else first.
       for (let i = from - 1; i >= 0 && at === -1; i -= 1) {
         const index = result.findIndex((item) => sameAs(item, before[i]));
@@ -349,10 +374,12 @@ export function operationalJsonPath(rel) {
   if (/^memory-pending\//.test(name)) return true;
   const inGuild = /^guilds\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inGuild) return false;
-  return /^(?:state|usage|metrics|inner|missed|participation|gifs|media)\.json$/.test(inGuild)
-    || /^journal\/requests\//.test(inGuild)
-    || /^backfill\//.test(inGuild)
-    || inGuild === 'record/backfill.json';
+  return (
+    /^(?:state|usage|metrics|inner|missed|participation|gifs|media)\.json$/.test(inGuild) ||
+    /^journal\/requests\//.test(inGuild) ||
+    /^backfill\//.test(inGuild) ||
+    inGuild === 'record/backfill.json'
+  );
 }
 
 /**
@@ -545,7 +572,12 @@ function applyRealName(stored, raw, { seenAt, now, mintId }) {
   if (!stored) return { realName: fresh(), closed: [] };
   if (normalizeTopic(stored.name) === normalizeTopic(name)) return null;
   // The stored name as a ranked-item claim, so the shared validity rules close it.
-  const current = { name: stored.name, validFrom: stored.from ?? undefined, itemId: stored.itemId, recordedAt: stored.recordedAt };
+  const current = {
+    name: stored.name,
+    validFrom: stored.from ?? undefined,
+    itemId: stored.itemId,
+    recordedAt: stored.recordedAt,
+  };
   if (current.validFrom === undefined) delete current.validFrom;
   const next = { name };
   const items = [current, next];
@@ -553,7 +585,8 @@ function applyRealName(stored, raw, { seenAt, now, mintId }) {
     batchDay,
     recordedAt,
     mintId,
-    findOther: (ref) => (typeof ref === 'string' && normalizeTopic(ref) === normalizeTopic(current.name) ? current : undefined),
+    findOther: (ref) =>
+      typeof ref === 'string' && normalizeTopic(ref) === normalizeTopic(current.name) ? current : undefined,
   });
   if (closed.length === 0) return null;
   return {
@@ -573,7 +606,9 @@ function applyRealName(stored, raw, { seenAt, now, mintId }) {
  * list becomes `[]`; an entry that is no object or of no known kind is left out. */
 function normalizeClosed(holder) {
   if (!('closed' in holder)) return;
-  holder.closed = Array.isArray(holder.closed) ? holder.closed.filter((item) => isPlainObject(item) && CLOSED_KINDS.includes(item.kind)) : [];
+  holder.closed = Array.isArray(holder.closed)
+    ? holder.closed.filter((item) => isPlainObject(item) && CLOSED_KINDS.includes(item.kind))
+    : [];
 }
 
 /**
@@ -614,7 +649,8 @@ function normalizePrivate(priv) {
   if (typeof priv.relationship !== 'string') priv.relationship = '';
   if (!Array.isArray(priv.episodes)) priv.episodes = [];
 
-  const affinity = priv.affinity && typeof priv.affinity === 'object' && !Array.isArray(priv.affinity) ? priv.affinity : {};
+  const affinity =
+    priv.affinity && typeof priv.affinity === 'object' && !Array.isArray(priv.affinity) ? priv.affinity : {};
   priv.affinity = {
     ...affinity,
     score: Number.isFinite(affinity.score) ? affinity.score : 0,
@@ -661,7 +697,9 @@ function normalizeGuild(guild) {
   guild.emojiBackfill = normalizeBackfillStamp(guild.emojiBackfill);
   for (const key of STALE_GUILD_FIELDS) delete guild[key];
   // Missing or hand-broken -> []: nobody turned pings off. Non-empty string ids only, each once.
-  guild.pingsOff = Array.isArray(guild.pingsOff) ? [...new Set(guild.pingsOff.filter((id) => typeof id === 'string' && id))] : [];
+  guild.pingsOff = Array.isArray(guild.pingsOff)
+    ? [...new Set(guild.pingsOff.filter((id) => typeof id === 'string' && id))]
+    : [];
   // Missing or hand-broken -> null: never stamped.
   guild.notesUpdatedAt = isoStampOrNull(guild.notesUpdatedAt);
   guild.notesCheckedAt = isoStampOrNull(guild.notesCheckedAt);
@@ -701,7 +739,12 @@ function relationshipScoreOf(opts, affinity) {
 function writeRelationship(target, raw, opts, onWrite) {
   const text = typeof raw === 'string' ? stripUrls(raw) : raw;
   if (typeof text !== 'string' || !text.trim()) return;
-  const next = firstWriteText(target.relationship, text, opts.relationshipChars ?? opts.fieldChars, opts.clampTolerance);
+  const next = firstWriteText(
+    target.relationship,
+    text,
+    opts.relationshipChars ?? opts.fieldChars,
+    opts.clampTolerance
+  );
   onWrite?.(target.relationship, next);
   target.relationship = next;
   target.relationshipScore = relationshipScoreOf(opts, target.affinity);
@@ -791,7 +834,12 @@ function applyItemOps(target, ops, opts, seenAt, newId) {
     dropped.closed.interest = withItemIds(interests.closed, ITEM_ID_PREFIX.interest, newId);
   }
   if (isPlainObject(ops?.details)) {
-    const { items, nextId, dropped: gone, closed } = applyDetailOps(target.details, ops.details, {
+    const {
+      items,
+      nextId,
+      dropped: gone,
+      closed,
+    } = applyDetailOps(target.details, ops.details, {
       maxDetails: opts.maxDetails,
       maxDetailsStored: opts.maxDetailsStored,
       fieldChars: opts.fieldChars,
@@ -931,7 +979,10 @@ function countWriter(writers, authorId, ts, { stored, halfLifeDays }) {
   next[id] = { count: (before?.count ?? 0) + 1, last: Math.max(before?.last ?? 0, writerTs(ts)) };
   const ranked = rankWriters(next, halfLifeDays);
   for (const evicted of ranked.slice(stored)) delete next[evicted.id];
-  return { writers: next, topWriters: ranked.slice(0, TOP_WRITERS).map((writer) => ({ id: writer.id, count: writer.count })) };
+  return {
+    writers: next,
+    topWriters: ranked.slice(0, TOP_WRITERS).map((writer) => ({ id: writer.id, count: writer.count })),
+  };
 }
 
 /**
@@ -946,7 +997,9 @@ function countWriter(writers, authorId, ts, { stored, halfLifeDays }) {
  */
 function normalizeChannel(channel) {
   if (!isPlainObject(channel)) return;
-  channel.writers = isPlainObject(channel.writers) ? normalizeWriters(channel.writers) : writersFromTop(channel.topWriters, channel.lastMessageAt);
+  channel.writers = isPlainObject(channel.writers)
+    ? normalizeWriters(channel.writers)
+    : writersFromTop(channel.topWriters, channel.lastMessageAt);
   channel.notesCheckedAt = isoStampOrNull(channel.notesCheckedAt);
   channel.notesFlaggedAt = isoStampOrNull(channel.notesFlaggedAt);
   channel.notesSampleReviewedAt = isoStampOrNull(channel.notesSampleReviewedAt);
@@ -980,7 +1033,15 @@ function normalizeChannel(channel) {
  *   Without a `memoryDb` (tests, a tool's dry run) the memory units live in the cache only: nothing is read or
  *   written for them.
  */
-export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), memoryDb = null }) {
+export function createStore({
+  dataDir,
+  newId = randomUUID,
+  record = null,
+  recordOn = () => Boolean(record),
+  archive = null,
+  archiveOn = () => Boolean(archive),
+  memoryDb = null,
+}) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'store' });
   const entries = new Map(); // file path -> { value, dirty }
@@ -1017,7 +1078,15 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     const key = String(guildId);
     let state = archiveGuilds.get(key);
     if (!state) {
-      state = { seq: 0, queue: [], held: [], outcomes: new Map(), retry: [], chain: Promise.resolve(), scheduled: false };
+      state = {
+        seq: 0,
+        queue: [],
+        held: [],
+        outcomes: new Map(),
+        retry: [],
+        chain: Promise.resolve(),
+        scheduled: false,
+      };
       archiveGuilds.set(key, state);
     }
     return state;
@@ -1092,12 +1161,21 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         group.forEach(releaseHold);
         results.push({ group, status: 'archived' });
       } catch (error) {
-        log.warn('store: archive failed', { guildId: String(guildId), entries: entries.length, ...(key ? { private: true } : {}), code: error?.code ?? null });
+        log.warn('store: archive failed', {
+          guildId: String(guildId),
+          entries: entries.length,
+          ...(key ? { private: true } : {}),
+          code: error?.code ?? null,
+        });
         try {
           await archive.queuePending(guildId, entries, opts);
           group.forEach(releaseHold);
         } catch (queueError) {
-          log.warn('store: archive queue failed', { guildId: String(guildId), entries: entries.length, code: queueError?.code ?? null });
+          log.warn('store: archive queue failed', {
+            guildId: String(guildId),
+            entries: entries.length,
+            code: queueError?.code ?? null,
+          });
           state.retry.push(...group);
         }
         results.push({ group, status: 'deferred' });
@@ -1133,18 +1211,44 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     const where = listAt(site.item.value, site.path);
     if (!where) return;
     const current = Array.isArray(where.holder[where.key]) ? where.holder[where.key] : [];
-    const victims = (Array.isArray(site.victims) ? site.victims : []).filter((victim) => (strings ? typeof victim?.text === 'string' : isPlainObject(victim) && identOf(false, victim) !== null));
+    const victims = (Array.isArray(site.victims) ? site.victims : []).filter((victim) =>
+      strings ? typeof victim?.text === 'string' : isPlainObject(victim) && identOf(false, victim) !== null
+    );
     const victimIds = new Set(victims.map((victim) => identOf(strings, victim)));
     // A victim of the cap that this write's merge kept ranks again: released. A removed or replaced one stays held.
-    state.held = state.held.filter((held) => held.siteKey !== siteKey || held.event !== 'evicted' || victimIds.has(held.ident) || !current.some((item) => identOf(strings, item) === held.ident));
+    state.held = state.held.filter(
+      (held) =>
+        held.siteKey !== siteKey ||
+        held.event !== 'evicted' ||
+        victimIds.has(held.ident) ||
+        !current.some((item) => identOf(strings, item) === held.ident)
+    );
     if (victims.length === 0) return;
     victims.forEach((victim, index) => {
       const ident = identOf(strings, victim);
       const revisionId = archiveRevision(site.itemKind, victim);
-      if (state.held.some((held) => held.siteKey === siteKey && held.ident === ident && held.revisionId === revisionId)) return;
+      if (state.held.some((held) => held.siteKey === siteKey && held.ident === ident && held.revisionId === revisionId))
+        return;
       const scope = typeof site.scope === 'function' ? site.scope(victim) : site.scope;
-      const entry = archiveEntry(victim, { itemKind: site.itemKind, event: site.eventOf(victim, index), scope, uuid: newId });
-      state.held.push({ siteKey, file: site.file, path: site.path, strings, ident, itemId: entry.itemId, revisionId, itemKind: site.itemKind, event: entry.event, userId: site.userId ?? null, confirmed: false });
+      const entry = archiveEntry(victim, {
+        itemKind: site.itemKind,
+        event: site.eventOf(victim, index),
+        scope,
+        uuid: newId,
+      });
+      state.held.push({
+        siteKey,
+        file: site.file,
+        path: site.path,
+        strings,
+        ident,
+        itemId: entry.itemId,
+        revisionId,
+        itemKind: site.itemKind,
+        event: entry.event,
+        userId: site.userId ?? null,
+        confirmed: false,
+      });
       queueArchiveEntry(guildId, entry, site.privateUserId ?? null);
     });
     where.holder[where.key] = reinsert(site.previous, current, victims, strings);
@@ -1162,7 +1266,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     for (const before of previous) {
       const after = identOf(false, before) !== null ? now.get(before.itemId) : undefined;
       if (!after || archiveRevision(itemKind, after) === archiveRevision(itemKind, before)) continue;
-      queueArchiveEntry(guildId, archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }), privateUserId, item);
+      queueArchiveEntry(
+        guildId,
+        archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }),
+        privateUserId,
+        item
+      );
     }
   }
 
@@ -1174,13 +1283,25 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     if (!archiving()) return;
     const id = String(userId);
     const scope = { user: id };
-    for (const [field, itemKind, identity] of [['interests', 'interest', 'topic'], ['details', 'detail', 'text'], ['aliases', 'alias', 'name']]) {
+    for (const [field, itemKind, identity] of [
+      ['interests', 'interest', 'topic'],
+      ['details', 'detail', 'text'],
+      ['aliases', 'alias', 'name'],
+    ]) {
       if (!isPlainObject(ops?.[field])) continue;
       const kept = Array.isArray(item.value[field]) ? item.value[field] : [];
       const removing = removeKeysOf(ops[field].remove);
       archiveReplaced(guildId, { previous: previous[field], current: kept, itemKind, scope, privateUserId, item });
       holdVictims(guildId, {
-        item, file, path: [field], previous: previous[field], victims: dropped[field], itemKind, scope, privateUserId, userId: id,
+        item,
+        file,
+        path: [field],
+        previous: previous[field],
+        victims: dropped[field],
+        itemKind,
+        scope,
+        privateUserId,
+        userId: id,
         eventOf: (victim) => rankedEvent(victim, identity, removing, kept, itemKind === 'interest'),
       });
     }
@@ -1194,9 +1315,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * with the archive off it simply goes.
    */
   function storeClosed(guildId, userId, { item, file, target, closed, opts, privateUserId = null }) {
-    const incoming = CLOSED_KINDS.flatMap((kind) => (Array.isArray(closed?.[kind]) ? closed[kind] : []).map((value) => ({ kind, ...value })));
+    const incoming = CLOSED_KINDS.flatMap((kind) =>
+      (Array.isArray(closed?.[kind]) ? closed[kind] : []).map((value) => ({ kind, ...value }))
+    );
     if (incoming.length === 0) return;
-    const cap = Number.isInteger(opts?.maxClosedStored) && opts.maxClosedStored >= 0 ? opts.maxClosedStored : DEFAULT_MAX_CLOSED_STORED;
+    const cap =
+      Number.isInteger(opts?.maxClosedStored) && opts.maxClosedStored >= 0
+        ? opts.maxClosedStored
+        : DEFAULT_MAX_CLOSED_STORED;
     const all = [...(Array.isArray(target.closed) ? target.closed : []), ...incoming];
     target.closed = all.slice(Math.max(0, all.length - cap));
     const evicted = all.slice(0, all.length - target.closed.length);
@@ -1206,7 +1332,15 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const victims = evicted.filter((value) => value.kind === kind);
       if (victims.length === 0) continue;
       holdVictims(guildId, {
-        item, file, path: ['closed'], previous: all, victims, itemKind: kind, scope: { user: id }, privateUserId, userId: id,
+        item,
+        file,
+        path: ['closed'],
+        previous: all,
+        victims,
+        itemKind: kind,
+        scope: { user: id },
+        privateUserId,
+        userId: id,
         eventOf: () => 'replaced',
       });
     }
@@ -1259,15 +1393,24 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       return { item, path: keys, strings };
     };
     switch (archived?.itemKind) {
-      case 'episode': return member(['episodes']);
-      case 'interest': return member(['interests']);
-      case 'detail': return member(['details']);
-      case 'alias': return isPrivate ? null : member(['aliases']);
-      case 'lesson': return guild(['learned']);
-      case 'selfFact': return guild(['self'], true);
-      case 'injoke': return guild(['injokes'], true);
-      case 'diary': return { item: diaryEntry(guildId), path: ['posts'] };
-      default: return null;
+      case 'episode':
+        return member(['episodes']);
+      case 'interest':
+        return member(['interests']);
+      case 'detail':
+        return member(['details']);
+      case 'alias':
+        return isPrivate ? null : member(['aliases']);
+      case 'lesson':
+        return guild(['learned']);
+      case 'selfFact':
+        return guild(['self'], true);
+      case 'injoke':
+        return guild(['injokes'], true);
+      case 'diary':
+        return { item: diaryEntry(guildId), path: ['posts'] };
+      default:
+        return null;
     }
   }
 
@@ -1289,13 +1432,21 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
             date: ep.date ?? null,
             sourceMessageIds: Array.isArray(ep.sourceMessageIds) ? ep.sourceMessageIds : [],
           },
-          { uuid: newId },
-        ),
+          { uuid: newId }
+        )
       );
     if (lines.length === 0) return;
-    const failed = (error) => log.warn('store: record failed', { kind: 'felt', guildId: String(guildId), lines: lines.length, code: error?.code ?? null });
+    const failed = (error) =>
+      log.warn('store: record failed', {
+        kind: 'felt',
+        guildId: String(guildId),
+        lines: lines.length,
+        code: error?.code ?? null,
+      });
     try {
-      Promise.resolve(record.append(guildId, lines, layer === 'private' ? { privateUserId: String(userId) } : {})).catch(failed);
+      Promise.resolve(
+        record.append(guildId, lines, layer === 'private' ? { privateUserId: String(userId) } : {})
+      ).catch(failed);
     } catch (error) {
       failed(error);
     }
@@ -1326,9 +1477,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    */
   function dbPlace(file) {
     const rel = root.relative(file);
-    if (operationalJsonPath(rel)) return { rel, file: true, send: /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel) };
+    if (operationalJsonPath(rel))
+      return { rel, file: true, send: /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel) };
     const info = classify(rel);
-    if (!info || info.skipped || info.format !== 'json' || info.guildId === undefined) return { rel, file: true, send: false };
+    if (!info || info.skipped || info.format !== 'json' || info.guildId === undefined)
+      return { rel, file: true, send: false };
     return { rel, file: false, send: true };
   }
 
@@ -1339,7 +1492,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     if (!place.file) {
       if (!memoryDb) return false;
       const db = seam.db();
-      return seam.run(() => db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(place.rel) !== undefined);
+      return seam.run(
+        () => db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(place.rel) !== undefined
+      );
     }
     return fs.existsSync(file);
   }
@@ -1491,7 +1646,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   function recordVersion(guildId, kind, id, field, previous, next, opts = {}) {
     const settings = opts.versions ?? DEFAULT_VERSIONS;
     if (settings.enabled === false) return { dropped: [] };
-    if (typeof previous !== 'string' || !previous.trim() || typeof next !== 'string' || previous === next) return { dropped: [] };
+    if (typeof previous !== 'string' || !previous.trim() || typeof next !== 'string' || previous === next)
+      return { dropped: [] };
     const kept = Number.isFinite(settings.kept) ? Math.max(0, Math.floor(settings.kept)) : DEFAULT_VERSIONS.kept;
     if (kept === 0) return { dropped: [] };
     const item = versionsEntry(guildId, kind, id);
@@ -1548,7 +1704,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const stamped = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
       item.value.episodes = stamped;
       item.dirty = true;
-      if (owner) recordFelt(owner.guildId, owner.userId, owner.layer, stamped.filter((_, i) => !before.has(episodes[i])));
+      if (owner)
+        recordFelt(
+          owner.guildId,
+          owner.userId,
+          owner.layer,
+          stamped.filter((_, i) => !before.has(episodes[i]))
+        );
       if (owner) {
         const id = String(owner.userId);
         const isPrivate = owner.layer === 'private';
@@ -1654,7 +1816,10 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     if (loading && (!isPlainObject(raw) || !Array.isArray(raw.episodes))) {
       log.warn('store: participation store replaced', { guildId, reason: 'malformed' });
     } else if (loading && raw.episodes.length > item.value.episodes.length) {
-      log.warn('store: participation episodes dropped', { guildId, dropped: raw.episodes.length - item.value.episodes.length });
+      log.warn('store: participation episodes dropped', {
+        guildId,
+        dropped: raw.episodes.length - item.value.episodes.length,
+      });
     }
     return item;
   }
@@ -1680,7 +1845,16 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     item.value = { posts: kept, updatedAt: Number.isFinite(now) ? now : Date.now() };
     item.dirty = true;
     const dropped = all.slice(0, all.length - kept.length);
-    holdVictims(guildId, { item, file: diaryFile(guildId), path: ['posts'], previous, victims: dropped, itemKind: 'diary', eventOf: () => 'evicted', scope: { guild: true } });
+    holdVictims(guildId, {
+      item,
+      file: diaryFile(guildId),
+      path: ['posts'],
+      previous,
+      victims: dropped,
+      itemKind: 'diary',
+      eventOf: () => 'evicted',
+      scope: { guild: true },
+    });
     return { dropped };
   }
 
@@ -1836,7 +2010,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         }
       }
       writeRelationship(profile, ops?.relationship, opts, (previous, next) =>
-        recordVersion(guildId, 'users', userId, 'relationship', previous, next, opts));
+        recordVersion(guildId, 'users', userId, 'relationship', previous, next, opts)
+      );
 
       // What left the profile (removed, folded, evicted), each with its itemId: the archive's input.
       const previous = { interests: profile.interests, details: profile.details, aliases: profile.aliases };
@@ -1857,14 +2032,24 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         dropped.closed.alias = withItemIds(aliases.closed, ITEM_ID_PREFIX.alias, newId);
       }
       if (ops?.realName !== undefined && ops?.realName !== null) {
-        const real = applyRealName(profile.realName, ops.realName, { seenAt, now: opts.now, mintId: () => `${ITEM_ID_PREFIX.realName}${newId()}` });
+        const real = applyRealName(profile.realName, ops.realName, {
+          seenAt,
+          now: opts.now,
+          mintId: () => `${ITEM_ID_PREFIX.realName}${newId()}`,
+        });
         if (real) {
           profile.realName = real.realName;
           dropped.closed.realName = real.closed;
         }
       }
       archiveProfileItems(guildId, userId, { item, file: userFile(guildId, userId), previous, dropped, ops });
-      storeClosed(guildId, userId, { item, file: userFile(guildId, userId), target: profile, closed: dropped.closed, opts });
+      storeClosed(guildId, userId, {
+        item,
+        file: userFile(guildId, userId),
+        target: profile,
+        closed: dropped.closed,
+        opts,
+      });
 
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
       item.dirty = true;
@@ -2030,8 +2215,22 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       // What left the private layer, each with its itemId: the archive's input.
       const previous = { interests: priv.interests, details: priv.details };
       const dropped = applyItemOps(priv, ops, opts, seenAt, newId);
-      archiveProfileItems(guildId, userId, { item, file: privateFile(guildId, userId), previous, dropped, ops: { interests: ops?.interests, details: ops?.details }, privateUserId: String(userId) });
-      storeClosed(guildId, userId, { item, file: privateFile(guildId, userId), target: priv, closed: dropped.closed, opts, privateUserId: String(userId) });
+      archiveProfileItems(guildId, userId, {
+        item,
+        file: privateFile(guildId, userId),
+        previous,
+        dropped,
+        ops: { interests: ops?.interests, details: ops?.details },
+        privateUserId: String(userId),
+      });
+      storeClosed(guildId, userId, {
+        item,
+        file: privateFile(guildId, userId),
+        target: priv,
+        closed: dropped.closed,
+        opts,
+        privateUserId: String(userId),
+      });
 
       item.dirty = true;
       return priv;
@@ -2145,7 +2344,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * Same normalize-on-read guarantee as `getUser`.
      */
     listUserProfiles(guildId) {
-      return idsUnder(usersDir(guildId)).map((id) => store.getUser(guildId, id)).filter(Boolean);
+      return idsUnder(usersDir(guildId))
+        .map((id) => store.getUser(guildId, id))
+        .filter(Boolean);
     },
 
     /**
@@ -2184,39 +2385,47 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     updateGuild(guildId, fields, opts = {}) {
       const item = entry(guildFile(guildId), emptyGuild);
       normalizeGuild(item.value);
-      const {
-        learned,
-        learnedNextId,
-        emojiUsage,
-        emojiBackfill,
-        pingsOff,
-        notesUpdatedAt,
-        notesCheckedAt,
-        ...given
-      } = fields ?? {};
+      const { learned, learnedNextId, emojiUsage, emojiBackfill, pingsOff, notesUpdatedAt, notesCheckedAt, ...given } =
+        fields ?? {};
       const safeFields = withoutLinks(given, GUILD_TEXT);
       if (!changesStored(item.value, safeFields)) return item.value;
       const notes = Object.fromEntries(Object.entries(safeFields).filter(([key]) => NOTES_FIELDS.includes(key)));
       const stamp = new Date().toISOString();
-      const stamps = changesStored(item.value, notes) ? { updatedAt: stamp, notesUpdatedAt: stamp } : { updatedAt: stamp };
+      const stamps = changesStored(item.value, notes)
+        ? { updatedAt: stamp, notesUpdatedAt: stamp }
+        : { updatedAt: stamp };
       for (const key of GUILD_PROSE) {
         if (key in safeFields) recordVersion(guildId, 'guild', 'guild', key, item.value[key], safeFields[key], opts);
       }
       // The in-jokes (and a single-stage self list) are replaced whole: what the new list no longer
       // holds leaves the guild here.
       const dropped = {
-        injokes: 'injokes' in safeFields ? droppedStrings(item.value.injokes, safeFields.injokes, ITEM_ID_PREFIX.injoke, newId) : [],
-        self: 'self' in safeFields ? droppedStrings(item.value.self, safeFields.self, ITEM_ID_PREFIX.selfFact, newId) : [],
+        injokes:
+          'injokes' in safeFields
+            ? droppedStrings(item.value.injokes, safeFields.injokes, ITEM_ID_PREFIX.injoke, newId)
+            : [],
+        self:
+          'self' in safeFields ? droppedStrings(item.value.self, safeFields.self, ITEM_ID_PREFIX.selfFact, newId) : [],
       };
       const previous = { injokes: item.value.injokes, self: item.value.self };
       Object.assign(item.value, safeFields, stamps);
       opts.onDropped?.(dropped);
       item.dirty = true;
       // A list written whole replaces the stored one: what it no longer holds is held for the archive.
-      for (const [field, itemKind] of [['injokes', 'injoke'], ['self', 'selfFact']]) {
+      for (const [field, itemKind] of [
+        ['injokes', 'injoke'],
+        ['self', 'selfFact'],
+      ]) {
         if (!(field in safeFields)) continue;
         holdVictims(guildId, {
-          item, file: guildFile(guildId), path: [field], strings: true, previous: previous[field], victims: dropped[field], itemKind, scope: { guild: true },
+          item,
+          file: guildFile(guildId),
+          path: [field],
+          strings: true,
+          previous: previous[field],
+          victims: dropped[field],
+          itemKind,
+          scope: { guild: true },
           eventOf: () => 'replaced',
         });
       }
@@ -2371,7 +2580,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         item = channelEntry(guildId, channelId);
       }
       if (!isPlainObject(item.value)) return false;
-      const patch = outcome === 'reviewed' ? { notesSampleReviewedAt: at, notesAttemptAt: null } : { notesAttemptAt: at };
+      const patch =
+        outcome === 'reviewed' ? { notesSampleReviewedAt: at, notesAttemptAt: null } : { notesAttemptAt: at };
       if (!changesStored(item.value, patch)) return false;
       Object.assign(item.value, patch);
       item.dirty = true;
@@ -2480,7 +2690,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const kept = guild.learned;
       archiveReplaced(guildId, { previous, current: kept, itemKind: 'lesson', scope: { guild: true }, item });
       holdVictims(guildId, {
-        item, file: guildFile(guildId), path: ['learned'], previous, victims, itemKind: 'lesson', scope: { guild: true },
+        item,
+        file: guildFile(guildId),
+        path: ['learned'],
+        previous,
+        victims,
+        itemKind: 'lesson',
+        scope: { guild: true },
         eventOf: (victim) => rankedEvent(victim, 'text', removing, kept, false),
       });
       return attachDropped(guild.learned, 'dropped', victims);
@@ -2522,8 +2738,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const guild = item.value;
       normalizeGuild(guild);
 
-      const stored = Array.isArray(guild.self) ? guild.self.filter((fact) => typeof fact === 'string' && fact.trim()) : [];
-      const removing = new Set((Array.isArray(ops.remove) ? ops.remove : []).filter((fact) => typeof fact === 'string').map(normalizeTopic));
+      const stored = Array.isArray(guild.self)
+        ? guild.self.filter((fact) => typeof fact === 'string' && fact.trim())
+        : [];
+      const removing = new Set(
+        (Array.isArray(ops.remove) ? ops.remove : []).filter((fact) => typeof fact === 'string').map(normalizeTopic)
+      );
       removing.delete('');
       let next = stored.filter((fact) => !removing.has(normalizeTopic(fact)));
       counts.removed = stored.length - next.length;
@@ -2553,7 +2773,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         guild.updatedAt = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
         item.dirty = true;
         holdVictims(guildId, {
-          item, file: guildFile(guildId), path: ['self'], strings: true, previous: stored, victims: dropped, itemKind: 'selfFact', scope: { guild: true },
+          item,
+          file: guildFile(guildId),
+          path: ['self'],
+          strings: true,
+          previous: stored,
+          victims: dropped,
+          itemKind: 'selfFact',
+          scope: { guild: true },
           eventOf: (_, index) => (index < counts.removed ? 'replaced' : 'evicted'),
         });
       }
@@ -2637,7 +2864,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       }
       const patch = withoutLinks(given, CHANNEL_PROSE);
       if (!changesStored(item.value, patch)) return item.value;
-      for (const [key, value] of Object.entries(patch)) recordVersion(guildId, 'channels', channelId, key, item.value[key], value, opts);
+      for (const [key, value] of Object.entries(patch))
+        recordVersion(guildId, 'channels', channelId, key, item.value[key], value, opts);
       Object.assign(item.value, patch, { updatedAt: new Date().toISOString() });
       item.dirty = true;
       return item.value;
@@ -2781,7 +3009,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const item = entry(loreFile(guildId), () => []);
       const { entries: nextEntries, upserted, changes } = upsertLore(item.value, incoming, opts);
       if (upserted > 0) {
-        for (const change of changes) recordVersion(guildId, 'lore', change.title, 'text', change.previousText, change.nextText, opts);
+        for (const change of changes)
+          recordVersion(guildId, 'lore', change.title, 'text', change.previousText, change.nextText, opts);
         item.value = nextEntries;
         item.dirty = true;
       }
@@ -2886,9 +3115,16 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         item.dirty = true;
         // droppedLines: the expired, then the removed, then the evicted.
         holdVictims(guildId, {
-          item, file: recentFile(guildId), path: ['lines'], previous, victims, itemKind: 'recent',
-          scope: (line) => (typeof line.channelId === 'string' && line.channelId ? { channel: line.channelId } : { guild: true }),
-          eventOf: (_, index) => (index < counts.expired ? 'expired' : index < counts.expired + counts.removed ? 'replaced' : 'evicted'),
+          item,
+          file: recentFile(guildId),
+          path: ['lines'],
+          previous,
+          victims,
+          itemKind: 'recent',
+          scope: (line) =>
+            typeof line.channelId === 'string' && line.channelId ? { channel: line.channelId } : { guild: true },
+          eventOf: (_, index) =>
+            index < counts.expired ? 'expired' : index < counts.expired + counts.removed ? 'replaced' : 'evicted',
         });
       }
       return attachDropped(counts, 'droppedLines', victims);
@@ -2927,14 +3163,24 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const previous = item.value.episodes;
       const at = Number.isFinite(now) ? now : Date.now();
       const { state: next, dropped } = expireEpisodes(state, settings, at);
-      item.value = structuredClone({ ...next, episodes: withItemIds(next.episodes, ITEM_ID_PREFIX.participation, newId) });
+      item.value = structuredClone({
+        ...next,
+        episodes: withItemIds(next.episodes, ITEM_ID_PREFIX.participation, newId),
+      });
       item.dirty = true;
       const victims = withItemIds(dropped, ITEM_ID_PREFIX.participation, newId);
       // As src/memory/participation.js#expireEpisodes reads `hours`: past it an episode expired, else the cap took it.
-      const hours = Number.isFinite(settings?.hours) && settings.hours >= 0 ? settings.hours : PARTICIPATION_DEFAULTS.hours;
+      const hours =
+        Number.isFinite(settings?.hours) && settings.hours >= 0 ? settings.hours : PARTICIPATION_DEFAULTS.hours;
       holdVictims(guildId, {
-        item, file: participationFile(guildId), path: ['episodes'], previous, victims, itemKind: 'participation',
-        scope: (episode) => (typeof episode.channelId === 'string' && episode.channelId ? { channel: episode.channelId } : { guild: true }),
+        item,
+        file: participationFile(guildId),
+        path: ['episodes'],
+        previous,
+        victims,
+        itemKind: 'participation',
+        scope: (episode) =>
+          typeof episode.channelId === 'string' && episode.channelId ? { channel: episode.channelId } : { guild: true },
         eventOf: (episode) => (episode.lastOwnAt < at - hours * HOUR_MS ? 'expired' : 'evicted'),
       });
       return { dropped: victims };
@@ -3052,7 +3298,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       for (const [seq, outcome] of state.outcomes) {
         if (seq <= from || seq > to) continue;
         state.outcomes.delete(seq);
-        if (outcome.status === 'archived') archived.push({ itemId: outcome.itemId, revisionId: outcome.revisionId, itemKind: outcome.itemKind, event: outcome.event });
+        if (outcome.status === 'archived')
+          archived.push({
+            itemId: outcome.itemId,
+            revisionId: outcome.revisionId,
+            itemKind: outcome.itemKind,
+            event: outcome.event,
+          });
         else deferred += 1;
       }
       return { archived, deferred };
@@ -3201,12 +3453,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         if (!userId || !Number.isFinite(move.applied)) continue;
         for (const [file, item] of [...entries]) {
           const parts = root.relative(file).split('/');
-          if (parts.length !== 4 || parts[0] !== 'guilds' || parts[2] !== 'users' || parts[3] !== `${userId}.json`) continue;
+          if (parts.length !== 4 || parts[0] !== 'guilds' || parts[2] !== 'users' || parts[3] !== `${userId}.json`)
+            continue;
           const rel = parts.join('/');
           if (!item.dirty && !outbox?.holds(rel)) {
             entries.delete(file);
           } else if (isPlainObject(item.value?.affinity) && Number.isFinite(item.value.affinity.score)) {
-            const score = Math.round(Math.max(-100, Math.min(100, item.value.affinity.score + move.applied)) * 100) / 100;
+            const score =
+              Math.round(Math.max(-100, Math.min(100, item.value.affinity.score + move.applied)) * 100) / 100;
             item.value.affinity = { ...item.value.affinity, score };
             item.dirty = true;
           } else {
@@ -3220,7 +3474,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   };
 
   // Her session's attitude moves reach the cached profiles (see noteAffinityMoves).
-  if (typeof memoryDb?.onAffinityMoves === 'function') memoryDb.onAffinityMoves((moves) => store.noteAffinityMoves(moves));
+  if (typeof memoryDb?.onAffinityMoves === 'function')
+    memoryDb.onAffinityMoves((moves) => store.noteAffinityMoves(moves));
 
   return store;
 }

@@ -78,7 +78,11 @@ test('applyProfileOps: character, style and relationship are stored without link
   assert.equal(profile.style, '');
   assert.equal(profile.relationship, 'Φίλη.');
   store.applyProfileOps('g1', 'u1', { character: URL, relationship: ` ${URL} ` });
-  assert.equal(store.getUser('g1', 'u1').character, 'Γράφει πολύ κάθε βράδυ.', 'a link alone never blanks the stored text');
+  assert.equal(
+    store.getUser('g1', 'u1').character,
+    'Γράφει πολύ κάθε βράδυ.',
+    'a link alone never blanks the stored text'
+  );
   assert.equal(store.getUser('g1', 'u1').relationship, 'Φίλη.');
 });
 
@@ -86,14 +90,28 @@ test('applyProfileOps: interests, details, aliases and the real name are stored 
   const store = tmpStore();
   store.touchUser('g1', 'u1', 'Ελένη', 1000);
   const profile = store.applyProfileOps('g1', 'u1', {
-    interests: { add: [{ topic: `ταινίες ${URL}`, note: `βλέπει στο ${URL} συχνά` }, { topic: URL, note: 'τίποτα' }] },
+    interests: {
+      add: [
+        { topic: `ταινίες ${URL}`, note: `βλέπει στο ${URL} συχνά` },
+        { topic: URL, note: 'τίποτα' },
+      ],
+    },
     details: { add: [`ζει στη Λιόν ${URL}`, URL] },
     aliases: { add: [`Λένα ${URL}`, URL] },
     realName: `Hélène ${URL}`,
   });
-  assert.deepEqual(profile.interests.map((i) => [i.topic, i.note]), [['ταινίες', 'βλέπει στο συχνά']]);
-  assert.deepEqual(profile.details.map((d) => d.text), ['ζει στη Λιόν']);
-  assert.deepEqual(profile.aliases.map((a) => a.name), ['Λένα']);
+  assert.deepEqual(
+    profile.interests.map((i) => [i.topic, i.note]),
+    [['ταινίες', 'βλέπει στο συχνά']]
+  );
+  assert.deepEqual(
+    profile.details.map((d) => d.text),
+    ['ζει στη Λιόν']
+  );
+  assert.deepEqual(
+    profile.aliases.map((a) => a.name),
+    ['Λένα']
+  );
   assert.equal(profile.realName.name, 'Hélène');
   noUrl(profile);
 });
@@ -117,10 +135,21 @@ test('updateUser: the prose fields are stored without links; a link alone does n
 test('addEpisodes: episodes are stored without links; one that is only a link is not added', () => {
   const store = tmpStore();
   const now = Date.UTC(2026, 9, 14);
-  const added = store.addEpisodes('g1', 'u1', [
-    { date: '2026-10-14', what: `Έστειλε ένα βίντεο ${URL}`, quote: `κοίτα ${URL}`, feeling: `χαρά ${URL}`, weight: 2 },
-    { date: '2026-10-14', what: URL, weight: 2 },
-  ], { maxEpisodes: 10, now });
+  const added = store.addEpisodes(
+    'g1',
+    'u1',
+    [
+      {
+        date: '2026-10-14',
+        what: `Έστειλε ένα βίντεο ${URL}`,
+        quote: `κοίτα ${URL}`,
+        feeling: `χαρά ${URL}`,
+        weight: 2,
+      },
+      { date: '2026-10-14', what: URL, weight: 2 },
+    ],
+    { maxEpisodes: 10, now }
+  );
   assert.equal(added, 1);
   const [episode] = store.getUser('g1', 'u1').episodes;
   assert.deepEqual([episode.what, episode.quote, episode.feeling], ['Έστειλε ένα βίντεο', 'κοίτα', 'χαρά']);
@@ -144,12 +173,21 @@ test('private layer: relationship, items, episodes and reasons are stored withou
     interests: { add: [{ topic: `ποίηση ${URL}`, note: URL }] },
     details: { add: [`δουλεύει σε café ${URL}`] },
   });
-  store.addPrivateEpisodes('g1', 'u1', [{ date: '2026-10-14', what: `Μίλησαν ${URL}`, weight: 2 }], { maxEpisodes: 10, now: Date.UTC(2026, 9, 14) });
+  store.addPrivateEpisodes('g1', 'u1', [{ date: '2026-10-14', what: `Μίλησαν ${URL}`, weight: 2 }], {
+    maxEpisodes: 10,
+    now: Date.UTC(2026, 9, 14),
+  });
   store.adjustPrivateAffinity('g1', 'u1', 2, `ειλικρίνεια ${URL}`, { maxDelta: 5, historySize: 10, now: 1000 });
   const priv = store.getPrivate('g1', 'u1');
   assert.equal(priv.relationship, 'Της μιλά τα βράδια');
-  assert.deepEqual(priv.interests.map((i) => [i.topic, i.note]), [['ποίηση', '']]);
-  assert.deepEqual(priv.details.map((d) => d.text), ['δουλεύει σε café']);
+  assert.deepEqual(
+    priv.interests.map((i) => [i.topic, i.note]),
+    [['ποίηση', '']]
+  );
+  assert.deepEqual(
+    priv.details.map((d) => d.text),
+    ['δουλεύει σε café']
+  );
   assert.equal(priv.episodes[0].what, 'Μίλησαν');
   assert.equal(priv.affinity.reason, 'ειλικρίνεια');
   noUrl(priv);
@@ -177,8 +215,15 @@ test('applySelfOps / applyLearnedOps: self facts and lessons are stored without 
   const store = tmpStore();
   const self = store.applySelfOps('g1', { add: [`γράφω ποιήματα ${URL}`, URL] }, { maxSelfFacts: 10 });
   assert.equal(self.added, 1);
-  const learned = store.applyLearnedOps('g1', { add: [{ text: `το café ανοίγει στις 8 ${URL}` }, URL] }, { seenAt: 1000 });
-  assert.deepEqual(learned.map((item) => item.text), ['το café ανοίγει στις 8']);
+  const learned = store.applyLearnedOps(
+    'g1',
+    { add: [{ text: `το café ανοίγει στις 8 ${URL}` }, URL] },
+    { seenAt: 1000 }
+  );
+  assert.deepEqual(
+    learned.map((item) => item.text),
+    ['το café ανοίγει στις 8']
+  );
   const guild = store.getGuild('g1');
   assert.deepEqual(guild.self, ['γράφω ποιήματα']);
   noUrl(guild);
@@ -199,10 +244,14 @@ test('updateChannel: purpose, topics and tone are stored without links; a link a
 
 test('setLore: title, keys and text are stored without links; a text that is only a link is no entry', () => {
   const store = tmpStore();
-  const upserted = store.setLore('g1', [
-    { title: `Ο βράχος ${URL}`, keys: ['βράχος', URL], text: `Ένα αστείο του server ${URL}.` },
-    { title: 'Κενό', keys: ['κενό'], text: URL },
-  ], { source: 'analyzer', now: 1000 });
+  const upserted = store.setLore(
+    'g1',
+    [
+      { title: `Ο βράχος ${URL}`, keys: ['βράχος', URL], text: `Ένα αστείο του server ${URL}.` },
+      { title: 'Κενό', keys: ['κενό'], text: URL },
+    ],
+    { source: 'analyzer', now: 1000 }
+  );
   assert.equal(upserted, 1);
   const [entry] = store.getLore('g1');
   assert.equal(entry.title, 'Ο βράχος');
@@ -215,13 +264,20 @@ test('setLore: title, keys and text are stored without links; a text that is onl
 test('applyRecentOps: a recent line is stored without links; one that is only a link is invalid', () => {
   const store = tmpStore();
   const now = Date.UTC(2026, 9, 14, 12);
-  const counts = store.applyRecentOps('g1', [
-    { text: `Ανέβηκε νέο τραγούδι ${URL}`, at: now, channelId: 'c1' },
-    { text: URL, at: now, channelId: 'c1' },
-  ], { now });
+  const counts = store.applyRecentOps(
+    'g1',
+    [
+      { text: `Ανέβηκε νέο τραγούδι ${URL}`, at: now, channelId: 'c1' },
+      { text: URL, at: now, channelId: 'c1' },
+    ],
+    { now }
+  );
   assert.equal(counts.added, 1);
   assert.equal(counts.invalid, 1);
-  assert.deepEqual(store.getRecent('g1').lines.map((line) => line.text), ['Ανέβηκε νέο τραγούδι']);
+  assert.deepEqual(
+    store.getRecent('g1').lines.map((line) => line.text),
+    ['Ανέβηκε νέο τραγούδι']
+  );
 });
 
 // ---- the archive ----
@@ -237,13 +293,22 @@ test('restoreArchived: an item restored from an old archive line comes back with
   const store = tmpStore();
   store.touchUser('g1', 'u1', 'Ελένη', 1000);
   const entry = {
-    itemKind: 'detail', itemId: 'dt-9', scope: { user: 'u1' },
-    text: { text: `παίζει πιάνο ${URL}` }, stored: { id: 9, firstSeen: '2026-10-01T00:00:00.000Z' }, weight: 1,
+    itemKind: 'detail',
+    itemId: 'dt-9',
+    scope: { user: 'u1' },
+    text: { text: `παίζει πιάνο ${URL}` },
+    stored: { id: 9, firstSeen: '2026-10-01T00:00:00.000Z' },
+    weight: 1,
   };
   const result = store.restoreArchived('g1', entry);
   assert.equal(result.restored, true);
   assert.equal(store.getUser('g1', 'u1').details.find((d) => d.itemId === 'dt-9').text, 'παίζει πιάνο');
-  const self = store.restoreArchived('g1', { itemKind: 'selfFact', itemId: 'sf-1', scope: { guild: true }, text: { text: URL } });
+  const self = store.restoreArchived('g1', {
+    itemKind: 'selfFact',
+    itemId: 'sf-1',
+    scope: { guild: true },
+    text: { text: URL },
+  });
   assert.equal(self.restored, false, 'a self fact that is only a link is not restored');
 });
 
@@ -252,7 +317,12 @@ test('restoreArchived: an item restored from an old archive line comes back with
 function opsEnv(store) {
   const rootDir = tempDir('nep-links-ops-');
   const hot = {
-    config: { bot: { owners: ['42'] }, llm: { model: 'x/y', maxRequestsPerDay: 10 }, memory: { confirmAfter: 2 }, lore: {} },
+    config: {
+      bot: { owners: ['42'] },
+      llm: { model: 'x/y', maxRequestsPerDay: 10 },
+      memory: { confirmAfter: 2 },
+      lore: {},
+    },
     prompts: { labels: {} },
     promptSources: {},
     promptsDir: path.join(rootDir, 'prompts'),
@@ -261,7 +331,15 @@ function opsEnv(store) {
     reloadConfig: () => true,
     reloadPrompts: () => true,
   };
-  return createOpsEnv({ discord: DISCORD, hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1' });
+  return createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    getGuildId: () => 'g1',
+  });
 }
 
 test('ops lore.add / learning.add / alias.add: what they store holds no link', async () => {
@@ -273,8 +351,14 @@ test('ops lore.add / learning.add / alias.add: what they store holds no link', a
   await runOp('alias.add', { userId: '7', name: `Λένα ${URL}` }, ctx);
   const [entry] = store.getLore('g1');
   assert.deepEqual([entry.title, entry.keys, entry.text], ['Ο βράχος', ['βράχος'], 'Το αστείο']);
-  assert.deepEqual(store.getGuild('g1').learned.map((item) => item.text), ['το café κλείνει νωρίς']);
-  assert.deepEqual(store.getUser('g1', '7').aliases.map((a) => a.name), ['Λένα']);
+  assert.deepEqual(
+    store.getGuild('g1').learned.map((item) => item.text),
+    ['το café κλείνει νωρίς']
+  );
+  assert.deepEqual(
+    store.getUser('g1', '7').aliases.map((a) => a.name),
+    ['Λένα']
+  );
 });
 
 test('ops lore.add: a text that is only a link is refused and stores nothing', async () => {

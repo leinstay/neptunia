@@ -23,7 +23,12 @@ export const dmScope = (person, iface = IFACE) => ({ scope_kind: 'dm', scope_ifa
 
 export const groupContext = (iface = IFACE) => ({ iface, kind: 'group' });
 /** A DM context; `place` is the DM place, resolved from the partner as the resolver does when it is not given. */
-export const dmContext = (person, iface = IFACE, place = null) => ({ iface, kind: 'dm', person, place: place ?? dmPlaceOfPerson(person, iface) });
+export const dmContext = (person, iface = IFACE, place = null) => ({
+  iface,
+  kind: 'dm',
+  person,
+  place: place ?? dmPlaceOfPerson(person, iface),
+});
 export const internalContext = () => ({ internal: true });
 
 /**
@@ -52,7 +57,8 @@ function check(ctx) {
   if (!ctx || typeof ctx !== 'object') throw new Error('memory db: a read needs a scope context');
   if (ctx.internal === true) return;
   if (ctx.kind === 'group' && typeof ctx.iface === 'string' && ctx.iface) return;
-  if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && typeof ctx.person === 'string' && ctx.person) return;
+  if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && typeof ctx.person === 'string' && ctx.person)
+    return;
   throw new Error('memory db: a read needs a valid scope context');
 }
 
@@ -103,7 +109,11 @@ export function narrowest(scopes) {
     if (kind === 'none' || kind === undefined || kind === null) continue;
     if (kind === 'internal') return { ...SCOPE_INTERNAL };
     if (kind !== 'group' && kind !== 'dm') return { ...SCOPE_INTERNAL };
-    const next = { scope_kind: kind, scope_iface: scope.scope_iface ?? null, scope_dm: kind === 'dm' ? scope.scope_dm ?? null : null };
+    const next = {
+      scope_kind: kind,
+      scope_iface: scope.scope_iface ?? null,
+      scope_dm: kind === 'dm' ? (scope.scope_dm ?? null) : null,
+    };
     if (result.scope_kind === 'none') {
       result = next;
     } else if (result.scope_kind === 'group' && next.scope_kind === 'group') {
@@ -167,10 +177,12 @@ export function audienceParts(id, lookup = null) {
   const value = String(id ?? '');
   if (value === AUD_NONE) return { id: value, kind: 'none', iface: null, place_id: null };
   if (value === AUD_INTERNAL) return { id: value, kind: 'internal', iface: null, place_id: null };
-  if (value.startsWith('aud:group:') && value.length > 'aud:group:'.length) return { id: value, kind: 'group', iface: value.slice('aud:group:'.length), place_id: null };
+  if (value.startsWith('aud:group:') && value.length > 'aud:group:'.length)
+    return { id: value, kind: 'group', iface: value.slice('aud:group:'.length), place_id: null };
   if (value.startsWith('aud:dm:') && value.length > 'aud:dm:'.length) {
     const place = value.slice('aud:dm:'.length);
-    const iface = (typeof lookup === 'function' ? lookup(place)?.iface : null) ?? dmPartnerOfPlace(place)?.iface ?? null;
+    const iface =
+      (typeof lookup === 'function' ? lookup(place)?.iface : null) ?? dmPartnerOfPlace(place)?.iface ?? null;
     return { id: value, kind: 'dm', iface, place_id: place };
   }
   return null;
@@ -186,7 +198,9 @@ export function scopeOfAudience(id, lookup = null) {
   if (parts.kind === 'none') return { ...SCOPE_NONE };
   if (parts.kind === 'group') return groupScope(parts.iface);
   const found = typeof lookup === 'function' ? lookup(parts.place_id) : null;
-  const partner = found?.partner_person ? { iface: found.iface, person: found.partner_person } : dmPartnerOfPlace(parts.place_id);
+  const partner = found?.partner_person
+    ? { iface: found.iface, person: found.partner_person }
+    : dmPartnerOfPlace(parts.place_id);
   return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
 }
 
@@ -221,7 +235,8 @@ export function audienceWhere(ctx, alias = '') {
 }
 
 /** The read filter of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
-export const scopeWhere = (ctx, alias = '') => (ctx?.audienceColumn === true ? audienceWhere(ctx, alias) : whereFor(ctx, alias));
+export const scopeWhere = (ctx, alias = '') =>
+  ctx?.audienceColumn === true ? audienceWhere(ctx, alias) : whereFor(ctx, alias);
 
 /** The row check of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
 export const canRead = (row, ctx) => (ctx?.audienceColumn === true ? allowedAudience(row, ctx) : allowed(row, ctx));
@@ -244,7 +259,10 @@ export function narrowestAudience(audiences, lookup = null) {
     if (next.kind === 'none') continue;
     if (next.kind === 'internal') return AUD_INTERNAL;
     if (next.kind === 'dm' && !next.iface) return AUD_INTERNAL;
-    if (result.kind === 'none') { result = next; continue; }
+    if (result.kind === 'none') {
+      result = next;
+      continue;
+    }
     if (result.iface !== next.iface) return AUD_INTERNAL;
     if (result.kind === 'group' && next.kind === 'dm') result = next;
     else if (result.kind === 'dm' && next.kind === 'dm' && result.place_id !== next.place_id) return AUD_INTERNAL;
@@ -264,7 +282,17 @@ export const CONTEXT_POLICY_VERSION = 1;
  * @param {{ kind: 'group'|'dm'|'internal', iface?: string, person?: string, place?: string|null, destination?: string|null,
  *   policyVersion?: number, now?: () => number, newId?: () => string, audienceColumn?: boolean }} spec
  */
-export function issueContext({ kind, iface = IFACE, person = null, place = null, destination = null, policyVersion = CONTEXT_POLICY_VERSION, now = Date.now, newId = () => `ctx:${randomUUID()}`, audienceColumn = false } = {}) {
+export function issueContext({
+  kind,
+  iface = IFACE,
+  person = null,
+  place = null,
+  destination = null,
+  policyVersion = CONTEXT_POLICY_VERSION,
+  now = Date.now,
+  newId = () => `ctx:${randomUUID()}`,
+  audienceColumn = false,
+} = {}) {
   let base;
   if (kind === 'group') base = groupContext(iface);
   else if (kind === 'dm') base = dmContext(person, iface, place);
@@ -287,9 +315,9 @@ export function contextRow(ctx) {
   return {
     id: ctx.id,
     mode: ctx.mode ?? (ctx.internal === true ? 'internal' : 'outward'),
-    iface: ctx.internal === true ? null : ctx.iface ?? null,
+    iface: ctx.internal === true ? null : (ctx.iface ?? null),
     destination_place_id: ctx.destination ?? null,
-    partner_person_id: ctx.kind === 'dm' ? ctx.person ?? null : null,
+    partner_person_id: ctx.kind === 'dm' ? (ctx.person ?? null) : null,
     policy_version: Number.isInteger(ctx.policyVersion) ? ctx.policyVersion : CONTEXT_POLICY_VERSION,
     issued_at: ctx.issuedAt ?? null,
   };

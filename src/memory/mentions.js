@@ -58,12 +58,14 @@ export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
  * The one copy for the operations (src/ops/shared.js#messageRefOf) and her calls
  * (src/skills/executors.js#resolveCall).
  */
-export const MESSAGE_LINK_RE = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
+export const MESSAGE_LINK_RE =
+  /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
 
 // A Discord message link inside a text (MESSAGE_LINK_RE's forms), optionally in angle brackets;
 // groups: `<`, the message id, `>`. Not glued to a word or a path before it, and nothing that
 // continues a URL (a word character, `/`, a query, a fragment) after it.
-const MESSAGE_LINK_IN_TEXT_RE = /(?<![\w/])(<?)https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/\d+\/(\d+)\/?(>?)(?![\w/?#&=%~+-])/gi;
+const MESSAGE_LINK_IN_TEXT_RE =
+  /(?<![\w/])(<?)https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/\d+\/(\d+)\/?(>?)(?![\w/?#&=%~+-])/gi;
 
 /**
  * `text` with every Discord message link (MESSAGE_LINK_RE's forms, bare or in angle brackets)
@@ -380,7 +382,10 @@ export function channelCore(name) {
  * @returns {{ id: string, name: string } | 'ambiguous' | null}
  */
 export function matchChannel(written, channels) {
-  const list = [...(channels ?? [])].filter((channel) => channel && typeof channel.name === 'string' && channel.name && channel.id !== undefined && channel.id !== null);
+  const list = [...(channels ?? [])].filter(
+    (channel) =>
+      channel && typeof channel.name === 'string' && channel.name && channel.id !== undefined && channel.id !== null
+  );
   const given = String(written ?? '');
   const exact = list.filter((channel) => channel.name === given);
   if (exact.length === 1) return exact[0];
@@ -400,7 +405,11 @@ export function matchChannel(written, channels) {
  */
 function coreAt(text, at, byCore) {
   let start = at;
-  while (start < text.length && !isWordChar(text[start]) && NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start)))) {
+  while (
+    start < text.length &&
+    !isWordChar(text[start]) &&
+    NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start)))
+  ) {
     start += String.fromCodePoint(text.codePointAt(start)).length;
   }
   if (!isWordChar(text[start])) return null;
@@ -410,7 +419,11 @@ function coreAt(text, at, byCore) {
       if (isWordChar(text[end])) continue;
       if (foldText(text.slice(start, end)) !== core) continue;
       let stop = end;
-      while (stop < text.length && !isWordChar(text[stop]) && NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop)))) {
+      while (
+        stop < text.length &&
+        !isWordChar(text[stop]) &&
+        NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop)))
+      ) {
         stop += String.fromCodePoint(text.codePointAt(stop)).length;
       }
       return { channel, end: stop };
@@ -444,7 +457,8 @@ export function linkChannels(text, channels, handles = null) {
   if (typeof text !== 'string' || !text.includes('#') || (!channels && !byHandle)) return text;
   const known = [];
   for (const channel of channels ?? []) {
-    if (typeof channel?.id === 'string' && channel.id && typeof channel.name === 'string' && channel.name) known.push(channel);
+    if (typeof channel?.id === 'string' && channel.id && typeof channel.name === 'string' && channel.name)
+      known.push(channel);
   }
   if (known.length === 0 && !byHandle) return text;
   known.sort((a, b) => b.name.length - a.name.length);
@@ -455,7 +469,10 @@ export function linkChannels(text, channels, handles = null) {
     if (core) counts.set(core, [...(counts.get(core) ?? []), channel]);
   }
   const byCore = new Map(
-    [...counts.entries()].filter(([, channels]) => channels.length === 1).sort((a, b) => b[0].length - a[0].length).map(([core, [channel]]) => [core, channel]),
+    [...counts.entries()]
+      .filter(([, channels]) => channels.length === 1)
+      .sort((a, b) => b[0].length - a[0].length)
+      .map(([core, [channel]]) => [core, channel])
   );
 
   return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore, byHandle));
@@ -470,7 +487,9 @@ function handleAt(text, at, byHandle) {
   const token = CHANNEL_HANDLE_AT_RE.exec(text.slice(at + 1))?.[0];
   if (!token || isWordChar(text[at + 1 + token.length])) return null;
   const id = byHandle.get(token);
-  return id === undefined || id === null || String(id) === '' ? null : { channel: { id: String(id) }, end: at + 1 + token.length };
+  return id === undefined || id === null || String(id) === ''
+    ? null
+    : { channel: { id: String(id) }, end: at + 1 + token.length };
 }
 
 /** linkChannels over one stretch of text holding no URL. */
@@ -485,7 +504,9 @@ function linkChannelsIn(text, known, byCore, byHandle = null) {
     let linked = null;
     if (before !== '<' && !isWordChar(before)) {
       linked = handleAt(text, at, byHandle);
-      const exact = linked ? null : (known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null);
+      const exact = linked
+        ? null
+        : (known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null);
       if (!linked) linked = exact ? { channel: exact, end: at + 1 + exact.name.length } : coreAt(text, at + 1, byCore);
     }
     if (linked) {
@@ -545,7 +566,11 @@ export function redactUser(text, { userId, names = [], token }) {
   if (typeof text !== 'string' || !text) return text;
   const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let out = text.split(`<@${userId}>`).join(token).split(`<@!${userId}>`).join(token);
-  const usable = [...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map((name) => name.trim()))]
+  const usable = [
+    ...new Set(
+      (Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map((name) => name.trim())
+    ),
+  ]
     .filter((name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_REDACT_NAME)
     .sort((a, b) => b.length - a.length);
   for (const name of usable) {

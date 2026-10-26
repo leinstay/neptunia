@@ -10,7 +10,11 @@ import { apiNameOf, skillNameOfApi } from './definitions.js';
 export function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])])
+    );
   }
   return value;
 }
@@ -18,7 +22,9 @@ export function canonicalJson(value) {
 /** `text` with every `{{key}}` of `fill` replaced (an own key with a non-null value); other placeholders stay. */
 function filled(text, fill) {
   if (!fill || typeof fill !== 'object') return text;
-  return String(text).replace(/\{\{(\w+)\}\}/g, (all, key) => (Object.hasOwn(fill, key) && fill[key] != null ? String(fill[key]) : all));
+  return String(text).replace(/\{\{(\w+)\}\}/g, (all, key) =>
+    Object.hasOwn(fill, key) && fill[key] != null ? String(fill[key]) : all
+  );
 }
 
 const DEFAULT_STRING_MAX = 6000;
@@ -50,7 +56,8 @@ function parametersOf(skill, texts, fill) {
   const schema = JSON.parse(JSON.stringify(skill.argsSchema));
   const described = skillArgTexts(skill, texts);
   for (const [name, text] of Object.entries(described)) {
-    if (schema.properties && Object.hasOwn(schema.properties, name)) schema.properties[name].description = filled(text, fill);
+    if (schema.properties && Object.hasOwn(schema.properties, name))
+      schema.properties[name].description = filled(text, fill);
   }
   return leanSchema(schema);
 }
@@ -76,10 +83,16 @@ export function buildTools(names, { registry = skillRegistry(), texts, fill } = 
     const skill = registry.get(name);
     const api = skill ? (skill.api ?? apiNameOf(name)) : null;
     if (!skill || !api) continue;
-    tools.push(canonicalJson({
-      type: 'function',
-      function: { name: api, description: descriptionOf(skill, texts, fill), parameters: parametersOf(skill, texts, fill) },
-    }));
+    tools.push(
+      canonicalJson({
+        type: 'function',
+        function: {
+          name: api,
+          description: descriptionOf(skill, texts, fill),
+          parameters: parametersOf(skill, texts, fill),
+        },
+      })
+    );
   }
   return tools.sort((a, b) => (a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0));
 }

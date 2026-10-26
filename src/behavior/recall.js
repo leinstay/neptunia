@@ -48,7 +48,14 @@ import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/index.js';
-import { TEACHER_TOKEN_RE, fromTokens, isWordChar, occursAsWholeWord, occursAsWordStem, tokenIds } from '../memory/mentions.js';
+import {
+  TEACHER_TOKEN_RE,
+  fromTokens,
+  isWordChar,
+  occursAsWholeWord,
+  occursAsWordStem,
+  tokenIds,
+} from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
@@ -75,7 +82,28 @@ export const PREFETCH_DEFAULTS = Object.freeze({
   maxPhraseDf: 20,
   minPhraseShare: 0.2,
   rareTermDf: 30,
-  trivial: Object.freeze(['hi', 'hello', 'hey', 'yo', 'ok', 'okay', 'k', 'thanks', 'thank you', 'thx', 'ty', 'yes', 'no', 'yep', 'nope', 'lol', 'haha', 'good night', 'good morning', 'bye']),
+  trivial: Object.freeze([
+    'hi',
+    'hello',
+    'hey',
+    'yo',
+    'ok',
+    'okay',
+    'k',
+    'thanks',
+    'thank you',
+    'thx',
+    'ty',
+    'yes',
+    'no',
+    'yep',
+    'nope',
+    'lol',
+    'haha',
+    'good night',
+    'good morning',
+    'bye',
+  ]),
   deictic: Object.freeze(['that', 'this', 'it', 'he', 'she', 'they', 'him', 'her', 'them', 'there', 'those', 'these']),
 });
 
@@ -114,7 +142,16 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorBonus: 2,
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
-  db: Object.freeze({ gateShare: 0.5, candidates: 40, wordPool: 400, minMeaning: 0.35, vectorDays: 90, touchDays: 30, vectorEviction: false, reembed: false }),
+  db: Object.freeze({
+    gateShare: 0.5,
+    candidates: 40,
+    wordPool: 400,
+    minMeaning: 0.35,
+    vectorDays: 90,
+    touchDays: 30,
+    vectorEviction: false,
+    reembed: false,
+  }),
   prefetch: PREFETCH_DEFAULTS,
 });
 
@@ -255,7 +292,10 @@ export function recallSettings(config) {
       gateShare: shareOf(r.db?.gateShare, d.db.gateShare),
       candidates: intAtLeast(r.db?.candidates, d.db.candidates, 1),
       wordPool: intAtLeast(r.db?.wordPool, d.db.wordPool, 1),
-      minMeaning: Number.isFinite(r.db?.minMeaning) && r.db.minMeaning >= -1 && r.db.minMeaning <= 1 ? r.db.minMeaning : d.db.minMeaning,
+      minMeaning:
+        Number.isFinite(r.db?.minMeaning) && r.db.minMeaning >= -1 && r.db.minMeaning <= 1
+          ? r.db.minMeaning
+          : d.db.minMeaning,
       // The index policy (src/memory/db/index-policy.js, schema v11): read there from the live config, normalised here alike.
       vectorDays: intAtLeast(r.db?.vectorDays, d.db.vectorDays, 1),
       touchDays: intAtLeast(r.db?.touchDays, d.db.touchDays, 1),
@@ -269,7 +309,14 @@ export function recallSettings(config) {
 /** A list of non-empty strings folded (foldText) and deduplicated, else `fallback`'s folded. */
 function phraseList(value, fallback) {
   const list = Array.isArray(value) ? value : fallback;
-  return [...new Set(list.filter((item) => typeof item === 'string').map(foldText).filter(Boolean))];
+  return [
+    ...new Set(
+      list
+        .filter((item) => typeof item === 'string')
+        .map(foldText)
+        .filter(Boolean)
+    ),
+  ];
 }
 
 /**
@@ -417,7 +464,8 @@ export function fuseRanks(lists, { k = RRF_K, weights = null } = {}) {
  * @returns {{ text: string, form: 'question'|'question+reply' }|null}
  */
 export function meaningQuery({ candidate = null, lines = [], withReply = false, nameOf = null } = {}) {
-  const flat = (message) => oneLine(fromTokens(typeof message?.content === 'string' ? message.content : '', nameOf, 'chat'));
+  const flat = (message) =>
+    oneLine(fromTokens(typeof message?.content === 'string' ? message.content : '', nameOf, 'chat'));
   const question = flat(candidate);
   if (!question) return null;
   const replyId = typeof candidate?.replyToId === 'string' && candidate.replyToId ? candidate.replyToId : null;
@@ -433,7 +481,11 @@ function stripLine(line) {
   let end = points.length;
   const isSpace = (c) => c.trim() === '';
   while (start < end && (QUOTES.has(points[start]) || isSpace(points[start]))) start += 1;
-  while (end > start && (QUOTES.has(points[end - 1]) || TRAILING_PUNCTUATION.has(points[end - 1]) || isSpace(points[end - 1]))) end -= 1;
+  while (
+    end > start &&
+    (QUOTES.has(points[end - 1]) || TRAILING_PUNCTUATION.has(points[end - 1]) || isSpace(points[end - 1]))
+  )
+    end -= 1;
   return points.slice(start, end).join('');
 }
 
@@ -488,7 +540,10 @@ function sideEnd(side, timezone) {
  */
 function parseRange(value, timezone, now) {
   // Quotes go, but not the `..` of an open end: only a lone trailing period does.
-  let text = [...String(value ?? '')].filter((c, i, all) => !(QUOTES.has(c) && (i === 0 || i === all.length - 1))).join('').trim();
+  let text = [...String(value ?? '')]
+    .filter((c, i, all) => !(QUOTES.has(c) && (i === 0 || i === all.length - 1)))
+    .join('')
+    .trim();
   if (/[^.]\.$/.test(text)) text = text.slice(0, -1).trim();
   if (!text || NONE_RE.test(text)) return null;
   const sides = text.split(RANGE_SPLIT_RE);
@@ -637,7 +692,14 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
   // A range beside forms or names only locates the event unless marked scope; a range alone is the question.
   const locator = Boolean(range) && (forms.length > 0 || who.length > 0) && role !== 'scope';
   const server = asked
-    ? { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(recent ? { recent: true } : {}), ...(locator ? { locator: true } : {}) }
+    ? {
+        forms,
+        who,
+        from: range?.from ?? null,
+        to: range?.to ?? null,
+        ...(recent ? { recent: true } : {}),
+        ...(locator ? { locator: true } : {}),
+      }
     : null;
   if (web || server) return { web, server, reason: 'ok' };
   return { web: null, server: null, reason: content ? 'unparsed' : 'none' };
@@ -699,7 +761,10 @@ export function searchPlan({ forms = [], who = [], memberIds = [], from = null, 
   const upper = Number.isFinite(to) ? to + 1 : Infinity;
   const lower = Number.isFinite(from) ? from : null;
   if (lower !== null && upper <= lower) return [];
-  const range = { minId: lower !== null ? snowflakeAt(lower) : null, maxId: Number.isFinite(upper) ? snowflakeAt(upper) : null };
+  const range = {
+    minId: lower !== null ? snowflakeAt(lower) : null,
+    maxId: Number.isFinite(upper) ? snowflakeAt(upper) : null,
+  };
 
   const contents = [];
   const a = Array.isArray(forms) ? forms : [];
@@ -709,7 +774,9 @@ export function searchPlan({ forms = [], who = [], memberIds = [], from = null, 
       if (typeof form === 'string' && form && !contents.includes(form) && contents.length < limit) contents.push(form);
     }
   }
-  const authors = [...new Set((Array.isArray(memberIds) ? memberIds : []).filter((id) => typeof id === 'string' && id))];
+  const authors = [
+    ...new Set((Array.isArray(memberIds) ? memberIds : []).filter((id) => typeof id === 'string' && id)),
+  ];
   const plan = [
     ...contents.map((content) => ({ kind: a.includes(content) ? 'form' : 'who', content, ...range })),
     ...authors.map((authorId) => ({ kind: 'author', authorId, ...range })),
@@ -770,7 +837,8 @@ export function rareFormKeys(totals, rareHits) {
   const out = new Set();
   if (limit === 0 || !totals || typeof totals[Symbol.iterator] !== 'function') return out;
   for (const [key, total] of totals) {
-    if (typeof key === 'string' && key.startsWith(FORM_KEY) && Number.isFinite(total) && total >= 0 && total <= limit) out.add(key);
+    if (typeof key === 'string' && key.startsWith(FORM_KEY) && Number.isFinite(total) && total >= 0 && total <= limit)
+      out.add(key);
   }
   return out;
 }
@@ -813,12 +881,15 @@ export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareFor
   const gapMs = numberAtLeast(gapMinutes, RECALL_DEFAULTS.clusterGapMinutes, 0) * MINUTE_MS;
   const keep = intAtLeast(maxClusters, RECALL_DEFAULTS.maxClusters, 1);
   const oldest = Math.min(keep, intAtLeast(keepOldest, RECALL_DEFAULTS.keepOldest, 0));
-  const rare = new Set(rareForms && typeof rareForms !== 'string' && typeof rareForms[Symbol.iterator] === 'function' ? rareForms : []);
+  const rare = new Set(
+    rareForms && typeof rareForms !== 'string' && typeof rareForms[Symbol.iterator] === 'function' ? rareForms : []
+  );
   const byChannel = new Map();
   const seen = new Map();
   for (const hit of Array.isArray(hits) ? hits : []) {
     if (!hit?.id || !hit.channelId || !Number.isFinite(hit.ts)) continue;
-    const keys = typeof hit.queries === 'string' ? [] : [...(hit.queries ?? [])].filter((key) => typeof key === 'string' && key);
+    const keys =
+      typeof hit.queries === 'string' ? [] : [...(hit.queries ?? [])].filter((key) => typeof key === 'string' && key);
     if (seen.has(hit.id)) {
       for (const key of keys) seen.get(hit.id).queries.add(key);
       continue;
@@ -876,7 +947,12 @@ function selectClusters(clusters, keep, oldest, scoreOf, locator = null) {
   const near = usableLocator(locator);
   if (near) {
     const boosted = (cluster) => scoreOf(cluster) + proximityBonus(cluster.startTs, cluster.endTs, near);
-    const picked = locatorKeep(clusters, { keep, broadShare: near.broadShare, broadOrder: byRank, datedOrder: (x, y) => boosted(y) - boosted(x) || byRank(x, y) });
+    const picked = locatorKeep(clusters, {
+      keep,
+      broadShare: near.broadShare,
+      broadOrder: byRank,
+      datedOrder: (x, y) => boosted(y) - boosted(x) || byRank(x, y),
+    });
     for (const { item, share } of picked) item.share = share;
     return picked.map(({ item }) => item).sort(newestFirst);
   }
@@ -982,7 +1058,9 @@ export function followConversation(lastTs, after, { followMessages, followGapMin
   const out = [];
   if (cap === 0 || !Number.isFinite(lastTs)) return out;
   let previous = lastTs;
-  const list = (Array.isArray(after) ? after : []).filter((m) => m && Number.isFinite(m.ts)).sort((x, y) => x.ts - y.ts);
+  const list = (Array.isArray(after) ? after : [])
+    .filter((m) => m && Number.isFinite(m.ts))
+    .sort((x, y) => x.ts - y.ts);
   for (const message of list) {
     if (out.length >= cap || message.ts - previous > gap) break;
     out.push(message);
@@ -1087,7 +1165,19 @@ function unnumbered(message) {
  * @returns {{ channelId: string, channelName: string|null, startTs: number,
  *   lines: { id: string, ts: number, text: string, hit: boolean }[] }[]}
  */
-export function renderRecallWindows(windows, { labels, timezone = 'UTC', selfName = '', gapMinutes = 20, maxChars = 800, seeReactions = true, reactionsPerMessage, indexed = true } = {}) {
+export function renderRecallWindows(
+  windows,
+  {
+    labels,
+    timezone = 'UTC',
+    selfName = '',
+    gapMinutes = 20,
+    maxChars = 800,
+    seeReactions = true,
+    reactionsPerMessage,
+    indexed = true,
+  } = {}
+) {
   const out = [];
   let offset = 0;
   for (const window of Array.isArray(windows) ? windows : []) {
@@ -1128,7 +1218,14 @@ const NO_FIELD = '-';
 
 /** The folded, non-empty, distinct forms of `list` (src/memory/recent.js#foldText). */
 function foldedForms(list) {
-  return [...new Set((Array.isArray(list) ? list : []).filter((form) => typeof form === 'string').map(foldText).filter(Boolean))];
+  return [
+    ...new Set(
+      (Array.isArray(list) ? list : [])
+        .filter((form) => typeof form === 'string')
+        .map(foldText)
+        .filter(Boolean)
+    ),
+  ];
 }
 
 /** How many of `forms` (folded) occur, word endings allowed (src/memory/mentions.js#occursAsWordStem), in at least one of `texts` (folded here). */
@@ -1150,7 +1247,10 @@ export function countFormsIn(texts, forms) {
 
 /** The searchable texts of a chat message as the record reader matches them (its text, its links' titles and descriptions). */
 export function searchableTexts(message) {
-  return recordTexts({ content: typeof message?.content === 'string' ? message.content : '', links: Array.isArray(message?.links) ? message.links : [] });
+  return recordTexts({
+    content: typeof message?.content === 'string' ? message.content : '',
+    links: Array.isArray(message?.links) ? message.links : [],
+  });
 }
 
 /** A time from an ISO string, or -Infinity. */
@@ -1175,7 +1275,14 @@ function byScore(a, b) {
 
 /** The order of a vague "recently": the persona's own exchanges first, then the newer, then score and weight. */
 function byRecency(a, b) {
-  return Number(b.self === true) - Number(a.self === true) || b.ts - a.ts || b.ts2 - a.ts2 || b.score - a.score || b.weight - a.weight || a.order - b.order;
+  return (
+    Number(b.self === true) - Number(a.self === true) ||
+    b.ts - a.ts ||
+    b.ts2 - a.ts2 ||
+    b.score - a.score ||
+    b.weight - a.weight ||
+    a.order - b.order
+  );
 }
 
 /**
@@ -1195,16 +1302,22 @@ function memoryContext({ forms, who, profiles, from, to, timezone, anyway = fals
     if (!profile || typeof profile !== 'object') continue;
     const id = memberIdOf(profile.id);
     if (id === null || whoForms.length === 0) continue;
-    const names = [...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name), ...(Array.isArray(profile.names) ? profile.names : [])];
+    const names = [
+      ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name),
+      ...(Array.isArray(profile.names) ? profile.names : []),
+    ];
     if (names.some((name) => typeof name === 'string' && whoForms.includes(foldText(name)))) people.add(id);
   }
   return {
     timezone,
     ranged,
     people,
-    dayInside: (day) => !ranged || (Boolean(day) && (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay)),
-    atInside: (at) => !ranged || (Number.isFinite(at) && (!Number.isFinite(from) || at >= from) && (!Number.isFinite(to) || at <= to)),
-    namesPerson: (texts, extraIds = []) => [...extraIds, ...texts.flatMap((text) => tokenIds(text))].some((id) => people.has(String(id))),
+    dayInside: (day) =>
+      !ranged || (Boolean(day) && (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay)),
+    atInside: (at) =>
+      !ranged || (Number.isFinite(at) && (!Number.isFinite(from) || at >= from) && (!Number.isFinite(to) || at <= to)),
+    namesPerson: (texts, extraIds = []) =>
+      [...extraIds, ...texts.flatMap((text) => tokenIds(text))].some((id) => people.has(String(id))),
     score: (texts, person) => formsMatched(texts, allForms) + (person ? 1 : 0),
   };
 }
@@ -1260,7 +1373,8 @@ function archivedItem(entry, ctx, { matched = true } = {}) {
   const searched = [...texts, neutral];
   const score = ctx.score(searched, ctx.namesPerson(searched, ids));
   if (score <= 0 && matched) return null;
-  const observed = isPlainObject(entry.observedAt) && typeof entry.observedAt.date === 'string' ? entry.observedAt.date : '';
+  const observed =
+    isPlainObject(entry.observedAt) && typeof entry.observedAt.date === 'string' ? entry.observedAt.date : '';
   return {
     kind: `archived ${entry.itemKind}`,
     text,
@@ -1335,7 +1449,22 @@ function archivedItem(entry, ctx, { matched = true } = {}) {
  * @returns {{ kind: string, text: string, date: string|null, memberId: string|null, itemId: string|null, self: boolean,
  *   score: number, share?: 'broad'|'dated' }[]}
  */
-export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], meaning = [], from = null, to = null, max, timezone = 'UTC', recent = false, locator = null } = {}) {
+export function matchMemory({
+  forms = [],
+  who = [],
+  profiles = [],
+  lore = [],
+  learned = [],
+  recentLines = [],
+  archived = [],
+  meaning = [],
+  from = null,
+  to = null,
+  max,
+  timezone = 'UTC',
+  recent = false,
+  locator = null,
+} = {}) {
   const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
   const list = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : []);
   const meant = list(meaning);
@@ -1380,21 +1509,48 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
       const text = textOf(entry.text);
       if (!text) continue;
       const keys = Array.isArray(entry.keys) ? entry.keys.filter((key) => typeof key === 'string') : [];
-      const item = { kind: 'lore', text: title ? `${title}: ${text}` : text, date: null, memberId: null, itemId: itemIdOf(entry), weight: NEUTRAL_WEIGHT, ts: isoMs(entry.updatedAt || entry.createdAt), ts2: 0 };
+      const item = {
+        kind: 'lore',
+        text: title ? `${title}: ${text}` : text,
+        date: null,
+        memberId: null,
+        itemId: itemIdOf(entry),
+        weight: NEUTRAL_WEIGHT,
+        ts: isoMs(entry.updatedAt || entry.createdAt),
+        ts2: 0,
+      };
       add(item, [title, ...keys, text], namesPerson([title, text]));
     }
     for (const entry of list(learned)) {
       const text = textOf(entry.text);
       if (!text) continue;
       const teacher = typeof entry.from === 'string' ? (TEACHER_TOKEN_RE.exec(entry.from.trim())?.[1] ?? null) : null;
-      const item = { kind: 'learned', text, date: null, memberId: teacher, itemId: itemIdOf(entry), weight: NEUTRAL_WEIGHT, ts: isoMs(entry.lastSeen), ts2: 0 };
+      const item = {
+        kind: 'learned',
+        text,
+        date: null,
+        memberId: teacher,
+        itemId: itemIdOf(entry),
+        weight: NEUTRAL_WEIGHT,
+        ts: isoMs(entry.lastSeen),
+        ts2: 0,
+      };
       add(item, [text], namesPerson([text]));
     }
   }
   for (const line of list(recentLines)) {
     const text = textOf(line.text);
     if (!text || !Number.isFinite(line.at) || !atInside(line.at)) continue;
-    const item = { kind: 'recent', text, date: zonedDay(line.at, timezone), memberId: null, itemId: itemIdOf(line), weight: NEUTRAL_WEIGHT, ts: line.at, ts2: 0 };
+    const item = {
+      kind: 'recent',
+      text,
+      date: zonedDay(line.at, timezone),
+      memberId: null,
+      itemId: itemIdOf(line),
+      weight: NEUTRAL_WEIGHT,
+      ts: line.at,
+      ts2: 0,
+    };
     add(item, [text], namesPerson([text], Array.isArray(line.who) ? line.who : []));
   }
 
@@ -1442,12 +1598,26 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
         const day = item.date ? dateSide(item.date) : null;
         const bonus = day ? proximityBonus(sideStart(day, timezone), sideEnd(day, timezone), near) : 0;
         return [item, (fusedScore ? fusedScore.get(item) : item.score) + unit * bonus];
-      }),
+      })
     );
     const byPosition = (a, b) => position.get(a) - position.get(b);
-    picked = locatorKeep(chosen, { keep: limit, broadShare: near.broadShare, broadOrder: byPosition, datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || byPosition(a, b) });
+    picked = locatorKeep(chosen, {
+      keep: limit,
+      broadShare: near.broadShare,
+      broadOrder: byPosition,
+      datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || byPosition(a, b),
+    });
   }
-  return picked.map(({ item: { kind, text, date, memberId, itemId, self, score }, share }) => ({ kind, text, date, memberId, itemId, self, score, ...(share ? { share } : {}) }));
+  return picked.map(({ item: { kind, text, date, memberId, itemId, self, score }, share }) => ({
+    kind,
+    text,
+    date,
+    memberId,
+    itemId,
+    self,
+    score,
+    ...(share ? { share } : {}),
+  }));
 }
 
 /**
@@ -1465,10 +1635,25 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
  *   timezone?: string, recent?: boolean, allow?: (entry: object) => boolean, max?: number, signal?: AbortSignal }} [options]
  * @returns {Promise<object[]>}
  */
-export async function scanArchive(entries, { forms = [], who = [], profiles = [], from = null, to = null, timezone = 'UTC', recent = false, allow, max, signal } = {}) {
+export async function scanArchive(
+  entries,
+  {
+    forms = [],
+    who = [],
+    profiles = [],
+    from = null,
+    to = null,
+    timezone = 'UTC',
+    recent = false,
+    allow,
+    max,
+    signal,
+  } = {}
+) {
   const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
   const ctx = memoryContext({ forms, who, profiles, from, to, timezone });
-  const iterable = entries && (typeof entries[Symbol.asyncIterator] === 'function' || typeof entries[Symbol.iterator] === 'function');
+  const iterable =
+    entries && (typeof entries[Symbol.asyncIterator] === 'function' || typeof entries[Symbol.iterator] === 'function');
   if (limit === 0 || ctx === null || !iterable) return [];
   const bound = limit * ARCHIVE_CANDIDATES_PER_ITEM;
   const order = recent ? byRecency : byScore;
@@ -1590,8 +1775,19 @@ export function buildRecallRequest({
   timeCue = null,
 }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
-  const rendered = renderRecallWindows(windows, { labels, timezone, selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage, indexed: true });
-  const notes = (Array.isArray(memory) ? memory : []).filter((item) => item && typeof item.text === 'string' && item.text.trim());
+  const rendered = renderRecallWindows(windows, {
+    labels,
+    timezone,
+    selfName,
+    gapMinutes,
+    maxChars,
+    seeReactions,
+    reactionsPerMessage,
+    indexed: true,
+  });
+  const notes = (Array.isArray(memory) ? memory : []).filter(
+    (item) => item && typeof item.text === 'string' && item.text.trim()
+  );
   // The <memory> lines in order, until the next one would pass `memoryTokens`.
   const tokenCap = Number.isFinite(memoryTokens) && memoryTokens >= 0 ? memoryTokens : Infinity;
   const memoryLines = [];
@@ -1605,7 +1801,9 @@ export function buildRecallRequest({
   }
   if (rendered.length === 0 && memoryLines.length === 0) return null;
   // The windows renderRecallWindows rendered, in its order (it skips the ones without a message).
-  const sources = (Array.isArray(windows) ? windows : []).filter((window) => (window?.messages ?? []).filter(Boolean).length > 0);
+  const sources = (Array.isArray(windows) ? windows : []).filter(
+    (window) => (window?.messages ?? []).filter(Boolean).length > 0
+  );
   const flag = (key) => {
     const label = labels?.lookup?.[key];
     // Trimmed: a label written with its own leading space never doubles the separator.
@@ -1617,7 +1815,10 @@ export function buildRecallRequest({
     const current = source?.overlapsChat === true ? flag('stretchCurrent') : '';
     // A protocol mark, not wording: the window was read from the record, not found by the search.
     const origin = source?.source === 'record' ? ' | source: record' : '';
-    return [`## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${origin}${self}${current}`, ...window.lines.map((line) => line.text)].join('\n');
+    return [
+      `## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${origin}${self}${current}`,
+      ...window.lines.map((line) => line.text),
+    ].join('\n');
   });
   const chat = (Array.isArray(context) ? context : []).filter(Boolean);
   let contextText = '';
@@ -1700,7 +1901,8 @@ export function parseRecallAnswer(raw, { answerChars, count = 0 } = {}) {
 export function cutStretch(lines, maxChars) {
   const list = Array.isArray(lines) ? [...lines] : [];
   if (!Number.isFinite(maxChars) || maxChars < 0) return list;
-  const size = (from, to) => list.slice(from, to).reduce((sum, line, i) => sum + (i > 0 ? 1 : 0) + [...line.text].length, 0);
+  const size = (from, to) =>
+    list.slice(from, to).reduce((sum, line, i) => sum + (i > 0 ? 1 : 0) + [...line.text].length, 0);
   let start = 0;
   let end = list.length;
   const firstHit = list.findIndex((line) => line.hit);
@@ -1733,7 +1935,11 @@ const MEANING_READ_AFTER_MS = 2 * 60 * MINUTE_MS;
  */
 function meaningSpans(rows) {
   const spans = rows
-    .map((row) => ({ from: row.ts - MEANING_READ_BEFORE_MS, to: row.ts + MEANING_READ_AFTER_MS, channels: new Set([row.channelId]) }))
+    .map((row) => ({
+      from: row.ts - MEANING_READ_BEFORE_MS,
+      to: row.ts + MEANING_READ_AFTER_MS,
+      channels: new Set([row.channelId]),
+    }))
     .sort((a, b) => a.from - b.from);
   const merged = [];
   for (const span of spans) {
@@ -1754,9 +1960,22 @@ function meaningRows(meaning) {
   const seen = new Set();
   for (const row of Array.isArray(meaning) ? meaning : []) {
     const ts = Date.parse(row?.occurredAt);
-    if (typeof row?.id !== 'string' || !row.id || seen.has(row.id) || typeof row.channelId !== 'string' || !row.channelId || !Number.isFinite(ts)) continue;
+    if (
+      typeof row?.id !== 'string' ||
+      !row.id ||
+      seen.has(row.id) ||
+      typeof row.channelId !== 'string' ||
+      !row.channelId ||
+      !Number.isFinite(ts)
+    )
+      continue;
     seen.add(row.id);
-    out.push({ id: row.id, channelId: row.channelId, ts, sourceIds: Array.isArray(row.sourceIds) ? row.sourceIds.filter((id) => typeof id === 'string') : [] });
+    out.push({
+      id: row.id,
+      channelId: row.channelId,
+      ts,
+      sourceIds: Array.isArray(row.sourceIds) ? row.sourceIds.filter((id) => typeof id === 'string') : [],
+    });
   }
   return out;
 }
@@ -1889,7 +2108,31 @@ export function recordMessage(line, { nameOf, selfName }) {
  *   signal?: AbortSignal }} options
  * @returns {Promise<{ windows: object[], scanned: number, hits: number, meaningHits: number }>}
  */
-export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, meaning = [], locator = null, signal } = {}) {
+export async function matchRecord(
+  guildId,
+  {
+    record,
+    range = {},
+    participants = [],
+    forms = [],
+    aliases = [],
+    recordDays,
+    recordContext,
+    followMessages,
+    followGapMinutes,
+    now,
+    maxWindows,
+    allowLine,
+    exclude,
+    recent = false,
+    nameOf,
+    selfName = '',
+    channelNameOf,
+    meaning = [],
+    locator = null,
+    signal,
+  } = {}
+) {
   const none = { windows: [], scanned: 0, hits: 0, meaningHits: 0 };
   const days = intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0);
   const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
@@ -1897,7 +2140,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   if (typeof record?.iterate !== 'function' || !Number.isFinite(now)) return none;
   const textForms = foldedForms(forms);
   const nameForms = foldedForms(aliases).filter((form) => !textForms.includes(form));
-  const people = new Set((Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id));
+  const people = new Set(
+    (Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id)
+  );
   const wanted = meaningRows(meaning);
   const near = usableLocator(locator);
   const to = Math.min(Number.isFinite(range?.to) ? range.to : now, now);
@@ -1943,7 +2188,12 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
       latest.set(line.messageId, null);
       return;
     }
-    if ((line.kind !== 'seen' && line.kind !== 'said') || typeof line.scope?.channel !== 'string' || !Number.isFinite(Date.parse(line.occurredAt))) return;
+    if (
+      (line.kind !== 'seen' && line.kind !== 'said') ||
+      typeof line.scope?.channel !== 'string' ||
+      !Number.isFinite(Date.parse(line.occurredAt))
+    )
+      return;
     const known = latest.get(line.messageId);
     const revision = Number.isInteger(line.revision) && line.revision > 0 ? line.revision : 1;
     if (known === null || (known && known.revision >= revision)) return;
@@ -1961,7 +2211,11 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   for (const span of meaningSpans(wanted.filter((row) => !latest.has(row.id)))) {
     if (signal?.aborted) break;
     stretches.push(span);
-    const query = { from: new Date(span.from).toISOString(), to: new Date(span.to).toISOString(), channelIds: [...span.channels] };
+    const query = {
+      from: new Date(span.from).toISOString(),
+      to: new Date(span.to).toISOString(),
+      channelIds: [...span.channels],
+    };
     for await (const line of record.iterate(guildId, query)) {
       if (signal?.aborted) break;
       take(line, false);
@@ -1975,7 +2229,10 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     if (!entry) continue;
     const message = recordMessage(entry.line, { nameOf, selfName });
     byId.set(message.id, message);
-    named.set(message.id, [message.authorId, ...(Array.isArray(entry.line.participants) ? entry.line.participants : [])]);
+    named.set(message.id, [
+      message.authorId,
+      ...(Array.isArray(entry.line.participants) ? entry.line.participants : []),
+    ]);
     if (!byChannel.has(message.channelId)) byChannel.set(message.channelId, []);
     byChannel.get(message.channelId).push(message);
   }
@@ -2016,23 +2273,38 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   // A dateless, not-recent question: the earliest hit with the best score keeps a window of its own
   // (by words only: with meaning rows the fused order alone decides what is kept).
   // A locator has its own reservation instead (locatorKeep).
-  const dateless = !near && !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to) && meant.length === 0;
+  const dateless =
+    !near && !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to) && meant.length === 0;
   const bestScore = Math.max(0, ...hits.map((hit) => hit.score));
   const earliest = dateless
-    ? hits.filter((hit) => hit.score === bestScore).reduce((a, b) => (!a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a), null)
+    ? hits
+        .filter((hit) => hit.score === bestScore)
+        .reduce(
+          (a, b) =>
+            !a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a,
+          null
+        )
     : null;
   // Fused with meaning rows (no locator): the best word hit matching a topic form keeps a window of its own,
   // so lines found by both searches cannot crowd out the strongest lexical match.
   const strongest =
     meant.length > 0 && !near
-      ? hits.filter((hit) => hit.topic > 0).reduce((a, b) => (!a || b.score > a.score || (b.score === a.score && b.message.ts > a.message.ts) ? b : a), null)
+      ? hits
+          .filter((hit) => hit.topic > 0)
+          .reduce(
+            (a, b) => (!a || b.score > a.score || (b.score === a.score && b.message.ts > a.message.ts) ? b : a),
+            null
+          )
       : null;
   const wordOrdered = hits.sort(hitOrder);
   // Without meaning rows the word order and scores; with them the fused ones (fuseRanks).
   const ranked =
     meant.length === 0
       ? wordOrdered
-      : fuseRanks([meant.map((message) => message.id), wordOrdered.map((hit) => hit.message.id)]).map((entry) => ({ message: byId.get(entry.id), score: entry.score }));
+      : fuseRanks([meant.map((message) => message.id), wordOrdered.map((hit) => hit.message.id)]).map((entry) => ({
+          message: byId.get(entry.id),
+          score: entry.score,
+        }));
   const hitScore = new Map(ranked.map((hit) => [hit.message.id, hit.score]));
   const chosenHits = ranked.slice(0, keep * RECORD_HITS_PER_WINDOW);
   // At most one of them is set: `earliest` needs no meaning row, `strongest` at least one.
@@ -2044,37 +2316,49 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   if (near) {
     // The hits best with the bonus get windows too, beside the best without it.
     const taken = new Set(chosenHits.map((hit) => hit.message.id));
-    const dated = [...ranked].sort((a, b) => boostedOf(b.score, b.message.ts) - boostedOf(a.score, a.message.ts) || b.message.ts - a.message.ts);
-    for (const hit of dated.slice(0, keep * RECORD_HITS_PER_WINDOW)) if (!taken.has(hit.message.id)) chosenHits.push(hit);
+    const dated = [...ranked].sort(
+      (a, b) => boostedOf(b.score, b.message.ts) - boostedOf(a.score, a.message.ts) || b.message.ts - a.message.ts
+    );
+    for (const hit of dated.slice(0, keep * RECORD_HITS_PER_WINDOW))
+      if (!taken.has(hit.message.id)) chosenHits.push(hit);
   }
-  const windows = chosenHits
-    .map(({ message }) => {
-      const list = byChannel.get(message.channelId);
-      const at = position.get(message.id);
-      const run = runOf.get(message.id);
-      const chosen = new Map();
-      let parentId = message.replyToId;
-      for (let depth = 0; parentId && depth < REPLY_CHAIN_MAX; depth += 1) {
-        const parent = byId.get(parentId);
-        if (!parent || parent.channelId !== message.channelId || chosen.has(parent.id)) break;
-        chosen.set(parent.id, parent);
-        parentId = parent.replyToId;
-      }
-      for (const neighbour of [...list.slice(Math.max(run.first, at - around), at), message, ...list.slice(at + 1, Math.min(run.last + 1, at + 1 + around))]) chosen.set(neighbour.id, neighbour);
-      // Carried forward from its last line while the conversation goes on (the chat's lines left out below).
-      const last = Math.max(...[...chosen.keys()].filter((id) => runOf.get(id) === run).map((id) => position.get(id)));
-      for (const next of followConversation(list[last].ts, list.slice(last + 1, Math.min(run.last + 1, last + 1 + MAX_WINDOW_MESSAGES)), { followMessages, followGapMinutes })) chosen.set(next.id, next);
-      const all = [...chosen.values()];
-      const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
-      return {
-        source: 'record',
-        channelId: message.channelId,
-        channelName: typeof channelNameOf === 'function' ? (channelNameOf(message.channelId) ?? null) : null,
-        messages,
-        hitIds: messages.filter((m) => hitScore.has(m.id)).map((m) => m.id),
-        overlapsChat: messages.length < all.length,
-      };
-    });
+  const windows = chosenHits.map(({ message }) => {
+    const list = byChannel.get(message.channelId);
+    const at = position.get(message.id);
+    const run = runOf.get(message.id);
+    const chosen = new Map();
+    let parentId = message.replyToId;
+    for (let depth = 0; parentId && depth < REPLY_CHAIN_MAX; depth += 1) {
+      const parent = byId.get(parentId);
+      if (!parent || parent.channelId !== message.channelId || chosen.has(parent.id)) break;
+      chosen.set(parent.id, parent);
+      parentId = parent.replyToId;
+    }
+    for (const neighbour of [
+      ...list.slice(Math.max(run.first, at - around), at),
+      message,
+      ...list.slice(at + 1, Math.min(run.last + 1, at + 1 + around)),
+    ])
+      chosen.set(neighbour.id, neighbour);
+    // Carried forward from its last line while the conversation goes on (the chat's lines left out below).
+    const last = Math.max(...[...chosen.keys()].filter((id) => runOf.get(id) === run).map((id) => position.get(id)));
+    for (const next of followConversation(
+      list[last].ts,
+      list.slice(last + 1, Math.min(run.last + 1, last + 1 + MAX_WINDOW_MESSAGES)),
+      { followMessages, followGapMinutes }
+    ))
+      chosen.set(next.id, next);
+    const all = [...chosen.values()];
+    const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
+    return {
+      source: 'record',
+      channelId: message.channelId,
+      channelName: typeof channelNameOf === 'function' ? (channelNameOf(message.channelId) ?? null) : null,
+      messages,
+      hitIds: messages.filter((m) => hitScore.has(m.id)).map((m) => m.id),
+      overlapsChat: messages.length < all.length,
+    };
+  });
   const merged = mergeWindows(windows).map((window) => ({
     ...window,
     score: Math.max(0, ...[...window.hitIds].map((id) => hitScore.get(id) ?? 0)),
@@ -2086,8 +2370,15 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     : (a, b) => b.score - a.score || b.endTs - a.endTs;
   const ordered = merged.sort(windowOrder);
   if (near) {
-    const boosted = new Map(ordered.map((window) => [window, boostedOf(window.score, window.messages[0].ts, window.endTs)]));
-    const picked = locatorKeep(ordered, { keep, broadShare: near.broadShare, broadOrder: windowOrder, datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || b.endTs - a.endTs });
+    const boosted = new Map(
+      ordered.map((window) => [window, boostedOf(window.score, window.messages[0].ts, window.endTs)])
+    );
+    const picked = locatorKeep(ordered, {
+      keep,
+      broadShare: near.broadShare,
+      broadOrder: windowOrder,
+      datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || b.endTs - a.endTs,
+    });
     const located = picked
       .sort((a, b) => b.item.endTs - a.item.endTs)
       .map(({ item: { score, self, endTs, ...window }, share }) => ({ ...window, share }));
@@ -2143,8 +2434,13 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (who.length >= cap) break;
     if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
-    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
-    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
+    const names = [
+      ...(Array.isArray(profile.names) ? profile.names : []),
+      ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name),
+    ];
+    const hit = names.find(
+      (name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name))
+    );
     if (!hit) continue;
     const form = oneLine(hit).toLowerCase();
     if (!who.includes(form)) who.push(form);
@@ -2187,7 +2483,19 @@ const TOOL_LIST_SPLIT_RE = /[,;\n]/;
  *   profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number, timezone?: string, now?: number }} input
  * @returns {{ forms: string[], who: string[], from: number|null, to: number|null, channelId?: string }|null}
  */
-export function memorySearchPlan({ question = '', people = '', terms = '', when = '', channelId = null, profiles = [], selfId = null, selfName = '', maxForms = RECALL_DEFAULTS.maxForms, timezone = 'UTC', now } = {}) {
+export function memorySearchPlan({
+  question = '',
+  people = '',
+  terms = '',
+  when = '',
+  channelId = null,
+  profiles = [],
+  selfId = null,
+  selfName = '',
+  maxForms = RECALL_DEFAULTS.maxForms,
+  timezone = 'UTC',
+  now,
+} = {}) {
   const cap = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 1);
   const forms = [];
   const who = [];
@@ -2198,5 +2506,11 @@ export function memorySearchPlan({ question = '', people = '', terms = '', when 
   for (const form of fromQuestion?.who ?? []) if (who.length < cap && !who.includes(form)) who.push(form);
   const range = typeof when === 'string' && when.trim() ? parseRange(when, timezone, now) : null;
   if (forms.length === 0 && who.length === 0 && !range) return null;
-  return { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(typeof channelId === 'string' && channelId ? { channelId } : {}) };
+  return {
+    forms,
+    who,
+    from: range?.from ?? null,
+    to: range?.to ?? null,
+    ...(typeof channelId === 'string' && channelId ? { channelId } : {}),
+  };
 }

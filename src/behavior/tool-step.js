@@ -41,7 +41,12 @@ export function segments(calls, isRead) {
 export function stepVerdict(outcomes, { definitionOf, openFollowUp = false }) {
   const list = Array.isArray(outcomes) ? outcomes : [];
   const speak = list.every((outcome) => coversSpeech(definitionOf(outcome.name), outcome.result));
-  const fresh = openFollowUp === true || list.some((outcome) => outcome.result?.status !== 'ok' || !definitionOf(outcome.name) || definitionOf(outcome.name).result === 'data');
+  const fresh =
+    openFollowUp === true ||
+    list.some(
+      (outcome) =>
+        outcome.result?.status !== 'ok' || !definitionOf(outcome.name) || definitionOf(outcome.name).result === 'data'
+    );
   return { speak, fresh };
 }
 
@@ -64,7 +69,11 @@ export function appendStep({ transport, messages, rawText = '', calls, results, 
   const answers = Array.isArray(results) ? results : [];
   if (transport === 'text') {
     out.push({ role: 'assistant', content: rawText });
-    const parts = list.map((call, i) => textPart(`<tool_result id="${call.id}" name="${call.name}" status="${answers[i]?.status ?? 'failed'}">\n${answers[i]?.text ?? ''}\n</tool_result>`));
+    const parts = list.map((call, i) =>
+      textPart(
+        `<tool_result id="${call.id}" name="${call.name}" status="${answers[i]?.status ?? 'failed'}">\n${answers[i]?.text ?? ''}\n</tool_result>`
+      )
+    );
     if (note) parts.push(textPart(note));
     if (parts.length > 0) out.push({ role: 'user', content: parts });
     return out;
@@ -73,7 +82,16 @@ export function appendStep({ transport, messages, rawText = '', calls, results, 
     role: 'assistant',
     content: rawText === '' ? null : rawText,
     ...(list.length > 0
-      ? { tool_calls: list.map((call) => ({ id: call.id, type: 'function', function: { name: call.apiName ?? apiNameOf(call.name) ?? call.name, arguments: JSON.stringify(call.args ?? {}) } })) }
+      ? {
+          tool_calls: list.map((call) => ({
+            id: call.id,
+            type: 'function',
+            function: {
+              name: call.apiName ?? apiNameOf(call.name) ?? call.name,
+              arguments: JSON.stringify(call.args ?? {}),
+            },
+          })),
+        }
       : {}),
   });
   list.forEach((call, i) => out.push({ role: 'tool', tool_call_id: call.id, content: answers[i]?.text ?? '' }));
@@ -91,14 +109,25 @@ export function appendStep({ transport, messages, rawText = '', calls, results, 
  *   open?: string, diagnostics?: string[] }} input
  * @returns {string}
  */
-export function stepNote({ labels, held = false, deltaText = '', lateText = '', deliveries = [], last = false, terminal = false, open = '', diagnostics = [] }) {
+export function stepNote({
+  labels,
+  held = false,
+  deltaText = '',
+  lateText = '',
+  deliveries = [],
+  last = false,
+  terminal = false,
+  open = '',
+  diagnostics = [],
+}) {
   const task = labels?.task ?? {};
   const step = task.step ?? {};
   const lines = [];
   if (held && step.held) lines.push(step.held);
   if (deltaText) lines.push([step.delta, deltaText].filter(Boolean).join('\n'));
   if (lateText) lines.push([step.late, lateText].filter(Boolean).join('\n'));
-  for (const item of Array.isArray(deliveries) ? deliveries : []) if (step.delivery) lines.push(fill(step.delivery, item));
+  for (const item of Array.isArray(deliveries) ? deliveries : [])
+    if (step.delivery) lines.push(fill(step.delivery, item));
   // An inner turn's last step still allows one terminal call: its own notice, else the ordinary one.
   if (last) {
     const notice = terminal && step.lastInner ? step.lastInner : step.last;
@@ -173,5 +202,7 @@ export function cutToFit(texts, excess, floor = 400) {
 
 /** Whether her answer did not begin with her thinking: the trimmed text does not start with `<think>`. */
 export function thinkMissing(text) {
-  return !String(text ?? '').trim().startsWith('<think>');
+  return !String(text ?? '')
+    .trim()
+    .startsWith('<think>');
 }
