@@ -92,6 +92,7 @@ import { listenSocket } from './interface/socket.ts';
 import { connectSocket } from './protocol/wire.ts';
 import { serveAdapter } from './protocol/serve.ts';
 import { createAroundStore } from './behavior/around-store.ts';
+import { defaultRawOf } from './behavior/raw-handles.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
 import { skillRegistry, missingDefinitions } from './skills/registry.js';
@@ -697,8 +698,7 @@ const onMessage = createMessageHandler({
   memoryDb,
   // The discord.js messages of an event come from the Discord side's registry; an event built in
   // process still carries its own.
-  rawOf: (event) =>
-    rawHandles.rawOf(event) ?? (event.raw ? { message: event.raw, previous: event.rawPrevious ?? null } : null),
+  rawOf: (event) => rawHandles.rawOf(event) ?? defaultRawOf(event),
   // The limit and pause notices go out through the interface like any other effect.
   port: iface,
 });
