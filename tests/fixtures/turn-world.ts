@@ -579,6 +579,31 @@ export function syncStub(stub: unknown): Channel {
   );
 }
 
+/**
+ * The conversations of a community held by the world, one for each `[info, messages]` pair (`info`: `id`, `name`,
+ * `category`, `topic`; `messages`: discord.js-shaped stubs, oldest first), every permission granted, by id.
+ */
+export function worldChannels(
+  communityId: string,
+  channels: ReadonlyArray<ReadonlyArray<unknown>>
+): Record<string, Channel> {
+  const out: Record<string, Channel> = {};
+  for (const [given, stubs] of channels as ReadonlyArray<
+    [{ id: string; name: string; category?: string; topic?: string | null }, ReadonlyArray<Raw & { createdTimestamp: number }>]
+  >) {
+    out[given.id] = world().channel({
+      id: given.id,
+      name: given.name,
+      ...(given.category === undefined ? {} : { category: given.category }),
+      guildId: communityId,
+      extra: { topic: given.topic ?? null },
+      lastMessageAt: stubs.reduce((newest, raw) => Math.max(newest, raw.createdTimestamp), 0) || null,
+      historyMessages: stubs,
+    });
+  }
+  return out;
+}
+
 /** The conversation reference a turn call carried. */
 export function callConversation(call: unknown): { iface: string; conversationId: string } | null {
   return (call as { conversation?: { iface: string; conversationId: string } }).conversation ?? null;
