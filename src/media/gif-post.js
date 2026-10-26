@@ -22,7 +22,10 @@ export async function freshAttachmentUrl({ reads, channel, entry, onError = () =
         ? { ...channel, conversationId: entry.channelId }
         : channel;
     const found = await reads.fetchMessages(ref, [entry.messageId]);
-    const message = found?.messages[0]?.event?.message;
+    // A message the interface cannot give (the read failed, the message is gone) is a failed lookup.
+    const fetched = found?.messages[0];
+    if (!fetched || fetched.missing === true) throw new Error('message unavailable');
+    const message = fetched.event?.message;
     /** @type {(attachments: unknown) => string|null} */
     const urlIn = (attachments) => {
       const list = /** @type {Array<{ id?: string, url?: string }>} */ (Array.isArray(attachments) ? attachments : []);
