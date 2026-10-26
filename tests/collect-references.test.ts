@@ -151,7 +151,9 @@ test('normalizeMessage: a message without a message link has no references', () 
 test('toEvent: the message of the event carries its message links as references and the event is valid', () => {
   const event = toEvent(guildMessage({ cleanContent: `look ${LINK}` }), 'self');
   assert.deepEqual(validateEvent(event), { ok: true });
-  assert.deepEqual(event.message.messageRefs, [
+  const message = event.message;
+  if (!('messageRefs' in message)) assert.fail('the event carries no normalized message');
+  assert.deepEqual(message.messageRefs, [
     { iface: 'discord', conversationId: '2', messageId: '300', url: LINK, text: LINK },
   ]);
 });
@@ -168,7 +170,7 @@ test('normalizeMessage: an attachment of the Discord CDN is expiring and carries
   const [attachment] = normalizeMessage(raw, 'self').attachments;
   assert.equal(attachment.expiring, true);
   assert.equal(attachment.url, url, 'the url itself is unchanged');
-  const preview = new URL(attachment.previewUrl);
+  const preview = new URL(attachment.previewUrl ?? '');
   assert.equal(preview.hostname, 'media.discordapp.net');
   assert.equal(preview.pathname, '/attachments/111/222/pic.png');
   assert.equal(preview.searchParams.get('hm'), 'abc123', 'the signature survives');
@@ -181,7 +183,7 @@ test('normalizeMessage: the preview url of a GIF attachment asks for one still f
   });
   const [attachment] = normalizeMessage(raw, 'self').attachments;
   assert.equal(attachment.kind, 'gif');
-  assert.equal(new URL(attachment.previewUrl).searchParams.get('animated'), 'false');
+  assert.equal(new URL(attachment.previewUrl ?? '').searchParams.get('animated'), 'false');
 });
 
 test('normalizeMessage: a link on the Discord CDN is expiring and a link elsewhere is not', () => {
@@ -266,7 +268,9 @@ test('collectPictures: a picture carries the preview url of its attachment', () 
     attachments: new Map([['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url, size: 5 }]]),
   });
   const m = normalizeMessage(raw, 'self', { imageSize: 256 });
-  assert.equal(collectPictures(m)[0].previewUrl, m.attachments[0].previewUrl);
+  const [picture] = collectPictures(m);
+  if (picture === undefined || !('previewUrl' in picture)) assert.fail('the picture carries no preview url');
+  assert.equal(picture.previewUrl, m.attachments[0].previewUrl);
 });
 
 // Moved from tests/collect.test.js: these two pin the shapes the adapter hands the core, which now include the
