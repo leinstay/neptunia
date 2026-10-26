@@ -112,6 +112,13 @@
       "test": "none"
     },
     {
+      "path": "stryker.config.json",
+      "purpose": "The Stryker settings that stay the same on every mutation run.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "eslint-suppressions.json",
       "purpose": "The recorded ESLint violations that may only shrink.",
       "layer": "public",

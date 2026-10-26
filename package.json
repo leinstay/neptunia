@@ -34,7 +34,8 @@
     "typecheck:update": "node tools/type-baseline.mjs --update",
     "format:check": "prettier --check",
     "health": "node tools/code-health.mjs && node tools/code-health.mjs --check-docs",
-    "health:update": "node tools/code-health.mjs --update"
+    "health:update": "node tools/code-health.mjs --update",
+    "mutation": "node tools/mutation-diff.mjs"
   },
   "workspaces": [
     "interfaces/*"
@@ -42,6 +43,8 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/tap-runner": "10.1.1",
     "@types/node": "26.6.5",
     "eslint": "9.39.5",
     "eslint-plugin-import-x": "4.17.1",

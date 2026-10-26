@@ -50,3 +50,11 @@ jobs:
           if [ -n "$files" ]; then printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 npx prettier --check; fi
       - run: npm run check:codes
       - run: npm test
+      - name: Mutation score of the changed lines
+        # Stryker mutates only the source lines this pull request changes and runs the tests named after those files.
+        # The checkout holds the full history, so origin/<base> exists.
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 15
+        env:
+          BASE: ${{ github.base_ref }}
+        run: npm run mutation -- "origin/$BASE"
