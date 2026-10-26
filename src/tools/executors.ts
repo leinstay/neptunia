@@ -18,7 +18,6 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
-import { MESSAGE_LINK_RE } from './impl/shared.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
 
@@ -31,21 +30,31 @@ const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'anchor', '
  */
 const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] });
 
+/** The text of a pasted link as the view's `links` keys it: without angle brackets. */
+export function linkKey(text) {
+  return String(text ?? '')
+    .trim()
+    .replace(/^<(.*)>$/, '$1');
+}
+
+/** The message a pasted link names, from the view's `links` (the interface read it), or null. */
+function linkedMessage(view, text) {
+  const ref = view?.links instanceof Map ? (view.links.get(linkKey(text)) ?? null) : null;
+  return ref ? { channelId: String(ref.conversationId), messageId: String(ref.messageId) } : null;
+}
+
 /** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
-function namesMessage(skill, option, text) {
+function namesMessage(skill, option, text, view) {
   if (MESSAGE_OPTIONS.includes(option)) return true;
-  return (
-    (ANCHOR_OPTIONS[skill] ?? []).includes(option) &&
-    (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')))
-  );
+  return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || linkedMessage(view, text) !== null);
 }
 
 /** The option of message.create that names a message of hers whose attachment is posted again. */
 const MEDIA_OPTION = 'media';
 
-/** A message link form carrying the channel with the id (`@me` stands for the guild, which the operation knows). */
+/** The core's own form of a message in a conversation, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
 function mediaRef(channelId, messageId) {
-  return `https://discord.com/channels/@me/${channelId}/${messageId}`;
+  return `ref:${channelId}/${messageId}`;
 }
 
 /** Whether the transcript line `line` is the persona's own (`self`, else its author is `selfId`). */
@@ -234,7 +243,7 @@ function fileMayGo(task, channelId, view) {
  * other than the one the errand was asked in that neither its goal nor the turn's trigger message,
  * `view.triggerText`, names: fileMayGo; a call without a channel posts here as ever). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
- * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
+ * author. A message link there (`view.links`, which the interface read, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
  * any other value -- a raw message id -- is passed on as written. An errand
  * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
@@ -245,6 +254,7 @@ function fileMayGo(task, channelId, view) {
  * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
  * separated), each resolved like a member option; the ids come out comma-separated.
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null, memberHandles?: Map<string, string>|null,
+ *   links?: Map<string, { conversationId: string, messageId: string }|null>|null,
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
@@ -322,20 +332,20 @@ export function resolveCall(call, view) {
           args[option] = text;
           break;
         }
-        const isMessage = namesMessage(name, option, text);
+        const isMessage = namesMessage(name, option, text, view);
         const n = isMessage ? transcriptNumber(text) : null;
-        // A message link (in angle brackets too) names the message and its channel.
-        const link = isMessage && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
+        // A message link (in angle brackets too) names the message and its channel, as the interface read it.
+        const link = isMessage && n === null ? linkedMessage(view, text) : null;
         // A message the record holds as deleted and the history does not: refused as deleted.
         const deletedHere = (id) => isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
         if (link) {
-          if (deletedHere(link[2])) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+          if (deletedHere(link.messageId)) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           if (option === MEDIA_OPTION) {
-            args[option] = mediaRef(link[1], link[2]);
+            args[option] = mediaRef(link.channelId, link.messageId);
             break;
           }
-          linked[option] = link[1];
-          args[option] = link[2];
+          linked[option] = link.channelId;
+          args[option] = link.messageId;
           break;
         }
         if (n === null) {

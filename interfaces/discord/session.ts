@@ -3,13 +3,11 @@
 // Discord adapter over it, then carries every gateway event the core uses as a protocol event. Events that arrive
 // before `open()` are held (at most 1,000, the oldest dropped) until the core's door has its handlers.
 //
-// `legacy` is what the core's tool and memory-job subsystems still read from discord.js, one named field per seam.
-// Each field names the stage 3 item of the core extraction plan that removes it, and the object disappears with the
-// last of them. The conversation reads, the reactions and the direct chats of the turn and the message pipeline are
-// answered over the link by the adapter (reads.ts) and the events.
+// `legacy` holds the slash command handler, the one thing the core takes besides the adapter. The conversation reads,
+// the reactions and the direct chats of the turn, the message pipeline and the tools are answered over the link by the
+// adapter (reads.ts) and the events.
 
 import { Events } from 'discord.js';
-import type { Client } from 'discord.js';
 import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
 import { createAudienceWarmer } from './audience-warm.js';
@@ -21,16 +19,13 @@ import {
   reactionClearAllEvent,
   reactionClearEmojiEvent,
   reactionEvent,
-  snowflakeTime,
   toEvent,
 } from './collect.js';
 import { createInteractionHandler, registerCommands } from './commands.js';
-import { createEmojiIndex } from './emoji.js';
 import { createDiscordClient } from './gateway.js';
 import { resolveGuild } from './guild.js';
 import { createDiscordInterface } from './index.js';
 import { memberView, membershipUpdatedEvent } from './members.ts';
-import type { MemberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
 
 type Obj = Record<string, unknown>;
@@ -48,25 +43,8 @@ type Gateway = {
   users?: { cache: Map<string, Obj> };
 };
 
-/**
- * What `start` hands the core as `RunningInterface.legacy`: the discord.js objects and reads the tools and the memory
- * jobs still use, each field a seam that stage 3 of the core extraction removes (src/interface/legacy.ts is the core's
- * view of it and names the reader of each).
- */
+/** What `start` hands the core as `RunningInterface.legacy` (src/interface/legacy.ts is the core's view of it). */
 export type DiscordLegacy = {
-  client: Client;
-  capabilities: ReturnType<typeof createDiscordInterface>['capabilities'];
-  resolveMember(guildId: string, userId: string): Promise<MemberView | null>;
-  catchUp: {
-    channelInfo(channelId: string): { available: boolean; latestAt: number | null };
-    fetchRecent(channelId: string, limit: number): Promise<Array<object>>;
-    eventOf(message: object): object;
-  };
-  fetchOwnMessages(
-    channelId: string,
-    count: number
-  ): Promise<Array<{ id: unknown; content: unknown; replyToId: string | null; createdAt: unknown }>>;
-  emoji: ReturnType<typeof createEmojiIndex>;
   serveCommands(admin: unknown): { register(): Promise<unknown> };
 };
 
@@ -332,57 +310,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
 
   announceGuild();
 
-  // stage 3, "The rest of the core without discord.js": every field below goes when its reader reads the
-  // protocol instead. The field named after a reader says which.
-  const legacy: DiscordLegacy = {
-    // The discord.js client, for the admin, the operations and the memory jobs that still take it.
-    client: client as unknown as Client,
-    // The functions the tools and the memory jobs still ask Discord by name (permissions, history, searches).
-    capabilities: discord.capabilities,
-    // A member by one REST fetch, as the avatar queue reads it (null: not in the guild).
-    resolveMember: async (id: string, userId: string): Promise<MemberView | null> => {
-      const members = obj(client.guilds.cache.get(id)?.members) as { fetch?: (id: string) => Promise<Obj> };
-      if (members.fetch === undefined) return null;
-      return memberView(await members.fetch(userId).catch(() => null));
-    },
-    // The offline catch-up: what Discord says of a channel, its newest messages, and a message as an event.
-    catchUp: {
-      channelInfo(channelId: string): { available: boolean; latestAt: number | null } {
-        const channel = client.channels.cache.get(channelId);
-        const messages = obj(channel?.messages);
-        if (!channel || obj(channel.guild).id !== guildId || typeof messages.fetch !== 'function')
-          return { available: false, latestAt: null };
-        const last = text(channel.lastMessageId);
-        return { available: true, latestAt: last === null ? null : snowflakeTime(last) };
-      },
-      async fetchRecent(channelId: string, limit: number): Promise<Array<object>> {
-        const channel = (client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId))) as Obj;
-        const messages = await (channel.messages as { fetch(options: Obj): Promise<Map<string, object>> }).fetch({
-          limit,
-        });
-        return [...messages.values()];
-      },
-      eventOf: (message: object): object => obj(toEvent(message, selfId() ?? '', normalizeOptions(config()))),
-    },
-    // The persona's last messages of a channel, as the journal's reconciliation reads them.
-    fetchOwnMessages: async (channelId: string, count: number) => {
-      const channel = (await client.channels.fetch(channelId)) as Obj;
-      const fetched = await (channel.messages as { fetch(options: Obj): Promise<Map<string, Obj>> }).fetch({
-        limit: count,
-      });
-      return [...fetched.values()]
-        .filter((message) => obj(message.author).id === client.user?.id)
-        .map((message) => ({
-          id: message.id,
-          content: message.content,
-          replyToId: text(obj(message.reference).messageId),
-          createdAt: message.createdTimestamp,
-        }));
-    },
-    // The served guild's custom emoji (a live view over discord.js's own cache).
-    emoji: createEmojiIndex(client, () => guildId),
-    serveCommands,
-  };
+  // What the core takes besides the adapter: the slash command handler.
+  const legacy: DiscordLegacy = { serveCommands };
 
   return {
     iface: discord.port.iface,

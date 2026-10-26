@@ -1,7 +1,7 @@
 // The owner's GIF recache (src/memory/gif-recache.js): which library
 // entries a run re-describes and in what order, which one-frame captions of
 // the media cache it drops, the caption counts of `/nep gifs status`, and the
-// run itself on a real store, a fake describer and a fake discord.js client:
+// run itself on a real store, a fake describer and the fake interface's reads:
 // the per-run cap, watched entries skipped, one run at a time, the pause
 // respected.
 
@@ -23,11 +23,9 @@ import {
   snowflakeMs,
 } from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { normalizeOptions, toEvent } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
-
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+import { IFACE, channel, rig } from './fixtures/reads-rig.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = (n) => `https://tenor.com/view/danse-${n}`;
@@ -141,10 +139,9 @@ test('gif recache: old-format watched captions migrate over runs and the describ
     const describer = fakeDescriber(store);
     const log = silentLog();
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: fakeHot({ recachePerRun: 1 }),
       store,
-      client: fakeClient([rawGifMessage(1), rawGifMessage(2)]),
+      ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2)])),
       describer,
       log,
     });
@@ -227,19 +224,28 @@ function rawGifMessage(n) {
   };
 }
 
-/** A client whose channel c1 serves `messages` by id; any other id throws like a deleted message. */
+/** The fake interface whose conversation c1 holds `messages` (raw ones, read into events as the Discord package does); any other id is a message that is gone. */
 function fakeClient(messages) {
-  const byId = new Map(messages.map((m) => [m.id, m]));
-  const channel = {
-    messages: {
-      fetch: async (id) => {
-        if (!byId.has(id)) throw new Error('Unknown Message');
-        return byId.get(id);
-      },
-    },
-  };
-  return { user: { id: 'self' }, channels: { fetch: async (id) => (id === 'c1' ? channel : null) } };
+  const world = rig();
+  const stub = { id: 'c1', name: 'c1', parent: null, guild: { id: 'g1' }, isThread: () => false };
+  world.fake.seedConversation(channel('c1'));
+  for (const raw of messages) {
+    const { raw: _raw, ...event } = toEvent(
+      { ...raw, channel: stub, channelId: 'c1', guild: stub.guild },
+      'self',
+      normalizeOptions({ media: { embedTextChars: 200 } })
+    );
+    world.fake.seedEvent(event);
+  }
+  return world;
 }
+
+/** What the recache takes of the interface: its reads, its name and the emoji index (the address of an emoji's picture). */
+const depsOf = (world) => ({
+  reads: world.reads,
+  iface: () => IFACE,
+  emoji: { refresh: async () => {}, urlOf: (id) => `https://cdn.example/emojis/${id}.webp` },
+});
 
 /** A describer whose watchGif follows `outcome(item)` (watched by default) and writes the watched caption. */
 function fakeDescriber(store, { outcome, blocker = null, gate } = {}) {
@@ -294,10 +300,9 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
     });
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: fakeHot({ recachePerRun: 2 }),
       store,
-      client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
+      ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
       describer,
       log: silentLog(),
     });
@@ -332,10 +337,9 @@ test('gif recache: a second run skips what the first watched and continues with 
     seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)]);
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: fakeHot({ recachePerRun: 2 }),
       store,
-      client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
+      ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
       describer,
       log: silentLog(),
     });
@@ -366,10 +370,9 @@ test('gif recache: a GIF whose message is gone still goes to the describer, whic
     });
     const log = silentLog();
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: fakeHot(),
       store,
-      client: fakeClient([]),
+      ...depsOf(fakeClient([])),
       describer,
       log,
     });
@@ -390,10 +393,9 @@ test('gif recache: one run at a time', async () => {
         release = resolve;
       });
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: fakeHot(),
       store,
-      client: fakeClient([rawGifMessage(1)]),
+      ...depsOf(fakeClient([rawGifMessage(1)])),
       describer: fakeDescriber(store, { gate }),
       log: silentLog(),
     });
@@ -410,17 +412,17 @@ test('gif recache: one run at a time', async () => {
 test('gif recache: refused while paused, without a describer or while GIFs are not watched -- nothing dropped', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1)], { 'x9#e0': { text: 'a stray still', ts: 1, gif: true } });
-    const base = { hot: fakeHot(), store, client: fakeClient([]), log: silentLog() };
+    const base = { hot: fakeHot(), store, ...depsOf(fakeClient([])), log: silentLog() };
 
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).start('g1'), { ok: false, reason: 'unavailable' });
+    assert.deepEqual(createGifRecache({ ...base }).start('g1'), { ok: false, reason: 'unavailable' });
     for (const blocker of ['off', 'video-off', 'no-prompt']) {
-      assert.deepEqual(
-        createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'),
-        { ok: false, reason: blocker }
-      );
+      assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), {
+        ok: false,
+        reason: blocker,
+      });
     }
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store) }).start('g1'), {
+    assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store) }).start('g1'), {
       ok: false,
       reason: 'paused',
     });
@@ -441,10 +443,9 @@ test('gif recache: a run stops before the next GIF once paused or a daily rail i
       });
       const log = silentLog();
       const recache = createGifRecache({
-        discord: DISCORD,
         hot: fakeHot(),
         store,
-        client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
+        ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
         describer,
         log,
       });
@@ -674,10 +675,9 @@ test('media recache: emoji from their id, a library GIF from its message, an att
       },
     ]);
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: mediaHot(),
       store,
-      client: fakeClient([rawGifMessage(1), rawPictureMessage(messageId, attachmentId)]),
+      ...depsOf(fakeClient([rawGifMessage(1), rawPictureMessage(messageId, attachmentId)])),
       describer,
       record,
       now: clock.now,
@@ -703,6 +703,34 @@ test('media recache: emoji from their id, a library GIF from its message, an att
   });
 });
 
+test('media recache: an emoji the community no longer lists is left as it is and counted unlocated', async () => {
+  await withStore(async (store) => {
+    seed(store, [], { 'emoji:77': { text: 'a grin', ts: NOW - DAY }, 'emoji:78': { text: 'a nod', ts: NOW - DAY } });
+    const clock = fakeTime();
+    const describer = fakeMediaDescriber(clock);
+    const log = silentLog();
+    const recache = createGifRecache({
+      hot: mediaHot(),
+      store,
+      ...depsOf(fakeClient([])),
+      // Only emoji 77 is listed by the community now.
+      emoji: { refresh: async () => {}, urlOf: (id) => (id === '77' ? 'https://cdn.example/emojis/77.webp' : null) },
+      describer,
+      now: clock.now,
+      sleep: clock.sleep,
+      log,
+    });
+    recache.startMedia('g1', { days: 7 });
+    await recache.waitIdle();
+    assert.deepEqual(
+      describer.calls.map((c) => c.item.itemId),
+      ['emoji:77']
+    );
+    const done = log.entries.find((e) => e.message === 'media: recached');
+    assert.deepEqual([done.fields.done, done.fields.unlocated], [1, 1]);
+  });
+});
+
 test('media recache: descriptions are paced media.recacheIntervalMs apart on the injected clock', async () => {
   await withStore(async (store) => {
     seed(store, [], {
@@ -713,10 +741,9 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock, { costMs: 1000 });
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: mediaHot({ recacheIntervalMs: 3000 }),
       store,
-      client: fakeClient([]),
+      ...depsOf(fakeClient([])),
       describer,
       now: clock.now,
       sleep: clock.sleep,
@@ -744,10 +771,9 @@ test('media recache: a spent daily request cap stops the run; a failure is count
     const describer = fakeMediaDescriber(clock, { outcome: () => outcomes.shift() });
     const log = silentLog();
     const recache = createGifRecache({
-      discord: DISCORD,
       hot: mediaHot(),
       store,
-      client: fakeClient([]),
+      ...depsOf(fakeClient([])),
       describer,
       now: clock.now,
       sleep: clock.sleep,
@@ -773,7 +799,7 @@ test('media recache: refused while running (either run), paused, without a descr
     const base = {
       hot: mediaHot(),
       store,
-      client: fakeClient([rawGifMessage(1)]),
+      ...depsOf(fakeClient([rawGifMessage(1)])),
       now: clock.now,
       sleep: clock.sleep,
       log: silentLog(),
@@ -784,29 +810,28 @@ test('media recache: refused while running (either run), paused, without a descr
         release = resolve;
       });
     const both = { ...fakeDescriber(store, { gate }), ...fakeMediaDescriber(clock) };
-    const busy = createGifRecache({ discord: DISCORD, ...base, describer: both });
+    const busy = createGifRecache({ ...base, describer: both });
     assert.equal(busy.start('g1').ok, true);
     assert.deepEqual(busy.startMedia('g1', {}), { ok: false, reason: 'running' });
     while (!release) await new Promise((resolve) => setImmediate(resolve));
     release();
     await busy.waitIdle();
 
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).startMedia('g1', {}), {
+    assert.deepEqual(createGifRecache({ ...base }).startMedia('g1', {}), {
       ok: false,
       reason: 'unavailable',
     });
     assert.deepEqual(
       createGifRecache({
-        discord: DISCORD,
         ...base,
         describer: fakeMediaDescriber(clock, { blocker: 'off' }),
       }).startMedia('g1', {}),
       { ok: false, reason: 'off' }
     );
     store.state.data.paused = true;
-    assert.deepEqual(
-      createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}),
-      { ok: false, reason: 'paused' }
-    );
+    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), {
+      ok: false,
+      reason: 'paused',
+    });
   });
 });

@@ -18,9 +18,9 @@ import type {
   MessageRef,
   PortError,
 } from '../../src/protocol/adapter.ts';
-import { emojiUrl } from '../../src/media/classify.js';
 import {
   PAGE,
+  emojiUrl,
   audienceOf,
   canAttach,
   canReact,

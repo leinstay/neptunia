@@ -14,7 +14,7 @@ import { CODE } from '../codes.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, client } = env;
+  const { hot } = env;
 
   /** `/nep task skills name`. */
   function cmdDescribe(args) {
@@ -23,7 +23,7 @@ const handlers = perEnv((env) => {
     const labels = hot.prompts?.labels ?? {};
     const { rows, closest } = describeRows({
       config: hot.config,
-      selfId: client?.user?.id ?? null,
+      selfId: env.selfId() ?? null,
       registry: skillRegistry(),
       texts: hot.prompts?.skills,
       name,

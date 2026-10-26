@@ -15,6 +15,8 @@ export function createConversationDirectory(): {
   dmConversationOf(partnerId: string): string | null;
   /** The member a direct chat is with, null for any other conversation. */
   partnerOf(conversationId: string): string | null;
+  /** Whether the conversation is a direct chat (one-to-one or group) the interface showed. */
+  isPrivate(conversationId: string): boolean;
   ids(): ReadonlyArray<string>;
 } {
   const records = new Map<string, Conversation>();
@@ -22,6 +24,8 @@ export function createConversationDirectory(): {
   const direct = new Map<string, string>();
   // conversation id of a direct chat -> its partner.
   const partners = new Map<string, string>();
+  // the ids of every direct chat shown, a group chat included.
+  const privateChats = new Set<string>();
 
   // The partner of a one-to-one chat; a group chat and a conversation of a community have none.
   const partnerOf = (conversation: Conversation): string | null =>
@@ -30,6 +34,7 @@ export function createConversationDirectory(): {
       : null;
 
   function learnDirect(conversation: Conversation): void {
+    if (conversation.kind === 'dm') privateChats.add(conversation.id);
     const partner = partnerOf(conversation);
     if (partner === null) return;
     direct.set(partner, conversation.id);
@@ -44,6 +49,7 @@ export function createConversationDirectory(): {
         const partner = partnerOf(conversation);
         if (partner !== null && direct.get(partner) === conversation.id) direct.delete(partner);
         partners.delete(conversation.id);
+        privateChats.delete(conversation.id);
         return;
       }
       if (conversation.kind === 'dm') learnDirect(conversation);
@@ -57,6 +63,7 @@ export function createConversationDirectory(): {
     conversations: () => [...records.values()],
     dmConversationOf: (partnerId) => direct.get(partnerId) ?? null,
     partnerOf: (conversationId) => partners.get(conversationId) ?? null,
+    isPrivate: (conversationId) => privateChats.has(conversationId),
     ids: () => [...records.keys()],
   };
 }

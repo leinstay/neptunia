@@ -114,11 +114,28 @@ function view(overrides = {}) {
   };
 }
 
+const LINK = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
+
+/** The links among `values` as the interface reads them (`parseLinks`): the link text without angle brackets -> its message, null for any other. */
+function linksRead(values) {
+  const links = new Map();
+  for (const value of values) {
+    const text = String(value ?? '')
+      .trim()
+      .replace(/^<(.*)>$/, '$1');
+    if (!/^https?:\/\//i.test(text)) continue;
+    const found = LINK.exec(text);
+    links.set(text, found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null);
+  }
+  return links;
+}
+
 /** `<call>` -> resolveCall over the view. */
 function resolve(skill, args = {}, body = '', overrides = {}) {
   // A native call carries the text as an argument by name: `body` here is the skill's body argument.
   const bodyArg = skillRegistry().get(skill)?.dispatch?.body;
-  return resolveCall({ skill, args: body && bodyArg ? { [bodyArg]: body, ...args } : args }, view(overrides));
+  const given = body && bodyArg ? { [bodyArg]: body, ...args } : args;
+  return resolveCall({ skill, args: given }, view({ links: linksRead(Object.values(given)), ...overrides }));
 }
 
 test("resolveCall: only a registry skill; its arguments are its command's options by name", () => {
@@ -1232,13 +1249,14 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
   const ok = resolve('message.create', { media: '#2', channel: '#νέα' }, 'ξανά', PICS);
   assert.deepEqual(
     [ok.ok, ok.args.channel, ok.args.text, ok.args.media],
-    [true, NEWS, 'ξανά', 'https://discord.com/channels/@me/555/1002'],
+    // The core's own form of a message in a conversation (src/tools/impl/shared.ts#messageRefOf reads it).
+    [true, NEWS, 'ξανά', 'ref:555/1002'],
     'its channel is only where to fetch from, never the target'
   );
   assert.equal(resolve('message.create', { media: '#2' }, '', PICS).args.channel, undefined);
   assert.equal(
     resolve('message.create', { media: 'https://discord.com/channels/111/222/333' }).args.media,
-    'https://discord.com/channels/@me/222/333'
+    'ref:222/333'
   );
   assert.deepEqual(
     [

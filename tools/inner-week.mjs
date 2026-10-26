@@ -49,7 +49,7 @@ import {
   spendGate,
 } from './lib/cli.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
-import { scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
+import { discordReads, scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
 import {
   computeGates,
   gatesTable,
@@ -290,7 +290,6 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
 
     // The turn's history: the fixture's chat of the conversation the scheduler picked.
     let scripted = { lines: [], name: null };
-    const capabilities = mods.createDiscordInterface({ client }).capabilities;
     // The turn's history is the fixture's chat, as the interface's history read gives it.
     /**
      * @param {*} found
@@ -329,8 +328,9 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     const admin = mods.createAdmin({
       hot,
       store,
-      client,
-      discord: capabilities,
+      reads: discordReads(client, () => hot.config).reads,
+      selfId: () => self.id,
+      getSelfName: () => self.name,
       port,
       intentions,
       errands,

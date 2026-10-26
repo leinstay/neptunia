@@ -37,7 +37,7 @@ function envOf(grants = {}) {
     discord: createDiscordInterface().capabilities,
     hot,
     store,
-    client: { user: { id: 'self-id' } },
+    selfId: () => 'self-id',
     getGuildId: () => 'g1',
   });
 }

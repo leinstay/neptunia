@@ -3157,7 +3157,7 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  * @param {{ spent: boolean, userSpent: boolean }} [input.drawQuota]  The image client's
  *   quota for this turn (src/llm/images.js#quota); omitted -> no drawing line in `<senses>`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
- *   guild's custom emoji (interfaces/discord/emoji.js#createEmojiIndex's `list()`). With
+ *   guild's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
  *   renders (ranked by `guildMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
  *   `senses.customEmoji`. Omitted or [] -> neither. With `labels.emoji.seenInChat` (and

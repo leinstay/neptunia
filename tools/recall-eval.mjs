@@ -102,10 +102,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
+import { discordReads, recallScope } from './lib/platform-objects.ts';
 import {
   HIT_AT,
   latestLines,
   localGuild,
+  localReads,
+  localScope,
   parseQuestions,
   recordMessage,
   renderSummary,
@@ -323,6 +326,22 @@ async function sample(flags, { dataDir, guildId, now, cwd }) {
   return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
 }
 
+/**
+ * The reads and the scope (`channel` and `snapshot`) a recall run is handed for `channel` of `guild`: the local guild's
+ * own, or Discord's over REST.
+ */
+async function recallParts(guild, channel, guildId, config) {
+  if (guild.local === true) {
+    const channelNameOf = (id) => guild.channels.cache.get(id)?.name ?? null;
+    return {
+      reads: localReads({ guildId, channelNameOf }),
+      scope: localScope({ guildId, channelId: String(channel.id), channelNameOf }),
+    };
+  }
+  const { reads } = discordReads(guild.client, config);
+  return { reads, scope: await recallScope(reads, channel, String(guildId)) };
+}
+
 /** `config` with the prefetch's deadline lifted (`--no-deadline`): a copy, the live config untouched. */
 function withoutDeadline(config, lifted) {
   if (!lifted) return config;
@@ -366,7 +385,6 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
   const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { createDiscordInterface } = await import('../interfaces/discord/index.js');
   const { recallSettings } = await import('../src/behavior/recall.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
@@ -458,6 +476,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
           });
           continue;
         }
+        const parts = await recallParts(guild, channel, guildId, () => hot.config);
         const recall = createRecall({
           hot: evalHot,
           store: {
@@ -468,7 +487,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
             getRecent: (id) => store.getRecent(id),
           },
           llm,
-          discord: createDiscordInterface().capabilities,
+          reads: parts.reads,
           archive,
           record,
           vectors,
@@ -477,9 +496,8 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
           now,
         });
         const found = await recall.prefetch({
-          guild,
           guildId,
-          channel,
+          ...parts.scope,
           selfId: self.id,
           selfName,
           history,
@@ -576,7 +594,6 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
   const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { createDiscordInterface } = await import('../interfaces/discord/index.js');
   const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');
@@ -851,11 +868,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
           score: scoreQuestion(q, { chatIds: chat.map((m) => m.id) }),
           ms: now() - started,
         };
+      const parts = await recallParts(guild, channel, guildId, () => hot.config);
       const recall = createRecall({
         hot: evalHot,
         store: readStore(),
         llm,
-        discord: createDiscordInterface().capabilities,
+        reads: parts.reads,
         archive,
         record,
         vectors,
@@ -863,7 +881,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         memoryDb,
         now,
       });
-      const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes });
+      const found = await recall.prefetch({ guildId, ...parts.scope, selfId: self.id, selfName, history, lanes });
       const { windows, matched } = prefetchWindows(found);
       return {
         status: found?.status ?? 'none-ran',
@@ -961,11 +979,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const recallStore = readStore((line) => {
         trace = line;
       });
+      const parts = await recallParts(guild, channel, guildId, () => hot.config);
       const recall = createRecall({
         hot: evalHot,
         store: recallStore,
         llm,
-        discord: createDiscordInterface().capabilities,
+        reads: parts.reads,
         archive,
         record,
         vectors,
@@ -975,9 +994,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       });
       const windows = [];
       const found = await recall.run({
-        guild,
         guildId,
-        channel,
+        ...parts.scope,
         selfId: self.id,
         selfName,
         history,

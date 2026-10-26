@@ -111,6 +111,28 @@ function view(id, hash, extra = {}) {
   };
 }
 
+/** The core's reads over `members` (id -> view): `memberInfo` answers the member and their avatar, or a member who is not one. */
+function readsOf(members, asked = []) {
+  return {
+    memberInfo: async ({ memberId }) => {
+      asked.push(memberId);
+      const found = members[memberId];
+      if (found === 'failed') return null;
+      return {
+        member: found
+          ? {
+              id: found.id,
+              name: null,
+              bot: found.bot,
+              groupIds: [],
+              avatar: { hash: found.hash, url: found.url, largeUrl: null },
+            }
+          : null,
+      };
+    },
+  };
+}
+
 function setup({
   profiles = { u1: {} },
   hot = fakeHot(),
@@ -134,7 +156,7 @@ function setup({
     getGuildId: () => GUILD,
     selfId: () => SELF,
     paused: () => paused,
-    resolveMember: async (guildId, id) => members[id] ?? null,
+    reads: readsOf(members),
   });
   return { queue, store, llm, imageFetcher, state, now, log, hot };
 }
@@ -455,7 +477,8 @@ test('tick: scans on its first run and again a day later, never in between', asy
   assert.equal(queue.scansStarted(), 3);
 });
 
-test('scan: a resolver that throws for one member does not stop the others', async () => {
+// A read that fails reaches the queue as no answer (src/interface/reads.ts): the member counts as gone.
+test('scan: a member whose read fails is counted gone and does not stop the others', async () => {
   const { queue, store } = setup({ profiles: { u1: {}, u2: {} } });
   const resolved = [];
   const failing = createAvatarQueue({
@@ -469,11 +492,7 @@ test('scan: a resolver that throws for one member does not stop the others', asy
     getGuildId: () => GUILD,
     selfId: () => SELF,
     paused: () => false,
-    resolveMember: async (guildId, id) => {
-      resolved.push(id);
-      if (id === 'u1') throw new Error('rest');
-      return view(id, 'h2');
-    },
+    reads: readsOf({ u1: 'failed', u2: view('u2', 'h2') }, resolved),
   });
   const counts = await failing.scan(GUILD);
   assert.deepEqual(resolved, ['u1', 'u2']);

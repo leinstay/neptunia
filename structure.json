@@ -316,7 +316,6 @@
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/reads.ts",
-        "src/interface/recall-bridge.ts",
         "src/interface/socket.ts"
       ],
       "test": "none"

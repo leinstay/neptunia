@@ -100,7 +100,7 @@ const handlers = perEnv((env) => {
     if (!raw) return null;
     if (String(args?.file ?? '').trim() || String(args?.gif ?? '').trim())
       throw invalid('one attachment per post', CODE.INVALID_ARGS);
-    const ref = messageRefOf(raw);
+    const ref = await messageRefOf(raw, reads);
     const sourceId = await postingConversation({
       reads,
       iface: port?.iface,
@@ -186,7 +186,7 @@ const handlers = perEnv((env) => {
       !String(args?.media ?? '').trim()
     )
       throw invalid('text is required');
-    const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
+    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
@@ -276,7 +276,7 @@ const handlers = perEnv((env) => {
       const result = await spontaneous.force(ref, null, { requester });
       return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
     }
-    const reply = messageRefOf(args.replyTo);
+    const reply = await messageRefOf(args.replyTo, reads);
     if (reply.channelId && reply.channelId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const fetched = await reads.fetchMessages(ref, [reply.messageId]);
@@ -313,7 +313,7 @@ const handlers = perEnv((env) => {
    */
   async function target(args, context, need, { last = false } = {}) {
     if (last && isLast(args?.messageId)) return lastTarget(args, context, need);
-    const message = messageRefOf(args?.messageId);
+    const message = await messageRefOf(args?.messageId, reads);
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && message.channelId && given !== message.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);

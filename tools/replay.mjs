@@ -557,12 +557,11 @@ import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
 import {
-  conversationOfChannel,
   conversationRef,
   discordReads,
   guildListing,
   hiddenReads,
-  onPlatformChannel,
+  recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
 
@@ -1357,7 +1356,6 @@ async function loadRecallMods(load) {
     createLookup: lookup.createLookup,
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
-    createDiscordInterface: pull.createDiscordInterface,
     isVideoVisionOn: youtube.isVideoVisionOn,
   };
   for (const [name, fn] of Object.entries(mods)) {
@@ -1470,7 +1468,6 @@ async function runRecall({
     createLookup,
     collectReadableLinks,
     checkPull,
-    createDiscordInterface,
     isVideoVisionOn,
   } = mods;
   const config = hot.config;
@@ -1683,19 +1680,19 @@ async function runRecall({
     const clock = () => Date.now() + offset;
     const t = Date.now();
     try {
+      const { reads } = discordReads(guild.client, () => hot.config);
       const recall = createRecall({
         hot: recallHot,
         store: recallStore,
         llm: recording,
-        discord: createDiscordInterface().capabilities,
+        reads,
         describer,
         now: clock,
         timers,
       });
       found = await recall.run({
-        guild,
         guildId,
-        channel,
+        ...(await recallScope(reads, channel, String(guildId))),
         selfId: self.id,
         selfName,
         history,
@@ -2212,7 +2209,7 @@ export async function loadDiaryMods(load) {
     ...(await load('../interfaces/discord/index.js')),
     ...(await load('interface/fake.js')),
     ...(await load('interface/reads.ts')),
-    ...(await load('interface/recall-bridge.ts')),
+    ...(await load('behavior/emoji-index.ts')),
     ...(await load('memory/describe.js')),
     ...(await load('media/fetch-image.js')),
     ...(await load('media/fetch-video.js')),
@@ -2221,7 +2218,7 @@ export async function loadDiaryMods(load) {
     ...(await load('web/exa.js')),
     ...(await load('web/lookup.js')),
     ...(await load('llm/parse.js')),
-    ...(await load('skills/tool-calls.js')),
+    ...(await load('tools/tool-calls.ts')),
     ...(await load('memory/clamp.js')),
     ...(await load('time.js')),
   };
@@ -2378,10 +2375,8 @@ export function diaryTurnRunner(
     searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
     keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
   });
-  // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given; its
-  // capabilities are what the recall runner (which still takes the platform's objects) is given.
+  // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
-  const capabilities = discord.capabilities;
   const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} });
   const reads = wrapReads ? wrapReads(found) : found;
   return mods.createTurnRunner({
@@ -2393,8 +2388,8 @@ export function diaryTurnRunner(
     imageFetcher,
     lookup,
     images,
-    recall: mods.bridgeRecall(mods.createRecall({ hot, store, llm, discord: capabilities, describer }), client),
-    emoji: mods.createEmojiIndex(client, () => guildId),
+    recall: mods.createRecall({ hot, store, llm, reads, describer }),
+    emoji: mods.createEmojiIndex({ reads, communityId: () => guildId, now: Date.now }),
     getSelfName: () => self.name,
     selfId: () => self.id,
     reads,
@@ -2977,12 +2972,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('memory/record.js')),
     ...(await load('memory/journal.js')),
     ...(await load('admin.js')),
-    ...(await load('skills/registry.js')),
+    ...(await load('tools/registry.ts')),
     ...(await load('behavior/prompt.js')),
   };
-  await load('ops/index.js');
+  await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.js');
-  const { grantedSkillNames } = await load('skills/discovery.js');
+  const { grantedSkillNames } = await load('tools/discovery.ts');
   const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.js');
   const { deepMerge } = await load('config.js');
   const {
@@ -3216,8 +3211,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const admin = createAdmin({
       hot,
       store,
-      client,
-      discord: capabilities,
+      reads,
+      selfId: () => self.id,
+      getSelfName: () => self.name,
       port,
       intentions,
       errands,
@@ -4298,6 +4294,9 @@ export function createReplayTools({
 }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
+  // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
+  let scope = null;
+  const scopeOf = () => (scope ??= recallScope(reads, channel, String(guildId)));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -4315,7 +4314,7 @@ export function createReplayTools({
       hot,
       store: recallStore,
       llm: client,
-      discord,
+      reads,
       describer,
       archive: sources.archive ?? null,
       record: sources.record ?? null,
@@ -4456,7 +4455,7 @@ export function createReplayTools({
       if (skip) return null;
       const recall = recallOf(llm);
       if (typeof recall.prefetch !== 'function') return null;
-      return recall.prefetch({ guild, guildId, channel, partner: null, selfId, selfName, history, lanes, at });
+      return recall.prefetch({ guildId, ...(await scopeOf()), partnerId: null, selfId, selfName, history, lanes, at });
     },
     async run(skill, args, { history = [], at = Date.now(), idByIndex = null } = {}) {
       const { usage, client } = metered();
@@ -4484,14 +4483,13 @@ export function createReplayTools({
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({
-          recall: onPlatformChannel(recallOf(client), { guild, channel }),
+          recall: recallOf(client),
           store,
           config: hot.config,
           labels,
-          guild,
           guildId,
-          channel: conversationOfChannel(channel, String(guildId)),
-          partner: null,
+          ...(await scopeOf()),
+          partnerId: null,
           selfId,
           selfName,
           history,
@@ -6749,7 +6747,7 @@ async function loopDepsOf({
     runMediaFind = null,
     lookPerTurn = null,
     IN_TURN_TOOLS,
-  } = await load('skills/tools.js');
+  } = await load('tools/tools.ts');
   // media.look and media.find (absent from an older engine: refused honestly).
   const mediaTools =
     typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
@@ -6761,7 +6759,7 @@ async function loopDepsOf({
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ??
     (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
-  const conversationMod = await load('skills/conversation-read.js').catch(() => null);
+  const conversationMod = await load('tools/conversation-read.ts').catch(() => null);
   const { pullPictures = null } = await load('behavior/pull.js').catch(() => ({}));
   const conversation =
     conversationMod &&
@@ -6776,8 +6774,8 @@ async function loopDepsOf({
           pullPictures,
         }
       : null;
-  const { transportOf } = await load('skills/tool-calls.js');
-  const { skillsIndex, discoveryOn } = await load('skills/discovery.js');
+  const { transportOf } = await load('tools/tool-calls.ts');
+  const { skillsIndex, discoveryOn } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
@@ -6992,7 +6990,7 @@ async function runMain(args, { root, signal, rng, answers }) {
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
   // below: src/tools/impl/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
-  if (loopWanted) await load('ops/index.js');
+  if (loopWanted) await load('tools/impl/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.js') : null;
   if (loopWanted && (typeof turnMod.coreToolsOn !== 'function' || typeof turnMod.loopSettings !== 'function')) {
     hot.close();
@@ -7152,7 +7150,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     seededSelfLine,
   } = await load('behavior/sandbox.js');
   const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.js'));
-  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, createEmojiIndex, resolveGuild } = discordPackage;
+  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, resolveGuild } = discordPackage;
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split
     ? {
@@ -7166,12 +7164,12 @@ async function runMain(args, { root, signal, rng, answers }) {
   // --skills: the operations register themselves and the command tree the skills derive from (src/tools/impl/index.ts).
   let skillMods = null;
   if (loopWanted) {
-    await load('ops/index.js');
-    const { skillRegistry } = await load('skills/registry.js');
-    const { expandPersonaGrant } = await load('ops/access.js');
+    await load('tools/impl/index.ts');
+    const { skillRegistry } = await load('tools/registry.ts');
+    const { expandPersonaGrant } = await load('tools/impl/access.ts');
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
-    const { grantedSkillNames } = await load('skills/discovery.js');
+    const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.
     const { createTaskStore, parseFileHandle } = await load('errands/store.js');
     skillMods = {
@@ -7262,7 +7260,10 @@ async function runMain(args, { root, signal, rng, answers }) {
       hot.config.features?.gifs !== false && typeof store.getGifs === 'function'
         ? (store.getGifs(guildId) ?? null)
         : null;
-    const customEmoji = createEmojiIndex(client, guildId).list();
+    // The guild's custom emoji as the turn lists them (the platform's own cache, as the replay holds it).
+    const customEmoji = [...guild.emojis.cache.values()]
+      .filter((emoji) => emoji?.id && emoji.name && emoji.available !== false)
+      .map((emoji) => ({ id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) }));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
       ? await loopDepsOf({

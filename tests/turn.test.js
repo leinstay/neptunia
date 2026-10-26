@@ -3301,7 +3301,8 @@ test("createTurnRunner: recall -- a private chat runs recall on its partner's be
   const args = recall.runCalls[0];
   assert.equal(args.channel.id, channel.id);
   assert.equal(args.guildId, 'g1');
-  assert.equal(args.partner.id, 'u1');
+  // The recall runner takes the partner's id (`partnerId`) and the turn's snapshot, no member object: it reads through the interface.
+  assert.equal(args.partnerId, 'u1');
   assert.deepEqual(args.server, { forms: ['κουνέλι'], who: [], from: null, to: null });
   assert.equal(lookup.searchCalls.length, 0);
   assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
@@ -4271,13 +4272,17 @@ function imageCap(reason, key, used, cap) {
   return Object.assign(new ImageCapError(reason), { key, used, cap });
 }
 
-// The server's custom emoji (features.customEmoji, interfaces/discord/emoji.js).
+// The server's custom emoji (features.customEmoji, src/behavior/emoji-index.ts).
 function fakeEmojiIndex() {
   const emojis = [
     { id: '111111111111111111', name: 'pepe_cry', animated: false },
     { id: '222222222222222222', name: 'dance', animated: true },
   ];
-  return { byName: (name) => emojis.find((e) => e.name === name) ?? null, list: () => emojis.map((e) => ({ ...e })) };
+  return {
+    refresh: async () => {},
+    byName: (name) => emojis.find((e) => e.name === name) ?? null,
+    list: () => emojis.map((e) => ({ ...e })),
+  };
 }
 
 test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, with cached captions', async () => {

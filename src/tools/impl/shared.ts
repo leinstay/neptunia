@@ -747,26 +747,31 @@ export async function postingConversation({ reads, iface, guildId, channelId, co
   return id;
 }
 
-/**
- * A message link a person pasted to name a message, the whole text: `https://discord.com/channels/<guild>/<channel>/<message>`
- * (ptb, canary, discordapp too; `@me` for a private chat); groups: the channel id, the message id. The operations
- * (`messageRefOf`) and her calls (src/tools/executors.ts#resolveCall) read it. A pasted link is still parsed in the
- * core, the one Discord pattern left there: reading it through the adapter comes with the conversation reads.
- */
-export const MESSAGE_LINK_RE =
-  /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
+/** The core's own spelling of a message in another conversation, `ref:<conversation>/<message>` (executors.ts#mediaRef). */
+const MESSAGE_REF_RE = /^ref:([\w-]{1,64})\/([\w-]{1,64})$/;
 
 /**
- * `{ channelId, messageId }` of a message id (`channelId` null) or a message link; an `invalid`
- * error (`unknown-message`) for anything else.
+ * `{ channelId, messageId }` of a message id (`channelId` null), a `ref:<conversation>/<message>` the core wrote, or a
+ * message link a person pasted (with or without angle brackets), which the interface reads (`reads.parseLinks`): the
+ * core knows no address grammar of a platform. An `invalid` error (`unknown-message`) for anything else, a link
+ * included when there are no reads or the interface does not read links.
  * @param {unknown} value
- * @returns {{ channelId: string|null, messageId: string }}
+ * @param {import('../../interface/reads.ts').Reads|null} reads
+ * @returns {Promise<{ channelId: string|null, messageId: string }>}
  */
-export function messageRefOf(value) {
-  const text = String(value ?? '').trim();
-  const link = MESSAGE_LINK_RE.exec(text);
-  if (link) return { channelId: link[1], messageId: link[2] };
+export async function messageRefOf(value, reads) {
+  const text = String(value ?? '')
+    .trim()
+    .replace(/^<(.*)>$/, '$1')
+    .trim();
   if (/^[\w-]{1,64}$/.test(text)) return { channelId: null, messageId: text };
+  const own = MESSAGE_REF_RE.exec(text);
+  if (own) return { channelId: own[1], messageId: own[2] };
+  if (/^https?:\/\//i.test(text) && reads) {
+    const parsed = await reads.parseLinks([text]);
+    const ref = parsed?.refs[0] ?? null;
+    if (ref) return { channelId: ref.conversationId, messageId: ref.messageId };
+  }
   throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
 }
 

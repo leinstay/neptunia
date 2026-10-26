@@ -978,13 +978,25 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
     getGuild: () => ({}),
     updateGuild() {},
   };
-  const me = { roles: { cache: new Map(roles.map((id) => [id, { id }])) } };
-  const client = { user: { id: SELF }, guilds: { cache: new Map([['g1', { members: { me } }]]) } };
+  // The interface says who the persona is and which groups she holds (`memberInfo`).
+  const client = {};
+  const reads = {
+    memberInfo: async ({ memberId }) => ({
+      member: {
+        id: memberId,
+        name: null,
+        bot: false,
+        groupIds: roles,
+        avatar: { hash: null, url: null, largeUrl: null },
+      },
+    }),
+  };
   const env = createOpsEnv({
     discord: DISCORD,
     hot,
     store,
-    client,
+    reads,
+    selfId: () => SELF,
     getGuildId: () => 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   });

@@ -1,8 +1,8 @@
 // The server's custom emoji in the persona's own output. The model writes
 // `:name:` (the way it reads them in the transcript); Discord only shows a
 // custom emoji as `<:name:id>` / `<a:name:id>`. The pure functions below turn
-// one into the other through a `lookup(name)`; interfaces/discord/emoji.js#createEmojiIndex
-// is the one thin view over discord.js that backs that lookup.
+// one into the other through a `lookup(name)`; src/behavior/emoji-index.ts#createEmojiIndex
+// is the core's index over the interface's list of the community's emoji that backs that lookup.
 
 /**
  * Discord's custom emoji markup `<:name:id>` / `<a:name:id>` as a regex

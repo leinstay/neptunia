@@ -1,15 +1,18 @@
-// Tests for src/behavior/catch-up.js: the messages posted while the bot was down, read once at
-// start and handed to the live message handler's catch-up path (src/behavior/pipeline.js).
+// Tests for src/behavior/catch-up.js with the live message handler behind it (src/behavior/pipeline.js#catchUpMessage):
+// the messages posted while the bot was down are read once at start through the interface and handed to the handler's
+// catch-up path. The unit side (which conversations are read, which events are kept, the tally) is tests/catch-up-reads.test.ts;
+// here a real handler answers: a mention starts one turn, an older line is only observed, a message the live path also
+// delivers is handled once.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createCatchUpDeliver, createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.js';
+import { createOfflineCatchUp } from '../src/behavior/catch-up.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { deepMerge } from '../src/config.js';
-import { normalizeOptions, toEvent } from '../interfaces/discord/index.js';
-import { onWorldIface, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
+import { onWorldIface, useIface, useSelf, world } from './fixtures/turn-world.ts';
+import { IFACE, channel, message, rig } from './fixtures/reads-rig.ts';
 
 // The conversations are held by a fake interface named `fake`, where the persona is `self1`.
 useIface('fake');
@@ -34,45 +37,19 @@ function config(overrides = {}) {
 
 const silentLog = { info() {}, warn() {}, error() {} };
 
-function fakeGuild() {
-  return { id: 'g1', members: { me: { displayName: 'Ζωή' } } };
-}
-
-function fakeChannel(id, guild) {
-  const channel = {
-    id,
-    guild,
-    isThread: () => false,
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    messages: { cache: new Map(), fetch: async () => null },
-  };
-  syncStub(channel);
-  return channel;
-}
-
-function fakeMessage({ id, channel, ts, content = 'γεια σου', authorId = 'u1', mention = false }) {
-  return {
-    id,
-    system: false,
-    webhookId: null,
-    author: { id: authorId, bot: false, globalName: 'Ελένη', username: 'eleni' },
-    member: { displayName: 'Ελένη' },
-    guild: channel.guild,
-    channel,
-    channelId: channel.id,
-    cleanContent: content,
-    content,
-    createdTimestamp: ts,
-    reference: null,
-    mentions: { users: new Map(mention ? [[SELF, { id: SELF }]] : []) },
-    attachments: new Map(),
-    stickers: new Map(),
-  };
+/** The event of a message in `room` that mentions the persona when `mention` is set. */
+function eventIn(room, { id, ts, content = 'γεια σου', authorId = 'u1', mention = false }) {
+  const event = message(room, id, ts, content, { authorId, authorName: 'Ελένη' });
+  if (mention) {
+    event.addressing = { ...event.addressing, mentioned: true, mentionedUserIds: [SELF] };
+  }
+  return event;
 }
 
 /** The live handler with fakes around it, and what reached the turn runner and memory. */
 function harness({ hot, channels = [{ id: 'c1', lastMessageAt: LAST_SEEN }], paused = false } = {}) {
+  // The live handler reads the conversations it meets through the world's own reads.
+  for (const { id } of channels) world().channel({ id, name: id });
   const turnsStarted = [];
   const observed = [];
   const store = { state: { data: { paused } }, listChannels: () => channels, getUser: () => null };
@@ -100,24 +77,29 @@ function harness({ hot, channels = [{ id: 'c1', lastMessageAt: LAST_SEEN }], pau
     rng: () => 0.99,
     now: () => NOW,
   });
-  const live = (message) => handler(onWorldIface(toEvent(message, SELF, normalizeOptions(hot.config))));
-  const deliver = (message, options) =>
-    handler.catchUp(onWorldIface(toEvent(message, SELF, normalizeOptions(hot.config))), options);
+  const live = (event) => handler(onWorldIface(event));
+  const deliver = (event, options) => handler.catchUp(onWorldIface(event), options);
   return { handler, live, deliver, store, turnsStarted, observed };
 }
 
-function catchUp(h, hot, { fetchRecent, channelInfo, journal = null, log = silentLog } = {}) {
-  return createOfflineCatchUp({
+/** A catch-up over the interface `fake` holding `rooms` (conversation info with its events). */
+function catchUp(h, hot, { rooms, journal = null, log = silentLog }) {
+  const fake = rig();
+  for (const { info, events } of rooms) {
+    fake.fake.seedConversation(info);
+    for (const event of events) fake.fake.seedEvent(event);
+  }
+  const service = createOfflineCatchUp({
     hot,
     store: h.store,
-    selfId: () => SELF,
-    channelInfo: channelInfo ?? (() => ({ available: true, latestAt: null })),
-    fetchRecent,
+    iface: IFACE,
+    reads: fake.reads,
     deliver: h.deliver,
     journal,
     now: () => NOW,
     log,
   });
+  return { ...service, fake: fake.fake };
 }
 
 /** Let the fire-and-forget runTurn promises settle. */
@@ -125,49 +107,24 @@ async function settle() {
   for (let i = 0; i < 5; i += 1) await Promise.resolve();
 }
 
-test('planChannel: keeps what came after the last seen message, oldest first, a call only inside the window and before her own post', () => {
-  const at = (id, minutesAgo, authorId = 'u1') => ({
-    id,
-    createdTimestamp: NOW - minutesAgo * MIN,
-    author: { id: authorId },
-  });
-  const messages = [at('105', 2), at('101', 40), at('103', 20), at('104', 5, SELF), at('106', 1)];
-  const plan = planChannel(messages, { lastSeenAt: LAST_SEEN, nowMs: NOW, windowMs: 15 * MIN, selfId: SELF });
-  assert.deepEqual(
-    plan.map((item) => [item.message.id, item.trigger]),
-    [
-      ['103', false], // older than the window
-      ['104', false], // her own
-      ['105', true],
-      ['106', true],
-    ]
-  );
-  const beforeHer = planChannel([at('201', 3), at('202', 2, SELF)], {
-    lastSeenAt: LAST_SEEN,
-    nowMs: NOW,
-    windowMs: 15 * MIN,
-    selfId: SELF,
-  });
-  assert.equal(beforeHer[0].trigger, false, 'she already posted in the channel after it');
-});
-
 test('catch-up: a mention after the last seen message starts one turn; the plain line before it is only observed', async () => {
   const hot = { config: config() };
   const h = harness({ hot });
-  const channel = fakeChannel('c1', fakeGuild());
-  const seen = fakeMessage({ id: '100', channel, ts: LAST_SEEN - MIN, content: 'παλιό' });
-  const plain = fakeMessage({ id: '110', channel, ts: NOW - 3 * MIN, content: 'απλή κουβέντα' });
-  const tag = fakeMessage({ id: '120', channel, ts: NOW - 2 * MIN, content: 'δες αυτό', mention: true });
-  const fetches = [];
+  const room = channel('c1', { lastMessageAt: NOW - 2 * MIN });
   const result = await catchUp(h, hot, {
-    fetchRecent: async (channelId, limit) => {
-      fetches.push([channelId, limit]);
-      return [tag, plain, seen];
-    },
+    rooms: [
+      {
+        info: room,
+        events: [
+          eventIn(room, { id: '100', ts: LAST_SEEN - MIN, content: 'παλιό' }),
+          eventIn(room, { id: '110', ts: NOW - 3 * MIN, content: 'απλή κουβέντα' }),
+          eventIn(room, { id: '120', ts: NOW - 2 * MIN, content: 'δες αυτό', mention: true }),
+        ],
+      },
+    ],
   }).run('g1');
   await settle();
 
-  assert.deepEqual(fetches, [['c1', 50]]);
   assert.deepEqual(h.observed, ['110', '120']);
   assert.equal(h.turnsStarted.length, 1);
   assert.equal(h.turnsStarted[0].trigger.id, '120');
@@ -180,9 +137,10 @@ test('catch-up: a mention after the last seen message starts one turn; the plain
 test('catch-up: a mention older than the window is observed but starts nothing', async () => {
   const hot = { config: config() };
   const h = harness({ hot });
-  const channel = fakeChannel('c1', fakeGuild());
-  const stale = fakeMessage({ id: '120', channel, ts: NOW - 20 * MIN, mention: true });
-  await catchUp(h, hot, { fetchRecent: async () => [stale] }).run('g1');
+  const room = channel('c1', { lastMessageAt: NOW - 20 * MIN });
+  await catchUp(h, hot, {
+    rooms: [{ info: room, events: [eventIn(room, { id: '120', ts: NOW - 20 * MIN, mention: true })] }],
+  }).run('g1');
   await settle();
 
   assert.deepEqual(h.observed, ['120']);
@@ -191,35 +149,29 @@ test('catch-up: a mention older than the window is observed but starts nothing',
 
 test('catch-up: a message the gateway also delivers is answered once, whichever path comes first', async () => {
   const hot = { config: config() };
-  const channel = fakeChannel('c1', fakeGuild());
+  const room = channel('c1', { lastMessageAt: NOW - MIN });
+  const tag = eventIn(room, { id: '130', ts: NOW - MIN, mention: true });
 
-  // The gateway first, then the catch-up's fetch returns it too.
+  // The live path first, then the catch-up's read returns it too.
   const first = harness({ hot });
-  const tag = fakeMessage({ id: '130', channel, ts: NOW - MIN, mention: true });
   await first.live(tag);
-  const result = await catchUp(first, hot, { fetchRecent: async () => [tag] }).run('g1');
+  const result = await catchUp(first, hot, { rooms: [{ info: room, events: [tag] }] }).run('g1');
   await settle();
   assert.equal(first.turnsStarted.length, 1);
   assert.equal(first.observed.length, 1);
   assert.equal(result.channels[0].duplicate, 1);
 
-  // The catch-up first, then the gateway delivers the same message.
+  // The catch-up first, then the live path delivers the same message.
   const second = harness({ hot });
-  await catchUp(second, hot, { fetchRecent: async () => [tag] }).run('g1');
+  await catchUp(second, hot, { rooms: [{ info: room, events: [tag] }] }).run('g1');
   await second.live(tag);
   await settle();
   assert.equal(second.turnsStarted.length, 1);
   assert.equal(second.observed.length, 1);
 });
 
-test('catch-up: no channels, a failed fetch, a channel with nothing new and the switch off never block or throw', async () => {
+test('catch-up: a conversation whose history fails is logged by its id alone, and the next one is still caught up', async () => {
   const hot = { config: config() };
-  const channel = fakeChannel('c2', fakeGuild());
-
-  const none = harness({ hot, channels: [] });
-  const empty = await catchUp(none, hot, { fetchRecent: async () => assert.fail('nothing to fetch') }).run('g1');
-  assert.deepEqual(empty, { channels: [], failed: 0 });
-
   const warnings = [];
   const log = { ...silentLog, warn: (msg, meta) => warnings.push([msg, meta]) };
   const mixed = harness({
@@ -227,40 +179,34 @@ test('catch-up: no channels, a failed fetch, a channel with nothing new and the 
     channels: [
       { id: 'c1', lastMessageAt: LAST_SEEN },
       { id: 'c2', lastMessageAt: LAST_SEEN },
-      { id: 'c3', lastMessageAt: LAST_SEEN },
     ],
   });
-  const result = await catchUp(mixed, hot, {
+  const one = channel('c1', { lastMessageAt: NOW - MIN });
+  const two = channel('c2', { lastMessageAt: NOW - MIN });
+  const run = catchUp(mixed, hot, {
     log,
-    // c3: Discord's last message is the one the bot saw -- not fetched at all.
-    channelInfo: (id) => ({ available: true, latestAt: id === 'c3' ? LAST_SEEN : null }),
-    fetchRecent: async (channelId) => {
-      if (channelId === 'c1') throw Object.assign(new Error('Missing Access'), { code: 50001 });
-      if (channelId === 'c3') assert.fail('nothing new in c3');
-      return [fakeMessage({ id: '140', channel, ts: NOW - MIN, mention: true })];
-    },
-  }).run('g1');
+    rooms: [
+      { info: one, events: [eventIn(one, { id: '139', ts: NOW - MIN })] },
+      { info: two, events: [eventIn(two, { id: '140', ts: NOW - MIN, mention: true })] },
+    ],
+  });
+  // The first read of history (c1's) fails.
+  run.fake.failNext('history', { status: 'failed', error: { code: 'down', retryable: true } });
+  const result = await run.run('g1');
   await settle();
   assert.equal(result.failed, 1);
-  assert.deepEqual(warnings, [['catch-up: fetch failed', { channelId: 'c1', code: 50001, name: 'Error' }]]);
-  assert.equal(mixed.turnsStarted.length, 1, 'the channel after the failed one is still caught up');
-
-  const offHot = { config: config({ features: { offlineCatchUp: false } }) };
-  const off = harness({ hot: offHot });
-  assert.equal(await catchUp(off, offHot, { fetchRecent: async () => assert.fail('switched off') }).run('g1'), null);
-
-  const paused = harness({ hot, paused: true });
-  assert.equal(await catchUp(paused, hot, { fetchRecent: async () => assert.fail('paused') }).run('g1'), null);
+  assert.deepEqual(warnings, [['catch-up: fetch failed', { channelId: 'c1' }]]);
+  assert.equal(mixed.turnsStarted.length, 1, 'the conversation after the failed one is still caught up');
 });
 
 test('catch-up: the counts per channel reach the journal as one system record', async () => {
   const hot = { config: config({ features: { journal: true } }) };
   const h = harness({ hot });
-  const channel = fakeChannel('c1', fakeGuild());
+  const room = channel('c1', { lastMessageAt: NOW - MIN });
   const records = [];
   await catchUp(h, hot, {
     journal: { system: async (guildId, record) => records.push([guildId, record]) },
-    fetchRecent: async () => [fakeMessage({ id: '150', channel, ts: NOW - MIN, mention: true })],
+    rooms: [{ info: room, events: [eventIn(room, { id: '150', ts: NOW - MIN, mention: true })] }],
   }).run('g1');
   await settle();
   assert.deepEqual(records, [
@@ -274,40 +220,4 @@ test('catch-up: the counts per channel reach the journal as one system record', 
       },
     ],
   ]);
-});
-
-// ---- the deliver function the composition root hands to createOfflineCatchUp ------------------
-
-// Regression: the deliver of the composition root emitted the event as a live message, so the live path ran for
-// every caught-up message and `onMessage.catchUp` never did. The deliver is a function of its own so that the
-// path it takes can be tested.
-test('catch-up deliver: builds the event from the message and returns what onCatchUp answers', async () => {
-  const event = { id: 'e:m1', raw: { id: 'm1' } };
-  /** @type {unknown[]} */
-  const seen = [];
-  const deliver = createCatchUpDeliver({
-    eventOf: () => event,
-    onCatchUp: (caught, options) => {
-      seen.push([caught, options]);
-      return Promise.resolve('triggered');
-    },
-  });
-  const outcome = await deliver(event.raw, { trigger: true });
-  assert.equal(outcome, 'triggered');
-  assert.deepEqual(seen, [[event, { trigger: true }]]);
-});
-
-test('catch-up deliver: answers ignored and calls nothing when the event cannot be built', async () => {
-  let called = false;
-  const deliver = createCatchUpDeliver({
-    eventOf: () => {
-      throw new Error('malformed message');
-    },
-    onCatchUp: () => {
-      called = true;
-      return Promise.resolve('triggered');
-    },
-  });
-  assert.equal(await deliver({ id: 'm3' }, { trigger: true }), 'ignored');
-  assert.equal(called, false);
 });

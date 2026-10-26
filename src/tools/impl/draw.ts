@@ -12,7 +12,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, client, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
+  const { hot, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
   /** @type {import('../../interface/reads.ts').Reads} */
   const reads = env.reads;
   /** @type {import('../../protocol/adapter.ts').Adapter|null|undefined} */
@@ -37,7 +37,7 @@ const handlers = perEnv((env) => {
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
     // A reply is a message to quote: it follows that message's channel, as message.create does.
-    const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
+    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
@@ -67,7 +67,7 @@ const handlers = perEnv((env) => {
 
     const self = args?.self === true;
     const guildId = resolvedGuildId(context);
-    const selfName = client?.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client?.user?.username ?? '';
+    const selfName = env.getSelfName(guildId);
 
     let picture;
     let referenceMissing = false;
@@ -77,7 +77,7 @@ const handlers = perEnv((env) => {
         hot,
         // The persona's large avatar, asked of the interface only when the picture needs the reference.
         avatarUrl: async () => {
-          const found = await reads.memberInfo({ communityId: guildId, memberId: String(client?.user?.id ?? '') });
+          const found = await reads.memberInfo({ communityId: guildId, memberId: String(env.selfId() ?? '') });
           return found?.member?.avatar.largeUrl ?? null;
         },
         imageFetcher,

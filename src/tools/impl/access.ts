@@ -105,11 +105,13 @@ function personaOnlyKey(key, ops) {
 }
 
 const handlers = perEnv((env) => {
-  const { writeLocalPath, localOrLive, client } = env;
+  const { writeLocalPath, localOrLive } = env;
+  /** @type {import('../../interface/reads.ts').Reads|null} */
+  const reads = env.reads;
 
-  /** The bot's own user id (the persona as a grant target), or null before the client is ready. */
+  /** The persona's own member id (the persona as a grant target), or null before the interface has said who she is. */
   function personaId() {
-    const id = client?.user?.id;
+    const id = env.selfId();
     return id === undefined || id === null || id === '' ? null : String(id);
   }
 
@@ -119,11 +121,13 @@ const handlers = perEnv((env) => {
     return id !== null && what?.userId != null && String(what.userId) === id;
   }
 
-  /** The role ids the persona holds in the served guild (the client's member cache), [] when unknown. */
-  function personaRoleIds(context) {
+  /** The ids of the groups the persona holds in the served community (the interface's member info), [] when unknown. */
+  async function personaRoleIds(context) {
     const guildId = env.resolvedGuildId(context);
-    const roles = client?.guilds?.cache?.get?.(guildId)?.members?.me?.roles?.cache;
-    return roles && typeof roles.keys === 'function' ? [...roles.keys()].map(String) : [];
+    const self = personaId();
+    if (!reads || !guildId || self === null) return [];
+    const found = await reads.memberInfo({ communityId: guildId, memberId: self });
+    return found?.member?.groupIds.map(String) ?? [];
   }
 
   /**
@@ -131,12 +135,12 @@ const handlers = perEnv((env) => {
    * reaches her -- herself, everyone, or a role she holds -- is refused, whoever asked: she never
    * changes her own effective authority, directly or indirectly.
    */
-  function refuseSelfChange(name, what, context) {
+  async function refuseSelfChange(name, what, context) {
     if (context?.actor !== 'persona') return;
     const reachesHer =
       targetsPersona(what) ||
       what?.everyone === true ||
-      (what?.roleId != null && personaRoleIds(context).includes(String(what.roleId)));
+      (what?.roleId != null && (await personaRoleIds(context)).includes(String(what.roleId)));
     if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
   }
 
@@ -183,11 +187,11 @@ const handlers = perEnv((env) => {
     return `Granted ${key} to ${target.label} ${reloadNote(ok)}`;
   }
 
-  function cmdAccessGrant(args, context) {
+  async function cmdAccessGrant(args, context) {
     const key = String(args?.command ?? '').trim();
     if (!key) throw invalid('an operation name is required');
     const target = accessTargetArgs(args);
-    refuseSelfChange('access.grant', target.what, context);
+    await refuseSelfChange('access.grant', target.what, context);
     if (targetsPersona(target.what)) return grantToPersona(key, target);
     const ops = listOps();
     const expanded = expandGrant(key, ops);
@@ -226,11 +230,11 @@ const handlers = perEnv((env) => {
     return Object.hasOwn(access ?? {}, key) ? [key, ...under] : under;
   }
 
-  function cmdAccessRevoke(args, context) {
+  async function cmdAccessRevoke(args, context) {
     const key = String(args?.command ?? '').trim();
     if (!key) throw invalid('an operation name is required');
     const target = accessTargetArgs(args);
-    refuseSelfChange('access.revoke', target.what, context);
+    await refuseSelfChange('access.revoke', target.what, context);
     const currentAccess = effectiveAccess();
     const known = expandGrant(key, listOps()) || (targetsPersona(target.what) && expandPersonaGrant(key));
     if (!known && !Object.hasOwn(currentAccess ?? {}, key)) throw invalid(`unknown operation: ${key}`);

@@ -2,7 +2,7 @@
 // (src/memory/update.js), so on a server with a long history the `<gifs>`
 // block would stay empty until enough GIFs are posted again. This reads the
 // last `gifs.backfillMessages` messages of every readable channel over the
-// Discord API -- no LLM for the counting, no token budget -- and counts them
+// interface's history reads -- no LLM for the counting, no token budget -- and counts them
 // into gifs.json at once (src/memory/gifs.js), starting from counts reset to
 // 0 (entries and handles kept, so a GIF keeps its handle across a recount),
 // then stamps `backfill: { at, channels, messages }` so it never
@@ -30,13 +30,13 @@ const DEFAULT_BACKFILL_DESCRIBE = 20;
  * @param {object} deps.hot        src/hot.js view; `config.gifs`, `config.bot`,
  *   `config.media.embedTextChars`, `config.features.gifs` read at use.
  * @param {object} deps.store      src/memory/store.js.
- * @param {object} deps.client     The discord.js Client (`user.id`, `guilds.cache`).
- * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects it): src/memory/emoji-backfill.js#readMemberHistory's reads.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (src/memory/emoji-backfill.js#readMemberHistory's).
+ * @param {() => string} deps.iface  The interface's name, read when a run starts.
  * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js): `describeMany`.
  *   Absent -> nothing is described.
  * @param {object} [deps.log]      src/log.js-shaped logger.
  */
-export function createGifBackfill({ hot, store, client, discord, describer = null, log = defaultLog }) {
+export function createGifBackfill({ hot, store, reads, iface, describer = null, log = defaultLog }) {
   let running = false;
 
   function skipped(reason) {
@@ -81,13 +81,12 @@ export function createGifBackfill({ hot, store, client, discord, describer = nul
    * reset, so a GIF seen again keeps its handle; one no longer in the window
    * stays at count 0, ranked below every counted one, until `storeMax`
    * evicts it (src/memory/gifs.js#rankGifs). Handles are never reused.
-   * Channels are read one after another, 100 messages per page (see
-   * interfaces/discord/collect.js#fetchHistoryWindow). Messages of bots and of the
+   * Channels are read one after another (readMemberHistory). Messages of bots and of the
    * persona are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
    * not paused. Skips (never throws) when paused, when `backfillMessages` is
    * 0, when already stamped (no `force`), while another run is in flight, or
-   * when the guild is not in the client's cache; an unexpected error is thrown.
+   * when the interface lists no readable conversation of the community; an unexpected error is thrown.
    * @param {string} guildId
    * @param {{ force?: boolean }} [opts]
    * @returns {Promise<{ ok: true, channels: number, messages: number, gifs: number, described: number }
@@ -102,16 +101,14 @@ export function createGifBackfill({ hot, store, client, discord, describer = nul
 
     running = true;
     try {
-      const guild = client.guilds.cache.get(guildId);
-      if (!guild) return skipped('no-guild');
-
-      const { channels, messages: collected } = await readMemberHistory(guild, limit, {
+      const history = await readMemberHistory(reads, guildId, limit, {
         config: hot.config,
-        discord,
-        selfId: client.user?.id,
+        iface: iface(),
         log,
         prefix: 'gif-backfill',
       });
+      if (history === null) return skipped('no-guild');
+      const { channels, messages: collected } = history;
 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
       if (store.state?.data?.paused) return skipped('paused');

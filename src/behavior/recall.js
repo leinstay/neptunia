@@ -161,8 +161,6 @@ export const RRF_K = 60;
 /** How many of the newest windows the fallback stretch is chosen among (fallbackWindow). */
 export const FALLBACK_AMONG = 3;
 
-/** Discord's epoch (2015-01-01T00:00:00Z) in ms: a snowflake counts from it. */
-export const DISCORD_EPOCH_MS = 1420070400000;
 /** Hits per search request (the API's maximum). */
 export const SEARCH_PAGE = 25;
 /** The largest `offset` the message search accepts. */
@@ -727,18 +725,6 @@ export function isRecentCue(server, { now, recordDays } = {}) {
 }
 
 /**
- * The snowflake of the first possible message at `ms` (worker and sequence
- * bits 0), as a decimal string for `min_id` / `max_id`; '0' before Discord's
- * epoch or for a time that is not finite.
- * @param {number} ms
- * @returns {string}
- */
-export function snowflakeAt(ms) {
-  if (!Number.isFinite(ms) || ms <= DISCORD_EPOCH_MS) return '0';
-  return ((BigInt(Math.floor(ms)) - BigInt(DISCORD_EPOCH_MS)) << 22n).toString();
-}
-
-/**
  * The ordered search queries of one server search, newest first each:
  * - content queries: the `forms` and the `who` forms taken round-robin
  *   (form 1, name 1, form 2, name 2, ...), de-duplicated, at most `maxForms`;
@@ -747,24 +733,21 @@ export function snowflakeAt(ms) {
  * - one author query per id of `memberIds`;
  * - with none of those and a range: one query over the range alone
  *   (`kind: 'range'`), which the runner samples (sampleOffsets).
- * The range: `minId` from `from`, `maxId` from `to` (inclusive). The
+ * The range: `after` from `from`, `before` the instant past `to` (so `to` is inclusive), both in ms. The
  * queries span the whole server, so the turn's own chat bounds nothing here:
  * its lines are dropped from the hits by id (dropChatHits). An empty list
  * when nothing is asked, or when the range ends before it starts.
  * @param {{ forms?: string[], who?: string[], memberIds?: string[], from?: number|null, to?: number|null,
  *   maxForms?: number }} params
- * @returns {{ kind: 'form'|'who'|'author'|'range', content?: string, authorId?: string, minId: string|null,
- *   maxId: string|null }[]}
+ * @returns {{ kind: 'form'|'who'|'author'|'range', content?: string, authorId?: string, after: number|null,
+ *   before: number|null }[]}
  */
 export function searchPlan({ forms = [], who = [], memberIds = [], from = null, to = null, maxForms } = {}) {
   const limit = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 0);
   const upper = Number.isFinite(to) ? to + 1 : Infinity;
   const lower = Number.isFinite(from) ? from : null;
   if (lower !== null && upper <= lower) return [];
-  const range = {
-    minId: lower !== null ? snowflakeAt(lower) : null,
-    maxId: Number.isFinite(upper) ? snowflakeAt(upper) : null,
-  };
+  const range = { after: lower, before: Number.isFinite(upper) ? upper : null };
 
   const contents = [];
   const a = Array.isArray(forms) ? forms : [];

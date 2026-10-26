@@ -19,14 +19,23 @@ import { CODE } from '../codes.ts';
  * defaults): the dependencies themselves plus the shared helpers.
  * @param {object} deps
  * @param {import('../../interface/reads.ts').Reads|null} [deps.reads]  The core's reads of the interface.
+ * @param {() => (string|null)} [deps.selfId]  The persona's own member id, null before the interface has said it.
+ * @param {(communityId: string|null) => string} [deps.getSelfName]  The name the persona goes by in a community.
+ * @param {(communityId: string, memberId: string) => (string|null)} [deps.memberNameOf]  A member's name in the member directory.
+ * @param {{ isPrivate: (conversationId: string) => boolean }} [deps.directory]  The conversations the interface reported.
+ * @param {{ lastReconnectAt: number|null }} [deps.connection]  When the interface's link to its platform last came back
+ *   (the core fills it from `connection.changed`).
  * @returns {object}
  */
 export function createOpsEnv({
   hot,
   store,
-  client,
-  discord = null,
   reads = null,
+  selfId = () => null,
+  getSelfName = () => '',
+  memberNameOf = () => null,
+  directory = { isPrivate: () => false },
+  connection = { lastReconnectAt: null },
   spontaneous,
   calibrator,
   getGuildId,
@@ -61,20 +70,6 @@ export function createOpsEnv({
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
-  // The gateway's last reconnect, for the status card: a resumed session, or a shard ready again
-  // after its first ready. Null until one happens; nothing is tracked without a client to listen to.
-  const connection = { lastReconnectAt: null };
-  if (typeof client?.on === 'function') {
-    let readies = 0;
-    client.on('shardReady', () => {
-      readies += 1;
-      if (readies > 1) connection.lastReconnectAt = Date.now();
-    });
-    client.on('shardResume', () => {
-      connection.lastReconnectAt = Date.now();
-    });
-  }
-
   /** `/<command name> <rest>`, the command name read now (`bot.commandName`, default `nep`):
    * every reply that points the owner at another command says it this way. */
   function slash(rest) {
@@ -199,9 +194,12 @@ export function createOpsEnv({
   return {
     hot,
     store,
-    client,
-    // The Discord interface's capabilities object (src/index.js injects it): never imported here.
-    discord,
+    // The persona's own member id and the name she goes by (the interface's `hello`, the member directory).
+    selfId,
+    getSelfName,
+    memberNameOf,
+    // The conversations the interface reported (`directory.isPrivate`).
+    directory,
     // The core's reads of the interface (src/interface/reads.ts): the conversation an operation posts in, a message's event.
     reads,
     spontaneous,

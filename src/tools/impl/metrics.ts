@@ -179,8 +179,8 @@ export function createMetrics({ dataDir, now = Date.now, fs = nodeFs, log = defa
 /**
  * A log listener (src/log.js#onLog) feeding `metrics` from the lines that carry a duration:
  *
- *   - `recall: searched`: `discordMs`, `recordMs`, `memoryMs`, `meaningMs` (a step that took no
- *     time did not run: no sample); it also marks its channel as recalled at the line's time;
+ *   - `recall: searched`: `searchMs` (`discordMs` in the lines older logs hold), `recordMs`, `memoryMs`,
+ *     `meaningMs` (a step that took no time did not run: no sample); it also marks its channel as recalled at the line's time;
  *   - `recall: summary`: `ms` (the summary request; 0 when none was sent: no sample) and
  *     `totalMs` (the run from its start, as `recall total`);
  *   - `planner: classified`: `ms`;
@@ -207,6 +207,7 @@ export function metricsTap(metrics) {
     switch (entry.msg) {
       case 'recall: searched': {
         for (const [field, name] of [
+          ['searchMs', 'discord search'],
           ['discordMs', 'discord search'],
           ['recordMs', 'record match'],
           ['memoryMs', 'memory match'],

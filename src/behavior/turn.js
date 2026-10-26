@@ -127,7 +127,7 @@ import { createThinkStore, placeKey } from './previous-think.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
 import { skillFeatureOn, skillsOn } from '../tools/access.ts';
 import { skillRegistry } from '../tools/registry.ts';
-import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { executeCall, linkKey, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
   IN_TURN_TOOLS,
@@ -1215,6 +1215,7 @@ export function callViewOf({
   triggerText = null,
   deletedIds = null,
   searchRefs = null,
+  links = null,
 }) {
   const conversations = [];
   // A private chat shows no channel of the community: only the turn's own.
@@ -1271,9 +1272,29 @@ export function callViewOf({
     ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds } : {}),
     // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
+    // The message links the interface read in this step's calls: link text -> message reference (null: not a message).
+    ...(links instanceof Map ? { links } : {}),
     // The trigger message's text: a channel it names may take an errand's file.
     ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
   };
+}
+
+/**
+ * The message links in the arguments of `calls` that the interface can read, for one step: link text (as
+ * src/tools/executors.ts#linkKey writes it) -> the message it names, or null when it names none. One `parseLinks` read
+ * for all of them (at most 50 links of 2,000 characters); null when there is no link or the interface does not read links.
+ */
+async function linksOfCalls(reads, calls) {
+  const found = new Set();
+  for (const call of calls ?? [])
+    for (const value of Object.values(call?.args ?? {})) {
+      const text = linkKey(value);
+      if (/^https?:\/\//i.test(text) && text.length <= 2000) found.add(text);
+    }
+  const texts = [...found].slice(0, 50);
+  if (texts.length === 0 || !reads) return null;
+  const parsed = await reads.parseLinks(texts);
+  return parsed === null ? null : new Map(texts.map((text, i) => [text, parsed.refs[i] ?? null]));
 }
 
 /** The numbers left free between a request's own lines and the handles of a memory.search of the turn (its later steps add a few lines). */
@@ -1856,7 +1877,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `now` (default Date.now) is the turn's clock: its own time, `{{today}}` of
  * the search classifier, the daily GIF counter and every `lastPostAt` stamp.
  *
- * `emoji` (interfaces/discord/emoji.js#createEmojiIndex) is optional: absent, or
+ * `emoji` (src/behavior/emoji-index.ts#createEmojiIndex) is optional: absent, or
  * `features.customEmoji` false (a missing key counts as on), no `:name:` is
  * turned into a custom emoji and a `<react>` with a custom one is dropped.
  *
@@ -2270,6 +2291,7 @@ export function createTurnRunner({
     trigger = null,
     deletedIds = null,
     searchRefs = null,
+    links = null,
   }) {
     const fileOf =
       typeof errands?.fileOf === 'function'
@@ -2293,6 +2315,7 @@ export function createTurnRunner({
       triggerText: typeof trigger?.content === 'string' ? trigger.content : null,
       deletedIds,
       searchRefs,
+      links,
     });
   }
 
@@ -2777,13 +2800,12 @@ export function createTurnRunner({
    * too (a `#N` message she names read as its first link in `history`: an embedded one, else one
    * written in its text), `media.look` through the turn's `describer` (a `#N` message she names
    * found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
-   * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
+   * `memory.search` through its `recall` over the served community (`snapshot`; a private chat on its
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls), and `draw.create` through drawTool.
    */
   function inTurnTools({
     channel,
-    guild,
     snapshot = null,
     guildId,
     partner = null,
@@ -2840,10 +2862,10 @@ export function createTurnRunner({
           store,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
-          guild,
           guildId,
+          snapshot,
           channel,
-          partner,
+          partnerId: partner?.id ?? null,
           selfId,
           selfName,
           history,
@@ -3008,10 +3030,10 @@ export function createTurnRunner({
       await op?.started();
       try {
         const found = await recall.prefetch({
-          guild,
           guildId,
+          snapshot,
           channel,
-          partner,
+          partnerId: partner?.id ?? null,
           selfId,
           selfName,
           history,
@@ -3217,7 +3239,7 @@ export function createTurnRunner({
         .filter((id) => typeof id === 'string' && id)
     );
     if (trigger?.id) knownIds.add(String(trigger.id));
-    const viewOf = (r) =>
+    const viewOf = async (r, calls) =>
       callView({
         channel,
         snapshot: snapshotOfDraft(draft),
@@ -3231,6 +3253,7 @@ export function createTurnRunner({
         trigger,
         deletedIds: draft.deletedIds,
         searchRefs: draft.searchRefs ?? null,
+        links: await linksOfCalls(ifaceReads, calls),
       });
     const contextOf = (r, timeoutMs = null) => ({
       ...callContext,
@@ -3302,7 +3325,7 @@ export function createTurnRunner({
           typing.started = true;
           typing.stop = typingWhileCalls(channel, triggerKind, draft);
         }
-        const view = viewOf(routed);
+        const view = await viewOf(routed, records);
         // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
         let changePlanned = false;
         for (const record of records) {
@@ -3612,7 +3635,7 @@ export function createTurnRunner({
       const out = { acted, loweredResults: [], deliveries: [] };
       if (loweredCalls.length === 0) return out;
       // The tags of an inner turn are her speech: each planned (the journal, the gate) and made like a call, with no result to give back.
-      const view = viewOf(routed);
+      const view = await viewOf(routed, loweredCalls);
       const lowered = [];
       for (const call of loweredCalls)
         lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(), draft, view }));
@@ -4523,7 +4546,7 @@ export function createTurnRunner({
       let replyId = null;
       if (!staging) {
         // A turn that quotes no chat line (a follow-up, an overheard line, a later part of a split message) posts its picture plain.
-        const reply = args?.replyTo && !plain ? messageRefOf(args.replyTo) : null;
+        const reply = args?.replyTo && !plain ? await messageRefOf(args.replyTo, ifaceReads) : null;
         const given = args?.channelId ? String(args.channelId) : null;
         if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
         channelId = await postingConversation({
@@ -6078,10 +6101,10 @@ export function createTurnRunner({
               () =>
                 recall.run({
                   ...(recallOp ? { op: recallOp } : {}),
-                  guild,
                   guildId,
+                  snapshot,
                   channel,
-                  partner,
+                  partnerId: partner?.id ?? null,
                   selfId,
                   selfName,
                   history: chatHistory,
@@ -7553,6 +7576,8 @@ export function createTurnRunner({
       // chat is listed for its partner's sake.
       const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
+      // The community's custom emoji, read again when the index is older than a minute (the `<emoji>` block and her `:name:`).
+      const emojiPending = emoji && config.features?.customEmoji !== false ? emoji.refresh() : Promise.resolve();
       const historyStartedAt = clock();
       const snapshot = /** @type {Snap|null} */ (await beforeBar(snapshotPending));
       draft.snapshot = snapshot;
@@ -7575,6 +7600,7 @@ export function createTurnRunner({
       );
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
+      await beforeBar(emojiPending);
       draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
       // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
       const likeServer = isPrivate && partner !== null;
@@ -9109,7 +9135,6 @@ export function createTurnRunner({
         channelHandles,
         inTurn: inTurnTools({
           channel,
-          guild: servedGuild,
           snapshot: servedSnapshot,
           guildId,
           partner: isPrivate ? partner : null,

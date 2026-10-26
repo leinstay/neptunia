@@ -59,7 +59,7 @@ const INVALID = new Set([
 ]);
 
 const handlers = perEnv((env) => {
-  const { hot, client, resolvedGuildId, now = Date.now } = env;
+  const { hot, resolvedGuildId, now = Date.now } = env;
 
   /** The intention service, or an Error naming what is missing. */
   function intentions() {
@@ -78,8 +78,7 @@ const handlers = perEnv((env) => {
   /** Whether the conversation the command runs in is a private chat. */
   function inPrivate(context) {
     if (context?.privateChat === true) return true;
-    const channel = context?.channelId ? client?.channels?.cache?.get?.(String(context.channelId)) : null;
-    return Boolean(channel) && !channel.guild;
+    return context?.channelId ? env.directory.isPrivate(String(context.channelId)) : false;
   }
 
   /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */

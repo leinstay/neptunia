@@ -40,10 +40,10 @@ const ARCHIVE_CHOICES = 25;
 
 /**
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
- * `client` — a discord.js Client (used for channels.fetch and guilds.cache).
- * `discord` — the Discord interface's capabilities object (interfaces/discord/index.js#
- *   createDiscordInterface; src/index.js passes the one it builds), for the operations that still read the
- *   platform directly. The operations read it as `env.discord`.
+ * `selfId` — the persona's own member id (null before the interface has said it), `getSelfName` — the name she goes
+ *   by in a community, `memberNameOf` — a member's name in the member directory, `directory` — the
+ *   conversations the interface reported (`isPrivate`), `connection` — `{ lastReconnectAt }`, filled from
+ *   `connection.changed`. The operations read them as `env.selfId()` and the like.
  * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
  *   posting in another conversation (src/tools/impl/shared.ts#postingConversation), a message's event for a turn asked on
  *   a message (src/tools/impl/message.ts). The operations read it as `env.reads`.

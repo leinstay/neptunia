@@ -13,6 +13,10 @@
 import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../tools.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../conversation-read.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../../behavior/recall.js';
+import { lineOf } from '../../behavior/line-of.js';
+import { checkPull } from '../../behavior/pull-fetch.ts';
+import { takeSnapshot } from '../../behavior/snapshot.ts';
+import { messageRefOf } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 
@@ -33,9 +37,25 @@ function asOpResult(result, what = 'search') {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, resolvedGuildId, now = Date.now } = env;
+  const { hot, store, resolvedGuildId, now = Date.now } = env;
   /** @type {import('../../interface/reads.ts').Reads} */
   const reads = env.reads;
+
+  /** The interface's name for the conversation the command or call came from. */
+  const refOf = (context) => ({ iface: env.port?.iface ?? '', conversationId: String(context.channelId) });
+
+  /** The whole `message.received` event of message `messageId` in the command's conversation, or null. */
+  async function eventOf(messageId, context) {
+    if (!context?.channelId || !reads) return null;
+    const found = await reads.fetchMessages(refOf(context), [String(messageId)]);
+    return found?.messages[0]?.event ?? null;
+  }
+
+  /** The conversation the command came from as the interface describes it, or null. */
+  async function infoOf(context) {
+    if (!context?.channelId || !reads) return null;
+    return (await reads.conversationInfo(refOf(context)))?.conversation ?? null;
+  }
 
   /** `/nep task search query [goal]`. */
   async function cmdWebSearch(args, context) {
@@ -50,20 +70,18 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The first http(s) link of the message `messageId` in the channel the command or call came
+   * The first http(s) link of the message `messageId` in the conversation the command or call came
    * from (its text, then its embeds), or null: what web.read reads when given a message.
    */
   async function linkOfMessage(messageId, context) {
-    const channel = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
-    if (typeof channel?.messages?.fetch !== 'function') return null;
-    let message;
-    try {
-      message = await channel.messages.fetch(String(messageId));
-    } catch {
-      return null;
-    }
-    const embeds = Array.isArray(message?.embeds) ? message.embeds : [];
-    return firstLinkIn(message?.content) ?? embeds.map((embed) => firstLinkIn(embed?.url)).find(Boolean) ?? null;
+    const message = (await eventOf(messageId, context))?.message;
+    if (!message) return null;
+    const links = Array.isArray(message.links) ? message.links : [];
+    return (
+      firstLinkIn(message.sourceText ?? message.content) ??
+      links.map((link) => firstLinkIn(link?.url)).find(Boolean) ??
+      null
+    );
   }
 
   /** `/nep task read url`; the persona's call may name a message instead (`message`). */
@@ -80,25 +98,18 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The message `reference` names in the channel the command came from (an id, or a message
-   * link: its last id), normalized as a turn sees it (the interface's fetchMessage and
-   * normalizeMessage, `env.discord`), or null.
+   * The message `reference` names in the conversation the command came from (an id, or a message
+   * link), as the line a turn sees (the interface's event through `lineOf`), or null.
    */
   async function normalizedMessage(reference, context) {
-    const channel = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
-    const discord = env.discord;
-    const id = /(\d+)\D*$/.exec(String(reference ?? '').trim())?.[1] ?? null;
-    if (
-      !channel ||
-      !id ||
-      typeof discord?.fetchMessage !== 'function' ||
-      typeof discord.normalizeMessage !== 'function'
-    )
+    let ref;
+    try {
+      ref = await messageRefOf(reference, reads);
+    } catch {
       return null;
-    const raw = await discord.fetchMessage(channel, id);
-    if (!raw) return null;
-    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(hot.config) : {};
-    return discord.normalizeMessage(raw, client?.user?.id ?? null, options);
+    }
+    const event = await eventOf(ref.messageId, ref.channelId ? { channelId: ref.channelId } : context);
+    return event ? lineOf(event) : null;
   }
 
   /** `/nep task look message question [item]`: the describer's second look with that question. */
@@ -116,17 +127,19 @@ const handlers = perEnv((env) => {
 
   /** `/nep memory search question [people] [channel] [when] [terms]`, in the channel it was typed in. */
   async function cmdMemorySearch(args, context) {
-    const channel = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
+    const channel = await infoOf(context);
+    const guildId = resolvedGuildId(context);
+    const snapshot = channel?.communityId != null ? await takeSnapshot(reads, channel.communityId, []) : null;
     const result = await runMemorySearch({
       recall: env.recall ?? null,
       store,
       config: hot.config,
       labels: hot.prompts?.labels ?? {},
-      guild: channel?.guild ?? null,
-      guildId: resolvedGuildId(context),
+      guildId,
+      snapshot,
       channel,
-      selfId: client?.user?.id ?? null,
-      selfName: channel?.guild?.members?.me?.displayName ?? client?.user?.username ?? '',
+      selfId: env.selfId() ?? null,
+      selfName: env.getSelfName(guildId),
       args,
       now: now(),
     });
@@ -154,18 +167,16 @@ const handlers = perEnv((env) => {
    * the pull rail.
    */
   async function cmdConversationRead(args, context) {
-    const here = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
-    const discord = env.discord;
-    const guild = here?.guild ?? null;
-    if (!here || !guild || typeof discord?.fetchHistory !== 'function')
+    const here = await infoOf(context);
+    if (!here || here.communityId === null)
       return asOpResult({ status: 'not_configured', code: CODE.NOT_CONFIGURED }, 'conversation');
+    const snapshot = await takeSnapshot(reads, here.communityId, []);
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     const guildId = resolvedGuildId(context);
-    const channelOf = (id) =>
-      String(id) === String(here.id) ? here : (guild.channels?.cache?.get?.(String(id)) ?? null);
-    const selfName = guild.members?.me?.displayName ?? client?.user?.username ?? '';
-    const nameOf = (id) => guild.members?.cache?.get?.(id)?.displayName ?? null;
+    const channelOf = (id) => (String(id) === String(here.id) ? here : (snapshot?.get(String(id)) ?? null));
+    const selfName = env.getSelfName(guildId);
+    const nameOf = (id) => env.memberNameOf(here.communityId, String(id));
     const timezone = config.bot?.timezone ?? 'UTC';
     const result = await runConversationRead({
       args,
@@ -175,8 +186,7 @@ const handlers = perEnv((env) => {
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) =>
         String(id) === String(here.id) ||
-        (typeof discord.checkPull === 'function' &&
-          discord.checkPull({ guild, channelId: String(id), destination: here, config, now: now() }).skip === null),
+        checkPull({ snapshot, channelId: String(id), destination: here, config, now: now() }).skip === null,
       readRecord: ({ channelId, from }) =>
         config.features?.record === true && env.record
           ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })

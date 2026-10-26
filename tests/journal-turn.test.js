@@ -11,22 +11,18 @@ import path from 'node:path';
 import '../src/tools/impl/index.ts';
 import { createAdmin } from '../src/admin.js';
 import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.js';
-import { snowflakeAt } from '../src/behavior/recall.js';
 import { executeCall, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { journalTurnRecord } from '../src/behavior/turn.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
-
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const SELF = 'self-1';
 const DATA = path.join('fake-root', 'data');
 
-/** A snowflake of a message sent at `ms`, `n` keeping ids of the same millisecond apart. */
-const idAt = (ms, n = 1) => (BigInt(snowflakeAt(ms)) + BigInt(n)).toString();
+/** The id of a message sent at `ms` on a platform whose ids carry their time (the first possible id of that millisecond), `n` keeping ids of the same millisecond apart. */
+const ID_EPOCH_MS = 1_420_070_400_000n;
+const idAt = (ms, n = 1) => (((BigInt(ms) - ID_EPOCH_MS) << 22n) + BigInt(n)).toString();
 
 function fakeAppendStore() {
   const lines = [];
@@ -158,7 +154,30 @@ function makeAdmin(journal) {
     getGuild: () => ({}),
     isPingsOff: () => false,
   };
-  return createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', journal });
+  // The interface says when a message was written (`fetchMessages`); the ids of these tests carry their time.
+  const reads = {
+    parseLinks: async (texts) => ({
+      refs: texts.map((text) => {
+        const found = /^https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)$/.exec(text);
+        return found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null;
+      }),
+    }),
+    fetchMessages: async (ref, ids) => ({
+      messages: ids.map((id) => ({
+        messageId: id,
+        event: { message: { id, at: Number((BigInt(id) >> 22n) + ID_EPOCH_MS) } },
+      })),
+    }),
+  };
+  return createAdmin({
+    hot,
+    store,
+    reads,
+    port: { iface: 'fake' },
+    selfId: () => SELF,
+    getGuildId: () => 'g1',
+    journal,
+  });
 }
 
 const D = Date.UTC(2026, 9, 13, 12, 0, 0);
@@ -270,6 +289,7 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
   assert.equal(await journal.findTurn('g1', { messageId: lateId, at: latePost + 2 * 86_400_000 }), null);
 });
 
+// A bare id is dated by reading the message in the conversation the command runs in (`channelId`), a link names its own.
 test('memory.journal.read: by message id or link, the turn record whole; not hers or no record is not-found', async () => {
   const clock = { ms: D };
   const { journal } = journalAt(clock);
@@ -284,27 +304,37 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   });
   const admin = makeAdmin(journal);
 
-  const byId = await admin.run('memory.journal', { messageId: postedId }, { guildId: 'g1', userId: OWNER });
+  const byId = await admin.run(
+    'memory.journal',
+    { messageId: postedId },
+    { guildId: 'g1', channelId: 'c1', userId: OWNER }
+  );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));
   const byLink = await admin.run(
     'memory.journal',
     { messageId: `https://discord.com/channels/111/222/${postedId}` },
-    { guildId: 'g1', userId: OWNER }
+    { guildId: 'g1', channelId: 'c1', userId: OWNER }
   );
   assert.equal(byLink, byId);
 
   // Someone else's message (it started the turn), an unknown one, and junk.
-  await assert.rejects(admin.run('memory.journal', { messageId: triggerId }, { guildId: 'g1', userId: OWNER }), {
-    code: 'not-found',
-  });
   await assert.rejects(
-    admin.run('memory.journal', { messageId: idAt(D + 4000, 9) }, { guildId: 'g1', userId: OWNER }),
+    admin.run('memory.journal', { messageId: triggerId }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    {
+      code: 'not-found',
+    }
+  );
+  await assert.rejects(
+    admin.run('memory.journal', { messageId: idAt(D + 4000, 9) }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
     { code: 'not-found' }
   );
-  await assert.rejects(admin.run('memory.journal', { messageId: 'not an id' }, { guildId: 'g1', userId: OWNER }), {
-    code: 'unknown-message',
-  });
+  await assert.rejects(
+    admin.run('memory.journal', { messageId: 'not an id' }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    {
+      code: 'unknown-message',
+    }
+  );
 });
 
 test('memory.journal.read: the persona names her line #N; it resolves to the message id as message.edit does', async () => {

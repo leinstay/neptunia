@@ -459,10 +459,10 @@ export async function runMemorySearch({
   store,
   config,
   labels,
-  guild,
   guildId,
+  snapshot = null,
   channel,
-  partner = null,
+  partnerId = null,
   selfId = null,
   selfName = '',
   history = [],
@@ -476,7 +476,7 @@ export async function runMemorySearch({
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    if (!guild || (channel?.communityId == null && !partner))
+    if (!guildId || (channel?.communityId == null && !partnerId))
       return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(config);
     const timezone = config?.bot?.timezone ?? 'UTC';
@@ -485,10 +485,10 @@ export async function runMemorySearch({
       if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       const count = (value) => (Number.isInteger(value) && value > 0 ? value : null);
       const read = await recall.window({
-        guild,
         guildId,
+        snapshot,
         channel,
-        partner,
+        partnerId,
         selfName,
         history,
         anchor: text(args.anchor),
@@ -532,10 +532,10 @@ export async function runMemorySearch({
     if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
     const candidate = { id: null, content: text(args?.question), authorId: asker };
     const found = await recall.run({
-      guild,
       guildId,
+      snapshot,
       channel,
-      partner,
+      partnerId,
       selfId,
       selfName,
       history,

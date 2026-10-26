@@ -48,6 +48,8 @@ const BASE_CONFIG: Settings = {
     speech: false,
     pauseNotice: false,
   },
+  // The GIF backfill reads every conversation's history at start; a rig counts the reads a turn makes, so it reads none.
+  gifs: { backfillMessages: 0 },
 };
 
 const isRecord = (value: unknown): value is Settings =>

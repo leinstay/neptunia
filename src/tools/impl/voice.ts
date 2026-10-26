@@ -46,7 +46,7 @@ const handlers = perEnv((env) => {
         : 1500;
     if (Array.from(text).length > maxChars)
       throw invalid(`text is too long for a voice message (${maxChars} characters at most)`);
-    const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
+    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);

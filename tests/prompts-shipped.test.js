@@ -35,7 +35,6 @@ import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
-import { bridgeRecall } from '../src/interface/recall-bridge.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
 
@@ -1511,7 +1510,7 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     keys: { brave: 'test-key' },
     now: () => NOW,
   });
-  const recall = bridgeRecall(createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW }), client);
+  const recall = createRecall({ reads: world().reads, hot, store, llm, describer, now: () => NOW });
   const turns = createTurnRunner({
     hot,
     store,
@@ -2058,7 +2057,18 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     state,
     getGuildId: () => GUILD,
     selfId: () => SELF_ID,
-    resolveMember: async () => view,
+    // The interface answers `memberInfo` with the member and the hash and address of their avatar.
+    reads: {
+      memberInfo: async () => ({
+        member: {
+          id: view.id,
+          name: null,
+          bot: view.bot,
+          groupIds: [],
+          avatar: { hash: view.hash, url: view.url, largeUrl: null },
+        },
+      }),
+    },
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() => queue.tick());

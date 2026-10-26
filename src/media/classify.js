@@ -62,10 +62,6 @@ const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
 // alone is a safe signal here.
 const DESCRIBABLE_KINDS = new Set(['image', 'gif', 'video', 'sticker', 'emoji', 'link']);
 
-// Verified against the live CDN: this exact host+path+size serves both a
-// static and an animated custom emoji as image/webp.
-const EMOJI_SIZE = 96;
-
 function extOf(name) {
   const match = /\.([a-z0-9]+)$/i.exec(String(name ?? ''));
   return match ? match[1].toLowerCase() : null;
@@ -284,16 +280,6 @@ export function fitBox(width, height, max) {
   if (w === null || h === null || limit === null) return null;
   const scale = Math.min(1, limit / Math.max(w, h));
   return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
-}
-
-/**
- * Rebuild a custom emoji's picture URL from just its id -- the only field the
- * slim message keeps for an emoji (see src/memory/update.js#slimMessage). The same URL serves a static and an animated emoji alike
- * (image/webp either way).
- * @param {string} id
- */
-export function emojiUrl(id) {
-  return `https://cdn.discordapp.com/emojis/${id}.webp?size=${EMOJI_SIZE}`;
 }
 
 /**

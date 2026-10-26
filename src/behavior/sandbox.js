@@ -53,7 +53,7 @@
 import { buildRequest, skillsInventoryText, userText as userTextOf } from './prompt.js';
 import { detectTrigger, isTaggedCall } from './mention.js';
 import { addPending, followUpSlot, popOldest } from './pending.js';
-import { RECALL_DEFAULTS, recallSettings, snowflakeAt } from './recall.js';
+import { RECALL_DEFAULTS, recallSettings } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
@@ -909,7 +909,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
  * @param {Map<string, string>} [input.descriptions]  Item id -> caption, rendered as the live transcript does.
  * @param {Map<string, object>} [input.videos]  Item id -> video state (`{ state: 'watched', text }`), likewise.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served guild's
- *   custom emoji (interfaces/discord/emoji.js#createEmojiIndex `list()`); omitted, no `<emoji>`.
+ *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`); omitted, no `<emoji>`.
  * @param {object|null} [input.gifs]  The guild's GIF library (store.getGifs); omitted, no `<gifs>` and no `<gif>` kept.
  * @param {object|null} [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
  * @param {{ name: string }|null} [input.elsewhereDestination]  Where a call from a read-only channel is
@@ -1838,9 +1838,9 @@ async function runSkillLoop({
 /** The operations that post into a channel: what a call that passed leaves there as a line of hers. */
 const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create']);
 
-/** The id of the `seq`-th line of hers at `ts`: a snowflake of its moment (recall.js#snowflakeAt), `seq` in its low bits. */
+/** The id of the `seq`-th line of hers at `ts`: 19 digits that sort by moment, then by `seq` (the millisecond times a million, plus `seq`). */
 function ownLineId(ts, seq) {
-  return (BigInt(snowflakeAt(ts)) + BigInt(seq)).toString();
+  return (BigInt(Math.floor(ts)) * 1_000_000n + BigInt(seq)).toString();
 }
 
 /** A picture she posted, as an attachment of her line: no file behind it, never described. */

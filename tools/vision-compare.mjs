@@ -101,7 +101,8 @@ async function connectDiscord(token) {
  * Read only: the GIF library and the record are read, never written; Discord over GET.
  */
 async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }) {
-  const { emojiUrl, collectPictures, collectVideos } = await import('../src/media/classify.js');
+  const { collectPictures, collectVideos } = await import('../src/media/classify.js');
+  const { emojiUrl } = await import('../interfaces/discord/collect.js');
   const { normalizeMessage } = await import('../interfaces/discord/index.js');
   const { normalizeGifs } = await import('../src/memory/gifs.js');
   const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');

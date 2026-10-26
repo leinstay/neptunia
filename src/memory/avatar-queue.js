@@ -48,8 +48,8 @@ function nonNegativeOr(value, fallback) {
  * @param {{ data: object, markDirty: Function }} deps.state  Where the daily counter lives.
  * @param {() => string|null} deps.getGuildId
  * @param {() => string|null} deps.selfId  The persona's user id.
- * @param {(guildId: string, userId: string) => Promise<object|null>} deps.resolveMember  The
- *   member's memberView, or null when they are not in the guild.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: `memberInfo` gives a
+ *   member of the community with the hash and the address of their avatar, null when they are not a member.
  * @param {() => boolean} [deps.paused]
  * @param {() => number} [deps.now]
  * @param {object} [deps.log]
@@ -62,7 +62,7 @@ export function createAvatarQueue({
   state,
   getGuildId,
   selfId,
-  resolveMember,
+  reads,
   paused = () => false,
   now = Date.now,
   log = defaultLog,
@@ -88,7 +88,7 @@ export function createAvatarQueue({
    * Offer one member: queued when the guild is the served one, the member has a profile, is not
    * a bot or the persona, and the stored avatar is not this version. Synchronous, never throws.
    * @param {string} guildId
-   * @param {{ id: string, bot: boolean, hash: string|null, url: string|null }|null} view  memberView.
+   * @param {{ id: string, bot: boolean, hash: string|null, url: string|null }|null} view  The member and their avatar.
    * @returns {'off'|'other-guild'|'invalid'|'self'|'bot'|'no-profile'|'current'|'failed'|'queued'|'error'}
    */
   function offer(guildId, view) {
@@ -115,9 +115,9 @@ export function createAvatarQueue({
   }
 
   /**
-   * Every profiled member of `guildId` offered with their current avatar (`resolveMember`, one at
-   * a time). Clears the failed versions first: this is their retry. A member the resolver cannot
-   * find (left the guild, a REST failure) is counted as gone.
+   * Every profiled member of `guildId` offered with their current avatar (`reads.memberInfo`, one at
+   * a time). Clears the failed versions first: this is their retry. A member the interface cannot
+   * find (left the community, a failed read, no such read) is counted as gone.
    * @param {string} guildId
    * @returns {Promise<{ profiles: number, queued: number, gone: number }>}
    */
@@ -130,16 +130,13 @@ export function createAvatarQueue({
       counts.profiles += 1;
       const id = typeof profile?.id === 'string' ? profile.id : null;
       if (!id || id === self) continue;
-      let view = null;
-      try {
-        view = await resolveMember(guildId, id);
-      } catch {
-        view = null;
-      }
-      if (!view) {
+      const found = await reads.memberInfo({ communityId: guildId, memberId: id });
+      const member = found?.member ?? null;
+      if (!member) {
         counts.gone += 1;
         continue;
       }
+      const view = { id: member.id, bot: member.bot, hash: member.avatar.hash, url: member.avatar.url };
       if (offer(guildId, view) === 'queued') counts.queued += 1;
     }
     log.info('avatars: scanned', { guildId, ...counts, waiting: queue.size, ms: now() - started });

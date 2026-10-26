@@ -15,9 +15,7 @@ import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 
 type Fake = Record<string, unknown>;
 type Legacy = {
-  client: unknown;
   serveCommands(admin: unknown): unknown;
-  catchUp: { eventOf(message: object): { id: string } };
 };
 
 type RunCall = [string, Record<string, unknown>, Record<string, unknown>];
@@ -579,15 +577,12 @@ test('does not register the commands again when a change leaves bot.commandName 
 
 // ---- the legacy seams and the end -------------------------------------------------------------
 
-test('hands the core exactly the named seams of legacy, over the client it built', async () => {
-  await withSession({}, (h, running) => {
+// The reads of the tools replaced the client, the capabilities, the avatar lookup, the catch-up, the persona's messages
+// and the emoji index, so the slash command handler is all that is left (the expectation names the one seam).
+test('hands the core exactly one seam of legacy, the slash command handler', async () => {
+  await withSession({}, (_h, running) => {
     const legacy = running.legacy as Legacy;
-    assert.equal(legacy.client, h.client);
-    // The seams the core's reads replaced (the reactors, the raw handles, the direct-chat lookup) are gone.
-    assert.deepEqual(
-      Object.keys(legacy).sort(),
-      ['capabilities', 'catchUp', 'client', 'emoji', 'fetchOwnMessages', 'resolveMember', 'serveCommands'].sort()
-    );
+    assert.deepEqual(Object.keys(legacy), ['serveCommands']);
     return Promise.resolve();
   });
 });

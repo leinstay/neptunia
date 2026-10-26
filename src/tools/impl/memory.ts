@@ -58,7 +58,8 @@ const handlers = perEnv((env) => {
   const {
     hot,
     store,
-    discord,
+    reads,
+    port,
     archive,
     journal,
     dataDir,
@@ -358,9 +359,16 @@ const handlers = perEnv((env) => {
     if (!journal) return 'the journal is not available';
     const guildId = requireGuildId(context);
     if (args?.messageId !== undefined && args?.messageId !== null && args?.messageId !== '') {
-      const { messageId } = messageRefOf(args.messageId);
-      if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
-      const at = discord.snowflakeTime(messageId);
+      const ref = await messageRefOf(args.messageId, reads);
+      const { messageId } = ref;
+      // The turn is searched in the day the message was posted: its own time, as the interface reads it.
+      const conversationId = ref.channelId ?? (context?.channelId ? String(context.channelId) : null);
+      const fetched =
+        conversationId !== null && reads && port
+          ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
+          : null;
+      const at = fetched?.messages[0]?.event?.message.at ?? null;
+      if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
       const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
       if (!found)
         throw invalid(

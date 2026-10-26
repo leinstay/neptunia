@@ -1,6 +1,6 @@
-// The custom emoji history backfill (src/memory/emoji-backfill.js): a Discord
-// history read, no LLM, that fills guild.json's `emojiUsage` at once and
-// stamps `emojiBackfill`. A real store on a temp dir, a fake discord.js guild.
+// The custom emoji history backfill (src/memory/emoji-backfill.js): a history read
+// through the interface, no LLM, that fills guild.json's `emojiUsage` at once and
+// stamps `emojiBackfill`. A real store on a temp dir, the fake interface's reads.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,12 +9,9 @@ import path from 'node:path';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
-
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+import { COMMUNITY, IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 
@@ -25,56 +22,40 @@ function withStore(fn) {
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
-/** A raw discord.js-shaped message; `content` is the raw text carrying `<:name:id>` markup. */
-function rawMessage(n, { authorId = 'a', bot = false, content = 'hi' } = {}) {
-  return {
-    id: String(1000 + n),
-    author: { id: authorId, bot, globalName: authorId, username: authorId },
-    member: { displayName: authorId },
-    content,
-    cleanContent: content.replace(/<a?:(\w+):\d+>/g, ':$1:'),
-    createdTimestamp: T0 + n * 1000,
-    reference: null,
-    attachments: new Map(),
-    stickers: new Map(),
-    embeds: [],
-    messageSnapshots: new Map(),
-  };
+/** The event of message `n` in `info`: `content` carries `<:name:id>` markup, which the interface reads into `emojis`. */
+function rawMessage(info, n, { authorId = 'a', bot = false, content = 'hi' } = {}) {
+  const event = message(info, String(1000 + n), T0 + n * 1000, content.replace(/<a?:(\w+):\d+>/g, ':$1:'), {
+    authorId,
+    bot,
+  });
+  event.message.emojis = [...content.matchAll(/<(a?):(\w+):(\d+)>/g)].map((m) => ({
+    id: m[3],
+    name: m[2],
+    animated: m[1] === 'a',
+  }));
+  return event;
 }
 
-function fakeChannel(id, historyAsc, { readable = true } = {}) {
-  for (const m of historyAsc) m.channelId = id;
-  const desc = [...historyAsc].reverse();
-  return {
-    id,
-    name: id,
-    parent: null,
-    guild: null,
-    isTextBased: () => true,
-    isThread: () => false,
-    viewable: readable,
-    permissionsFor: () => ({ has: () => readable }),
-    messages: {
-      fetchCalls: 0,
-      fetch(opts = {}) {
-        this.fetchCalls += 1;
-        let pool = desc;
-        if (opts.before) pool = pool.filter((m) => BigInt(m.id) < BigInt(opts.before));
-        return Promise.resolve(new Map(pool.slice(0, opts.limit ?? 50).map((m) => [m.id, m])));
-      },
-    },
-  };
+/** A conversation and its history, oldest first; `readable: false` is one the persona may not read. */
+function room(id, build, { readable = true } = {}) {
+  const info = channel(id, {
+    permissions: { read: readable, send: readable, attach: readable, react: readable },
+  });
+  return { info, events: build(info) };
 }
 
-function fakeClient(channels, guildId = 'g1') {
-  const guild = {
-    id: guildId,
-    channels: { cache: new Map(channels.map((c) => [c.id, c])) },
-    members: { me: { id: 'selfUser' } },
-  };
-  for (const c of channels) c.guild = guild;
-  return { user: { id: 'selfUser' }, guilds: { cache: new Map([[guildId, guild]]) } };
+/** The fake interface holding `rooms`, with the core's reads over it. */
+function worldOf(rooms) {
+  const world = rig();
+  for (const { info, events } of rooms) {
+    world.fake.seedConversation(info);
+    for (const event of events) world.fake.seedEvent(event);
+  }
+  return world;
 }
+
+/** What the backfill takes of the interface. */
+const depsOf = (world) => ({ reads: world.reads, iface: () => IFACE });
 
 function fakeHot({ customEmoji = {}, features = {} } = {}) {
   return {
@@ -96,30 +77,27 @@ function fakeLog() {
 const KAPPA = '<:kappa:111>';
 const OMEGA = '<a:omega:222>';
 
-function standardChannels() {
+function standardRooms() {
   return [
-    fakeChannel('c1', [
-      rawMessage(1, { content: `hello ${KAPPA} ${KAPPA}` }),
-      rawMessage(2, { authorId: 'b', content: `${KAPPA} ${OMEGA}` }),
-      rawMessage(3, { authorId: 'selfUser', content: `me ${KAPPA}` }),
-      rawMessage(4, { authorId: 'otherBot', bot: true, content: `bot ${OMEGA}` }),
-      rawMessage(5, { content: 'no emoji here' }),
+    room('c1', (info) => [
+      rawMessage(info, 1, { content: `hello ${KAPPA} ${KAPPA}` }),
+      rawMessage(info, 2, { authorId: 'b', content: `${KAPPA} ${OMEGA}` }),
+      rawMessage(info, 3, { authorId: SELF_ID, content: `me ${KAPPA}` }),
+      rawMessage(info, 4, { authorId: 'otherBot', bot: true, content: `bot ${OMEGA}` }),
+      rawMessage(info, 5, { content: 'no emoji here' }),
     ]),
-    fakeChannel('c2', [rawMessage(6, { authorId: 'c', content: `${OMEGA}` })]),
+    room('c2', (info) => [rawMessage(info, 6, { authorId: 'c', content: `${OMEGA}` })]),
   ];
 }
 
 test("emoji backfill run: counts members' emoji over every readable channel, bots and self skipped", async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const hidden = fakeChannel('c3', [rawMessage(7, { content: KAPPA })], { readable: false });
-    const backfill = createEmojiBackfill({
-      discord: DISCORD,
-      hot: fakeHot(),
-      store,
-      client: fakeClient([...standardChannels(), hidden]),
-      log,
-    });
+    const world = worldOf([
+      ...standardRooms(),
+      room('c3', (info) => [rawMessage(info, 7, { content: KAPPA })], { readable: false }),
+    ]);
+    const backfill = createEmojiBackfill({ ...depsOf(world), hot: fakeHot(), store, log });
 
     const result = await backfill.run('g1');
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
@@ -127,7 +105,11 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
     const usage = store.getGuild('g1').emojiUsage;
     assert.deepEqual(usage['111'], { name: 'kappa', count: 2, last: T0 + 2000 });
     assert.deepEqual(usage['222'], { name: 'omega', count: 2, last: T0 + 6000 });
-    assert.equal(hidden.messages.fetchCalls, 0);
+    assert.equal(
+      world.asked('history').some((ref) => ref.conversationId === 'c3'),
+      false,
+      'a conversation the persona may not read is never read'
+    );
 
     const stamp = store.getGuild('g1').emojiBackfill;
     assert.equal(stamp.channels, 2);
@@ -139,32 +121,25 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
 test('emoji backfill run: a second run without force is a no-op and never double-counts', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const channels = standardChannels();
-    const backfill = createEmojiBackfill({
-      discord: DISCORD,
-      hot: fakeHot(),
-      store,
-      client: fakeClient(channels),
-      log,
-    });
+    const world = worldOf(standardRooms());
+    const backfill = createEmojiBackfill({ ...depsOf(world), hot: fakeHot(), store, log });
 
     await backfill.run('g1');
-    const fetchesAfterFirst = channels[0].messages.fetchCalls;
+    const fetchesAfterFirst = world.asked('history').length;
     const second = await backfill.run('g1');
 
     assert.deepEqual(second, { ok: false, reason: 'done' });
     assert.equal(store.getGuild('g1').emojiUsage['111'].count, 2);
-    assert.equal(channels[0].messages.fetchCalls, fetchesAfterFirst, 'no history read on the no-op');
+    assert.equal(world.asked('history').length, fetchesAfterFirst, 'no history read on the no-op');
   });
 });
 
 test('emoji backfill run: force clears emojiUsage and recounts from history', async () => {
   await withStore(async (store) => {
     const backfill = createEmojiBackfill({
-      discord: DISCORD,
+      ...depsOf(worldOf(standardRooms())),
       hot: fakeHot(),
       store,
-      client: fakeClient(standardChannels()),
       log: fakeLog(),
     });
 
@@ -189,10 +164,9 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
       { id: 'old', ts: T0 - 1000, emojis: [{ id: '333', name: 'gone' }] },
     ]);
     const backfill = createEmojiBackfill({
-      discord: DISCORD,
+      ...depsOf(worldOf(standardRooms())),
       hot: fakeHot(),
       store,
-      client: fakeClient(standardChannels()),
       log: fakeLog(),
     });
 
@@ -208,13 +182,13 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
 test('emoji backfill run: backfillMessages 0 disables it, even forced', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const channels = standardChannels();
+    const world = worldOf(standardRooms());
     const hot = fakeHot({ customEmoji: { backfillMessages: 0 } });
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot, store, client: fakeClient(channels), log });
+    const backfill = createEmojiBackfill({ ...depsOf(world), hot, store, log });
 
     assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'disabled' });
     assert.deepEqual(await backfill.run('g1', { force: true }), { ok: false, reason: 'disabled' });
-    assert.equal(channels[0].messages.fetchCalls, 0);
+    assert.deepEqual(world.asked('history'), []);
     assert.deepEqual(store.getGuild('g1').emojiUsage, {});
     assert.equal(store.getGuild('g1').emojiBackfill, null);
   });
@@ -223,13 +197,7 @@ test('emoji backfill run: backfillMessages 0 disables it, even forced', async ()
 test('emoji backfill run: backfillMessages caps the messages read per channel (read at use)', async () => {
   await withStore(async (store) => {
     const hot = fakeHot({ customEmoji: { backfillMessages: 2 } });
-    const backfill = createEmojiBackfill({
-      discord: DISCORD,
-      hot,
-      store,
-      client: fakeClient(standardChannels()),
-      log: fakeLog(),
-    });
+    const backfill = createEmojiBackfill({ ...depsOf(worldOf(standardRooms())), hot, store, log: fakeLog() });
 
     // c1's newest two are a member's message without emoji and a bot's; c2 has one member message.
     const result = await backfill.run('g1');
@@ -241,10 +209,9 @@ test('emoji backfill run: backfillMessages caps the messages read per channel (r
 test('emoji backfill run: refused while paused and while another run is in flight', async () => {
   await withStore(async (store) => {
     const backfill = createEmojiBackfill({
-      discord: DISCORD,
+      ...depsOf(worldOf(standardRooms())),
       hot: fakeHot(),
       store,
-      client: fakeClient(standardChannels()),
       log: fakeLog(),
     });
 
@@ -263,10 +230,9 @@ test('emoji backfill run: refused while paused and while another run is in fligh
 test('emoji backfill run: an unknown guild is skipped', async () => {
   await withStore(async (store) => {
     const backfill = createEmojiBackfill({
-      discord: DISCORD,
+      ...depsOf(worldOf(standardRooms())),
       hot: fakeHot(),
       store,
-      client: fakeClient(standardChannels()),
       log: fakeLog(),
     });
     assert.deepEqual(await backfill.run('nope'), { ok: false, reason: 'no-guild' });
@@ -275,37 +241,30 @@ test('emoji backfill run: an unknown guild is skipped', async () => {
 
 test('emoji backfill startIfNeeded: runs once when the feature is on and nothing is stamped', async () => {
   await withStore(async (store) => {
-    const channels = standardChannels();
-    const backfill = createEmojiBackfill({
-      discord: DISCORD,
-      hot: fakeHot(),
-      store,
-      client: fakeClient(channels),
-      log: fakeLog(),
-    });
+    const world = worldOf(standardRooms());
+    const backfill = createEmojiBackfill({ ...depsOf(world), hot: fakeHot(), store, log: fakeLog() });
 
     await backfill.startIfNeeded('g1');
     assert.equal(store.getGuild('g1').emojiUsage['111'].count, 2);
-    const fetches = channels[0].messages.fetchCalls;
+    const fetches = world.asked('history').length;
     await backfill.startIfNeeded('g1');
-    assert.equal(channels[0].messages.fetchCalls, fetches, 'stamped: never again at startup');
+    assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
   });
 });
 
 test('emoji backfill startIfNeeded: features.customEmoji off skips it', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const channels = standardChannels();
+    const world = worldOf(standardRooms());
     const backfill = createEmojiBackfill({
-      discord: DISCORD,
+      ...depsOf(world),
       hot: fakeHot({ features: { customEmoji: false } }),
       store,
-      client: fakeClient(channels),
       log,
     });
 
     await backfill.startIfNeeded('g1');
-    assert.equal(channels[0].messages.fetchCalls, 0);
+    assert.deepEqual(world.asked('history'), []);
     assert.equal(store.getGuild('g1').emojiBackfill, null);
   });
 });
@@ -313,15 +272,12 @@ test('emoji backfill startIfNeeded: features.customEmoji off skips it', async ()
 test('emoji backfill startIfNeeded: an error is logged, never thrown', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const client = {
-      user: { id: 'selfUser' },
-      guilds: {
-        get cache() {
-          throw new Error('boom');
-        },
+    const reads = {
+      conversations: async () => {
+        throw new Error('boom');
       },
     };
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client, log });
+    const backfill = createEmojiBackfill({ reads, iface: () => IFACE, hot: fakeHot(), store, log });
 
     await backfill.startIfNeeded('g1');
     assert.ok(log.entries.some((e) => e.level === 'error' && e.message === 'emoji-backfill: failed'));

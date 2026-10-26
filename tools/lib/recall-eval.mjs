@@ -428,6 +428,75 @@ export function localGuild({ guildId, selfId = null, channelNameOf = () => null 
   return guild;
 }
 
+/** A conversation of the local guild as the interface describes it: readable, writable and viewable by everyone. */
+function localInfo(guildId, id, name) {
+  return {
+    id,
+    kind: 'channel',
+    communityId: guildId,
+    name,
+    topic: null,
+    category: null,
+    iface: 'local',
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+    audience: {
+      everyone: true,
+      groups: [],
+      groupAllow: [],
+      groupDeny: [],
+      memberAllow: [],
+      memberDeny: [],
+      memberGroups: {},
+    },
+    viewers: {},
+  };
+}
+
+/**
+ * The reads of the local stages, with no interface behind them (the counterpart of `localGuild`): every conversation
+ * resolves to a channel everyone may view, the searches answer nothing and a history cannot be read, so the search stage
+ * of a run finds no hit and reads no window.
+ * @param {{ guildId: string, channelNameOf?: (id: string) => string|null }} options
+ */
+export function localReads({ guildId, channelNameOf = () => null }) {
+  const info = (id) => localInfo(guildId, id, channelNameOf(id) ?? id);
+  return {
+    offers: () => true,
+    conversationInfo: async (ref) => ({ conversation: info(ref.conversationId) }),
+    conversations: async () => ({ conversations: [], groups: [] }),
+    fetchMessages: async () => null,
+    history: async () => null,
+    memberInfo: async () => null,
+    searchMessages: async () => ({ total: 0, hits: [] }),
+    searchMembers: async () => ({ members: [] }),
+    emoji: async () => ({ emoji: [] }),
+    parseLinks: async (texts) => ({ refs: texts.map(() => null) }),
+    reactors: async () => ({ memberIds: [] }),
+  };
+}
+
+/**
+ * The scope a recall run is handed in the local guild (`channel` and `snapshot`): any channel id is a readable channel
+ * everyone views, so the audience rail passes every conversation.
+ * @param {{ guildId: string, channelId: string, channelNameOf?: (id: string) => string|null }} options
+ */
+export function localScope({ guildId, channelId, channelNameOf = () => null }) {
+  const info = (id) => localInfo(guildId, id, channelNameOf(id) ?? id);
+  return {
+    channel: info(channelId),
+    snapshot: {
+      communityId: guildId,
+      conversations: [],
+      groups: [],
+      get: (id) => (typeof id === 'string' && id !== '' ? info(id) : null),
+    },
+  };
+}
+
 /** One table cell: pipes escaped, line breaks flattened, cut to `max` characters. */
 function cell(value, max = 120) {
   const text = String(value ?? '')

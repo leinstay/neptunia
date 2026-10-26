@@ -325,7 +325,6 @@ const handlers = perEnv((env) => {
   const {
     hot,
     store,
-    client,
     getGuildId,
     images,
     archive,
@@ -358,12 +357,10 @@ const handlers = perEnv((env) => {
     return `paused since ${utcMinute(data.pausedAt)}${by}`;
   }
 
-  /** The connection field: the gateway's latency (`client.ws.ping`) and its last reconnect. */
+  /** The connection field: when the interface's link to its platform last came back. */
   function connectionValue() {
-    const ping = client?.ws?.ping;
-    const latency = Number.isFinite(ping) && ping >= 0 ? `${Math.round(ping)} ms` : '-';
     const last = env.connection?.lastReconnectAt;
-    return `gateway ${latency}\nlast reconnect ${last ? utcMinute(last) : 'none'}`;
+    return `last reconnect ${last ? utcMinute(last) : 'none'}`;
   }
 
   /** What the archive's pending queue holds for `guildId` (0 without an archive or a guild). */
