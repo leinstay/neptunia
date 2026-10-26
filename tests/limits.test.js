@@ -129,20 +129,31 @@ function noticeChannel({ id = 'c1', name = 'general' } = {}) {
   return { id, name };
 }
 
+/**
+ * The messages the fake adapter holds for one conversation.
+ * @param {ReturnType<typeof createFakeAdapter>} port
+ * @returns {Array<{ text: string, replyTo: unknown, mentions: unknown }>}
+ */
 function noticesIn(port, conversationId = 'c1') {
-  return port.messagesIn(conversationId);
+  return /** @type {Array<{ text: string, replyTo: unknown, mentions: unknown }>} */ (
+    /** @type {unknown} */ (port.messagesIn(conversationId))
+  );
 }
 
 function mirrorClient() {
+  /** @type {Array<{ content: string, allowedMentions: unknown }>} */
   const mirrored = [];
+  /** @type {string[]} */
   const fetched = [];
   return {
     mirrored,
     fetched,
     channels: {
-      fetch: async (id) => {
+      fetch: async (/** @type {string} */ id) => {
         fetched.push(id);
-        return { send: async (payload) => mirrored.push(payload) };
+        return {
+          send: async (/** @type {{ content: string, allowedMentions: unknown }} */ payload) => mirrored.push(payload),
+        };
       },
     },
   };
@@ -264,10 +275,11 @@ test('postLimitNotice: a send the adapter refuses answers failed and is logged, 
 });
 
 test('postLimitNotice: an adapter that throws answers failed and does not throw', async () => {
+  /** @type {string[]} */
   const attempts = [];
   const port = {
     ...createFakeAdapter(),
-    send: async (conversation) => {
+    send: async (/** @type {{ conversationId: string }} */ conversation) => {
       attempts.push(conversation.conversationId);
       throw new Error('socket closed');
     },

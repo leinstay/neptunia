@@ -230,7 +230,7 @@ test('an attachment arrives at the fake with equal bytes', async () => {
   const delivery = await link.adapter.send(CONVERSATION, { attachments: [{ name: 'f.bin', data: bytes }] });
   assert.equal(delivery.status, 'ok');
   const stored = fake.messagesIn('c1')[0] as { attachments: Array<{ data: Uint8Array }> };
-  assert.equal(Buffer.compare(Buffer.from(stored.attachments[0]?.data as Uint8Array), Buffer.from(bytes)), 0);
+  assert.equal(Buffer.compare(Buffer.from(stored.attachments[0]?.data ?? new Uint8Array(0)), Buffer.from(bytes)), 0);
   served.close();
   link.close();
 });
@@ -278,9 +278,9 @@ test('fetchMessages returns the messages the fake holds and marks the ones it do
 
 test('every send carries its own idempotency key', async () => {
   const { link, client } = core();
-  const keys: Array<unknown> = [];
+  const keys: Array<string> = [];
   client.onEnvelope((value) => {
-    if (value.type === 'action') keys.push((value.body as { idempotencyKey?: unknown }).idempotencyKey);
+    if (value.type === 'action') keys.push((value.body as { idempotencyKey?: string }).idempotencyKey ?? '');
   });
   client.send(
     envelope('hello', { iface: 'fake', capabilities: CAPABILITIES, resume: null, token: 'tok' }, { id: 'h1' })
@@ -289,9 +289,8 @@ test('every send carries its own idempotency key', async () => {
   void link.adapter.send(CONVERSATION, { text: 'one' });
   void link.adapter.send(CONVERSATION, { text: 'two' });
   await until(() => keys.length === 2);
-  assert.equal(typeof keys[0], 'string');
+  assert.match(keys[0] ?? '', /^.+$/);
   assert.notEqual(keys[0], keys[1]);
-  assert.notEqual(keys[0], '');
   link.close();
 });
 

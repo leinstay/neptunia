@@ -196,15 +196,21 @@ function fakeDescriber() {
   };
 }
 
-/** The notices a handler's fake adapter holds for one conversation, as `{ text, replyTo, mentions }`. */
-function noticesOf(handler, conversationId) {
-  return handler.port.messagesIn(conversationId).map(({ text, replyTo, mentions }) => ({ text, replyTo, mentions }));
-}
-
-const NO_MENTIONS = { users: [], repliedUser: false };
-
-/** The reply target of a notice quoting message `messageId` in `conversationId`. */
-const quoting = (conversationId, messageId) => ({ iface: 'fake', conversationId, messageId });
+/** @typedef {{ text: string, replyTo: { messageId: string } | null, mentions: object }} Notice The notices a handler's fake adapter holds (`handler.port`). */
+/** @type {(handler: { port: ReturnType<typeof createFakeAdapter> }, id: string) => Notice[]} */
+const noticesOf = (handler, id) =>
+  /** @type {Notice[]} */ (/** @type {unknown} */ (handler.port.messagesIn(id))).map(({ text, replyTo, mentions }) => ({
+    text,
+    replyTo,
+    mentions,
+  }));
+const textsOf = (/** @type {Parameters<typeof noticesOf>[0]} */ handler, /** @type {string} */ id) =>
+  noticesOf(handler, id).map((notice) => notice.text);
+const lineOf = (/** @type {string} */ text, /** @type {string} */ conversationId = '', messageId = '') => ({
+  text,
+  replyTo: messageId ? { iface: 'fake', conversationId, messageId } : null,
+  mentions: { users: [], repliedUser: false },
+});
 
 function makeHandler({
   config,
@@ -226,13 +232,10 @@ function makeHandler({
   activity,
   record,
   missed,
-  port,
 } = {}) {
   const hot = prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() };
   const discord = client ?? fakeClient();
-  // Limit and pause notices go out through the interface adapter, so the handler gets a fake one and the tests
-  // read the messages it stored (`handler.port`).
-  const adapter = port ?? createFakeAdapter();
+  const port = createFakeAdapter();
   const handler = createMessageHandler({
     hot,
     store: store ?? fakeStore(),
@@ -253,11 +256,9 @@ function makeHandler({
     activity,
     record,
     missed,
-    port: adapter,
+    port,
   });
-  const driven = asDiscordEvents(handler, hot, discord);
-  driven.port = adapter;
-  return driven;
+  return Object.assign(asDiscordEvents(handler, hot, discord), { port });
 }
 
 /**
@@ -3455,13 +3456,7 @@ test('private: the daily cap posts the limit notice once a day and marks it noti
 
   assert.deepEqual(
     noticesOf(handler, channel.id),
-    [
-      {
-        text: 'limit reached (private.maxPerUserPerDay, 100/100)',
-        replyTo: quoting(channel.id, 'dm-m1'),
-        mentions: NO_MENTIONS,
-      },
-    ],
+    [lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1')],
     'one notice, not one per message'
   );
   assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
@@ -3477,10 +3472,7 @@ test("private: an owner's cap notice names private.maxPerOwnerPerDay", async () 
     fakeDmMessage({ channel, author: { id: 'owner1', bot: false, globalName: 'Owner', username: 'owner' } })
   );
   await settle();
-  assert.deepEqual(
-    noticesOf(handler, channel.id).map((notice) => notice.text),
-    ['limit reached (private.maxPerOwnerPerDay, 200/200)']
-  );
+  assert.deepEqual(textsOf(handler, channel.id), ['limit reached (private.maxPerOwnerPerDay, 200/200)']);
 });
 
 test('private: a DM that passes is observed privately, answered with the pinned guildId, then counted', async () => {
@@ -3535,10 +3527,7 @@ test('private: a DM refused by a rail posts the limit notice', async () => {
   const handler = makeDmHandler({ turns, store });
   await handler(fakeDmMessage({ channel }));
   await settle();
-  assert.deepEqual(
-    noticesOf(handler, channel.id).map((notice) => notice.text),
-    ['limit reached (llm.maxRequestsPerDay, 800/800)']
-  );
+  assert.deepEqual(textsOf(handler, channel.id), ['limit reached (llm.maxRequestsPerDay, 800/800)']);
   assert.deepEqual(store.bumps, []);
 });
 
@@ -3641,10 +3630,9 @@ test('private: a queued DM is dropped at drain time once the previous turn hit t
   assert.deepEqual(store.bumps, []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'cap');
   assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
-  assert.deepEqual(
-    noticesOf(handler, channel.id).map((notice) => [notice.text, notice.replyTo?.messageId]),
-    [['limit reached (private.maxPerUserPerDay, 100/100)', 'dm-m1']]
-  );
+  assert.deepEqual(noticesOf(handler, channel.id), [
+    lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1'),
+  ]);
 });
 
 test('private: a queued DM is dropped at drain time when features.privateMessages was switched off', async () => {
@@ -3729,17 +3717,7 @@ function refusedTurns() {
   return recordingTurns({ outcome: 'refused', limit: { key: 'llm.maxRequestsPerDay', used: 800, cap: 800 } });
 }
 
-function sendingChannel(id = 'c1', guild = fakeGuild()) {
-  const sent = [];
-  const channel = fakeChannelWithMessage(id, guild, 'm1', {
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: 'notice1' };
-    },
-  });
-  channel.sent = sent;
-  return channel;
-}
+const sendingChannel = (id = 'c1', guild = fakeGuild()) => fakeChannelWithMessage(id, guild, 'm1');
 
 test('limits: a mention refused by a rail posts the notice as a plain reply to the trigger', async () => {
   const turns = refusedTurns();
@@ -3750,9 +3728,7 @@ test('limits: a mention refused by a rail posts the notice as a plain reply to t
   await settle();
 
   assert.equal(turns.calls.length, 1);
-  assert.deepEqual(noticesOf(handler, 'c1'), [
-    { text: 'limit reached (llm.maxRequestsPerDay, 800/800)', replyTo: quoting('c1', 'm1'), mentions: NO_MENTIONS },
-  ]);
+  assert.deepEqual(noticesOf(handler, 'c1'), [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)', 'c1', 'm1')]);
 });
 
 test('limits: a pending mention refused at drain time posts the notice', async () => {
@@ -3769,10 +3745,7 @@ test('limits: a pending mention refused at drain time posts the notice', async (
   await handler.drainPending();
 
   assert.equal(turns.calls.length, 1);
-  assert.deepEqual(
-    noticesOf(handler, 'c1').map((notice) => notice.text),
-    ['limit reached (llm.maxRequestTokens, 51000/50000)']
-  );
+  assert.deepEqual(textsOf(handler, 'c1'), ['limit reached (llm.maxRequestTokens, 51000/50000)']);
 });
 
 test('limits: a refusal with no limit, or another outcome, posts nothing', async () => {
@@ -3829,7 +3802,7 @@ test('limits: a follow-up turn refused by a rail posts the notice', async () => 
   assert.equal(turns.calls.length, 1);
   assert.deepEqual(
     noticesOf(handler, 'c1'),
-    [{ text: 'limit reached (llm.maxRequestsPerDay, 800/800)', replyTo: null, mentions: NO_MENTIONS }],
+    [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)')],
     'a follow-up never posts as a reply, its notice neither'
   );
 });
@@ -4610,7 +4583,7 @@ test('limits: an overheard turn refused by a rail posts no notice', async () => 
 
   assert.equal(turns.calls.length, 1);
   assert.equal(turns.calls[0].triggerKind, 'overheard');
-  assert.deepEqual(noticesOf(handler, channel.id), [], 'nobody asked: no limit notice');
+  assert.deepEqual(noticesOf(handler, 'c1'), [], 'nobody asked: no limit notice');
 });
 
 /**
@@ -7078,7 +7051,7 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     assert.equal(turns.calls.length, 1, `queued ${queued}`);
     assert.deepEqual(
       noticesOf(scene.handler, 'd1'),
-      [{ text: 'limit reached (llm.maxRequestsPerDay, 800/800)', replyTo: null, mentions: NO_MENTIONS }],
+      [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)')],
       `queued ${queued}: one plain line in the main channel, quoting nothing`
     );
     assert.deepEqual(noticesOf(scene.handler, 's1'), [], 'never in the channel it cannot write in');
@@ -7827,9 +7800,7 @@ for (const { kind, extra } of PAUSED_CALLS) {
       await scene.handler(directPingMessage({ guild, channel, channelId: 'c1', ...extra }));
       await settle();
     });
-    assert.deepEqual(noticesOf(scene.handler, 'c1'), [
-      { text: labels.limits.paused, replyTo: quoting('c1', 'm1'), mentions: NO_MENTIONS },
-    ]);
+    assert.deepEqual(noticesOf(scene.handler, 'c1'), [lineOf(labels.limits.paused, 'c1', 'm1')]);
     const lines = logs.filter((l) => l.msg === 'limits: pause notice');
     assert.deepEqual(
       lines.map((l) => [l.channel, l.kind]),
@@ -8021,7 +7992,7 @@ test('pause notice: a private message from someone the gate lets through gets it
   });
   assert.deepEqual(
     noticesOf(scene.handler, 'dm1'),
-    [{ text: labels.limits.paused, replyTo: quoting('dm1', 'dm-m1'), mentions: NO_MENTIONS }],
+    [lineOf(labels.limits.paused, 'dm1', 'dm-m1')],
     'quoted like the private limit notice'
   );
   assert.deepEqual(
@@ -8037,10 +8008,7 @@ test('pause notice: the private daily cap alone does not withhold it', async () 
   const message = fakeDmMessage();
   await scene.handler(message);
   await settle();
-  assert.deepEqual(
-    noticesOf(scene.handler, 'dm1').map((notice) => notice.text),
-    [labels.limits.paused]
-  );
+  assert.deepEqual(textsOf(scene.handler, 'dm1'), [labels.limits.paused]);
   assert.deepEqual(scene.store.noticed, [], 'no cap notice is marked while paused');
   assertPausedQuiet(scene, 'cap');
 });
