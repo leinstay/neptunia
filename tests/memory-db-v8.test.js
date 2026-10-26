@@ -13,8 +13,8 @@ import { V8_TABLES } from '../src/memory/db/schema.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { mergePeople } from '../src/memory/db/session-write.js';
-import { externalTargetKey, messageSourceId, survivorOf } from '../src/memory/db/ids.js';
-import { groupScope } from '../src/memory/db/scope.js';
+import { externalTargetKey, messageSourceId, survivorOf } from '../src/memory/db/ids.ts';
+import { groupScope } from '../src/memory/db/scope.ts';
 import { buildDataDir, guildDir, seen, writeLines } from './fixtures/memory-db/datadir.js';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
@@ -83,14 +83,14 @@ test('v8 migration: replies backfilled into source_relations, native kinds fille
       })),
       [
         {
-          source_id: messageSourceId(REPLY, 1, 'seen'),
+          source_id: messageSourceId('discord', REPLY, 1, 'seen'),
           predicate: 'replies_to',
           target_key: replyKey('400000000000000001'),
-          target_source_id: messageSourceId('400000000000000001', 1, 'seen'),
+          target_source_id: messageSourceId('discord', '400000000000000001', 1, 'seen'),
           resolved: 1,
         },
         {
-          source_id: messageSourceId(TO_LOST, 1, 'seen'),
+          source_id: messageSourceId('discord', TO_LOST, 1, 'seen'),
           predicate: 'replies_to',
           target_key: replyKey(LOST),
           target_source_id: null,
@@ -119,17 +119,17 @@ test('v8: a relation to an unfetched message resolves when it arrives; the key n
     ]);
     assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0);
     const after = relationsOf(db);
-    const lost = after.find((row) => row.source_id === messageSourceId(TO_LOST, 1, 'seen'));
-    const was = before.find((row) => row.source_id === messageSourceId(TO_LOST, 1, 'seen'));
+    const lost = after.find((row) => row.source_id === messageSourceId('discord', TO_LOST, 1, 'seen'));
+    const was = before.find((row) => row.source_id === messageSourceId('discord', TO_LOST, 1, 'seen'));
     assert.deepEqual(
       { ...lost },
-      { ...was, target_source_id: messageSourceId(LOST, 1, 'seen'), resolved: 1 },
+      { ...was, target_source_id: messageSourceId('discord', LOST, 1, 'seen'), resolved: 1 },
       'same row, same key, now resolved'
     );
-    const fresh = after.find((row) => row.source_id === messageSourceId('400000000000000013', 1, 'seen'));
+    const fresh = after.find((row) => row.source_id === messageSourceId('discord', '400000000000000013', 1, 'seen'));
     assert.deepEqual(
       [fresh.target_key, fresh.target_source_id, fresh.resolved],
-      [replyKey('400000000000000002'), messageSourceId('400000000000000002', 1, 'seen'), 1]
+      [replyKey('400000000000000002'), messageSourceId('discord', '400000000000000002', 1, 'seen'), 1]
     );
     assert.equal(after.length, 3);
 
@@ -153,7 +153,7 @@ const source = (id, extra = {}) => ({
   occurred_at: '2026-10-24T10:00:00.000Z',
   recorded_at: '2026-10-24T10:00:01.000Z',
   text: 'x',
-  ...groupScope(),
+  ...groupScope('discord'),
   ...extra,
 });
 

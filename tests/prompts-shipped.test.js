@@ -42,7 +42,7 @@ import {
   normalizeOptions,
   toEvent,
   withTextPreviews,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';

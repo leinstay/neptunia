@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as sandbox from '../src/behavior/sandbox.js';
-import { fetchHistoryWindow } from '../src/interface/discord.js';
+import { fetchHistoryWindow } from '../interfaces/discord/index.js';
 import { formatTranscript } from '../src/format.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { createCalibrator } from '../src/llm/tokens.js';

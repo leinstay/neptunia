@@ -33,7 +33,7 @@ import { fill, localHour } from '../src/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 

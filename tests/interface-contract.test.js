@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CAPABILITIES, STATUSES } from '../src/interface/port.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import * as discordInterface from '../src/interface/discord.js';
-import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../src/interface/discord.js';
+import * as discordInterface from '../interfaces/discord/index.js';
+import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../interfaces/discord/index.js';
 
 const SELF = 'self-id';
 const OTHER = 'other-id';

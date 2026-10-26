@@ -20,9 +20,9 @@ import {
   groupScope,
   issueContext,
   wellFormed,
-} from '../src/memory/db/scope.js';
+} from '../src/memory/db/scope.ts';
 import { applyDiaryUpdate } from '../src/memory/db/diary-media.js';
-import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.js';
+import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../tools/memory-db.mjs';
 import { GUILD, MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 
@@ -45,18 +45,18 @@ function importedAtV6() {
   const db = old.db;
   // An account whose link is not verified, a DM row of a partner no file has a DM place for, malformed triples, and a
   // turn read of the old shape.
-  db.prepare("INSERT INTO people (id, kind) VALUES (?, 'member')").run(personId(PROPOSED));
+  db.prepare("INSERT INTO people (id, kind) VALUES (?, 'member')").run(personId('discord', PROPOSED));
   db.prepare(
     "INSERT INTO accounts (id, iface, native_id, person_id, link) VALUES (?, 'discord', ?, ?, 'proposed')"
-  ).run(`discord:${PROPOSED}`, PROPOSED, personId(PROPOSED));
+  ).run(`discord:${PROPOSED}`, PROPOSED, personId('discord', PROPOSED));
   const claim = (id, kind, iface, dm) =>
     db
       .prepare(
         `INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm, created_at)
     VALUES (?, 'person', ?, 'detail', 'synthetic', ?, ?, ?, '2026-10-01T00:00:00.000Z')`
       )
-      .run(id, personId(MEMBER), kind, iface, dm);
-  claim('k-dm-stranger', 'dm', 'discord', personId(STRANGER));
+      .run(id, personId('discord', MEMBER), kind, iface, dm);
+  claim('k-dm-stranger', 'dm', 'discord', personId('discord', STRANGER));
   claim('k-bad-dm', 'dm', 'discord', 'not-a-person');
   claim('k-bad-kind', 'whatever', 'discord', null);
   claim('k-group-null', 'group', null, null);
@@ -104,7 +104,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
 
     // The DM places of every partner a row names, with their audience.
     for (const user of [MEMBER, STRANGER]) {
-      const place = db.prepare('SELECT * FROM places WHERE id = ?').get(dmPlaceId(user));
+      const place = db.prepare('SELECT * FROM places WHERE id = ?').get(dmPlaceId('discord', user));
       assert.ok(place, `the DM place of ${user}`);
       assert.deepEqual(
         [
@@ -116,14 +116,14 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
           place.authority_id,
           place.native_key,
         ],
-        ['dm', 'dm', personId(user), `discord:${user}`, null, 'discord/global', `dm:${user}`]
+        ['dm', 'dm', personId('discord', user), `discord:${user}`, null, 'discord/global', `dm:${user}`]
       );
       assert.equal(
         count(
           db,
           'SELECT COUNT(*) AS n FROM audiences WHERE id = ? AND place_id = ?',
-          `aud:dm:${dmPlaceId(user)}`,
-          dmPlaceId(user)
+          `aud:dm:${dmPlaceId('discord', user)}`,
+          dmPlaceId('discord', user)
         ),
         1
       );
@@ -150,8 +150,13 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
       .all()
       .map((row) => ({ ...row }));
     assert.deepEqual(links, [
-      { account_id: `discord:${MEMBER}`, person_id: personId(MEMBER), state: 'verified', by: 'migration' },
-      { account_id: `discord:${PROPOSED}`, person_id: personId(PROPOSED), state: 'proposed', by: 'migration' },
+      { account_id: `discord:${MEMBER}`, person_id: personId('discord', MEMBER), state: 'verified', by: 'migration' },
+      {
+        account_id: `discord:${PROPOSED}`,
+        person_id: personId('discord', PROPOSED),
+        state: 'proposed',
+        by: 'migration',
+      },
     ]);
 
     // Her own row, and keys for every person, account and place.
@@ -191,7 +196,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
           "SELECT node_id FROM external_keys WHERE authority_id = 'discord/global' AND object_kind = 'person' AND native_key = ?"
         )
         .get(MEMBER).node_id,
-      personId(MEMBER)
+      personId('discord', MEMBER)
     );
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM authorities WHERE id = ?', `discord/guild:${GUILD}`), 1);
 
@@ -315,19 +320,19 @@ test('v7: a replay of the unit writes re-derives the new columns, keeps links an
     );
     const fresh = db
       .prepare('SELECT kind, conversation, partner_person, owner_file FROM places WHERE id = ?')
-      .get(dmPlaceId(NEWCOMER));
+      .get(dmPlaceId('discord', NEWCOMER));
     assert.deepEqual(
       { ...fresh },
-      { kind: 'dm', conversation: 'dm', partner_person: personId(NEWCOMER), owner_file: null },
+      { kind: 'dm', conversation: 'dm', partner_person: personId('discord', NEWCOMER), owner_file: null },
       'a DM line of a new partner brings its DM place'
     );
     assert.equal(
       db.prepare("SELECT audience_id FROM sources WHERE native_id = '400000000000000031'").get().audience_id,
-      `aud:dm:${dmPlaceId(NEWCOMER)}`
+      `aud:dm:${dmPlaceId('discord', NEWCOMER)}`
     );
     for (const user of [MEMBER, STRANGER])
       assert.ok(
-        db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(dmPlaceId(user)),
+        db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(dmPlaceId('discord', user)),
         `the DM place of ${user} is kept`
       );
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
@@ -350,27 +355,27 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
           {
             id: 'k-ok',
             subject_kind: 'person',
-            subject_id: personId('u1'),
+            subject_id: personId('discord', 'u1'),
             kind: 'detail',
             text: 'x',
-            ...dmScope(personId('u1')),
+            ...dmScope(personId('discord', 'u1'), 'discord'),
           },
           {
             id: 'k-given',
             subject_kind: 'person',
-            subject_id: personId('u1'),
+            subject_id: personId('discord', 'u1'),
             kind: 'detail',
             text: 'x',
-            ...dmScope(personId('u1')),
-            audience_id: `aud:dm:${dmPlaceId('u1')}`,
+            ...dmScope(personId('discord', 'u1'), 'discord'),
+            audience_id: `aud:dm:${dmPlaceId('discord', 'u1')}`,
           },
           {
             id: 'k-conflict',
             subject_kind: 'person',
-            subject_id: personId('u1'),
+            subject_id: personId('discord', 'u1'),
             kind: 'detail',
             text: 'x',
-            ...dmScope(personId('u1')),
+            ...dmScope(personId('discord', 'u1'), 'discord'),
             audience_id: 'aud:group:discord',
           },
         ],
@@ -378,8 +383,8 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
       { log }
     );
     const row = (id) => ({ ...db.prepare('SELECT scope_kind, audience_id FROM claims WHERE id = ?').get(id) });
-    assert.deepEqual(row('k-ok'), { scope_kind: 'dm', audience_id: `aud:dm:${dmPlaceId('u1')}` });
-    assert.deepEqual(row('k-given'), { scope_kind: 'dm', audience_id: `aud:dm:${dmPlaceId('u1')}` });
+    assert.deepEqual(row('k-ok'), { scope_kind: 'dm', audience_id: `aud:dm:${dmPlaceId('discord', 'u1')}` });
+    assert.deepEqual(row('k-given'), { scope_kind: 'dm', audience_id: `aud:dm:${dmPlaceId('discord', 'u1')}` });
     assert.deepEqual(row('k-conflict'), { scope_kind: 'internal', audience_id: AUD_INTERNAL });
     assert.deepEqual(
       warned.map((entry) => entry.fields),
@@ -394,8 +399,8 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
       now: Date.parse('2026-10-24T12:00:00.000Z'),
       run: {
         id: 'run:1',
-        scopeKey: `dm:discord:${personId('u1')}`,
-        scope: dmScope(personId('u1')),
+        scopeKey: `dm:discord:${personId('discord', 'u1')}`,
+        scope: dmScope(personId('discord', 'u1'), 'discord'),
         startedAt: 'a',
         finishedAt: 'b',
         outcome: 'ok',
@@ -413,10 +418,10 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
     );
     assert.equal(
       db.prepare("SELECT audience_id FROM session_runs WHERE id = 'run:1'").get().audience_id,
-      `aud:dm:${dmPlaceId('u1')}`
+      `aud:dm:${dmPlaceId('discord', 'u1')}`
     );
     // A diary picture takes the diary row's audience.
-    insertRows(db, { diary: [{ id: 'd-1', at_ms: 1, kind: 'day', gist: 'g', ...groupScope() }] });
+    insertRows(db, { diary: [{ id: 'd-1', at_ms: 1, kind: 'day', gist: 'g', ...groupScope('discord') }] });
     applyDiaryUpdate(handle, {
       id: 'd-1',
       text: 'the post',
@@ -440,7 +445,7 @@ test('v7 contexts: an issued context is recorded once, and turn reads carry its 
   try {
     const ctx = issueContext({
       kind: 'dm',
-      person: personId('u1'),
+      person: personId('discord', 'u1'),
       now: () => Date.parse('2026-10-24T12:00:00.000Z'),
       newId: () => 'ctx:one',
     });
@@ -456,8 +461,8 @@ test('v7 contexts: an issued context is recorded once, and turn reads carry its 
         id: 'ctx:one',
         mode: 'outward',
         iface: 'discord',
-        destination_place_id: dmPlaceId('u1'),
-        partner_person_id: personId('u1'),
+        destination_place_id: dmPlaceId('discord', 'u1'),
+        partner_person_id: personId('discord', 'u1'),
         policy_version: 1,
         issued_at: '2026-10-24T12:00:00.000Z',
       }
@@ -555,7 +560,7 @@ test('resolveAlias: event time picks the generation; overlapping windows and tim
       ['account:a', 'account:b']
     );
     assert.equal(resolveAlias(db, 'discord/global', 'account', 'never-seen', null), null);
-    assert.ok(wellFormed(dmScope(personId('u1'))));
+    assert.ok(wellFormed(dmScope(personId('discord', 'u1'), 'discord')));
   } finally {
     handle.close();
   }

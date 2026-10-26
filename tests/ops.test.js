@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { legacyGrantOps, listOps, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { createTaskStore } from '../src/errands/store.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

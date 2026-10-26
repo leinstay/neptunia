@@ -18,7 +18,7 @@ import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall
 import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

@@ -15,7 +15,7 @@ import {
   someoneAround,
   initiateCooldownUntil,
 } from '../src/behavior/spontaneous.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;

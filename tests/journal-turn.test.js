@@ -15,7 +15,7 @@ import { snowflakeAt } from '../src/behavior/recall.js';
 import { executeCall, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { journalTurnRecord } from '../src/behavior/turn.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

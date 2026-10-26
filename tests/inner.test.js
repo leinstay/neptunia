@@ -229,7 +229,7 @@ test("inner: wakes of one conversation and the day's review coalesce into one tu
     kind: 'inner.wake',
     at: NOW,
     id: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS).id,
-    guildId: GUILD,
+    communityId: GUILD,
     wake: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS),
   });
   assert.equal(run.inner.status(GUILD).queue.length, 4);

@@ -37,7 +37,9 @@ const CAPABILITIES: Capabilities = {
   publish: [],
   search: false,
 };
-const HELLO: Hello = { iface: 'fake', capabilities: CAPABILITIES, resume: 'r1' };
+const SELF = { id: 'bot-1', name: 'Νέπτυν' };
+const COMMUNITY = { id: 'g1', name: 'Alpha' };
+const HELLO: Hello = { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: 'r1' };
 
 function reaction(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -110,9 +112,32 @@ function gated() {
   return { adapter, state, release: (count = waiting.length) => waiting.splice(0, count).forEach((go) => go()) };
 }
 
-test('hello resolves with the iface, the capabilities and resume of the interface', async () => {
+test('hello resolves with the iface, the persona, the community, the capabilities and resume of the interface', async () => {
   const { link, served } = await pair();
   assert.deepEqual(await link.hello, HELLO);
+  served.close();
+  link.close();
+});
+
+test('hello gives the persona id and name of the interface as the core keeps them for the link', async () => {
+  const { link, served } = await pair();
+  const hello = await link.hello;
+  assert.deepEqual(hello.self, { id: 'bot-1', name: 'Νέπτυν' });
+  assert.deepEqual(hello.community, { id: 'g1', name: 'Alpha' });
+  served.close();
+  link.close();
+});
+
+test('hello of an interface that serves no community resolves with community null', async () => {
+  const { link, client } = core();
+  const served = serveAdapter({
+    transport: client,
+    hello: { ...HELLO, community: null },
+    token: 'tok',
+    adapter: createFakeAdapter(),
+    log: quiet,
+  });
+  assert.equal((await link.hello).community, null);
   served.close();
   link.close();
 });

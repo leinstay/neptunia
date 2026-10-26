@@ -383,85 +383,42 @@ test('describe: the media cache is persisted across store instances', async () =
   assert.equal(storeB.getMediaCache('g1').a1.text, 'a cat');
 });
 
-test('describe: video items request a webp poster frame via the media proxy, without width/height', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot();
-  const llm = fakeLlm({ text: 'a dog runs' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe('g1', pictureItem('v1', { kind: 'video', url: 'https://cdn.discordapp.com/x/clip.mp4' }));
-  const fetchedUrl = imageFetcher.calls[0].url;
-  const parsed = new URL(fetchedUrl);
-  assert.equal(parsed.searchParams.get('format'), 'webp');
-  assert.equal(parsed.searchParams.get('width'), null);
-  // The model only ever sees the downloaded data: URL, never the CDN one.
-  assert.equal(llm.calls[0].messages[1].content[0].image_url.url, SUCCESSFUL_DOWNLOAD.dataUrl);
-});
-
-test('describe: a gif item of known size requests a single still png frame fitted to media.imageSize, never an animated webp', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
-  const llm = fakeLlm({ text: 'a cat spins' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe(
-    'g1',
-    pictureItem('gif1', {
-      kind: 'gif',
-      url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=1',
-      width: 498,
-      height: 280,
-    })
-  );
-  assert.equal(
-    imageFetcher.calls[0].url,
-    'https://media.discordapp.net/attachments/1/2/anim.gif?ex=1&width=256&height=144&format=png&animated=false'
-  );
-});
-
-test('describe: a tenor gif embed on images-ext keeps its host and asks for a still png frame', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 512 } } });
-  const llm = fakeLlm({ text: 'a cat spins' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  const url = 'https://images-ext-1.discordapp.net/external/abc/https/media.tenor.com/x/anim.gif?ex=1';
-  await describer.describe('g1', pictureItem('link:t1', { kind: 'gif', url, width: 220, height: 124 }));
-  assert.equal(imageFetcher.calls[0].url, `${url}&width=220&height=124&format=png&animated=false`);
-});
-
-test('describe: an image item of known size gets the aspect-kept webp proxy URL with no animated param', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
-  const llm = fakeLlm({ text: 'a cat' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  await describer.describe('g1', pictureItem('a1', { width: 988, height: 1306 }));
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?width=194&height=256&format=webp');
-});
-
-test('describe: a picture or gif of unknown size goes through the proxy with no width or height at all', async () => {
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } });
+// The picture the vision model gets is the item's `previewUrl`, which the adapter sized for the platform it came from
+// (tests/collect.test.js); the core never rewrites an address by its host.
+test('describe: an item with a preview url is downloaded from the preview, never from its own url', async () => {
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({
-    hot,
+    hot: fakeHot(),
+    store: createStore({ dataDir: tmpDataDir() }),
+    llm: fakeLlm({ text: 'a dog runs' }),
+    imageFetcher,
+  });
+  const preview = 'https://previews.example/p/1.webp?w=194';
+  await describer.describe(
+    'g1',
+    pictureItem('v1', { kind: 'video', url: 'https://files.example/clip.mp4', previewUrl: preview })
+  );
+  assert.deepEqual(
+    imageFetcher.calls.map((call) => call.url),
+    [preview]
+  );
+});
+
+test('describe: an item with no preview url is downloaded from its own url exactly as given', async () => {
+  const imageFetcher = fakeImageFetcher();
+  const describer = createDescriber({
+    hot: fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } }),
     store: createStore({ dataDir: tmpDataDir() }),
     llm: fakeLlm({ text: 'a cat' }),
     imageFetcher,
   });
-
-  await describer.describe('g1', pictureItem('a1', { width: 988 }));
-  await describer.describe('g1', pictureItem('gif1', { kind: 'gif', url: 'https://cdn.discordapp.com/x/anim.gif' }));
-  assert.equal(imageFetcher.calls[0].url, 'https://media.discordapp.net/x/pic.png?format=webp');
-  assert.equal(imageFetcher.calls[1].url, 'https://media.discordapp.net/x/anim.gif?format=png&animated=false');
+  const url = 'https://cdn.discordapp.com/x/pic.png?ex=1';
+  await describer.describe('g1', pictureItem('a1', { url, width: 988, height: 1306 }));
+  assert.deepEqual(
+    imageFetcher.calls.map((call) => call.url),
+    [url],
+    'no host rewriting and no size parameters of the core'
+  );
 });
 
 // --- stickers, custom emoji, link thumbnails -------------------------

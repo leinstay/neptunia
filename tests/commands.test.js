@@ -11,7 +11,7 @@ import {
   registerCommands,
   createInteractionHandler,
   commandEvent,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import { isValidCommandName, leafPaths, commandSize, STATUS_FIELDS, readFlag } from '../src/ops/catalog.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
@@ -1270,7 +1270,7 @@ test('commandEvent: an interaction becomes a valid command.requested event', () 
     iface: 'discord',
     at: 1234,
     id: 'discord:command:i-event',
-    conversation: { id: 'c1', kind: 'channel', guildId: 'g1', name: null },
+    conversation: { id: 'c1', kind: 'channel', communityId: 'g1', name: null },
     name: 'memory.show',
     args: { userId: 'u2' },
     requester: { id: 'helper1', name: 'Λένα', roles: ['staff', 'mods'], owner: false },

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createTurnRunner } from '../../src/behavior/turn.js';
 import { userText } from '../../src/behavior/prompt.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
-import { createDiscordInterface } from '../../src/interface/discord.js';
+import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createJournal } from '../../src/memory/journal.js';
 import { createTaskStores } from '../../src/errands/store.js';
 import { createErrandService } from '../../src/errands/service.js';

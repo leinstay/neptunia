@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';

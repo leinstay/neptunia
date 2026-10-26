@@ -19,7 +19,7 @@ import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 

@@ -30,7 +30,7 @@ import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createLookup } from '../src/web/lookup.js';
 import { createBraveSearch } from '../src/web/brave.js';
 import { createExaSearch } from '../src/web/exa.js';

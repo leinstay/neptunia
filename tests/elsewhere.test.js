@@ -1,4 +1,4 @@
-// Tests for src/behavior/elsewhere.js: the pure core of speaking in the main
+// Tests for src/behavior/elsewhere.ts: the pure core of speaking in the main
 // channel about a channel the persona cannot write in -- the settle wait, the
 // ring of calls, the per-channel seen mark, the liveness rule of a noticed
 // comment, the audience comparison, the destination pick and the jump link.
@@ -24,7 +24,7 @@ import {
   resolveDestination,
   settleDueAt,
   stampPings,
-} from '../src/behavior/elsewhere.js';
+} from '../src/behavior/elsewhere.ts';
 import { chooseMode } from '../src/behavior/spontaneous.js';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
@@ -980,11 +980,26 @@ test('resolveDestination: inert without a usable memory.mainChannelIds entry', (
 
 // ---- the jump link -------------------------------------------------------------------------
 
-test("messageLink: Discord's jump-link form", () => {
-  assert.equal(messageLink('100', '200', '300'), 'https://discord.com/channels/100/200/300');
-  assert.equal(messageLink(100, 200, 300), 'https://discord.com/channels/100/200/300');
-  assert.equal(messageLink('100', '', '300'), null);
-  assert.equal(messageLink(undefined, '200', '300'), null);
+test('messageLink: the url the adapter put on the reference, and nothing built by the core', () => {
+  const ref = { iface: 'discord', conversationId: '200', messageId: '300', url: 'https://chat.example/200/300' };
+  assert.equal(messageLink(ref), 'https://chat.example/200/300');
+});
+
+test('messageLink: a reference without a url has no link, whatever its interface', () => {
+  assert.equal(messageLink({ iface: 'discord', conversationId: '200', messageId: '300' }), null);
+  assert.equal(messageLink({ iface: 'fake', conversationId: 'c1', messageId: 'm1', url: null }), null);
+});
+
+test('messageLink: a reference with a missing id has no link', () => {
+  assert.equal(
+    messageLink({ iface: 'fake', conversationId: '', messageId: 'm1', url: 'https://chat.example/x' }),
+    null
+  );
+  assert.equal(
+    messageLink({ iface: 'fake', conversationId: 'c1', messageId: '', url: 'https://chat.example/x' }),
+    null
+  );
+  assert.equal(messageLink(null), null);
 });
 
 test('audienceCovers: a member-only destination is covered by an open source with a denied role when the members hold other roles', () => {

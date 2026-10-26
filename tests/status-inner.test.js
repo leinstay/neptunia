@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { innerLines } from '../src/ops/status.js';
 import { tempDir } from './fixtures/tmp.js';
 

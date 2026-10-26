@@ -23,7 +23,7 @@ import { createFedAround as createAroundStore } from './fixtures/around-feed.ts'
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
-import { tokenIds } from '../src/memory/mentions.js';
+import { tokenIds } from '../src/memory/mentions.ts';
 import { handleOf } from '../src/behavior/handles.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0); // Sun 20 Sep 2026, 13:00 Moscow

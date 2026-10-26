@@ -6,7 +6,7 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
 import { createTagHistory } from '../src/behavior/mention.js';
-import { pingStatus } from '../src/behavior/elsewhere.js';
+import { pingStatus } from '../src/behavior/elsewhere.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ import {
   normalizeMessage,
   normalizeOptions,
   toEvent,
-} from '../src/interface/discord.js';
+} from '../interfaces/discord/index.js';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
 import { createFakeAdapter } from '../src/interface/fake.js';

@@ -9,7 +9,7 @@ import { createHot } from '../src/hot.js';
 import { composePreamble } from '../src/errands/preambles.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

@@ -24,7 +24,7 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -135,14 +135,28 @@ test("collectGifItems: gif embeds and gif attachments, the message's own then it
   ]);
 });
 
-test('collectGifItems: a gif embed of a Discord CDN link is not a library item (its signed URL expires)', () => {
-  const cdn = 'https://cdn.discordapp.com/attachments/1/2/loop.gif?ex=1&is=2&hm=3';
+test('collectGifItems: a gif embed the adapter marked expiring is not a library item, whatever its host', () => {
+  const signed = 'https://klipy.com/gifs/dancing-cat?sig=1';
   const items = collectGifItems(
-    msg({ links: [gifLink('m1#e0', cdn), gifLink('m1#e1', 'https://klipy.com/gifs/dancing-cat')] })
+    msg({
+      links: [
+        { ...gifLink('m1#e0', signed), expiring: true },
+        { ...gifLink('m1#e1', 'https://klipy.com/gifs/waving-cat'), expiring: false },
+      ],
+    })
   );
   assert.deepEqual(
     items.map((item) => item.url),
-    ['https://klipy.com/gifs/dancing-cat']
+    ['https://klipy.com/gifs/waving-cat']
+  );
+});
+
+test('collectGifItems: a gif embed on a Discord CDN host the adapter did not mark is a library item, the core reads no host', () => {
+  const cdn = 'https://cdn.discordapp.com/attachments/1/2/loop.gif?ex=1&is=2&hm=3';
+  const items = collectGifItems(msg({ links: [gifLink('m1#e0', cdn)] }));
+  assert.deepEqual(
+    items.map((item) => item.url),
+    [cdn]
   );
 });
 

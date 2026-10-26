@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 

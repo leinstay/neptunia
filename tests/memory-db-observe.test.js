@@ -17,7 +17,7 @@ import {
   openBundle,
   scheduleWatches,
 } from '../src/memory/db/observe.js';
-import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.js';
+import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.js';
 

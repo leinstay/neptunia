@@ -35,7 +35,13 @@ const CAPABILITIES: Capabilities = {
   publish: [],
   search: false,
 };
-const HELLO: Hello = { iface: 'fake', capabilities: CAPABILITIES, resume: null };
+const HELLO: Hello = {
+  iface: 'fake',
+  self: { id: 'bot-1', name: 'Νέπτυν' },
+  community: { id: 'g1', name: 'Alpha' },
+  capabilities: CAPABILITIES,
+  resume: null,
+};
 
 function reaction(id: string): Record<string, unknown> {
   return {
@@ -111,10 +117,17 @@ function rig(adapter = createFakeAdapter()) {
   };
 }
 
-test('sends hello first, with the iface, the capabilities, resume and the token', () => {
+test('sends hello first, with the iface, the persona, the community, the capabilities, resume and the token', () => {
   const r = rig();
   assert.equal(r.sent[0]?.type, 'hello');
-  assert.deepEqual(r.sent[0]?.body, { iface: 'fake', capabilities: CAPABILITIES, resume: null, token: 'tok' });
+  assert.deepEqual(r.sent[0]?.body, {
+    iface: 'fake',
+    self: { id: 'bot-1', name: 'Νέπτυν' },
+    community: { id: 'g1', name: 'Alpha' },
+    capabilities: CAPABILITIES,
+    resume: null,
+    token: 'tok',
+  });
   r.served.close();
 });
 

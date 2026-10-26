@@ -1,4 +1,4 @@
-// Audiences (schema v7, src/memory/db/scope.js): the one resolver from the scope triple to `audience_id` and back, the
+// Audiences (schema v7, src/memory/db/scope.ts): the one resolver from the scope triple to `audience_id` and back, the
 // audience twins of the read rule (`allowedAudience`, `audienceWhere`), the full meet table of `narrowestAudience`,
 // and the equivalence test: on fixtures with group, DM, two DMs of one person (one per interface), none, internal and
 // malformed rows, every reader returns the same rows whether it reads the triple or `audience_id`.
@@ -28,8 +28,8 @@ import {
   scopeOfAudience,
   scopeWhere,
   whereFor,
-} from '../src/memory/db/scope.js';
-import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.js';
+} from '../src/memory/db/scope.ts';
+import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { search, window } from '../src/memory/db/recall.js';
 import { fillStems } from '../src/memory/db/stems.js';
 import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.js';
@@ -37,8 +37,8 @@ import { gatherReview } from '../src/memory/db/describe.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
-const ALICE = personId('u-alice');
-const BOB = personId('u-bob');
+const ALICE = personId('discord', 'u-alice');
+const BOB = personId('discord', 'u-bob');
 /** The same human's DM on a second interface: a person id of that interface. */
 const ALICE_OTHER = 'person:other:u-alice';
 
@@ -71,7 +71,10 @@ test('audienceOf: each kind of triple, the DM place of the partner, malformed is
   assert.equal(audienceOf(SCOPES.internal).audience_id, AUD_INTERNAL);
   assert.equal(audienceOf(SCOPES.group).audience_id, 'aud:group:discord');
   assert.equal(audienceOf(SCOPES.groupOther).audience_id, 'aud:group:other');
-  assert.deepEqual(audienceOf(SCOPES.dmAlice), { ...SCOPES.dmAlice, audience_id: `aud:dm:${dmPlaceId('u-alice')}` });
+  assert.deepEqual(audienceOf(SCOPES.dmAlice), {
+    ...SCOPES.dmAlice,
+    audience_id: `aud:dm:${dmPlaceId('discord', 'u-alice')}`,
+  });
   assert.equal(audienceOf(SCOPES.dmAliceOther).audience_id, 'aud:dm:other:dm:u-alice');
   for (const name of ['malformedDm', 'malformedGroup', 'unknownKind', 'nullKind']) {
     const got = audienceOf(SCOPES[name]);
@@ -152,8 +155,8 @@ test('narrowestAudience: the full meet table', () => {
   const I = AUD_INTERNAL;
   const G = 'aud:group:discord';
   const GO = 'aud:group:other';
-  const DA = `aud:dm:${dmPlaceId('u-alice')}`;
-  const DB = `aud:dm:${dmPlaceId('u-bob')}`;
+  const DA = `aud:dm:${dmPlaceId('discord', 'u-alice')}`;
+  const DB = `aud:dm:${dmPlaceId('discord', 'u-bob')}`;
   const DO = 'aud:dm:other:dm:u-alice';
   const table = [
     [[], N],
@@ -198,18 +201,25 @@ test('issueContext: an id, the mode, the DM place of the partner; contexts stay 
   const dm = issueContext({ kind: 'dm', person: ALICE, now: () => NOW, newId });
   assert.deepEqual(
     [dm.id, dm.mode, dm.kind, dm.place, dm.destination, dm.issuedAt],
-    ['ctx:test-1', 'outward', 'dm', dmPlaceId('u-alice'), dmPlaceId('u-alice'), new Date(NOW).toISOString()]
+    [
+      'ctx:test-1',
+      'outward',
+      'dm',
+      dmPlaceId('discord', 'u-alice'),
+      dmPlaceId('discord', 'u-alice'),
+      new Date(NOW).toISOString(),
+    ]
   );
   const group = issueContext({
     kind: 'group',
-    destination: channelPlaceId('c1'),
+    destination: channelPlaceId('discord', 'c1'),
     now: () => NOW,
     newId,
     audienceColumn: true,
   });
   assert.deepEqual(
     [group.mode, group.iface, group.destination, group.audienceColumn],
-    ['outward', 'discord', channelPlaceId('c1'), true]
+    ['outward', 'discord', channelPlaceId('discord', 'c1'), true]
   );
   const inner = issueContext({ kind: 'internal', now: () => NOW, newId });
   assert.equal(inner.mode, 'internal');
@@ -237,12 +247,12 @@ function equivalenceFixture() {
     ['u-alice', 'Alíki'],
     ['u-bob', 'Bob'],
   ]) {
-    rows.people.push({ id: personId(user), kind: 'member' });
+    rows.people.push({ id: personId('discord', user), kind: 'member' });
     rows.accounts.push({
       id: `discord:${user}`,
       iface: 'discord',
       native_id: user,
-      person_id: personId(user),
+      person_id: personId('discord', user),
       link: 'verified',
       names: JSON.stringify([name]),
     });
@@ -253,9 +263,9 @@ function equivalenceFixture() {
       ? name === 'dmAliceOther'
         ? 'other:dm:u-alice'
         : name === 'dmBob'
-          ? dmPlaceId('u-bob')
-          : dmPlaceId('u-alice')
-      : channelPlaceId(`c-${name}`);
+          ? dmPlaceId('discord', 'u-bob')
+          : dmPlaceId('discord', 'u-alice')
+      : channelPlaceId('discord', `c-${name}`);
   let n = 0;
   for (const [name, scope] of Object.entries(SCOPES)) {
     for (let i = 0; i < 3; i += 1) {
@@ -263,7 +273,7 @@ function equivalenceFixture() {
       at += 60_000;
       const native = `m${n}`;
       rows.sources.push({
-        id: messageSourceId(native, 1, 'seen'),
+        id: messageSourceId('discord', native, 1, 'seen'),
         kind: 'seen',
         iface: scope.scope_iface ?? 'discord',
         native_id: native,

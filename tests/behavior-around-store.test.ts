@@ -16,7 +16,7 @@ const voice = (userId: string, conversationId: string | null, at: number, flags:
   iface: 'discord',
   at,
   id: `voice:${userId}:${at}`,
-  guildId: 'g1',
+  communityId: 'g1',
   userId,
   name: null,
   conversationId,
@@ -107,8 +107,8 @@ test('a snapshot replaces both maps and its voice records carry no joinedAt', ()
     at: 5000,
     id: 'presence.snapshot:5000',
     voice: [
-      { guildId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null },
-      { guildId: 'g1', userId: 'u3', conversationId: 'v2', previousId: null, muted: true },
+      { communityId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null },
+      { communityId: 'g1', userId: 'u3', conversationId: 'v2', previousId: null, muted: true },
     ],
     presence: [{ userId: 'u3', name: null, status: 'dnd', activities: [] }],
   });
@@ -139,7 +139,7 @@ test('a flag change after a snapshot does not invent a joinedAt, a move does', (
     iface: 'discord',
     at: 5000,
     id: 'presence.snapshot:5000',
-    voice: [{ guildId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null }],
+    voice: [{ communityId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null }],
     presence: [],
   });
   store.voiceChanged(voice('u2', 'v2', 6000, { deafened: true }));

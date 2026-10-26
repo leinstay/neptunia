@@ -15,7 +15,7 @@ import { createEventDoor } from '../src/interface/door.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -479,7 +479,7 @@ test('task turns: an errand end enters through the event door as task.completed,
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.deepEqual(
     { ...event, raw: undefined },
-    { kind: 'task.completed', at: NOW, guildId: 'g1', taskId: 'tab02', status: 'done', raw: undefined }
+    { kind: 'task.completed', at: NOW, communityId: 'g1', taskId: 'tab02', status: 'done', raw: undefined }
   );
   const first = await withCapturedLogs(() => door.submit(event));
   assert.equal(first.result.status, 'ok');

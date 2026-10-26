@@ -29,7 +29,7 @@ import {
   saidBy,
   walk,
 } from '../src/memory/db/graph.js';
-import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.js';
+import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 
@@ -620,7 +620,7 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
           text: `line ${n}`,
           occurred_at: at(n),
           recorded_at: at(n),
-          ...groupScope(),
+          ...groupScope('discord'),
         })),
         claims: [
           {
@@ -632,14 +632,14 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
             truth: 'current',
             shown: 1,
             created_at: at(0),
-            ...groupScope(),
+            ...groupScope('discord'),
           },
         ],
         claim_versions: [{ id: 'cv:tea:1', claim_id: 'clm:tea', text: 'tea', recorded_at: at(1), event: 'add' }],
       },
       { log: quiet }
     );
-    const scope = groupScope();
+    const scope = groupScope('discord');
     const write = (runId, claims) =>
       applyMemoryWrite(handle, {
         kind: 'session',

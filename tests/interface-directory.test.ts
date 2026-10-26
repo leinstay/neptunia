@@ -11,7 +11,7 @@ function changed(change: ConversationChanged['change'], id: string, name: string
     iface: 'discord',
     at: 1,
     id: `discord:conversation:${id}:${change}:${name}`,
-    conversation: { id, kind: 'channel', guildId: 'g1', name },
+    conversation: { id, kind: 'channel', communityId: 'g1', name },
     change,
   };
 }

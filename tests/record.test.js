@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
 import { newestRevisions } from '../src/memory/chunks.js';
-import { normalizeMessage } from '../src/interface/discord.js';
+import { normalizeMessage } from '../interfaces/discord/index.js';
 import { slimMessage } from '../src/memory/update.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
