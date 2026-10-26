@@ -93,7 +93,7 @@ export const FAKE_CAPABILITIES = Object.freeze({
  *   seedMember(communityId: string, member: import('../protocol/adapter.ts').MemberInfo): void,
  *   seedEmoji(communityId: string, list: import('../protocol/adapter.ts').EmojiInfo[]): void,
  *   seedReactors(ref: import('../protocol/adapter.ts').MessageRef, emoji: string, memberIds: string[]): void,
- *   seedEvent(event: import('../protocol/adapter.ts').MessageEvent): void,
+ *   seedEvent(event: import('../protocol/adapter.ts').MessageEvent, extra?: { attachments?: StoredMessage['attachments'] }): void,
  *   clearConversation(conversationId: string): void,
  *   showSendsInHistory(shown: boolean): void,
  * }}

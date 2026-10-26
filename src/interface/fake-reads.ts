@@ -27,7 +27,7 @@ export type StoredMessage = {
   at: number;
   seq: number;
   text: string;
-  attachments: Array<{ name: string; data?: Uint8Array; url?: string; contentType?: string }>;
+  attachments: Array<{ name: string; data?: Uint8Array; url?: string; contentType?: string; size?: number }>;
   replyTo: { messageId?: string } | null;
   mentions: { users: Array<string>; repliedUser: boolean };
   reactions: Set<string>;
@@ -146,7 +146,7 @@ export function createFakeReads(deps: Deps): {
     seedMember(communityId: string, member: MemberInfo): void;
     seedEmoji(communityId: string, list: Array<EmojiInfo>): void;
     seedReactors(ref: MessageRef, emoji: string, memberIds: Array<string>): void;
-    seedEvent(event: MessageEvent): void;
+    seedEvent(event: MessageEvent, extra?: { attachments?: StoredMessage['attachments'] }): void;
   };
 } {
   const { iface, selfId, messages, offered, calls, takeQueued, store, messageUrl, sendsInHistory } = deps;
@@ -390,11 +390,16 @@ export function createFakeReads(deps: Deps): {
         reactorLists.set(`${ref.conversationId}/${String(ref.messageId)}/${emoji}`, [...memberIds]);
       },
       /** Keeps a whole `message.received` event as the message it carries, in the conversation it names. */
-      seedEvent(event) {
+      seedEvent(event, extra = {}) {
         const { message } = event;
-        const attachments = (
-          (message.attachments ?? []) as Array<{ name?: string; url?: string; contentType?: string }>
-        ).map((item) => ({ name: item.name ?? 'file', url: item.url, contentType: item.contentType }));
+        // The files as the platform lists them for a read by id, when the test says (an event's own list has no type).
+        const attachments =
+          extra.attachments ??
+          ((message.attachments ?? []) as Array<{ name?: string; url?: string; size?: number | null }>).map((item) => ({
+            name: item.name ?? 'file',
+            url: item.url,
+            ...(typeof item.size === 'number' ? { size: item.size } : {}),
+          }));
         store(
           event.conversation.id,
           String(message.author?.id ?? ''),

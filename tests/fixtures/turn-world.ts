@@ -105,7 +105,7 @@ export type World = {
   /** Makes each send whose text `matches` (every send by default) end `failed` (or `unknown`) with `code`, nothing posted. */
   failSends(matches?: (text: string | undefined) => boolean, code?: string, status?: 'failed' | 'unknown'): void;
   /** The reads over another adapter a test brings, which then holds what the world holds. */
-  adopt(other: Fake): Reads;
+  adopt(other: Fake, options?: { sendsInHistory?: boolean }): Reads;
   /** What the runner takes from the world. */
   deps(): {
     port: Fake;
@@ -186,7 +186,8 @@ function create(): World {
   const failing = new Map<string, Set<string>>();
   const closers = new Map<string, () => void>();
   const deliveries: Array<{ conversationId: string; content: unknown; parts: ReadonlyArray<MessageRef> }> = [];
-  const adapter = port as unknown as Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+  type Methods = Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+  const adapter = port as unknown as Methods;
 
   type Spy = (args: Array<unknown>) => void | Promise<void>;
   type Interceptor = (args: Array<unknown>) => unknown;
@@ -194,13 +195,12 @@ function create(): World {
   const interceptors = new Map<string, Array<Interceptor>>();
   const wrapped = new Set<string>();
 
-  /** Puts the spies and the failures of `op` in front of the adapter's own method, once. */
-  function wrap(op: string): void {
-    if (wrapped.has(op)) return;
-    wrapped.add(op);
-    const original = adapter[op];
+  /** Puts the spies and the failures of `op` in front of one adapter's own method. */
+  function wrapPort(one: Fake, op: string): void {
+    const methods = one as unknown as Methods;
+    const original = methods[op];
     if (original === undefined) throw new Error(`no operation ${op}`);
-    adapter[op] = async (...args: Array<unknown>) => {
+    methods[op] = async (...args: Array<unknown>) => {
       for (const spy of spies.get(op) ?? []) await spy(args);
       // An interceptor that answers (anything but undefined) answers in place of the adapter.
       for (const intercept of interceptors.get(op) ?? []) {
@@ -209,11 +209,18 @@ function create(): World {
       }
       const ref = args[0] as { conversationId?: string } | undefined;
       if (ref?.conversationId !== undefined && failing.get(op)?.has(ref.conversationId) === true) {
-        port.calls.push({ op, args });
+        one.calls.push({ op, args });
         return { status: 'failed', error: { code: 'fixture-failed', retryable: false, retryAfterMs: null } };
       }
-      return original.apply(port, args);
+      return original.apply(one, args);
     };
+  }
+
+  /** The same for every adapter of the world, once for `op`, and for those adopted later. */
+  function wrap(op: string): void {
+    if (wrapped.has(op)) return;
+    wrapped.add(op);
+    for (const one of adopted.keys()) wrapPort(one, op);
   }
 
   function failRead(op: string, conversationId: unknown): void {
@@ -282,7 +289,14 @@ function create(): World {
     const { raw: dropped, rawPrevious, ...event } = toEvent(raw, SELF, options) as Record<string, unknown>;
     void [dropped, rawPrevious];
     const conversation = { ...(event.conversation as object), id: channelId };
-    each((one) => one.seedEvent({ ...event, iface: one.iface, conversation } as never));
+    // What a read by id lists of its files: each with the type the platform gave it.
+    const files = [...((raw.attachments as Map<string, Raw> | undefined)?.values() ?? [])].map((file) => ({
+      name: typeof file.name === 'string' ? file.name : 'file',
+      url: file.url as string | undefined,
+      contentType: file.contentType as string | undefined,
+      ...(typeof file.size === 'number' ? { size: file.size } : {}),
+    }));
+    each((one) => one.seedEvent({ ...event, iface: one.iface, conversation } as never, { attachments: files }));
   };
 
   const seed = (channelId: string, messages: ReadonlyArray<Raw>): void => {
@@ -425,10 +439,11 @@ function create(): World {
         };
       });
     },
-    adopt(other) {
+    adopt(other, options = {}) {
       const known = adopted.get(other);
       if (known !== undefined) return known;
-      other.showSendsInHistory(false);
+      other.showSendsInHistory(options.sendsInHistory === true);
+      for (const op of wrapped) wrapPort(other, op);
       const made = createReads(other, quiet);
       for (const seeding of seeded) seeding(other);
       adopted.set(other, made);
@@ -562,20 +577,28 @@ export function onWorldIface(event: unknown): unknown {
   return { ...(event as object), iface: worldIface };
 }
 
-/** A message of nobody in particular, seeded into a conversation: a message that merely exists there. */
-export function seedExisting(channelId: unknown, id: unknown): void {
+/**
+ * A message seeded into a conversation: by default one of Alice's that merely exists there. `attachments` is a Map of
+ * discord.js-shaped files, `ts` the time it was written.
+ */
+export function seedExisting(
+  channelId: unknown,
+  id: unknown,
+  { authorId = 'u1', ts = Date.now(), attachments = new Map() }: { authorId?: unknown; ts?: number; attachments?: unknown } = {}
+): void {
   const conversationId = String(channelId);
+  const author = String(authorId);
   world().seed(conversationId, [
     {
       id: String(id),
       channelId: conversationId,
-      author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
-      member: { displayName: 'Alice' },
+      author: { id: author, bot: false, globalName: author, username: author },
+      member: { displayName: author },
       cleanContent: 'hi',
-      createdTimestamp: Date.now(),
+      createdTimestamp: ts,
       reference: null,
       mentions: { users: new Map() },
-      attachments: new Map(),
+      attachments,
       stickers: new Map(),
     },
   ]);

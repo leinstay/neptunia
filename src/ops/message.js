@@ -350,7 +350,7 @@ const handlers = perEnv((env) => {
     let newest = null;
     for (const event of page?.events ?? []) {
       if (event.message.author.self !== true) continue;
-      if (!newest || event.message.at > newest.message.at) newest = event;
+      if (!newest || event.message.at >= newest.message.at) newest = event;
     }
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, CODE.NO_OWN_MESSAGE);
