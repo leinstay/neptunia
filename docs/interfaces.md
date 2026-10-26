@@ -178,7 +178,7 @@ At most 256 actions wait for an answer. A call past that answers `failed` with t
 
 ### What crosses
 
-Plain data crosses: events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
+Only plain data crosses the socket, that is events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
 
 ## Conversations and memory scope
 

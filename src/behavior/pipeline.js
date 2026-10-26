@@ -17,8 +17,7 @@
 // interfaces/discord/collect.js, so it can be driven with plain fake objects in
 // tests. The few Discord functions it calls (a permission check, the history
 // and message fetches, the normalization and the event builder) come injected
-// as `discord` by its caller, src/index.js: nothing here imports the Discord
-// interface package.
+// as `discord` by its caller, src/index.js: nothing here imports the Discord interface package.
 
 import { isOwnerId } from '../ops/grants.js';
 import {
@@ -63,6 +62,7 @@ import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
 import { privateGate } from './private.js';
 import { defaultRawOf, handlesOf } from './raw-handles.ts';
+/** @typedef {{ message: import('discord.js').Message, previous: import('discord.js').Message|null }} RawPair */
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
 import {
   isVideoVisionOn,
@@ -274,7 +274,7 @@ function mediaIdsOf(message) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @param {typeof defaultRawOf} [deps.rawOf]  The discord.js message of an event and the old one of an edit. With the link the Discord side keeps them under the event id.
+ * @param {(event: { id: string }) => RawPair|null} [deps.rawOf]  The discord.js message of an event and the old one of an edit. With the link the Discord side keeps them under the event id.
  * @param {{ iface: string, send: Function }} [deps.port]  The adapter the limit and pause notices go out through.
  * @returns {(event: import('../protocol/index.js').MessageReceived & { raw?: import('discord.js').Message }) => Promise<void>}
  *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
@@ -3009,7 +3009,7 @@ export function createMessageHandler({
   async function recordEdit(event) {
     try {
       const config = hot.config;
-      const { message: newMessage, previous: oldMessage } = handlesOf(rawOf, event);
+      const { message: newMessage, previous: oldMessage } = /** @type {RawPair} */ (handlesOf(rawOf, event));
       if (!newMessage || newMessage.partial || event.partial || !recordable(newMessage, config)) return;
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;
