@@ -3591,7 +3591,7 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 92
+      "count": 90
     },
     "@typescript-eslint/only-throw-error": {
       "count": 6
