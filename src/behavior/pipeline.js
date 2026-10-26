@@ -205,6 +205,15 @@ function mediaIdsOf(message) {
 }
 
 /**
+ * The platform handles of an event that still carries them: `raw` and `rawPrevious` of a message event built in process.
+ * @param {{ raw?: import('discord.js').Message, rawPrevious?: import('discord.js').Message|null }} event
+ * @returns {{ message: import('discord.js').Message, previous: import('discord.js').Message|null }|null}
+ */
+function defaultRawOf(event) {
+  return event.raw ? { message: event.raw, previous: event.rawPrevious ?? null } : null;
+}
+
+/**
  * @param {object} deps
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} deps.hot
  * @param {ReturnType<import('../memory/store.js').createStore>} deps.store
@@ -273,7 +282,11 @@ function mediaIdsOf(message) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @returns {(event: import('../protocol/index.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
+ * @param {(event: { id: string, raw?: import('discord.js').Message, rawPrevious?: import('discord.js').Message|null }) => ({ message: import('discord.js').Message, previous: import('discord.js').Message|null }|null)} [deps.rawOf]
+ *   The platform handles of an event: the discord.js message and, for an edit, the old one. Defaults to the
+ *   event's own `raw` and `rawPrevious`; with the link the Discord side keeps them under the event id.
+ * @param {{ iface: string, send: Function }} [deps.port]  The interface adapter limit and pause notices go out through.
+ * @returns {(event: import('../protocol/index.js').MessageReceived & { raw?: import('discord.js').Message }) => Promise<void>}
  *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
  *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
  *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
@@ -315,6 +328,8 @@ export function createMessageHandler({
   record = null,
   missed = null,
   memoryDb = null,
+  rawOf = defaultRawOf,
+  port,
 }) {
   const { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } = discord;
 
@@ -1251,6 +1266,7 @@ export function createMessageHandler({
       labels: hot.prompts?.labels,
       config: hot.config,
       client,
+      port,
     });
   }
 
@@ -2531,7 +2547,7 @@ export function createMessageHandler({
    * ignore roll, follow-up window, eavesdrop or address classifier here.
    */
   async function onPrivateMessage(event, config) {
-    const message = event.raw;
+    const message = rawOf(event)?.message;
     const features = config.features ?? {};
     if (features.privateMessages !== true) return;
     const selfId = client.user.id;
@@ -2614,7 +2630,7 @@ export function createMessageHandler({
    * (an untagged follow-up included: it would need the address classifier).
    */
   async function pausedCall(event, config) {
-    const message = event.raw;
+    const message = rawOf(event)?.message;
     const features = config.features ?? {};
     const selfId = client.user.id;
     if (message.author?.bot || message.author?.id === selfId) return null;
@@ -2664,7 +2680,7 @@ export function createMessageHandler({
     const t = now();
     if (minutes > 0 && last !== undefined && t - last < minutes * MINUTE_MS) return;
     pauseNoticeAt.set(call.channel.id, t);
-    await postPauseNotice({ ...call, asReply: true, labels, config, client });
+    await postPauseNotice({ ...call, asReply: true, labels, config, client, port });
   }
 
   /**
@@ -2752,7 +2768,7 @@ export function createMessageHandler({
     try {
       // The discord.js message behind the event: still needed for the channel, the guild and
       // the sends of this stage; everything the normaliser gave is read from the event.
-      const message = event.raw;
+      const message = rawOf(event)?.message;
       // 1. System / webhook messages are not conversation.
       if (message.system || message.webhookId) return 'ignored';
 
@@ -2941,7 +2957,8 @@ export function createMessageHandler({
       const features = config.features ?? {};
       if (features.embedUpdates === false || features.memory === false) return;
       if (store?.state?.data?.paused) return;
-      let message = event.raw;
+      const handles = rawOf(event);
+      let message = handles?.message;
       let edited = event;
       const guildId = message?.guild?.id ?? message?.guildId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
@@ -2963,8 +2980,8 @@ export function createMessageHandler({
       const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...options, edit: true }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
       const previous =
-        event.rawPrevious && !event.rawPrevious.partial
-          ? normalizedOf(toEvent(event.rawPrevious, selfId, options))
+        handles?.previous && !handles.previous.partial
+          ? normalizedOf(toEvent(handles.previous, selfId, options))
           : null;
       if (!previous) {
         log.info('events: embeds late', fields);
@@ -3008,8 +3025,9 @@ export function createMessageHandler({
   async function recordEdit(event) {
     try {
       const config = hot.config;
-      const newMessage = event?.raw;
-      const oldMessage = event?.rawPrevious ?? null;
+      const handles = event ? rawOf(event) : null;
+      const newMessage = handles?.message;
+      const oldMessage = handles?.previous ?? null;
       if (!newMessage || newMessage.partial || event.partial || !recordable(newMessage, config)) return;
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;
@@ -3059,7 +3077,7 @@ export function createMessageHandler({
   async function onMessageDelete(event) {
     try {
       const config = hot.config;
-      const message = event?.raw;
+      const message = event ? rawOf(event)?.message : undefined;
       const id = event?.message?.id;
       if (!id || !recordable(message, config)) return;
       const guildId = message.guild?.id ?? message.guildId;
