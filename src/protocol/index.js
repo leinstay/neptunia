@@ -10,3 +10,4 @@ export * from './envelope.js';
 export { originOf } from './origin.js';
 export { deliveryOf } from './adapter.ts';
 export { splitText } from './split-text.ts';
+export { encodeEnvelope, decodeEnvelope, createLoopback, connectSocket } from './wire.ts';
