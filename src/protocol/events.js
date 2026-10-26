@@ -76,7 +76,7 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  * replies to (a forward replies to nothing); `replyPingUserId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the conversation a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes of
- * src/discord/collect.js#normalizeMessage.
+ * interfaces/discord/collect.js#normalizeMessage.
  * @typedef {{ id: string, author: Author, content: string, at: number, replyToId: string|null,
  *   replyPingUserId: string|null, forwardedFrom: string|null, attachments: object[], links: object[],
  *   forwarded: object[], stickers: object[], emojis: object[], reactions: object[] }} Message

@@ -735,16 +735,16 @@
       "count": 92
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 193
+      "count": 191
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 58
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 417
+      "count": 413
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 52
+      "count": 51
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 6
@@ -1775,21 +1775,16 @@
       "count": 32
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 103
+      "count": 102
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 69
+      "count": 67
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 250
+      "count": 248
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 28
-    }
-  },
-  "src/memory/db/graph-manifest.js": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
+      "count": 27
     }
   },
   "src/memory/db/graph.js": {
@@ -1803,10 +1798,10 @@
       "count": 61
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 324
+      "count": 323
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 36
+      "count": 35
     }
   },
   "src/memory/db/ids.js": {
@@ -2310,10 +2305,10 @@
       "count": 6
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 11
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 12
+      "count": 10
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 5
@@ -2423,10 +2418,7 @@
       "count": 19
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 51
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
+      "count": 50
     }
   },
   "src/memory/db/service.js": {
@@ -2845,13 +2837,13 @@
       "count": 17
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 17
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 52
+      "count": 51
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 4
     }
   },
   "src/memory/participation.js": {
@@ -2960,16 +2952,16 @@
       "count": 3
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 96
+      "count": 92
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 291
+      "count": 280
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 54
+      "count": 46
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 559
+      "count": 536
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 64
@@ -3109,11 +3101,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 28
-    }
-  },
-  "src/ops/effects.js": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     }
   },
   "src/ops/env.js": {
@@ -4530,7 +4517,7 @@
       "count": 4
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/require-await": {
       "count": 5
@@ -7573,16 +7560,16 @@
       "count": 23
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 115
+      "count": 111
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 108
+      "count": 105
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 484
+      "count": 460
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 64
+      "count": 61
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 5
@@ -7599,13 +7586,13 @@
   },
   "tests/stored-links.test.js": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 45
+      "count": 44
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 8

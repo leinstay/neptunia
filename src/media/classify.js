@@ -558,7 +558,7 @@ function extraOf(...extras) {
  * other tag of the item. Every other kind ignores `context.video`.
  *
  * `context.read` is the excerpt of a `link` page read by the web lookup
- * (src/web/lookup.js#readLink): it appends `linkRead` after every other extra
+ * (src/web/lookup.js#readLinks): it appends `linkRead` after every other extra
  * of the link (the video extra, videoAnswered or thumbnailDescribed). Every
  * other kind ignores it.
  *

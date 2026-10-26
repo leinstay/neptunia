@@ -573,7 +573,6 @@ Settings for answering calls from channels where the bot can read but not send (
 | `maxDeltaPerUpdate` | `15` | Max score change per update |
 | `historySize` | `10` | Attitude changes kept per member |
 | `shownMoves` | `4` | Attitude moves shown in `<people_now>`. `0` hides them |
-| `directTriggerCount` | `6` | Direct interactions that force an early update |
 | `decayPerDay` | `0.04` | Daily drift toward zero. `0` or missing = off |
 | `decayPower` | `1` | Exponent of the decay curve |
 | `rewriteOnBandChange` | `true` | Flag the stored `relationship` text for rewrite when the attitude band changes |
@@ -1039,7 +1038,6 @@ The persona's journal (`features.journal`).
 | Key | Default | What it does |
 |---|---|---|
 | `thinkChars` | `4000` | Characters of her hidden reasoning stored. `0` stores it whole |
-| `retentionDays` | `0` | Days a journal file is kept. `0` = forever. Not yet applied |
 | `keepRequests` | `3` | Days the request dumps are kept. `0` writes none |
 | `offWindowHours` | `24` | How far back the journal is read for the persona's time away (`features.offPeriods`) |
 

@@ -16,9 +16,25 @@ import { seedUnits } from './seed.js';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
-/** A temporary data directory under TMPDIR. */
+/** @type {Set<string>} */
+const made = new Set();
+let sweepArmed = false;
+
+/** Removes every directory `tempDataDir` made in this process. A test file runs in its own process, so its folders go when it ends. */
+function sweep() {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+  made.clear();
+}
+
+/** A temporary data directory under TMPDIR, removed when the test process exits (tests reopen one after a close, so `close()` leaves it). */
 export function tempDataDir(prefix = 'memdb-test-') {
-  return fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), prefix));
+  made.add(dir);
+  if (!sweepArmed) {
+    sweepArmed = true;
+    process.once('exit', sweep);
+  }
+  return dir;
 }
 
 /**

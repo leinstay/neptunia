@@ -1159,7 +1159,7 @@ const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: f
 
 /**
  * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
- * before the operation runs (src/behavior/turn.js#planCall and #runCall): resolved on the
+ * before the operation runs (src/behavior/turn.js#planToolCall and #runCall): resolved on the
  * server's side over `view` (src/skills/executors.js#resolveCall; src/behavior/turn.js#callViewOf),
  * checked by the gateway (src/skills/gateway.js#checkSkill: the persona as principal, `requester`,
  * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,

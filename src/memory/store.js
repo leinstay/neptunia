@@ -98,7 +98,6 @@ import {
   normalizeGifs,
   resetGifCounts,
 } from './gifs.js';
-import { SELF_CHARS } from './text-limits.js';
 import { emptyRecent, mergeRecent, normalizeRecent } from './recent.js';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.js';
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.js';
@@ -413,8 +412,6 @@ const RECALL_TRACE_MAX_LINES = 500;
 
 /** `memory.vaultDir` when it is missing and the snapshots directory: src/memory/root.js, re-exported here. */
 export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR };
-/** `labels.memory.redaction` when it is missing (prompts/labels.json carries the same). */
-export const DEFAULT_REDACTION = 'someone';
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,
@@ -457,7 +454,7 @@ function emptyGuild() {
     pingsOff: [], // ids of the members who turned the persona's notifications off (`/nep pings`) -- see setPingsOff
     updatedAt: null,
     notesUpdatedAt: null, // when patterns, starters or injokes last changed -- see updateGuild
-    notesCheckedAt: null, // when the analyzer was last asked to look at them again -- see markNotesChecked
+    notesCheckedAt: null, // an ISO time kept as stored; nothing in the engine writes it
     notesFlaggedAt: null, // when the analyzer last flagged them stale -- see markNotesFlagged
     notesSampleReviewedAt: null, // when a sample refresh last reviewed them -- see markNotesSampled
     notesAttemptAt: null, // when a sample refresh last tried and failed -- see markNotesSampled
@@ -494,7 +491,7 @@ export function emptyChannel(id) {
     topWriters: [], // the five best of `writers`, `{ id, count }`, best first -- what readers show
     writers: {}, // { [id]: { count, last } } -- who writes here, see countWriter
     updatedAt: null, // when purpose, topics or tone last changed -- only updateChannel stamps it
-    notesCheckedAt: null, // when the analyzer was last asked to look at them again -- see markNotesChecked
+    notesCheckedAt: null, // an ISO time kept as stored; nothing in the engine writes it
     notesFlaggedAt: null, // when the analyzer last flagged them stale -- see markNotesFlagged
     notesSampleReviewedAt: null, // when a sample refresh last reviewed them -- see markNotesSampled
     notesAttemptAt: null, // when a sample refresh last tried and failed -- see markNotesSampled
@@ -2368,11 +2365,10 @@ export function createStore({
      * through `applyLearnedOps`, which merges incrementally instead of
      * overwriting wholesale (mirrors `updateUser`); `emojiUsage` likewise
      * only through `recordEmojiUsage`/`clearEmojiUsage`, `emojiBackfill` only
-     * through `setEmojiBackfill`, `pingsOff` only through `setPingsOff`, and the notes stamps only
-     * through this write and `markNotesChecked`. `notesUpdatedAt` gets the
+     * through `setEmojiBackfill`, `pingsOff` only through `setPingsOff`. `notesUpdatedAt` gets the
      * same stamp when one of the server notes (`patterns`, `starters`,
-     * `injokes`) really changes; `self` alone never moves it, and neither do
-     * `applySelfOps` or `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
+     * `injokes`) really changes; `self` alone never moves it, and neither does
+     * `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
      * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored guild, so what
      * a write of `injokes` or `self` takes out of the stored list (by
      * src/memory/interests.js#normalizeTopic) is handed to `opts.onDropped` instead, as
@@ -2471,52 +2467,6 @@ export function createStore({
       flushEntry(guildFile(guildId), item);
       if (outbox) outbox.push();
       return item.value.pingsOff.includes(id);
-    },
-
-    /**
-     * Record that the analyzer was asked to look at notes again (a batch that carried their
-     * stale marker was applied): `notesCheckedAt` = the ISO time of `nowMs` on each listed
-     * channel entry, and on the guild when `guild` is true. Nothing else is touched -- never
-     * `updatedAt` or `notesUpdatedAt`, which only a real change of the text moves -- so notes
-     * answered with the same text are not asked about again until they are stale once more.
-     * A listed channel
-     * without an entry is skipped, never created; the guild file is created when it has to hold
-     * the stamp. Marked dirty only where the stamp changes. Targets that name nothing change
-     * nothing and never throw.
-     * @param {string} guildId
-     * @param {{ channels?: string[], guild?: boolean }} targets  The targets a request flagged.
-     * @param {number} nowMs  Epoch milliseconds; not a finite number -> the wall clock.
-     * @returns {{ channels: number, guild: boolean }}  How many channel entries hold the stamp
-     *   now, and whether the guild does.
-     */
-    markNotesChecked(guildId, targets, nowMs) {
-      const at = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
-      const marked = { channels: 0, guild: false };
-      const stamp = (item) => {
-        if (item.value.notesCheckedAt === at) return;
-        item.value.notesCheckedAt = at;
-        item.dirty = true;
-      };
-
-      const listed = Array.isArray(targets?.channels) ? targets.channels : [];
-      const channelIds = new Set(listed.filter((id) => typeof id === 'string' || typeof id === 'number').map(String));
-      for (const channelId of channelIds) {
-        if (!channelId || !hasChannel(guildId, channelId)) continue;
-        const item = channelEntry(guildId, channelId);
-        if (!isPlainObject(item.value)) continue;
-        stamp(item);
-        marked.channels += 1;
-      }
-
-      if (targets?.guild === true) {
-        const item = entry(guildFile(guildId), emptyGuild);
-        normalizeGuild(item.value);
-        if (isPlainObject(item.value)) {
-          stamp(item);
-          marked.guild = true;
-        }
-      }
-      return marked;
     },
 
     /**
@@ -2703,91 +2653,6 @@ export function createStore({
     },
 
     /**
-     * Apply one batch of self-fact ops to the guild's `self` list (what the persona said about
-     * itself), as incremental ops: `remove` first,
-     * every stored fact equal to one listed (compared by src/memory/interests.js#normalizeTopic:
-     * trimmed, whitespace collapsed, lower-cased); then `add`, each new claim clamped like the single-stage self list
-     * (src/memory/text-limits.js#SELF_CHARS, `opts.clampTolerance`) and appended unless it is already
-     * stored (a claim that was only links adds nothing: links go first, `stripUrls`); past `opts.maxSelfFacts` the oldest leave to make room (a cap of 0 adds nothing; a
-     * call that adds nothing never cuts the list, even one stored above a lowered cap). The
-     * single-stage analyzer still replaces the whole list through `updateGuild`. Like
-     * `updateGuild`, the guild is marked dirty and `updatedAt` stamped (`opts.now`, else the wall
-     * clock) only when the list changed. Garbage `ops` and entries that are not strings change
-     * nothing and never throw. Tokenizing `<@id>` is the caller's.
-     * @param {string} guildId
-     * @param {{ add?: string[], remove?: string[] }} ops
-     * @param {{ maxSelfFacts: number, clampTolerance?: number, now?: number }} opts
-     *   `maxSelfFacts` is required: the caller's resolved `memory.maxSelfFacts` (its fallback is
-     *   src/memory/text-limits.js#MEMORY_LIMIT_DEFAULTS'; the store keeps no copy). A fraction is
-     *   floored.
-     * @returns {{ added: number, removed: number, evicted: number }}  `evicted`: facts that left
-     *   to stay under the cap (a claim added in this call included). The non-enumerable `dropped`
-     *   lists every fact that left (removed, then evicted) as `{ itemId, text }` (`sf-`, minted
-     *   here: a stored self fact is a plain string, see `ITEM_ID_PREFIX`).
-     * @throws {TypeError} `opts.maxSelfFacts` is not a finite number of at least 0; nothing changes.
-     */
-    applySelfOps(guildId, ops, opts = {}) {
-      const limit = opts?.maxSelfFacts;
-      if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0) {
-        throw new TypeError('applySelfOps: opts.maxSelfFacts must be a number of at least 0');
-      }
-      const cap = Math.floor(limit);
-      const counts = { added: 0, removed: 0, evicted: 0 };
-      if (!isPlainObject(ops)) return counts;
-      const item = entry(guildFile(guildId), emptyGuild);
-      const guild = item.value;
-      normalizeGuild(guild);
-
-      const stored = Array.isArray(guild.self)
-        ? guild.self.filter((fact) => typeof fact === 'string' && fact.trim())
-        : [];
-      const removing = new Set(
-        (Array.isArray(ops.remove) ? ops.remove : []).filter((fact) => typeof fact === 'string').map(normalizeTopic)
-      );
-      removing.delete('');
-      let next = stored.filter((fact) => !removing.has(normalizeTopic(fact)));
-      counts.removed = stored.length - next.length;
-      const leaving = stored.filter((fact) => removing.has(normalizeTopic(fact)));
-
-      if (cap > 0) {
-        const held = new Set(next.map(normalizeTopic));
-        for (const claim of Array.isArray(ops.add) ? ops.add : []) {
-          if (typeof claim !== 'string') continue;
-          const fact = clampText(stripUrls(claim), SELF_CHARS, { tolerance: opts.clampTolerance });
-          const key = normalizeTopic(fact);
-          if (!key || held.has(key)) continue;
-          held.add(key);
-          next.push(fact);
-          counts.added += 1;
-        }
-        if (counts.added > 0 && next.length > cap) {
-          counts.evicted = next.length - cap;
-          leaving.push(...next.slice(0, counts.evicted));
-          next = next.slice(-cap);
-        }
-      }
-
-      const dropped = stringItems(leaving, ITEM_ID_PREFIX.selfFact, newId);
-      if (counts.added + counts.removed > 0) {
-        guild.self = next;
-        guild.updatedAt = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
-        item.dirty = true;
-        holdVictims(guildId, {
-          item,
-          file: guildFile(guildId),
-          path: ['self'],
-          strings: true,
-          previous: stored,
-          victims: dropped,
-          itemKind: 'selfFact',
-          scope: { guild: true },
-          eventOf: (_, index) => (index < counts.removed ? 'replaced' : 'evicted'),
-        });
-      }
-      return attachDropped(counts, 'dropped', dropped);
-    },
-
-    /**
      * One channel's stored entry (the server map), or null when never seen.
      * Normalised on read (see `normalizeChannel` above: the writers tally and
      * the notes check stamp) -- persisted the next time anything writes the
@@ -2851,7 +2716,7 @@ export function createStore({
      * Discord facts) is stripped, mirroring `updateUser`. Stamps `updatedAt`
      * only when one of them actually changes: an identical re-send is left
      * alone. Nothing else stamps a channel's `updatedAt`, so it is the notes'
-     * own stamp (read beside `notesCheckedAt`, see `markNotesChecked`). Each field loses its links first (`withoutLinks`:
+     * own stamp. Each field loses its links first (`withoutLinks`:
      * one that was only links is not written). A changed field keeps its previous text
      * (`recordVersion`; `opts.by`, `opts.versions`).
      * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number } }} [opts]

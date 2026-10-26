@@ -102,12 +102,3 @@ export const SELF_OWNED_OPS = Object.freeze([
   'intent.cancel',
   'intent.list',
 ]);
-
-/**
- * The effect class of operation `name`, or null when the table has no row for it.
- * @param {string} name
- * @returns {'read'|'write'|'destructive'|'administrative'|'paid'|null}
- */
-export function effectOf(name) {
-  return Object.hasOwn(OP_EFFECTS, name) ? OP_EFFECTS[name] : null;
-}
