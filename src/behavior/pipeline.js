@@ -62,6 +62,7 @@ import { roomQuestionChance } from './spontaneous.js';
 import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
 import { privateGate } from './private.js';
+import { defaultRawOf, handlesOf } from './raw-handles.js';
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
 import {
   isVideoVisionOn,
@@ -205,15 +206,6 @@ function mediaIdsOf(message) {
 }
 
 /**
- * The platform handles of an event that still carries them: `raw` and `rawPrevious` of a message event built in process.
- * @param {{ raw?: import('discord.js').Message, rawPrevious?: import('discord.js').Message|null }} event
- * @returns {{ message: import('discord.js').Message, previous: import('discord.js').Message|null }|null}
- */
-function defaultRawOf(event) {
-  return event.raw ? { message: event.raw, previous: event.rawPrevious ?? null } : null;
-}
-
-/**
  * @param {object} deps
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} deps.hot
  * @param {ReturnType<import('../memory/store.js').createStore>} deps.store
@@ -282,15 +274,12 @@ function defaultRawOf(event) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @param {(event: { id: string, raw?: import('discord.js').Message, rawPrevious?: import('discord.js').Message|null }) => ({ message: import('discord.js').Message, previous: import('discord.js').Message|null }|null)} [deps.rawOf]
- *   The platform handles of an event: the discord.js message and, for an edit, the old one. Defaults to the
- *   event's own `raw` and `rawPrevious`; with the link the Discord side keeps them under the event id.
- * @param {{ iface: string, send: Function }} [deps.port]  The interface adapter limit and pause notices go out through.
+ * @param {typeof defaultRawOf} [deps.rawOf]  The discord.js message of an event and the old one of an edit. With the link the Discord side keeps them under the event id.
+ * @param {{ iface: string, send: Function }} [deps.port]  The adapter the limit and pause notices go out through.
  * @returns {(event: import('../protocol/index.js').MessageReceived & { raw?: import('discord.js').Message }) => Promise<void>}
  *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
  *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
- *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
- *   stage 4 of the structure rework) only for its channel, guild, history and sends. Also carries a
+ *   from the event, and the discord.js message (through `rawOf`) only for its channel, guild, history and sends. Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
  *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a
@@ -2766,8 +2755,6 @@ export function createMessageHandler({
 
   async function handleMessage(event, catchUp) {
     try {
-      // The discord.js message behind the event: still needed for the channel, the guild and
-      // the sends of this stage; everything the normaliser gave is read from the event.
       const message = rawOf(event)?.message;
       // 1. System / webhook messages are not conversation.
       if (message.system || message.webhookId) return 'ignored';
@@ -2957,8 +2944,7 @@ export function createMessageHandler({
       const features = config.features ?? {};
       if (features.embedUpdates === false || features.memory === false) return;
       if (store?.state?.data?.paused) return;
-      const handles = rawOf(event);
-      let message = handles?.message;
+      let message = rawOf(event)?.message;
       let edited = event;
       const guildId = message?.guild?.id ?? message?.guildId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
@@ -2979,10 +2965,8 @@ export function createMessageHandler({
       const options = { ...normalizeOptions(config), now };
       const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...options, edit: true }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
-      const previous =
-        handles?.previous && !handles.previous.partial
-          ? normalizedOf(toEvent(handles.previous, selfId, options))
-          : null;
+      const old = rawOf(event)?.previous;
+      const previous = old && !old.partial ? normalizedOf(toEvent(old, selfId, options)) : null;
       if (!previous) {
         log.info('events: embeds late', fields);
         return;
@@ -3025,9 +3009,7 @@ export function createMessageHandler({
   async function recordEdit(event) {
     try {
       const config = hot.config;
-      const handles = event ? rawOf(event) : null;
-      const newMessage = handles?.message;
-      const oldMessage = handles?.previous ?? null;
+      const { message: newMessage, previous: oldMessage } = handlesOf(rawOf, event);
       if (!newMessage || newMessage.partial || event.partial || !recordable(newMessage, config)) return;
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;

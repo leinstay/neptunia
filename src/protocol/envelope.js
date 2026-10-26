@@ -45,6 +45,23 @@ export function ackOf(of, status, reason = undefined) {
 }
 
 /**
+ * The shape of a `hello` body: who speaks, what it offers (a list of names or a capabilities object), the token and
+ * the resume point.
+ * @param {Record<string, any>} body
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+function checkHello(body) {
+  if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
+  const offers = body.capabilities;
+  if (offers !== undefined && !isObject(offers) && !(Array.isArray(offers) && offers.every(isId)))
+    return { ok: false, reason: 'body.capabilities:type' };
+  if (body.token !== undefined && typeof body.token !== 'string') return { ok: false, reason: 'body.token:type' };
+  if (body.resume !== undefined && body.resume !== null && !isId(body.resume))
+    return { ok: false, reason: 'body.resume:type' };
+  return { ok: true };
+}
+
+/**
  * Whether `value` is a well-formed envelope: version, id, a known type, `replyTo` a string or null
  * (required for `ack` and `action_result`, which answer something) and a body valid for its type.
  * @param {unknown} value
@@ -64,17 +81,7 @@ export function validateEnvelope(value) {
   const body = value.body;
   switch (value.type) {
     case 'hello':
-      if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
-      if (
-        body.capabilities !== undefined &&
-        !isObject(body.capabilities) &&
-        !(Array.isArray(body.capabilities) && body.capabilities.every(isId))
-      )
-        return { ok: false, reason: 'body.capabilities:type' };
-      if (body.token !== undefined && typeof body.token !== 'string') return { ok: false, reason: 'body.token:type' };
-      if (body.resume !== undefined && body.resume !== null && !isId(body.resume))
-        return { ok: false, reason: 'body.resume:type' };
-      return { ok: true };
+      return checkHello(body);
     case 'event': {
       const verdict = validateEvent(body);
       return verdict.ok ? { ok: true } : { ok: false, reason: `body.${verdict.reason}` };
