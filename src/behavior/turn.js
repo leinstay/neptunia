@@ -7636,22 +7636,11 @@ export function createTurnRunner({
     // requested is left to finish naturally; admin.js's pause handler waits
     // for it via waitIdle() below instead of aborting it here.
     if (store.state.data.paused) return { outcome: 'paused' };
-    // The conversation as the interface describes it now: its permissions, its audience, when it last heard from
-    // anyone. One the interface no longer knows ends the turn before anything is asked of the model.
-    const found = await ifaceReads.conversationInfo(conversation, { audience: true, viewers: [] });
-    if (found === null) {
-      log.warn('turn: conversation unavailable', { channel: conversation.conversationId });
-      return { outcome: 'unavailable' };
-    }
-    const channel = found.conversation;
-    draft.info = channel;
-    // A conversation of a community carries it; a private chat is served on behalf of the pinned one.
-    const guildId = channel.communityId ?? guildIdParam;
-    if (!guildId) throw new Error('runTurn: a private chat needs a guildId');
-    const isPrivate = !inCommunity(channel);
-    // A turn of a chain runs under the attention the chain already holds.
+    // A turn of a chain runs under the attention the chain already holds. The attention is taken before anything is
+    // awaited, so two turns started together cannot both take it.
+    const attentionId = conversation.conversationId;
     if (!owned) {
-      if (busy.has(channel.id)) return { outcome: 'busy' };
+      if (busy.has(attentionId)) return { outcome: 'busy' };
       // One attention (config.mention.oneAtATime, default on): while a turn is
       // running anywhere else, nothing else may start. src/behavior/pipeline.js
       // is the only caller that turns a direct ping caught by this into a
@@ -7659,8 +7648,30 @@ export function createTurnRunner({
       // caller (a reply, an interject, an initiate, an eavesdrop) alike.
       const oneAtATime = hot.config.mention?.oneAtATime !== false;
       if (oneAtATime && busy.size > 0) return { outcome: 'busy' };
-      busy.add(channel.id);
+      busy.add(attentionId);
     }
+    const letGo = () => {
+      if (owned) return;
+      busy.delete(attentionId);
+      notifyIdle();
+    };
+    // The conversation as the interface describes it now: its permissions, its audience, when it last heard from
+    // anyone. One the interface no longer knows ends the turn before anything is asked of the model.
+    const found = await ifaceReads.conversationInfo(conversation, { audience: true, viewers: [] });
+    if (found === null) {
+      letGo();
+      log.warn('turn: conversation unavailable', { channel: conversation.conversationId });
+      return { outcome: 'unavailable' };
+    }
+    const channel = found.conversation;
+    draft.info = channel;
+    // A conversation of a community carries it; a private chat is served on behalf of the pinned one.
+    const guildId = channel.communityId ?? guildIdParam;
+    if (!guildId) {
+      letGo();
+      throw new Error('runTurn: a private chat needs a guildId');
+    }
+    const isPrivate = !inCommunity(channel);
     // The journal (features.journal, read now): the turn starts here, past the pause and
     // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
     if (journalOn()) {
