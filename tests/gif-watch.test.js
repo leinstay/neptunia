@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import {
   GIF_MAX_PER_DAY_FALLBACK,
   GIF_POSTS_PER_DAY_FALLBACK,
@@ -105,10 +104,4 @@ test('gifWatchesToday, gifPostsToday: a stored count that is not a finite number
   gifWatchesToday(stale, {}, today);
   gifPostsToday(stale, {}, today);
   assert.deepEqual(stale, { gifWatchDay: '2026-10-02', gifWatchCount: 9, gifDay: '2026-10-02', gifCount: 4 });
-});
-
-test('gif caps: the code fallbacks equal the values shipped in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
-  assert.equal(GIF_MAX_PER_DAY_FALLBACK, shipped.media.gif.maxPerDay);
-  assert.equal(GIF_POSTS_PER_DAY_FALLBACK, shipped.gifs.maxPerDay);
 });

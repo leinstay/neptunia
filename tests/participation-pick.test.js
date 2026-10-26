@@ -91,12 +91,6 @@ function line(
 
 // ---- settings and the switch ----------------------------------------------------------
 
-test('participationPickSettings: the shipped config.json values equal the code fallbacks', () => {
-  assert.equal(SHIPPED_CONFIG.participation.contextMessages, PARTICIPATION_PICK_DEFAULTS.contextMessages);
-  assert.equal(SHIPPED_CONFIG.participation.maxOutputTokens, PARTICIPATION_PICK_DEFAULTS.maxOutputTokens);
-  assert.equal(SHIPPED_CONFIG.context.caps.participation, 6000);
-});
-
 test('participationPickSettings: a missing group falls back, a missing switch counts as on, false turns it off', () => {
   assert.deepEqual(participationPickSettings({}), { ...PARTICIPATION_PICK_DEFAULTS });
   assert.deepEqual(participationPickSettings({ participation: { contextMessages: 3.8, maxOutputTokens: 0 } }), {

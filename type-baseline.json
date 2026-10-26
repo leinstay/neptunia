@@ -2480,7 +2480,6 @@
     "TS2345": 1,
     "TS2571": 1,
     "TS7005": 1,
-    "TS7006": 1,
     "TS7034": 1
   },
   "tests/interface-typing.test.js": {
@@ -3496,9 +3495,6 @@
     "TS2339": 19,
     "TS2532": 2,
     "TS7006": 10
-  },
-  "tests/text-limits.test.js": {
-    "TS7053": 1
   },
   "tests/time.test.js": {
     "TS2345": 1

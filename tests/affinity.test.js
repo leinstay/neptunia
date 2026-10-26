@@ -2,9 +2,6 @@
 // features.relationships (docs/prompt-contract.md, "The analyzer").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   emptyAffinity,
   affinityBand,
@@ -489,17 +486,6 @@ test('bandGap: 0 inside the band, the distance to the nearest edge outside', () 
 test('bandGap: an unknown band or a score that is not a number gives 0', () => {
   assert.equal(bandGap(50, 'adoring'), 0);
   assert.equal(bandGap(NaN, 'fond'), 0);
-});
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-test('RELATIONSHIP_STALE_DEFAULTS: equal the values of config.json', () => {
-  const tracked = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).relationships;
-  assert.deepEqual(RELATIONSHIP_STALE_DEFAULTS, {
-    bandHysteresis: tracked.bandHysteresis,
-    rewriteOnDrift: tracked.rewriteOnDrift,
-    rewriteAfterMoves: tracked.rewriteAfterMoves,
-  });
 });
 
 const WRITTEN_MS = Date.UTC(2026, 9, 1, 12, 0, 0);

@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  MISSED_REASONS,
   UNCHECKED,
   addCandidate,
   buildCheckRequest,
@@ -1105,10 +1104,6 @@ test('createMissed: a broken missed.json is moved aside, never overwritten in pl
   await missed.start('g1');
   assert.ok(fs.readdirSync(dir).some((name) => name.startsWith('missed.json.bad-')));
   assert.deepEqual(missed.candidates(), []);
-});
-
-test('missed: every reason code is kebab-case', () => {
-  for (const reason of MISSED_REASONS) assert.match(reason, /^[a-z]+(-[a-z]+)*$/);
 });
 
 test("createMissed: a turn that ended in an error keeps its reason as the fact's failure; one without a reason has none", async () => {

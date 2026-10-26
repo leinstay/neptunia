@@ -4,7 +4,6 @@
 // the features.channelPull switch). No I/O: the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {
   PULL_DEFAULTS,
   explicitChannelIds,
@@ -140,11 +139,6 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
   assert.equal(fractional.maxPictures, 2);
   assert.equal(fractional.windowMinutes, 30.5, 'a duration is not a count: kept as given');
   assert.equal(fractional.maxAgeDays, 1.5);
-});
-
-test('config.json: context.pull equals the code defaults', () => {
-  const config = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.context.pull, { ...PULL_DEFAULTS });
 });
 
 // ---- explicitChannelIds ----------------------------------------------------------

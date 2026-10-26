@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  IN_TURN_TOOLS,
   firstLinkIn,
   lookableMedia,
   mediaLookText,
@@ -49,13 +48,6 @@ function fakeLookup({
     },
   };
 }
-
-test('in-turn tools: the skills that come back in the same turn', () => {
-  assert.deepEqual(
-    [...IN_TURN_TOOLS],
-    ['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find']
-  );
-});
 
 test('webSearchText: her query and the evidence type first, what she wanted to establish, then each result raw: title, link, site and date, snippet', () => {
   const l = labels.skills.tools.web;

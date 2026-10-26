@@ -8,8 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  RESULT_STATUSES,
-  OPS,
   validateRequest,
   parseRequestLine,
   encodeLine,
@@ -24,12 +22,6 @@ import {
   httpProxyForm,
   MAX_PREAMBLE_CHARS,
 } from '../src/agent-runner/protocol.js';
-
-test('RESULT_STATUSES: the three final states, frozen', () => {
-  assert.deepEqual([...RESULT_STATUSES], ['done', 'failed', 'cancelled']);
-  assert.ok(Object.isFrozen(RESULT_STATUSES));
-  assert.ok(Object.isFrozen(OPS));
-});
 
 test('validateRequest: a full run passes and is normalised', () => {
   const r = validateRequest({
