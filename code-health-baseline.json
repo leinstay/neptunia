@@ -13,7 +13,7 @@
     "tests/prompt.test.js": 5060,
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 13028,
-    "tools/replay.mjs": 5604
+    "tools/replay.mjs": 7752
   },
   "functions": {
     "interfaces/discord/collect.js": {
@@ -651,6 +651,9 @@
       }
     },
     "src/ops/message.js": {
+      "<anonymous>": {
+        "function-length": 364
+      },
       "<anonymous>>mediaFile": {
         "complexity": 30
       },
@@ -894,7 +897,8 @@
         "complexity": 36
       },
       "parseArgs": {
-        "complexity": 254
+        "complexity": 254,
+        "function-length": 339
       },
       "parseScenarios><anonymous>": {
         "complexity": 50
@@ -912,15 +916,16 @@
         "complexity": 36
       },
       "runInner": {
-        "complexity": 63
+        "complexity": 63,
+        "function-length": 393
       },
       "runMain": {
         "complexity": 160,
-        "function-length": 535
+        "function-length": 763
       },
       "runRecall": {
         "complexity": 70,
-        "function-length": 306
+        "function-length": 395
       },
       "runRecall><anonymous>#2": {
         "complexity": 21
@@ -929,13 +934,15 @@
         "complexity": 21
       },
       "runSkills": {
-        "complexity": 61
+        "complexity": 61,
+        "function-length": 548
       },
       "runSplit": {
         "complexity": 28
       },
       "runTriggerLoops": {
-        "complexity": 56
+        "complexity": 56,
+        "function-length": 377
       }
     },
     "tools/search-compare.mjs": {
