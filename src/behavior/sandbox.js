@@ -55,7 +55,7 @@ import { detectTrigger, isTaggedCall } from './mention.js';
 import { addPending, followUpSlot, popOldest } from './pending.js';
 import { RECALL_DEFAULTS, recallSettings, snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
-import { linkChannels } from '../memory/mentions.js';
+import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { diagnosticText } from './wake.js';
@@ -68,7 +68,7 @@ import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { findGif } from '../memory/index.js';
-import { tokenIds } from '../memory/mentions.js';
+import { tokenIds } from '../memory/mentions.ts';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../skills/discovery.js';
@@ -2029,7 +2029,7 @@ export function afterScenarioTurn({
  * `channel`, no turn run for it. Shaped exactly as afterScenarioTurn shapes her live lines
  * (src/behavior/turn.js#continuationHistory, `selfName` as author; its id a snowflake of its
  * moment), the text as given with `mentionedUserIds` the members its `<@id>` tags name
- * (src/memory/mentions.js#tokenIds) -- and, since no turn posted it, no link to a trigger and no
+ * (src/memory/mentions.ts#tokenIds) -- and, since no turn posted it, no link to a trigger and no
  * call mark. Pure.
  * @param {{ text: string, at: number, selfId: string, selfName: string, channel: { id: string } }} input
  * @returns {object}

@@ -4,7 +4,7 @@
 // the persona's own text that named a member without the handle (untaggedNames). No imports from
 // format.js. src/behavior/handles.js re-exports both.
 
-import { isWordChar, outsideUrls } from './memory/mentions.js';
+import { isWordChar, outsideUrls } from './memory/mentions.ts';
 
 /**
  * The first of `entries` (`{ name }`, longest name first) written whole right after the `@` at

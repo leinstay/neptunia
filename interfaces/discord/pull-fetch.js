@@ -5,7 +5,7 @@
 // persona would be asked about a channel it cannot see. The pure decisions
 // live elsewhere: src/behavior/pull.js (the window that ends at the channel's
 // newest message, the pictures that may get a caption, the `context.pull`
-// settings) and src/behavior/elsewhere.js (the ring of calls, the audience
+// settings) and src/behavior/elsewhere.ts (the ring of calls, the audience
 // comparison). This module is the Discord side, fetchPull, which any caller
 // can use for any channel id: the rails a pull must pass (a readable text
 // channel, allowed, not a thread, not the dry-run mirror, visible to everyone
@@ -20,8 +20,8 @@
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { log } from '../../src/log.js';
 import { isTooOld, pullPictures, pullSettings, pullWindow } from '../../src/behavior/pull.js';
-import { audienceCovers, elsewhereSettings, pingStatus, pingsIn } from '../../src/behavior/elsewhere.js';
-import { ID_DIGITS } from '../../src/memory/mentions.js';
+import { audienceCovers, elsewhereSettings, pingStatus, pingsIn } from '../../src/behavior/elsewhere.ts';
+import { ID_DIGITS } from '../../src/memory/mentions.ts';
 import { MINUTE_MS } from '../../src/time.js';
 import {
   PAGE,
@@ -136,7 +136,7 @@ function partnerViews(partner, source) {
  * the live config; only `false` turns it off) everyone who can view the
  * destination must be able to view the source, checked role by role on both
  * channels' audiences (interfaces/discord/collect.js#audienceOf,
- * src/behavior/elsewhere.js#audienceCovers; no shortcut for a source
+ * src/behavior/elsewhere.ts#audienceCovers; no shortcut for a source
  * @everyone can view). A missing destination or a thread never qualifies
  * while the rail is on.
  * @param {object|null} destination  The discord.js channel the turn speaks in.

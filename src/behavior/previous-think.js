@@ -16,11 +16,11 @@ import { MINUTE_MS } from '../time.js';
 export const PLACES_MAX = 200;
 
 /**
- * The key of a place.
+ * The key of a place: the interface it is on (empty when one interface is served), the community or `@me`, the conversation.
  * @param {{ interfaceId?: string, guildId?: string|null, channelId: string|number }} place
  * @returns {string}
  */
-export function placeKey({ interfaceId = 'discord', guildId = null, channelId }) {
+export function placeKey({ interfaceId = '', guildId = null, channelId }) {
   return `${interfaceId}:${guildId ? String(guildId) : '@me'}:${String(channelId)}`;
 }
 

@@ -17,7 +17,7 @@
 
 import { estimateTokens } from '../llm/tokens.js';
 import { oneLine } from '../memory/clamp.js';
-import { fromTokens, isWordChar } from '../memory/mentions.js';
+import { fromTokens, isWordChar } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.js';
 import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './recall.js';
 

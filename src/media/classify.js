@@ -1,12 +1,12 @@
 // Pure media semantics shared by interfaces/discord/collect.js (normalization),
 // src/format.js (transcript rendering) and src/behavior/prompt.js
 // (vision selection): classifying an attachment/embed into a kind, choosing
-// which label form a media item takes in a transcript line, rewriting a
-// Discord CDN URL through the media proxy for resizing, recognising a pasted
-// link to a Discord CDN video attachment (discordCdnVideo), and picking which
+// which label form a media item takes in a transcript line, picking which
 // pictures of a channel a live turn may see, and listing the video
 // candidates of a message (attached videos, video-site links) for the video
-// describer. No network I/O, no discord.js
+// describer. The addresses of a platform's media (its CDN, its resizing proxy,
+// its stickers) are the interface's: an item arrives with its `previewUrl` and
+// an `expiring` flag, interfaces/discord/media.js. No network I/O, no discord.js
 // import — callers hand in plain data already read off a discord.js
 // Message/Embed (node:crypto is used only for a deterministic, synchronous
 // hash, not for any I/O).
@@ -14,8 +14,8 @@
 import { createHash } from 'node:crypto';
 import { videoSiteFor } from './video-sites.js';
 
-const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
-const DISCORD_EXTERNAL_PROXY_HOST_RE = /^images-ext-\d+\.discordapp\.net$/;
+/** The Discord CDN hosts: classifyEmbed reads a link to a GIF file on them as a GIF. */
+export const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
 const GIF_PROVIDERS = new Set(['tenor', 'giphy']);
 // The GIF sites whose pages Discord's GIF picker posts (and their media hosts).
 const GIF_HOST_RE = /(^|\.)((tenor|giphy|klipy)\.com)$/i;
@@ -62,15 +62,6 @@ const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
 // alone is a safe signal here.
 const DESCRIBABLE_KINDS = new Set(['image', 'gif', 'video', 'sticker', 'emoji', 'link']);
 
-// Sticker format types (Discord's `sticker.format`): PNG=1, APNG=2, Lottie=3,
-// GIF=4 -- Lottie is a vector animation, never a raster picture, so it is
-// deliberately absent from this map (see stickerUrl below).
-const STICKER_FORMAT_EXT = { 1: 'png', 2: 'png', 4: 'gif' };
-// Verified against the live CDN: media.discordapp.net/stickers/<id>.<ext>
-// takes a `size` query param (a power of two), NOT width/height/format —
-// cdn.discordapp.com 404s on a GIF sticker entirely, so that host is never
-// used here.
-const STICKER_SIZE = 160;
 // Verified against the live CDN: this exact host+path+size serves both a
 // static and an animated custom emoji as image/webp.
 const EMOJI_SIZE = 96;
@@ -129,52 +120,6 @@ export function classifyAttachment({ contentType, name, isVoice = false } = {}) 
   const ext = extOf(name);
   if (ext && EXT_KIND[ext]) return EXT_KIND[ext];
   return 'file';
-}
-
-// `/attachments/<channel id>/<attachment id>/<file name>` (or the
-// `ephemeral-attachments` prefix): the path of a file uploaded to Discord.
-const CDN_ATTACHMENT_PATH_RE = /^\/(?:ephemeral-)?attachments\/(\d+)\/(\d+)\/([^/]+)$/;
-
-/**
- * The Discord CDN hosts (`cdn.discordapp.com`, `media.discordapp.net`) as a
- * site list for extractVideoUrls (src/media/video-sites.js), so a typed CDN
- * link is found by the same URL extraction as a video-site link.
- */
-export const DISCORD_CDN_SITES = Object.freeze([...DISCORD_CDN_HOSTS]);
-
-/**
- * The attachment a Discord CDN link points at, when that attachment is a
- * video: `{ id, name }`, else null. A member may paste the link of a file
- * uploaded elsewhere instead of uploading it again; Discord then plays it,
- * but the message carries no attachment. Non-null only for an http(s) URL on
- * a DISCORD_CDN_HOSTS host whose path is `/attachments/<digits>/<digits>/<file>`
- * or `/ephemeral-attachments/<digits>/<digits>/<file>` and whose file name
- * classifies as `video` (see classifyAttachment). `id` is the second numeric
- * segment -- the attachment's own snowflake, so the link shares the
- * describer's cache entry with the original upload; `name` is the decoded
- * file name.
- * @param {string} url
- * @returns {{ id: string, name: string }|null}
- */
-export function discordCdnVideo(url) {
-  let parsed;
-  try {
-    parsed = new URL(String(url ?? ''));
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
-  if (!DISCORD_CDN_HOSTS.has(parsed.hostname.toLowerCase())) return null;
-  const match = CDN_ATTACHMENT_PATH_RE.exec(parsed.pathname);
-  if (!match) return null;
-  let name;
-  try {
-    name = decodeURIComponent(match[3]);
-  } catch {
-    return null;
-  }
-  if (classifyAttachment({ name }) !== 'video') return null;
-  return { id: match[2], name };
 }
 
 /** Whether `url` parses and its path ends in `.gif` (case-insensitive). */
@@ -290,7 +235,7 @@ export function classifyEmbed(embed, { embedTextChars = 200, videoSites = [] } =
  * URL without its query string>`. A signed Discord proxy URL (or any
  * re-fetched embed) carries a query string that changes between fetches of
  * the very same picture; the origin+path does not, so it is dropped before
- * hashing. Deterministic and pure (no I/O) -- see stickerUrl/emojiUrl for the
+ * hashing. Deterministic and pure (no I/O) -- see emojiUrl for the
  * same "rebuild an id from stable inputs" idea.
  * @param {string} url
  */
@@ -339,61 +284,6 @@ export function fitBox(width, height, max) {
   if (w === null || h === null || limit === null) return null;
   const scale = Math.min(1, limit / Math.max(w, h));
   return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
-}
-
-/**
- * Rewrite a Discord attachment URL through the media proxy so it is served at
- * a given size/format. Measured against real Discord payloads:
- * `cdn.discordapp.com` silently IGNORES `width`/`height`/`format` and serves
- * the original file (a full-size image, or for a video attachment the whole
- * file -- never something safe to hand a model as an `image_url` part);
- * `media.discordapp.net` is the host that actually resizes/reformats. So both
- * `cdn.discordapp.com` and `media.discordapp.net` attachment URLs are
- * rewritten to the `media.discordapp.net` host, with `width` / `height` /
- * `format` set (or replaced, when already present) — every other existing
- * query parameter survives untouched, crucially the signed `ex`/`is`/`hm`
- * ones. Discord's external-content proxy (`images-ext-<n>.discordapp.net`,
- * e.g. a tenor embed's thumbnail) accepts the same parameters and gets them
- * the same way, but keeps its own host: its path is proxy-specific. Every
- * other host is returned unchanged (its own thumbnail is already a plain
- * image, not a video needing frame extraction). `animated` (when
- * given) sets the proxy's `animated` param: `false` asks for one still frame
- * of an animated GIF instead of an animated webp that can exceed the vision
- * download limit. The proxy fills a `width` x `height` box and centre-crops
- * to it (a lone `width` or `height` is ignored), so callers pass either a
- * pair of the picture's own aspect (fitBox) or no size at all.
- * Best-effort: an unparsable URL is returned as-is.
- * @param {string} url
- * @param {{ width?: number, height?: number, format?: string, animated?: boolean }} [options]
- */
-export function mediaProxyUrl(url, { width, height, format, animated } = {}) {
-  let parsed;
-  try {
-    parsed = new URL(String(url));
-  } catch {
-    return url;
-  }
-  if (DISCORD_CDN_HOSTS.has(parsed.hostname)) parsed.hostname = 'media.discordapp.net';
-  else if (!DISCORD_EXTERNAL_PROXY_HOST_RE.test(parsed.hostname)) return url;
-  if (width != null) parsed.searchParams.set('width', String(width));
-  if (height != null) parsed.searchParams.set('height', String(height));
-  if (format) parsed.searchParams.set('format', format);
-  if (typeof animated === 'boolean') parsed.searchParams.set('animated', String(animated));
-  return parsed.toString();
-}
-
-/**
- * Rebuild a sticker's picture URL from just its id/format -- the only two
- * fields a slim message keeps for a sticker (see src/memory/update.js
- * #slimMessage), so no stored URL is needed to look up a description-cache
- * entry. `null` for a Lottie sticker (format 3) or any
- * other non-picture format: it is never a picture, name only.
- * @param {string} id
- * @param {number} format
- */
-export function stickerUrl(id, format) {
-  const ext = STICKER_FORMAT_EXT[format];
-  return ext ? `https://media.discordapp.net/stickers/${id}.${ext}?size=${STICKER_SIZE}` : null;
 }
 
 /**
@@ -696,7 +586,7 @@ export function mediaLabelFor(
 /**
  * Choose which `labels.transcript.*` key (and fill values) renders one
  * sticker item, mirroring `mediaLabelFor`'s priority for the picture-format
- * ones (PNG/APNG/GIF -- `sticker.url` is set, see stickerUrl): described >
+ * ones (PNG/APNG/GIF -- the adapter sets `sticker.url`): described >
  * blind (plain `sticker`, name only). A Lottie sticker (`sticker.url` is
  * null) is never a picture: always the plain `sticker` form, regardless of
  * `description` -- see `senses.lottie`.
@@ -728,6 +618,17 @@ export function mediaParts(message) {
   return [message, ...(Array.isArray(message.forwarded) ? message.forwarded : [])];
 }
 
+/**
+ * The `previewUrl` of an attachment or a link as a field of a picture item, or nothing: the address the adapter sized
+ * the picture at, for the describer.
+ * @param {unknown} item
+ * @returns {{ previewUrl?: string }}
+ */
+function previewField(item) {
+  const url = /** @type {{ previewUrl?: unknown }|null|undefined} */ (item)?.previewUrl;
+  return typeof url === 'string' && url !== '' ? { previewUrl: url } : {};
+}
+
 /** The pictures of one message part (the message or one snapshot), see collectPictures. */
 function partPictures(part, messageId) {
   const items = [];
@@ -743,6 +644,8 @@ function partPictures(part, messageId) {
       durationSec: attachment.durationSec,
       width: attachment.width ?? null,
       height: attachment.height ?? null,
+      // The address the adapter sized the picture at, for the describer; absent: `url` is downloaded as it is.
+      ...previewField(attachment),
     });
   }
   (part.links ?? []).forEach((link) => {
@@ -756,6 +659,7 @@ function partPictures(part, messageId) {
       name: link.title || link.site,
       width: link.thumbnailWidth ?? null,
       height: link.thumbnailHeight ?? null,
+      ...previewField(link),
       // A gif embed's animation (see classifyEmbed), for the GIF watch.
       ...(link.kind === 'gif' && link.animationUrl ? { animationUrl: link.animationUrl } : {}),
     });
@@ -780,7 +684,7 @@ function partPictures(part, messageId) {
  * message's own first, then each forwarded snapshot's the same way): an
  * image/gif/video attachment, any embed carrying a thumbnail (gif or link
  * kind alike), or a PNG/APNG/GIF sticker (never a Lottie one -- `sticker.url`
- * is null for those, see stickerUrl). Each item is stamped with a stable
+ * is null for those, the adapter decides). Each item is stamped with a stable
  * `itemId` (the attachment's Discord id; for an embed, the link's own id from
  * interfaces/discord/collect.js -- `video:url:<hash>` for a video-site link,
  * `link:<hash>` for another link with a thumbnail, the message+embed-index

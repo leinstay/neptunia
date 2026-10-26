@@ -55,7 +55,7 @@ import {
   occursAsWholeWord,
   occursAsWordStem,
   tokenIds,
-} from '../memory/mentions.js';
+} from '../memory/mentions.ts';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
@@ -1228,7 +1228,7 @@ function foldedForms(list) {
   ];
 }
 
-/** How many of `forms` (folded) occur, word endings allowed (src/memory/mentions.js#occursAsWordStem), in at least one of `texts` (folded here). */
+/** How many of `forms` (folded) occur, word endings allowed (src/memory/mentions.ts#occursAsWordStem), in at least one of `texts` (folded here). */
 function formsMatched(texts, forms) {
   const folded = texts.filter((text) => typeof text === 'string' && text).map(foldText);
   return forms.filter((form) => folded.some((text) => occursAsWordStem(text, form))).length;
@@ -1391,7 +1391,7 @@ function archivedItem(entry, ctx, { matched = true } = {}) {
  * the turn may not read).
  * - A form of `forms` or `who` matches a text when it occurs in it as a word
  *   or phrase, word endings allowed, both folded (src/memory/recent.js#foldText:
- *   case, accents; src/memory/mentions.js#occursAsWordStem: a form word of 5+
+ *   case, accents; src/memory/mentions.ts#occursAsWordStem: a form word of 5+
  *   letters matches by its stem, a shorter one or one with digits only whole).
  * - A `who` form equal (folded) to one of a profile's `names` or alias names
  *   picks that member: each of their moments, every item whose text holds

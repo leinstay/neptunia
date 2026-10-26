@@ -42,7 +42,7 @@ import { isPlainObject } from '../config.js';
 import { DAY_MS, HOUR_MS } from '../time.js';
 import { clampText, oneLine, stripUrls } from './clamp.js';
 import { topEpisodes } from './episodes.js';
-import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.js';
+import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.ts';
 
 /**
  * config.json's own values for the recent layer's settings, the code fallbacks
@@ -236,7 +236,7 @@ function evictionOrder(a, b) {
  *      added and counts in `overCap`. The rest keep their order. A cap lowered
  *      while nothing is kept cuts nothing;
  *   7. each item still kept gets the next id, `addedAt` (the ISO time of `now`)
- *      and `who` (src/memory/mentions.js#tokenIds of its text), appended in
+ *      and `who` (src/memory/mentions.ts#tokenIds of its text), appended in
  *      order (`added`). An id is never used up by an item that is not added.
  * Missing options fall back to `RECENT_DEFAULTS` (config.json's values); a
  * non-finite `now` reads the wall clock.
@@ -368,7 +368,7 @@ export function liveRecent(lines, { now, hours } = {}) {
  * folded text holds one of `names` (the member's stored names and aliases,
  * folded, each with at least 3 letters or digits: a name of symbols alone
  * would match symbol runs in anyone's line) as a whole word
- * (src/memory/mentions.js#occursAsWholeWord). Pure: `stored` is never mutated;
+ * (src/memory/mentions.ts#occursAsWholeWord). Pure: `stored` is never mutated;
  * `nextId` is kept.
  * @param {unknown} stored
  * @param {string} userId
@@ -435,7 +435,7 @@ function momentAt(ep, cutoff, clock) {
  * An id (a member's, a profile's, a channel's, a message's) as a string: a
  * finite number as its decimal form, a non-empty string as it is, anything
  * else null. The one copy for the recent view, the request builder
- * (src/behavior/prompt.js) and src/behavior/elsewhere.js.
+ * (src/behavior/prompt.js) and src/behavior/elsewhere.ts.
  * @param {unknown} raw
  * @returns {string|null}
  */

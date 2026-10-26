@@ -25,7 +25,7 @@
 
 import { localHour } from '../format.js';
 import { routeFor } from './turn.js';
-import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';
+import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.ts';
 import { between } from './random.js';
 import { log } from '../log.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';

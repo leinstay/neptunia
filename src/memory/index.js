@@ -2,7 +2,7 @@
 // (src/index.js, src/behavior/, src/ops/, src/errands/), so that the memory can
 // replace an implementation behind it without touching a caller. It re-exports and defines
 // nothing; nothing in src/memory/ imports it. The pure helpers that are not memory (clamp.js,
-// mentions.js, ranking.js, recent.js, text-limits.js, prose.js) stay direct imports.
+// mentions.ts, ranking.js, recent.js, text-limits.js, prose.js) stay direct imports.
 // The paths under data/ are src/memory/root.js; the layout is the header comment of store.js.
 
 // The stores and the schedulers src/index.js constructs.

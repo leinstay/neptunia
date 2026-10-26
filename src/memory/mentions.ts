@@ -12,6 +12,10 @@
 //                name for the chat model, `name (id:123...)` for the analyzer
 //   tokenIds     the member ids a stored text's tokens name
 //
+// The `<@id>` token is the core's own grammar for a member in a stored text, whatever the interface a member came
+// from: text written with it parses the same on every platform, and the ids it holds are the interface's opaque ones.
+// Message links are not read here: an interface puts them on a message as references (docs/interfaces.md).
+//
 // Pure, no discord.js dependency: `isKnownId`/`nameOf`/`namesOf` are injected
 // so the caller decides what "known" means (an author of the batch, an
 // existing stored profile, ...) and where a display name comes from.
@@ -52,47 +56,10 @@ export const ID_DIGITS = '\\d{17,20}';
 export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
 
 /**
- * A Discord message link, the whole text: `https://discord.com/channels/<guild>/<channel>/<message>`
- * (ptb, canary, discordapp too; `@me` for a private chat); groups: the channel id, the message id.
- * The one copy for the operations (src/ops/shared.js#messageRefOf) and her calls
- * (src/skills/executors.js#resolveCall).
- */
-export const MESSAGE_LINK_RE =
-  /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
-
-// A Discord message link inside a text (MESSAGE_LINK_RE's forms), optionally in angle brackets;
-// groups: `<`, the message id, `>`. Not glued to a word or a path before it, and nothing that
-// continues a URL (a word character, `/`, a query, a fragment) after it.
-const MESSAGE_LINK_IN_TEXT_RE =
-  /(?<![\w/])(<?)https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/\d+\/(\d+)\/?(>?)(?![\w/?#&=%~+-])/gi;
-
-/**
- * `text` with every Discord message link (MESSAGE_LINK_RE's forms, bare or in angle brackets)
- * whose message `numberOf` knows turned into that message's transcript number `#n`, the way the
- * transcript names its lines; a link `numberOf` does not know stays exactly as written. A lone
- * bracket stays where it was. Pure.
- * @param {unknown} text
- * @param {((messageId: string) => (number|null|undefined))|null} numberOf
- * @returns {unknown}  `text` itself when it is not a string or `numberOf` is not a function.
- */
-export function numberMessageLinks(text, numberOf) {
-  if (typeof text !== 'string' || !text || typeof numberOf !== 'function') return text;
-  return text.replace(MESSAGE_LINK_IN_TEXT_RE, (whole, open, messageId, close) => {
-    const n = numberOf(messageId);
-    if (!Number.isInteger(n)) return whole;
-    const both = open && close;
-    return `${open && !both ? open : ''}#${n}${close && !both ? close : ''}`;
-  });
-}
-
-/**
  * `text` with `convert` applied to every stretch outside its URLs
  * (URL_PATTERN), the URLs kept exactly as written. `convert` may get ''. Pure.
- * @param {string} text
- * @param {(part: string) => string} convert
- * @returns {string}
  */
-export function outsideUrls(text, convert) {
+export function outsideUrls(text: string, convert: (part: string) => string): string {
   let result = '';
   let index = 0;
   for (const match of text.matchAll(new RegExp(URL_PATTERN, 'g'))) {
@@ -119,11 +86,12 @@ const TEACHER_REF_RE = new RegExp(`^[^()<>]*\\(id:(${ID_DIGITS})\\)$`);
  * trimmed, must be exactly one `<@id>` token or one `name (id:...)` reference (whatever the name)
  * of an id `isKnownId` accepts; anything else -- a bare name, an unknown id, two references, other
  * text around them -- gives undefined: a teacher is never guessed from the text or the batch.
- * @param {unknown} from
- * @param {(id: string) => boolean} isKnownId  Not a function -> no id is known.
- * @returns {string|undefined}
+ * `isKnownId` not being a function means no id is known.
  */
-export function teacherToken(from, isKnownId) {
+export function teacherToken(
+  from: unknown,
+  isKnownId: ((id: string) => boolean) | null | undefined
+): string | undefined {
   if (typeof from !== 'string') return undefined;
   const trimmed = from.trim();
   const id = TEACHER_TOKEN_RE.exec(trimmed)?.[1] ?? TEACHER_REF_RE.exec(trimmed)?.[1];
@@ -142,10 +110,8 @@ export function teacherToken(from, isKnownId) {
  * common, and only the single trailing word is ever the actual name).
  * Returns 0 when `before` does not end in a name-like word at all (nothing
  * to convert -- the marker is then left exactly as written).
- * @param {string} before
- * @returns {number}
  */
-function fallbackNameLength(before) {
+function fallbackNameLength(before: string): number {
   const hasSpace = before.endsWith(' ');
   const stripped = hasSpace ? before.slice(0, -1) : before;
   const match = /[\p{L}\p{N}][\p{L}\p{N}'’-]*$/u.exec(stripped);
@@ -157,11 +123,9 @@ function fallbackNameLength(before) {
  * names, longest first) are given: the longest name that `before`, with at
  * most one trailing space ignored, ends with -- exact, case-sensitive. `-1`
  * when none of them match (the caller then falls back to `fallbackNameLength`).
- * @param {string} before
- * @param {string[]} names  Already sorted longest-first.
- * @returns {number}
+ * `names` are already sorted longest-first.
  */
-function knownNameLength(before, names) {
+function knownNameLength(before: string, names: ReadonlyArray<string>): number {
   const hasSpace = before.endsWith(' ');
   const stripped = hasSpace ? before.slice(0, -1) : before;
   for (const name of names) {
@@ -186,18 +150,18 @@ function knownNameLength(before, names) {
  * a marker with no name-like word before it at all is left untouched.
  * Already idempotent: a token contains no `(id:...)` for the pattern to
  * match again.
- * @param {string} text
- * @param {(id: string) => boolean} isKnownId
- * @param {(id: string) => (string[]|null|undefined)} [namesOf]
- * @returns {string}
  */
-export function toTokens(text, isKnownId, namesOf) {
+export function toTokens(
+  text: string,
+  isKnownId: (id: string) => boolean,
+  namesOf?: (id: string) => Array<string> | null | undefined
+): string {
   if (typeof text !== 'string' || !text) return text;
 
   let result = '';
   let lastIndex = 0;
   for (const match of text.matchAll(ID_MARKER_RE)) {
-    const id = match[1];
+    const id = match[1] ?? '';
     const markerStart = match.index;
     const markerEnd = markerStart + match[0].length;
     const before = text.slice(lastIndex, markerStart);
@@ -237,14 +201,14 @@ export function toTokens(text, isKnownId, namesOf) {
  * resolution downstream still works); `mode: 'analyzer'` -> `name (id:123...)`.
  * `nameOf(id)` returning anything other than a non-empty string leaves that
  * token exactly as written (an id the caller cannot currently resolve).
- * @param {string} text
- * @param {(id: string) => (string|null|undefined)} nameOf
- * @param {'chat'|'analyzer'} mode
- * @returns {string}
  */
-export function fromTokens(text, nameOf, mode) {
+export function fromTokens(
+  text: string,
+  nameOf: ((id: string) => string | null | undefined) | null | undefined,
+  mode: 'chat' | 'analyzer'
+): string {
   if (typeof text !== 'string' || !text) return text;
-  return text.replace(TOKEN_RE, (whole, id) => {
+  return text.replace(TOKEN_RE, (whole: string, id: string) => {
     const name = typeof nameOf === 'function' ? nameOf(id) : null;
     if (typeof name !== 'string' || !name) return whole;
     return mode === 'analyzer' ? `${name} (id:${id})` : name;
@@ -256,21 +220,17 @@ export function fromTokens(text, nameOf, mode) {
  * they first appear -- how a stored text's member list is computed by code
  * rather than taken from the model (src/memory/recent.js). An `(id:...)`
  * marker is not a token; a non-string `text` names nobody.
- * @param {unknown} text
- * @returns {string[]}
  */
-export function tokenIds(text) {
+export function tokenIds(text: unknown): Array<string> {
   if (typeof text !== 'string' || !text) return [];
-  return [...new Set(Array.from(text.matchAll(TOKEN_RE), (match) => match[1]))];
+  return [...new Set(Array.from(text.matchAll(TOKEN_RE), (match) => match[1] ?? ''))];
 }
 
 /**
  * Whether `ch` is a word character: a letter, a digit or an underscore, in any
  * script. `undefined` (before the start or past the end of a string) is not.
- * @param {string|undefined} ch
- * @returns {boolean}
  */
-export function isWordChar(ch) {
+export function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
 }
 
@@ -279,11 +239,8 @@ export function isWordChar(ch) {
  * (Unicode-aware boundaries, see `isWordChar`). Every occurrence is tried, so
  * one inside a longer word does not hide a later whole one; an empty needle
  * never occurs.
- * @param {string} haystackLower
- * @param {string} needleLower
- * @returns {boolean}
  */
-export function occursAsWholeWord(haystackLower, needleLower) {
+export function occursAsWholeWord(haystackLower: string, needleLower: string): boolean {
   if (!needleLower) return false;
   let from = 0;
   for (;;) {
@@ -306,9 +263,9 @@ const STEM_MIN = 4;
 const STEM_MAX_EXTRA = 3;
 
 /** The words of `text`: maximal runs of word characters (`isWordChar`), each as its code points. */
-function wordsOf(text) {
-  const words = [];
-  let current = null;
+function wordsOf(text: string): Array<Array<string>> {
+  const words: Array<Array<string>> = [];
+  let current: Array<string> | null = null;
   for (const ch of text) {
     if (isWordChar(ch)) (current ??= []).push(ch);
     else if (current) {
@@ -321,7 +278,7 @@ function wordsOf(text) {
 }
 
 /** Whether the text word `word` matches the form word `formWord` (both code point arrays) by the stem rule. */
-function wordMatches(word, formWord) {
+function wordMatches(word: ReadonlyArray<string>, formWord: ReadonlyArray<string>): boolean {
   const whole = formWord.length < STEM_MIN_WORD || formWord.some((ch) => /\p{N}/u.test(ch));
   if (whole) return word.length === formWord.length && word.every((ch, i) => ch === formWord[i]);
   const stem = Math.max(STEM_MIN, formWord.length - STEM_CUT);
@@ -340,20 +297,20 @@ function wordMatches(word, formWord) {
  * matches only a whole equal word. A multi-word form matches consecutive text
  * words in order, each by that rule. A form without word characters falls back
  * to `occursAsWholeWord`; an empty form never occurs.
- * @param {string} text
- * @param {string} form
- * @returns {boolean}
  */
-export function occursAsWordStem(text, form) {
+export function occursAsWordStem(text: string, form: string): boolean {
   if (!form) return false;
   const formWords = wordsOf(form);
   if (formWords.length === 0) return form.trim() ? occursAsWholeWord(text, form) : false;
   const words = wordsOf(text);
   for (let start = 0; start + formWords.length <= words.length; start += 1) {
-    if (formWords.every((formWord, i) => wordMatches(words[start + i], formWord))) return true;
+    if (formWords.every((formWord, i) => wordMatches(words[start + i] ?? [], formWord))) return true;
   }
   return false;
 }
+
+/** A channel as the matching reads it: its id and its name. */
+type ChannelRef = { id: string; name: string };
 
 /** Leading or trailing characters that are no letter and no digit: emoji, symbols, punctuation, joiners. */
 const CORE_EDGES_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
@@ -365,10 +322,8 @@ const NAME_DECOR_RE = /[\p{So}\p{Sk}\p{Cf}\p{M}\p{Emoji_Presentation}]/u;
  * leading and trailing character that is no letter and no digit cut off -- emoji, symbols,
  * punctuation, variation selectors, joiners. '' when nothing is left. Models copy a leading emoji
  * of a channel name unreliably; the core is what they keep.
- * @param {unknown} name
- * @returns {string}
  */
-export function channelCore(name) {
+export function channelCore(name: unknown): string {
   return foldText(name).replace(CORE_EDGES_RE, '');
 }
 
@@ -376,23 +331,24 @@ export function channelCore(name) {
  * The channel a written name names among `channels` (`{ id, name }`): the one whose name is exactly
  * `written`, else the one whose core (channelCore) equals its core; `'ambiguous'` when several
  * share that name or core (never a guess), null when none or `written` has no core.
- * @param {string} written  The name as written, without its `#`.
- * @param {Iterable<{ id: string, name: string }>} channels
- * @returns {{ id: string, name: string } | 'ambiguous' | null}
+ * `written` is the name as written, without its `#`.
  */
-export function matchChannel(written, channels) {
+export function matchChannel(
+  written: unknown,
+  channels: Iterable<ChannelRef> | null | undefined
+): ChannelRef | 'ambiguous' | null {
   const list = [...(channels ?? [])].filter(
     (channel) =>
       channel && typeof channel.name === 'string' && channel.name && channel.id !== undefined && channel.id !== null
   );
-  const given = String(written ?? '');
+  const given = typeof written === 'string' || typeof written === 'number' ? String(written) : '';
   const exact = list.filter((channel) => channel.name === given);
-  if (exact.length === 1) return exact[0];
+  if (exact.length === 1) return exact[0] ?? null;
   if (exact.length > 1) return 'ambiguous';
   const core = channelCore(given);
   if (!core) return null;
   const same = list.filter((channel) => channelCore(channel.name) === core);
-  if (same.length === 1) return same[0];
+  if (same.length === 1) return same[0] ?? null;
   return same.length > 1 ? 'ambiguous' : null;
 }
 
@@ -402,14 +358,18 @@ export function matchChannel(written, channels) {
  * core of `byCore` whose fold equals the text's run from the first word character, ending at a
  * word boundary.
  */
-function coreAt(text, at, byCore) {
+function coreAt(
+  text: string,
+  at: number,
+  byCore: ReadonlyMap<string, ChannelRef>
+): { channel: ChannelRef; end: number } | null {
   let start = at;
   while (
     start < text.length &&
     !isWordChar(text[start]) &&
-    NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start)))
+    NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start) ?? 0))
   ) {
-    start += String.fromCodePoint(text.codePointAt(start)).length;
+    start += String.fromCodePoint(text.codePointAt(start) ?? 0).length;
   }
   if (!isWordChar(text[start])) return null;
   for (const [core, channel] of byCore) {
@@ -421,9 +381,9 @@ function coreAt(text, at, byCore) {
       while (
         stop < text.length &&
         !isWordChar(text[stop]) &&
-        NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop)))
+        NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop) ?? 0))
       ) {
-        stop += String.fromCodePoint(text.codePointAt(stop)).length;
+        stop += String.fromCodePoint(text.codePointAt(stop) ?? 0).length;
       }
       return { channel, end: stop };
     }
@@ -446,42 +406,50 @@ function coreAt(text, at, byCore) {
  * and the one after the name is not a word character either (or the end). An
  * existing `<#id>` link and a `#` inside a URL (outsideUrls) are left alone;
  * text without `#` comes back unchanged.
- * @param {string} text
- * @param {Iterable<{ id: string, name: string }>} channels  The served guild's text channels.
- * @param {Map<string, string>|null} [handles]  The request's channel handle (without `#`) -> channel id.
- * @returns {string}
+ * `channels` are the served guild's text channels, `handles` the request's channel handle (without `#`) -> channel id.
  */
-export function linkChannels(text, channels, handles = null) {
+export function linkChannels(
+  text: string,
+  channels: Iterable<ChannelRef> | null | undefined,
+  handles: Map<string, string> | null = null
+): string {
   const byHandle = handles instanceof Map && handles.size > 0 ? handles : null;
   if (typeof text !== 'string' || !text.includes('#') || (!channels && !byHandle)) return text;
-  const known = [];
+  const known: Array<ChannelRef> = [];
   for (const channel of channels ?? []) {
     if (typeof channel?.id === 'string' && channel.id && typeof channel.name === 'string' && channel.name)
       known.push(channel);
   }
   if (known.length === 0 && !byHandle) return text;
   known.sort((a, b) => b.name.length - a.name.length);
-  // Each core shared by exactly one channel, the longest first.
-  const counts = new Map();
-  for (const channel of known) {
+  const byCore = uniqueCores(known);
+  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore, byHandle));
+}
+
+/** Each core shared by exactly one of `channels`, the longest core first. */
+function uniqueCores(channels: ReadonlyArray<ChannelRef>): Map<string, ChannelRef> {
+  const counts = new Map<string, Array<ChannelRef>>();
+  for (const channel of channels) {
     const core = channelCore(channel.name);
     if (core) counts.set(core, [...(counts.get(core) ?? []), channel]);
   }
-  const byCore = new Map(
-    [...counts.entries()]
-      .filter(([, channels]) => channels.length === 1)
-      .sort((a, b) => b[0].length - a[0].length)
-      .map(([core, [channel]]) => [core, channel])
-  );
-
-  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore, byHandle));
+  const byCore = new Map<string, ChannelRef>();
+  for (const [core, sharing] of [...counts.entries()].sort((a, b) => b[0].length - a[0].length)) {
+    const [only] = sharing;
+    if (sharing.length === 1 && only !== undefined) byCore.set(core, only);
+  }
+  return byCore;
 }
 
 /** The handle-shaped token right after a `#`: lower-case letters and digits. */
 const CHANNEL_HANDLE_AT_RE = /^[0-9a-z]+/;
 
 /** The channel of the `#handle` at `at` (the `#`) of `text` and where it ends, or null (linkChannels). */
-function handleAt(text, at, byHandle) {
+function handleAt(
+  text: string,
+  at: number,
+  byHandle: ReadonlyMap<string, string> | null
+): { channel: { id: string }; end: number } | null {
   if (!byHandle) return null;
   const token = CHANNEL_HANDLE_AT_RE.exec(text.slice(at + 1))?.[0];
   if (!token || isWordChar(text[at + 1 + token.length])) return null;
@@ -492,7 +460,12 @@ function handleAt(text, at, byHandle) {
 }
 
 /** linkChannels over one stretch of text holding no URL. */
-function linkChannelsIn(text, known, byCore, byHandle = null) {
+function linkChannelsIn(
+  text: string,
+  known: ReadonlyArray<ChannelRef>,
+  byCore: ReadonlyMap<string, ChannelRef>,
+  byHandle: ReadonlyMap<string, string> | null = null
+): string {
   let result = '';
   let index = 0;
   while (index < text.length) {
@@ -500,7 +473,7 @@ function linkChannelsIn(text, known, byCore, byHandle = null) {
     if (at === -1) break;
     result += text.slice(index, at);
     const before = text[at - 1];
-    let linked = null;
+    let linked: { channel: { id: string }; end: number } | null = null;
     if (before !== '<' && !isWordChar(before)) {
       linked = handleAt(text, at, byHandle);
       const exact = linked
@@ -529,14 +502,12 @@ const MESSAGE_NUMBER_RE = /(?<![\p{L}\p{N}_&#<])#(\d+)(?![\p{L}\p{N}_])/gu;
  * when `n` is digits, the character before `#` is not a word character, `&`, `#` or `<`, and the
  * one after the digits is not a word character; a number `resolve` does not know stays as
  * written. Code spans and URLs already present are skipped.
- * @param {string} text
- * @param {(n: number) => (string|null|undefined)} resolve  Number -> link, or null when unmapped.
- * @returns {string}
+ * `resolve` gives the link of a number, null when unmapped.
  */
-export function linkMessageNumbers(text, resolve) {
+export function linkMessageNumbers(text: string, resolve: (n: number) => string | null | undefined): string {
   if (typeof text !== 'string' || !text.includes('#') || typeof resolve !== 'function') return text;
-  const convert = (part) =>
-    part.replace(MESSAGE_NUMBER_RE, (whole, digits) => {
+  const convert = (part: string): string =>
+    part.replace(MESSAGE_NUMBER_RE, (whole: string, digits: string) => {
       const link = resolve(Number(digits));
       return typeof link === 'string' && link ? link : whole;
     });

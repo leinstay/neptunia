@@ -27,6 +27,12 @@ export type Delivery = {
   error: PortError | null;
 };
 
+/**
+ * How an interface writes the address of a message, when its platform has one: a template for a message of a
+ * community and one for a message of a private chat, each with `{community}`, `{conversation}` and `{message}`.
+ */
+export type MessageUrlTemplate = { community: string; direct: string };
+
 export type Capabilities = {
   operations: ReadonlyArray<string>;
   maxChars: number;
@@ -41,6 +47,8 @@ export type Capabilities = {
   voiceFormats: ReadonlyArray<string>;
   publish: ReadonlyArray<string>;
   search: boolean;
+  /** Absent or null: the platform gives a message no address. */
+  messageUrl?: MessageUrlTemplate | null;
 };
 
 // What `fetchMessages` returns is settled with the action that reads messages; until then only the

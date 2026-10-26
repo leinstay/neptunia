@@ -15,9 +15,10 @@
 // result through `labels.skills.result`.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { channelCore, matchChannel, MESSAGE_LINK_RE, occursAsWholeWord } from '../memory/mentions.js';
+import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
+import { MESSAGE_LINK_RE } from '../ops/shared.js';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.js';
 import { nestedRefusal } from './access.js';
 
@@ -121,7 +122,7 @@ function channelIdOf(reference) {
  * The conversation id a channel reference (`#handle`, `#name`, `name`, `<#id>`, an id) names among
  * `conversations` (`{ id, name }`, one entry per id): a handle of `channelHandles` (the request's
  * channel handle without `#` -> channel id; with or without its `#`, exactly) first, else a name by
- * src/memory/mentions.js#matchChannel (the exact name, else the one channel with the same core:
+ * src/memory/mentions.ts#matchChannel (the exact name, else the one channel with the same core:
  * other or no leading emoji, any case and accents). `'ambiguous'` when several share it, null when none.
  */
 function conversationIdOf(reference, conversations, channelHandles = null) {

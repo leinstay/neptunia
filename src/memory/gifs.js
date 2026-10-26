@@ -21,7 +21,7 @@
 // attachment URLs expire).
 
 import { isPlainObject } from '../config.js';
-import { DISCORD_CDN_SITES, mediaParts, siteOf } from '../media/classify.js';
+import { mediaParts } from '../media/classify.js';
 import { sortByRank } from './ranking.js';
 
 /**
@@ -155,8 +155,8 @@ export function collectGifItems(message) {
     }
     for (const link of Array.isArray(part.links) ? part.links : []) {
       if (link?.kind !== 'gif' || link.id == null || typeof link.url !== 'string' || !link.url) continue;
-      // A Discord CDN link's signed URL expires: posted back later it would not embed.
-      if (DISCORD_CDN_SITES.includes(siteOf(link.url))) continue;
+      // A link the interface marked expiring (a signed address) stops working: posted back later it would not embed.
+      if (link.expiring === true) continue;
       const key = String(link.id);
       items.push({
         key,

@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { fill } from '../format.js';
 import { oneLine } from '../memory/clamp.js';
 import { isOpen } from '../memory/index.js';
-import { outsideUrls } from '../memory/mentions.js';
+import { outsideUrls } from '../memory/mentions.ts';
 
 /** The first character of every handle: tells a handle from a name after `@`. */
 export const HANDLE_PREFIX = 'u';
@@ -184,7 +184,7 @@ export function renderDirectory(entries, handles, labels) {
 
 /**
  * `text` with every whole `@handle` of `ids` (handle -> member id) turned into a real mention
- * (`<@id>`), outside URLs (src/memory/mentions.js#outsideUrls). Only the exact token counts: no
+ * (`<@id>`), outside URLs (src/memory/mentions.ts#outsideUrls). Only the exact token counts: no
  * word character right before the `@` or after the handle, case as given. A handle-shaped token
  * (`@` + HANDLE_PREFIX + base-36 digits) the map does not hold stays as written and is counted in
  * `unknown`; any other `@word` (a name) stays as written. Pure.

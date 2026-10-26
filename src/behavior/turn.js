@@ -43,7 +43,7 @@ import {
   withoutPictureKinds,
 } from './diary.js';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
-import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
+import { audienceCovers, createLinker, markSeen, messageLinkOf, resolveDestination, stampPings } from './elsewhere.ts';
 import { isTaggedCall } from './mention.js';
 import { resolveHandles, untaggedNames } from './handles.js';
 import { roleModel } from '../llm/roles.js';
@@ -75,6 +75,7 @@ import {
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { channelById, messageRefOf, postingConversation } from '../ops/shared.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
+import { portIface, portLimit } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
 import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
@@ -101,7 +102,7 @@ import {
   toRecordLine,
   createOffPeriodsReader,
 } from '../memory/index.js';
-import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.js';
+import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.ts';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
@@ -131,7 +132,7 @@ import {
   runWebRead,
   runWebSearch,
 } from '../skills/tools.js';
-import { channelPlaceId, personId } from '../memory/db/ids.js';
+import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
@@ -622,7 +623,7 @@ export { fallbackLookupPlan };
  * author wins a name a stored profile shares, the last author of a display name wins, and of
  * two stored profiles sharing a name the first handed over wins. Longer names are matched
  * first, so a multi-word name is never cut at a shorter one it starts with. A URL in the text
- * is left exactly as written (src/memory/mentions.js#outsideUrls).
+ * is left exactly as written (src/memory/mentions.ts#outsideUrls).
  * What is left falls back to `directory` (mentionDirectory: every member of the served guild
  * the bot knows): matched case-insensitively, longest first, only as a whole name (no letter,
  * digit or underscore right after it); a name one of the request's own sources gives in any
@@ -805,7 +806,7 @@ const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined });
 
 /**
  * The audience of "every member of the server" in the shape
- * src/behavior/elsewhere.js#audienceCovers compares: @everyone views it and no
+ * src/behavior/elsewhere.ts#audienceCovers compares: @everyone views it and no
  * role or member is held back. A source covers it only when every member can
  * read that source -- the private chat's rail for recent lines.
  */
@@ -874,30 +875,6 @@ function sourceLinkTarget({ source, trigger, pulledKept }) {
     return { channelId: trigger.channelId || source.channelId, messageId: trigger.id };
   const newestId = pulledKept.find((shown) => shown.channelId === source.channelId)?.newestId ?? null;
   return newestId ? { channelId: source.channelId, messageId: newestId } : null;
-}
-
-/**
- * The jump links (src/behavior/elsewhere.js#messageLink) of one turn's posts
- * -- its messages, then the GIF, then the picture -- asked in posting order;
- * act and dryAct share the rule, so a rehearsal shows the links a real turn
- * posts. A post answering a pulled line (`pulledId`) links to that line; on a
- * turn about another channel the first post links to `sourceTarget` when it
- * answers none. One line is linked at most once per turn: a second answer to
- * it carries no link.
- * @param {{ guildId: string, pulledIds: Map<string, string>,
- *   sourceTarget: { channelId: string, messageId: string }|null }} args
- * @returns {(pulledId: string|null) => string|null}  The next post's link, or null.
- */
-function createLinker({ guildId, pulledIds, sourceTarget }) {
-  const linked = new Set();
-  let first = true;
-  return (pulledId) => {
-    const target = pulledId ? { channelId: pulledIds.get(pulledId), messageId: pulledId } : first ? sourceTarget : null;
-    first = false;
-    if (!target || linked.has(target.messageId)) return null;
-    linked.add(target.messageId);
-    return messageLink(guildId, target.channelId, target.messageId);
-  };
 }
 
 /**
@@ -1008,26 +985,27 @@ export function imageFileName(mediaType) {
   return `image.${subtype === 'jpeg' ? 'jpg' : subtype}`;
 }
 
-// Discord's limit of files on one message.
-const MAX_FILES_PER_MESSAGE = 10;
+// The files of one message when the adapter names no limit (`capabilities().maxFiles`).
+const DEFAULT_FILES_PER_MESSAGE = 10;
 
 /**
  * A diary set's pictures split into messages, in order: a message holds at
- * most 10 files, and a picture whose bytes would take its message past
+ * most `maxFiles` files, and a picture whose bytes would take its message past
  * `maxBytes` (`diary.set.maxMessageBytes`) starts the next one; a picture
  * larger than `maxBytes` on its own goes alone. Pure.
  * @template {{ buffer: { length: number } }} T
  * @param {T[]} pictures
  * @param {number} maxBytes
+ * @param {number} [maxFiles]
  * @returns {T[][]}
  */
-export function chunkPictures(pictures, maxBytes) {
+export function chunkPictures(pictures, maxBytes, maxFiles = DEFAULT_FILES_PER_MESSAGE) {
   const chunks = [];
   let current = [];
   let bytes = 0;
   for (const picture of Array.isArray(pictures) ? pictures : []) {
     const size = picture?.buffer?.length ?? 0;
-    if (current.length > 0 && (current.length >= MAX_FILES_PER_MESSAGE || bytes + size > maxBytes)) {
+    if (current.length > 0 && (current.length >= maxFiles || bytes + size > maxBytes)) {
       chunks.push(current);
       current = [];
       bytes = 0;
@@ -1039,9 +1017,16 @@ export function chunkPictures(pictures, maxBytes) {
   return chunks;
 }
 
-// A Discord message holds 2000 characters; the part mark is ` (n/m)` on the header plus the newline.
-const MIRROR_MAX_CHARS = 2000;
+// The characters of one message when the adapter names no limit (`capabilities().maxChars`); the part mark is
+// ` (n/m)` on the header plus the newline.
+const DEFAULT_MESSAGE_CHARS = 2000;
 const MIRROR_PART_MARK_CHARS = 16;
+
+/** The room for the text of one part of a mirrored prompt: a message of `port` less its header and the part mark. */
+const mirrorPartChars = (port, headerChars) =>
+  portLimit(port, 'maxChars', DEFAULT_MESSAGE_CHARS) - headerChars - MIRROR_PART_MARK_CHARS;
+/** How many files one message of `port` holds. */
+const filesPerMessage = (port) => portLimit(port, 'maxFiles', DEFAULT_FILES_PER_MESSAGE);
 
 /**
  * `text` in pieces of at most `max` code points, each cut at its last newline
@@ -1103,7 +1088,7 @@ function triggerBringsMedia(trigger, captionItems, videoItems) {
  * Where the persona's words about a channel it cannot write in go (a call
  * from there, a remark on it), read from `config` (the live config) at the
  * call: the first id of `memory.mainChannelIds`
- * (src/behavior/elsewhere.js#resolveDestination) that is a channel of
+ * (src/behavior/elsewhere.ts#resolveDestination) that is a channel of
  * `guild` the persona may write in (interfaces/discord/collect.js#isWritableChannel:
  * a text channel, not a thread, never the dry-run mirror, its history
  * readable, the bot can send) and not `exceptId` (the
@@ -2171,8 +2156,8 @@ export function createTurnRunner({
         ctx =
           memoryContext(
             isPrivate
-              ? { kind: 'dm', person: personId(String(partner)) }
-              : { kind: 'group', destination: channel?.id ? channelPlaceId(channel.id) : null }
+              ? { kind: 'dm', person: personId(portIface(iface), String(partner)) }
+              : { kind: 'group', destination: channel?.id ? channelPlaceId(portIface(iface), channel.id) : null }
           ) ?? null;
       }
     } catch {
@@ -4031,7 +4016,7 @@ export function createTurnRunner({
       { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
       {
         nameOf: liveChannelName(channel),
-        linkOf: (channelId, messageId) => messageLink(channelId === privateId ? '@me' : guildId, channelId, messageId),
+        linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : guildId, channel, message),
       }
     );
   }
@@ -4179,24 +4164,24 @@ export function createTurnRunner({
 
   /**
    * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
-   * pulled lines) turned into the jump link of that message (src/memory/mentions.js#linkMessageNumbers):
+   * pulled lines) turned into the jump link of that message (src/memory/mentions.ts#linkMessageNumbers):
    * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
    * channel (`pulledIds`), any other in `channelId`; a private chat uses `@me` for the guild.
    */
   function withMessageLinks(text, { guildId, channelId, privateChat, idByIndex, pulledIds }) {
     if (hot.config.features?.messageLinks === false || !idByIndex) return text;
-    const scope = privateChat || !guildId ? '@me' : guildId;
+    const community = privateChat || !guildId ? null : guildId;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
-      return `https://discord.com/channels/${scope}/${pulledIds?.get(messageId) ?? channelId}/${messageId}`;
+      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? channelId, messageId);
     });
   }
 
   /**
    * `text` with every `#handle` of `channelHandles` (the request's handle -> channel id) and, with
    * features.channelLinks on (read now; a missing key counts as on), every `#name` of one of the
-   * guild's text channels turned into its `<#id>` link (src/memory/mentions.js#linkChannels; a
+   * guild's text channels turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
    * handle first, exactly). A private chat has no guild: only its handles, if any, are linked.
    */
   function withChannelLinks(channel, text, channelHandles = null) {
@@ -4587,7 +4572,7 @@ export function createTurnRunner({
       // A full prompt outgrows one Discord message: mirrored in numbered parts.
       const setMark = diarySet ? ` · set ${index + 1}/${dryDraws.length}` : '';
       const header = `${head} · draw${self ? ' (self)' : ''}${setMark}`;
-      const parts = splitForMirror(prompt, MIRROR_MAX_CHARS - header.length - MIRROR_PART_MARK_CHARS);
+      const parts = splitForMirror(prompt, mirrorPartChars(iface, header.length));
       for (const [i, part] of parts.entries()) {
         await mirror(parts.length > 1 ? `${header} (${i + 1}/${parts.length})` : header, part);
       }
@@ -5453,7 +5438,7 @@ export function createTurnRunner({
     // A diary set's pictures come last, already generated: one message of files, more past
     // diary.set.maxMessageBytes (read now) or 10 files.
     if (set) {
-      const chunks = chunkPictures(set.pictures, setSettings(hot.config.diary).maxMessageBytes);
+      const chunks = chunkPictures(set.pictures, setSettings(hot.config.diary).maxMessageBytes, filesPerMessage(iface));
       let setMessages = 0;
       let setPictures = 0;
       for (const [index, chunk] of chunks.entries()) {
@@ -6503,7 +6488,7 @@ export function createTurnRunner({
    * `memory.recentHours` (src/memory/store.js#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the
    * channel the turn posts in, and every channel whose audience covers it
-   * (interfaces/discord/collect.js#audienceOf, src/behavior/elsewhere.js#audienceCovers:
+   * (interfaces/discord/collect.js#audienceOf, src/behavior/elsewhere.ts#audienceCovers:
    * everyone who can read this channel can read that one). In a private chat:
    * the channels every member of the served guild can read. A channel the
    * guild does not hold is never covered. No live line: an empty list (the
@@ -7033,7 +7018,7 @@ export function createTurnRunner({
   /**
    * Move the seen mark of each pulled channel whose block the request showed
    * (buildRequest's `pulledKept`) to the newest line shown, in `state.json`
-   * `elsewhereSeen` (src/behavior/elsewhere.js#markSeen: never backwards). The
+   * `elsewhereSeen` (src/behavior/elsewhere.ts#markSeen: never backwards). The
    * caller marks the state dirty.
    * @param {{ channelId: string, newestTs: number }[]} shown
    */
@@ -7081,7 +7066,7 @@ export function createTurnRunner({
    * cannot write in (buildRequest's `pulledKept`) is stamped answered when
    * what reached the chat answered it (`answered`, from act), else skipped --
    * it was in view, so no later pull presents it as waiting for an answer
-   * (src/behavior/elsewhere.js#stampPings: an answer wins over a skip, a stamp
+   * (src/behavior/elsewhere.ts#stampPings: an answer wins over a skip, a stamp
    * never moves). A pulled channel the bot can write in is left alone (a call
    * there is answered there), and so is `exceptId`: a routed turn's own call,
    * which its caller (src/behavior/pipeline.js) stamps by the turn's outcome.
@@ -8634,7 +8619,7 @@ export function createTurnRunner({
           store.getUser?.(guildId, fact.authorId)?.names?.[0] ??
           '',
         messageId: fact.messageId,
-        link: messageLink(isPrivate ? '@me' : guildId, channel.id, fact.messageId),
+        link: messageLinkOf(iface, isPrivate ? null : guildId, channel.id, fact.messageId),
         at: fact.at,
         code: fact.code,
       }));
@@ -9102,7 +9087,7 @@ export function createTurnRunner({
       // Behind those, every member of the served guild the bot knows (built once, on the first `@`).
       const directory = handles ? null : turnDirectory({ guildId, channel, memoryOn });
       const linkFor = createLinker({
-        guildId,
+        linkOf: (channelId, messageId) => messageLinkOf(iface, guildId, channelId, messageId),
         pulledIds,
         sourceTarget: isPrivate ? null : sourceLinkTarget({ source, trigger, pulledKept: shownPulled }),
       });

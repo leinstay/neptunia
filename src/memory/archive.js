@@ -27,7 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
 import { stripUrls } from './clamp.js';
-import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
+import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.js';
 import { memoryRootOf } from './root.js';
 import { createReadSeam } from './db/readers/common.js';

@@ -43,11 +43,16 @@ export async function replayFixture(fixture, door, { port = null } = {}) {
   return answers;
 }
 
-/** The fake's default capabilities beyond its operations: the limits of a message. */
+/** The fake's default capabilities beyond its operations: the limits of a message and how it addresses one. */
 export const FAKE_CAPABILITIES = Object.freeze({
   maxChars: 2000,
   maxFiles: 10,
   maxFileBytes: 8 * 1024 * 1024,
+  // A message address shaped like a chat platform's jump link, so a test sees the links the core writes.
+  messageUrl: Object.freeze({
+    community: 'https://discord.com/channels/{community}/{conversation}/{message}',
+    direct: 'https://discord.com/channels/@me/{conversation}/{message}',
+  }),
 });
 
 /**
@@ -60,7 +65,7 @@ export const FAKE_CAPABILITIES = Object.freeze({
 /**
  * An in-memory port.
  * @param {{ iface?: string, selfId?: string, operations?: Iterable<string>|null,
- *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'>>, now?: () => number }} [options]
+ *   capabilities?: Partial<Pick<import('./port.js').Capabilities, 'maxChars'|'maxFiles'|'maxFileBytes'|'messageUrl'>>, now?: () => number }} [options]
  *   `operations`: the capability names offered (all of CAPABILITIES when absent); `capabilities`:
  *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) over FAKE_CAPABILITIES; `selfId`: the
  *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.

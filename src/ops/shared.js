@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { emptyAffinity, affinityBand, roundScore } from '../memory/index.js';
 import { topByRank } from '../memory/ranking.js';
-import { fromTokens, MESSAGE_LINK_RE } from '../memory/mentions.js';
+import { fromTokens } from '../memory/mentions.ts';
 import { MODEL_ROLES } from './catalog.js';
 import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
@@ -333,7 +333,7 @@ export function truncateForSummary(value, maxChars, sectionName) {
  * — long fields are truncated with an ellipsis and, when the full text lives
  * under its own section, a pointer to it. `<@id>` tokens in free-text fields
  * are resolved via `nameOf` the same way every other analyzer-facing text is
- * (src/memory/mentions.js#fromTokens, mode `'analyzer'`). Pure: no I/O.
+ * (src/memory/mentions.ts#fromTokens, mode `'analyzer'`). Pure: no I/O.
  * @param {object} profile
  * @param {object} [memoryCfg]  hot.config.memory
  * @param {(id: string) => (string|null)} [nameOf]
@@ -757,6 +757,15 @@ export async function postingConversation({ client, discord, guildId, channelId,
   }
   return id;
 }
+
+/**
+ * A message link a person pasted to name a message, the whole text: `https://discord.com/channels/<guild>/<channel>/<message>`
+ * (ptb, canary, discordapp too; `@me` for a private chat); groups: the channel id, the message id. The operations
+ * (`messageRefOf`) and her calls (src/skills/executors.js#resolveCall) read it. A pasted link is still parsed in the
+ * core, the one Discord pattern left there: reading it through the adapter comes with the conversation reads.
+ */
+export const MESSAGE_LINK_RE =
+  /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
 
 /**
  * `{ channelId, messageId }` of a message id (`channelId` null) or a message link; an `invalid`

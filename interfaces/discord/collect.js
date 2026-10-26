@@ -8,20 +8,18 @@
 
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../../src/log.js';
-import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.js';
+import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
 import { MINUTE_MS } from '../../src/time.js';
 import {
   classifyAttachment,
   classifyEmbed,
-  stickerUrl,
   emojiUrl,
   linkThumbnailCacheKey,
-  discordCdnVideo,
-  DISCORD_CDN_SITES,
   siteOf,
   positiveDimension,
   clipWithEllipsis,
 } from '../../src/media/classify.js';
+import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
@@ -41,6 +39,34 @@ const CHANNEL_MENTION_RE = new RegExp(`<#(${ID_DIGITS})>`, 'g');
 // config.json's context.maxUrlChars: the longest a URL in a message's text reads.
 const DEFAULT_MAX_URL_CHARS = 200;
 const URL_IN_TEXT_RE = new RegExp(URL_PATTERN, 'g');
+// A Discord message link inside a text, optionally in angle brackets (`https://discord.com/channels/<guild>/<channel>/<message>`,
+// the ptb, canary and discordapp hosts too, `@me` for a private chat). Groups: `<`, the link, the channel id, the
+// message id, `>`. Not glued to a word or a path before it, and nothing that continues a URL (a word character,
+// `/`, a query, a fragment) after it.
+const MESSAGE_LINK_IN_TEXT_RE =
+  /(?<![\w/])(<?)(https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?)(>?)(?![\w/?#&=%~+-])/gi;
+
+/**
+ * The messages a text links to, as neutral references in the order they are written: `{ iface, conversationId,
+ * messageId, url, text }`. `text` is the span as written (a link in angle brackets with both brackets, a lone
+ * bracket left out), `url` the link itself. The core turns a reference to a message of its window into that
+ * message's `#n` and never reads a Discord address.
+ * @param {unknown} text
+ * @returns {Array<{ iface: string, conversationId: string, messageId: string, url: string, text: string }>}
+ */
+export function messageRefsOf(text) {
+  if (typeof text !== 'string' || text === '') return [];
+  return [...text.matchAll(MESSAGE_LINK_IN_TEXT_RE)].map((match) => {
+    const [, open, link, conversationId, messageId, close] = match;
+    return {
+      iface: DISCORD_IFACE,
+      conversationId,
+      messageId,
+      url: link,
+      text: open && close ? `<${link}>` : link,
+    };
+  });
+}
 
 /**
  * Custom emoji markup `<:name:id>` / `<a:name:id>` reads better as `:name:`.
@@ -277,14 +303,18 @@ function capUrls(text, maxUrlChars) {
  * `<url>` form included). A posted link's URL stays in the text, every URL
  * left there cut to `maxUrlChars` (capUrls).
  */
-function normalizeMedia(idPrefix, source, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars) {
+function normalizeMedia(idPrefix, source, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars, imageSize) {
   const real = normalizeAttachments(source.attachments, isVoice);
+  const size = typeof imageSize === 'number' ? imageSize : undefined;
   const { embedLinks, links } = normalizeLinks(idPrefix, source.embeds, embedTextChars, cleanText, videoSites);
   const cdn = cdnVideoAttachments(source.embeds, cleanText, real);
   const stripped = cdn.urls.flatMap((url) => [{ url: `<${url}>` }, { url }]);
   return {
-    attachments: [...real, ...cdn.videos],
-    links: links.filter((link) => !cdn.embedUrls.has(link.url)),
+    attachments: [...previewAttachments(real, size), ...cdn.videos],
+    // The embed links carry their expiry and preview; the typed video-site ones after them are the core's own reading.
+    links: [...previewLinks(embedLinks, size), ...links.slice(embedLinks.length)].filter(
+      (link) => !cdn.embedUrls.has(link.url)
+    ),
     content: capUrls(stripEmbedUrls(cleanText, [...stripped, ...embedLinks.filter(hidesUrl)]), maxUrlChars),
   };
 }
@@ -304,7 +334,7 @@ function stripEmbedUrls(content, links) {
  * no id/channel/author. A Discord CDN video link in it becomes a video
  * attachment and its URLs read as in the message itself (see normalizeMedia).
  */
-function normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars) {
+function normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars, imageSize) {
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
@@ -316,7 +346,8 @@ function normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars) {
     cleanText,
     embedTextChars,
     videoSites,
-    maxUrlChars
+    maxUrlChars,
+    imageSize
   );
   return {
     content,
@@ -362,12 +393,14 @@ function replyPingUserId(message, mentionedUserIds) {
  * the link items keep the whole URL.
  * @param {object} message  A discord.js Message.
  * @param {string} selfId
- * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} [options]
+ * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, imageSize?: number }} [options]
+ *   `imageSize`: `media.imageSize`, the longest side of a preview address (see media.js#previewUrlOf).
  */
 export function normalizeMessage(message, selfId, options = {}) {
   const embedTextChars = options.embedTextChars ?? 200;
   const videoSites = options.videoSites ?? [];
   const maxUrlChars = options.maxUrlChars ?? DEFAULT_MAX_URL_CHARS;
+  const imageSize = options.imageSize;
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
   const emojis = extractEmojis(message.content ?? cleanContent);
@@ -379,10 +412,11 @@ export function normalizeMessage(message, selfId, options = {}) {
     cleanText,
     embedTextChars,
     videoSites,
-    maxUrlChars
+    maxUrlChars,
+    imageSize
   );
   const forwarded = [...(message.messageSnapshots?.values?.() ?? [])].map((snapshot) =>
-    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars)
+    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars, imageSize)
   );
 
   // A forward's `message.reference.messageId` is the ORIGINAL message, not
@@ -446,6 +480,8 @@ export function normalizeMessage(message, selfId, options = {}) {
     // Fresh on every history fetch (a REST call); a message straight from
     // messageCreate has none yet. Forwarded snapshots carry none.
     reactions: normalizeReactions(message.reactions),
+    // The messages the text links to (a Discord message link), for the core to number or leave as written.
+    messageRefs: messageRefsOf(content),
   };
 }
 
@@ -461,15 +497,17 @@ const idString = (value) => (value === undefined || value === null ? null : Stri
 
 /**
  * The normalizeMessage options from the live config (`media.embedTextChars`,
- * `media.video.sites`, `context.maxUrlChars`): the one copy every caller reads.
- * @param {object} config
- * @returns {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }}
+ * `media.video.sites`, `context.maxUrlChars`, `media.imageSize`): the one copy every caller reads.
+ * @param {{ media?: { embedTextChars?: number, imageSize?: number, video?: { sites?: string[] } },
+ *   context?: { maxUrlChars?: number } }|null|undefined} config
+ * @returns {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, imageSize?: number }}
  */
 export function normalizeOptions(config) {
   return {
     embedTextChars: config?.media?.embedTextChars,
     videoSites: config?.media?.video?.sites,
     maxUrlChars: config?.context?.maxUrlChars,
+    imageSize: config?.media?.imageSize,
   };
 }
 
@@ -489,7 +527,7 @@ function conversationOf(message) {
   return {
     id: message?.channelId,
     kind,
-    guildId: idString(guildId),
+    communityId: idString(guildId),
     name: channel?.name ?? null,
     topic: channel?.topic ?? null,
     category: channel?.parent?.name ?? null,
@@ -593,6 +631,7 @@ export function toEvent(message, selfId, options = {}) {
       stickers: normalized.stickers,
       emojis: normalized.emojis,
       reactions: normalized.reactions,
+      messageRefs: normalized.messageRefs,
     },
     addressing: {
       mentioned: message.mentions?.users?.has?.(selfId) === true,
@@ -642,6 +681,7 @@ export function normalizedOf(event) {
     stickers: message.stickers,
     emojis: message.emojis,
     reactions: message.reactions,
+    messageRefs: /** @type {{ messageRefs?: unknown[] }} */ (message).messageRefs ?? [],
   };
 }
 
@@ -1169,7 +1209,7 @@ export async function fetchNeighbors(channel, config, selfId, now = Date.now(), 
 
 /**
  * Who can view `channel`, read from Discord's permissions in the Audience
- * shape `audienceCovers` (src/behavior/elsewhere.js) compares:
+ * shape `audienceCovers` (src/behavior/elsewhere.ts) compares:
  * - `everyone`: the @everyone role can view it (its overwrite applied);
  * - `roles`: the id of EVERY role of the guild (@everyone included) that can
  *   view it, each resolved on its own by `channel.permissionsFor(role)`, which
