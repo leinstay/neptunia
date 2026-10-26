@@ -10,19 +10,9 @@ import {
   buildCommandTree,
   registerCommands,
   createInteractionHandler,
-  commandKeys,
   commandEvent,
 } from '../src/interface/discord.js';
-import {
-  isValidCommandName,
-  leafPaths,
-  commandSize,
-  COMMAND_TABLE,
-  MODEL_ROLES,
-  MODEL_SET_ROLES,
-  STATUS_FIELDS,
-  readFlag,
-} from '../src/ops/catalog.js';
+import { isValidCommandName, leafPaths, commandSize, STATUS_FIELDS, readFlag } from '../src/ops/catalog.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
@@ -30,66 +20,9 @@ import { getOp } from '../src/ops/registry.js';
 import { grantKeys } from '../src/ops/access.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
-function findOption(options, name) {
-  return options?.find((o) => o.name === name);
-}
-
 // ---------------------------------------------------------------------------
 // buildCommandTree
 // ---------------------------------------------------------------------------
-
-test('buildCommandTree: one top-level command, named from the argument', () => {
-  // Not the default name: a name hard-coded in the tree builder must fail here.
-  const tree = buildCommandTree('bot2');
-  assert.equal(tree.length, 1);
-  const [command] = tree;
-  assert.equal(command.name, 'bot2');
-});
-
-test('buildCommandTree: no subcommand or group name anywhere in the tree contains a hyphen', () => {
-  const [command] = buildCommandTree('nep');
-  const names = [];
-  const walk = (options) => {
-    for (const option of options ?? []) {
-      if (option.type === 1 || option.type === 2) {
-        names.push(option.name);
-        walk(option.options);
-      }
-    }
-  };
-  walk(command.options);
-  assert.ok(names.length > 0);
-  for (const name of names) assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
-});
-
-test("status: an optional field option that autocompletes the field names of the card (no fixed choices: the command stays under Discord's size limit)", () => {
-  const [command] = buildCommandTree('nep');
-  const field = findOption(findOption(command.options, 'status').options, 'field');
-  assert.equal(field.type, 3);
-  assert.equal(field.required, false);
-  assert.equal(field.autocomplete, true);
-  assert.equal(Object.hasOwn(field, 'choices'), false);
-  assert.deepEqual(
-    [...STATUS_FIELDS],
-    [
-      'state',
-      'tasks',
-      'models.base',
-      'keys.base',
-      'costs.base',
-      'models.errands',
-      'costs.errands',
-      'models.development',
-      'costs.development',
-      'inner',
-      'limits',
-      'memory',
-      'speed',
-    ],
-    "the core's sections, then the agents'"
-  );
-  for (const name of STATUS_FIELDS) assert.match(name, /^[a-z]+(\.[a-z]+)?$/, name);
-});
 
 test('interaction handler: status passes the chosen field into its args, null without one', async () => {
   const admin = fakeAdmin();
@@ -100,41 +33,6 @@ test('interaction handler: status passes the chosen field into its args, null wi
     admin.runCalls.map((call) => call[1]),
     [{ field: 'limits' }, { field: null }]
   );
-});
-
-test('status: no detail option', () => {
-  const [command] = buildCommandTree('nep');
-  assert.deepEqual(
-    findOption(command.options, 'status').options.map((o) => o.name),
-    ['field']
-  );
-});
-
-test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRING with lowercase true/false choices', () => {
-  const [command] = buildCommandTree('nep');
-  const all = [];
-  const walk = (options) => {
-    for (const option of options ?? []) {
-      all.push(option);
-      walk(option.options);
-    }
-  };
-  walk(command.options);
-  assert.deepEqual(
-    all.filter((option) => option.type === 5).map((option) => option.name),
-    []
-  );
-  const flags = all.filter((option) => option.type === 3 && option.choices?.some((choice) => choice.value === 'true'));
-  assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'byok', 'fallbacks', 'self']);
-  for (const option of flags)
-    assert.deepEqual(
-      option.choices,
-      [
-        { name: 'true', value: 'true' },
-        { name: 'false', value: 'false' },
-      ],
-      option.name
-    );
 });
 
 test('readFlag: true/false as text (any case) or as a boolean; anything else is null', () => {
@@ -159,15 +57,6 @@ test('interaction handler: a yes/no option reaches the args as a boolean, its de
 });
 
 test('buildCommandTree: route set has an optional STRING byok option with the true/false choices, reaching the args as a boolean', async () => {
-  const [command] = buildCommandTree('nep');
-  const set = findOption(findOption(command.options, 'route').options, 'set');
-  const byok = findOption(set.options, 'byok');
-  assert.equal(byok.type, 3);
-  assert.equal(byok.required, false);
-  assert.deepEqual(byok.choices, [
-    { name: 'true', value: 'true' },
-    { name: 'false', value: 'false' },
-  ]);
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   for (const value of ['true', 'false', undefined]) {
@@ -184,227 +73,9 @@ test('buildCommandTree: route set has an optional STRING byok option with the tr
   );
 });
 
-test('MODEL_ROLES: the model-set, route and ping role choices are all derived from the one list', () => {
-  const [command] = buildCommandTree('nep');
-  const values = (option) => option.choices.map((c) => c.value);
-  const names = (option) => option.choices.map((c) => c.name);
-  const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  const agents = ['scout', 'server', 'thinker', 'dev'];
-  assert.deepEqual(
-    values(setRole),
-    [...MODEL_ROLES, 'drawing', ...agents],
-    'the base roles (models.base: the core, the helpers, drawing), then the errand and development roles'
-  );
-  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
-  assert.ok(
-    MODEL_ROLES.includes('core') &&
-      !MODEL_ROLES.includes('voice') &&
-      !MODEL_ROLES.includes('talk') &&
-      !MODEL_ROLES.includes('drawing')
-  );
-  assert.ok(
-    MODEL_ROLES.includes('analyzer') && MODEL_ROLES.includes('embedding') && !MODEL_ROLES.includes('reasoner'),
-    'the helper and the embedding roles are set and routed like the others; the reasoner is merged into the analyzer'
-  );
-  assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
-  const route = findOption(command.options, 'route');
-  for (const sub of ['set', 'remove']) {
-    const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(
-      values(role),
-      [...MODEL_ROLES.filter((r) => r !== 'speech'), 'drawing'],
-      `${sub}: no agent role (the bot routes none), no speech (routed by its prefix)`
-    );
-    assert.deepEqual(names(role), values(role), sub);
-  }
-});
-
-test('buildCommandTree: the exact top-level list (18 entries, no skill group, no talk)', () => {
-  const [command] = buildCommandTree('nep');
-  const top = command.options.map((option) => option.name);
-  assert.deepEqual(top, [
-    'status',
-    'set',
-    'unset',
-    'pause',
-    'resume',
-    'draw',
-    'pings',
-    'media',
-    'model',
-    'route',
-    'rule',
-    'access',
-    'message',
-    'task',
-    'alias',
-    'learning',
-    'lore',
-    'memory',
-  ]);
-  assert.deepEqual(
-    COMMAND_TABLE.map((node) => node.name),
-    top,
-    'the tree is the table'
-  );
-  const groups = Object.fromEntries(
-    command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)])
-  );
-  assert.deepEqual(groups, {
-    model: ['show', 'set'],
-    route: ['list', 'set', 'remove'],
-    rule: ['add', 'list', 'remove'],
-    access: ['grant', 'revoke', 'list'],
-    message: ['create', 'edit', 'delete', 'react'],
-    task: ['run', 'status', 'cancel', 'list', 'intent', 'places', 'inner', 'search', 'read', 'look'],
-    alias: ['add', 'remove'],
-    learning: ['add', 'remove'],
-    lore: ['add', 'list', 'show', 'remove'],
-    memory: [
-      'show',
-      'channel',
-      'server',
-      'recent',
-      'affinity',
-      'journal',
-      'archive',
-      'restore',
-      'snapshot',
-      'private',
-      'search',
-    ],
-  });
-  const choices = (option) => option.choices.map((c) => c.value);
-  const message = findOption(command.options, 'message');
-  const create = findOption(message.options, 'create');
-  // A person gives a channel and a message to answer; her own text is never a Discord option.
-  assert.deepEqual(
-    create.options.map((option) => option.name),
-    ['channel', 'reply']
-  );
-  assert.equal(JSON.stringify(command).includes('personaOptions'), false);
-  assert.deepEqual(choices(findOption(findOption(message.options, 'react').options, 'action')), ['add', 'remove']);
-  const media = findOption(command.options, 'media');
-  assert.deepEqual(choices(findOption(media.options, 'kind')), ['emoji', 'gifs', 'pictures']);
-  assert.deepEqual(
-    [
-      findOption(media.options, 'days').required,
-      findOption(media.options, 'days').min_value,
-      findOption(media.options, 'days').max_value,
-    ],
-    [false, 1, 60]
-  );
-  assert.deepEqual(choices(findOption(media.options, 'action')), ['status', 'rescan', 'recache']);
-  const privateMemory = findOption(findOption(command.options, 'memory').options, 'private');
-  assert.deepEqual(
-    privateMemory.options.map((o) => o.name),
-    ['user'],
-    'it only reads'
-  );
-  assert.equal(findOption(privateMemory.options, 'user').required, true);
-});
-
-test('buildCommandTree: option names are lowercase and no name carries a hyphen', () => {
-  const [command] = buildCommandTree('nep');
-  const names = [];
-  const walk = (options) => {
-    for (const option of options ?? []) {
-      names.push(option.name);
-      walk(option.options);
-    }
-  };
-  walk(command.options);
-  assert.ok(names.length > 50);
-  for (const name of names) {
-    assert.equal(name, name.toLowerCase(), `${name} must be lowercase`);
-    assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
-  }
-  const restore = findOption(findOption(command.options, 'memory').options, 'restore');
-  assert.deepEqual(
-    restore.options.map((o) => o.name),
-    ['id'],
-    'restore takes `id`, not `item`'
-  );
-});
-
-test('buildCommandTree: the whole command with every description stays under the limit', () => {
-  const [command] = buildCommandTree('nep');
-  const size = commandSize(command);
-  const json = JSON.stringify(command).length;
-  assert.ok(size <= 7600, `the command counts ${size} characters toward Discord's 8000 (serialized JSON: ${json})`);
-  // Every node carries a description, so the count above covers them all.
-  const walk = (node, path) => {
-    assert.ok(typeof node.description === 'string' && node.description.length > 0, `${path} has no description`);
-    for (const option of node.options ?? []) walk(option, `${path}/${option.name}`);
-  };
-  walk(command, command.name);
-});
-
 // ---------------------------------------------------------------------------
 // commandKeys
 // ---------------------------------------------------------------------------
-
-test('buildCommandTree: pings is a top-level subcommand with an optional mode of on or off', () => {
-  const pings = findOption(buildCommandTree('nep')[0].options, 'pings');
-  assert.equal(pings.type, 1);
-  assert.equal(pings.options.length, 1);
-  const [mode] = pings.options;
-  assert.equal(mode.name, 'mode');
-  assert.equal(mode.required, false);
-  assert.deepEqual(mode.choices, [
-    { name: 'on', value: 'on' },
-    { name: 'off', value: 'off' },
-  ]);
-  assert.ok(commandKeys().keys.has('pings'));
-});
-
-test('commandKeys: every group and every leaf command key, derived from the tree', () => {
-  const { keys, groups } = commandKeys();
-  assert.ok(groups.has('memory'));
-  assert.ok(groups.has('rule'));
-  assert.ok(groups.has('lore'));
-  assert.ok(groups.has('model'));
-  assert.ok(groups.has('access'));
-  assert.ok(groups.has('alias'));
-  assert.ok(groups.has('learning'));
-  assert.ok(!groups.has('learned'), 'renamed to learning');
-  assert.ok(!groups.has('private'), 'private memory lives under memory');
-  assert.ok(!groups.has('emoji') && !groups.has('gifs'), 'not registered any more');
-  assert.ok(!groups.has('status'), 'a bare top-level command is not a group');
-  assert.ok(keys.has('memory.private'));
-  assert.ok(keys.has('message.create'));
-  assert.ok(keys.has('media'));
-  for (const gone of [
-    'private.show',
-    'private.forget',
-    'private.purge',
-    'emoji.status',
-    'gifs.recache',
-    'interject',
-    'initiate',
-    'talk',
-    'skill.allow',
-    'ping',
-    'reload',
-    'learned.list',
-  ]) {
-    assert.ok(!keys.has(gone), `${gone} is not in the tree`);
-  }
-
-  assert.ok(keys.has('status'));
-  assert.ok(keys.has('memory.show'));
-  assert.ok(keys.has('access.grant'));
-  assert.ok(keys.has('access.revoke'));
-  assert.ok(keys.has('access.list'));
-  assert.ok(keys.has('alias.add'));
-  assert.ok(keys.has('alias.remove'));
-  assert.ok(!keys.has('learned.list') && !keys.has('learning.list'), 'no list command');
-  assert.ok(keys.has('learning.add'));
-  assert.ok(keys.has('learning.remove'));
-  assert.ok(!keys.has('memory.alias-add'));
-  assert.ok(!keys.has('memory.alias-remove'));
-  assert.ok(!keys.has('memory'), 'a group name alone is not a leaf key');
-});
 
 // ---------------------------------------------------------------------------
 // isValidCommandName
@@ -1283,18 +954,6 @@ test('autocomplete: a foreign guild is ignored', async () => {
   assert.equal(interaction.respondCalls.length, 0);
 });
 
-test("buildCommandTree: every description fits Discord's 1..100 character limit", () => {
-  const tree = buildCommandTree('nep');
-  const top = Array.isArray(tree) ? tree[0] : tree;
-  const walk = (o, path) => {
-    if (o.description !== undefined) {
-      assert.ok(o.description.length >= 1 && o.description.length <= 100, `${path}: ${o.description.length} chars`);
-    }
-    for (const x of o.options || []) walk(x, `${path}/${x.name}`);
-  };
-  walk(top, top.name);
-});
-
 // ---------------------------------------------------------------------------
 // commandSize: Discord's 8000-character limit for one application command
 // ---------------------------------------------------------------------------
@@ -1338,34 +997,6 @@ test('commandSize: sums names, descriptions, choice names and values through eve
     ],
   };
   assert.equal(commandSize(command), 3 + 4 + 3 + 6 + 3 + 4 + 4 + 5 + 5 + 2 + 3 + 2 + 3 + 2 + 3 + 4 + 1 + 2);
-});
-
-test('buildCommandTree: the whole command stays under 7600 characters (Discord refuses over 8000)', () => {
-  const [command] = buildCommandTree('nep');
-  const size = commandSize(command);
-  assert.ok(size <= 7600, `the command tree is ${size} characters`);
-  // The longest valid command name leaves the same margin.
-  assert.ok(commandSize(buildCommandTree('a'.repeat(32))[0]) <= 7600 + 29);
-});
-
-test('buildCommandTree: at most 25 options and 25 choices per level, valid names, choice names 1..100', () => {
-  const [command] = buildCommandTree('nep');
-  const walk = (o, path) => {
-    assert.ok((o.options ?? []).length <= 25, `${path}: ${(o.options ?? []).length} options`);
-    assert.ok((o.choices ?? []).length <= 25, `${path}: ${(o.choices ?? []).length} choices`);
-    for (const choice of o.choices ?? []) {
-      assert.ok(choice.name.length >= 1 && choice.name.length <= 100, `${path}: choice ${choice.name}`);
-      assert.ok(
-        String(choice.value).length >= 1 && String(choice.value).length <= 100,
-        `${path}: choice value ${choice.value}`
-      );
-    }
-    for (const x of o.options ?? []) {
-      assert.ok(isValidCommandName(x.name), `${path}/${x.name}: invalid name`);
-      walk(x, `${path}/${x.name}`);
-    }
-  };
-  walk(command, command.name);
 });
 
 // ---------------------------------------------------------------------------

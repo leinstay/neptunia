@@ -6,7 +6,7 @@
     "src/behavior/sandbox.js": 2136,
     "src/behavior/turn.js": 7570,
     "src/memory/store.js": 3346,
-    "tests/admin.test.js": 3884,
+    "tests/admin.test.js": 3882,
     "tests/describe.test.js": 3190,
     "tests/events.test.js": 7865,
     "tests/openrouter.test.js": 3082,

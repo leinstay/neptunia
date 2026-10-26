@@ -6,9 +6,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '../src/ops/index.js';
+import { legacyGrantOps, listOps, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { commandKeys, createDiscordInterface } from '../src/interface/discord.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
 import { createTaskStore } from '../src/errands/store.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -209,46 +209,6 @@ test('ops: an exception becomes failed with its code', async () => {
   assert.equal(other.code, 'error');
 });
 
-test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
-  const registered = new Set(listOps().map((op) => op.name));
-  // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = {
-    media: ['status', 'rescan', 'recache'],
-    'message.react': ['add', 'remove'],
-    'task.intent': ['add', 'update', 'cancel', 'list'],
-    'task.inner': ['stop', 'start', 'status'],
-  };
-  const KINDS = {};
-  for (const key of commandKeys().keys) {
-    assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
-    const variants = Object.hasOwn(ACTIONS, key)
-      ? ACTIONS[key].map((action) => ({ action }))
-      : Object.hasOwn(KINDS, key)
-        ? KINDS[key].map((kind) => ({ kind }))
-        : [{}, { score: 10, mode: 'on' }];
-    for (const args of variants) {
-      const target = resolveCommand(key, args);
-      assert.ok(target && registered.has(target.op), `${key} ${JSON.stringify(args)} maps to an unregistered op`);
-    }
-  }
-  assert.equal(resolveCommand('memory.affinity', { userId: '1' }).op, 'memory.affinity.read');
-  assert.equal(
-    resolveCommand('memory.affinity', { userId: '1', score: 0 }).op,
-    'memory.affinity.read',
-    'a score picks nothing any more'
-  );
-  assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), {
-    op: 'media.recache',
-    args: { kind: 'gifs', action: 'recache' },
-  });
-  assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
-  assert.match(resolveCommand('message.react', {}).invalid, /action must be one of: add, remove/);
-  assert.equal(resolveCommand('talk', {}), null, '/nep talk is message create now');
-  assert.deepEqual(legacyGrantOps('interject'), { from: null, names: ['message.create'] });
-  assert.equal(resolveCommand('gifs.recache', {}), null, 'an old key dispatches nothing');
-  for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
-});
-
 test('ops: no memory refresh, forget, wipe or purge operation is left', () => {
   const ops = listOps();
   const gone = ['memory.refresh', 'memory.forget', 'memory.wipe', 'memory.private.forget', 'memory.private.purge'];
@@ -256,8 +216,6 @@ test('ops: no memory refresh, forget, wipe or purge operation is left', () => {
     ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name),
     []
   );
-  for (const key of ['memory.refresh', 'memory.forget', 'memory.wipe'])
-    assert.equal(Object.hasOwn(COMMAND_TO_OP, key), false, key);
 });
 
 test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {

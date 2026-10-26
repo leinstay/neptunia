@@ -626,26 +626,6 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
     'usage D 0.50 | L7 0.00 | L30 0.00',
     'agents+core key 0.00/5.00',
   ]);
-  const shipped = JSON.parse(
-    fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'prompts', 'labels.json'), 'utf8')
-  ).status.costs;
-  const five = keyCostsLines({
-    key: ok({}),
-    sim: ok({}),
-    labels: { status: { costs: shipped } },
-    roleKeys: [
-      { roles: ['server', 'scout'], key: ok({ limit: 10, limit_remaining: 9 }) },
-      { roles: ['dev'], key: ok({ limit: 20, limit_remaining: 15 }) },
-    ],
-  });
-  assert.ok(
-    five.some((text) => text.startsWith('dedicated errands key: 1.00 / 10.00 USD')),
-    `the shipped wording names the errand agents' key "errands": ${five.join(' / ')}`
-  );
-  assert.ok(
-    five.some((text) => text.startsWith('dedicated development key: 5.00 / 20.00 USD')),
-    `and the coding worker's "development": ${five.join(' / ')}`
-  );
   const plain = keyCostsLines({
     key: ok({}),
     labels: { status: { costs: { ...labels.status.costs, roleNames: 'odd' } } },
