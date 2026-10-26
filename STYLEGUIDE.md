@@ -230,6 +230,7 @@ function firstOf<TItem, TKey extends string>(items: Array<TItem>, key: TKey): TI
 | `core` | The platform-neutral engine in `src/`. |
 | `interface`, `adapter` | A package for one platform; its adapter translates between the platform and the protocol. |
 | `conversation` | Where people talk. Kinds: `dm`, `group`, `channel`, `thread`. |
+| `community` | A group of conversations under one membership: a Discord server, a Telegram channel's audience. |
 | `event`, `action` | What arrives from an interface, and what the core asks an interface to do. |
 | `turn`, `step` | One run of the persona over an event or a wake, and one model call inside it. |
 | `tool` | Code with a schema that the model calls. |
