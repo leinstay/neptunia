@@ -1,15 +1,19 @@
 // The members of each community as an interface reported them through `membership.changed`: the core reads the name
-// a member goes by here (the persona's own display name in every request, the names the embedding queue shows),
-// never from a platform object. A nickname change arrives as an `updated` change and replaces the name at once; a
-// member who left is forgotten. Names are kept per community, so one member of two communities has two names.
+// a member goes by here (the persona's own display name in every request, the names the embedding queue shows), and
+// whether the member is a bot (the reactors named on her lines), never from a platform object. A nickname change
+// arrives as an `updated` change and replaces the name at once; a member who left is forgotten. Names are kept per
+// community, so one member of two communities has two names.
 
 import type { MembershipChanged } from '../protocol/events.js';
 
 export function createMemberDirectory(): {
   apply(event: MembershipChanged): void;
   nameOf(communityId: string, userId: string): string | null;
+  infoOf(communityId: string, userId: string): { name: string; bot: boolean } | null;
+  /** Every member of the community the directory holds, with the id. */
+  list(communityId: string): Array<{ id: string; name: string; bot: boolean }>;
 } {
-  const communities = new Map<string, Map<string, string>>();
+  const communities = new Map<string, Map<string, { name: string; bot: boolean }>>();
   return {
     apply(event) {
       const { communityId, userId } = event;
@@ -24,8 +28,10 @@ export function createMemberDirectory(): {
         members = new Map();
         communities.set(communityId, members);
       }
-      members.set(userId, name);
+      members.set(userId, { name, bot: event.member?.bot === true });
     },
-    nameOf: (communityId, userId) => communities.get(communityId)?.get(userId) ?? null,
+    nameOf: (communityId, userId) => communities.get(communityId)?.get(userId)?.name ?? null,
+    infoOf: (communityId, userId) => communities.get(communityId)?.get(userId) ?? null,
+    list: (communityId) => [...(communities.get(communityId) ?? [])].map(([id, member]) => ({ id, ...member })),
   };
 }
