@@ -105,3 +105,14 @@ export function createDiscordInterface({ client, ...adapterOptions } = {}) {
   });
   return { port, capabilities, client };
 }
+
+/**
+ * Starts the Discord interface for the core: the session of `session.ts` (client, login, guild, link, events).
+ * Loaded on the call, so the session may import `createDiscordInterface` from this file.
+ * @param {import('../../src/protocol/host.ts').InterfaceHost} host
+ * @returns {Promise<import('../../src/protocol/host.ts').RunningInterface>}
+ */
+export async function start(host) {
+  const session = await import('./session.ts');
+  return session.start(host);
+}

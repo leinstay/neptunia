@@ -939,6 +939,8 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  *   name for the `<wake>` lines (null: the id is shown).
  * @param {{ inner?: Function }|null} [options.journal]
  * @param {{ channels?: { fetch: Function } }|null} [options.client]
+ * @param {(conversationId: string) => string|null} [options.conversationName]  The name an interface reported for a
+ *   conversation (src/interface/directory.ts); null when it reported none, and the id is shown.
  * @param {{ canSend?: Function }|null} [options.discord]
  * @param {(event: object) => Promise<object>} [options.submit]  The event door's submit (src/index.js).
  * @param {{ state: { data: object } }|null} [options.store]  The memory store (its pause).
@@ -954,7 +956,6 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  *   (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake run with its actions.
  * @param {() => number} [options.rng]
  * @param {() => number} [options.now]
- * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
 export function createInnerLife({
@@ -967,6 +968,7 @@ export function createInnerLife({
   nameOf = null,
   journal = null,
   client = null,
+  conversationName = () => null,
   discord = null,
   submit = null,
   store = null,
@@ -979,7 +981,6 @@ export function createInnerLife({
   memoryDb = null,
   rng = Math.random,
   now = Date.now,
-  setTimer = (fn, ms) => setTimeout(fn, ms),
   log = defaultLog,
 }) {
   const states = new Map();
@@ -989,8 +990,6 @@ export function createInnerLife({
   // The ids of the wakes an inner turn is running for now (a stop leaves them to that turn).
   const running = new Set();
   let ticking = false;
-  let timer = null;
-  let stopped = false;
 
   const fileOf = (guildId) => path.join(dataDir, 'guilds', String(guildId), 'inner.json');
   const timezoneOf = () => hot.config?.bot?.timezone ?? 'UTC';
@@ -1332,7 +1331,7 @@ export function createInnerLife({
   /** The name of place `id`: the directory's, else the interface's cache, else the id. */
   function placeNameOf(guildId, id) {
     const named = directoryOf(guildId).find((entry) => entry.id === String(id));
-    return named?.name ?? client?.channels?.cache?.get?.(String(id))?.name ?? String(id);
+    return named?.name ?? conversationName(String(id)) ?? String(id);
   }
 
   /** The places the interface publishes for the guild (`places`), else the places the record shows. */
@@ -1355,7 +1354,7 @@ export function createInnerLife({
     }
     return [...placeIndexOf(guildId).places.keys()].map((id) => ({
       id,
-      name: client?.channels?.cache?.get?.(id)?.name ?? id,
+      name: conversationName(id) ?? id,
       writable: null,
     }));
   }
@@ -1739,7 +1738,7 @@ export function createInnerLife({
   /** The channel names of the review's recent channels, for `<wake>`. */
   function channelNames(guildId) {
     const ids = stateOf(guildId).review?.channels ?? [];
-    return ids.map((id) => client?.channels?.cache?.get?.(String(id))?.name ?? null).filter(Boolean);
+    return ids.map((id) => conversationName(String(id))).filter(Boolean);
   }
 
   /**
@@ -2514,29 +2513,6 @@ export function createInnerLife({
     };
   }
 
-  /** The tick on its own timer, every `innerLife.tickSeconds` (read before each wait). */
-  function startTimer() {
-    stopped = false;
-    const schedule = () => {
-      if (stopped) return;
-      const ms = innerSettings(hot.config).tickSeconds * 1000;
-      timer = setTimer(() => {
-        Promise.resolve()
-          .then(tick)
-          .catch((err) => log.warn('inner: tick failed', { error: err }))
-          .finally(schedule);
-      }, ms);
-      timer?.unref?.();
-    };
-    schedule();
-  }
-
-  function stopTimer() {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    timer = null;
-  }
-
   return {
     tick,
     drain,
@@ -2547,8 +2523,6 @@ export function createInnerLife({
     start,
     status,
     places,
-    startTimer,
-    stopTimer,
     state: stateOf,
     facts: factsApi,
   };

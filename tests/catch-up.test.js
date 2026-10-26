@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.js';
+import { createCatchUpDeliver, createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { deepMerge } from '../src/config.js';
@@ -266,4 +266,60 @@ test('catch-up: the counts per channel reach the journal as one system record', 
       },
     ],
   ]);
+});
+
+// ---- the deliver function the composition root hands to createOfflineCatchUp ------------------
+
+// Regression: the deliver of the composition root emitted the event as a live message, so the live path ran for
+// every caught-up message and `onMessage.catchUp` never did. The deliver is a function of its own so that the
+// path it takes can be tested.
+test('catch-up deliver: builds the event from the message and returns what onCatchUp answers', async () => {
+  const event = { id: 'e:m1', raw: { id: 'm1' } };
+  /** @type {unknown[]} */
+  const seen = [];
+  const deliver = createCatchUpDeliver({
+    eventOf: () => event,
+    keep: () => {},
+    onCatchUp: (caught, options) => {
+      seen.push([caught, options]);
+      return Promise.resolve('triggered');
+    },
+  });
+  const outcome = await deliver(event.raw, { trigger: true });
+  assert.equal(outcome, 'triggered');
+  assert.deepEqual(seen, [[event, { trigger: true }]]);
+});
+
+test('catch-up deliver: keeps the handles of the event before onCatchUp reads them', async () => {
+  const event = { id: 'e:m2', raw: { id: 'm2' } };
+  /** @type {unknown[]} */
+  const order = [];
+  const deliver = createCatchUpDeliver({
+    eventOf: () => event,
+    keep: (kept) => order.push(['keep', kept]),
+    onCatchUp: () => {
+      order.push(['catchUp']);
+      return Promise.resolve('observed');
+    },
+  });
+  await deliver(event.raw, { trigger: false });
+  assert.deepEqual(order, [['keep', event], ['catchUp']]);
+});
+
+test('catch-up deliver: answers ignored and calls nothing when the event cannot be built', async () => {
+  let called = false;
+  const deliver = createCatchUpDeliver({
+    eventOf: () => {
+      throw new Error('malformed message');
+    },
+    keep: () => {
+      called = true;
+    },
+    onCatchUp: () => {
+      called = true;
+      return Promise.resolve('triggered');
+    },
+  });
+  assert.equal(await deliver({ id: 'm3' }, { trigger: true }), 'ignored');
+  assert.equal(called, false);
 });

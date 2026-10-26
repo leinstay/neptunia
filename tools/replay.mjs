@@ -2838,7 +2838,6 @@ export async function heartbeatReplayWake({
       journal: deps.journal ?? null,
       now: () => now,
       rng: () => 0.5,
-      setTimer: () => null,
       log,
     });
     const queued = life.onWake({

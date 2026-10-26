@@ -5,7 +5,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { avatarHashOf, isAvatarDue, memberView, normalizeAvatar } from '../src/memory/avatars.js';
+import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.js';
 import { AVATAR_DAILY, createAvatarQueue } from '../src/memory/avatar-queue.js';
 import { createStore } from '../src/memory/store.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -140,42 +140,6 @@ function setup({
 }
 
 // ---- pure parts -------------------------------------------------------------------------
-
-test('avatarHashOf: the server avatar wins, then the account avatar, else null', () => {
-  assert.equal(avatarHashOf({ memberAvatar: 'srv', userAvatar: 'acc' }), 'srv');
-  assert.equal(avatarHashOf({ memberAvatar: null, userAvatar: 'acc' }), 'acc');
-  assert.equal(avatarHashOf({ memberAvatar: '', userAvatar: '' }), null);
-  assert.equal(avatarHashOf({}), null);
-});
-
-test('memberView: a guild member as the queue sees it, a static 256 px PNG url only with a hash', () => {
-  const asked = [];
-  const member = {
-    avatar: null,
-    user: { id: 'u1', bot: false, avatar: 'a_anim' },
-    displayAvatarURL: (options) => {
-      asked.push(options);
-      return 'https://cdn.example/a.png';
-    },
-  };
-  assert.deepEqual(memberView(member), { id: 'u1', bot: false, hash: 'a_anim', url: 'https://cdn.example/a.png' });
-  assert.deepEqual(asked, [{ extension: 'png', size: 256, forceStatic: true }]);
-  const plain = memberView({ avatar: null, user: { id: 'u2', bot: true, avatar: null }, displayAvatarURL: () => 'x' });
-  assert.deepEqual(plain, { id: 'u2', bot: true, hash: null, url: null });
-  assert.equal(memberView(null), null);
-  assert.equal(memberView({ user: {} }), null);
-  // A throwing url builder never escapes.
-  assert.deepEqual(
-    memberView({
-      avatar: 's',
-      user: { id: 'u3', avatar: null },
-      displayAvatarURL: () => {
-        throw new Error('boom');
-      },
-    }),
-    { id: 'u3', bot: false, hash: 's', url: null }
-  );
-});
 
 test('normalizeAvatar: a described avatar, the default one, anything else is no field', () => {
   assert.deepEqual(

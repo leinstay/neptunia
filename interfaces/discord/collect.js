@@ -26,6 +26,7 @@ import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/medi
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js';
+import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
 
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
@@ -565,6 +566,7 @@ export function toEvent(message, selfId, options = {}) {
     };
   }
   const normalized = normalizeMessage(message, selfId, options);
+  const view = memberView(message.member);
   return {
     ...base,
     at: edit ? editAt : normalized.ts,
@@ -572,7 +574,13 @@ export function toEvent(message, selfId, options = {}) {
     conversation,
     message: {
       id: normalized.id,
-      author: { id: normalized.authorId, name: normalized.authorName, self: normalized.self, bot: normalized.bot },
+      author: {
+        id: normalized.authorId,
+        name: normalized.authorName,
+        self: normalized.self,
+        bot: normalized.bot,
+        ...(view ? { avatar: { hash: view.hash, url: view.url } } : {}),
+      },
       content: normalized.content,
       at: normalized.ts,
       editedAt: normalized.editedAt,

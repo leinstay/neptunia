@@ -8,6 +8,8 @@ Every event enters through one door (`src/interface/door.js`). An interface adap
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
+The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/index.js`.
+
 ## The pipeline
 
 A `message.received` event enters the message pipeline (`src/behavior/pipeline.js`). The pipeline decides the outcome:

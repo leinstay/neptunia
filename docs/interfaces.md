@@ -31,13 +31,13 @@ The twelve event kinds:
 | `message.received` | adapter | A new message, an edit (`edit: true`), or a deletion (`deleted: true`). Carries the message, its author, the addressing (who was mentioned, whether the persona was replied to) and an optional origin record. A partial edit (`edit: true, partial: true`) carries only the message id; the core asks the adapter for the rest. |
 | `reaction.changed` | adapter | A reaction put on or taken off a message. Carries the emoji, the member who reacted, and `added` (true for put on, false for taken off). A clear (`cleared: 'emoji'` or `'all'`) removes many at once. |
 | `command.requested` | adapter | An owner command from the chat surface. Carries the command `name`, its `args`, the `requester` and a `replyRef` token the core uses to send the answer back. |
-| `membership.changed` | adapter | A member joined, left or was updated in a community. |
+| `membership.changed` | adapter | A member joined, left or was updated in a community. Carries the `member` with its optional `avatar`. The Discord interface sends `updated` when a member or a user changes. |
 | `voice.changed` | adapter | A member's voice state changed (joined, left, moved, muted, deafened, streaming, camera). Carries the member's `name` when the adapter knows it. |
 | `presence.changed` | adapter | A member's presence changed. Carries `userId`, `name` (null when unknown), a `status` (`online`, `idle`, `dnd`, `offline` or `unknown`) and the `activities` list, each with a `kind` (`playing`, `streaming`, `listening`, `watching`, `competing` or `other`), a `name`, `details` and `state`. |
 | `presence.snapshot` | adapter | Every voice state and presence the adapter knows at one moment, as `voice` (the fields of `voice.changed` without the envelope) and `presence` (the fields of `presence.changed` without the envelope). |
-| `conversation.changed` | adapter | A conversation was created, updated or deleted. Carries the `conversation` and a `change` of `created`, `updated` or `deleted`. |
+| `conversation.changed` | adapter | A conversation was created, updated or deleted. Carries the `conversation` and a `change` of `created`, `updated` or `deleted`. The Discord interface also sends `updated` for every readable channel and cached thread at connect, so the core knows their names. |
 | `connection.changed` | adapter | The adapter lost its link to the platform (`state: 'lost'`) or got it back (`'resumed'`). |
-| `scheduler.tick` | core | The engine's own clock tick (`at` only). |
+| `scheduler.tick` | core | The engine's own clock tick (`at` only). The scheduler (`src/behavior/scheduler.ts`) submits one when its earliest beat is due. |
 | `task.completed` | core | One of the persona's errands ended, with a `taskId`, `status` and `result`. |
 | `inner.wake` | core | The inner-life scheduler found something due (an intention, a review, a heartbeat, an errand deadline). See [inner life](inner-life.md). |
 
@@ -162,7 +162,32 @@ The core and the Discord side exchange envelopes over a Unix socket, even while 
 
 ### Starting up
 
-At start `src/index.js` makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. The Discord side connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
+At start `src/index.js` makes a random token with `crypto.randomBytes(32)` and `listenSocket` listens on `<data directory>/run/core.sock`. The path and the largest frame are constants beside the code and not settings. A frame holds up to 150 MiB, room for ten 10 MiB files in base64. Then it loads the interface package with a dynamic `import()` and calls `start(host)` (see [Starting an interface](#starting-an-interface)). The interface connects with `connectSocket`, and `serveAdapter` sends `hello` first with the body `{ iface, capabilities, resume, token }`, where `capabilities` is what the adapter's `capabilities()` returns. The core opens one link per connection. Nothing that sends is built before `hello` has arrived. If the first envelope is not `hello` or carries the wrong token, the link closes and nothing reaches the door. On shutdown the link and the socket close and the socket file is removed.
+
+### Starting an interface
+
+An interface package exports `start(host)`, which resolves with a running interface. Both types are in `src/protocol/host.ts`. The core hands over its end of the link and what the interface reads from the core:
+
+| Host field | What it is |
+|---|---|
+| `connect()` | Opens the interface's end of the link. The core connects to its socket. |
+| `token` | The token of the link, sent in `hello`. |
+| `env` | The environment the interface reads its own keys from. The core passes `DISCORD_TOKEN` alone. |
+| `config()` | The live config. The core passes `() => hot.config`, and the interface reads it at the moment of use. |
+| `onConfigChange(fn)` | Calls `fn` with `config` or `prompts` after each reload that took, and returns the unsubscribe. |
+| `log` | The logger. An interface package never imports the core's. |
+| `createClient` | Builds the platform client from the privileged intents asked for. Tests inject a stand-in. |
+
+`start` builds the platform client, logs in, resolves the platform's guild, connects the link and serves the adapter over it. It rejects with a message when it cannot: `missing DISCORD_TOKEN`, a login that failed, or a guild that cannot be told (see "Guild resolution"). The running interface it resolves with has four fields:
+
+| Field | What it is |
+|---|---|
+| `iface` | The interface's namespace on the link. |
+| `legacy` | What the core's subsystems still read from the platform (see "What the core still reads from discord.js"). |
+| `open()` | Delivers the events the interface has held since `start`, and every later one. |
+| `stop()` | Closes the link and the platform client. |
+
+The core calls `open()` once its door has its handlers, because the door answers `unhandled` to a kind it has no handler for. Until then the interface holds what it sees, at most 1,000 events. Past that the oldest is dropped and one warn line says so.
 
 ### Events
 
@@ -195,7 +220,11 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 - A Discord channel, DM or thread becomes a `conversation` (id = the channel id, `iface = 'discord'`).
 - A discord.js `messageCreate` becomes a `message.received` event through `collect.js#toEvent`. An `messageUpdate` becomes an edit event, a `messageDelete` a deletion event.
 - Reactions become `reaction.changed` events.
-- Slash command interactions become `command.requested` events.
+- A member or user update becomes `membership.changed` with the avatar hash and url from `members.ts#memberView`. A message's author carries the same pair as `author.avatar`.
+- A channel or thread that is created, edited or deleted becomes `conversation.changed`. At connect every readable channel and cached thread is announced as `updated`.
+- Voice states, presences, the guild snapshot and the shard's loss and return become `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`.
+- Slash command interactions go to the core's command handler, which the core builds once its admin exists and hands to `legacy.serveCommands`. The session registers the command tree again when `bot.commandName` or `features.adminCommands` change.
+- A new or edited channel of the served guild makes the audience warmer fetch the members its overwrites name. The warmer also runs once at `open()`.
 
 Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the core calls by name for everything it still asks Discord. These include:
 
@@ -209,7 +238,7 @@ Besides the port, `createDiscordInterface` returns a frozen capabilities object:
 - Audience: warming the member cache for the audience rail.
 - Commands: the slash command tree, registration and interaction handling.
 
-The core imports none of these directly. `src/index.js` builds them once and passes them as `discord` to every module that needs them. A test or a tool hands in plain fakes of the same shape.
+The core imports none of these directly. The session builds them once, `src/index.js` takes them from `legacy.capabilities` and passes them as `discord` to every module that needs them. A test or a tool hands in plain fakes of the same shape.
 
 ### Gateway intents
 
@@ -247,7 +276,7 @@ Nobody is notified by default. A message notifies exactly the members named in i
 
 ### Guild resolution
 
-One instance serves exactly one Discord server. The guild is resolved from `bot.guildId` in the config. When the config names no guild and the bot is in exactly one, that one is used. When it is in several or none, the start fails with a message.
+One instance serves exactly one Discord server. The guild is resolved from `bot.guildId` in the config. When the config names no guild and the bot is in exactly one, that one is used. When it is in several or none, `start` rejects with a message that names the guilds it found.
 
 ## The fake adapter
 
@@ -267,10 +296,28 @@ To wire up a new chat platform:
 
 3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.js` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
 
-4. Wire it into the composition root (`src/index.js`): create the adapter, serve it with `serveAdapter`, subscribe to your platform's gateway events, build protocol events from them, and send each through `emit`. Inject the link's adapter and your capabilities into the engine's modules.
+4. Export `start(host)` from the package's entry file. It builds the platform client, serves the adapter with `serveAdapter` over `host.connect()`, subscribes to the platform's events, builds protocol events from them and sends each through `emit`. It holds the events until `open()` is called. The core loads the package with a dynamic `import()` and injects the link's adapter into the engine's modules.
 
 5. Map your platform's error responses to the result statuses. Once a request may have taken effect, the status must be `unknown`.
 
-## What stays on the gateway
+## What the core still reads from discord.js
 
-The Discord side is still created in `src/index.js`. The members, avatars, the channel warmer and the slash command interactions still use the gateway directly and do not pass the link. The scheduler tick is a direct call and not a `scheduler.tick` event through the door.
+`start` resolves with `legacy`, one object whose every field is a named seam. The core's subsystems still take discord.js objects or functions, and each field hands over exactly what they read. The object goes when the last reader reads the protocol instead.
+
+| Field | What it holds | Read by |
+|---|---|---|
+| `client` | The discord.js client. | The turn runner, the memory jobs, the admin, the spontaneous and diary behaviours, the inner life's channel fetch |
+| `capabilities` | The functions the core asks Discord for by name. | Every module that takes `discord` |
+| `rawOf(event)` | The discord.js message behind a message event. | The message pipeline |
+| `guildId` | The one guild this instance serves. | The core's `instance` |
+| `selfId()`, `selfName(guildId)` | The persona's id and display name. | The avatar queue, every request |
+| `memberName(guildId, userId)` | A cached member's name. | The embedding queue |
+| `resolveMember(guildId, userId)` | One member by REST, as the avatar queue reads it. | The avatar queue |
+| `dmConversationOf(userId)` | A member's private conversation, when the client knows it. | The memory session failure fact |
+| `catchUp` | `channelInfo`, `fetchRecent` and `eventOf` for the offline catch-up. | `createOfflineCatchUp` |
+| `fetchOwnMessages(channelId, count)` | The persona's last messages of a channel. | The journal's reconciliation |
+| `reactors`, `applyReaction(event)` | Who reacted to her messages, and the store's feed. | The turn runner and the door's `reaction.changed` handler |
+| `emoji` | The served guild's custom emoji. | The turn runner |
+| `serveCommands(onInteraction)` | Wires the slash command interactions and returns `{ register() }`, which pushes the command tree. | The core's command handler |
+
+The core keeps the handles of caught-up messages in its own registry, because a message fetched over REST never crosses the link as an event.
