@@ -3,8 +3,10 @@
 // Discord adapter over it, then carries every gateway event the core uses as a protocol event. Events that arrive
 // before `open()` are held (at most 1,000, the oldest dropped) until the core's door has its handlers.
 //
-// `legacy` is what the core's subsystems still read from discord.js, one named field per seam. Each field names the
-// stage 3 item of the core extraction plan that removes it, and the object disappears with the last of them.
+// `legacy` is what the core's tool and memory-job subsystems still read from discord.js, one named field per seam.
+// Each field names the stage 3 item of the core extraction plan that removes it, and the object disappears with the
+// last of them. The conversation reads, the reactions and the direct chats of the turn and the message pipeline are
+// answered over the link by the adapter (reads.ts) and the events.
 
 import { Events } from 'discord.js';
 import type { Client } from 'discord.js';
@@ -30,9 +32,6 @@ import { createDiscordInterface } from './index.js';
 import { memberView, membershipUpdatedEvent } from './members.ts';
 import type { MemberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
-import { applyReactionEvent, createReactorStore, reactionStoreEventOf } from './reactors.js';
-import { createRawRegistry } from './raw-registry.ts';
-import type { RawHandles } from './raw-registry.ts';
 
 type Obj = Record<string, unknown>;
 
@@ -50,16 +49,14 @@ type Gateway = {
 };
 
 /**
- * What `start` hands the core as `RunningInterface.legacy`: the discord.js objects and reads its subsystems still
- * use, each field a seam that stage 3 of the core extraction removes (src/interface/legacy.ts is the core's view of it and
- * names the reader of each).
+ * What `start` hands the core as `RunningInterface.legacy`: the discord.js objects and reads the tools and the memory
+ * jobs still use, each field a seam that stage 3 of the core extraction removes (src/interface/legacy.ts is the core's
+ * view of it and names the reader of each).
  */
 export type DiscordLegacy = {
   client: Client;
   capabilities: ReturnType<typeof createDiscordInterface>['capabilities'];
-  rawOf(event: { id: string }): RawHandles | null;
   resolveMember(guildId: string, userId: string): Promise<MemberView | null>;
-  dmConversationOf(userId: string): string | null;
   catchUp: {
     channelInfo(channelId: string): { available: boolean; latestAt: number | null };
     fetchRecent(channelId: string, limit: number): Promise<Array<object>>;
@@ -69,16 +66,12 @@ export type DiscordLegacy = {
     channelId: string,
     count: number
   ): Promise<Array<{ id: unknown; content: unknown; replyToId: string | null; createdAt: unknown }>>;
-  reactors: ReturnType<typeof createReactorStore>;
-  applyReaction(event: unknown): void;
   emoji: ReturnType<typeof createEmojiIndex>;
   serveCommands(admin: unknown): { register(): Promise<unknown> };
 };
 
 /** How many gateway events are held before `open()`. */
 const HELD_MAX = 1000;
-/** How many messages of the persona the link keeps handles for. */
-const HANDLES_KEPT = 2000;
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 const obj = (value: unknown): Obj => (value !== null && typeof value === 'object' ? (value as Obj) : {});
@@ -179,14 +172,15 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const guildNow = (): Obj | null => client.guilds.cache.get(guildId) ?? null;
   const selfId = (): string | null => client.user?.id ?? null;
 
-  const discord = createDiscordInterface({ client });
+  const discord = createDiscordInterface({ client, config });
   const served = serveAdapter({
     transport: await host.connect(),
     hello: {
       iface: discord.port.iface,
       self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
       community: { id: guildId, name: guilds.find((guild) => guild.id === guildId)?.name ?? guildId },
-      capabilities: discord.port.capabilities(),
+      // What the gateway reports depends on the intents it was asked for: presences only with that intent.
+      capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
       resume: null,
     },
     token: host.token,
@@ -194,24 +188,13 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     log,
   });
 
-  const handles = createRawRegistry({ capacity: HANDLES_KEPT });
-  const reactors = createReactorStore({
-    maxMessages: () => Number(obj(obj(config().context).reactions).maxMessages ?? 500),
-  });
   const audienceWarmer = createAudienceWarmer({ getGuild: guildNow, logger: log });
 
   // Events are held until open(): the core's door has no handlers before it.
   let held: Array<{ kind: string; event: Obj }> | null = [];
   let dropped = 0;
 
-  // The discord.js message behind a message event stays here, under the event id, for the pipeline's `rawOf`.
-  function keepHandles(event: Obj): Obj {
-    if (event.raw) handles.put(String(event.id), { message: event.raw, previous: event.rawPrevious ?? null });
-    return event;
-  }
-
   function deliver(kind: string, event: Obj): void {
-    if (kind === 'message.received') keepHandles(event);
     void served.emit(event).then((status) => {
       if (status !== 'ok' && status !== 'duplicate') log.warn('interface: event not taken', { kind, status });
     });
@@ -352,20 +335,16 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   // stage 3, "The rest of the core without discord.js": every field below goes when its reader reads the
   // protocol instead. The field named after a reader says which.
   const legacy: DiscordLegacy = {
-    // The discord.js client, for the modules that still take it (the turn runner, the memory jobs, the admin).
+    // The discord.js client, for the admin, the operations and the memory jobs that still take it.
     client: client as unknown as Client,
-    // The functions the core still asks Discord by name (permissions, history, pulls, searches).
+    // The functions the tools and the memory jobs still ask Discord by name (permissions, history, searches).
     capabilities: discord.capabilities,
-    // The discord.js message behind a message event, by the event id (the message pipeline).
-    rawOf: (event: { id: string }) => handles.rawOf(event),
     // A member by one REST fetch, as the avatar queue reads it (null: not in the guild).
     resolveMember: async (id: string, userId: string): Promise<MemberView | null> => {
       const members = obj(client.guilds.cache.get(id)?.members) as { fetch?: (id: string) => Promise<Obj> };
       if (members.fetch === undefined) return null;
       return memberView(await members.fetch(userId).catch(() => null));
     },
-    // The private conversation with a member, when the client knows it (a memory session failure is told there).
-    dmConversationOf: (userId: string): string | null => text(obj(obj(client.users?.cache.get(userId)).dmChannel).id),
     // The offline catch-up: what Discord says of a channel, its newest messages, and a message as an event.
     catchUp: {
       channelInfo(channelId: string): { available: boolean; latestAt: number | null } {
@@ -383,9 +362,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
         });
         return [...messages.values()];
       },
-      // The handles stay here under the event id, so `rawOf` finds a caught-up message like a live one.
-      eventOf: (message: object): object =>
-        keepHandles(obj(toEvent(message, selfId() ?? '', normalizeOptions(config())))),
+      eventOf: (message: object): object => obj(toEvent(message, selfId() ?? '', normalizeOptions(config()))),
     },
     // The persona's last messages of a channel, as the journal's reconciliation reads them.
     fetchOwnMessages: async (channelId: string, count: number) => {
@@ -401,16 +378,6 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
           replyToId: text(obj(message.reference).messageId),
           createdAt: message.createdTimestamp,
         }));
-    },
-    // Who reacted to the persona's messages (the turn runner's history fetch).
-    reactors,
-    // One `reaction.changed` event into the reactor store, whatever features.reactionNames says.
-    applyReaction: (event: unknown): void => {
-      try {
-        applyReactionEvent(reactors, reactionStoreEventOf(event as never), { guildId, selfId: selfId() });
-      } catch (err) {
-        log.warn('reactors: event failed', { kind: obj(event).kind ?? null, code: obj(err).code ?? null });
-      }
     },
     // The served guild's custom emoji (a live view over discord.js's own cache).
     emoji: createEmojiIndex(client, () => guildId),

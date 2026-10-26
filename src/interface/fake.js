@@ -194,9 +194,11 @@ export function createFakeAdapter({
       queued.get(op).push(result);
     },
 
+    // The messages of a conversation that were sent or put in with `seed`: what a seeded event reported is history
+    // (`history` reads it) and not a message the persona or a member posted through the port.
     messagesIn(conversationId) {
       return [...messages.values()].filter(
-        (message) => message.ref.conversationId === conversationId && !message.deleted
+        (message) => message.ref.conversationId === conversationId && !message.deleted && message.event === undefined
       );
     },
 

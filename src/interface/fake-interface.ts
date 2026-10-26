@@ -3,11 +3,12 @@
 // with `host.connect()`, says hello with the fake's capabilities and serves the adapter over it, and resolves with
 // the running interface plus two handles for the test: `emit(event)` injects an inbound event as the interface would
 // deliver it and resolves with the core's ack status, and `adapter` is the fake adapter whose stored messages are what
-// the persona posted. `legacy` is what the core's subsystems still read from a platform (src/interface/legacy.ts):
-// the fake has none of its own, so a test that needs a turn to run builds it (tests/fixtures/fake-legacy.ts) and
-// passes it in `options.legacy`.
+// the persona posted and whose seeded conversations, members and messages the core reads. `legacy` is what the core's
+// tool and memory-job subsystems still read from a platform (src/interface/legacy.ts): the fake has none, and a test
+// that needs one passes it in `options.legacy`.
 //
 // `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
+// `options.reads` limits the reads the fake offers (their wire names; all when absent).
 //
 // The fake holds no event back before `open()`: the core's end of the link makes an envelope wait for its door.
 
@@ -28,15 +29,19 @@ export type FakeInterface = RunningInterface & {
 
 export async function start(
   host: InterfaceHost,
-  options: { legacy?: unknown; selfId?: string; self?: Named; community?: Named | null } = {}
+  options: {
+    legacy?: unknown;
+    selfId?: string;
+    self?: Named;
+    community?: Named | null;
+    reads?: ReadonlyArray<string>;
+  } = {}
 ): Promise<FakeInterface> {
-  const adapter = createFakeAdapter(
-    options.self !== undefined
-      ? { selfId: options.self.id }
-      : options.selfId === undefined
-        ? {}
-        : { selfId: options.selfId }
-  );
+  const selfId = options.self?.id ?? options.selfId;
+  const adapter = createFakeAdapter({
+    ...(selfId === undefined ? {} : { selfId }),
+    ...(options.reads === undefined ? {} : { reads: options.reads }),
+  });
   // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
   const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
   const community = options.community === undefined ? DEFAULT_COMMUNITY : options.community;

@@ -102,22 +102,24 @@ export function mirrorChannelLabel(channel) {
 }
 
 /**
- * Post one readable dry-run mirror message (`header`, a newline, `body`)
- * into `dryRunChannelId` (`bot.dryRunChannelId`, read by the caller now),
- * no mentions resolved. The channel is fetched fresh every time, so pointing
- * the mirror elsewhere needs no restart. An empty id posts nothing. Never
- * throws: a fetch or send failure is logged and swallowed, so a
- * misconfigured mirror never costs the persona anything.
- * @param {{ client: { channels: { fetch: Function } }, dryRunChannelId: string, header: string, body: string }} args
+ * Post one readable dry-run mirror message (`header`, a newline, `body`) into the conversation `dryRunChannelId`
+ * (`bot.dryRunChannelId`, read by the caller now) through the port, no mentions. The port splits a text longer than its
+ * interface allows, so pointing the mirror elsewhere needs no restart and a long prompt still arrives. An empty id posts
+ * nothing. Never throws: a failed send is logged and swallowed, so a misconfigured mirror never costs the persona
+ * anything.
+ * @param {{ port: import('../protocol/adapter.ts').Adapter, dryRunChannelId: string, header: string, body: string }} args
  * @returns {Promise<boolean>} whether the mirror message was sent
  */
-export async function mirrorDryRun({ client, dryRunChannelId, header, body }) {
+export async function mirrorDryRun({ port, dryRunChannelId, header, body }) {
   if (!dryRunChannelId) return false;
   try {
-    const mirror = await client.channels.fetch(dryRunChannelId);
-    if (!mirror) return false;
-    await mirror.send({ content: `${header}\n${body}`, allowedMentions: { parse: [] } });
-    return true;
+    const delivery = await port.send(
+      { iface: port.iface, conversationId: dryRunChannelId },
+      { text: `${header}\n${body}`, mentions: { users: [], repliedUser: false } }
+    );
+    if (delivery.status === 'ok') return true;
+    log.warn('dry-run: mirror failed', { dryRunChannelId, status: delivery.status, code: delivery.error?.code });
+    return false;
   } catch (err) {
     log.warn('dry-run: mirror failed', { dryRunChannelId, error: err });
     return false;
@@ -134,11 +136,11 @@ export async function mirrorDryRun({ client, dryRunChannelId, header, body }) {
  * nothing. Never throws: a failed send is logged.
  * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null,
  *   limit: { key: string, used: number, cap: number }|null, asReply: boolean, labels: object, config: object,
- *   client: object, port: { iface: string, send: Function } }} args
- *   `port` is the interface adapter the notice goes out through; `client` is only the dry-run mirror's.
+ *   port: import('../protocol/adapter.ts').Adapter }} args
+ *   `port` is the interface adapter the notice goes out through, and the dry-run mirror's.
  * @returns {Promise<'sent'|'dry-run'|'none'|'failed'>}
  */
-export async function postLimitNotice({ channel, trigger, limit, asReply, labels, config, client, port }) {
+export async function postLimitNotice({ channel, trigger, limit, asReply, labels, config, port }) {
   const text = limit ? limitNotice(labels, limit) : '';
   if (!text) return 'none';
   return sendNotice({
@@ -147,7 +149,6 @@ export async function postLimitNotice({ channel, trigger, limit, asReply, labels
     text,
     asReply,
     config,
-    client,
     port,
     tag: 'limit',
     dryRunLog: ['dry-run: would notify limit', { key: limit.key, used: limit.used, cap: limit.cap }],
@@ -163,10 +164,10 @@ export async function postLimitNotice({ channel, trigger, limit, asReply, labels
  * trigger kind or `private`), for the log. A missing label posts nothing.
  * Never throws.
  * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null, kind: string,
- *   asReply: boolean, labels: object, config: object, client: object, port: { iface: string, send: Function } }} args
+ *   asReply: boolean, labels: object, config: object, port: import('../protocol/adapter.ts').Adapter }} args
  * @returns {Promise<'sent'|'dry-run'|'none'|'failed'>}
  */
-export async function postPauseNotice({ channel, trigger, kind, asReply, labels, config, client, port }) {
+export async function postPauseNotice({ channel, trigger, kind, asReply, labels, config, port }) {
   const text = pauseNotice(labels);
   if (!text) return 'none';
   return sendNotice({
@@ -175,7 +176,6 @@ export async function postPauseNotice({ channel, trigger, kind, asReply, labels,
     text,
     asReply,
     config,
-    client,
     port,
     tag: 'pause',
     dryRunLog: ['dry-run: would notify pause', { kind }],
@@ -190,16 +190,16 @@ export async function postPauseNotice({ channel, trigger, kind, asReply, labels,
  * `[event, fields]`; the channel id is added. A send the adapter does not
  * answer `ok` is `failed`. Never throws.
  * @param {{ channel: { id: string, name?: string|null }, trigger?: { id?: string }|null, text: string, asReply: boolean,
- *   config: any, client: any, port: import('../protocol/adapter.ts').Adapter, tag: string,
+ *   config: any, port: import('../protocol/adapter.ts').Adapter, tag: string,
  *   dryRunLog: [string, object], sentLog: [string, object] }} args
  * @returns {Promise<'sent'|'dry-run'|'failed'>}
  */
-async function sendNotice({ channel, trigger, text, asReply, config, client, port, tag, dryRunLog, sentLog }) {
+async function sendNotice({ channel, trigger, text, asReply, config, port, tag, dryRunLog, sentLog }) {
   try {
     if (config?.features?.dryRun === true) {
       log.info(dryRunLog[0], { channel: channel.id, ...dryRunLog[1] });
       await mirrorDryRun({
-        client,
+        port,
         dryRunChannelId: config.bot?.dryRunChannelId || '',
         header: `[dry-run] ${mirrorChannelLabel(channel)} · ${tag}`,
         body: text,

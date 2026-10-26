@@ -938,10 +938,10 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {((guildId: string, memberId: string) => string|null)|null} [options.nameOf]  A member's
  *   name for the `<wake>` lines (null: the id is shown).
  * @param {{ inner?: Function }|null} [options.journal]
- * @param {{ channels?: { fetch: Function } }|null} [options.client]
+ * @param {import('../interface/reads.ts').Reads|null} [options.reads]  The core's reads of the interface: the conversation a turn runs in.
+ * @param {() => string} [options.iface]  The interface the conversations belong to (from `hello`).
  * @param {(conversationId: string) => string|null} [options.conversationName]  The name an interface reported for a
  *   conversation (src/interface/directory.ts); null when it reported none, and the id is shown.
- * @param {{ canSend?: Function }|null} [options.discord]
  * @param {(event: object) => Promise<object>} [options.submit]  The event door's submit (src/index.js).
  * @param {{ state: { data: object } }|null} [options.store]  The memory store (its pause).
  * @param {() => string|null} [options.getGuildId]
@@ -967,9 +967,9 @@ export function createInnerLife({
   places: placesOf = null,
   nameOf = null,
   journal = null,
-  client = null,
+  reads = null,
+  iface = () => '',
   conversationName = () => null,
-  discord = null,
   submit = null,
   store = null,
   getGuildId = () => null,
@@ -1561,27 +1561,21 @@ export function createInnerLife({
         if (first) why = code;
         first = false;
       };
-      const channel = await Promise.resolve(client?.channels?.fetch?.(String(channelId))).catch(() => null);
+      // The conversation as the interface describes it now: unknown to it, it is unavailable.
+      const found = reads ? await reads.conversationInfo({ iface: iface(), conversationId: String(channelId) }) : null;
+      const channel = found?.conversation ?? null;
       if (!channel) {
         fail(CODE.UNAVAILABLE);
         continue;
       }
       // A private chat only while private chats are on (features.privateMessages, read now).
-      if (!channel.guild && hot.config?.features?.privateMessages !== true) {
+      if (channel.communityId === null && hot.config?.features?.privateMessages !== true) {
         fail(CODE.DM_OFF);
         continue;
       }
-      if (channel.guild && !readOnlyOk && typeof discord?.canSend === 'function') {
-        let writable = false;
-        try {
-          writable = discord.canSend(channel);
-        } catch {
-          writable = false;
-        }
-        if (!writable) {
-          fail(CODE.NOT_WRITABLE);
-          continue;
-        }
+      if (channel.communityId !== null && !readOnlyOk && !channel.permissions.send) {
+        fail(CODE.NOT_WRITABLE);
+        continue;
       }
       return { channel, why: null };
     }
@@ -2003,7 +1997,7 @@ export function createInnerLife({
         : list(wake.facts);
     const shownFacts = pendingFactsOf(state, {
       channelId: String(channel.id),
-      privateChat: !channel.guild,
+      privateChat: channel.communityId === null,
       anywhere: true,
     })
       .filter((fact) => !ownFactIds.has(fact.id))
@@ -2053,8 +2047,8 @@ export function createInnerLife({
       kind: anchor.kind,
       startedAt: at,
       channelId: String(channel.id),
-      privateChat: !channel.guild,
-      privateUserId: channel.guild ? null : channel.recipientId == null ? null : String(channel.recipientId),
+      privateChat: channel.communityId === null,
+      privateUserId: channel.communityId !== null ? null : channel.partnerId == null ? null : String(channel.partnerId),
     };
     save(guildId);
     // The wake run (memoryDb.wakeRuns): what this turn's view showed, ids with their versions; the journal and the
@@ -2085,7 +2079,7 @@ export function createInnerLife({
     try {
       measured = await costs.run(() =>
         turns.runTurn({
-          channel,
+          conversation: { iface: channel.iface, conversationId: channel.id },
           guildId,
           mode: 'inner',
           triggerKind: 'inner',
@@ -2258,7 +2252,7 @@ export function createInnerLife({
       ...feedbackFacts(result, { named: result.inner?.intentIds ?? [], intentions: records }),
     ];
     const keptFacts = feedback.map((fact) =>
-      addFact(after, { at: ended, channelId: String(channel.id), privateChat: !channel.guild, ...fact })
+      addFact(after, { at: ended, channelId: String(channel.id), privateChat: channel.communityId === null, ...fact })
     );
     save(guildId);
     let feedbackWakeId = null;
@@ -2272,7 +2266,7 @@ export function createInnerLife({
         chainId,
         dueAt: ended,
         channelId: String(channel.id),
-        privateChat: !channel.guild,
+        privateChat: channel.communityId === null,
         here: current.channelId,
         turnId: turnId ? String(turnId) : null,
         facts: feedback,
@@ -2298,7 +2292,7 @@ export function createInnerLife({
     });
     note(guildId, {
       event: 'turn',
-      channelId: channel.guild ? String(channel.id) : null,
+      channelId: channel.communityId !== null ? String(channel.id) : null,
       outcome,
       reason: result.reason ?? null,
       shadow,

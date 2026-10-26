@@ -19,6 +19,7 @@
 // day plan in state.json and runs the post through the turn runner.
 
 import { fill } from '../format.js';
+import { historyLines } from './lines.ts';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
 import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js';
@@ -557,14 +558,9 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
   return { plan: { ...fresh, slots }, carried: carried.length };
 }
 
-/** Whether the bot may post a diary entry in `channel`: send messages and attach files (the
- * Discord interface's checks, from its capabilities object). */
-function writable(channel, { canSend, canAttach }) {
-  try {
-    return canSend(channel) && canAttach(channel);
-  } catch {
-    return false;
-  }
+/** Whether the persona may post a diary entry in `channel` (the conversation's info): send messages and attach files. */
+function writable(channel) {
+  return channel.permissions.send && channel.permissions.attach;
 }
 
 /**
@@ -596,14 +592,14 @@ function writable(channel, { canSend, canAttach }) {
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
- * @param {{ hot: object, store: object, client: object, discord: object, turns: object, getGuildId: () => (string|null),
- *   backfill?: ((args: object) => Promise<number>)|null,
+ * @param {{ hot: object, store: object, reads: import('../interface/reads.ts').Reads, iface?: () => string, turns: object,
+ *   getGuildId: () => (string|null), backfill?: ((args: object) => Promise<number>)|null,
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
- *   `discord`: the Discord interface's capabilities object (src/index.js injects it): `canSend`,
- *   `canAttach` and the backfill's `fetchHistory`.
- *   `backfill`: src/behavior/diary.js#backfillDiary's shape (`{ store, channel, guildId, selfId,
- *   config, labels, fetchHistoryImpl }` -> the count written); null skips the backfill.
+ *   `reads`: the core's reads of the interface (the diary channel's info with its permissions, the backfill's
+ *   history); `iface`: the interface the channel belongs to.
+ *   `backfill`: src/behavior/diary.js#backfillDiary's shape (`{ store, reads, conversation, guildId,
+ *   config, labels }` -> the count written); null skips the backfill.
  * @returns {{ tick: () => Promise<void>, force: (opts?: { kind?: string|null, topic?: string|null }) => Promise<object>,
  *   status: () => { channelId: string, day: string|null, slots: number[], done: number[], quiet: boolean,
  *   hunger: number[], quietStreak: number, posts: number, pictures: number, history: number }, stop: () => void }}
@@ -611,8 +607,8 @@ function writable(channel, { canSend, canAttach }) {
 export function createDiary({
   hot,
   store,
-  client,
-  discord,
+  reads,
+  iface = () => '',
   turns,
   getGuildId,
   backfill = null,
@@ -665,23 +661,17 @@ export function createDiary({
     return plan;
   }
 
-  /** The diary channel of `guildId`, or null: the client's cache, else a fetch; never another guild's. */
+  /** The diary channel of `guildId` as the interface describes it, or null: unknown to it, or never another community's. */
   async function diaryChannel(channelId, guildId) {
-    let channel = client.channels?.cache?.get?.(channelId) ?? null;
-    if (!channel) {
-      try {
-        channel = (await client.channels?.fetch?.(channelId)) ?? null;
-      } catch {
-        channel = null;
-      }
-    }
-    return channel && channel.guild?.id === guildId ? channel : null;
+    const found = await reads.conversationInfo({ iface: iface(), conversationId: String(channelId) });
+    const channel = found?.conversation ?? null;
+    return channel && channel.communityId === guildId ? channel : null;
   }
 
   /** Why the post may not run in `channel` now (`no-channel`, `not-writable`, `cap`), or null. */
   function postBlock(channel, config, t) {
     if (!channel) return 'no-channel';
-    if (!writable(channel, discord)) return 'not-writable';
+    if (!writable(channel)) return 'not-writable';
     if (countToday(store.state.data, DIARY_DAILY, t) >= (config.diary?.maxPerDay ?? DEFAULT_MAX_PER_DAY)) return 'cap';
     return null;
   }
@@ -696,12 +686,11 @@ export function createDiary({
       if ((store.getDiary(guildId)?.posts ?? []).length > 0) return;
       const count = await backfill({
         store,
-        channel,
+        reads,
+        conversation: { iface: channel.iface, conversationId: channel.id },
         guildId,
-        selfId: client.user?.id ?? null,
         config,
         labels: hot.prompts?.labels,
-        fetchHistoryImpl: discord.fetchHistory,
       });
       log.info('diary: backfill', { guildId, channelId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
@@ -712,7 +701,11 @@ export function createDiary({
   /** One post through the turn runner, logged with its outcome. */
   async function post(channel, guildId, { kind, topic = null, forced }) {
     const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
-    const result = await turns.runTurn({ channel, mode: 'diary', diary });
+    const result = await turns.runTurn({
+      conversation: { iface: channel.iface, conversationId: channel.id },
+      mode: 'diary',
+      diary,
+    });
     log.info('diary: post', {
       guildId,
       channelId: channel.id,
@@ -857,23 +850,16 @@ export function createDiary({
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
  * code). This and the factory are the module's Discord-aware edge; everything above stays pure.
- * @param {{ store: object, channel: object, guildId: string, selfId: string, config: object,
- *   labels: object, fetchHistoryImpl: Function }} deps  `config` is the live merged
- *   config (`diary`, `media` read now); `labels` the live labels; `fetchHistoryImpl` the Discord
- *   interface's `fetchHistory` (its capabilities object), passed by the caller.
+ * @param {{ store: object, reads: import('../interface/reads.ts').Reads, conversation: { iface: string, conversationId: string },
+ *   guildId: string, config: object, labels: object }} deps  `config` is the live merged
+ *   config (`diary` read now); `labels` the live labels; `reads` the core's reads of the interface.
  * @returns {Promise<number>}  The number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({ store, channel, guildId, selfId, config, labels, fetchHistoryImpl }) {
+export async function backfillDiary({ store, reads, conversation, guildId, config, labels }) {
   if (store.getDiary(guildId).posts.length > 0) return 0;
   const max = config?.diary?.historyPosts ?? DEFAULT_HISTORY_POSTS;
   const gistChars = config?.diary?.gistChars ?? DEFAULT_GIST_CHARS;
-  const history = await fetchHistoryImpl(channel, {
-    limit: max,
-    selfId,
-    embedTextChars: config?.media?.embedTextChars,
-    videoSites: config?.media?.video?.sites,
-    maxUrlChars: config?.context?.maxUrlChars,
-  });
+  const history = await historyLines(reads, conversation, { limit: max });
   const posts = history
     .filter((message) => message.self === true)
     .map((message) => ({

@@ -18,6 +18,7 @@ import { CODE } from '../skills/codes.js';
  * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
  * defaults): the dependencies themselves plus the shared helpers.
  * @param {object} deps
+ * @param {import('../interface/reads.ts').Reads|null} [deps.reads]  The core's reads of the interface.
  * @returns {object}
  */
 export function createOpsEnv({
@@ -25,6 +26,7 @@ export function createOpsEnv({
   store,
   client,
   discord = null,
+  reads = null,
   spontaneous,
   calibrator,
   getGuildId,
@@ -200,6 +202,8 @@ export function createOpsEnv({
     client,
     // The Discord interface's capabilities object (src/index.js injects it): never imported here.
     discord,
+    // The core's reads of the interface (src/interface/reads.ts): the conversation an operation posts in, a message's event.
+    reads,
     spontaneous,
     calibrator,
     getGuildId,

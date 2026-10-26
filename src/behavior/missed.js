@@ -39,6 +39,7 @@ import { helperRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
+import { historyLines } from './lines.ts';
 import { log as defaultLog } from '../log.js';
 import { CODE } from '../skills/codes.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
@@ -545,16 +546,15 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
  *   features.journal is exactly true; `read` at start for the reconciliation.
  * @param {{ complete: Function }|null} [deps.llm]  The helper's client; absent, every check is `unchecked`.
  * @param {object} deps.turns  The turn runner: `runTurn`, `triggerOf`, `lastPostAt`, `isBusy`, `isAnyBusy`.
- * @param {object} deps.client  discord.js client: `user.id`, `channels.cache` / `channels.fetch`.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface.
+ * @param {() => string} [deps.iface]  The interface the conversations belong to (from `hello`).
+ * @param {(conversationId: string) => string|null} [deps.partnerOf]  The other member of a private chat.
  * @param {() => string|null} deps.getGuildId
  * @param {(guildId: string) => string} [deps.getSelfName]
  * @param {string} deps.dataDir  `data/`.
  * @param {object} [deps.fs]  node:fs/promises-shaped.
  * @param {() => number} [deps.now]
  * @param {{ set: (fn: () => void, ms: number) => any, clear: (timer: any) => void }} [deps.timers]
- * @param {Function} deps.fetchHistory  interfaces/discord/collect.js#fetchHistory, from the Discord
- *   interface's capabilities object (src/index.js passes it).
- * @param {Function} deps.canSend  interfaces/discord/collect.js#canSend, from the same object.
  * @param {object} [deps.log]
  * @returns {{ start: (guildId: string) => Promise<void>, noteFact: (fact: object) => void,
  *   onTurnEnd: (end: object) => void, noteActivity: (channelId: string, at?: number) => void,
@@ -567,9 +567,11 @@ export function createMissed({
   journal = null,
   llm = null,
   turns,
-  client,
+  reads,
+  iface = () => '',
+  partnerOf: partnerOfConversation = () => null,
   getGuildId,
-  getSelfName = () => client?.user?.username ?? 'bot',
+  getSelfName = () => 'bot',
   dataDir,
   fs = nodeFs,
   now = Date.now,
@@ -581,8 +583,6 @@ export function createMissed({
     },
     clear: (timer) => clearTimeout(timer),
   },
-  fetchHistory,
-  canSend,
   log = defaultLog,
 }) {
   let candidates = [];
@@ -605,9 +605,7 @@ export function createMissed({
 
   /** The person a private chat belongs to, null for a server channel (or one not known). */
   function partnerOf(channelId) {
-    const channel = client?.channels?.cache?.get?.(String(channelId));
-    if (!channel || channel.guild) return null;
-    const id = channel.recipientId ?? channel.recipient?.id ?? null;
+    const id = partnerOfConversation(String(channelId));
     return typeof id === 'string' && id ? id : null;
   }
 
@@ -908,19 +906,16 @@ export function createMissed({
     return result.changed;
   }
 
-  /** The channel object of `channelId` in the served guild, or null. */
+  /** The conversation `channelId` as the interface describes it now (permissions and all), or null when it does not. */
   async function channelOf(channelId) {
-    const cached = client?.channels?.cache?.get?.(channelId);
-    if (cached) return cached;
-    if (typeof client?.channels?.fetch !== 'function') return null;
-    return client.channels.fetch(channelId).catch(() => null);
+    return (await reads.conversationInfo({ iface: iface(), conversationId: String(channelId) }))?.conversation ?? null;
   }
 
   /** The helper's verdicts for `list` (one call), each `unchecked` when it fails. */
   async function classify(list, { channel, history, config }) {
     const unchecked = () => list.map(() => UNCHECKED);
     const prompts = hot.prompts;
-    const guildId = channel.guild?.id ?? getGuildId?.();
+    const guildId = channel.communityId ?? getGuildId?.();
     const request = buildCheckRequest({
       prompt: prompts?.missed,
       labels: prompts?.labels,
@@ -989,13 +984,11 @@ export function createMissed({
       let history = null;
       if (channel) {
         try {
-          history = await fetchHistory(channel, {
-            limit: Math.max(1, Math.floor(settings.contextMessages)),
-            selfId: client.user.id,
-            embedTextChars: config.media?.embedTextChars,
-            videoSites: config.media?.video?.sites,
-            maxUrlChars: config.context?.maxUrlChars,
-          });
+          history = await historyLines(
+            reads,
+            { iface: channel.iface, conversationId: channel.id },
+            { limit: Math.max(1, Math.floor(settings.contextMessages)) }
+          );
         } catch (error) {
           log.warn('missed: history fetch failed', { channelId, error });
         }
@@ -1064,7 +1057,7 @@ export function createMissed({
     const settings = missedSettings(config);
     if (paused()) return;
     const list = [...owed].sort((a, b) => a.at - b.at);
-    if (!canSend(channel)) {
+    if (!channel.permissions.send) {
       finishRecovery(channelId, list, { outcome: 'cannot-send' }, null);
       await save();
       return;
@@ -1087,7 +1080,7 @@ export function createMissed({
     const trigger = byId.get(shown[0].messageId);
     const ids = shown.map((candidate) => candidate.messageId);
     // A private chat is recovered only where the private-chat gate lets the person through (their daily cap counts the turn).
-    const isPrivate = !channel.guild;
+    const isPrivate = channel.communityId === null;
     if (
       isPrivate &&
       !(
@@ -1127,7 +1120,7 @@ export function createMissed({
     let result;
     try {
       result = await turns.runTurn({
-        channel,
+        conversation: { iface: channel.iface, conversationId: channel.id },
         ...(isPrivate ? { guildId: getGuildId?.() } : {}),
         mode: 'reply',
         trigger,

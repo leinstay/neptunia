@@ -20,15 +20,22 @@
 //
 // Pure decision functions (delay, active hours, mode, channel pick) take an
 // injected `rng`/`now` and are unit-tested directly. The factory below is the
-// only place that touches discord.js, the schedule on disk and the turn
-// runner.
+// only place that reads the interface's conversations, the schedule on disk and
+// the turn runner. A conversation is the interface's info of it
+// (src/protocol/adapter.ts#ConversationInfo): its permissions, its audience and the
+// time of its newest message come with it, and the tick reads one listing of the
+// served community.
 
 import { localHour } from '../format.js';
 import { routeFor } from './turn.js';
+import { isReadable, isWritable, takeSnapshot } from './snapshot.ts';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.ts';
 import { between } from './random.js';
 import { log } from '../log.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';
+
+/** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
+/** @typedef {import('./snapshot.ts').Snapshot} Snap */
 
 const REWAKE_MINUTES = [10, 40]; // how soon to try again after a turn found "nothing to say" / no channel
 
@@ -217,17 +224,15 @@ export function roomQuestionChance(config) {
  * initiate) started on the persona's own initiative. A `maxChannelSilenceHours`
  * that is not a positive number means no limit. A direct ping in a dead
  * channel is still answered: this only concerns the persona starting on its own.
- * @param {object} channel
+ * @param {{ lastMessageAt?: number|null }} channel  The conversation's info.
  * @param {number} now
  * @param {{ maxChannelSilenceHours?: number }} cfg  config.spontaneous
- * @param {{ lastActivity: (channel: object) => number }} discord  The Discord interface's
- *   capabilities object (its `lastActivity`), passed by the caller.
  * @returns {boolean}
  */
-export function isChannelDead(channel, now, cfg, discord) {
+export function isChannelDead(channel, now, cfg) {
   const maxHours = cfg.maxChannelSilenceHours;
   if (!(typeof maxHours === 'number' && maxHours > 0)) return false;
-  return now - discord.lastActivity(channel) > maxHours * HOUR_MS;
+  return now - (channel.lastMessageAt ?? 0) > maxHours * HOUR_MS;
 }
 
 /**
@@ -235,7 +240,7 @@ export function isChannelDead(channel, now, cfg, discord) {
  * (`[{ lastActivity, ownPostAt? }]`, epoch ms) saw a message within the last
  * `cfg.someoneAroundMinutes`. A tick starts a turn of the persona's own only
  * when this holds; a direct call never asks. `lastActivity` comes from the
- * snowflake of the channel's last message (interfaces/discord/collect.js#lastActivity),
+ * time of the conversation's newest message (`lastMessageAt`),
  * so it cannot tell who wrote it: a member's message and another bot's both
  * count. `ownPostAt` (the persona's last post there, turns.lastPostAt, kept in
  * memory only) is the one author-aware hint: a channel whose newest message is
@@ -280,30 +285,21 @@ function hasElsewherePrompt(prompts) {
 }
 
 /**
- * Wire the pure decisions above to discord.js, the persisted schedule and the
+ * Wire the pure decisions above to the interface's conversations, the persisted schedule and the
  * turn runner.
  * @param {object} params
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} params.hot
  * @param {ReturnType<import('../memory/store.js').createStore>} params.store
- * @param {import('discord.js').Client} params.client
- * @param {object} params.discord  The Discord interface's capabilities object (src/index.js
- *   injects it): the readable channels, the send and write checks, the last activity, the route.
+ * @param {import('../interface/reads.ts').Reads} params.reads  The core's reads of the interface
+ *   (src/interface/reads.ts): the listing of the community each tick starts from.
  * @param {ReturnType<import('./turn.js').createTurnRunner>} params.turns
  * @param {() => string | null} params.getGuildId  the single guild this instance serves, or null before it resolves
  * @param {() => number} [params.rng]
  * @param {() => number} [params.now]
  */
-export function createSpontaneous({
-  hot,
-  store,
-  client,
-  discord,
-  turns,
-  getGuildId,
-  rng = Math.random,
-  now = Date.now,
-}) {
-  const { readableChannels, canSend, lastActivity, isWritableChannel } = discord;
+export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = Math.random, now = Date.now }) {
+  /** The reference of a conversation of the interface (its info). */
+  const refOf = (/** @type {Conv} */ channel) => ({ iface: channel.iface, conversationId: channel.id });
   const running = new Set(); // guildIds with a spontaneous turn in flight
   const eavesdropTimers = new Set();
 
@@ -314,9 +310,13 @@ export function createSpontaneous({
    * own last post there is younger than spontaneous.minGapMinutes) or `busy`
    * (a turn runs there or, with one attention, anywhere). A writable channel
    * is its own destination; a read-only source speaks in the main channel.
+   * @param {Conv} dest
+   * @param {*} config
+   * @param {*} cfg
+   * @param {number} t
    */
   function destinationBlock(dest, config, cfg, t) {
-    if (!canSend(dest)) return 'cannot-send';
+    if (!dest.permissions.send) return 'cannot-send';
     if (cfg.channels.length > 0 && !cfg.channels.includes(dest.id)) return 'channel';
     if (t - turns.lastPostAt(dest.id) < cfg.minGapMinutes * MINUTE_MS) return 'gap';
     // One attention (mention.oneAtATime, default on): while a turn is
@@ -330,11 +330,15 @@ export function createSpontaneous({
 
   /**
    * Whether the persona may speak unprompted in `channel` now: one it may
-   * write in (interfaces/discord/collect.js#isWritableChannel: readable, never the
-   * dry-run mirror, the bot can send) and destinationBlock finds nothing.
+   * write in (src/behavior/snapshot.ts#isWritable: readable, never the
+   * dry-run mirror, she can send) and destinationBlock finds nothing.
+   * @param {Conv} channel
+   * @param {*} config
+   * @param {*} cfg
+   * @param {number} t
    */
   function passesFilters(channel, config, cfg, t) {
-    return isWritableChannel(channel, config.bot ?? {}) && destinationBlock(channel, config, cfg, t) === null;
+    return isWritable(channel, config.bot ?? {}) && destinationBlock(channel, config, cfg, t) === null;
   }
 
   /** The seen mark of a source (state.json `elsewhereSeen`), read now; null without one. */
@@ -350,10 +354,15 @@ export function createSpontaneous({
    * source), routeFor's codes (`off`, `no-destination`,
    * `audience`), `no-prompt` (prompts.elsewhere missing or empty) or
    * destinationBlock's codes for the destination.
+   * @param {Conv} source
+   * @param {Snap|null} snapshot
+   * @param {*} config
+   * @param {*} cfg
+   * @param {number} t
    */
-  function noticedRoute(source, config, cfg, t) {
-    if (canSend(source)) return { destination: null, reason: 'channel' };
-    const route = routeFor(source, config, discord);
+  function noticedRoute(source, snapshot, config, cfg, t) {
+    if (source.permissions.send) return { destination: null, reason: 'channel' };
+    const route = routeFor(source, snapshot, config);
     if (!route.destination) return route;
     if (!hasElsewherePrompt(hot.prompts)) return { destination: null, reason: 'no-prompt' };
     const blocked = destinationBlock(route.destination, config, cfg, t);
@@ -367,12 +376,17 @@ export function createSpontaneous({
    * (mayBeLive: the ordinary liveness, the member count is the chooser's),
    * and at least elsewhere.settleSeconds old (the burst settled); then
    * noticedRoute.
+   * @param {Conv} source
+   * @param {Snap|null} snapshot
+   * @param {*} config
+   * @param {*} cfg
+   * @param {number} t
    */
-  function sourceDestination(source, config, cfg, t) {
-    const last = lastActivity(source);
+  function sourceDestination(source, snapshot, config, cfg, t) {
+    const last = source.lastMessageAt ?? 0;
     if (!mayBeLive(last, t, seenOf(source.id), cfg)) return null;
     if (t - last < elsewhereSettings(config).settleMs) return null;
-    return noticedRoute(source, config, cfg, t).destination;
+    return noticedRoute(source, snapshot, config, cfg, t).destination;
   }
 
   /**
@@ -380,28 +394,39 @@ export function createSpontaneous({
    * A writable channel is its own destination; a read-only source (only
    * with features.elsewhere on and a non-empty prompts.elsewhere) carries
    * the main channel and `noticed: true`. A dead channel is never one.
+   * @param {Snap} snapshot
+   * @param {*} config
+   * @param {*} cfg
+   * @param {number} t
    */
-  function channelCandidates(guild, config, cfg, t) {
+  function channelCandidates(snapshot, config, cfg, t) {
     const candidates = [];
-    for (const channel of readableChannels(guild, config.bot)) {
-      if (isChannelDead(channel, t, cfg, discord)) continue;
-      if (canSend(channel)) {
+    for (const channel of snapshot.conversations.filter((entry) => isReadable(entry, config.bot))) {
+      const last = channel.lastMessageAt ?? 0;
+      if (isChannelDead(channel, t, cfg)) continue;
+      if (channel.permissions.send) {
         if (passesFilters(channel, config, cfg, t))
-          candidates.push({ channel, lastActivity: lastActivity(channel), destination: channel });
+          candidates.push({ channel, lastActivity: last, destination: channel });
         continue;
       }
-      const destination = sourceDestination(channel, config, cfg, t);
-      if (destination) candidates.push({ channel, lastActivity: lastActivity(channel), destination, noticed: true });
+      const destination = sourceDestination(channel, snapshot, config, cfg, t);
+      if (destination) candidates.push({ channel, lastActivity: last, destination, noticed: true });
     }
     return candidates;
   }
 
-  /** Every channel the persona can read as someoneAround's input: its last message and the persona's last post there. */
-  function presence(guild, config) {
-    return readableChannels(guild, config.bot).map((channel) => ({
-      lastActivity: lastActivity(channel),
-      ownPostAt: turns.lastPostAt(channel.id),
-    }));
+  /**
+   * Every channel the persona can read as someoneAround's input: its last message and the persona's last post there.
+   * @param {Snap} snapshot
+   * @param {*} config
+   */
+  function presence(snapshot, config) {
+    return snapshot.conversations
+      .filter((entry) => isReadable(entry, config.bot))
+      .map((channel) => ({
+        lastActivity: channel.lastMessageAt ?? 0,
+        ownPostAt: turns.lastPostAt(channel.id),
+      }));
   }
 
   /**
@@ -452,7 +477,7 @@ export function createSpontaneous({
   /** runTurn's arguments of a noticed comment on `source`, spoken in `destination`. */
   function noticedTurn(source, destination, cfg, path) {
     return {
-      channel: destination,
+      conversation: refOf(destination),
       source: { channelId: source.id, reason: 'noticed' },
       mode: 'auto',
       chooseMode: makeChooseNoticed(source.id, cfg, path),
@@ -470,8 +495,6 @@ export function createSpontaneous({
 
     const guildId = getGuildId();
     if (!guildId) return; // not resolved yet — nothing to do
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) return;
     if (running.has(guildId)) return;
 
     const schedule = (store.state.data.spontaneous ??= {});
@@ -492,10 +515,13 @@ export function createSpontaneous({
       return;
     }
 
-    const candidates = channelCandidates(guild, config, cfg, t);
+    // The community's listing; an interface that gives none leaves nothing to pick from.
+    const snapshot = await takeSnapshot(reads, guildId);
+    if (snapshot === null) return;
+    const candidates = channelCandidates(snapshot, config, cfg, t);
     // Presence is server-wide: every channel the persona can read counts, not
     // only the candidates (the one it just spoke in is held back by minGapMinutes).
-    if (candidates.length > 0 && !someoneAround(presence(guild, config), t, cfg)) {
+    if (candidates.length > 0 && !someoneAround(presence(snapshot, config), t, cfg)) {
       schedule[guildId] = t + between(REWAKE_MINUTES, rng) * MINUTE_MS;
       store.state.markDirty();
       log.info('spontaneous: skipped', { guildId, reason: 'nobody-around', candidates: candidates.length });
@@ -526,7 +552,7 @@ export function createSpontaneous({
       const result = await turns.runTurn(
         noticed
           ? noticedTurn(channel, turnChannel, cfg, 'tick')
-          : { channel, mode: 'auto', chooseMode: makeChooseMode(cfg, guildId) }
+          : { conversation: refOf(channel), mode: 'auto', chooseMode: makeChooseMode(cfg, guildId) }
       );
       log.info('spontaneous: turn finished', { guildId, channel: turnChannel.id, source, outcome: result.outcome });
       noteTurn(guildId, result);
@@ -559,16 +585,16 @@ export function createSpontaneous({
 
   /**
    * The eavesdrop rails of `channel`, `config` read by the caller now: not
-   * paused (`/nep pause`), eavesdropAllowed, a channel of the served guild
+   * paused (`/nep pause`), eavesdropAllowed, a conversation of the served community
    * and passesFilters (writable -- readable, not the dry-run mirror, allowed,
-   * canSend --, spontaneous.channels, minGapMinutes, one attention).
+   * she can send --, spontaneous.channels, minGapMinutes, one attention).
    */
   function eavesdropRails(channel, config, t) {
     // /nep pause: no eavesdrop scheduling while paused.
     if (store.state.data.paused) return false;
     // A switch off or the persona asleep: no eavesdrop scheduling.
     if (!eavesdropAllowed(config, t)) return false;
-    if (channel.guild?.id !== getGuildId()) return false;
+    if (channel.communityId !== getGuildId()) return false;
     return passesFilters(channel, config, config.spontaneous, t);
   }
 
@@ -577,7 +603,7 @@ export function createSpontaneous({
    * aside: the rails onMessage checks before its roll, read from the live
    * config now, as one boolean. src/behavior/pipeline.js asks it before paying
    * for a room classifier call. Rolls nothing, schedules nothing.
-   * @param {object} channel  A discord.js guild channel.
+   * @param {import('../protocol/adapter.ts').ConversationInfo} channel  The conversation's info.
    * @returns {boolean}
    */
   function eavesdropReady(channel) {
@@ -591,7 +617,7 @@ export function createSpontaneous({
    * room classifier said the line is put to everyone present) there is no
    * roll: the turn carries the line as its `focus` and the room chooser
    * (chooseRoomMode) instead of the ordinary one.
-   * @param {object} channel  The discord.js channel the message was written in.
+   * @param {import('../protocol/adapter.ts').ConversationInfo} channel  The conversation's info.
    * @param {object} normalized
    * @param {{ room?: boolean }} [options]
    * @returns {boolean}  Whether a turn was scheduled.
@@ -610,10 +636,16 @@ export function createSpontaneous({
       // Up to eavesdropDelayMs later: the same checks again, on the config read now.
       const current = hot.config;
       if (!eavesdropAllowed(current, now())) return;
-      const guildId = channel.guild.id;
+      const guildId = channel.communityId;
+      const conversation = refOf(channel);
       const turn = room
-        ? { channel, mode: 'auto', chooseMode: (history) => chooseRoomMode(history, normalized.id), focus: normalized }
-        : { channel, mode: 'auto', chooseMode: makeChooseMode(current.spontaneous, guildId) };
+        ? {
+            conversation,
+            mode: 'auto',
+            chooseMode: (history) => chooseRoomMode(history, normalized.id),
+            focus: normalized,
+          }
+        : { conversation, mode: 'auto', chooseMode: makeChooseMode(current.spontaneous, guildId) };
       turns
         .runTurn(turn)
         .then((result) => noteTurn(guildId, result))
@@ -633,19 +665,21 @@ export function createSpontaneous({
    * every rail of unprompted words (noticedRoute), then one roll of
    * spontaneous.eavesdropChance. A hit logs `spontaneous: noticed`.
    * Schedules nothing itself.
-   * @param {object} channel  The discord.js channel the message was written in.
+   * @param {import('../protocol/adapter.ts').ConversationInfo} channel  The conversation's info.
    * @param {object} normalized
-   * @returns {boolean}
+   * @returns {Promise<boolean>}
    */
-  function noticeElsewhere(channel, normalized) {
+  async function noticeElsewhere(channel, normalized) {
     if (store.state.data.paused) return false;
     const config = hot.config;
     const cfg = config.spontaneous;
     const t = now();
     if (!eavesdropAllowed(config, t)) return false;
     if (normalized.self || normalized.bot) return false;
-    if (channel.guild?.id !== getGuildId()) return false;
-    const { destination } = noticedRoute(channel, config, cfg, t);
+    if (channel.communityId !== getGuildId()) return false;
+    const snapshot = await takeSnapshot(reads, channel.communityId);
+    if (snapshot === null) return false;
+    const { destination } = noticedRoute(snapshot.get(channel.id) ?? channel, snapshot, config, cfg, t);
     if (!destination) return false;
     if (rng() >= cfg.eavesdropChance) return false;
     log.info('spontaneous: noticed', { source: channel.id, destination: destination.id });
@@ -660,7 +694,7 @@ export function createSpontaneous({
    * destination with `source` (`reason: 'noticed'`) and the eavesdrop
    * chooser (one new member message after the mark is enough). The tick
    * schedule is left as it is. Never rejects.
-   * @param {object} source  The discord.js channel the persona read.
+   * @param {import('../protocol/adapter.ts').ConversationInfo} source  The conversation the persona read.
    * @returns {Promise<{ outcome: string, reason?: string }>}  A rail that refused gives `not-now`
    *   (`paused` while paused) with its code in `reason`: `paused`, `off`, `asleep`, `channel`,
    *   `no-destination`, `audience`, `no-prompt`, `cannot-send`, `gap`, `busy` or `seen`. Otherwise the
@@ -675,10 +709,13 @@ export function createSpontaneous({
     const blocked = eavesdropBlock(config, t);
     if (blocked) return refuse(blocked);
     const guildId = getGuildId();
-    if (!guildId || source.guild?.id !== guildId) return refuse('channel');
-    const { destination, reason } = noticedRoute(source, config, cfg, t);
+    if (!guildId || source.communityId !== guildId) return refuse('channel');
+    const snapshot = await takeSnapshot(reads, guildId);
+    if (snapshot === null) return refuse('no-destination');
+    const listed = snapshot.get(source.id) ?? source;
+    const { destination, reason } = noticedRoute(listed, snapshot, config, cfg, t);
     if (!destination) return refuse(reason);
-    if (!hasUnseen(lastActivity(source), seenOf(source.id))) return refuse('seen');
+    if (!hasUnseen(listed.lastMessageAt ?? 0, seenOf(source.id))) return refuse('seen');
 
     log.info('spontaneous: firing a turn', { guildId, channel: destination.id, source: source.id });
     try {
@@ -697,15 +734,16 @@ export function createSpontaneous({
   }
 
   /**
-   * Force a turn right now, bypassing the schedule (`/nep message create`): in `mode` when given,
+   * Force a turn right now, bypassing the schedule (`/nep message create`), in the conversation `conversation`
+   * (a reference `{ iface, conversationId }`): in `mode` when given,
    * else the turn reads the channel and joins it or starts a topic (forcedMode, `spontaneous` read
    * now). `requester`: the person who asked, the requester of her skill calls in that turn.
    */
-  function force(channel, mode = null, { requester = null } = {}) {
+  function force(conversation, mode = null, { requester = null } = {}) {
     const asked = requester ? { requester } : {};
-    if (mode) return turns.runTurn({ channel, mode, forced: true, ...asked });
+    if (mode) return turns.runTurn({ conversation, mode, forced: true, ...asked });
     return turns.runTurn({
-      channel,
+      conversation,
       mode: 'auto',
       forced: true,
       chooseMode: (history, ts) => forcedMode(history, ts, hot.config.spontaneous ?? {}),

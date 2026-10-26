@@ -1,8 +1,9 @@
 // @neptunia/interface-discord: everything of the engine that speaks discord.js. The outbound
 // adapter of the interface port (port.js), message normalization and the inbound protocol events
-// with the history and permission reads (collect.js), pulling and searching other channels
-// (pull-fetch.js, search.js), the reactor store (reactors.js), the live voice and presence
-// event builders (around.js), the handles kept off the events (raw-registry.ts), the custom emoji index (emoji.js), the served guild (guild.js), member
+// with the history and permission reads (collect.js), searching other channels
+// (search.js), the audience rule of a pull for the recall runner (pull-fetch.js), the conversation reads the core's
+// adapter answers (reads.ts), the live voice and presence
+// event builders (around.js), the custom emoji index (emoji.js), the served guild (guild.js), member
 // cache warming (audience-warm.js) and the slash commands (commands.js), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
 // by path (src/index.js); what it still imports from the core is by relative path
@@ -13,9 +14,7 @@ export * from './collect.js';
 export * from './media.js';
 export * from './pull-fetch.js';
 export * from './search.js';
-export * from './reactors.js';
 export * from './around.js';
-export * from './raw-registry.ts';
 export * from './emoji.js';
 export * from './guild.js';
 export * from './audience-warm.js';
@@ -34,22 +33,17 @@ import {
   fetchHistory,
   fetchHistoryWindow,
   fetchMessage,
-  fetchNeighbors,
-  fetchReplyParents,
   isReadableChannel,
   isWritableChannel,
   lastActivity,
   normalizeMessage,
   normalizeOptions,
-  normalizedOf,
   readableChannels,
   snowflakeTime,
   toEvent,
-  withTextPreviews,
 } from './collect.js';
-import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.js';
+import { audienceAllows, checkPull } from './pull-fetch.js';
 import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from './search.js';
-import { reactorIdsOf } from './reactors.js';
 
 /**
  * The Discord interface over one discord.js client: the outbound adapter of the interface port
@@ -81,27 +75,18 @@ export function createDiscordInterface({ client, ...adapterOptions } = {}) {
     fetchHistory,
     fetchHistoryWindow,
     fetchMessage,
-    fetchReplyParents,
-    fetchNeighbors,
-    withTextPreviews,
     normalizeMessage,
     normalizeOptions,
     PAGE,
     // Pulling and searching other conversations (pull-fetch.js, search.js).
     audienceAllows,
-    captionPulled,
     checkPull,
-    createPullViews,
-    fetchPull,
     searchMessages,
     searchMembers,
     fetchAround,
     fetchAfter,
     fetchBefore,
-    // Who reacted (reactors.js).
-    reactorIdsOf,
-    // A message as the protocol event the message pipeline takes, and back (collect.js).
-    normalizedOf,
+    // A message as the protocol event, for the reader that still builds one (collect.js).
     toEvent,
   });
   return { port, capabilities, client };

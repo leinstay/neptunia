@@ -69,12 +69,15 @@ import { createMemberDirectory } from './interface/members.ts';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
+import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
+import { bridgeRecall } from './interface/recall-bridge.ts';
 import { openAdapterLink } from './interface/link.ts';
 import { listenSocket } from './interface/socket.ts';
 import { connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
 import { createScheduler } from './behavior/scheduler.ts';
-import { defaultRawOf } from './behavior/raw-handles.ts';
+import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
+import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
 import { skillRegistry, missingDefinitions } from './skills/registry.js';
@@ -126,9 +129,34 @@ function needOrFail(env, key) {
  * }} options
  * @returns {Promise<{ door: ReturnType<typeof createEventDoor>, stop(signal?: string): Promise<void> }>}
  */
+export async function startCore(options) {
+  // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, watcher, timer or
+  // database lock behind, so a process that tried to start a core can end.
+  /** @type {Array<() => unknown>} */
+  const cleanups = [];
+  try {
+    return await buildCore(options, cleanups);
+  } catch (err) {
+    for (const cleanup of cleanups.reverse()) {
+      try {
+        await cleanup();
+      } catch {
+        // The start failed already: closing what is left is best effort.
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * `startCore`'s steps. Every resource it opens registers its closing in `cleanups`; once `shutdown` exists it stands for them all.
+ * @param {Parameters<typeof startCore>[0]} options
+ * @param {Array<() => unknown>} cleanups
+ * @returns {ReturnType<typeof startCore>}
+ */
 // health: allow function-length until 2027-04-01 -- the old entry's body moved whole, split into subsystem builders in stage 5
 // health: allow complexity until 2027-04-01 -- the old entry's body moved whole, split into subsystem builders in stage 5
-export async function startCore(options) {
+async function buildCore(options, cleanups) {
   const { paths, env, interfaces } = options;
   const clock = options.now ?? Date.now;
   // The three directories (src/paths.js): the checkout, the private layer (config.local.json, prompts.local/) and the
@@ -153,6 +181,7 @@ export async function startCore(options) {
   const managementApiKey = env.OPENROUTER_MANAGEMENT_KEY || null;
 
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
+  cleanups.push(() => hot.close());
 
   const missingPrompts = REQUIRED_PROMPTS.filter((name) => typeof hot.prompts[name] !== 'string' || !hot.prompts[name]);
   if (!hasRequiredLabels(hot.prompts.labels)) missingPrompts.push('labels');
@@ -201,10 +230,12 @@ export async function startCore(options) {
   // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
   const metrics = createMetrics({ dataDir, log });
   const untapMetrics = onLog(metricsTap(metrics));
+  cleanups.push(untapMetrics);
   // The costs field of /nep status (src/ops/usage.js): today's requests per role from the `llm: usage`
   // lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
   const usage = createUsage({ dataDir, log });
   const untapUsage = onLog(usageTap(usage));
+  cleanups.push(untapUsage);
   // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
   // it (src/memory/db/readers/, src/memory/db/unit-write.js); opened at the start (the first tick, awaited below).
   // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
@@ -224,6 +255,7 @@ export async function startCore(options) {
     sessionEnv: () => env,
     onSessionFailure: (failure) => tellSessionFailure(failure),
   });
+  cleanups.push(() => memoryDb.close());
   // The record (src/memory/record.js): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
   // A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
@@ -326,10 +358,6 @@ export async function startCore(options) {
       })
     : null;
 
-  // The around store tells a presence event from a voice one by the intent: `discord.intents.presences` is read once
-  // here (intents are fixed at login, the interface reads its own at its start).
-  const presencesIntent = hot.config.discord?.intents?.presences === true;
-
   // This instance serves exactly one Discord server. `instance.guildId` is set
   // once, right after ClientReady resolves it (see below), and every component
   // that needs it reads it through `getGuildId` instead of caching it, so a
@@ -355,7 +383,7 @@ export async function startCore(options) {
     getGuildId,
     selfId: () => identity.selfId,
     paused: () => store.state.data.paused === true,
-    resolveMember: (guildId, userId) => legacy.resolveMember(guildId, userId),
+    resolveMember: (guildId, userId) => legacy.resolveMember?.(guildId, userId) ?? Promise.resolve(null),
   });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
   // state: the daily web counter lives next to the LLM client's daily counter.
@@ -369,10 +397,6 @@ export async function startCore(options) {
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: { brave: braveApiKey, exa: exaApiKey },
   });
-  // The live glance at the voice channels and the scene's statuses (features.around): a snapshot
-  // in process memory, fed by the interface's voice, presence and connection events through the door
-  // below, never written anywhere.
-  const around = createAroundStore({ presences: presencesIntent });
   // The persona's display name in a community: the one name every request uses. Her nickname there when the member
   // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
   const getSelfName = (guildId) => members.nameOf(guildId, identity.selfId) ?? identity.selfName;
@@ -402,6 +426,7 @@ export async function startCore(options) {
       linkOpened.resolve(link);
     },
   });
+  cleanups.push(() => linkServer.close());
   // The interfaces are started by the caller (src/index.js loads the Discord package by name at run time, a test passes
   // the fake one) with the core's end of the link, its settings and its logger. An interface builds its client,
   // logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until `running.open()`
@@ -416,34 +441,44 @@ export async function startCore(options) {
       log,
     })
     .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
+  cleanups.push(() => running.stop());
   const coreLink = await linkOpened.promise;
+  cleanups.push(() => coreLink.close());
   // Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
   // `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
   const hello = await coreLink.hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
   identity.iface = hello.iface;
   identity.selfId = hello.self.id;
   identity.selfName = hello.self.name;
+  // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
+  // reports presences at all (intents are fixed at login, the interface reads its own at its start).
+  // The live glance at the voice channels and the scene's statuses (features.around): a snapshot in process memory,
+  // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
+  const around = createAroundStore({ presences: hello.capabilities.presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/skills/gateway.js) let the call pass.
   const iface = coreLink.adapter;
 
-  // What the subsystems still read from discord.js, as the interface hands it over. Each field is a seam of
-  // stage 3, "The rest of the core without discord.js", and goes when its reader reads the protocol instead:
-  //   client            the modules that take the discord.js client (turn runner, memory jobs, admin, spontaneous, diary)
-  //   capabilities      the functions asked of Discord by name, passed to every module below as `discord`
-  //   rawOf             the discord.js message behind a message event (the message pipeline)
+  // What the subsystems of PR 2b still read from the platform, as the interface hands it over (none for an
+  // interface that has none, like the fake). Each field is a seam that goes with its reader:
+  //   client            the admin, the operations and the memory backfills (the conversation reads of the tools)
+  //   capabilities      the functions asked of Discord by name, passed to the recall runner, the operations and the backfills
   //   resolveMember     one member by REST, as the avatar queue reads it
-  //   dmConversationOf  a member's private conversation (the memory session failure fact)
   //   catchUp           channelInfo, fetchRecent and eventOf (the offline catch-up)
   //   fetchOwnMessages  the persona's last messages of a channel (the journal's reconciliation)
-  //   reactors, applyReaction  who reacted to her messages (the turn's history fetch, the reaction events)
   //   emoji             the served guild's custom emoji (the turn runner)
   //   serveCommands     the slash command interactions (the command handler)
-  const legacy = /** @type {import('./interface/legacy.ts').InterfaceLegacy} */ (running.legacy);
-  const { client, capabilities: discord, reactors, emoji } = legacy;
+  const legacy = /** @type {Partial<import('./interface/legacy.ts').InterfaceLegacy>} */ (running.legacy ?? {});
+  const { client, capabilities: discord = {}, emoji = null } = legacy;
   instance.guildId = hello.community?.id ?? null;
+  // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
+  const reads = createReads(iface, log);
+  // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
+  const reactors = createReactorStore({
+    maxMessages: () => Number(hot.config.context?.reactions?.maxMessages ?? 500),
+  });
   // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
-  const routeChannels = createChannelRouter({ hot, store, llm, discord });
+  const routeChannels = createChannelRouter({ hot, store, llm });
   // The search of the server's own history beside the web search (features.recall): the lookup's server part.
   // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
   // index (one embedding of the question per run).
@@ -460,6 +495,7 @@ export async function startCore(options) {
     memoryDb,
     iface: identity.iface,
   });
+  const platformRecall = bridgeRecall(recall, client);
   // When each person last wrote in each channel (fed by the message handler): a turn answering
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
@@ -513,6 +549,9 @@ export async function startCore(options) {
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
   const intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId, log });
+  // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
+  // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
+  const directory = createConversationDirectory();
   const turns = createTurnRunner({
     hot,
     store,
@@ -522,18 +561,23 @@ export async function startCore(options) {
     memoryContext: (spec) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
     llm,
     calibrator,
-    client,
-    discord,
     describer,
     imageFetcher,
     lookup,
-    recall,
+    // The recall runner still takes the platform's objects (PR 2b): it is called through the bridge until it reads the core's reads.
+    recall: platformRecall,
     images,
     speech,
     emoji,
     around,
     reactors,
     getSelfName,
+    selfId: () => identity.selfId,
+    reads,
+    memberOf: (/** @type {string} */ communityId, /** @type {string} */ memberId) =>
+      members.infoOf(communityId, memberId),
+    membersOf: (/** @type {string} */ communityId) => members.list(communityId),
+    conversationName: (/** @type {string} */ conversationId) => directory.nameOf(conversationId),
     routeChannels,
     activity,
     journal,
@@ -554,36 +598,40 @@ export async function startCore(options) {
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (guildId, options) => inner.places(guildId, options),
   });
-  const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId });
+  const spontaneous = createSpontaneous({ hot, store, reads, turns, getGuildId });
   // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
   // The diary's posts are rows of the memory database already: no backfill from the channel.
-  const diary = createDiary({ hot, store, client, discord, turns, getGuildId });
+  const diary = createDiary({ hot, store, reads, iface: () => identity.iface, turns, getGuildId });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the one attention and a cooldown per conversation.
-  const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
-  /**
-   * The places the Discord interface publishes for the guild, as the core takes them: opaque
-   * addresses with a name and whether the persona can write there (the channel directory a turn
-   * shows her, interfaces/discord/collect.js#channelDirectoryOf, and its send check). Nothing of
-   * discord.js reaches the core: it reads this list alone.
-   */
-  function placesOf(guildId) {
-    const guild = client.guilds.cache.get(String(guildId));
-    if (!guild) return [];
-    return discord.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
-      const channel = guild.channels.cache.get(entry.id);
-      let writable = null;
-      try {
-        writable = channel ? discord.canSend(channel) : null;
-      } catch {
-        writable = null;
-      }
-      return { id: entry.id, name: entry.name, writable };
-    });
+  const taskTurns = createTaskTurns({
+    hot,
+    reads,
+    iface: () => identity.iface,
+    turns,
+    errands,
+    intentions,
+    getGuildId,
+    log,
+  });
+  // The places the interface lists for a community, as the inner life shows them to her: the channels she may read, with
+  // whether she can write there. The view is read synchronously, so the last listing of each community is kept here,
+  // read again when a conversation changes and before each beat of the inner life.
+  /** @type {Map<string, Array<{ id: string, name: string, writable: boolean }>>} */
+  const placeListings = new Map();
+  async function refreshPlaces(communityId) {
+    if (!communityId) return;
+    const snapshot = await takeSnapshot(reads, String(communityId));
+    if (snapshot === null) return;
+    placeListings.set(
+      String(communityId),
+      snapshot.conversations
+        .filter((entry) => isReadable(entry, /** @type {{ dryRunChannelId?: unknown }|undefined} */ (hot.config.bot)))
+        .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
+    );
   }
-  // The conversations the interface reported (`conversation.changed`): their names, for the inner life.
-  const directory = createConversationDirectory();
+  const placesOf = (guildId) => placeListings.get(String(guildId)) ?? [];
   // The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
   // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
   // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
@@ -607,8 +655,8 @@ export async function startCore(options) {
     conversationName: (conversationId) => directory.nameOf(conversationId),
     nameOf: (guildId, memberId) => store.getUser(guildId, memberId)?.names?.[0] ?? null,
     journal,
-    client,
-    discord,
+    reads,
+    iface: () => identity.iface,
     store,
     getGuildId,
     // People's turns first: an inner turn waits while a direct ping is queued.
@@ -642,7 +690,7 @@ export async function startCore(options) {
       if (!guildId) return;
       const privateChat = scopeKind === 'dm';
       const userId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-      const channelId = privateChat ? legacy.dmConversationOf(userId) : null;
+      const channelId = privateChat ? directory.dmConversationOf(userId) : null;
       inner.facts.add(guildId, { kind: 'memoryFailed', code, waiting: lines, channelId, privateChat, at });
     } catch (err) {
       log.warn('index: memory session failure not told', { code: err?.code ?? null });
@@ -658,12 +706,12 @@ export async function startCore(options) {
     journal,
     llm,
     turns,
-    client,
+    reads,
+    iface: () => identity.iface,
+    partnerOf: (conversationId) => directory.partnerOf(conversationId),
     getGuildId,
     getSelfName,
     dataDir,
-    fetchHistory: discord.fetchHistory,
-    canSend: discord.canSend,
   });
   turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
   // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
@@ -679,9 +727,9 @@ export async function startCore(options) {
   const onMessage = createMessageHandler({
     hot,
     store,
-    client,
-    // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them).
-    discord,
+    // The core's reads of the interface: the conversation a message is in, its history, a message by id, a member.
+    reads,
+    selfId: () => identity.selfId,
     turns,
     spontaneous,
     memory,
@@ -701,9 +749,6 @@ export async function startCore(options) {
     missed,
     // Every observed message goes to the memory database as an observation: the record of the line.
     memoryDb,
-    // The discord.js messages of an event come from the interface's registry (a caught-up message's too: `eventOf`
-    // keeps its handles there); an event built in process still carries its own.
-    rawOf: (event) => legacy.rawOf(event) ?? defaultRawOf(event),
     // The limit and pause notices go out through the interface like any other effect.
     port: iface,
   });
@@ -720,7 +765,6 @@ export async function startCore(options) {
     // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
     deliver: createCatchUpDeliver({
       eventOf: (message) => legacy.catchUp.eventOf(message),
-      // The interface keeps the handles in `eventOf`, so there is nothing for the core to keep.
       keep: () => {},
       onCatchUp: (event, options) => onMessage.catchUp(event, options),
     }),
@@ -736,6 +780,8 @@ export async function startCore(options) {
     client,
     // The operations' `env.discord`: permission checks, the diary backfill, the private purge.
     discord,
+    // The operations' `env.reads`: the conversation they post in, a message's event.
+    reads,
     // /nep message and /nep draw channel: post through the persona's interface, as her.
     port: iface,
     // /nep task: the persona's errands.
@@ -795,7 +841,7 @@ export async function startCore(options) {
   // The slash commands: the interface builds the interaction handler over the admin and routes the interactions to
   // it, and re-registers the command tree when `bot.commandName` or `features.adminCommands` change;
   // `commands.register()` pushes the tree once at start.
-  const commands = legacy.serveCommands(admin);
+  const commands = legacy.serveCommands?.(admin) ?? { register: () => Promise.resolve() };
 
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
   // be watched here (only when video vision is on). Logs the status, never the URL or key.
@@ -985,7 +1031,10 @@ export async function startCore(options) {
   scheduler.add({
     name: 'inner.tick',
     everyMs: () => innerSettings(hot.config).tickSeconds * 1000,
-    run: () => inner.tick(),
+    run: async () => {
+      await refreshPlaces(instance.guildId);
+      return inner.tick();
+    },
   });
 
   /**
@@ -1013,6 +1062,8 @@ export async function startCore(options) {
   const door = createEventDoor({
     handlers: {
       'message.received': (event) => {
+        // The direct chats of members are learned from the messages seen in them.
+        directory.observe(event);
         if (event.deleted) return onMessage.onMessageDelete(event);
         if (event.edit) return onMessage.onMessageUpdate(event);
         // A member's own message carries their avatar: a changed one is queued for a description.
@@ -1021,7 +1072,13 @@ export async function startCore(options) {
       },
       // The reactor store follows the reactions on the persona's messages in the served guild, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
-      'reaction.changed': (event) => legacy.applyReaction(event),
+      'reaction.changed': (event) => {
+        try {
+          applyReactionChanged(reactors, event, { communityId: instance.guildId, selfId: identity.selfId });
+        } catch (err) {
+          log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
+        }
+      },
       'task.completed': (event) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
         inner.onTaskFinished(
@@ -1042,7 +1099,10 @@ export async function startCore(options) {
       },
       'connection.changed': (event) => around.connection(event),
       // The names of the conversations (the inner life shows them), and a changed avatar of a member.
-      'conversation.changed': (event) => directory.apply(event),
+      'conversation.changed': (event) => {
+        directory.apply(event);
+        void refreshPlaces(instance.guildId);
+      },
       'membership.changed': (event) => {
         members.apply(event);
         offerAvatar(event.communityId, event.member);
@@ -1104,6 +1164,9 @@ export async function startCore(options) {
 
   /** Stops the core once, whoever asks first: the timers, the stores, the memory database, the interface and the link. */
   const stop = (signal = 'stop') => (stopping ??= shutdown(signal));
+  // From here the shutdown closes everything the start opened, and the steps below run behind it.
+  cleanups.length = 0;
+  cleanups.push(() => stop('start-failed'));
 
   // The door has its handlers: the interface delivers the events it held since its start, and every later one.
   running.open();
@@ -1135,7 +1198,7 @@ export async function startCore(options) {
     });
   }
 
-  log.info('index: ready', { guildId: instance.guildId, tag: client.user.tag });
+  log.info('index: ready', { guildId: instance.guildId, tag: identity.selfName });
 
   // /nep pause: a pause persisted before this restart comes back
   // paused -- every spontaneous tick keeps no-op'ing until /nep resume.
