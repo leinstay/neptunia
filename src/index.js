@@ -1,13 +1,16 @@
 // Entry point: wires config, hot reload, the persistent store, the
-// OpenRouter client, discord.js and the turn/spontaneous/memory subsystems
-// together, and owns the process lifecycle (startup checks, timers, graceful
+// OpenRouter client and the turn/spontaneous/memory subsystems together, starts
+// the Discord interface (interfaces/discord/, loaded by name at run time) over the
+// link, and owns the process lifecycle (startup checks, timers, graceful
 // shutdown). No decision logic lives here — everything is imported from
-// src/behavior, src/memory, src/llm and the Discord interface (interfaces/discord/, through
-// src/interface/discord.js).
+// src/behavior, src/memory and src/llm. Nothing here builds, logs in or listens to
+// a discord.js client: the interface does, and hands back `legacy`, the list of
+// discord.js seams the subsystems still read (stage 3 of the core extraction removes them).
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -30,7 +33,6 @@ import {
   createGifRecache,
   createDescriber,
   createAvatarQueue,
-  memberView,
   startYoutubeCheck,
 } from './memory/index.js';
 import { mirrorDryRun } from './behavior/limits.js';
@@ -44,35 +46,15 @@ import { ffmpegAvailable } from './speech/convert.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
 import { createMissed } from './behavior/missed.js';
-import { createOfflineCatchUp } from './behavior/catch-up.js';
+import { createCatchUpDeliver, createOfflineCatchUp } from './behavior/catch-up.js';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
-import {
-  applyReactionEvent,
-  connectionEvent,
-  createAudienceWarmer,
-  createDiscordClient,
-  createDiscordInterface,
-  createEmojiIndex,
-  Events,
-  createInteractionHandler,
-  createRawRegistry,
-  createReactorStore,
-  normalizeOptions,
-  presenceEvent,
-  presenceSnapshotEvent,
-  reactionEvent,
-  reactionClearAllEvent,
-  reactionClearEmojiEvent,
-  reactionStoreEventOf,
-  registerCommands,
-  resolveGuild,
-  toEvent,
-  voiceEvent,
-} from './interface/discord.js';
+// What still comes from the interface package by name: the slash command handler and the handle registry for
+// the caught-up messages. The rest of the Discord side reaches the core through `legacy` (see below).
+import { createInteractionHandler, createRawRegistry } from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
-import { createInnerLife } from './behavior/inner.js';
+import { createInnerLife, innerSettings } from './behavior/inner.js';
 import { createDiary } from './behavior/diary.js';
 import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
@@ -87,11 +69,12 @@ import { createErrandService } from './errands/service.js';
 import { channelPlaceId } from './memory/db/ids.js';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
+import { createConversationDirectory } from './interface/directory.ts';
 import { openAdapterLink } from './interface/link.ts';
 import { listenSocket } from './interface/socket.ts';
 import { connectSocket } from './protocol/wire.ts';
-import { serveAdapter } from './protocol/serve.ts';
 import { createAroundStore } from './behavior/around-store.ts';
+import { createScheduler } from './behavior/scheduler.ts';
 import { defaultRawOf } from './behavior/raw-handles.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
@@ -131,6 +114,7 @@ if (!fs.existsSync(paths.privateDir))
   fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
 
 loadDotEnv(paths.privateDir);
+// Handed to the Discord interface at its start, which logs in with it. Never logged.
 const discordToken = needOrFail('DISCORD_TOKEN');
 const openrouterKey = needOrFail('OPENROUTER_CORE_KEY');
 // Optional: without it a YouTube duration comes from the watch page only.
@@ -282,10 +266,7 @@ embedQueue = createEmbedQueue({
   embed: embedder.embed,
   record: recordWriter,
   log,
-  nameOf: (guildId, userId) =>
-    store.getUser(guildId, userId)?.names?.[0] ??
-    client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ??
-    null,
+  nameOf: (guildId, userId) => store.getUser(guildId, userId)?.names?.[0] ?? legacy.memberName(guildId, userId),
   selfName: (guildId) => getSelfName(guildId),
   // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
   paused: () => store.state.data.paused === true,
@@ -315,22 +296,9 @@ const speech = speechReady
     })
   : null;
 
-// Direct messages are received regardless of features.privateMessages (the
-// switch is hot, intents are not); a DM channel arrives uncached, hence the
-// Channel partial. GuildExpressions keeps the guild's custom emoji cache
-// current (emoji created, renamed, deleted) for the emoji index below.
-// GuildVoiceStates feeds the voice channels of `<people_now>`. The two PRIVILEGED
-// intents (discord.intents.presences, discord.intents.members) are requested only when the
-// config says so, read ONCE here because intents are fixed at login: asking for one that the
-// Developer Portal has not enabled makes the login fail, so both default to false.
-// GuildMessageReactions (not privileged) feeds the reactor store below; a reaction on a message,
-// by a user or of a message the client has not cached arrives only with the Message, Reaction and
-// User partials. The message handlers take partials already: an edit or a deletion of an
-// uncached message comes partial (no author, no content) and is recorded or skipped as such.
-const intentSettings = hot.config.discord?.intents ?? {};
-const presencesIntent = intentSettings.presences === true;
-const membersIntent = intentSettings.members === true;
-const client = createDiscordClient({ presences: presencesIntent, members: membersIntent });
+// The around store tells a presence event from a voice one by the intent: `discord.intents.presences` is read once
+// here (intents are fixed at login, the interface reads its own at its start).
+const presencesIntent = hot.config.discord?.intents?.presences === true;
 
 // This instance serves exactly one Discord server. `instance.guildId` is set
 // once, right after ClientReady resolves it (see below), and every component
@@ -338,13 +306,6 @@ const client = createDiscordClient({ presences: presencesIntent, members: member
 // switch to a different guild always requires a restart, never a silent swap.
 const instance = { guildId: null };
 const getGuildId = () => instance.guildId;
-
-// The audience rail tells a bot's member overwrite by the member cache, which
-// the client fills only with members seen since startup (no member intent):
-// the warmer fetches every member named by an overwrite (interfaces/discord/audience-warm.js).
-const audienceWarmer = createAudienceWarmer({
-  getGuild: () => (instance.guildId ? (client.guilds.cache.get(instance.guildId) ?? null) : null),
-});
 
 // Shared so a picture attached on consecutive turns, or described more than
 // once, is only ever downloaded once within the fetcher's LRU window.
@@ -362,13 +323,9 @@ const avatars = createAvatarQueue({
   imageFetcher,
   state: store.state,
   getGuildId,
-  selfId: () => client.user?.id ?? null,
+  selfId: () => legacy.selfId(),
   paused: () => store.state.data.paused === true,
-  resolveMember: async (guildId, userId) => {
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) return null;
-    return memberView(await guild.members.fetch(userId).catch(() => null));
-  },
+  resolveMember: (guildId, userId) => legacy.resolveMember(guildId, userId),
 });
 // The web lookup (features.webLookup, off by default): link reader + search on a question.
 // state: the daily web counter lives next to the LLM client's daily counter.
@@ -386,24 +343,12 @@ const lookup = createLookup({
 // in process memory, fed by the interface's voice, presence and connection events through the door
 // below, never written anywhere.
 const around = createAroundStore({ presences: presencesIntent });
-// Who reacted to the persona's own messages (features.reactionNames): in process memory only,
-// at most context.reactions.maxMessages of her messages (read at each insertion), fed by the
-// reaction events below and by the turn's history fetch.
-const reactors = createReactorStore({ maxMessages: () => hot.config.context?.reactions?.maxMessages ?? 500 });
-// The served guild's custom emoji (features.customEmoji): a live view over discord.js's own cache.
-const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request uses.
-const getSelfName = (guildId) =>
-  client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
-// The Discord interface (interfaces/discord/) builds the adapter of the interface port and the capabilities
-// object: what the core asks Discord for (permissions, history, pulled channels, searches), passed below
-// as `discord` to every module that needs it -- nothing in the core but this file imports the interface.
-const discordInterface = createDiscordInterface({ client });
-const discord = discordInterface.capabilities;
+const getSelfName = (guildId) => legacy.selfName(guildId);
 
 // The link between the core and the Discord side (docs/interfaces.md). Both still run in this process:
-// the core listens on a Unix socket under the data directory, the Discord side connects with a token made
-// at boot, says hello and serves the Discord adapter. Every inbound event travels as an envelope to the
+// the core listens on a Unix socket under the data directory, the Discord interface connects with a token made
+// at boot, says hello and serves its adapter. Every inbound event travels as an envelope to the
 // core's door and every effect of the persona travels back as an action. The socket folder is created
 // at mode 0700 and the file at 0600 (src/interface/socket.ts).
 const LINK_SOCKET = path.join(dataDir, 'run', 'core.sock');
@@ -426,14 +371,24 @@ const linkServer = await listenSocket({
     linkOpened.resolve(link);
   },
 });
-const discordPort = discordInterface.port;
-const linkServed = serveAdapter({
-  transport: await connectSocket({ path: LINK_SOCKET, maxFrameBytes: LINK_MAX_FRAME_BYTES }),
-  hello: { iface: discordPort.iface, capabilities: discordPort.capabilities(), resume: null },
-  token: linkToken,
-  adapter: discordPort,
-  log,
-});
+// The interface is loaded by name at run time (stage 4's `/interface enable` does the same in process) and
+// started with the core's end of the link, its settings and its logger. It builds the client, logs in, waits
+// for the guild, says hello and serves its adapter; the gateway events it sees wait until `running.open()`
+// below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start here.
+const discordPackage =
+  /** @type {{ start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }} */ (
+    await import(pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.js')).href)
+  );
+const running = await discordPackage
+  .start({
+    connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: LINK_MAX_FRAME_BYTES }),
+    token: linkToken,
+    env: { DISCORD_TOKEN: discordToken },
+    config: () => hot.config,
+    onConfigChange: (listener) => hot.onReload(listener),
+    log,
+  })
+  .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
 const coreLink = await linkOpened.promise;
 // Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
 // `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
@@ -441,8 +396,25 @@ await coreLink.hello.catch((err) => fail(`index: the link to the interface faile
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
 // after the skill gateway (src/skills/gateway.js) let the call pass.
 const iface = coreLink.adapter;
-// The discord.js messages behind the message events stay on the Discord side, under the event id.
-const rawHandles = createRawRegistry({ capacity: 2000 });
+
+// What the subsystems still read from discord.js, as the interface hands it over. Each field is a seam of
+// stage 3, "The rest of the core without discord.js", and goes when its reader reads the protocol instead:
+//   client            the modules that take the discord.js client (turn runner, memory jobs, admin, spontaneous, diary)
+//   capabilities      the functions asked of Discord by name, passed to every module below as `discord`
+//   rawOf             the discord.js message behind a message event (the message pipeline)
+//   guildId           the one guild this instance serves, set once at start
+//   selfId, selfName  the persona's id and display name (the avatar queue, every request)
+//   memberName        a cached member's name (the embedding queue)
+//   resolveMember     one member by REST, as the avatar queue reads it
+//   dmConversationOf  a member's private conversation (the memory session failure fact)
+//   catchUp           channelInfo, fetchRecent and eventOf (the offline catch-up)
+//   fetchOwnMessages  the persona's last messages of a channel (the journal's reconciliation)
+//   reactors, applyReaction  who reacted to her messages (the turn's history fetch, the reaction events)
+//   emoji             the served guild's custom emoji (the turn runner)
+//   serveCommands     the slash command interactions (the command handler)
+const legacy = /** @type {import('../interfaces/discord/session.ts').DiscordLegacy} */ (running.legacy);
+const { client, capabilities: discord, reactors, emoji } = legacy;
+instance.guildId = legacy.guildId;
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
 const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
@@ -582,10 +554,12 @@ function placesOf(guildId) {
     return { id: entry.id, name: entry.name, writable };
   });
 }
+// The conversations the interface reported (`conversation.changed`): their names, for the inner life.
+const directory = createConversationDirectory();
 // The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
 // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
 // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
-// attention is free and no cap refuses. Its own timer; a no-op with the switch off.
+// attention is free and no cap refuses. Its tick is a beat of the scheduler below; a no-op with the switch off.
 // Resolved once the journal's start-up reconciliation is done (or failed): an inner turn that the last run left in flight is
 // resolved from the journal only after it (src/behavior/inner.js, `ready`).
 let journalReconciled = () => {};
@@ -601,6 +575,8 @@ const inner = createInnerLife({
   record,
   // Her attention: the places the interface publishes, and the names of the people a wake names.
   places: placesOf,
+  // The names of the conversations the interface reported (`conversation.changed`), for the places she is shown.
+  conversationName: (conversationId) => directory.nameOf(conversationId),
   nameOf: (guildId, memberId) => store.getUser(guildId, memberId)?.names?.[0] ?? null,
   journal,
   client,
@@ -616,9 +592,9 @@ const inner = createInnerLife({
   // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
   heartbeat: {
     tasks: (guildId) => taskStores.get(guildId).recent(100),
-    skills: () => grantedSkillNames({ config: hot.config, selfId: client.user?.id ?? null, registry: skillRegistry() }),
+    skills: () => grantedSkillNames({ config: hot.config, selfId: legacy.selfId(), registry: skillRegistry() }),
     agents: () => Object.keys(AGENT_PROFILES),
-    selfId: () => client.user?.id ?? null,
+    selfId: () => legacy.selfId(),
     focusPeople: () => (hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople() : null),
   },
   log,
@@ -637,7 +613,7 @@ function tellSessionFailure({ scopeKind, partner, code, lines, at }) {
     if (!guildId) return;
     const privateChat = scopeKind === 'dm';
     const userId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-    const channelId = privateChat ? (client.users?.cache?.get(userId)?.dmChannel?.id ?? null) : null;
+    const channelId = privateChat ? legacy.dmConversationOf(userId) : null;
     inner.facts.add(guildId, { kind: 'memoryFailed', code, waiting: lines, channelId, privateChat, at });
   } catch (err) {
     log.warn('index: memory session failure not told', { code: err?.code ?? null });
@@ -671,6 +647,10 @@ const gifBackfill = createGifBackfill({ hot, store, client, discord, describer, 
 // kind:pictures action:recache.
 const gifRecache = createGifRecache({ hot, store, client, discord, describer, record, log });
 
+// The handles of the caught-up messages: they never crossed the link as events, so the interface's registry
+// does not hold them, and the message handler reads them back through `rawOf` below.
+const caughtUpHandles = createRawRegistry({ capacity: 500 });
+
 const onMessage = createMessageHandler({
   hot,
   store,
@@ -696,9 +676,9 @@ const onMessage = createMessageHandler({
   missed,
   // Every observed message goes to the memory database as an observation: the record of the line.
   memoryDb,
-  // The discord.js messages of an event come from the Discord side's registry; an event built in
-  // process still carries its own.
-  rawOf: (event) => rawHandles.rawOf(event) ?? defaultRawOf(event),
+  // The discord.js messages of an event come from the Discord side's registry, those of a caught-up message from
+  // the core's own (`caughtUpHandles`); an event built in process still carries its own.
+  rawOf: (event) => legacy.rawOf(event) ?? caughtUpHandles.rawOf(event) ?? defaultRawOf(event),
   // The limit and pause notices go out through the interface like any other effect.
   port: iface,
 });
@@ -709,21 +689,15 @@ const offlineCatchUp = createOfflineCatchUp({
   hot,
   store,
   journal,
-  selfId: () => client.user?.id ?? null,
-  channelInfo: (channelId) => {
-    const channel = client.channels.cache.get(channelId);
-    if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function')
-      return { available: false, latestAt: null };
-    return { available: true, latestAt: channel.lastMessageId ? discord.snowflakeTime(channel.lastMessageId) : null };
-  },
-  fetchRecent: async (channelId, limit) => {
-    const channel = client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId));
-    return [...(await channel.messages.fetch({ limit })).values()];
-  },
-  deliver: async (message, options) => {
-    const event = inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
-    return event ? onMessage.catchUp(event, options) : 'ignored';
-  },
+  selfId: () => legacy.selfId(),
+  channelInfo: (channelId) => legacy.catchUp.channelInfo(channelId),
+  fetchRecent: (channelId, limit) => legacy.catchUp.fetchRecent(channelId, limit),
+  // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
+  deliver: createCatchUpDeliver({
+    eventOf: (message) => legacy.catchUp.eventOf(message),
+    keep: (event) => caughtUpHandles.put(event.id, { message: event.raw, previous: event.rawPrevious ?? null }),
+    onCatchUp: (event, options) => onMessage.catchUp(event, options),
+  }),
 });
 
 // One attention (mention.oneAtATime): once a turn frees its channel, answer
@@ -793,6 +767,9 @@ const admin = createAdmin({
   dataDir,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
+// The slash commands: the interface routes the interactions to the handler and re-registers the command tree
+// when `bot.commandName` or `features.adminCommands` change; `commands.register()` pushes the tree once at start.
+const commands = legacy.serveCommands(onInteraction);
 
 // Once at startup, fire-and-forget: tell the operator whether YouTube links can
 // be watched here (only when video vision is on). Logs the status, never the URL or key.
@@ -880,23 +857,6 @@ async function startupStep(step, fn, { wait = false } = {}) {
 }
 
 /**
- * The persona's last `n` messages of `channelId` (the bot's own among the channel's last `n`),
- * as the journal's reconciliation reads them: id, raw content, the message replied to, the time.
- */
-async function fetchOwnMessages(channelId, n) {
-  const channel = await client.channels.fetch(channelId);
-  const messages = await channel.messages.fetch({ limit: n });
-  return [...messages.values()]
-    .filter((message) => message.author?.id === client.user.id)
-    .map((message) => ({
-      id: message.id,
-      content: message.content,
-      replyToId: message.reference?.messageId ?? null,
-      createdAt: message.createdTimestamp,
-    }));
-}
-
-/**
  * The journal's operations left open by the last run (features.journal, read now), yesterday's
  * and today's: a post is looked for among the persona's own messages, everything else is marked
  * unknown; nothing is sent again. Only operations started before this start are touched.
@@ -905,7 +865,11 @@ async function reconcileJournal(guildId) {
   if (hot.config.features?.journal !== true) return;
   const startedAt = Date.now();
   const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
-  const counts = await journal.reconcile(guildId, { days, before: startedAt, fetchOwnMessages });
+  const counts = await journal.reconcile(guildId, {
+    days,
+    before: startedAt,
+    fetchOwnMessages: (channelId, count) => legacy.fetchOwnMessages(channelId, count),
+  });
   log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
 }
 
@@ -961,134 +925,12 @@ hot.onReload((what) => {
   journal.system(instance.guildId, { event: 'reload', note: what });
 });
 
-let lastCommandName = hot.config.bot.commandName;
-let lastAdminCommandsOn = hot.config.features?.adminCommands !== false;
-
-client.once(Events.ClientReady, async () => {
-  const guilds = [...client.guilds.cache.values()].map((guild) => ({ id: guild.id, name: guild.name }));
-  const resolved = resolveGuild(hot.config.bot.guildId, guilds);
-  if (resolved.error) fail(`index: ${resolved.error}`);
-
-  instance.guildId = resolved.guildId;
-  seedAround();
-
-  // The periodic work first, before anything below can throw or wait: the
-  // flush, the spontaneous and diary ticks, the hourly affinity decay.
-  every(30_000, () => store.flush(), 'store.flush');
-  every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
-  // The intention and task writes that failed go again.
-  every(30_000, () => Promise.all([intentionStores.flush(), taskStores.flush()]), 'module stores flush');
-  // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the scheduler's clock becomes a
-  // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
-  every(30_000, () => spontaneous.tick(), 'spontaneous.tick');
-  every(30_000, () => diary.tick(), 'diary.tick');
-  // The inner life's tick, every innerLife.tickSeconds (read before each wait).
-  inner.startTimer();
-  every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
-  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
-  // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
-  every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
-  // The avatar queue: its first tick scans the profiled members, then once a day; between
-  // requests it waits avatars.intervalMs (read at each tick). A no-op with the switch off.
-  every(5_000, () => avatars.tick(), 'avatars.tick');
-  // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
-  every(60_000, () => metrics.save(), 'metrics.save');
-  // Today's per-role usage written to data/usage.json (at most once a minute; nothing new, no write).
-  every(60_000, () => usage.save(), 'usage.save');
-  scheduleArchiveDrain();
-
-  if (!hot.config.bot.guildId) {
-    log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local.json', {
-      guildId: instance.guildId,
-    });
-  }
-
-  log.info('index: ready', { guildId: instance.guildId, tag: client.user.tag });
-
-  // /nep pause: a pause persisted before this restart comes back
-  // paused -- every spontaneous tick keeps no-op'ing until /nep resume.
-  if (store.state.data.paused) {
-    log.info('index: starting up paused, run /nep resume when data/ is ready', {
-      pausedAt: store.state.data.pausedAt ?? null,
-    });
-  }
-
-  // The database is the memory: opened first (its pending writes of the last shutdown replayed) and awaited, before
-  // anything below reads it.
-  await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
-
-  // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
-  await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
-
-  // The links of the persona's recent lines to the messages that started their turns, rebuilt
-  // from the journal. Fire-and-forget: a turn before it is done
-  // only lacks the older links.
-  await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
-  // The persona's recent skill calls, the same way.
-  await startupStep('journal.callMarks', () => seedCallMarks(instance.guildId));
-
-  // The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
-  // last hour; a sweep armed where a candidate waits.
-  await startupStep('missed.start', () => missed.start(instance.guildId));
-
-  // The errands a restart left open: their runner can no longer answer this process, so they fail
-  // (`restarted`) and show in her `<tasks>` block as failed.
-  await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
-
-  // Her intentions reconciled with the errands as they stand now (those just failed included):
-  // a wait whose errand ended, is gone or ran out moves back to pending; the expired ones expire.
-  await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
-
-  // The meaning index caught up with what the record took while the queue was down (the last
-  // embed.catchUpHours). Fire-and-forget; nothing while paused or
-  // with the switches off.
-  await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
-
-  // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/ops/access.js).
-  await startupStep('access.migrate', () => admin.migrateAccess(instance.guildId), { wait: true });
-
-  // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
-  // starting meanwhile is never touched (only earlier operations are), and it never sends.
-  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId).finally(journalReconciled));
-
-  // The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
-  // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
-  // channel, never throws; the gateway's own messages are not held up meanwhile.
-  await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(instance.guildId));
-
-  // The request dumps older than journal.keepRequests days: once now, then daily.
-  await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
-  every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
-
-  const guild = client.guilds.cache.get(instance.guildId);
-  await startupStep('registerCommands', () => registerCommands(guild, hot.config), { wait: true });
-
-  // The members named by channel overwrites, fetched so the audience rail knows which are bots.
-  // Fire-and-forget: REST one by one, never throws.
-  await startupStep('audienceWarmer.warm', () => audienceWarmer.warm());
-
-  // The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
-  // context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
-  await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(instance.guildId));
-
-  // The GIF library from history, once (features.gifs on, no backfill stamp in gifs.json,
-  // gifs.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
-  await startupStep('gifBackfill.startIfNeeded', () => gifBackfill.startIfNeeded(instance.guildId));
-
-  // Affinity decay: once now (catches up the days the process was down), then hourly (above).
-  await startupStep('affinity decay', sweepAffinityDecay, { wait: true });
-
-  // What the archive refused before this start: drained once now (it also counts the queue for
-  // the stall check), then on the timer (above). Fire-and-forget.
-  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(instance.guildId)));
-});
-
 // A running instance never switches servers live: bot.guildId is only read at
 // startup. If the owner later points it at a different, non-empty guild while
-// the process is up, keep serving the original one and just say so.
+// the process is up, keep serving the original one and just say so. (The command tree is the
+// interface's: it registers it again when the name or the switch changed.)
 hot.on('change', ({ what }) => {
-  if (what !== 'config' || !instance.guildId) return;
+  if (what !== 'config') return;
   const configured = hot.config.bot.guildId;
   if (configured && configured !== instance.guildId) {
     log.warn('index: bot.guildId changed while running, restart required to switch servers', {
@@ -1096,38 +938,59 @@ hot.on('change', ({ what }) => {
       configured,
     });
   }
-
-  // The command tree (and whether it is registered at all) depends on
-  // bot.commandName and features.adminCommands — re-push it only when one of
-  // those actually changed, never on every unrelated config edit.
-  const commandName = hot.config.bot.commandName;
-  const adminCommandsOn = hot.config.features?.adminCommands !== false;
-  if (commandName !== lastCommandName || adminCommandsOn !== lastAdminCommandsOn) {
-    lastCommandName = commandName;
-    lastAdminCommandsOn = adminCommandsOn;
-    const guild = client.guilds.cache.get(instance.guildId);
-    if (guild) {
-      registerCommands(guild, hot.config).catch((err) =>
-        log.error('index: failed to re-register commands', { error: err })
-      );
-    }
-  }
 });
 
-// The gateway's events reach the core as protocol events (src/protocol/, built by
-// interfaces/discord/collect.js and around.js) over the link, through the event door
-// (src/interface/door.js), the one entry of the mind: it validates each event at the boundary,
-// drops a repeated id, and hands the event to the handler of its kind. An event that cannot be built
+// The behaviours' clock (src/behavior/scheduler.ts): one timer waits for the earliest beat and each wait is a
+// `scheduler.tick` event through the door below, whose handler starts the beats that are due. The beats are the
+// behaviour ones only; the housekeeping timers further down are plain intervals.
+const scheduler = createScheduler({
+  submit: (event) => door.submit(event),
+  now: Date.now,
+  setTimer: (fn, ms) => {
+    const id = setTimeout(fn, ms);
+    id.unref?.();
+    return () => clearTimeout(id);
+  },
+  log,
+});
+scheduler.add({ name: 'spontaneous.tick', everyMs: () => 30_000, run: () => spontaneous.tick() });
+scheduler.add({ name: 'diary.tick', everyMs: () => 30_000, run: () => diary.tick() });
+// The inner life's tick, every innerLife.tickSeconds (read before each wait).
+scheduler.add({
+  name: 'inner.tick',
+  everyMs: () => innerSettings(hot.config).tickSeconds * 1000,
+  run: () => inner.tick(),
+});
+
+/**
+ * A changed or posting member's avatar offered to the avatar queue (features.avatars, off by default), when the
+ * member is of the served guild. The offer is synchronous and never throws.
+ * @param {string|null|undefined} guildId
+ * @param {{ id: string, bot?: boolean, avatar?: { hash: string|null, url: string|null } }|undefined} member
+ */
+function offerAvatar(guildId, member) {
+  if (guildId !== instance.guildId || !member?.avatar) return;
+  avatars.offer(guildId, { id: member.id, bot: member.bot === true, hash: member.avatar.hash, url: member.avatar.url });
+}
+
+// The interface's events reach the core as protocol events (src/protocol/, built by the interface) over the
+// link, through the event door (src/interface/door.js), the one entry of the mind: it validates each event at the
+// boundary, drops a repeated id, and hands the event to the handler of its kind. An event that cannot be built
 // or is malformed is dropped with one warn line (its kind and the reason, never its content), so
-// nothing behind it ever sees a half-formed one. The core's own events (an errand's end) come
-// through the same door, in process.
+// nothing behind it ever sees a half-formed one. The core's own events (an errand's end, the scheduler's tick)
+// come through the same door, in process.
 const door = createEventDoor({
   handlers: {
     'message.received': (event) => {
       if (event.deleted) return onMessage.onMessageDelete(event);
-      return event.edit ? onMessage.onMessageUpdate(event) : onMessage(event);
+      if (event.edit) return onMessage.onMessageUpdate(event);
+      // A member's own message carries their avatar: a changed one is queued for a description.
+      offerAvatar(event.conversation?.guildId, event.message?.author);
+      return onMessage(event);
     },
-    'reaction.changed': (event) => feedReactors(event),
+    // The reactor store follows the reactions on the persona's messages in the served guild, whatever
+    // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
+    'reaction.changed': (event) => legacy.applyReaction(event),
     'task.completed': (event) => {
       // An errand an inner turn handed off counts its cost against the inner life's dollars.
       inner.onTaskFinished(
@@ -1137,7 +1000,9 @@ const door = createEventDoor({
       return taskTurns.onEvent(event);
     },
     'inner.wake': (event) => inner.onWake(event),
-    // The live glance at the voice channels and the statuses (`<people_now>`).
+    'scheduler.tick': (event) => scheduler.dispatch(event.at),
+    // The live glance at the voice channels and the statuses (`<people_now>`): cheap map updates that run
+    // whatever features.around says; a lost connection marks it stale until the shard is back.
     'voice.changed': (event) => around.voiceChanged(event),
     'presence.changed': (event) => around.presenceChanged(event),
     'presence.snapshot': (event) => {
@@ -1145,115 +1010,13 @@ const door = createEventDoor({
       log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
     },
     'connection.changed': (event) => around.connection(event),
+    // The names of the conversations (the inner life shows them), and a changed avatar of a member.
+    'conversation.changed': (event) => directory.apply(event),
+    'membership.changed': (event) => offerAvatar(event.guildId, event.member),
   },
   log,
 });
 doorReady.resolve(door);
-/**
- * One gateway event to the core: built, its discord.js handles kept in the registry under its id
- * (a message event only: the pipeline reads them back through `rawOf`), then emitted over the link
- * without them. The answer is the core's ack; one that is neither taken nor a repeat is logged.
- * @typedef {{ id: string, raw?: unknown, rawPrevious?: unknown }} Event
- * @param {string} kind
- * @param {() => Event} build
- */
-function inbound(kind, build) {
-  /** @type {Event} */
-  let event;
-  try {
-    event = build();
-  } catch (err) {
-    log.warn('interface: invalid event', { kind, reason: 'build-failed', name: err?.name ?? null });
-    return;
-  }
-  if (kind === 'message.received' && event.raw)
-    rawHandles.put(event.id, { message: event.raw, previous: event.rawPrevious ?? null });
-  linkServed.emit(event).then((status) => {
-    if (status !== 'ok' && status !== 'duplicate') log.warn('interface: event not taken', { kind, status });
-  });
-}
-const selfIdNow = () => client.user?.id ?? null;
-client.on('messageCreate', (message) => {
-  inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
-});
-// Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
-client.on('messageUpdate', (oldMessage, newMessage) => {
-  inbound('message.received', () =>
-    toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage })
-  );
-});
-// A deleted message is a `deleted` line of the record (features.record).
-client.on('messageDelete', (message) => {
-  inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
-});
-// A new or edited channel of the served guild may name a member the cache has not seen.
-const warmOnChannel = (channel) => {
-  if (instance.guildId && channel?.guild?.id === instance.guildId) audienceWarmer.warm({ quiet: true });
-};
-client.on(Events.ChannelCreate, warmOnChannel);
-client.on(Events.ChannelUpdate, (_old, channel) => warmOnChannel(channel));
-client.on('interactionCreate', onInteraction);
-
-// The live snapshot (`<people_now>`) follows the gateway: the events are cheap map updates in the core and run
-// whatever features.around says (a switch turned on later finds a snapshot that is current); a lost
-// connection marks it stale until the shard is back. Only the served guild is tracked.
-function seedAround() {
-  const guild = instance.guildId ? client.guilds.cache.get(instance.guildId) : null;
-  if (!guild) return;
-  inbound('presence.snapshot', () => presenceSnapshotEvent(guild, Date.now()));
-  inbound('connection.changed', () => connectionEvent('resumed', Date.now()));
-}
-client.on(Events.VoiceStateUpdate, (old, state) => {
-  if (instance.guildId && state?.guild?.id === instance.guildId)
-    inbound('voice.changed', () => voiceEvent(state, Date.now(), old));
-});
-client.on(Events.PresenceUpdate, (_old, presence) => {
-  if (instance.guildId && presence?.guild?.id === instance.guildId)
-    inbound('presence.changed', () => presenceEvent(presence, Date.now()));
-});
-// A changed avatar of a profiled member is queued for a description (features.avatars): the member
-// and user updates need discord.intents.members; a member's own message works without it. The
-// offer is synchronous and never throws.
-client.on(Events.GuildMemberUpdate, (_old, member) => {
-  if (instance.guildId && member?.guild?.id === instance.guildId) avatars.offer(instance.guildId, memberView(member));
-});
-client.on(Events.UserUpdate, (_old, user) => {
-  const member = instance.guildId ? client.guilds.cache.get(instance.guildId)?.members?.cache?.get(user?.id) : null;
-  if (member) avatars.offer(instance.guildId, memberView(member));
-});
-client.on('messageCreate', (message) => {
-  if (instance.guildId && message?.guild?.id === instance.guildId && message.member)
-    avatars.offer(instance.guildId, memberView(message.member));
-});
-// The reactor store follows the reactions on the persona's messages in the served guild, whatever
-// features.reactionNames says (a cheap map update; a switch turned on later finds it current).
-const feedReactors = (event) => {
-  try {
-    applyReactionEvent(reactors, reactionStoreEventOf(event), {
-      guildId: instance.guildId,
-      selfId: client.user?.id ?? null,
-    });
-  } catch (err) {
-    log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
-  }
-};
-client.on(Events.MessageReactionAdd, (reaction, user) => {
-  inbound('reaction.changed', () => reactionEvent(reaction, user, true));
-});
-client.on(Events.MessageReactionRemove, (reaction, user) => {
-  inbound('reaction.changed', () => reactionEvent(reaction, user, false));
-});
-client.on(Events.MessageReactionRemoveAll, (message) => {
-  inbound('reaction.changed', () => reactionClearAllEvent(message));
-});
-client.on(Events.MessageReactionRemoveEmoji, (reaction) => {
-  inbound('reaction.changed', () => reactionClearEmojiEvent(reaction));
-});
-client.on(Events.ShardDisconnect, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
-client.on(Events.ShardReconnecting, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
-client.on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
-// A fresh session (not a resume) delivers the guild's state again: reseed from the cache.
-client.on(Events.ShardReady, () => seedAround());
 
 let shuttingDown = false;
 
@@ -1269,7 +1032,7 @@ async function shutdown(signal) {
   missed.stop();
   errandClient.close();
   taskTurns.stop();
-  inner.stopTimer();
+  scheduler.stop();
   await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
   // The embedding queue flushes what waits once (a short wait at most), before the stores close.
   await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));
@@ -1295,11 +1058,11 @@ async function shutdown(signal) {
   await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
   // After the last flush of every store the database closes and releases its lock.
   await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
-  // The link and the socket close, and the socket file goes with the server.
-  linkServed.close();
+  // The interface closes its end of the link and its client, then the core's end and the socket close, and the
+  // socket file goes with the server.
+  await running.stop().catch((err) => log.warn('index: interface stop failed', { error: err }));
   coreLink.close();
   await linkServer.close().catch((err) => log.warn('index: link socket close failed', { error: err }));
-  await client.destroy();
   process.exit(0);
 }
 
@@ -1307,4 +1070,107 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('unhandledRejection', (err) => log.error('index: unhandled rejection', { error: err }));
 
-client.login(discordToken).catch((err) => fail(`index: Discord login failed: ${err.message}`));
+// The door has its handlers: the interface delivers the events it held since its start, and every later one.
+running.open();
+
+// The periodic work first, before anything below can throw or wait: the
+// flush, the behaviours' beats, the hourly affinity decay. Then the startup steps, in order.
+every(30_000, () => store.flush(), 'store.flush');
+every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
+// The intention and task writes that failed go again.
+every(30_000, () => Promise.all([intentionStores.flush(), taskStores.flush()]), 'module stores flush');
+// The spontaneous, diary and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
+scheduler.start();
+every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
+// The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
+// the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
+every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
+// The avatar queue: its first tick scans the profiled members, then once a day; between
+// requests it waits avatars.intervalMs (read at each tick). A no-op with the switch off.
+every(5_000, () => avatars.tick(), 'avatars.tick');
+// The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
+every(60_000, () => metrics.save(), 'metrics.save');
+// Today's per-role usage written to data/usage.json (at most once a minute; nothing new, no write).
+every(60_000, () => usage.save(), 'usage.save');
+scheduleArchiveDrain();
+
+if (!hot.config.bot.guildId) {
+  log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local.json', {
+    guildId: instance.guildId,
+  });
+}
+
+log.info('index: ready', { guildId: instance.guildId, tag: client.user.tag });
+
+// /nep pause: a pause persisted before this restart comes back
+// paused -- every spontaneous tick keeps no-op'ing until /nep resume.
+if (store.state.data.paused) {
+  log.info('index: starting up paused, run /nep resume when data/ is ready', {
+    pausedAt: store.state.data.pausedAt ?? null,
+  });
+}
+
+// The database is the memory: opened first (its pending writes of the last shutdown replayed) and awaited, before
+// anything below reads it.
+await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
+
+// The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
+await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
+
+// The links of the persona's recent lines to the messages that started their turns, rebuilt
+// from the journal. Fire-and-forget: a turn before it is done
+// only lacks the older links.
+await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
+// The persona's recent skill calls, the same way.
+await startupStep('journal.callMarks', () => seedCallMarks(instance.guildId));
+
+// The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
+// last hour; a sweep armed where a candidate waits.
+await startupStep('missed.start', () => missed.start(instance.guildId));
+
+// The errands a restart left open: their runner can no longer answer this process, so they fail
+// (`restarted`) and show in her `<tasks>` block as failed.
+await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
+
+// Her intentions reconciled with the errands as they stand now (those just failed included):
+// a wait whose errand ended, is gone or ran out moves back to pending; the expired ones expire.
+await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
+
+// The meaning index caught up with what the record took while the queue was down (the last
+// embed.catchUpHours). Fire-and-forget; nothing while paused or
+// with the switches off.
+await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
+
+// Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
+// under the operation names, a journal record of what each covers now (src/ops/access.js).
+await startupStep('access.migrate', () => admin.migrateAccess(instance.guildId), { wait: true });
+
+// The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
+// starting meanwhile is never touched (only earlier operations are), and it never sends.
+await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId).finally(journalReconciled));
+
+// The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
+// younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
+// channel, never throws; the gateway's own messages are not held up meanwhile.
+await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(instance.guildId));
+
+// The request dumps older than journal.keepRequests days: once now, then daily.
+await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
+every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
+
+await startupStep('registerCommands', () => commands.register(), { wait: true });
+
+// The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
+// context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(instance.guildId));
+
+// The GIF library from history, once (features.gifs on, no backfill stamp in gifs.json,
+// gifs.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+await startupStep('gifBackfill.startIfNeeded', () => gifBackfill.startIfNeeded(instance.guildId));
+
+// Affinity decay: once now (catches up the days the process was down), then hourly (above).
+await startupStep('affinity decay', sweepAffinityDecay, { wait: true });
+
+// What the archive refused before this start: drained once now (it also counts the queue for
+// the stall check), then on the timer (above). Fire-and-forget.
+await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(instance.guildId)));

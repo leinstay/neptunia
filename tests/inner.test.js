@@ -157,6 +157,8 @@ function setup({
     record,
     journal: { inner: async (guildId, fields) => journal.push(fields) },
     client,
+    // The names come from the directory of `conversation.changed` events in the core; the fake client's channels stand in for it.
+    conversationName: (id) => client.channels.cache.get(id)?.name ?? null,
     discord: { canSend: () => true },
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
@@ -172,9 +174,7 @@ function setup({
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-test.beforeEach(() => {
-  clock.t = NOW;
-});
+test.beforeEach(() => void (clock.t = NOW));
 
 test('inner: the switch off lists nothing, runs nothing and writes no state', async () => {
   const run = setup({ records: [intention('i1')], hot: hotWith({ features: { innerLife: false } }) });
