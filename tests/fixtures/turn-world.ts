@@ -12,7 +12,7 @@ import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createReads } from '../../src/interface/reads.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import type { ConversationInfo, MemberInfo, MessageRef, Permissions } from '../../src/protocol/adapter.ts';
-import { PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { normalizeOptions, toEvent } from '../../interfaces/discord/index.js';
 
 export type Raw = Record<string, unknown>;
@@ -537,6 +537,7 @@ export function onWorld(create: (options: Record<string, unknown>) => Runner) {
 /** A discord.js-shaped channel stub as the tests of the message pipeline build one. */
 type ChannelStub = {
   id: string;
+  lastMessageId?: string | null;
   name?: string | null;
   guild?: { id: string; members?: { me?: unknown } } | null;
   isThread?: () => boolean;
@@ -559,9 +560,9 @@ function permissionsOfStub(stub: ChannelStub): { read: boolean; send: boolean; a
  * The same conversation as a stub channel of a test, in the current world's interface (its lines kept): a private
  * chat without a guild, a thread when `isThread()` says so, permissions as the stub grants them.
  */
-export function syncStub(stub: unknown): void {
+export function syncStub(stub: unknown): Channel {
   const given = stub as ChannelStub;
-  world().channel(
+  return world().channel(
     {
       id: given.id,
       guildId: given.guild?.id ?? null,
@@ -569,9 +570,20 @@ export function syncStub(stub: unknown): void {
       name: given.name ?? null,
       kind: given.isThread?.() === true ? 'thread' : undefined,
       permissions: permissionsOfStub(given),
+      lastMessageAt: given.lastMessageId ? Number(SnowflakeUtil.timestampFrom(given.lastMessageId)) : null,
     },
     { keep: true }
   );
+}
+
+/** The conversation reference a turn call carried. */
+export function callConversation(call: unknown): { iface: string; conversationId: string } | null {
+  return (call as { conversation?: { iface: string; conversationId: string } }).conversation ?? null;
+}
+
+/** The info of a stub channel's conversation: the handle a test built for it (`held`), else the one the stub maps to. */
+export function infoOfStub(stub: unknown): ConversationInfo {
+  return ((stub as { held?: Channel }).held ?? syncStub(stub)).info;
 }
 
 /** The reference of a conversation of the world to run a turn on, from a channel (anything with an `id`). */

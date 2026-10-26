@@ -515,6 +515,24 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
       return;
     }
 
+    // Claimed before the listing is awaited, so a second tick meanwhile finds the guild running.
+    running.add(guildId);
+    try {
+      await fireDue(guildId, config, cfg, schedule, t);
+    } finally {
+      running.delete(guildId);
+    }
+  }
+
+  /**
+   * The part of a due tick that lists the community, picks a candidate and runs the turn there.
+   * @param {string} guildId
+   * @param {*} config
+   * @param {*} cfg
+   * @param {*} schedule
+   * @param {number} t
+   */
+  async function fireDue(guildId, config, cfg, schedule, t) {
     // The community's listing; an interface that gives none leaves nothing to pick from.
     const snapshot = await takeSnapshot(reads, guildId);
     if (snapshot === null) return;
@@ -546,7 +564,6 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
     const turnChannel = noticed ? picked.destination : channel;
     const source = noticed ? channel.id : null;
 
-    running.add(guildId);
     log.info('spontaneous: firing a turn', { guildId, channel: turnChannel.id, source });
     try {
       const result = await turns.runTurn(
@@ -562,8 +579,6 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
       }
     } catch (err) {
       log.error('spontaneous: turn failed', { guildId, error: err });
-    } finally {
-      running.delete(guildId);
     }
   }
 
