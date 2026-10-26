@@ -12,22 +12,35 @@ import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createReads } from '../../src/interface/reads.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import type { ConversationInfo, MemberInfo, MessageRef, Permissions } from '../../src/protocol/adapter.ts';
+import { PermissionFlagsBits } from 'discord.js';
 import { normalizeOptions, toEvent } from '../../interfaces/discord/index.js';
 
 export type Raw = Record<string, unknown>;
 export type Fake = ReturnType<typeof createFakeAdapter>;
 
-const SELF = 'self-id';
+/** The persona's id on the worlds' interface; a test file may name another before it builds a world. */
+let SELF = 'self-id';
+export function useSelf(id: string): void {
+  SELF = id;
+}
 const quiet = { info() {}, warn() {}, error() {} };
 
 /** A channel of a test: its info as the fake holds it, and what the persona did in it. */
+/** A message the persona posted, as the first tests of the turn read it. */
+export type Posted = {
+  content?: string;
+  reply?: { messageReference: string | undefined; failIfNotExists: boolean };
+  allowedMentions: { parse: Array<string>; users?: Array<string>; repliedUser?: boolean };
+  files?: Array<{ attachment: unknown; name: string }>;
+};
+
 export type Channel = {
   id: string;
   name: string | null;
   guildId: string | null;
   info: ConversationInfo;
   /** The messages the persona sent here, as the first tests of the turn read them. */
-  sent: Array<Record<string, unknown>>;
+  sent: Array<Posted>;
   /** One entry for each typing indicator she showed here. */
   typingCalls: Array<number>;
   /** The history reads made of this conversation, each as the query it carried. */
@@ -69,19 +82,24 @@ export type World = {
   port: Fake;
   reads: Reads;
   selfId: string;
-  channel(spec?: ChannelSpec): Channel;
+  channel(spec?: ChannelSpec, options?: { keep?: boolean }): Channel;
+  /** Puts message stubs into a channel's history, and the ones later added to the array too. */
+  follow(channelId: unknown, messages: unknown): void;
   /** Puts message stubs into a channel's history. */
-  seed(channelId: string, messages: ReadonlyArray<Raw>): void;
+  seed(channelId: unknown, messages: unknown): void;
   member(communityId: string, member: Partial<MemberInfo> & { id: string } & Record<string, unknown>): void;
+  /** A message of a conversation is gone (deleted, or never reached the interface). */
+  forget(conversationId: unknown, messageId: unknown): void;
+  /** Makes `ids` members of a community the interface knows (named by their ids). */
+  knowMembers(communityId: unknown, ids: unknown): void;
   /** Makes every read `op` of one conversation answer `failed`. */
-  failRead(op: string, conversationId: string): void;
+  failRead(op: string, conversationId: unknown): void;
   /** The clock that stamps the messages the persona sends. */
   useClock(now: () => number): void;
   /** Makes the messages seeded so far, and those seeded later, as the interface reports them under `config`. */
   renormalize(config: unknown): void;
   /** Calls `spy` with the arguments of each call of `op`, before the adapter answers it. */
   tap(op: string, spy: (args: Array<unknown>) => void | Promise<void>): void;
-  /** Makes each send whose text `matches` (every send by default) fail with `code`, nothing posted. */
   /** Answers each call of `op` with what `answer` returns, when that is not undefined, in place of the adapter. */
   intercept(op: string, answer: (args: Array<unknown>) => unknown): void;
   /** Makes each send whose text `matches` (every send by default) end `failed` (or `unknown`) with `code`, nothing posted. */
@@ -98,6 +116,12 @@ export type World = {
     conversationName: (conversationId: string) => string | null;
   };
 };
+
+/** The interface the worlds' adapters belong to; a test file may name another before it builds one. */
+let worldIface = 'discord';
+export function useIface(name: string): void {
+  worldIface = name;
+}
 
 let current: World | null = null;
 afterEach(() => {
@@ -117,14 +141,14 @@ const EVERYONE = {
 };
 
 /** The send of the fake as the payload discord.js would have got it. */
-function payloadOf(given: unknown): Record<string, unknown> {
+function payloadOf(given: unknown): Posted {
   const content = (given ?? {}) as {
     text?: string;
     attachments?: Array<{ name: string; data?: unknown; url?: string }>;
     replyTo?: { messageId?: string };
     mentions?: { users?: Array<string>; repliedUser?: boolean };
   };
-  const payload: Record<string, unknown> = {};
+  const payload: Posted = { allowedMentions: { parse: [] } };
   if (typeof content.text === 'string' && content.text !== '') payload.content = content.text;
   if (Array.isArray(content.attachments) && content.attachments.length > 0)
     payload.files = content.attachments.map((file) => ({ attachment: file.data ?? file.url, name: file.name }));
@@ -141,7 +165,7 @@ function create(): World {
   // The clock the messages she sends are stamped by: the one the runner is given, else the real one.
   let clock: () => number = Date.now;
   const port = createFakeAdapter({
-    iface: 'discord',
+    iface: worldIface,
     selfId: SELF,
     now: () => clock(),
     messageId: (_conversationId, count) => `sent-${count}`,
@@ -180,7 +204,7 @@ function create(): World {
       for (const spy of spies.get(op) ?? []) await spy(args);
       // An interceptor that answers (anything but undefined) answers in place of the adapter.
       for (const intercept of interceptors.get(op) ?? []) {
-        const answered = intercept(args);
+        const answered = await intercept(args);
         if (answered !== undefined) return answered;
       }
       const ref = args[0] as { conversationId?: string } | undefined;
@@ -192,9 +216,9 @@ function create(): World {
     };
   }
 
-  function failRead(op: string, conversationId: string): void {
+  function failRead(op: string, conversationId: unknown): void {
     const held = failing.get(op) ?? new Set<string>();
-    held.add(conversationId);
+    held.add(String(conversationId));
     failing.set(op, held);
     wrap(op);
   }
@@ -223,8 +247,8 @@ function create(): World {
   };
 
   /** What the persona posted in a conversation, one entry for each message, as the first tests of the turn read them. */
-  function sentOf(conversationId: string, from: number, to: number): Array<Record<string, unknown>> {
-    const posted: Array<Record<string, unknown>> = [];
+  function sentOf(conversationId: string, from: number, to: number): Array<Posted> {
+    const posted: Array<Posted> = [];
     for (const entry of deliveries.slice(from, to).filter((one) => one.conversationId === conversationId)) {
       entry.parts.forEach((ref, index) => {
         const text = port.messages.get(`${ref.conversationId}/${ref.messageId}`)?.text ?? '';
@@ -233,6 +257,20 @@ function create(): World {
       });
     }
     return posted;
+  }
+
+  /** Seeds `messages` into a conversation, and every line a test later pushes or unshifts into the array too. */
+  function follow(channelId: string, messages: ReadonlyArray<Raw>): void {
+    seed(channelId, messages);
+    const live = messages as Array<Raw>;
+    if (!Array.isArray(live)) return;
+    for (const method of ['push', 'unshift'] as const) {
+      const original = live[method].bind(live);
+      live[method] = (...items: Array<Raw>): number => {
+        seed(channelId, items);
+        return original(...items);
+      };
+    }
   }
 
   // The messages as the interface reports them follow the live config at the time of a read; here they are made
@@ -261,7 +299,7 @@ function create(): World {
     for (const [channelId, raw] of stubs) seedOne(channelId, raw);
   }
 
-  function channel(spec: ChannelSpec = {}): Channel {
+  function channel(spec: ChannelSpec = {}, options: { keep?: boolean } = {}): Channel {
     const id = spec.id ?? 'c1';
     const guildId = spec.dm === true ? null : spec.guildId === undefined ? 'g1' : spec.guildId;
     const name = spec.dm === true ? null : spec.name === undefined ? 'general' : spec.name;
@@ -273,9 +311,9 @@ function create(): World {
       topic: null,
       category: spec.category ?? null,
       chatType: guildId === null ? 'dm' : (spec.kind ?? 'channel'),
-      ...(guildId === null ? { partnerId: spec.partnerId ?? 'u1' } : {}),
+      ...(guildId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
       ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),
-      iface: 'discord',
+      iface: worldIface,
       permissions: { ...ALL, ...spec.permissions },
       owner: null,
       lastMessageAt: spec.lastMessageAt ?? null,
@@ -285,9 +323,12 @@ function create(): World {
       ...(spec.viewers === undefined ? {} : { viewers: spec.viewers }),
       ...spec.extra,
     };
-    // A conversation made again starts over: no message, no id counted, and the calls before now are not its own.
-    each((one) => one.clearConversation(id));
-    for (let at = stubs.length - 1; at >= 0; at -= 1) if (stubs[at]?.[0] === id) stubs.splice(at, 1);
+    // A conversation made again starts over (unless `keep`): no message, no id counted, and the calls before now are
+    // not its own.
+    if (options.keep !== true) {
+      each((one) => one.clearConversation(id));
+      for (let at = stubs.length - 1; at >= 0; at -= 1) if (stubs[at]?.[0] === id) stubs.splice(at, 1);
+    }
     const since = port.calls.length;
     const first = deliveries.length;
     // The handle of a conversation made again before this one stops at what it saw.
@@ -300,18 +341,7 @@ function create(): World {
     });
     each((one) => one.seedConversation({ ...info, iface: one.iface }));
     names.set(id, name);
-    seed(id, spec.historyMessages ?? []);
-    // A test that adds lines to the array it gave (a message that arrives later) adds them to the history too.
-    const live = spec.historyMessages as Array<Raw> | undefined;
-    if (Array.isArray(live)) {
-      for (const method of ['push', 'unshift'] as const) {
-        const original = live[method].bind(live);
-        live[method] = (...items: Array<Raw>): number => {
-          seed(id, items);
-          return original(...items);
-        };
-      }
-    }
+    follow(id, spec.historyMessages ?? []);
     const reseed = (change: Partial<ConversationInfo>): void => {
       Object.assign(info, change);
       each((one) => one.seedConversation({ ...info, iface: one.iface }));
@@ -362,8 +392,19 @@ function create(): World {
     reads,
     selfId: SELF,
     channel,
-    seed,
+    seed: (channelId, messages) => seed(String(channelId), messages as ReadonlyArray<Raw>),
+    follow: (channelId, messages) => follow(String(channelId), messages as ReadonlyArray<Raw>),
     failRead,
+    knowMembers(communityId, ids) {
+      for (const id of ids as Array<string>) this.member(String(communityId), { id, name: id });
+    },
+    forget(conversationId, messageId) {
+      each((one) => one.messages.delete(`${String(conversationId)}/${String(messageId)}`));
+      for (let at = stubs.length - 1; at >= 0; at -= 1) {
+        const [held, raw] = stubs[at] ?? [];
+        if (held === String(conversationId) && raw?.id === String(messageId)) stubs.splice(at, 1);
+      }
+    },
     useClock(now) {
       clock = now;
     },
@@ -449,7 +490,7 @@ export function runnerOptions(options: Record<string, unknown>): Record<string, 
 }
 
 /** The arguments of `runTurn` with a channel of the world given as `channel`: the conversation reference in its place. */
-export function turnParams(params: Record<string, unknown>, iface = 'discord'): Record<string, unknown> {
+export function turnParams(params: Record<string, unknown>, iface = worldIface): Record<string, unknown> {
   const { channel, ...rest } = params;
   if (channel === undefined || channel === null) return params;
   return { conversation: { iface, conversationId: (channel as { id: string }).id }, ...rest };
@@ -469,4 +510,73 @@ export function onWorld(create: (options: Record<string, unknown>) => Runner) {
     const iface = given?.iface ?? world().port.iface;
     return { ...turns, runTurn: (params) => turns.runTurn(turnParams(params, iface)) };
   };
+}
+
+/** A discord.js-shaped channel stub as the tests of the message pipeline build one. */
+type ChannelStub = {
+  id: string;
+  name?: string | null;
+  guild?: { id: string; members?: { me?: unknown } } | null;
+  isThread?: () => boolean;
+  permissionsFor?: (target: unknown) => { has?: (flag: bigint) => boolean } | undefined;
+};
+
+/** What the persona may do in a stub channel: the flags its `permissionsFor` grants her. */
+function permissionsOfStub(stub: ChannelStub): { read: boolean; send: boolean; attach: boolean; react: boolean } {
+  const me = stub.guild?.members?.me ?? {};
+  const has = (flag: bigint): boolean => stub.permissionsFor?.(me)?.has?.(flag) === true;
+  return {
+    read: has(PermissionFlagsBits.ViewChannel) && has(PermissionFlagsBits.ReadMessageHistory),
+    send: has(PermissionFlagsBits.SendMessages),
+    attach: has(PermissionFlagsBits.AttachFiles),
+    react: has(PermissionFlagsBits.AddReactions),
+  };
+}
+
+/**
+ * The same conversation as a stub channel of a test, in the current world's interface (its lines kept): a private
+ * chat without a guild, a thread when `isThread()` says so, permissions as the stub grants them.
+ */
+export function syncStub(stub: unknown): void {
+  const given = stub as ChannelStub;
+  world().channel(
+    {
+      id: given.id,
+      guildId: given.guild?.id ?? null,
+      dm: !given.guild,
+      name: given.name ?? null,
+      kind: given.isThread?.() === true ? 'thread' : undefined,
+      permissions: permissionsOfStub(given),
+    },
+    { keep: true }
+  );
+}
+
+/** The reference of a conversation of the world to run a turn on, from a channel (anything with an `id`). */
+export function refTo(channel: unknown): { iface: string; conversationId: string } {
+  return { iface: worldIface, conversationId: String((channel as { id: unknown }).id) };
+}
+
+/** An event of the pipeline's tests as the world's interface reports it. */
+export function onWorldIface(event: unknown): unknown {
+  return { ...(event as object), iface: worldIface };
+}
+
+/** A message of nobody in particular, seeded into a conversation: a message that merely exists there. */
+export function seedExisting(channelId: unknown, id: unknown): void {
+  const conversationId = String(channelId);
+  world().seed(conversationId, [
+    {
+      id: String(id),
+      channelId: conversationId,
+      author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
+      member: { displayName: 'Alice' },
+      cleanContent: 'hi',
+      createdTimestamp: Date.now(),
+      reference: null,
+      mentions: { users: new Map() },
+      attachments: new Map(),
+      stickers: new Map(),
+    },
+  ]);
 }

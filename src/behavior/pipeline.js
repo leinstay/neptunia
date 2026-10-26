@@ -321,18 +321,9 @@ export function createMessageHandler({
     return found?.conversation ?? null;
   }
 
-  // The listing of the community the route of a call reads, kept for a moment so a burst of messages in a channel
-  // the persona cannot write in costs one read.
-  const LISTING_KEPT_MS = 2000;
-  /** @type {{ communityId: string, at: number, snapshot: import('./snapshot.ts').Snapshot }|null} */
-  let listed = null;
-
-  /** The community's listing, the one taken less than LISTING_KEPT_MS ago when there is one; null when the interface gives none. */
-  async function listing(communityId) {
-    if (listed && listed.communityId === communityId && now() - listed.at < LISTING_KEPT_MS) return listed.snapshot;
-    const snapshot = await takeSnapshot(reads, communityId);
-    listed = snapshot ? { communityId, at: now(), snapshot } : null;
-    return snapshot;
+  /** The community's listing, taken now; null when the interface gives none. */
+  function listing(communityId) {
+    return takeSnapshot(reads, communityId);
   }
 
   /**
