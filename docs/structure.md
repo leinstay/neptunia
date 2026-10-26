@@ -59,6 +59,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
 | `src/ops/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
 | `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
+| `src/protocol/host.ts` | public | The types of what the core hands an interface when it starts one and what the interface hands back. Types only. | `src/protocol/**` | none |
 | `src/skills/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |
 | `src/speech/` | public | Voice messages: text preparation, synthesis and audio conversion. | `node:*`, `src/**` | required |
 | `src/web/` | public | Web search, page fetching and link reading. | `node:*`, `src/**` | required |

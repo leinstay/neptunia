@@ -378,6 +378,13 @@
       "test": "required"
     },
     {
+      "path": "src/protocol/host.ts",
+      "purpose": "The types of what the core hands an interface when it starts one and what the interface hands back. Types only.",
+      "layer": "public",
+      "imports": ["src/protocol/**"],
+      "test": "none"
+    },
+    {
       "path": "src/skills/",
       "purpose": "The tools the persona can call: definitions, registry, executors and the gateway.",
       "layer": "public",
