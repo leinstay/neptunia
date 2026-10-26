@@ -42,7 +42,8 @@ export const PUBLICATION_STATES = Object.freeze(['queued', 'sent', 'failed', 'un
 const dbOf = (handle) => handle?.db ?? handle;
 const txOf = (handle) => (typeof handle?.transaction === 'function' ? (fn) => handle.transaction(fn) : (fn) => fn());
 const filled = (value) => typeof value === 'string' && value !== '';
-const isoOf = (now) => new Date(typeof now === 'function' ? now() : Number.isFinite(now) ? now : Date.now()).toISOString();
+const isoOf = (now) =>
+  new Date(typeof now === 'function' ? now() : Number.isFinite(now) ? now : Date.now()).toISOString();
 const refused = (code) => ({ ok: false, code });
 
 /** The content hash of a rendered text: 64 hex digits of SHA-256 over its UTF-8 bytes. */
@@ -58,7 +59,11 @@ const hasTable = new WeakMap();
 /** Whether the database has the publication tables (schema v10). */
 export function hasPublications(handle) {
   const db = dbOf(handle);
-  if (!hasTable.has(db)) hasTable.set(db, db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'publications'").get() !== undefined);
+  if (!hasTable.has(db))
+    hasTable.set(
+      db,
+      db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'publications'").get() !== undefined
+    );
   return hasTable.get(db);
 }
 
@@ -66,7 +71,11 @@ export function hasPublications(handle) {
 function rowOf(row) {
   if (!row) return null;
   let receipts = null;
-  try { receipts = row.receipts === null || row.receipts === undefined ? null : JSON.parse(row.receipts); } catch { receipts = null; }
+  try {
+    receipts = row.receipts === null || row.receipts === undefined ? null : JSON.parse(row.receipts);
+  } catch {
+    receipts = null;
+  }
   return { ...row, receipts };
 }
 
@@ -85,15 +94,24 @@ export function publicationByKey(handle, key) {
  * hash (an edited text) or a revoked one does not count.
  */
 export function grantFor(handle, { rowKind, rowId, hash, destination }) {
-  return dbOf(handle).prepare(`SELECT g.id FROM publication_grants g
+  return (
+    dbOf(handle)
+      .prepare(
+        `SELECT g.id FROM publication_grants g
      WHERE g.row_kind = ? AND g.row_id = ? AND g.content_hash = ? AND g.revoked_at IS NULL
        AND EXISTS (SELECT 1 FROM json_each(g.destinations) d WHERE d.value = ?)
-     ORDER BY g.approved_at, g.id LIMIT 1`).get(String(rowKind), String(rowId), String(hash), String(destination))?.id ?? null;
+     ORDER BY g.approved_at, g.id LIMIT 1`
+      )
+      .get(String(rowKind), String(rowId), String(hash), String(destination))?.id ?? null
+  );
 }
 
 /** Where the text came from: `internal` (an internal context, or none named: fail closed) or the outward destination. */
 function producedOf(producedIn) {
-  if (producedIn && typeof producedIn === 'object') return producedIn.mode === 'outward' && filled(producedIn.destination) ? { outward: producedIn.destination } : { internal: true };
+  if (producedIn && typeof producedIn === 'object')
+    return producedIn.mode === 'outward' && filled(producedIn.destination)
+      ? { outward: producedIn.destination }
+      : { internal: true };
   return { internal: true };
 }
 
@@ -102,7 +120,14 @@ function producedOf(producedIn) {
  * `producedIn` is the context the text was generated in (an issued context object; anything else counts as internal).
  */
 function sendRefusal(db, { context, rowKind, rowId, hash, destination, producedIn }) {
-  if (!context || typeof context !== 'object' || context.mode !== 'outward' || context.internal === true || !filled(context.id)) return { code: 'not-outward' };
+  if (
+    !context ||
+    typeof context !== 'object' ||
+    context.mode !== 'outward' ||
+    context.internal === true ||
+    !filled(context.id)
+  )
+    return { code: 'not-outward' };
   if (!filled(destination) || context.destination !== destination) return { code: 'destination-mismatch' };
   const produced = producedOf(producedIn);
   if (produced.outward === destination) return { code: null, grant: null };
@@ -113,8 +138,18 @@ function sendRefusal(db, { context, rowKind, rowId, hash, destination, producedI
 /** The `execution_contexts` row of an issued context, when missing (the service records contexts deferred). */
 function ensureContext(db, ctx) {
   const row = contextRow(ctx);
-  db.prepare(`INSERT OR IGNORE INTO execution_contexts (id, mode, iface, destination_place_id, partner_person_id, policy_version, issued_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(row.id, row.mode, row.iface, row.destination_place_id, row.partner_person_id, row.policy_version, row.issued_at ?? new Date(0).toISOString());
+  db.prepare(
+    `INSERT OR IGNORE INTO execution_contexts (id, mode, iface, destination_place_id, partner_person_id, policy_version, issued_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    row.id,
+    row.mode,
+    row.iface,
+    row.destination_place_id,
+    row.partner_person_id,
+    row.policy_version,
+    row.issued_at ?? new Date(0).toISOString()
+  );
 }
 
 /**
@@ -124,7 +159,10 @@ function ensureContext(db, ctx) {
  * @param {{ context: object, rowKind: string, rowId: string, rendered: string, destination: string, producedIn?: object|null,
  *   idempotencyKey?: string, now?: (() => number)|number }} input
  */
-export function preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn = null, idempotencyKey = null, now = Date.now } = {}) {
+export function preparePublication(
+  handle,
+  { context, rowKind, rowId, rendered, destination, producedIn = null, idempotencyKey = null, now = Date.now } = {}
+) {
   const db = dbOf(handle);
   if (!filled(rowKind) || !filled(rowId) || typeof rendered !== 'string') return refused('bad-input');
   const hash = contentHash(rendered);
@@ -137,8 +175,10 @@ export function preparePublication(handle, { context, rowKind, rowId, rendered, 
     if (!db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(destination)) return refused('no-place');
     ensureContext(db, context);
     const id = idOfKey(key);
-    db.prepare(`INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`).run(id, rowKind, rowId, hash, rendered, destination, context.id, check.grant ?? null, key, isoOf(now));
+    db.prepare(
+      `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`
+    ).run(id, rowKind, rowId, hash, rendered, destination, context.id, check.grant ?? null, key, isoOf(now));
     projectRow(db, 'publications', { id });
     return { ok: true, publication: publicationOf(db, id), reused: false };
   });
@@ -153,10 +193,13 @@ export function recheck(handle, id, context) {
   const row = publicationOf(handle, id);
   if (!row) return refused('missing');
   if (row.status !== 'queued' && row.status !== 'unknown') return refused('not-pending');
-  if (!context || context.mode !== 'outward' || context.internal === true || !filled(context.id)) return refused('not-outward');
+  if (!context || context.mode !== 'outward' || context.internal === true || !filled(context.id))
+    return refused('not-outward');
   if (context.destination !== row.destination_place_id) return refused('destination-mismatch');
   if (row.grant_id) {
-    const grant = dbOf(handle).prepare('SELECT revoked_at, content_hash FROM publication_grants WHERE id = ?').get(row.grant_id);
+    const grant = dbOf(handle)
+      .prepare('SELECT revoked_at, content_hash FROM publication_grants WHERE id = ?')
+      .get(row.grant_id);
     if (!grant || grant.revoked_at !== null || grant.content_hash !== row.content_hash) return refused('grant-revoked');
   }
   return { ok: true };
@@ -170,19 +213,25 @@ function move(handle, id, status, from, fields = {}) {
     if (!row) return null;
     if (!from.includes(row.status)) return row;
     const cols = Object.keys(fields);
-    db.prepare(`UPDATE publications SET status = ?${cols.map((col) => `, "${col}" = ?`).join('')} WHERE id = ?`).run(status, ...cols.map((col) => fields[col]), row.id);
+    db.prepare(`UPDATE publications SET status = ?${cols.map((col) => `, "${col}" = ?`).join('')} WHERE id = ?`).run(
+      status,
+      ...cols.map((col) => fields[col]),
+      row.id
+    );
     projectRow(db, 'publications', { id: row.id });
     return publicationOf(db, row.id);
   });
 }
 
-const receiptsText = (receipts) => JSON.stringify(Array.isArray(receipts) ? receipts : receipts === null || receipts === undefined ? [] : [receipts]);
+const receiptsText = (receipts) =>
+  JSON.stringify(Array.isArray(receipts) ? receipts : receipts === null || receipts === undefined ? [] : [receipts]);
 
 /**
  * The send went out: `sent` with the interface's receipts (`[{ authority, kind, key }]`, the native objects it became)
  * and the time. A row already sent stays as it is (a repeat changes nothing).
  */
-export const markSent = (handle, id, receipts, { now = Date.now } = {}) => move(handle, id, 'sent', ['queued', 'unknown', 'failed'], { receipts: receiptsText(receipts), sent_at: isoOf(now) });
+export const markSent = (handle, id, receipts, { now = Date.now } = {}) =>
+  move(handle, id, 'sent', ['queued', 'unknown', 'failed'], { receipts: receiptsText(receipts), sent_at: isoOf(now) });
 /** The send failed for certain (the interface said no): `failed`. */
 export const markFailed = (handle, id) => move(handle, id, 'failed', ['queued', 'unknown']);
 /** The send's outcome is not known (a crash, a timeout): `unknown`, to reconcile before anything is sent again. */
@@ -194,27 +243,47 @@ export const markUnknown = (handle, id) => move(handle, id, 'unknown', ['queued'
  */
 export function reconcile(handle, id, found, { now = Date.now } = {}) {
   const any = Array.isArray(found) ? found.length > 0 : found !== null && found !== undefined;
-  return any ? move(handle, id, 'sent', ['unknown'], { receipts: receiptsText(found), sent_at: isoOf(now) }) : move(handle, id, 'failed', ['unknown']);
+  return any
+    ? move(handle, id, 'sent', ['unknown'], { receipts: receiptsText(found), sent_at: isoOf(now) })
+    : move(handle, id, 'failed', ['unknown']);
 }
 
 /** The publications not settled yet (`queued` or `unknown`), oldest first: what a restart reconciles before sending. */
 export function unsettled(handle) {
-  return dbOf(handle).prepare("SELECT * FROM publications WHERE status IN ('queued', 'unknown') AND retired_at IS NULL ORDER BY created_at, id").all().map(rowOf);
+  return dbOf(handle)
+    .prepare(
+      "SELECT * FROM publications WHERE status IN ('queued', 'unknown') AND retired_at IS NULL ORDER BY created_at, id"
+    )
+    .all()
+    .map(rowOf);
 }
 
 /**
  * The owner's grant: this content hash of this row may be published to these destinations (place ids). Returns the
  * grant id. `approvedBy` is required (the owner's account or person).
  */
-export function grantPublication(handle, { rowKind, rowId, hash, destinations, approvedBy, reason = null, now = Date.now, id = null }) {
+export function grantPublication(
+  handle,
+  { rowKind, rowId, hash, destinations, approvedBy, reason = null, now = Date.now, id = null }
+) {
   const db = dbOf(handle);
   const places = [...new Set((Array.isArray(destinations) ? destinations : []).filter(filled))].sort();
-  if (!filled(rowKind) || !filled(rowId) || !filled(hash) || places.length === 0 || !filled(approvedBy)) throw Object.assign(new Error('memory db: a grant needs a row, a hash, destinations and who approved it'), { code: 'BAD_GRANT' });
+  if (!filled(rowKind) || !filled(rowId) || !filled(hash) || places.length === 0 || !filled(approvedBy))
+    throw Object.assign(new Error('memory db: a grant needs a row, a hash, destinations and who approved it'), {
+      code: 'BAD_GRANT',
+    });
   const at = isoOf(now);
-  const grantId = filled(id) ? id : `grant:${createHash('sha256').update(JSON.stringify([rowKind, rowId, hash, places, approvedBy, at]), 'utf8').digest('hex').slice(0, 32)}`;
+  const grantId = filled(id)
+    ? id
+    : `grant:${createHash('sha256')
+        .update(JSON.stringify([rowKind, rowId, hash, places, approvedBy, at]), 'utf8')
+        .digest('hex')
+        .slice(0, 32)}`;
   txOf(handle)(() => {
-    db.prepare(`INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at, reason, revoked_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`).run(grantId, rowKind, rowId, hash, JSON.stringify(places), approvedBy, at, reason);
+    db.prepare(
+      `INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at, reason, revoked_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+    ).run(grantId, rowKind, rowId, hash, JSON.stringify(places), approvedBy, at, reason);
   });
   return grantId;
 }
@@ -222,7 +291,14 @@ export function grantPublication(handle, { rowKind, rowId, hash, destinations, a
 /** Revokes a grant (once; a revoked grant stays revoked). Returns true when it was revoked now. */
 export function revokeGrant(handle, id, { now = Date.now } = {}) {
   const db = dbOf(handle);
-  return txOf(handle)(() => Number(db.prepare('UPDATE publication_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(isoOf(now), String(id)).changes) > 0);
+  return txOf(handle)(
+    () =>
+      Number(
+        db
+          .prepare('UPDATE publication_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+          .run(isoOf(now), String(id)).changes
+      ) > 0
+  );
 }
 
 // ---------- the diary's mirrors ----------
@@ -231,11 +307,17 @@ export function revokeGrant(handle, id, { now = Date.now } = {}) {
 export function mirrorReceipts(iface, nativeIds) {
   let ids = nativeIds;
   if (typeof ids === 'string') {
-    try { ids = JSON.parse(ids); } catch { ids = []; }
+    try {
+      ids = JSON.parse(ids);
+    } catch {
+      ids = [];
+    }
   }
   const authority = nativeAuthorityOf(iface);
   const kind = legacyNativeKind(iface);
-  return (Array.isArray(ids) ? ids : []).filter((key) => typeof key === 'string' && key).map((key) => ({ authority, kind, key }));
+  return (Array.isArray(ids) ? ids : [])
+    .filter((key) => typeof key === 'string' && key)
+    .map((key) => ({ authority, kind, key }));
 }
 
 /**
@@ -281,28 +363,47 @@ export function deriveMirrorPublication(handle, mirror, { at, project = true } =
   const db = dbOf(handle);
   if (!hasPublications(db)) return null;
   let found;
-  if (Number.isInteger(mirror?.rowid)) found = db.prepare('SELECT * FROM diary_mirrors WHERE rowid = ?').get(mirror.rowid);
+  if (Number.isInteger(mirror?.rowid))
+    found = db.prepare('SELECT * FROM diary_mirrors WHERE rowid = ?').get(mirror.rowid);
   else if (filled(mirror?.id)) found = db.prepare('SELECT * FROM diary_mirrors WHERE id = ?').get(mirror.id);
   if (!found && filled(mirror?.diary_id)) {
-    found = db.prepare("SELECT * FROM diary_mirrors WHERE diary_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_file IS NULL DESC, rowid LIMIT 1")
+    found = db
+      .prepare(
+        "SELECT * FROM diary_mirrors WHERE diary_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_file IS NULL DESC, rowid LIMIT 1"
+      )
       .get(mirror.diary_id, mirror.iface ?? null, mirror.place_id ?? '');
   }
   if (!found || !filled(found.id) || !filled(found.diary_id)) return null;
   const text = db.prepare('SELECT text FROM diary WHERE id = ?').get(found.diary_id)?.text ?? null;
-  const placeExists = filled(found.place_id) && db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(found.place_id) !== undefined;
+  const placeExists =
+    filled(found.place_id) && db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(found.place_id) !== undefined;
   const stamp = filled(at) ? at : new Date().toISOString();
   const row = mirrorPublicationRow(found, { text, placeExists, at: stamp });
-  const existing = db.prepare('SELECT id, owner_file FROM publications WHERE idempotency_key = ?').get(row.idempotency_key);
+  const existing = db
+    .prepare('SELECT id, owner_file FROM publications WHERE idempotency_key = ?')
+    .get(row.idempotency_key);
   if (!existing) {
     const cols = Object.keys(row);
-    db.prepare(`INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((col) => row[col]));
+    db.prepare(
+      `INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    ).run(...cols.map((col) => row[col]));
   } else if (existing.owner_file !== null && existing.owner_file !== undefined) {
     // Only the mirror's own publication follows it; the content is filled once, never rewritten (a trigger guards it).
-    db.prepare(`UPDATE publications SET receipts = ?, owner_file = ?, retired_at = ?,
+    db.prepare(
+      `UPDATE publications SET receipts = ?, owner_file = ?, retired_at = ?,
         destination_place_id = COALESCE(destination_place_id, ?),
         rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
         content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
-      WHERE id = ?`).run(row.receipts, row.owner_file, row.retired_at, row.destination_place_id, row.rendered, row.content_hash, existing.id);
+      WHERE id = ?`
+    ).run(
+      row.receipts,
+      row.owner_file,
+      row.retired_at,
+      row.destination_place_id,
+      row.rendered,
+      row.content_hash,
+      existing.id
+    );
   } else {
     return existing.id;
   }
@@ -324,8 +425,12 @@ export function assignDiaryDestination(handle, placeId, { owner = null, at, proj
   const db = dbOf(handle);
   if (!hasPublications(db) || !filled(placeId)) return 0;
   if (db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) === undefined) return 0;
-  const ids = db.prepare(`UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_file = ?' : ''} RETURNING id`)
-    .all(...(filled(owner) ? [placeId, owner] : [placeId])).map((row) => row.id);
+  const ids = db
+    .prepare(
+      `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_file = ?' : ''} RETURNING id`
+    )
+    .all(...(filled(owner) ? [placeId, owner] : [placeId]))
+    .map((row) => row.id);
   if (project) for (const id of ids) projectRow(db, 'publications', { id }, { at });
   return ids.length;
 }
@@ -333,7 +438,9 @@ export function assignDiaryDestination(handle, placeId, { owner = null, at, proj
 /** Every mirror's publication (the v10 migration; idempotent). Returns how many mirrors were looked at. */
 export function deriveAllMirrorPublications(handle, { at, project = true } = {}) {
   const db = dbOf(handle);
-  const rows = db.prepare('SELECT rowid AS rowid FROM diary_mirrors WHERE id IS NOT NULL AND diary_id IS NOT NULL ORDER BY rowid').all();
+  const rows = db
+    .prepare('SELECT rowid AS rowid FROM diary_mirrors WHERE id IS NOT NULL AND diary_id IS NOT NULL ORDER BY rowid')
+    .all();
   for (const row of rows) deriveMirrorPublication(db, { rowid: row.rowid }, { at, project });
   return rows.length;
 }
@@ -344,9 +451,13 @@ export function deriveAllMirrorPublications(handle, { at, project = true } = {})
  */
 export function projectPublicationsNaming(handle, source, { at } = {}) {
   const db = dbOf(handle);
-  if (!hasPublications(db) || source?.kind !== 'said' || source.native_id === null || source.native_id === undefined) return 0;
+  if (!hasPublications(db) || source?.kind !== 'said' || source.native_id === null || source.native_id === undefined)
+    return 0;
   const needle = `%"key":${JSON.stringify(String(source.native_id))}%`;
-  const ids = db.prepare('SELECT id FROM publications WHERE receipts LIKE ? ORDER BY id').all(needle).map((row) => row.id);
+  const ids = db
+    .prepare('SELECT id FROM publications WHERE receipts LIKE ? ORDER BY id')
+    .all(needle)
+    .map((row) => row.id);
   for (const id of ids) projectRow(db, 'publications', { id }, { at });
   return ids.length;
 }

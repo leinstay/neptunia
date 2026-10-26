@@ -26,7 +26,10 @@ export function codedError(code, message = code) {
 
 /** `guilds/<g>/<sub>`, or `guilds/<g>/private/<u>/<sub>` for a member's private layer (no trailing slash). */
 export function layerDir(guildId, privateUserId, sub) {
-  const layer = typeof privateUserId === 'string' && privateUserId ? `guilds/${guildId}/private/${privateUserId}` : `guilds/${guildId}`;
+  const layer =
+    typeof privateUserId === 'string' && privateUserId
+      ? `guilds/${guildId}/private/${privateUserId}`
+      : `guilds/${guildId}`;
   return sub ? `${layer}/${sub}` : layer;
 }
 
@@ -35,7 +38,10 @@ export function ownersUnder(db, table, relDir, { kind = null } = {}) {
   const prefix = `${String(relDir).replace(/\/+$/, '')}/`;
   const sql = `SELECT DISTINCT owner_file AS owner FROM "${table}" WHERE owner_file >= ? AND owner_file < ? AND retired_at IS NULL${kind ? ' AND kind = ?' : ''} ORDER BY owner_file`;
   const args = kind ? [prefix, prefix + END, kind] : [prefix, prefix + END];
-  return db.prepare(sql).all(...args).map((row) => row.owner);
+  return db
+    .prepare(sql)
+    .all(...args)
+    .map((row) => row.owner);
 }
 
 /** The names directly under `relDir` among `owners` (the first path segment after it), distinct, sorted as bytes. */
@@ -58,12 +64,16 @@ export function byBytes(a, b) {
 
 /** Whether the unit `owner` has an active row in `table`. */
 export function hasRows(db, table, owner) {
-  return db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE owner_file = ? AND retired_at IS NULL LIMIT 1`).get(owner) !== undefined;
+  return (
+    db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE owner_file = ? AND retired_at IS NULL LIMIT 1`).get(owner) !==
+    undefined
+  );
 }
 
 function infoOf(owner, format) {
   const info = classify(owner);
-  if (!info || info.skipped || info.format !== format) throw codedError('READER_UNMAPPED', 'not a memory unit of this format');
+  if (!info || info.skipped || info.format !== format)
+    throw codedError('READER_UNMAPPED', 'not a memory unit of this format');
   return info;
 }
 

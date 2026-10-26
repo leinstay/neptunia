@@ -148,17 +148,47 @@ CREATE TABLE operational (kind TEXT, owner TEXT, value JSON, owner_file TEXT, PR
 // Version 2 (sync): every table a sync writes can retire a row that left its file, and a vectors row knows the
 // month directory it came from; `files.lines` counts the lines of a JSONL file already read.
 const RETIRABLE = [
-  'accounts', 'memberships', 'sources', 'vectors', 'claim_versions', 'descriptions', 'description_versions',
-  'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events', 'decisions', 'operational',
+  'accounts',
+  'memberships',
+  'sources',
+  'vectors',
+  'claim_versions',
+  'descriptions',
+  'description_versions',
+  'affinity_events',
+  'day',
+  'diary',
+  'media',
+  'intentions',
+  'work',
+  'work_events',
+  'decisions',
+  'operational',
 ];
 const V2 = [
   ...RETIRABLE.map((table) => `ALTER TABLE ${table} ADD COLUMN retired_at TEXT;`),
   'ALTER TABLE vectors ADD COLUMN owner_file TEXT;',
   'ALTER TABLE files ADD COLUMN lines INTEGER;',
   'CREATE INDEX vectors_file ON vectors(owner_file);',
-  ...['people', 'accounts', 'places', 'memberships', 'claim_versions', 'descriptions', 'description_versions', 'episodes',
-    'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events', 'decisions', 'operational']
-    .map((table) => `CREATE INDEX ${table}_owner ON ${table}(owner_file);`),
+  ...[
+    'people',
+    'accounts',
+    'places',
+    'memberships',
+    'claim_versions',
+    'descriptions',
+    'description_versions',
+    'episodes',
+    'affinity_events',
+    'day',
+    'diary',
+    'media',
+    'intentions',
+    'work',
+    'work_events',
+    'decisions',
+    'operational',
+  ].map((table) => `CREATE INDEX ${table}_owner ON ${table}(owner_file);`),
   'CREATE INDEX episode_sources_episode ON episode_sources(episode_id);',
   'CREATE INDEX claim_sources_claim ON claim_sources(claim_id);',
   'CREATE INDEX diary_mirrors_diary ON diary_mirrors(diary_id);',
@@ -193,16 +223,36 @@ ALTER TABLE diary DROP COLUMN lost;
 //    others are listed here so their export finds it and retiring the owner hands it over instead of retiring it;
 //  - `vectors(model, dims)` is indexed, and `sources.seen_at` of an old record line is its `recordedAt`.
 const OWNER_TABLES = [
-  'people', 'accounts', 'places', 'memberships', 'sources', 'claims', 'claim_versions', 'descriptions',
-  'description_versions', 'episodes', 'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'work_events',
-  'decisions', 'vectors',
+  'people',
+  'accounts',
+  'places',
+  'memberships',
+  'sources',
+  'claims',
+  'claim_versions',
+  'descriptions',
+  'description_versions',
+  'episodes',
+  'affinity_events',
+  'day',
+  'diary',
+  'media',
+  'intentions',
+  'work',
+  'work_events',
+  'decisions',
+  'vectors',
 ];
-const CHILD_TABLES = [['claim_sources', 'claims', 'claim_id'], ['episode_sources', 'episodes', 'episode_id'], ['diary_mirrors', 'diary', 'diary_id']];
+const CHILD_TABLES = [
+  ['claim_sources', 'claims', 'claim_id'],
+  ['episode_sources', 'episodes', 'episode_id'],
+  ['diary_mirrors', 'diary', 'diary_id'],
+];
 // The full path of a guild-relative owner (from the `files` rows), looked up in a temporary index so the rewrite of a
 // large table is one pass.
 const FULL_PATH = (table) => `(SELECT o.full FROM _owner_paths o WHERE o.rel = ${table}.owner_file)`;
 const V5 = [
-  'CREATE TEMP TABLE _owner_paths AS SELECT substr(path, instr(substr(path, 8), \'/\') + 8) AS rel, MIN(path) AS full FROM files WHERE path LIKE \'guilds/%\' GROUP BY 1;',
+  "CREATE TEMP TABLE _owner_paths AS SELECT substr(path, instr(substr(path, 8), '/') + 8) AS rel, MIN(path) AS full FROM files WHERE path LIKE 'guilds/%' GROUP BY 1;",
   'CREATE INDEX temp._owner_paths_rel ON _owner_paths(rel);',
   ...CHILD_TABLES.flatMap(([table]) => [
     `ALTER TABLE ${table} ADD COLUMN retired_at TEXT;`,
@@ -215,11 +265,17 @@ const V5 = [
   'CREATE TABLE co_owners (tbl TEXT, key TEXT, owner_file TEXT, PRIMARY KEY (tbl, key, owner_file));',
   'CREATE INDEX co_owners_owner ON co_owners(owner_file);',
   'CREATE INDEX vectors_model ON vectors(model, dims);',
-  ...OWNER_TABLES.map((table) => `UPDATE ${table} SET owner_file = ${FULL_PATH(table)} WHERE owner_file IS NOT NULL AND owner_file NOT LIKE 'guilds/%' AND ${FULL_PATH(table)} IS NOT NULL;`),
+  ...OWNER_TABLES.map(
+    (table) =>
+      `UPDATE ${table} SET owner_file = ${FULL_PATH(table)} WHERE owner_file IS NOT NULL AND owner_file NOT LIKE 'guilds/%' AND ${FULL_PATH(table)} IS NOT NULL;`
+  ),
   `UPDATE operational SET owner = CASE WHEN substr(owner, 1, length(owner_file)) = owner_file THEN ${FULL_PATH('operational')} || substr(owner, length(owner_file) + 1) ELSE owner END,
      owner_file = ${FULL_PATH('operational')}
    WHERE owner_file IS NOT NULL AND owner_file NOT LIKE 'guilds/%' AND ${FULL_PATH('operational')} IS NOT NULL;`,
-  ...CHILD_TABLES.map(([table, parent, link]) => `UPDATE ${table} SET owner_file = (SELECT p.owner_file FROM ${parent} p WHERE p.id = ${table}.${link});`),
+  ...CHILD_TABLES.map(
+    ([table, parent, link]) =>
+      `UPDATE ${table} SET owner_file = (SELECT p.owner_file FROM ${parent} p WHERE p.id = ${table}.${link});`
+  ),
   "UPDATE sources SET seen_at = recorded_at WHERE kind = 'seen' AND seen_at IS NULL AND recorded_at IS NOT NULL;",
   'DROP TABLE temp._owner_paths;',
 ].join('\n');
@@ -268,7 +324,18 @@ const V6 = [
 
 /** Every table that carries the scope triple (and from v7 its `audience_id`). */
 export const SCOPED_TABLES = [
-  'sources', 'vectors', 'claims', 'descriptions', 'episodes', 'affinity_events', 'day', 'diary', 'media', 'intentions', 'work', 'session_runs',
+  'sources',
+  'vectors',
+  'claims',
+  'descriptions',
+  'episodes',
+  'affinity_events',
+  'day',
+  'diary',
+  'media',
+  'intentions',
+  'work',
+  'session_runs',
 ];
 /** Her own source kinds (`author_kind = 'self'`). */
 export const SELF_SOURCE_KINDS = ['said', 'answer', 'felt', 'memory_session', 'description_review'];
@@ -277,7 +344,8 @@ export const SELF_SOURCE_KINDS = ['said', 'answer', 'felt', 'memory_session', 'd
 // migration (an empty database has none: the epoch). Deterministic, so two databases migrated from the same rows agree.
 const NOW_SQL = "COALESCE((SELECT value FROM meta WHERE key = 'last_sync_at'), '1970-01-01T00:00:00.000Z')";
 /** The native authority of an interface column (src/memory/db/ids.js#nativeAuthorityOf). */
-const AUTHORITY_SQL = (col) => `(CASE WHEN ${col} IS NULL OR ${col} = '' THEN 'core/local' WHEN ${col} IN ('cli', 'core') THEN ${col} || '/local' ELSE ${col} || '/global' END)`;
+const AUTHORITY_SQL = (col) =>
+  `(CASE WHEN ${col} IS NULL OR ${col} = '' THEN 'core/local' WHEN ${col} IN ('cli', 'core') THEN ${col} || '/local' ELSE ${col} || '/global' END)`;
 const DM_PREFIX = "('person:' || scope_iface || ':')";
 const DM_OK = `(scope_iface IS NOT NULL AND scope_iface <> '' AND scope_dm IS NOT NULL AND substr(scope_dm, 1, length(${DM_PREFIX})) = ${DM_PREFIX} AND length(scope_dm) > length(${DM_PREFIX}))`;
 /** The audience of a triple (src/memory/db/scope.js#audienceOf). */
@@ -294,8 +362,10 @@ const PLACE_KEY_SQL = `(CASE
     ELSE NULL END)
   WHEN native_id IS NULL THEN NULL
   ELSE COALESCE(NULLIF(kind, ''), 'place') || ':' || native_id END)`;
-const CONVERSATION_SQL = "(CASE WHEN kind = 'dm' OR scope_kind = 'dm' THEN 'dm' WHEN kind IN ('guild', 'server', 'workspace', 'category') THEN NULL ELSE 'group' END)";
-const ACCOUNT_KEY_SQL = "COALESCE(native_id, CASE WHEN iface IS NOT NULL AND substr(id, 1, length(iface) + 1) = iface || ':' AND length(id) > length(iface) + 1 THEN substr(id, length(iface) + 2) END)";
+const CONVERSATION_SQL =
+  "(CASE WHEN kind = 'dm' OR scope_kind = 'dm' THEN 'dm' WHEN kind IN ('guild', 'server', 'workspace', 'category') THEN NULL ELSE 'group' END)";
+const ACCOUNT_KEY_SQL =
+  "COALESCE(native_id, CASE WHEN iface IS NOT NULL AND substr(id, 1, length(iface) + 1) = iface || ':' AND length(id) > length(iface) + 1 THEN substr(id, length(iface) + 2) END)";
 
 const V7 = [
   `CREATE TABLE interfaces (id TEXT PRIMARY KEY, name TEXT, contract INTEGER NOT NULL DEFAULT 1, extra JSON);`,
@@ -404,7 +474,9 @@ END;`,
   `UPDATE sources SET audience_id = ${AUDIENCE_SQL}, authority_id = ${AUTHORITY_SQL('iface')},
     author_kind = CASE WHEN kind IN (${SELF_KINDS_SQL}) THEN 'self' WHEN author_account IS NOT NULL THEN 'account' ELSE NULL END,
     observed_at = recorded_at;`,
-  ...SCOPED_TABLES.filter((table) => table !== 'sources').map((table) => `UPDATE ${table} SET audience_id = ${AUDIENCE_SQL};`),
+  ...SCOPED_TABLES.filter((table) => table !== 'sources').map(
+    (table) => `UPDATE ${table} SET audience_id = ${AUDIENCE_SQL};`
+  ),
 
   // External keys and links.
   `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at)
@@ -475,7 +547,8 @@ export const CAPTURE_EVENT_KINDS = ['initial', 'expansion', 'watch'];
 export const WATCH_OUTCOMES = ['fetched', 'nothing_new', 'unavailable'];
 
 const IN = (values) => values.map((value) => `'${value}'`).join(', ');
-const COVERAGE_CHECK = (col) => `CHECK (json_valid(${col}) AND json_type(${col}) = 'object' AND json_extract(${col}, '$.state') IN (${IN(COVERAGE_STATES)}))`;
+const COVERAGE_CHECK = (col) =>
+  `CHECK (json_valid(${col}) AND json_type(${col}) = 'object' AND json_extract(${col}, '$.state') IN (${IN(COVERAGE_STATES)}))`;
 const APPEND_ONLY = (table, what) => [
   `CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT, '${what}'); END;`,
   `CREATE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT, '${what}'); END;`,
@@ -595,9 +668,12 @@ export const V9_TABLES = ['graph_nodes', 'graph_edges', 'node_access', 'claim_ve
 export const EVIDENCE_ROLES = ['supports', 'conflicts'];
 
 const LINK_KEY = {
-  claim_sources: (x) => `'cs:' || COALESCE(${x}.claim_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
-  episode_sources: (x) => `'es:' || COALESCE(${x}.episode_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
-  diary_mirrors: (x) => `'mirror:' || COALESCE(${x}.diary_id, '') || ':' || COALESCE(${x}.iface, '') || ':' || COALESCE(${x}.place_id, '')`,
+  claim_sources: (x) =>
+    `'cs:' || COALESCE(${x}.claim_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
+  episode_sources: (x) =>
+    `'es:' || COALESCE(${x}.episode_id, '') || CASE WHEN ${x}.owner_file IS NULL THEN ':s:' || COALESCE(${x}.source_id, '') ELSE ':p:' || COALESCE(${x}.position, '') END`,
+  diary_mirrors: (x) =>
+    `'mirror:' || COALESCE(${x}.diary_id, '') || ':' || COALESCE(${x}.iface, '') || ':' || COALESCE(${x}.place_id, '')`,
 };
 const LINK_PARENT = { claim_sources: 'claim_id', episode_sources: 'episode_id', diary_mirrors: 'diary_id' };
 const DURABLE_IDS = Object.keys(LINK_KEY).flatMap((table) => [
@@ -611,8 +687,26 @@ const DURABLE_IDS = Object.keys(LINK_KEY).flatMap((table) => [
   END;`,
 ]);
 /** Tables whose rows the v9 migration leaves to the pending projection (anything beyond the node-only kinds). */
-const PENDING_TABLES = ['accounts', 'participants', 'places', 'memberships', 'sources', 'claims', 'claim_versions', 'claim_sources', 'descriptions',
-  'description_versions', 'episodes', 'episode_sources', 'diary', 'diary_mirrors', 'media', 'intentions', 'work', 'decisions'];
+const PENDING_TABLES = [
+  'accounts',
+  'participants',
+  'places',
+  'memberships',
+  'sources',
+  'claims',
+  'claim_versions',
+  'claim_sources',
+  'descriptions',
+  'description_versions',
+  'episodes',
+  'episode_sources',
+  'diary',
+  'diary_mirrors',
+  'media',
+  'intentions',
+  'work',
+  'decisions',
+];
 /** The newest live version of the claim `cs.claim_id` (the same order service.js#turnReadRows reads a claim's version in). */
 const NEWEST_VERSION_SQL = `(SELECT v.id FROM claim_versions v WHERE v.claim_id = cs.claim_id AND v.retired_at IS NULL ORDER BY COALESCE(v.recorded_at, '') DESC, v.rowid DESC LIMIT 1)`;
 
@@ -672,7 +766,14 @@ const V9 = [
 //    and exclusions). Filled by focus.js, never by a file: the sync never touches them.
 
 /** Every table schema v10 adds. */
-export const V10_TABLES = ['publications', 'publication_grants', 'relationship_daily', 'focus_members', 'focus_events', 'focus_overrides'];
+export const V10_TABLES = [
+  'publications',
+  'publication_grants',
+  'relationship_daily',
+  'focus_members',
+  'focus_events',
+  'focus_overrides',
+];
 /** The buckets of the focus set. */
 export const FOCUS_BUCKETS = ['close', 'exploring'];
 
@@ -760,7 +861,14 @@ function V10(db) {
 // Spelt out in one place so the tests and docs/memory.md can list them.
 
 /** Every table schema v11 adds. */
-export const V11_TABLES = ['wake_runs', 'wake_actions', 'skills', 'skill_versions', 'skill_evaluations', 'index_policy'];
+export const V11_TABLES = [
+  'wake_runs',
+  'wake_actions',
+  'skills',
+  'skill_versions',
+  'skill_evaluations',
+  'index_policy',
+];
 /** The states of a wake run. */
 export const WAKE_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'interrupted'];
 /** The lifecycle of a registered skill, the status of a skill version and the kinds of an evaluation. */
@@ -843,8 +951,16 @@ export function finishDiaryDestination(db, context = {}) {
 
 function V12(db, context = {}) {
   // Only a database holding diary publications without a destination has anything to wait for.
-  if (db.prepare("SELECT 1 AS ok FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL LIMIT 1").get() === undefined) return;
-  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(DIARY_DESTINATION_PENDING, '1');
+  if (
+    db
+      .prepare("SELECT 1 AS ok FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL LIMIT 1")
+      .get() === undefined
+  )
+    return;
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+    DIARY_DESTINATION_PENDING,
+    '1'
+  );
   finishDiaryDestination(db, context);
 }
 
@@ -866,18 +982,64 @@ const V13 = [
 export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
 
 /** Every table schema v7 adds. */
-export const V7_TABLES = ['interfaces', 'authorities', 'connections', 'external_keys', 'audiences', 'account_person_links', 'execution_contexts'];
+export const V7_TABLES = [
+  'interfaces',
+  'authorities',
+  'connections',
+  'external_keys',
+  'audiences',
+  'account_person_links',
+  'execution_contexts',
+];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [
-  'participants', 'participant_links', 'people_merges', 'capture_bundles', 'capture_members', 'capture_events', 'capture_watches', 'source_relations',
+  'participants',
+  'participant_links',
+  'people_merges',
+  'capture_bundles',
+  'capture_members',
+  'capture_events',
+  'capture_watches',
+  'source_relations',
 ];
 
 /** Every table schema v1 creates (virtual tables included), for tests and tools. */
 export const V1_TABLES = [
-  'meta', 'files', 'people', 'accounts', 'places', 'memberships', 'sources', 'sources_fts', 'sources_tri', 'vectors',
-  'claims', 'claim_versions', 'claim_sources', 'descriptions', 'description_versions', 'episodes', 'episode_sources',
-  'affinity_events', 'day', 'diary', 'diary_mirrors', 'media', 'intentions', 'work', 'work_events', 'decisions',
-  'turn_reads', 'ledger_tasks', 'ledger_attempts', 'ledger_questions', 'ledger_approvals', 'ledger_results',
-  'ledger_comments', 'ledger_events', 'ledger_outbox', 'operational',
+  'meta',
+  'files',
+  'people',
+  'accounts',
+  'places',
+  'memberships',
+  'sources',
+  'sources_fts',
+  'sources_tri',
+  'vectors',
+  'claims',
+  'claim_versions',
+  'claim_sources',
+  'descriptions',
+  'description_versions',
+  'episodes',
+  'episode_sources',
+  'affinity_events',
+  'day',
+  'diary',
+  'diary_mirrors',
+  'media',
+  'intentions',
+  'work',
+  'work_events',
+  'decisions',
+  'turn_reads',
+  'ledger_tasks',
+  'ledger_attempts',
+  'ledger_questions',
+  'ledger_approvals',
+  'ledger_results',
+  'ledger_comments',
+  'ledger_events',
+  'ledger_outbox',
+  'operational',
 ];

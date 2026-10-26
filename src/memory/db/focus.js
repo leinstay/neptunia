@@ -125,11 +125,17 @@ export function scoreOf(person, now, settings) {
     sharedInterest: NEUTRAL,
     recency: Number.isFinite(last) ? halfLife(last, s.recencyHalfLifeDays) : 0,
     consistency: Math.min(1, Math.max(0, Number(person.meaningfulDays) || 0) / s.consistencyCap),
-    novelty: Number.isFinite(first) && !(person.affinity < 0) ? s.noveltyMax * halfLife(first, s.noveltyHalfLifeDays) : 0,
+    novelty:
+      Number.isFinite(first) && !(person.affinity < 0) ? s.noveltyMax * halfLife(first, s.noveltyHalfLifeDays) : 0,
   };
   const w = s.weights;
-  const score = w.affinity * parts.affinity + w.reciprocity * parts.reciprocity + w.sharedInterest * parts.sharedInterest
-    + w.recency * parts.recency + w.consistency * parts.consistency + parts.novelty;
+  const score =
+    w.affinity * parts.affinity +
+    w.reciprocity * parts.reciprocity +
+    w.sharedInterest * parts.sharedInterest +
+    w.recency * parts.recency +
+    w.consistency * parts.consistency +
+    parts.novelty;
   return { score: Math.round(score * 1e6) / 1e6, parts };
 }
 
@@ -147,7 +153,17 @@ const byScore = (a, b) => b.score - a.score || (a.id < b.id ? -1 : 1);
  *   whether any member or event ever existed.
  * @returns {{ members: Array<{ person_id, bucket, since, score, policy_version, reason }>, events: Array<{ person_id, old_bucket, new_bucket, reason, extra }> }}
  */
-export function decideFocus({ now, settings, people, members = [], overrides = [], streaks = new Map(), movesInWeek = 0, reported = new Set(), history = false }) {
+export function decideFocus({
+  now,
+  settings,
+  people,
+  members = [],
+  overrides = [],
+  streaks = new Map(),
+  movesInWeek = 0,
+  reported = new Set(),
+  history = false,
+}) {
   const s = settings;
   const at = isoOf(now);
   const active = overrides.filter((o) => !o.expires_at || msOf(o.expires_at) > now);
@@ -177,28 +193,55 @@ export function decideFocus({ now, settings, people, members = [], overrides = [
   for (const m of members) {
     if (m.bucket !== 'close') continue;
     const p = scored.get(m.person_id);
-    if (!p) { note(m.person_id, 'gone'); continue; }
-    if (excluded.has(p.id)) { note(p.id, 'exclude'); continue; }
-    if (p.bot) { note(p.id, 'bot'); continue; }
-    if (!pinned.has(p.id) && p.affinity < 0) { note(p.id, 'negative_affinity'); continue; }
+    if (!p) {
+      note(m.person_id, 'gone');
+      continue;
+    }
+    if (excluded.has(p.id)) {
+      note(p.id, 'exclude');
+      continue;
+    }
+    if (p.bot) {
+      note(p.id, 'bot');
+      continue;
+    }
+    if (!pinned.has(p.id) && p.affinity < 0) {
+      note(p.id, 'negative_affinity');
+      continue;
+    }
     close.set(p.id, { since: m.since });
   }
 
   // Pins: every pinned person who is not excluded and not a bot, within the cap: the ones already close first (a pin
   // over capacity never takes a slot from another pin), then the best scored. The rest are reported once.
-  const pins = [...pinned].filter((id) => scored.has(id) && !excluded.has(id) && !isBot(id)).map((id) => scored.get(id))
+  const pins = [...pinned]
+    .filter((id) => scored.has(id) && !excluded.has(id) && !isBot(id))
+    .map((id) => scored.get(id))
     .sort((a, b) => Number(close.has(b.id)) - Number(close.has(a.id)) || byScore(a, b));
   const fitting = pins.slice(0, s.size);
   for (const p of pins.slice(s.size)) {
     const extra = { size: s.size, pins: pins.length };
-    if (close.has(p.id)) { close.delete(p.id); note(p.id, 'over_capacity', extra); }
-    else if (!reported.has(p.id)) events.push({ person_id: p.id, old_bucket: before.get(p.id)?.bucket ?? null, new_bucket: before.get(p.id)?.bucket ?? null, reason: 'over_capacity', extra });
+    if (close.has(p.id)) {
+      close.delete(p.id);
+      note(p.id, 'over_capacity', extra);
+    } else if (!reported.has(p.id))
+      events.push({
+        person_id: p.id,
+        old_bucket: before.get(p.id)?.bucket ?? null,
+        new_bucket: before.get(p.id)?.bucket ?? null,
+        reason: 'over_capacity',
+        extra,
+      });
   }
   for (const p of fitting) {
     if (close.has(p.id)) continue;
     if (close.size >= s.size) {
       // A pin displaces the lowest member that is not pinned (a settling one too: pin > settling).
-      const lowest = [...close.keys()].filter((id) => !pinned.has(id)).map((id) => scored.get(id)).sort(byScore).at(-1);
+      const lowest = [...close.keys()]
+        .filter((id) => !pinned.has(id))
+        .map((id) => scored.get(id))
+        .sort(byScore)
+        .at(-1);
       if (!lowest) break;
       close.delete(lowest.id);
       note(lowest.id, 'displaced_by_pin', { by: p.id });
@@ -221,14 +264,27 @@ export function decideFocus({ now, settings, people, members = [], overrides = [
     const promoted = new Set();
     for (const p of candidates()) {
       const free = close.size < s.size;
-      const lowest = free ? null : [...close.keys()].filter((id) => !pinned.has(id) && !settling(id)).map((id) => scored.get(id)).filter(Boolean).sort(byScore).at(-1);
+      const lowest = free
+        ? null
+        : [...close.keys()]
+            .filter((id) => !pinned.has(id) && !settling(id))
+            .map((id) => scored.get(id))
+            .filter(Boolean)
+            .sort(byScore)
+            .at(-1);
       if (!free && !lowest) continue;
       const bar = free ? null : lowest.score + s.margin;
       if (!free && !(p.score > bar)) continue;
       beating.add(p.id);
       const since = streaks.get(p.id);
       if (!since) {
-        events.push({ person_id: p.id, old_bucket: before.get(p.id)?.bucket ?? null, new_bucket: before.get(p.id)?.bucket ?? null, reason: 'challenge', extra: { since: at, score: p.score, against: lowest?.id ?? null, bar, slot: free ? 'free' : 'replace' } });
+        events.push({
+          person_id: p.id,
+          old_bucket: before.get(p.id)?.bucket ?? null,
+          new_bucket: before.get(p.id)?.bucket ?? null,
+          reason: 'challenge',
+          extra: { since: at, score: p.score, against: lowest?.id ?? null, bar, slot: free ? 'free' : 'replace' },
+        });
         continue;
       }
       if (now - msOf(since) < s.confirmHours * HOUR_MS || moves <= 0) continue;
@@ -243,13 +299,27 @@ export function decideFocus({ now, settings, people, members = [], overrides = [
     }
     // A run that did not hold at this recomputation ends (a pinned or forced entry ends it too).
     for (const [id, since] of streaks) {
-      if (!beating.has(id) && !promoted.has(id)) events.push({ person_id: id, old_bucket: before.get(id)?.bucket ?? null, new_bucket: before.get(id)?.bucket ?? null, reason: 'challenge_lapsed', extra: { since } });
+      if (!beating.has(id) && !promoted.has(id))
+        events.push({
+          person_id: id,
+          old_bucket: before.get(id)?.bucket ?? null,
+          new_bucket: before.get(id)?.bucket ?? null,
+          reason: 'challenge_lapsed',
+          extra: { since },
+        });
     }
   }
 
   // Exploring: outside the close set, after a meaningful exchange, never negative, excluded or a bot.
   const exploring = [...scored.values()]
-    .filter((p) => !close.has(p.id) && !excluded.has(p.id) && !p.bot && !(p.affinity < 0) && Number.isFinite(msOf(p.firstMeaningfulAt)))
+    .filter(
+      (p) =>
+        !close.has(p.id) &&
+        !excluded.has(p.id) &&
+        !p.bot &&
+        !(p.affinity < 0) &&
+        Number.isFinite(msOf(p.firstMeaningfulAt))
+    )
     .sort(byScore)
     .slice(0, s.exploring);
   const exploringIds = new Set(exploring.map((p) => p.id));
@@ -260,11 +330,29 @@ export function decideFocus({ now, settings, people, members = [], overrides = [
   for (const [id, entry] of close) {
     const p = scored.get(id);
     const was = before.get(id);
-    out.push({ person_id: id, bucket: 'close', since: was?.bucket === 'close' ? was.since : entry.since, score: p.score, policy_version: s.policyVersion, reason: { parts: p.parts, ...(pinned.has(id) ? { pinned: true } : {}), ...(reasons.get(id) ? { last: reasons.get(id).reason } : {}) } });
+    out.push({
+      person_id: id,
+      bucket: 'close',
+      since: was?.bucket === 'close' ? was.since : entry.since,
+      score: p.score,
+      policy_version: s.policyVersion,
+      reason: {
+        parts: p.parts,
+        ...(pinned.has(id) ? { pinned: true } : {}),
+        ...(reasons.get(id) ? { last: reasons.get(id).reason } : {}),
+      },
+    });
   }
   for (const p of exploring) {
     const was = before.get(p.id);
-    out.push({ person_id: p.id, bucket: 'exploring', since: was?.bucket === 'exploring' ? was.since : at, score: p.score, policy_version: s.policyVersion, reason: { parts: p.parts } });
+    out.push({
+      person_id: p.id,
+      bucket: 'exploring',
+      since: was?.bucket === 'exploring' ? was.since : at,
+      score: p.score,
+      policy_version: s.policyVersion,
+      reason: { parts: p.parts },
+    });
   }
   const touched = new Set([...before.keys(), ...close.keys(), ...exploringIds]);
   for (const id of [...touched].sort()) {
@@ -275,7 +363,12 @@ export function decideFocus({ now, settings, people, members = [], overrides = [
     const reason = why?.reason ?? (now_ === 'exploring' ? 'explore' : now_ === null ? 'explore_end' : 'enter');
     events.push({ person_id: id, old_bucket: old, new_bucket: now_, reason, extra: why?.extra ?? null });
   }
-  return { members: out.sort((a, b) => (a.bucket === b.bucket ? b.score - a.score || (a.person_id < b.person_id ? -1 : 1) : a.bucket === 'close' ? -1 : 1)), events };
+  return {
+    members: out.sort((a, b) =>
+      a.bucket === b.bucket ? b.score - a.score || (a.person_id < b.person_id ? -1 : 1) : a.bucket === 'close' ? -1 : 1
+    ),
+    events,
+  };
 }
 
 // ---------- the database ----------
@@ -286,7 +379,8 @@ function daysOf(from, to) {
   const end = msOf(to);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [];
   const days = [];
-  for (let at = Date.parse(`${utcDay(start)}T00:00:00.000Z`); at <= end && days.length < 400; at += DAY_MS) days.push(utcDay(at));
+  for (let at = Date.parse(`${utcDay(start)}T00:00:00.000Z`); at <= end && days.length < 400; at += DAY_MS)
+    days.push(utcDay(at));
   return days;
 }
 
@@ -294,16 +388,24 @@ function daysOf(from, to) {
 function personAt(db, cache, account, atIso) {
   const key = `${account}\u0000${atIso.slice(0, 10)}`;
   if (cache.has(key)) return cache.get(key);
-  const rows = db.prepare(`SELECT DISTINCT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified'
-    AND (valid_from_at IS NULL OR valid_from_at <= ?) AND (valid_to_at IS NULL OR ? < valid_to_at)`).all(account, atIso, atIso);
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified'
+    AND (valid_from_at IS NULL OR valid_from_at <= ?) AND (valid_to_at IS NULL OR ? < valid_to_at)`
+    )
+    .all(account, atIso, atIso);
   const people = [...new Set(rows.map((row) => survivorOf(db, row.person_id)))];
-  const person = people.length === 1 && db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(people[0]) ? people[0] : null;
+  const person =
+    people.length === 1 && db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(people[0]) ? people[0] : null;
   cache.set(key, person);
   return person;
 }
 
 /** The message a line is (all its revisions are one), or its own id when it names no native message. */
-const lineKey = (row) => (row.native_id === null || row.native_id === undefined ? `id:${row.id}` : `m:${row.authority_id}\u0000${row.native_kind}\u0000${row.native_id}\u0000${row.generation ?? 1}`);
+const lineKey = (row) =>
+  row.native_id === null || row.native_id === undefined
+    ? `id:${row.id}`
+    : `m:${row.authority_id}\u0000${row.native_kind}\u0000${row.native_id}\u0000${row.generation ?? 1}`;
 
 /**
  * `relationship_daily` for the UTC days from `from` through `to`, recounted from `sources` (see the head of this file).
@@ -335,43 +437,74 @@ export function recountDaily(handle, { from, to }) {
       counts.set(key, entry);
       lines += 1;
     };
-    const theirs = db.prepare(`SELECT s.id, s.authority_id, s.native_kind, s.native_id, s.generation, s.occurred_at, s.audience_id, s.author_account,
+    const theirs = db
+      .prepare(
+        `SELECT s.id, s.authority_id, s.native_kind, s.native_id, s.generation, s.occurred_at, s.audience_id, s.author_account,
         s.direct, EXISTS (SELECT 1 FROM source_relations r JOIN sources t ON t.id = r.target_source_id
           WHERE r.source_id = s.id AND r.predicate = 'replies_to' AND t.author_kind = 'self') AS to_her
       FROM sources s WHERE s.kind = 'seen' AND s.retired_at IS NULL AND s.author_account IS NOT NULL AND s.occurred_at >= ? AND s.occurred_at < ?
-      ORDER BY s.occurred_at, s.rowid`).all(lo, hi);
+      ORDER BY s.occurred_at, s.rowid`
+      )
+      .all(lo, hi);
     for (const row of theirs) {
       if (row.direct !== 1 && row.to_her !== 1) continue;
       count(personAt(db, cache, row.author_account, row.occurred_at), row, 'them');
     }
-    const hers = db.prepare(`SELECT s.id, s.authority_id, s.native_kind, s.native_id, s.generation, s.occurred_at, s.audience_id, s.mentions,
+    const hers = db
+      .prepare(
+        `SELECT s.id, s.authority_id, s.native_kind, s.native_id, s.generation, s.occurred_at, s.audience_id, s.mentions,
         (SELECT json_group_array(t.author_account) FROM source_relations r JOIN sources t ON t.id = r.target_source_id
           WHERE r.source_id = s.id AND r.predicate = 'replies_to' AND t.author_account IS NOT NULL) AS replied
       FROM sources s WHERE s.kind = 'said' AND s.retired_at IS NULL AND s.occurred_at >= ? AND s.occurred_at < ?
-      ORDER BY s.occurred_at, s.rowid`).all(lo, hi);
-    const accountOf = db.prepare('SELECT id FROM accounts WHERE authority_id = ? AND native_key = ? ORDER BY gone_at IS NOT NULL, generation DESC LIMIT 1');
+      ORDER BY s.occurred_at, s.rowid`
+      )
+      .all(lo, hi);
+    const accountOf = db.prepare(
+      'SELECT id FROM accounts WHERE authority_id = ? AND native_key = ? ORDER BY gone_at IS NOT NULL, generation DESC LIMIT 1'
+    );
     for (const row of hers) {
       const accounts = new Set();
-      try { for (const account of JSON.parse(row.replied ?? '[]')) if (typeof account === 'string') accounts.add(account); } catch { /* none */ }
+      try {
+        for (const account of JSON.parse(row.replied ?? '[]')) if (typeof account === 'string') accounts.add(account);
+      } catch {
+        /* none */
+      }
       let mentioned = [];
-      try { mentioned = JSON.parse(row.mentions ?? '[]'); } catch { mentioned = []; }
+      try {
+        mentioned = JSON.parse(row.mentions ?? '[]');
+      } catch {
+        mentioned = [];
+      }
       for (const native of Array.isArray(mentioned) ? mentioned : []) {
         if (typeof native !== 'string' || !native || !row.authority_id) continue;
         const account = accountOf.get(row.authority_id, native)?.id;
         if (account) accounts.add(account);
       }
-      const people = new Set([...accounts].map((account) => personAt(db, cache, account, row.occurred_at)).filter(Boolean));
+      const people = new Set(
+        [...accounts].map((account) => personAt(db, cache, account, row.occurred_at)).filter(Boolean)
+      );
       for (const person of people) count(person, row, 'her');
     }
     const drop = db.prepare('DELETE FROM relationship_daily WHERE day = ?');
     for (const day of days) drop.run(day);
-    const insert = db.prepare(`INSERT INTO relationship_daily (person_id, day, audience_id, addressed_by_them, addressed_by_her, meaningful, last_contact_at)
+    const insert =
+      db.prepare(`INSERT INTO relationship_daily (person_id, day, audience_id, addressed_by_them, addressed_by_her, meaningful, last_contact_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`);
     const audience = db.prepare('SELECT 1 AS ok FROM audiences WHERE id = ?');
     let rows = 0;
-    for (const entry of [...counts.values()].sort((a, b) => (a.person + a.day + a.audience < b.person + b.day + b.audience ? -1 : 1))) {
+    for (const entry of [...counts.values()].sort((a, b) =>
+      a.person + a.day + a.audience < b.person + b.day + b.audience ? -1 : 1
+    )) {
       if (!audience.get(entry.audience)) continue;
-      insert.run(entry.person, entry.day, entry.audience, entry.them, entry.her, entry.them > 0 && entry.her > 0 ? 1 : 0, entry.last);
+      insert.run(
+        entry.person,
+        entry.day,
+        entry.audience,
+        entry.them,
+        entry.her,
+        entry.them > 0 && entry.her > 0 ? 1 : 0,
+        entry.last
+      );
       rows += 1;
     }
     return { days: days.length, rows, lines };
@@ -381,21 +514,36 @@ export function recountDaily(handle, { from, to }) {
 /** The people a recomputation scores: every live person but her own row and the merged ones, with their inputs. */
 function peopleInputs(db, now, settings) {
   const windowFrom = utcDay(now - (settings.consistencyDays - 1) * DAY_MS);
-  const stats = new Map(db.prepare(`SELECT person_id,
+  const stats = new Map(
+    db
+      .prepare(
+        `SELECT person_id,
       MAX(CASE WHEN meaningful = 1 THEN last_contact_at END) AS last_meaningful,
       MIN(CASE WHEN meaningful = 1 THEN day END) AS first_meaningful,
       COUNT(DISTINCT CASE WHEN meaningful = 1 AND day >= ? AND day <= ? THEN day END) AS days
-    FROM relationship_daily GROUP BY person_id`).all(windowFrom, utcDay(now)).map((row) => [row.person_id, row]));
+    FROM relationship_daily GROUP BY person_id`
+      )
+      .all(windowFrom, utcDay(now))
+      .map((row) => [row.person_id, row])
+  );
   const accounts = new Map();
-  for (const row of db.prepare(`SELECT l.person_id AS person_id, a.kind AS kind FROM account_person_links l JOIN accounts a ON a.id = l.account_id
-    WHERE l.state = 'verified' AND l.valid_to_at IS NULL AND a.retired_at IS NULL`).all()) {
+  for (const row of db
+    .prepare(
+      `SELECT l.person_id AS person_id, a.kind AS kind FROM account_person_links l JOIN accounts a ON a.id = l.account_id
+    WHERE l.state = 'verified' AND l.valid_to_at IS NULL AND a.retired_at IS NULL`
+    )
+    .all()) {
     const person = survivorOf(db, row.person_id);
     const list = accounts.get(person) ?? [];
     list.push(row.kind);
     accounts.set(person, list);
   }
-  const people = db.prepare(`SELECT id, affinity FROM people WHERE id <> 'person:self' AND kind IS NOT 'self' AND retired_at IS NULL
-    AND (status IS NULL OR status = 'active') AND id NOT IN (SELECT from_person FROM people_merges) ORDER BY id`).all();
+  const people = db
+    .prepare(
+      `SELECT id, affinity FROM people WHERE id <> 'person:self' AND kind IS NOT 'self' AND retired_at IS NULL
+    AND (status IS NULL OR status = 'active') AND id NOT IN (SELECT from_person FROM people_merges) ORDER BY id`
+    )
+    .all();
   return people.map((row) => {
     const stat = stats.get(row.id);
     const kinds = accounts.get(row.id) ?? [];
@@ -422,31 +570,69 @@ export function recompute(handle, { now = Date.now(), config = null } = {}) {
   const settings = focusSettings(config);
   return txOf(handle)(() => {
     const people = peopleInputs(db, now, settings);
-    const members = db.prepare('SELECT person_id, bucket, since FROM focus_members').all().map((row) => ({ ...row }));
-    const overrides = db.prepare('SELECT person_id, kind, expires_at FROM focus_overrides').all().map((row) => ({ ...row }));
+    const members = db
+      .prepare('SELECT person_id, bucket, since FROM focus_members')
+      .all()
+      .map((row) => ({ ...row }));
+    const overrides = db
+      .prepare('SELECT person_id, kind, expires_at FROM focus_overrides')
+      .all()
+      .map((row) => ({ ...row }));
     const weekFrom = isoOf(now - WEEK_MS);
-    const movesInWeek = db.prepare(`SELECT COUNT(*) AS n FROM focus_events WHERE at > ? AND reason IN (${MOVE_REASONS.map(() => '?').join(', ')})`).get(weekFrom, ...MOVE_REASONS).n;
+    const movesInWeek = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM focus_events WHERE at > ? AND reason IN (${MOVE_REASONS.map(() => '?').join(', ')})`
+      )
+      .get(weekFrom, ...MOVE_REASONS).n;
     // A pin over capacity is reported once until it enters by its pin.
-    const reported = new Set(db.prepare(`SELECT person_id FROM focus_events e WHERE reason = 'over_capacity'
-      AND rowid = (SELECT rowid FROM focus_events x WHERE x.person_id = e.person_id AND x.reason IN ('over_capacity', 'pin') ORDER BY at DESC, rowid DESC LIMIT 1)`).all().map((row) => row.person_id));
+    const reported = new Set(
+      db
+        .prepare(
+          `SELECT person_id FROM focus_events e WHERE reason = 'over_capacity'
+      AND rowid = (SELECT rowid FROM focus_events x WHERE x.person_id = e.person_id AND x.reason IN ('over_capacity', 'pin') ORDER BY at DESC, rowid DESC LIMIT 1)`
+        )
+        .all()
+        .map((row) => row.person_id)
+    );
     const streaks = new Map();
-    for (const row of db.prepare(`SELECT person_id, reason, extra FROM focus_events e WHERE reason IN ('challenge', 'challenge_lapsed', 'challenge_won', 'free_slot')
-      AND rowid = (SELECT rowid FROM focus_events x WHERE x.person_id = e.person_id AND x.reason IN ('challenge', 'challenge_lapsed', 'challenge_won', 'free_slot') ORDER BY at DESC, rowid DESC LIMIT 1)`).all()) {
+    for (const row of db
+      .prepare(
+        `SELECT person_id, reason, extra FROM focus_events e WHERE reason IN ('challenge', 'challenge_lapsed', 'challenge_won', 'free_slot')
+      AND rowid = (SELECT rowid FROM focus_events x WHERE x.person_id = e.person_id AND x.reason IN ('challenge', 'challenge_lapsed', 'challenge_won', 'free_slot') ORDER BY at DESC, rowid DESC LIMIT 1)`
+      )
+      .all()) {
       if (row.reason !== 'challenge') continue;
       let extra = {};
-      try { extra = JSON.parse(row.extra ?? '{}') ?? {}; } catch { extra = {}; }
+      try {
+        extra = JSON.parse(row.extra ?? '{}') ?? {};
+      } catch {
+        extra = {};
+      }
       if (typeof extra.since === 'string') streaks.set(row.person_id, extra.since);
     }
     const history = db.prepare('SELECT 1 AS ok FROM focus_events LIMIT 1').get() !== undefined;
     const decided = decideFocus({ now, settings, people, members, overrides, streaks, movesInWeek, reported, history });
     const at = isoOf(now);
     db.prepare('DELETE FROM focus_members').run();
-    const put = db.prepare('INSERT INTO focus_members (person_id, bucket, since, score, policy_version, reason) VALUES (?, ?, ?, ?, ?, ?)');
-    for (const m of decided.members) put.run(m.person_id, m.bucket, m.since, m.score, m.policy_version, JSON.stringify(m.reason));
-    const event = db.prepare(`INSERT OR IGNORE INTO focus_events (id, person_id, at, old_bucket, new_bucket, reason, policy_version, extra)
+    const put = db.prepare(
+      'INSERT INTO focus_members (person_id, bucket, since, score, policy_version, reason) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const m of decided.members)
+      put.run(m.person_id, m.bucket, m.since, m.score, m.policy_version, JSON.stringify(m.reason));
+    const event =
+      db.prepare(`INSERT OR IGNORE INTO focus_events (id, person_id, at, old_bucket, new_bucket, reason, policy_version, extra)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
     for (const e of decided.events) {
-      event.run(`focus:${at}:${e.person_id}:${e.reason}`, e.person_id, at, e.old_bucket, e.new_bucket, e.reason, settings.policyVersion, e.extra === null ? null : JSON.stringify(e.extra));
+      event.run(
+        `focus:${at}:${e.person_id}:${e.reason}`,
+        e.person_id,
+        at,
+        e.old_bucket,
+        e.new_bucket,
+        e.reason,
+        settings.policyVersion,
+        e.extra === null ? null : JSON.stringify(e.extra)
+      );
     }
     return {
       close: decided.members.filter((m) => m.bucket === 'close').length,
@@ -461,19 +647,29 @@ export function runFocusDay(handle, { now = Date.now(), config = null } = {}) {
   const counted = recountDaily(handle, { from: now - DAY_MS, to: now });
   const sets = recompute(handle, { now, config });
   const db = dbOf(handle);
-  txOf(handle)(() => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('focus_last_day', utcDay(now)));
+  txOf(handle)(() =>
+    db
+      .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run('focus_last_day', utcDay(now))
+  );
   return { day: utcDay(now), ...counted, ...sets };
 }
 
 /** The UTC day the daily job last ran on, or null. */
-export const lastFocusDay = (db) => dbOf(db).prepare("SELECT value FROM meta WHERE key = 'focus_last_day'").get()?.value ?? null;
+export const lastFocusDay = (db) =>
+  dbOf(db).prepare("SELECT value FROM meta WHERE key = 'focus_last_day'").get()?.value ?? null;
 
 /** An owner's pin or exclusion (`kind`), replacing the person's previous override. */
 export function setOverride(handle, { person, kind, approvedBy, expiresAt = null, reason = null }) {
   const db = dbOf(handle);
-  txOf(handle)(() => db.prepare(`INSERT INTO focus_overrides (person_id, kind, expires_at, approved_by, reason) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(person_id) DO UPDATE SET kind = excluded.kind, expires_at = excluded.expires_at, approved_by = excluded.approved_by, reason = excluded.reason`)
-    .run(person, kind, expiresAt, approvedBy, reason));
+  txOf(handle)(() =>
+    db
+      .prepare(
+        `INSERT INTO focus_overrides (person_id, kind, expires_at, approved_by, reason) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(person_id) DO UPDATE SET kind = excluded.kind, expires_at = excluded.expires_at, approved_by = excluded.approved_by, reason = excluded.reason`
+      )
+      .run(person, kind, expiresAt, approvedBy, reason)
+  );
 }
 
 /** Removes a person's override. */
@@ -490,7 +686,10 @@ export function clearOverride(handle, person) {
  */
 export function closePeople(db) {
   try {
-    return dbOf(db).prepare("SELECT person_id FROM focus_members WHERE bucket = 'close' ORDER BY score DESC, person_id").all().map((row) => row.person_id);
+    return dbOf(db)
+      .prepare("SELECT person_id FROM focus_members WHERE bucket = 'close' ORDER BY score DESC, person_id")
+      .all()
+      .map((row) => row.person_id);
   } catch {
     return [];
   }
@@ -503,12 +702,17 @@ export function closePeople(db) {
  */
 export function focusView(db, { iface = 'discord' } = {}) {
   const authority = nativeAuthorityOf(iface);
-  const rows = dbOf(db).prepare(`SELECT m.person_id AS person_id, m.bucket AS bucket, m.score AS score,
+  const rows = dbOf(db)
+    .prepare(
+      `SELECT m.person_id AS person_id, m.bucket AS bucket, m.score AS score,
       (SELECT a.native_key FROM account_person_links l JOIN accounts a ON a.id = l.account_id
         WHERE l.person_id = m.person_id AND l.state = 'verified' AND l.valid_to_at IS NULL AND a.authority_id = ? AND a.retired_at IS NULL
         ORDER BY a.kind = 'bot', l.recorded_at, a.id LIMIT 1) AS native
-    FROM focus_members m ORDER BY m.score DESC, m.person_id`).all(authority);
+    FROM focus_members m ORDER BY m.score DESC, m.person_id`
+    )
+    .all(authority);
   const out = { close: [], exploring: [] };
-  for (const row of rows) if (row.native && out[row.bucket] && !out[row.bucket].includes(row.native)) out[row.bucket].push(row.native);
+  for (const row of rows)
+    if (row.native && out[row.bucket] && !out[row.bucket].includes(row.native)) out[row.bucket].push(row.native);
   return out;
 }

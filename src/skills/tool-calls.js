@@ -17,10 +17,24 @@ import { skillRegistry } from './registry.js';
 import { skillNameOfToolCall } from './tools-json.js';
 
 /** The statuses a result may have (src/skills/executors.js#RESULT_STATUSES; `refused` the old word for `denied`). */
-const RESULT_STATUSES = new Set(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed', 'refused']);
+const RESULT_STATUSES = new Set([
+  'ok',
+  'denied',
+  'not_configured',
+  'invalid',
+  'unknown',
+  'partial',
+  'failed',
+  'refused',
+]);
 
 /** The label a status falls back to when its own is missing. */
-const RESULT_LABEL_FALLBACK = Object.freeze({ denied: 'refused', invalid: 'refused', not_configured: 'failed', partial: 'failed' });
+const RESULT_LABEL_FALLBACK = Object.freeze({
+  denied: 'refused',
+  invalid: 'refused',
+  not_configured: 'failed',
+  partial: 'failed',
+});
 
 const INTEGER_TEXT = /^-?\d+$/;
 const NUMBER_TEXT = /^-?\d+(?:\.\d+)?$/;
@@ -38,7 +52,13 @@ const BOOLEAN_TEXT = /^(?:true|false)$/i;
  *   `calls`: `{ id, name, arguments, parsed, parseError }` as `toolCallsOf` and `parseToolCallBlocks` give them.
  * @returns {{ id: string, index: number, name: string, apiName: string, raw: string, args: object, problem: string|null }[]}
  */
-export function normalizeCalls({ calls, transport = 'native', finishReason = null, step = 1, registry = skillRegistry() } = {}) {
+export function normalizeCalls({
+  calls,
+  transport = 'native',
+  finishReason = null,
+  step = 1,
+  registry = skillRegistry(),
+} = {}) {
   const list = Array.isArray(calls) ? calls : [];
   const used = new Set();
   return list.map((call, index) => {
@@ -55,7 +75,7 @@ export function normalizeCalls({ calls, transport = 'native', finishReason = nul
     else if (call?.parseError === 'truncated') problem = 'truncated-call';
     else if (typeof call?.parseError === 'string' && call.parseError) problem = 'malformed-call';
     else if (!known) problem = 'unknown-skill';
-    const apiName = transport === 'text' ? (known ? apiNameOf(name) ?? name : written) : written;
+    const apiName = transport === 'text' ? (known ? (apiNameOf(name) ?? name) : written) : written;
     return {
       id,
       index,
@@ -110,14 +130,20 @@ export function coerceArgs(args, schema) {
  *   over src/skills/executors.js#outcomeDetail); '' or absent: the code's own words.
  * @returns {string}
  */
-export function toolResultText(result, labels, { maxChars = 2000, coerced = [], rowsText = null, reasonOf = null } = {}) {
+export function toolResultText(
+  result,
+  labels,
+  { maxChars = 2000, coerced = [], rowsText = null, reasonOf = null } = {}
+) {
   if (!isPlainObject(result)) return '';
   const status = RESULT_STATUSES.has(result.status) ? result.status : 'failed';
   const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
   const reasons = isPlainObject(words.reasons) ? words.reasons : {};
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   // A deleted message is its own reason of `unknown-message` (the machine reason names it).
-  const worded = (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ?? reasonText(labels, code, result.values, fill);
+  const worded =
+    (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, result.values, fill) : null) ??
+    reasonText(labels, code, result.values, fill);
   const detailed = typeof reasonOf === 'function' && status !== 'ok' ? reasonOf(result) : '';
   const reason = detailed || (worded ?? reasons.other ?? code);
   const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
@@ -125,13 +151,18 @@ export function toolResultText(result, labels, { maxChars = 2000, coerced = [], 
   let data = '';
   if (result.data) {
     data = Array.isArray(result.data.rows)
-      ? (typeof rowsText === 'function' ? rowsText(result.data.rows, labels) : JSON.stringify(result.data.rows))
+      ? typeof rowsText === 'function'
+        ? rowsText(result.data.rows, labels)
+        : JSON.stringify(result.data.rows)
       : String(result.data.text ?? '');
     if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
   }
-  const told = typeof words.coerced === 'string' && words.coerced
-    ? (Array.isArray(coerced) ? coerced : []).map((item) => fill(words.coerced, { arg: item.arg, value: String(item.to) }))
-    : [];
+  const told =
+    typeof words.coerced === 'string' && words.coerced
+      ? (Array.isArray(coerced) ? coerced : []).map((item) =>
+          fill(words.coerced, { arg: item.arg, value: String(item.to) })
+        )
+      : [];
   // What the engine noticed about a call that went through (a tag that named nobody), after the result.
   const note = typeof result.note === 'string' ? result.note : '';
   return [...told, [lead, data, note].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');

@@ -140,29 +140,37 @@ export const SANDBOX_OMITS = Object.freeze({
   privateProfile: 'never a private chat: the private layer is out of bounds',
   reads: 'no web lookup: no link is read',
   lookup: 'no web lookup: no search is run',
-  prefetch: 'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
+  prefetch:
+    'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
   drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   focus: 'no room question: a live turn has no caller for it either',
-  tasks: 'no part of a split message, no queued or folded call: a replay knows none (a skill scenario\'s burst hands in its waiting calls: `queued`)',
-  recentAudience: 'no guild to compare audiences in: <recent> shows the lines of the turn\'s own channel only',
-  participation: 'no guild to compare audiences in: no <participation> block of the persona\'s exchanges elsewhere',
+  tasks:
+    "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
+  recentAudience: "no guild to compare audiences in: <recent> shows the lines of the turn's own channel only",
+  participation: "no guild to compare audiences in: no <participation> block of the persona's exchanges elsewhere",
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
-  skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
-  around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
-  toolsGranted: 'a request built without a tools set (`toolset`): <senses> names no tool (answerReply and a skill scenario hand one in: SKILL_SCENARIO_OMITS)',
+  skillsInventory:
+    'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
+  around:
+    'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
+  toolsGranted:
+    'a request built without a tools set (`toolset`): <senses> names no tool (answerReply and a skill scenario hand one in: SKILL_SCENARIO_OMITS)',
   toolsBlock: 'a request built without a tools set: no <tools> block (the text transport describes the tools there)',
   toolsTokens: 'a request built without a tools set: nothing taken off the room the sections share',
-  errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
+  errands:
+    'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
-  places: 'no inner life runs here, so no places view: no <places> block (context.places is a live turn\'s)',
-  previousThink: 'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.js)',
-  stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
+  places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
+  previousThink:
+    'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.js)',
+  stableFreeze:
+    'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -174,7 +182,9 @@ const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'toolsGranted', 'tools
  * the persona sees her `<skills>` and her tools' senses as live.
  * @type {Readonly<Record<string, string>>}
  */
-export const SKILL_SCENARIO_OMITS = Object.freeze(Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => !SKILL_SCENARIO_INPUTS.has(key))));
+export const SKILL_SCENARIO_OMITS = Object.freeze(
+  Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => !SKILL_SCENARIO_INPUTS.has(key)))
+);
 
 /** A non-empty string id. */
 function isId(value) {
@@ -223,7 +233,9 @@ function momentTrigger(moment) {
 
 /** `cache[key]` when it is the cache's own entry (never an inherited property), else undefined. */
 function entryOf(cache, key) {
-  return cache && typeof cache === 'object' && Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : undefined;
+  return cache && typeof cache === 'object' && Object.prototype.hasOwnProperty.call(cache, key)
+    ? cache[key]
+    : undefined;
 }
 
 /**
@@ -247,7 +259,9 @@ function seenText(entry, { watched, before }) {
  * #collectEmojiItems, describable ones) and videos (#collectVideos over `sites`).
  */
 function mediaItemsOf(message, sites) {
-  const pictures = [...collectPictures(message), ...collectEmojiItems(message)].filter(isDescribable).map((item) => item.itemId);
+  const pictures = [...collectPictures(message), ...collectEmojiItems(message)]
+    .filter(isDescribable)
+    .map((item) => item.itemId);
   const videos = collectVideos(message, { videoSites: Array.isArray(sites) ? sites : [] }).map((item) => item.itemId);
   return { pictures: [...new Set(pictures)], videos: [...new Set(videos)] };
 }
@@ -334,7 +348,8 @@ function keepBefore(list, later) {
  * stayed the earlier one -- or to none. The score is left as stored.
  */
 function affinityBefore(affinity, cutoff) {
-  if (!affinity || typeof affinity !== 'object' || !Array.isArray(affinity.history)) return { affinity, hidden: 0, reasons: 0 };
+  if (!affinity || typeof affinity !== 'object' || !Array.isArray(affinity.history))
+    return { affinity, hidden: 0, reasons: 0 };
   const { list: history, hidden } = keepBefore(affinity.history, (entry) => isLater(entry?.ts, cutoff));
   if (hidden === 0) return { affinity, hidden: 0, reasons: 0 };
   const newest = affinity.history[affinity.history.length - 1];
@@ -396,7 +411,9 @@ function loreBefore(entries, cutoff) {
  */
 function recentBefore(recent, cutoff) {
   if (!recent || typeof recent !== 'object' || !Array.isArray(recent.lines)) return recent;
-  const { list, hidden } = keepBefore(recent.lines, (line) => isLater(timeOf(line?.addedAt) !== null ? line.addedAt : line?.at, cutoff));
+  const { list, hidden } = keepBefore(recent.lines, (line) =>
+    isLater(timeOf(line?.addedAt) !== null ? line.addedAt : line?.at, cutoff)
+  );
   return hidden ? { ...recent, lines: list } : recent;
 }
 
@@ -448,10 +465,12 @@ export function momentView(base, cutoff) {
     memory: {
       getGuild: () => guildBefore(base.memory.getGuild(), cutoff).guild,
       getUser: (id) => profileBefore(base.memory.getUser(id), cutoff).profile,
-      listUserProfiles: () => (base.memory.listUserProfiles() ?? []).map((profile) => profileBefore(profile, cutoff).profile),
+      listUserProfiles: () =>
+        (base.memory.listUserProfiles() ?? []).map((profile) => profileBefore(profile, cutoff).profile),
       listChannels: () => base.memory.listChannels(),
       getLore: () => loreBefore(base.memory.getLore(), cutoff).list,
-      getRecent: () => recentBefore(typeof base.memory.getRecent === 'function' ? base.memory.getRecent() : null, cutoff),
+      getRecent: () =>
+        recentBefore(typeof base.memory.getRecent === 'function' ? base.memory.getRecent() : null, cutoff),
     },
   };
 }
@@ -639,8 +658,16 @@ function sandboxChannels(given, view, channel) {
   if (Array.isArray(given)) return given;
   const memoryOn = view.config.features?.memory !== false;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
-  const list = stored.filter((entry) => entry && entry.id !== undefined && entry.id !== null).map((entry) => ({ id: String(entry.id), name: entry.name, category: entry.category ?? null }));
-  if (channel && typeof channel.name === 'string' && channel.name && !list.some((entry) => entry.id === String(channel.id))) list.push({ id: String(channel.id), name: channel.name, category: null });
+  const list = stored
+    .filter((entry) => entry && entry.id !== undefined && entry.id !== null)
+    .map((entry) => ({ id: String(entry.id), name: entry.name, category: entry.category ?? null }));
+  if (
+    channel &&
+    typeof channel.name === 'string' &&
+    channel.name &&
+    !list.some((entry) => entry.id === String(channel.id))
+  )
+    list.push({ id: String(channel.id), name: channel.name, category: null });
   return list;
 }
 
@@ -704,10 +731,17 @@ export function sandboxRequestInput({
   const config = view.config;
   const memory = view.memory;
   // The turn an errand's end opens: its `<task_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
-  const resultText = taskResult ? taskResultText(taskResult, view.prompts?.labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS }) : '';
+  const resultText = taskResult
+    ? taskResultText(taskResult, view.prompts?.labels, {
+        maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
+      })
+    : '';
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
   const waiting = Array.isArray(queued) && queued.length > 0 ? queued : null;
-  const tasks = waiting ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id }).input : null;
+  const tasks = waiting
+    ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id })
+        .input
+    : null;
   const memoryOn = config.features?.memory !== false;
   const { history, trigger, triggerKind } = situationHistory(situation);
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
@@ -730,7 +764,9 @@ export function sandboxRequestInput({
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
     guildMemory: memoryOn ? memory.getGuild() : {},
     interlocutor: memoryOn && trigger ? memory.getUser(trigger.authorId) : null,
-    otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId, config.context.otherProfiles) : [],
+    otherProfiles: memoryOn
+      ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId, config.context.otherProfiles)
+      : [],
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id) => memory.getUser(id)?.names?.[0] ?? null : null,
     channels: memoryOn ? memory.listChannels() : [],
@@ -745,7 +781,10 @@ export function sandboxRequestInput({
     customEmoji: Array.isArray(customEmoji) ? customEmoji : [],
     gifs,
     mediaCache,
-    elsewhereDestination: typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name ? { name: elsewhereDestination.name } : null,
+    elsewhereDestination:
+      typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name
+        ? { name: elsewhereDestination.name }
+        : null,
     // `<recent>`: the last hours as the view holds them (no block without a recent store).
     recentLines: memoryOn ? recentLinesOf(view, at) : null,
     // SANDBOX_OMITS, as buildRequest reads them absent.
@@ -810,7 +849,11 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
   const config = view.config;
   const transport = transportOf(config);
   const names = exposedSkillNames({ config, selfId, registry });
-  const tools = buildTools(names, { registry, texts: view.prompts?.skills, fill: { drawChars: config.image?.maxPromptChars ?? 1600 } });
+  const tools = buildTools(names, {
+    registry,
+    texts: view.prompts?.skills,
+    fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
+  });
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const block = transport === 'text' && tools.length > 0 ? toolsBlockText(tools, view.prompts?.labels) : null;
   const tokens = transport === 'native' && tools.length > 0 ? estimateTools(tools) : 0;
@@ -904,8 +947,24 @@ export async function answerReply({
   // `tools` undefined: her tools as a live turn sends them (sandboxToolset); null or [] none; an array as given.
   const toolset = tools === undefined ? sandboxToolset({ view, selfId }) : null;
   const { request, messages, systemMessage, userContent } = sandboxMessages(
-    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, channelDirectory, toolset },
-    samples,
+    {
+      view,
+      situation,
+      selfId,
+      selfName,
+      channel,
+      at,
+      descriptions,
+      videos,
+      customEmoji,
+      gifs,
+      mediaCache,
+      elsewhereDestination,
+      searchAvailable,
+      channelDirectory,
+      toolset,
+    },
+    samples
   );
   const sent = toolset ? (toolset.transport === 'native' ? toolset.tools : null) : tools;
   const transport = toolset?.transport ?? 'native';
@@ -913,7 +972,11 @@ export async function answerReply({
   const { answers, stopped } = await sample({
     llm,
     messages,
-    options: toolOptions(sandboxOptions(signal), { tools: sent, toolChoice: toolChoice ?? (toolset && sent?.length ? 'auto' : undefined), parallelToolCalls }),
+    options: toolOptions(sandboxOptions(signal), {
+      tools: sent,
+      toolChoice: toolChoice ?? (toolset && sent?.length ? 'auto' : undefined),
+      parallelToolCalls,
+    }),
     samples,
     signal,
     onUsage,
@@ -931,7 +994,12 @@ export async function answerReply({
 /** `options` with native tool calling added when `tools` is a non-empty array (stored definitions passed through as they were). */
 function toolOptions(options, { tools, toolChoice, parallelToolCalls }) {
   if (!Array.isArray(tools) || tools.length === 0) return options;
-  return { ...options, tools, ...(toolChoice !== undefined ? { toolChoice } : {}), ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}) };
+  return {
+    ...options,
+    tools,
+    ...(toolChoice !== undefined ? { toolChoice } : {}),
+    ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
+  };
 }
 
 /** The llm options of every sandbox completion: the reply's role and purpose, as the replay's own, off the rails' counters. */
@@ -951,13 +1019,28 @@ function sandboxOptions(signal) {
 function sandboxMessages(input, samples, { segments = false } = {}) {
   const config = input.view.config;
   // Her tools set: handed in (null: none), else as a live turn pins it.
-  const toolset = input.toolset === undefined ? sandboxToolset({ view: input.view, selfId: input.selfId }) : input.toolset;
+  const toolset =
+    input.toolset === undefined ? sandboxToolset({ view: input.view, selfId: input.selfId }) : input.toolset;
   const request = buildRequest(sandboxRequestInput({ ...input, toolset }));
   const [systemMessage, userMessage] = request.messages;
   const userText = userTextOf(userMessage.content);
-  const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
-  const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : segments ? userMessage.content : userText;
-  return { request, systemMessage, userMessage, userText, userContent, toolset, messages: [systemMessage, { ...userMessage, content: userContent }] };
+  const cached =
+    sampleCount(samples) > 1 &&
+    cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
+  const userContent = cached
+    ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }]
+    : segments
+      ? userMessage.content
+      : userText;
+  return {
+    request,
+    systemMessage,
+    userMessage,
+    userText,
+    userContent,
+    toolset,
+    messages: [systemMessage, { ...userMessage, content: userContent }],
+  };
 }
 
 /**
@@ -1047,9 +1130,26 @@ export function personaGrantsConfig(config, selfId, names) {
  *   registry: Map<string, object>, discovery?: 'inventory'|'none'|string[], getOp?: Function }} input
  * @returns {object[]|null}
  */
-export function scenarioInventory({ config, selfId, texts, requester, conversationId, registry, discovery = 'inventory', getOp }) {
+export function scenarioInventory({
+  config,
+  selfId,
+  texts,
+  requester,
+  conversationId,
+  registry,
+  discovery = 'inventory',
+  getOp,
+}) {
   if (!discoveryOn(config) || discovery === 'none') return null;
-  const rows = listSkills({ config, selfId, texts, requester, audience: { conversationId: String(conversationId) }, registry, ...(getOp ? { getOp } : {}) });
+  const rows = listSkills({
+    config,
+    selfId,
+    texts,
+    requester,
+    audience: { conversationId: String(conversationId) },
+    registry,
+    ...(getOp ? { getOp } : {}),
+  });
   if (discovery === 'inventory') return rows.length > 0 ? rows : null;
   return proposedRows(proposalVerdicts(Array.isArray(discovery) ? discovery : [], rows), rows);
 }
@@ -1080,7 +1180,19 @@ const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: f
  * @returns {{ verdict: { stage: string, ok: boolean, code?: string, reason?: string },
  *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } } }}
  */
-export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '' }) {
+export function simulateCall({
+  call,
+  view,
+  config,
+  selfId,
+  requester,
+  conversationId,
+  now,
+  images = null,
+  tasks = null,
+  getOp,
+  resultText = '',
+}) {
   const skill = String(call?.skill ?? '');
   const refused = (stage, code, reason) => {
     // The machine reason rides along, as a live call keeps it for its mark (outcomeDetail).
@@ -1119,7 +1231,11 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
   }
   if (!mapped?.args || mapped.op !== resolved.skill) {
     const result = { skill, status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-    return { verdict: { stage: 'command', ok: false, code: CODE.INVALID_ARGS, reason: 'command' }, executed: null, result };
+    return {
+      verdict: { stage: 'command', ok: false, code: CODE.INVALID_ARGS, reason: 'command' },
+      executed: null,
+      result,
+    };
   }
   const text = typeof resultText === 'string' ? resultText : '';
   return {
@@ -1184,7 +1300,9 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
 function channelNamesOf(view, channel) {
   const memoryOn = view.config.features?.memory !== false;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
-  const names = new Map(stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name]));
+  const names = new Map(
+    stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name])
+  );
   if (typeof channel.name === 'string' && channel.name) names.set(String(channel.id), channel.name);
   return (id) => names.get(id) ?? null;
 }
@@ -1254,10 +1372,37 @@ export async function answerSkillScenario({
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
-  const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
+  const moment =
+    earlier.length > 0
+      ? {
+          ...situation,
+          history: withCalls(
+            situationHistory(situation).history,
+            { calls: earlier },
+            { nameOf: channelNamesOf(view, channel) }
+          ),
+        }
+      : situation;
   const toolset = sandboxToolset({ view, selfId, registry });
   const requestArgs = {
-    view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, toolset, queued, channelDirectory, taskResult,
+    view,
+    situation: moment,
+    selfId,
+    selfName,
+    channel,
+    at,
+    descriptions,
+    videos,
+    customEmoji,
+    gifs,
+    mediaCache,
+    elsewhereDestination,
+    searchAvailable,
+    skillsInventory,
+    toolset,
+    queued,
+    channelDirectory,
+    taskResult,
     ...(coreTools ? { coreTools } : {}),
     ...(preTurn ? { preTurn } : {}),
   };
@@ -1285,13 +1430,48 @@ export async function answerSkillScenario({
       throw err;
     }
     const firstMs = clock() - sentAt;
-    const read = readStep(completion, { toolset, step: 1, config: view.config, gifs, handles: request.handles, registry });
+    const read = readStep(completion, {
+      toolset,
+      step: 1,
+      config: view.config,
+      gifs,
+      handles: request.handles,
+      registry,
+    });
     const run = {
-      answer: read.answer, call: null, callError: null, extraCalls: 0, usage: completion.usage ?? null, outcome: null, followUp: null,
-      refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, channelHandles: request.channelHandles ?? null, followUpIdByIndex: null },
+      answer: read.answer,
+      call: null,
+      callError: null,
+      extraCalls: 0,
+      usage: completion.usage ?? null,
+      outcome: null,
+      followUp: null,
+      refs: {
+        idByIndex: request.idByIndex,
+        handles: request.handles ?? null,
+        channelHandles: request.channelHandles ?? null,
+        followUpIdByIndex: null,
+      },
     };
     out.push(run);
-    const looped = await runSkillLoop({ run, read, sentAt, firstMs, built, requestArgs, history, view, gifs, llm, signal, onCall, settings, clock, toolset, registry });
+    const looped = await runSkillLoop({
+      run,
+      read,
+      sentAt,
+      firstMs,
+      built,
+      requestArgs,
+      history,
+      view,
+      gifs,
+      llm,
+      signal,
+      onCall,
+      settings,
+      clock,
+      toolset,
+      registry,
+    });
     if (looped.stopped) {
       stopped = true;
       break;
@@ -1324,7 +1504,9 @@ function requestChars(messages) {
 /** The llm options of one request of a skill scenario's turn: the sandbox's own, and her tools on the native transport. */
 function stepOptions(signal, toolset) {
   const base = sandboxOptions(signal);
-  return toolset.transport === 'native' && toolset.tools.length > 0 ? { ...base, tools: toolset.tools, toolChoice: 'auto' } : base;
+  return toolset.transport === 'native' && toolset.tools.length > 0
+    ? { ...base, tools: toolset.tools, toolChoice: 'auto' }
+    : base;
 }
 
 /**
@@ -1335,7 +1517,13 @@ function stepOptions(signal, toolset) {
 function readStep(completion, { toolset, step, config, gifs, handles, registry }) {
   const split = answerOf(completion, { transport: toolset.transport, step, registry });
   const parsed = parseOutput(split.speechText);
-  return { ...split, parsed, answer: shapeAnswer(parsed, config, gifs, handles), thinkMissing: thinkMissing(split.rawText), completion };
+  return {
+    ...split,
+    parsed,
+    answer: shapeAnswer(parsed, config, gifs, handles),
+    thinkMissing: thinkMissing(split.rawText),
+    completion,
+  };
 }
 
 /** The tokens a provider usage reports, with the cache reads and writes when it gives them. */
@@ -1351,7 +1539,8 @@ function usageNumbers(usage) {
 
 /** The most characters of a result's data her next request carries (src/behavior/turn.js#resultCharsFor). */
 function resultCharsFor(skill, config) {
-  if (skill === 'memory.search' || skill === 'conversation.read') return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
+  if (skill === 'memory.search' || skill === 'conversation.read')
+    return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
   return config?.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
 }
 
@@ -1381,7 +1570,24 @@ function preRefusal(record, { isFinal, room, maxCallsPerStep, finalReason }) {
  * the results to fit and is final. What it did is kept on the run (see answerSkillScenario). Resolves
  * `{ stopped }`; the clock is `clock`.
  */
-async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requestArgs, history, view, gifs, llm, signal, onCall, settings, clock, toolset, registry }) {
+async function runSkillLoop({
+  run,
+  read: firstRead,
+  sentAt,
+  firstMs,
+  built,
+  requestArgs,
+  history,
+  view,
+  gifs,
+  llm,
+  signal,
+  onCall,
+  settings,
+  clock,
+  toolset,
+  registry,
+}) {
   const { request } = built;
   const config = view.config;
   const labels = view.prompts?.labels ?? {};
@@ -1389,10 +1595,29 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   const definitionOf = (name) => registry.get(name) ?? null;
   const isRead = (plan) => !plan.refusal && definitionOf(plan.call.skill)?.kind === 'read';
   const stepRecord = (n, read, extra = {}) => ({
-    step: n, answer: read.answer, calls: [], dropped: 0, capped: null, held: false, thinkMissing: read.thinkMissing, coerced: 0, usage: read.completion?.usage ?? null, ms: 0, requestChars: 0,
-    idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null, continuation: true, ...extra,
+    step: n,
+    answer: read.answer,
+    calls: [],
+    dropped: 0,
+    capped: null,
+    held: false,
+    thinkMissing: read.thinkMissing,
+    coerced: 0,
+    usage: read.completion?.usage ?? null,
+    ms: 0,
+    requestChars: 0,
+    idByIndex: request.idByIndex,
+    history,
+    channelHandles: request.channelHandles ?? null,
+    continuation: true,
+    ...extra,
   });
-  const first = stepRecord(0, firstRead, { usage: run.usage, ms: firstMs, requestChars: requestChars(built.messages), continuation: undefined });
+  const first = stepRecord(0, firstRead, {
+    usage: run.usage,
+    ms: firstMs,
+    requestChars: requestChars(built.messages),
+    continuation: undefined,
+  });
   run.loop = { steps: [first], ms: 0 };
   let messages = built.messages;
   let read = firstRead;
@@ -1403,7 +1628,8 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   let stopped = false;
   const tokenLimit = requestTokenLimit(config);
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
-  const costOf = (list) => calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(toolset.tools) : 0);
+  const costOf = (list) =>
+    calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(toolset.tools) : 0);
   for (;;) {
     const records = read.calls;
     const speechItems = read.answer.messages.length + read.answer.reactions.length + (read.answer.gif ? 1 : 0);
@@ -1411,19 +1637,36 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
     if (typeof onCall !== 'function') break;
     const isFinal = finalReason !== null;
     loopStart ??= clock();
-    const room = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: clock() - loopStart, timeBudgetMs: settings.timeBudgetMs });
+    const room = roomLeft({
+      step,
+      maxSteps: settings.maxSteps,
+      elapsedMs: clock() - loopStart,
+      timeBudgetMs: settings.timeBudgetMs,
+    });
     // 1. Her calls: refused before they run, repaired, made.
     const plans = records.map((record) => {
       const refusal = preRefusal(record, { isFinal, room, maxCallsPerStep: settings.maxCallsPerStep, finalReason });
-      const coercion = refusal ? { args: record.args, coerced: [] } : coerceArgs(record.args, definitionOf(record.name)?.argsSchema);
-      return { record, refusal, coerced: coercion.coerced, call: { skill: record.name, args: coercion.args, body: '', toolCallId: record.id, index: record.index } };
+      const coercion = refusal
+        ? { args: record.args, coerced: [] }
+        : coerceArgs(record.args, definitionOf(record.name)?.argsSchema);
+      return {
+        record,
+        refusal,
+        coerced: coercion.coerced,
+        call: { skill: record.name, args: coercion.args, body: '', toolCallId: record.id, index: record.index },
+      };
     });
     current.coerced = plans.reduce((total, plan) => total + plan.coerced.length, 0);
     current.dropped = plans.filter((plan) => plan.refusal?.code === CODE.LOOP_CAP).length;
     current.capped = plans.find((plan) => plan.refusal?.code === CODE.LOOP_CAP)?.refusal.reason ?? null;
     const left = settings.timeBudgetMs - (clock() - loopStart);
     const timeoutMs = Math.min(config.skills?.callTimeoutMs ?? CALL_TIMEOUT_MS, Math.max(LOOP_MIN_CALL_MS, left));
-    const refs = { idByIndex: current.idByIndex, history: current.history, channelHandles: current.channelHandles, timeoutMs };
+    const refs = {
+      idByIndex: current.idByIndex,
+      history: current.history,
+      channelHandles: current.channelHandles,
+      timeoutMs,
+    };
     const outcomes = new Array(plans.length);
     let at = 0;
     for (const segment of segments(plans, isRead)) {
@@ -1431,8 +1674,21 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
         segment.calls.map(async (plan) => {
           const { skill } = plan.call;
           if (plan.refusal) {
-            const result = { skill, status: refusalStatus(plan.refusal.code), code: plan.refusal.code, ...(plan.refusal.reason ? { reason: plan.refusal.reason } : {}) };
-            return { call: plan.call, outcome: { verdict: { stage: 'plan', ok: false, code: plan.refusal.code, reason: plan.refusal.reason ?? '' }, executed: null, result }, ms: 0 };
+            const result = {
+              skill,
+              status: refusalStatus(plan.refusal.code),
+              code: plan.refusal.code,
+              ...(plan.refusal.reason ? { reason: plan.refusal.reason } : {}),
+            };
+            return {
+              call: plan.call,
+              outcome: {
+                verdict: { stage: 'plan', ok: false, code: plan.refusal.code, reason: plan.refusal.reason ?? '' },
+                executed: null,
+                result,
+              },
+              ms: 0,
+            };
           }
           const started = clock();
           let outcome;
@@ -1442,9 +1698,14 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
             log.warn('sandbox: tool call threw', { skill, error: err?.message ?? String(err) });
             outcome = null;
           }
-          if (!outcome?.result) outcome = { verdict: { stage: 'command', ok: false, code: CODE.ERROR, reason: '' }, executed: null, result: { skill, status: 'failed', code: CODE.ERROR } };
+          if (!outcome?.result)
+            outcome = {
+              verdict: { stage: 'command', ok: false, code: CODE.ERROR, reason: '' },
+              executed: null,
+              result: { skill, status: 'failed', code: CODE.ERROR },
+            };
           return { call: plan.call, outcome, ms: clock() - started };
-        }),
+        })
       );
       made.forEach((item, i) => {
         outcomes[at + i] = item;
@@ -1459,21 +1720,45 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
     const results = outcomes.map(({ outcome }) => outcome.result);
 
     // 2. Her speech: out after the calls when every one worked and needs no reading, else held (a final answer's with calls always).
-    const verdict = stepVerdict(results.map((result) => ({ name: result.skill, result })), { definitionOf });
+    const verdict = stepVerdict(
+      results.map((result) => ({ name: result.skill, result })),
+      { definitionOf }
+    );
     const speak = isFinal ? false : verdict.speak;
     current.held = !speak && speechItems > 0;
 
     // 3. What follows: a request when something is left to read and room is left.
-    const after = roomLeft({ step, maxSteps: settings.maxSteps, elapsedMs: clock() - loopStart, timeBudgetMs: settings.timeBudgetMs });
+    const after = roomLeft({
+      step,
+      maxSteps: settings.maxSteps,
+      elapsedMs: clock() - loopStart,
+      timeBudgetMs: settings.timeBudgetMs,
+    });
     const stoppedAll = results.some((result) => result.code === CODE.SKILLS_OFF);
     if (isFinal || stoppedAll || !verdict.fresh || after.next === 'none') break;
 
     // 4. The request: the messages so far, her answer, a result for every call, the note.
-    const detailOf = (result) => callReason({ detail: outcomeDetail(result, { argNames: definitionOf(result.skill)?.dispatch?.options?.map((option) => option.name) ?? null }) }, labels);
+    const detailOf = (result) =>
+      callReason(
+        {
+          detail: outcomeDetail(result, {
+            argNames: definitionOf(result.skill)?.dispatch?.options?.map((option) => option.name) ?? null,
+          }),
+        },
+        labels
+      );
     const texts = results.map((result, i) =>
-      toolResultText(result, labels, { maxChars: resultCharsFor(result.skill, config), coerced: plans[i].coerced, rowsText: skillsInventoryText, reasonOf: detailOf }),
+      toolResultText(result, labels, {
+        maxChars: resultCharsFor(result.skill, config),
+        coerced: plans[i].coerced,
+        rowsText: skillsInventoryText,
+        reasonOf: detailOf,
+      })
     );
-    const diagnostics = (read.parsed.diagnostics ?? []).map((diagnostic) => diagnosticText(diagnostic, labels)).filter(Boolean).map((line) => `- ${line}`);
+    const diagnostics = (read.parsed.diagnostics ?? [])
+      .map((diagnostic) => diagnosticText(diagnostic, labels))
+      .filter(Boolean)
+      .map((line) => `- ${line}`);
     const build = (last, list) =>
       appendStep({
         transport,
@@ -1536,7 +1821,16 @@ async function runSkillLoop({ run, read: firstRead, sentAt, firstMs, built, requ
   const followed = run.loop.steps[1];
   if (followed) {
     run.refs.followUpIdByIndex = followed.idByIndex;
-    run.followUp = followed.error ? { error: followed.error } : followed.answer ? { answer: followed.answer, extraCall: followed.dropped > 0 || (followed.calls.length > 0), usage: followed.usage, continuation: true } : null;
+    run.followUp = followed.error
+      ? { error: followed.error }
+      : followed.answer
+        ? {
+            answer: followed.answer,
+            extraCall: followed.dropped > 0 || followed.calls.length > 0,
+            usage: followed.usage,
+            continuation: true,
+          }
+        : null;
   }
   return { stopped };
 }
@@ -1551,7 +1845,16 @@ function ownLineId(ts, seq) {
 
 /** A picture she posted, as an attachment of her line: no file behind it, never described. */
 function postedPicture(lineId) {
-  return { id: `${lineId}-image`, kind: 'image', name: 'image.png', url: null, size: null, durationSec: null, width: null, height: null };
+  return {
+    id: `${lineId}-image`,
+    kind: 'image',
+    name: 'image.png',
+    url: null,
+    size: null,
+    durationSec: null,
+    width: null,
+    height: null,
+  };
 }
 
 /** `line` with her reaction `emoji` on it (a normalized reaction: `{ emoji, count, mine }`); kept as it is when she already reacted so. */
@@ -1559,7 +1862,11 @@ function withOwnReaction(line, emoji) {
   const reactions = Array.isArray(line.reactions) ? line.reactions : [];
   const same = reactions.find((reaction) => reaction?.emoji === emoji);
   if (same?.mine) return line;
-  const next = same ? reactions.map((reaction) => (reaction === same ? { ...reaction, count: (Number(reaction.count) || 0) + 1, mine: true } : reaction)) : [...reactions, { emoji, count: 1, mine: true }];
+  const next = same
+    ? reactions.map((reaction) =>
+        reaction === same ? { ...reaction, count: (Number(reaction.count) || 0) + 1, mine: true } : reaction
+      )
+    : [...reactions, { emoji, count: 1, mine: true }];
   return { ...line, reactions: next };
 }
 
@@ -1585,7 +1892,17 @@ function withOwnReaction(line, emoji) {
  *   channel: { id: string }, triggerId?: string|null, config: object }} input
  * @returns {{ transcript: object[], callMarks: object[], posted: string[] }}
  */
-export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at, selfId, selfName, channel, triggerId = null, config }) {
+export function afterScenarioTurn({
+  transcript,
+  callMarks: earlier = [],
+  run,
+  at,
+  selfId,
+  selfName,
+  channel,
+  triggerId = null,
+  config,
+}) {
   const callMarks = Array.isArray(earlier) ? earlier : [];
   const channelId = String(channel.id);
   let lines = Array.isArray(transcript) ? [...transcript] : [];
@@ -1594,11 +1911,22 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
   const addLine = (ts, fields) => {
     seq += 1;
     const id = ownLineId(ts, seq);
-    const line = { id, channelId, ts, authorId: String(selfId), content: '', ...(triggerId ? { triggerId: String(triggerId) } : {}), ...fields(id) };
+    const line = {
+      id,
+      channelId,
+      ts,
+      authorId: String(selfId),
+      content: '',
+      ...(triggerId ? { triggerId: String(triggerId) } : {}),
+      ...fields(id),
+    };
     own.push(line);
     return line;
   };
-  const known = (id) => typeof id === 'string' && id !== '' && (lines.some((line) => line?.id === id) || own.some((line) => line.id === id));
+  const known = (id) =>
+    typeof id === 'string' &&
+    id !== '' &&
+    (lines.some((line) => line?.id === id) || own.some((line) => line.id === id));
   const react = (id, emoji) => {
     if (!known(id) || typeof emoji !== 'string' || !emoji) return;
     lines = lines.map((line) => (line?.id === id ? withOwnReaction(line, emoji) : line));
@@ -1609,7 +1937,11 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     // Her `#handle` links its channel as a live post does (the line keeps the `<#id>` and names the channel).
     const content = channelHandles instanceof Map ? linkChannels(resolved.text, [], channelHandles) : resolved.text;
     const channelIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
-    return { content, mentionedUserIds: resolved.userIds, ...(channelIds.length > 0 ? { mentionedChannelIds: channelIds } : {}) };
+    return {
+      content,
+      mentionedUserIds: resolved.userIds,
+      ...(channelIds.length > 0 ? { mentionedChannelIds: channelIds } : {}),
+    };
   };
   // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`.
   const pass = (answer, idByIndex, handles, start) => {
@@ -1620,9 +1952,13 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     };
     const messages = Array.isArray(answer.messages) ? answer.messages : [];
     messages.forEach((message, i) => {
-      addLine(start + (i + 1) * CONTINUATION_STEP_MS, () => ({ ...rendered(message.text, handles), replyToId: target(message.replyTo) }));
+      addLine(start + (i + 1) * CONTINUATION_STEP_MS, () => ({
+        ...rendered(message.text, handles),
+        replyToId: target(message.replyTo),
+      }));
     });
-    for (const reaction of Array.isArray(answer.reactions) ? answer.reactions : []) react(target(reaction.to), reaction.emoji);
+    for (const reaction of Array.isArray(answer.reactions) ? answer.reactions : [])
+      react(target(reaction.to), reaction.emoji);
   };
   const refs = run?.refs ?? {};
   const channelHandles = refs.channelHandles ?? null;
@@ -1634,13 +1970,22 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     let postedId = null;
     if (executed && here && POSTING_SKILLS.includes(executed.skill)) {
       const reply = typeof args.reply === 'string' && known(args.reply) ? args.reply : null;
-      const line = executed.skill === 'message.create'
-        ? addLine(callAt, () => ({ ...rendered(args.text ?? '', refs.handles), replyToId: reply }))
-        : addLine(callAt, (id) => ({ replyToId: reply, attachments: [postedPicture(id)] }));
+      const line =
+        executed.skill === 'message.create'
+          ? addLine(callAt, () => ({ ...rendered(args.text ?? '', refs.handles), replyToId: reply }))
+          : addLine(callAt, (id) => ({ replyToId: reply, attachments: [postedPicture(id)] }));
       postedId = line.id;
     }
-    if (executed?.skill === 'message.react.add' && here) react(args.message, typeof args.emoji === 'string' ? args.emoji.trim() : '');
-    return callMarkOf({ outcome, channelId, at: callAt, postedId, posted: own.map((line) => line.id), config: config ?? {} });
+    if (executed?.skill === 'message.react.add' && here)
+      react(args.message, typeof args.emoji === 'string' ? args.emoji.trim() : '');
+    return callMarkOf({
+      outcome,
+      channelId,
+      at: callAt,
+      postedId,
+      posted: own.map((line) => line.id),
+      config: config ?? {},
+    });
   };
   // The turn's steps: every step's posted speech (a held step's is not in the chat), then its calls' effects and marks,
   // in order. Her `#n` in a later step names the first request's lines: the request is never rebuilt.
@@ -1650,8 +1995,14 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
   const steps = Array.isArray(run?.loop?.steps)
     ? run.loop.steps
     : [
-        { answer: run?.answer, calls: run?.call && run?.outcome ? [{ outcome: run.outcome }] : [], idByIndex: refs.idByIndex },
-        ...(run?.followUp?.answer ? [{ answer: run.followUp.answer, calls: [], idByIndex: refs.followUpIdByIndex ?? refs.idByIndex }] : []),
+        {
+          answer: run?.answer,
+          calls: run?.call && run?.outcome ? [{ outcome: run.outcome }] : [],
+          idByIndex: refs.idByIndex,
+        },
+        ...(run?.followUp?.answer
+          ? [{ answer: run.followUp.answer, calls: [], idByIndex: refs.followUpIdByIndex ?? refs.idByIndex }]
+          : []),
       ];
   for (const step of steps) {
     if (step.answer && step.held !== true) {
@@ -1665,7 +2016,11 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     }
   }
   const posted = own.map((line) => line.id);
-  return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, ...marks.map((mark) => ({ ...mark, posted }))], posted };
+  return {
+    transcript: continuationHistory({ history: lines, own, selfName }),
+    callMarks: [...callMarks, ...marks.map((mark) => ({ ...mark, posted }))],
+    posted,
+  };
 }
 
 /**
@@ -1681,7 +2036,15 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
  */
 export function seededSelfLine({ text, at, selfId, selfName, channel }) {
   const content = String(text ?? '');
-  const line = { id: ownLineId(at, 1), channelId: String(channel.id), ts: at, authorId: String(selfId), content, mentionedUserIds: tokenIds(content), replyToId: null };
+  const line = {
+    id: ownLineId(at, 1),
+    channelId: String(channel.id),
+    ts: at,
+    authorId: String(selfId),
+    content,
+    mentionedUserIds: tokenIds(content),
+    replyToId: null,
+  };
   return continuationHistory({ history: [], own: [line], selfName })[0];
 }
 
@@ -1719,8 +2082,11 @@ export function burstTurns(incoming, { selfId, config, history = [] }) {
   if (lines.length === 0) return { turns: [], replaced: [], dropped: [] };
   const features = config?.features ?? {};
   const self = String(selfId);
-  const nameTriggers = features.nameTriggers !== false && Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
-  const herLines = new Set([...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id));
+  const nameTriggers =
+    features.nameTriggers !== false && Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
+  const herLines = new Set(
+    [...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id)
+  );
   const kindOf = (line) =>
     detectTrigger({
       mentionsSelf: features.mentions !== false && (line.mentionedUserIds ?? []).includes(self),
@@ -1743,7 +2109,11 @@ export function burstTurns(incoming, { selfId, config, history = [] }) {
       pending = pending.filter((ping) => ping !== slot.replaced);
       replaced.push({ id: slot.replaced.trigger.id, by: line.id });
     }
-    const { list, evicted } = addPending(pending, { channelId, trigger: line, kind, arrivedAt: Number(line.ts) || 0 }, maxPending);
+    const { list, evicted } = addPending(
+      pending,
+      { channelId, trigger: line, kind, arrivedAt: Number(line.ts) || 0 },
+      maxPending
+    );
     pending = list;
     if (evicted) dropped.push({ id: evicted.trigger.id, reason: 'full' });
   }

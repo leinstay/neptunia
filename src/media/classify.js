@@ -265,7 +265,8 @@ export function classifyEmbed(embed, { embedTextChars = 200, videoSites = [] } =
   const url = embed?.url ?? null;
   const host = siteOf(url ?? '');
   const providerName = String(embed?.provider?.name ?? '');
-  const onVideoSite = Boolean(url) && Array.isArray(videoSites) && videoSites.length > 0 && videoSiteFor(url, videoSites) !== null;
+  const onVideoSite =
+    Boolean(url) && Array.isArray(videoSites) && videoSites.length > 0 && videoSiteFor(url, videoSites) !== null;
   const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
   const discordGif = isDiscordGifFile(embed, url);
   const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url) || discordGif;
@@ -602,11 +603,13 @@ export function mediaLabelFor(
     gifHandle = null,
     gifFields = null,
     answer = null,
-  } = {},
+  } = {}
 ) {
   switch (item.kind) {
     case 'image': {
-      const base = description ? { key: 'imageDescribed', values: { text: description } } : { key: 'image', values: {} };
+      const base = description
+        ? { key: 'imageDescribed', values: { text: description } }
+        : { key: 'image', values: {} };
       return withExtra(base, extraOf(imageAnsweredExtra(answer)));
     }
     case 'gif': {
@@ -618,13 +621,19 @@ export function mediaLabelFor(
         const screen = field(gifFields?.screen);
         const known =
           description && (reaction || screen)
-            ? { key: 'gifKnownFields', values: { id: gifHandle, text: description, reaction, action: field(gifFields.action), screen } }
+            ? {
+                key: 'gifKnownFields',
+                values: { id: gifHandle, text: description, reaction, action: field(gifFields.action), screen },
+              }
             : description
               ? { key: 'gifKnown', values: { id: gifHandle, text: description } }
               : { key: 'gifKnownNoText', values: { id: gifHandle, name } };
         return withExtra(known, answered);
       }
-      return withExtra(description ? { key: 'gifDescribed', values: { text: description } } : { key: 'gif', values: { name } }, answered);
+      return withExtra(
+        description ? { key: 'gifDescribed', values: { text: description } } : { key: 'gif', values: { name } },
+        answered
+      );
     }
     case 'video': {
       const name = item.name ?? '';
@@ -632,9 +641,15 @@ export function mediaLabelFor(
       if (video?.state === 'watched') {
         const watched = watchedPart(item.durationSec, video.watchedSeconds)
           ? {
-            key: 'videoWatchedPart',
-            values: { name, duration, watched: formatDurationShort(video.watchedSeconds), reason: 'clip', text: video.text ?? '' },
-          }
+              key: 'videoWatchedPart',
+              values: {
+                name,
+                duration,
+                watched: formatDurationShort(video.watchedSeconds),
+                reason: 'clip',
+                text: video.text ?? '',
+              },
+            }
           : { key: 'videoWatched', values: { name, duration, text: video.text ?? '' } };
         const extra = extraOf(answeredExtra(video));
         return extra ? { ...watched, extra } : watched;
@@ -652,7 +667,10 @@ export function mediaLabelFor(
     case 'voice':
       return { key: 'voice', values: { duration: durationOrUnknown(item.durationSec, unknownDuration) } };
     case 'audio':
-      return { key: 'audio', values: { name: item.name ?? '', duration: durationOrUnknown(item.durationSec, unknownDuration) } };
+      return {
+        key: 'audio',
+        values: { name: item.name ?? '', duration: durationOrUnknown(item.durationSec, unknownDuration) },
+      };
     case 'text':
       return item.previewText
         ? { key: 'filePreview', values: { name: item.name ?? '', text: item.previewText } }
@@ -797,7 +815,7 @@ export function collectEmojiItems(message) {
       kind: 'emoji',
       url: emoji.url,
       name: emoji.name,
-    })),
+    }))
   );
 }
 
@@ -908,4 +926,3 @@ export function collectReadableLinks(message, { videoSites = [] } = {}) {
 export function isDescribable(item) {
   return DESCRIBABLE_KINDS.has(item.kind);
 }
-

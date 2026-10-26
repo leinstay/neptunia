@@ -55,7 +55,11 @@ const MEMORY_WEIGHT = 0.5;
  * @returns {boolean}
  */
 export function prefetchOn(config) {
-  return config?.features?.coreTools === true && config?.features?.memoryPrefetch !== false && recallSettings(config) !== null;
+  return (
+    config?.features?.coreTools === true &&
+    config?.features?.memoryPrefetch !== false &&
+    recallSettings(config) !== null
+  );
 }
 
 /** `text` without Discord's inline tokens, on one line. */
@@ -113,7 +117,8 @@ export function quotedPhrases(text) {
   const add = (raw) => {
     const phrase = oneLine(raw).toLowerCase();
     const chars = [...phrase].length;
-    if (chars < PHRASE_MIN_CHARS || chars > PHRASE_MAX_CHARS || wordsOf(phrase).length === 0 || found.includes(phrase)) return;
+    if (chars < PHRASE_MIN_CHARS || chars > PHRASE_MAX_CHARS || wordsOf(phrase).length === 0 || found.includes(phrase))
+      return;
     found.push(phrase);
   };
   for (const [open, close] of QUOTE_PAIRS) {
@@ -163,12 +168,25 @@ function textOf(message, nameOf) {
  *   settings: object, selfId?: string|null, selfName?: string, selfNames?: string[], nameOf?: ((id: string) => string|null)|null }} input
  * @returns {{ lanes: { kind: string, text: string, words: string }[], skip: string|null }}
  */
-export function prefetchLanes({ trigger, candidate = trigger, triggerKind = null, mode = null, history = [], settings, selfId = null, selfName = '', selfNames = [], nameOf = null }) {
+export function prefetchLanes({
+  trigger,
+  candidate = trigger,
+  triggerKind = null,
+  mode = null,
+  history = [],
+  settings,
+  selfId = null,
+  selfName = '',
+  selfNames = [],
+  nameOf = null,
+}) {
   const none = (skip) => ({ lanes: [], skip });
-  if (!trigger || trigger.self === true || (selfId && String(trigger.authorId) === String(selfId))) return none('no-trigger');
+  if (!trigger || trigger.self === true || (selfId && String(trigger.authorId) === String(selfId)))
+    return none('no-trigger');
   if (NOT_EXTERNAL.has(triggerKind) || mode === 'diary') return none('not-external');
   const asked = candidate ?? trigger;
-  if (isTrivialTrigger(asked.content, { trivial: settings.trivial, selfNames: [selfName, ...selfNames] })) return none('trivial');
+  if (isTrivialTrigger(asked.content, { trivial: settings.trivial, selfNames: [selfName, ...selfNames] }))
+    return none('trivial');
   const lines = Array.isArray(history) ? history : [];
   const own = textOf(asked, nameOf);
   const lanes = [{ kind: 'message', text: own, words: plainText(asked.content) }];
@@ -176,14 +194,25 @@ export function prefetchLanes({ trigger, candidate = trigger, triggerKind = null
   const parentId = typeof asked.replyToId === 'string' && asked.replyToId ? asked.replyToId : null;
   const parent = parentId ? lines.find((message) => message?.id === parentId && message.id !== asked.id) : null;
   if (parent && textOf(parent, nameOf)) {
-    lanes.push({ kind: 'reply', text: `${line(parent)}\n${line(asked)}`, words: `${plainText(parent.content)}\n${plainText(asked.content)}` });
+    lanes.push({
+      kind: 'reply',
+      text: `${line(parent)}\n${line(asked)}`,
+      words: `${plainText(parent.content)}\n${plainText(asked.content)}`,
+    });
   }
   const folded = wordsOf(foldText(plainText(asked.content)));
   const deictic = new Set(settings.deictic ?? []);
   const short = folded.length <= settings.shortWords || folded.some((word) => deictic.has(word));
   if (short && settings.contextLines > 0) {
     const at = lines.findIndex((message) => message?.id === asked.id);
-    const before = (at === -1 ? lines : lines.slice(0, at)).filter((message) => message && message.id !== asked.id && message.id !== parent?.id && !(message.bot && !message.self) && textOf(message, nameOf));
+    const before = (at === -1 ? lines : lines.slice(0, at)).filter(
+      (message) =>
+        message &&
+        message.id !== asked.id &&
+        message.id !== parent?.id &&
+        !(message.bot && !message.self) &&
+        textOf(message, nameOf)
+    );
     const picked = [];
     let tokens = estimateTokens(line(asked));
     for (let i = before.length - 1; i >= 0 && picked.length < settings.contextLines; i -= 1) {
@@ -211,7 +240,9 @@ export function prefetchLanes({ trigger, candidate = trigger, triggerKind = null
  * @returns {{ lanes: { kind: string, text: string, words: string }[], skip: string|null }}
  */
 export function wakeLanes(purposes) {
-  const texts = (Array.isArray(purposes) ? purposes : []).map((purpose) => oneLine(String(purpose ?? ''))).filter(Boolean);
+  const texts = (Array.isArray(purposes) ? purposes : [])
+    .map((purpose) => oneLine(String(purpose ?? '')))
+    .filter(Boolean);
   if (texts.length === 0) return { lanes: [], skip: 'no-trigger' };
   const text = texts.join('\n');
   return { lanes: [{ kind: 'wake', text, words: text }], skip: null };
@@ -230,20 +261,29 @@ export function wakeLanes(purposes) {
  * @param {{ profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number, shortWords?: number, minFormsMatched?: number, trigger?: string }} options
  * @returns {{ forms: string[], who: string[], phrases: string[], need: number, from: null, to: null }|null}
  */
-export function lanePlan(lane, { profiles = [], selfId = null, selfName = '', maxForms = 8, shortWords = 4, minFormsMatched = 2, trigger = '' } = {}) {
+export function lanePlan(
+  lane,
+  { profiles = [], selfId = null, selfName = '', maxForms = 8, shortWords = 4, minFormsMatched = 2, trigger = '' } = {}
+) {
   const words = String(lane?.words ?? '');
   const plan = fallbackLookupPlan({ text: words, profiles, selfId, selfName, maxForms });
   const phrases = quotedPhrases(words);
   const whole = plainText(trigger).toLowerCase();
   const count = wordsOf(foldText(whole)).length;
-  if (lane?.kind === 'message' && count >= 2 && count <= shortWords && [...whole].length <= PHRASE_MAX_CHARS && !phrases.includes(whole)) phrases.unshift(whole);
+  if (
+    lane?.kind === 'message' &&
+    count >= 2 &&
+    count <= shortWords &&
+    [...whole].length <= PHRASE_MAX_CHARS &&
+    !phrases.includes(whole)
+  )
+    phrases.unshift(whole);
   const forms = (plan?.forms ?? []).filter((form) => !phrases.includes(form));
   const who = plan?.who ?? [];
   if (forms.length === 0 && who.length === 0 && phrases.length === 0) return null;
   const need = Math.min(Math.max(0, minFormsMatched), forms.length);
   return { forms, who, phrases, need, from: null, to: null };
 }
-
 
 /**
  * The plan a lane's stored-memory search uses once the record index chose its terms (`queries`:
@@ -257,9 +297,18 @@ export function lanePlan(lane, { profiles = [], selfId = null, selfName = '', ma
  * @param {{ maxForms?: number, minFormsMatched?: number }} [options]
  */
 export function indexedPlan(plan, queries, { maxForms = 8, minFormsMatched = 2 } = {}) {
-  const terms = (Array.isArray(queries) ? queries : []).flatMap((query) => query?.terms ?? []).sort((a, b) => b.weight - a.weight);
+  const terms = (Array.isArray(queries) ? queries : [])
+    .flatMap((query) => query?.terms ?? [])
+    .sort((a, b) => b.weight - a.weight);
   const forms = [...new Set(terms.map((term) => term.word))].slice(0, Math.max(0, maxForms));
-  const phrases = [...new Set([...(plan?.phrases ?? []), ...(Array.isArray(queries) ? queries : []).flatMap((query) => (query?.phrases ?? []).map((phrase) => phrase.text))])];
+  const phrases = [
+    ...new Set([
+      ...(plan?.phrases ?? []),
+      ...(Array.isArray(queries) ? queries : []).flatMap((query) =>
+        (query?.phrases ?? []).map((phrase) => phrase.text)
+      ),
+    ]),
+  ];
   if (forms.length === 0 && phrases.length === (plan?.phrases ?? []).length) return plan ?? null;
   const who = plan?.who ?? [];
   if (forms.length === 0 && who.length === 0 && phrases.length === 0) return null;
@@ -310,7 +359,9 @@ export function lexicalKeep(hit, cosines, { minMeaningScore, singleTermScore }) 
 
 /** A stored-memory item's key: its itemId, else its kind and text. */
 function itemKey(item) {
-  return typeof item?.itemId === 'string' && item.itemId ? `m:${item.itemId}` : `m:${item?.kind ?? ''}:${item?.text ?? ''}`;
+  return typeof item?.itemId === 'string' && item.itemId
+    ? `m:${item.itemId}`
+    : `m:${item?.kind ?? ''}:${item?.text ?? ''}`;
 }
 
 /**
@@ -353,7 +404,12 @@ export function rankPrefetch(lanes) {
     const hits = window.messages.map((m) => m.id).filter((id) => relevant.has(id) && rankOf.has(id));
     if (hits.length === 0) continue;
     const rank = Math.min(...hits.map((id) => rankOf.get(id)));
-    units.push({ kind: 'history', window: { ...window, hitIds: new Set(hits) }, hitIds: hits.sort((a, b) => rankOf.get(a) - rankOf.get(b)), rank });
+    units.push({
+      kind: 'history',
+      window: { ...window, hitIds: new Set(hits) },
+      hitIds: hits.sort((a, b) => rankOf.get(a) - rankOf.get(b)),
+      rank,
+    });
   }
   for (const [key, item] of items) if (rankOf.has(key)) units.push({ kind: 'memory', item, rank: rankOf.get(key) });
   return units.sort((a, b) => a.rank - b.rank);

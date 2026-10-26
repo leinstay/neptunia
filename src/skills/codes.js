@@ -15,7 +15,8 @@
 // an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up). A value of
 // `what` or `feature` is a key of `labels.skills.result.params.<param>` (else the value as it is).
 
-const entry = (status, group = 'skill', params = []) => Object.freeze({ status, group, params: Object.freeze([...params]) });
+const entry = (status, group = 'skill', params = []) =>
+  Object.freeze({ status, group, params: Object.freeze([...params]) });
 const skill = (status, params) => entry(status, 'skill', params);
 const wake = (status = 'failed') => entry(status, 'wake');
 const internal = (status = 'failed') => entry(status, 'internal');
@@ -196,21 +197,28 @@ const nameOf = (code) => code.toUpperCase().replaceAll('-', '_');
  * `CODE.NOT_FOUND === 'not-found'`: the one way an emitter spells a code. A name the catalogue does
  * not have throws, so a typo stops at the first use instead of becoming a code nobody words.
  */
-export const CODE = new Proxy(Object.freeze(Object.fromEntries(Object.keys(CATALOGUE).map((code) => [nameOf(code), code]))), {
-  get(table, name) {
-    if (typeof name === 'symbol' || name === 'then' || name === 'toJSON') return table[name];
-    if (!Object.hasOwn(table, name)) throw new Error(`not a catalogued code: ${String(name)}`);
-    return table[name];
-  },
-});
+export const CODE = new Proxy(
+  Object.freeze(Object.fromEntries(Object.keys(CATALOGUE).map((code) => [nameOf(code), code]))),
+  {
+    get(table, name) {
+      if (typeof name === 'symbol' || name === 'then' || name === 'toJSON') return table[name];
+      if (!Object.hasOwn(table, name)) throw new Error(`not a catalogued code: ${String(name)}`);
+      return table[name];
+    },
+  }
+);
 
 /** Whether `code` is in the catalogue. */
 export const isCode = (code) => typeof code === 'string' && Object.hasOwn(CATALOGUE, code);
 
 /** The statuses of a refusal made before anything ran, per code: `invalid` for a call that was not right. */
-export const INVALID_CODES = Object.freeze(Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'invalid'));
+export const INVALID_CODES = Object.freeze(
+  Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'invalid')
+);
 /** The codes that mean what a call needs is not set up. */
-export const NOT_CONFIGURED_CODES = Object.freeze(Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'not_configured'));
+export const NOT_CONFIGURED_CODES = Object.freeze(
+  Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'not_configured')
+);
 
 /** What a timeout, a cap or a missing feature is about: the values of `{what}`. */
 export const WHAT = Object.freeze({
@@ -263,7 +271,14 @@ export function reasonText(labels, code, values, fill) {
   const params = labels?.skills?.result?.params;
   const words = {};
   for (const [key, value] of Object.entries(normal.values)) {
-    const named = params && typeof params === 'object' && params[key] && typeof params[key] === 'object' && Object.hasOwn(params[key], String(value)) ? params[key][String(value)] : null;
+    const named =
+      params &&
+      typeof params === 'object' &&
+      params[key] &&
+      typeof params[key] === 'object' &&
+      Object.hasOwn(params[key], String(value))
+        ? params[key][String(value)]
+        : null;
     words[key] = typeof named === 'string' && named ? named : String(value);
   }
   const text = fill(template, words);

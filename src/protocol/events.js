@@ -26,7 +26,16 @@ export const TASK_COMPLETED = 'task.completed';
 export const INNER_WAKE = 'inner.wake';
 
 /** Every inbound event kind. */
-export const EVENT_KINDS = Object.freeze([MESSAGE_RECEIVED, REACTION_CHANGED, COMMAND_REQUESTED, SCHEDULER_TICK, TASK_COMPLETED, MEMBERSHIP_CHANGED, VOICE_CHANGED, INNER_WAKE]);
+export const EVENT_KINDS = Object.freeze([
+  MESSAGE_RECEIVED,
+  REACTION_CHANGED,
+  COMMAND_REQUESTED,
+  SCHEDULER_TICK,
+  TASK_COMPLETED,
+  MEMBERSHIP_CHANGED,
+  VOICE_CHANGED,
+  INNER_WAKE,
+]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
 export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED, INNER_WAKE]);

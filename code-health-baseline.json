@@ -2,15 +2,16 @@
   "files": {
     "src/behavior/pipeline.js": 2869,
     "src/behavior/prompt.js": 4310,
-    "src/behavior/recall.js": 2202,
+    "src/behavior/recall.js": 2516,
+    "src/behavior/sandbox.js": 2136,
     "src/behavior/turn.js": 7570,
-    "src/memory/store.js": 3226,
+    "src/memory/store.js": 3481,
     "tests/admin.test.js": 3255,
     "tests/describe.test.js": 3190,
     "tests/events.test.js": 7865,
     "tests/openrouter.test.js": 3082,
     "tests/prompt.test.js": 5060,
-    "tests/store.test.js": 2547,
+    "tests/store.test.js": 3465,
     "tests/turn.test.js": 9092,
     "tools/replay.mjs": 5604
   },
@@ -27,10 +28,11 @@
     },
     "src/agent-runner/opencode.js": {
       "createOpencodeRunner": {
-        "function-length": 302
+        "function-length": 354
       },
       "createOpencodeRunner>run": {
-        "complexity": 42
+        "complexity": 42,
+        "function-length": 311
       },
       "createOpencodeRunner>run><anonymous>#2>handleEvent": {
         "complexity": 29
@@ -611,7 +613,7 @@
     },
     "src/memory/store.js": {
       "createStore": {
-        "function-length": 2244
+        "function-length": 2446
       },
       "normalizePrivate": {
         "complexity": 21

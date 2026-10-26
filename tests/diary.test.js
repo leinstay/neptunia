@@ -57,7 +57,11 @@ test('localDayKey: the local date of the zone, not the UTC one', () => {
 test('planDay: a window crossing midnight stays inside it in Europe/Athens', () => {
   const nowMs = Date.parse('2026-03-10T05:00:00Z');
   const cfg = { ...base, windows: [{ from: 18, to: 1, posts: [2, 2] }] };
-  for (const values of [[0.5, 0.5, 0, 0.999], [0.5, 0.5, 0.95, 0.99], [0.5, 0.5, 0.1, 0.6]]) {
+  for (const values of [
+    [0.5, 0.5, 0, 0.999],
+    [0.5, 0.5, 0.95, 0.99],
+    [0.5, 0.5, 0.1, 0.6],
+  ]) {
     const plan = planDay(cfg, nowMs, 'Europe/Athens', seq(values));
     assert.equal(plan.day, '2026-03-10');
     assert.equal(plan.quiet, false);
@@ -132,7 +136,13 @@ test('planDay: a quiet day has no slots', () => {
 });
 
 test('planDay: [0, 0] windows produce nothing', () => {
-  const cfg = { ...base, windows: [{ from: 7, to: 11, posts: [0, 0] }, { from: 12, to: 16, posts: [0, 0] }] };
+  const cfg = {
+    ...base,
+    windows: [
+      { from: 7, to: 11, posts: [0, 0] },
+      { from: 12, to: 16, posts: [0, 0] },
+    ],
+  };
   const plan = planDay(cfg, Date.parse('2026-03-10T05:00:00Z'), 'UTC', seq([0.5, 0.99]));
   assert.deepEqual(plan.slots, []);
   assert.equal(plan.quiet, false);
@@ -166,7 +176,13 @@ const counted = (values) => {
 const H_NOW = Date.parse('2026-03-10T05:00:00Z');
 
 test('planDay: the quiet chance shrinks by quietCarry per quiet day in a row', () => {
-  const cfg = { ...base, quietDayChance: 0.4, quietCarry: 0.5, hungerBoost: 0.5, windows: [{ from: 12, to: 16, posts: [1, 1] }] };
+  const cfg = {
+    ...base,
+    quietDayChance: 0.4,
+    quietCarry: 0.5,
+    hungerBoost: 0.5,
+    windows: [{ from: 12, to: 16, posts: [1, 1] }],
+  };
   const first = planDay(cfg, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { hunger: [2], quietStreak: 0 });
   assert.equal(first.quiet, true, '0.3 < 0.4');
   assert.deepEqual(first.hunger, [2]);
@@ -179,14 +195,20 @@ test('planDay: the quiet chance shrinks by quietCarry per quiet day in a row', (
   assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 1 }).quiet, true, '0.15 < 0.2');
   assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 2 }).quiet, false, '0.15 >= 0.1');
   const flat = { ...cfg, quietCarry: 1 };
-  assert.equal(planDay(flat, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { quietStreak: 3 }).quiet, true, 'quietCarry 1 keeps the chance');
+  assert.equal(
+    planDay(flat, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { quietStreak: 3 }).quiet,
+    true,
+    'quietCarry 1 keeps the chance'
+  );
 });
 
 test('planDay: a hungry window redraws an empty count, at most once per hunger point', () => {
   const cfg = { ...base, hungerBoost: 0.5, quietCarry: 0.5, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
   // quiet roll, count 0, then (boost roll, redraw) pairs: 0.7 >= 0.5 redraws to 0, then to 1; placement mid-window
   const values = [0.9, 0.1, 0.7, 0.2, 0.7, 0.8, 0.5];
-  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [2] }).slots, [Date.parse('2026-03-10T14:00:00Z')]);
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [2] }).slots, [
+    Date.parse('2026-03-10T14:00:00Z'),
+  ]);
   assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [1] }).slots, [], 'one hunger point, one redraw');
   assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [0] }).slots, [], 'no hunger, no redraw');
   // a boost roll under hungerBoost keeps the zero
@@ -205,7 +227,10 @@ test('planDay: a [0, 0] window never redraws and adds no deficit', () => {
     ...base,
     hungerBoost: 0.5,
     quietCarry: 0.5,
-    windows: [{ from: 7, to: 11, posts: [0, 0] }, { from: 12, to: 16, posts: [0, 1] }],
+    windows: [
+      { from: 7, to: 11, posts: [0, 0] },
+      { from: 12, to: 16, posts: [0, 1] },
+    ],
   };
   // quiet roll, the off window's count, the day window's count 0; a deficit would redraw it with 0.7, 0.8
   const rng = counted([0.9, 0.5, 0.1, 0.7, 0.8, 0.5]);
@@ -220,13 +245,20 @@ test('planDay: an empty window of the day raises the hunger of the later windows
     ...base,
     hungerBoost: 0.5,
     quietCarry: 0.5,
-    windows: [{ from: 7, to: 11, posts: [0, 1] }, { from: 12, to: 16, posts: [0, 1] }],
+    windows: [
+      { from: 7, to: 11, posts: [0, 1] },
+      { from: 12, to: 16, posts: [0, 1] },
+    ],
   };
   // quiet roll, morning count 0 (deficit 1), day count 0, boost roll 0.7 redraws to 1, placement mid-window
   const plan = planDay(cfg, H_NOW, 'UTC', seq([0.9, 0.1, 0.1, 0.7, 0.8, 0.5]), { hunger: [0, 0] });
   assert.deepEqual(plan.slots, [Date.parse('2026-03-10T14:00:00Z')]);
   const alone = { ...cfg, windows: [cfg.windows[1]] };
-  assert.deepEqual(planDay(alone, H_NOW, 'UTC', seq([0.9, 0.1, 0.7, 0.8, 0.5]), { hunger: [0] }).slots, [], 'without the empty morning, no redraw');
+  assert.deepEqual(
+    planDay(alone, H_NOW, 'UTC', seq([0.9, 0.1, 0.7, 0.8, 0.5]), { hunger: [0] }).slots,
+    [],
+    'without the empty morning, no redraw'
+  );
 });
 
 const H_WINDOWS = [
@@ -241,7 +273,15 @@ test('nextHunger: no previous plan starts at zero', () => {
 });
 
 test('nextHunger: a quiet day feeds no window and lengthens the streak', () => {
-  const previous = { day: '2026-03-10', slots: [], quiet: true, done: [], posted: [], hunger: [1, 0, 2], quietStreak: 1 };
+  const previous = {
+    day: '2026-03-10',
+    slots: [],
+    quiet: true,
+    done: [],
+    posted: [],
+    hunger: [1, 0, 2],
+    quietStreak: 1,
+  };
   const nowMs = Date.parse('2026-03-11T00:05:00Z');
   assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', nowMs, 30), { hunger: [2, 1, 3], quietStreak: 2 });
 });
@@ -262,27 +302,63 @@ test('nextHunger: a window with a posted slot resets, an empty one grows, a pend
   const nowMs = Date.parse('2026-03-11T00:05:00Z');
   assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', nowMs, 30), { hunger: [0, 2, 0], quietStreak: 0 });
   const missed = { ...previous, done: [posted, droppedSlot, wrap] };
-  assert.deepEqual(nextHunger(missed, H_WINDOWS, 'UTC', nowMs, 30).hunger, [0, 2, 5], 'a wrap slot dropped unfired does not feed');
+  assert.deepEqual(
+    nextHunger(missed, H_WINDOWS, 'UTC', nowMs, 30).hunger,
+    [0, 2, 5],
+    'a wrap slot dropped unfired does not feed'
+  );
   const late = Date.parse('2026-03-11T01:30:00Z');
-  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', late, 30).hunger, [0, 2, 5], 'a wrap slot past the grace does not feed');
+  assert.deepEqual(
+    nextHunger(previous, H_WINDOWS, 'UTC', late, 30).hunger,
+    [0, 2, 5],
+    'a wrap slot past the grace does not feed'
+  );
 });
 
 test('nextHunger: a slot outside every window feeds none', () => {
   const stray = Date.parse('2026-03-10T17:00:00Z');
-  const previous = { day: '2026-03-10', slots: [stray], done: [stray], posted: [stray], quiet: false, hunger: [0, 0, 0], quietStreak: 0 };
+  const previous = {
+    day: '2026-03-10',
+    slots: [stray],
+    done: [stray],
+    posted: [stray],
+    quiet: false,
+    hunger: [0, 0, 0],
+    quietStreak: 0,
+  };
   assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30).hunger, [1, 1, 1]);
 });
 
 test('nextHunger: a [0, 0] window or a malformed one stays at zero', () => {
-  const windows = [{ from: 7, to: 11, posts: [0, 0] }, { from: 30, to: 2, posts: [0, 1] }, { from: 12, to: 16, posts: [0, 1] }];
-  const previous = { day: '2026-03-10', slots: [], done: [], posted: [], quiet: false, hunger: [4, 4, 4], quietStreak: 0 };
+  const windows = [
+    { from: 7, to: 11, posts: [0, 0] },
+    { from: 30, to: 2, posts: [0, 1] },
+    { from: 12, to: 16, posts: [0, 1] },
+  ];
+  const previous = {
+    day: '2026-03-10',
+    slots: [],
+    done: [],
+    posted: [],
+    quiet: false,
+    hunger: [4, 4, 4],
+    quietStreak: 0,
+  };
   const nowMs = Date.parse('2026-03-11T02:00:00Z');
   assert.deepEqual(nextHunger(previous, windows, 'UTC', nowMs, 30).hunger, [0, 0, 5]);
   assert.deepEqual(nextHunger({ ...previous, quiet: true }, windows, 'UTC', nowMs, 30).hunger, [0, 0, 5]);
 });
 
 test('nextHunger: a changed windows list pads with zero or trims', () => {
-  const previous = { day: '2026-03-10', slots: [], quiet: true, done: [], posted: [], hunger: [3, 1, 4], quietStreak: 0 };
+  const previous = {
+    day: '2026-03-10',
+    slots: [],
+    quiet: true,
+    done: [],
+    posted: [],
+    hunger: [3, 1, 4],
+    quietStreak: 0,
+  };
   const nowMs = Date.parse('2026-03-11T02:00:00Z');
   assert.deepEqual(nextHunger(previous, H_WINDOWS.slice(0, 2), 'UTC', nowMs, 30).hunger, [4, 2]);
   const more = [...H_WINDOWS, { from: 1, to: 5, posts: [0, 1] }];
@@ -292,7 +368,10 @@ test('nextHunger: a changed windows list pads with zero or trims', () => {
 test('nextHunger: a stored plan from before hunger starts at zero', () => {
   const slot = Date.parse('2026-03-10T13:00:00Z');
   const previous = { day: '2026-03-10', slots: [slot], done: [slot], quiet: false };
-  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30), { hunger: [0, 0, 0], quietStreak: 0 });
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30), {
+    hunger: [0, 0, 0],
+    quietStreak: 0,
+  });
 });
 
 test('dueSlot: returns the first not-done slot within the grace', () => {
@@ -317,14 +396,29 @@ test('pickKind: weights zero are never chosen', () => {
     const kind = pickKind(kinds, () => r);
     assert.ok(kind === 'b' || kind === 'd', `${r} -> ${kind}`);
   }
-  assert.equal(pickKind(kinds, () => 0.1), 'b');
-  assert.equal(pickKind(kinds, () => 0.9), 'd');
+  assert.equal(
+    pickKind(kinds, () => 0.1),
+    'b'
+  );
+  assert.equal(
+    pickKind(kinds, () => 0.9),
+    'd'
+  );
 });
 
 test('pickKind: null when all weights are zero', () => {
-  assert.equal(pickKind({ a: 0, b: 0 }, () => 0.5), null);
-  assert.equal(pickKind({}, () => 0.5), null);
-  assert.equal(pickKind(null, () => 0.5), null);
+  assert.equal(
+    pickKind({ a: 0, b: 0 }, () => 0.5),
+    null
+  );
+  assert.equal(
+    pickKind({}, () => 0.5),
+    null
+  );
+  assert.equal(
+    pickKind(null, () => 0.5),
+    null
+  );
 });
 
 test('withoutPictureKinds: drops the picture kinds, keeps the others with their weights', () => {
@@ -341,7 +435,10 @@ test('withoutPictureKinds: the default picture kinds when diary.pictureKinds is 
 });
 
 test('withoutPictureKinds: nothing weighted left makes pickKind return null', () => {
-  assert.equal(pickKind(withoutPictureKinds({ selfPicture: 2 }, ['selfPicture']), () => 0.5), null);
+  assert.equal(
+    pickKind(withoutPictureKinds({ selfPicture: 2 }, ['selfPicture']), () => 0.5),
+    null
+  );
 });
 
 test('isPictureKind: listed kinds, the default list when none is given', () => {
@@ -356,10 +453,27 @@ const kinds = { selfPicture: 3, thought: 2, news: 2, meme: 0 };
 const opts = { pictureAllowed: true, searchKinds: ['news', 'facts'] };
 
 test('validatePlan: accepts a well-formed answer', () => {
-  const plan = validatePlan({ kind: 'news', brief: 'a find about trains', search: 'night trains', picture: false }, kinds, opts, () => 0.5);
-  assert.deepEqual(plan, { kind: 'news', brief: 'a find about trains', search: 'night trains', picture: false, fallback: false });
+  const plan = validatePlan(
+    { kind: 'news', brief: 'a find about trains', search: 'night trains', picture: false },
+    kinds,
+    opts,
+    () => 0.5
+  );
+  assert.deepEqual(plan, {
+    kind: 'news',
+    brief: 'a find about trains',
+    search: 'night trains',
+    picture: false,
+    fallback: false,
+  });
   const drawn = validatePlan({ kind: 'selfPicture', brief: 'Ελένη on a pier', picture: true }, kinds, opts, () => 0.5);
-  assert.deepEqual(drawn, { kind: 'selfPicture', brief: 'Ελένη on a pier', search: '', picture: true, fallback: false });
+  assert.deepEqual(drawn, {
+    kind: 'selfPicture',
+    brief: 'Ελένη on a pier',
+    search: '',
+    picture: true,
+    fallback: false,
+  });
 });
 
 test('validatePlan: falls back to a weighted kind', () => {
@@ -383,7 +497,12 @@ test('validatePlan: a fallback picture kind draws when allowed', () => {
 });
 
 test('validatePlan: a fallback text kind does not draw', () => {
-  const plan = validatePlan({ kind: 'nope', picture: true }, kinds, { ...opts, pictureKinds: ['selfPicture'] }, () => 0.99);
+  const plan = validatePlan(
+    { kind: 'nope', picture: true },
+    kinds,
+    { ...opts, pictureKinds: ['selfPicture'] },
+    () => 0.99
+  );
   assert.equal(plan.kind, 'news');
   assert.equal(plan.fallback, true);
   assert.equal(plan.picture, false);
@@ -391,15 +510,35 @@ test('validatePlan: a fallback text kind does not draw', () => {
 
 test('validatePlan: a picture kind always draws when allowed', () => {
   for (const picture of [false, undefined, 'no']) {
-    const plan = validatePlan({ kind: 'selfPicture', brief: 'b', picture }, kinds, { ...opts, pictureKinds: ['selfPicture'] }, () => 0.5);
+    const plan = validatePlan(
+      { kind: 'selfPicture', brief: 'b', picture },
+      kinds,
+      { ...opts, pictureKinds: ['selfPicture'] },
+      () => 0.5
+    );
     assert.equal(plan.picture, true);
     assert.equal(plan.fallback, false);
   }
-  const capped = validatePlan({ kind: 'selfPicture', brief: 'b', picture: false }, kinds, { ...opts, pictureAllowed: false, pictureKinds: ['selfPicture'] }, () => 0.5);
+  const capped = validatePlan(
+    { kind: 'selfPicture', brief: 'b', picture: false },
+    kinds,
+    { ...opts, pictureAllowed: false, pictureKinds: ['selfPicture'] },
+    () => 0.5
+  );
   assert.equal(capped.picture, false);
-  const text = validatePlan({ kind: 'thought', brief: 'b', picture: true }, kinds, { ...opts, pictureKinds: ['selfPicture'] }, () => 0.5);
+  const text = validatePlan(
+    { kind: 'thought', brief: 'b', picture: true },
+    kinds,
+    { ...opts, pictureKinds: ['selfPicture'] },
+    () => 0.5
+  );
   assert.equal(text.picture, true);
-  const quiet = validatePlan({ kind: 'thought', brief: 'b', picture: false }, kinds, { ...opts, pictureKinds: ['selfPicture'] }, () => 0.5);
+  const quiet = validatePlan(
+    { kind: 'thought', brief: 'b', picture: false },
+    kinds,
+    { ...opts, pictureKinds: ['selfPicture'] },
+    () => 0.5
+  );
   assert.equal(quiet.picture, false);
 });
 
@@ -410,13 +549,23 @@ test('validatePlan: search is cleared for a kind outside searchKinds', () => {
 });
 
 test('validatePlan: picture forced false when not allowed', () => {
-  const plan = validatePlan({ kind: 'selfPicture', brief: 'b', picture: true }, kinds, { ...opts, pictureAllowed: false }, () => 0.5);
+  const plan = validatePlan(
+    { kind: 'selfPicture', brief: 'b', picture: true },
+    kinds,
+    { ...opts, pictureAllowed: false },
+    () => 0.5
+  );
   assert.equal(plan.picture, false);
   assert.equal(validatePlan({ kind: 'thought', picture: 'yes' }, kinds, opts, () => 0.5).picture, false);
 });
 
 test('validatePlan: a long brief is cut to one line', () => {
-  const plan = validatePlan({ kind: 'thought', brief: `line one\nline two ${'word '.repeat(100)}` }, kinds, opts, () => 0.5);
+  const plan = validatePlan(
+    { kind: 'thought', brief: `line one\nline two ${'word '.repeat(100)}` },
+    kinds,
+    opts,
+    () => 0.5
+  );
   assert.ok(!plan.brief.includes('\n'));
   assert.ok([...plan.brief].length <= 300);
 });
@@ -429,12 +578,15 @@ test('renderDiaryBlock: oldest first, at most max lines, picture suffix when pre
     { at: Date.parse('2026-03-04T10:00:00Z'), kind: 'thought', gist: 'café thoughts', picture: null },
   ];
   const text = renderDiaryBlock(posts, labels, { timezone: 'Europe/Athens', max: 3 });
-  assert.equal(text, [
-    'Your latest diary posts, oldest first:',
-    '- 2026-03-02 post: from the backfill [picture: not recorded]',
-    '- 2026-03-04 selfPicture: on the pier [picture: a pier at dusk]',
-    '- 2026-03-04 thought: café thoughts',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      'Your latest diary posts, oldest first:',
+      '- 2026-03-02 post: from the backfill [picture: not recorded]',
+      '- 2026-03-04 selfPicture: on the pier [picture: a pier at dusk]',
+      '- 2026-03-04 thought: café thoughts',
+    ].join('\n')
+  );
   assert.equal(renderDiaryBlock([], labels, { timezone: 'UTC', max: 3 }), '');
 });
 
@@ -446,7 +598,10 @@ test('renderDiaryBlock: a set renders its first scene with the picture count', (
   const text = renderDiaryBlock(posts, labels, { timezone: 'UTC', max: 5 });
   const lines = text.split('\n');
   assert.ok(labels.diary.pictureSet, 'the fixture carries the label');
-  assert.equal(lines[1], `- 2026-03-01 tour: a walk${fill(labels.diary.pictureSet, { count: 5, scene: 'a harbour at noon' })}`);
+  assert.equal(
+    lines[1],
+    `- 2026-03-01 tour: a walk${fill(labels.diary.pictureSet, { count: 5, scene: 'a harbour at noon' })}`
+  );
   assert.equal(lines[2], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
 });
 
@@ -467,47 +622,76 @@ test('setSettings: the configured values, whole and ordered; the defaults for mi
     maxMessageBytes: 1000,
   });
   const fallback = setSettings({});
-  assert.deepEqual(setSettings({ set: { pictures: 'x', minPosted: -1, seedSets: null, maxMessageBytes: 0 } }), fallback);
+  assert.deepEqual(
+    setSettings({ set: { pictures: 'x', minPosted: -1, seedSets: null, maxMessageBytes: 0 } }),
+    fallback
+  );
   assert.deepEqual(setSettings({ set: { pictures: [5, 2] } }).pictures, [5, 5], 'max never below min');
 });
 
 test('renderKindsBlock: counts uses among the last window posts', () => {
   const posts = [{ kind: 'thought' }, { kind: 'thought' }, { kind: 'news' }, { kind: 'thought' }, { kind: null }];
   const text = renderKindsBlock({ thought: 2, news: 1, meme: 0 }, posts, labels, { window: 3 });
-  assert.equal(text, [
-    'Post kinds and their recent use:',
-    'thought weight 2, used 1 of the last 3',
-    'news weight 1, used 1 of the last 3',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      'Post kinds and their recent use:',
+      'thought weight 2, used 1 of the last 3',
+      'news weight 1, used 1 of the last 3',
+    ].join('\n')
+  );
   assert.equal(
     renderKindsBlock({ thought: 2 }, [], labels, { window: 150 }),
-    'Post kinds and their recent use:\nthought weight 2, used 0 of the last 0',
+    'Post kinds and their recent use:\nthought weight 2, used 0 of the last 0'
   );
   assert.equal(renderKindsBlock({ meme: 0 }, posts, labels, { window: 3 }), '');
 });
 
 test('parseSeedFamilies: splits by # headers and ignores blanks', () => {
   const text = 'loose line\n\n# place\na pier\n\n  an alley  \n# mood\n\n# twist\nrain\n';
-  assert.deepEqual(parseSeedFamilies(text), { seed: ['loose line'], place: ['a pier', 'an alley'], mood: [], twist: ['rain'] });
+  assert.deepEqual(parseSeedFamilies(text), {
+    seed: ['loose line'],
+    place: ['a pier', 'an alley'],
+    mood: [],
+    twist: ['rain'],
+  });
   assert.deepEqual(parseSeedFamilies(''), {});
   assert.deepEqual(parseSeedFamilies(null), {});
 });
 
 test('pickSeeds: one line per family per set, in header order', () => {
   const families = { place: ['a pier', 'an alley'], twist: ['rain', 'fog', 'snow'] };
-  assert.deepEqual(pickSeeds(families, 2, seq([0, 0.99, 0.6, 0.1])), [['a pier', 'snow'], ['an alley', 'rain']]);
+  assert.deepEqual(pickSeeds(families, 2, seq([0, 0.99, 0.6, 0.1])), [
+    ['a pier', 'snow'],
+    ['an alley', 'rain'],
+  ]);
 });
 
 test('pickSeeds: empty families are skipped', () => {
-  assert.deepEqual(pickSeeds({ place: [], twist: ['rain'] }, 1, () => 0.5), [['rain']]);
-  assert.deepEqual(pickSeeds({ place: [] }, 2, () => 0.5), []);
-  assert.deepEqual(pickSeeds({ place: ['a pier'] }, 0, () => 0.5), []);
+  assert.deepEqual(
+    pickSeeds({ place: [], twist: ['rain'] }, 1, () => 0.5),
+    [['rain']]
+  );
+  assert.deepEqual(
+    pickSeeds({ place: [] }, 2, () => 0.5),
+    []
+  );
+  assert.deepEqual(
+    pickSeeds({ place: ['a pier'] }, 0, () => 0.5),
+    []
+  );
 });
 
 test('renderSeedsBlock: one line per set', () => {
   assert.equal(
-    renderSeedsBlock([['a pier', 'rain'], ['an alley', 'fog']], labels),
-    'Random seeds (place; setting; detail; activity; subject; twist):\n- a pier; rain\n- an alley; fog',
+    renderSeedsBlock(
+      [
+        ['a pier', 'rain'],
+        ['an alley', 'fog'],
+      ],
+      labels
+    ),
+    'Random seeds (place; setting; detail; activity; subject; twist):\n- a pier; rain\n- an alley; fog'
   );
   assert.equal(renderSeedsBlock([], labels), '');
 });
@@ -531,7 +715,14 @@ function tmpDataDir() {
   return tempDir('nep-diary-');
 }
 
-const post = (n) => ({ at: n * 1000, kind: 'status', gist: `post ${n}`, picture: null, messageIds: [`m${n}`], search: '' });
+const post = (n) => ({
+  at: n * 1000,
+  kind: 'status',
+  gist: `post ${n}`,
+  picture: null,
+  messageIds: [`m${n}`],
+  search: '',
+});
 
 test('store: getDiary returns the empty default', () => {
   const store = createStore({ dataDir: tmpDataDir() });
@@ -542,7 +733,10 @@ test('store: appendDiaryPost keeps the newest max posts and stamps updatedAt', (
   const store = createStore({ dataDir: tmpDataDir() });
   for (let n = 1; n <= 4; n += 1) store.appendDiaryPost('g1', post(n), { max: 3, now: 5000 + n });
   const diary = store.getDiary('g1');
-  assert.deepEqual(diary.posts.map((p) => p.gist), ['post 2', 'post 3', 'post 4']);
+  assert.deepEqual(
+    diary.posts.map((p) => p.gist),
+    ['post 2', 'post 3', 'post 4']
+  );
   assert.equal(diary.updatedAt, 5004);
   diary.posts.length = 0; // a copy: changing it changes nothing stored
   assert.equal(store.getDiary('g1').posts.length, 3);
@@ -553,7 +747,10 @@ test('store: setDiaryPosts replaces the list and keeps the newest max', () => {
   store.appendDiaryPost('g1', post(1), { max: 10, now: 1 });
   store.setDiaryPosts('g1', [post(5), post(6), post(7)], { max: 2, now: 9 });
   const diary = store.getDiary('g1');
-  assert.deepEqual(diary.posts.map((p) => p.gist), ['post 6', 'post 7']);
+  assert.deepEqual(
+    diary.posts.map((p) => p.gist),
+    ['post 6', 'post 7']
+  );
   assert.equal(diary.updatedAt, 9);
 });
 
@@ -566,14 +763,20 @@ test('store: diary survives flush and reload', async () => {
   await store.flushSettled({});
   assert.ok(unitFile(memoryDb, 'guilds/g1/diary.json'), 'the diary is a unit of the database');
   const again = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(again.getDiary('g1'), { posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }], updatedAt: 42 });
+  assert.deepEqual(again.getDiary('g1'), {
+    posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }],
+    updatedAt: 42,
+  });
   await mem.close();
 });
 
 test('store: a malformed diary value reads as the empty default', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
   await mem.memoryDb.writeUnit({ op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
-  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary('g1'), { posts: [], updatedAt: 0 });
+  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary('g1'), {
+    posts: [],
+    updatedAt: 0,
+  });
   await mem.close();
 });
 
@@ -591,12 +794,23 @@ function diaryChannelFake({ send = true, attach = true, guildId = 'g1' } = {}) {
     viewable: true,
     guild: { id: guildId, members: { me: { id: 'self' } } },
     permissionsFor: () => ({
-      has: (flag) => (flag === PermissionFlagsBits.AttachFiles ? attach : flag === PermissionFlagsBits.SendMessages ? send : true),
+      has: (flag) =>
+        flag === PermissionFlagsBits.AttachFiles ? attach : flag === PermissionFlagsBits.SendMessages ? send : true,
     }),
   };
 }
 
-function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channel = diaryChannelFake(), outcomes = [], backfill = null, turnsExtra = {}, delay } = {}) {
+function diaryHarness({
+  diary = {},
+  features = {},
+  data = {},
+  posts = [],
+  channel = diaryChannelFake(),
+  outcomes = [],
+  backfill = null,
+  turnsExtra = {},
+  delay,
+} = {}) {
   let clock = D_NOW;
   const turnCalls = [];
   const hot = {
@@ -631,7 +845,9 @@ function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channe
   const turns = {
     runTurn: async (params) => {
       turnCalls.push({ params, done: [...(store.state.data.diary?.g1?.done ?? [])] });
-      return outcomes.shift() ?? { outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } };
+      return (
+        outcomes.shift() ?? { outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }
+      );
     },
     ...turnsExtra,
   };
@@ -665,7 +881,11 @@ test('tick: no-op without a channel id, with features.diary false, when paused',
     });
     assert.equal(h.turnCalls.length, 0, reason);
     assert.equal(h.store.state.data.diary, undefined, `${reason}: no plan`);
-    assert.equal(logs.filter((l) => l.msg === 'diary: skip' && l.reason === reason).length, 1, `${reason}: logged once a day`);
+    assert.equal(
+      logs.filter((l) => l.msg === 'diary: skip' && l.reason === reason).length,
+      1,
+      `${reason}: logged once a day`
+    );
   }
 });
 
@@ -673,7 +893,15 @@ test('tick: plans the day once and stores it in state.data.diary[guildId]', asyn
   const h = diaryHarness();
   await h.diary.tick();
   const plan = h.store.state.data.diary.g1;
-  assert.deepEqual(plan, { day: '2026-10-06', slots: [SLOT], quiet: false, done: [], posted: [], hunger: [0], quietStreak: 0 });
+  assert.deepEqual(plan, {
+    day: '2026-10-06',
+    slots: [SLOT],
+    quiet: false,
+    done: [],
+    posted: [],
+    hunger: [0],
+    quietStreak: 0,
+  });
   await h.diary.tick();
   assert.equal(h.store.state.data.diary.g1, plan, 'the same plan, not planned again');
   h.setNow(D_NOW + 24 * HOUR_MS);
@@ -699,7 +927,11 @@ test('tick: a new local day carries over the open slots of the last plan that sp
   });
   h.setNow(Date.UTC(2026, 9, 7, 0, 5, 0));
   await h.diary.tick();
-  assert.deepEqual(h.store.state.data.diary.g1.slots, [late], 'the open slot ahead is kept; done and long-missed ones are not');
+  assert.deepEqual(
+    h.store.state.data.diary.g1.slots,
+    [late],
+    'the open slot ahead is kept; done and long-missed ones are not'
+  );
   assert.equal(h.store.state.data.diary.g1.day, '2026-10-07');
   h.setNow(late + MINUTE_MS);
   await h.diary.tick();
@@ -727,7 +959,9 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
 });
 
 test('tick: a set posted logs its picture count; a short set logs its refusal and is not posted', async () => {
-  const posted = diaryHarness({ outcomes: [{ outcome: 'spoke', diary: { kind: 'tour', picture: true, search: false, messages: 1, pictures: 4 } }] });
+  const posted = diaryHarness({
+    outcomes: [{ outcome: 'spoke', diary: { kind: 'tour', picture: true, search: false, messages: 1, pictures: 4 } }],
+  });
   posted.setNow(SLOT + MINUTE_MS);
   const first = await withCapturedLogs(() => posted.diary.tick());
   const line = first.logs.find((l) => l.msg === 'diary: post');
@@ -776,7 +1010,11 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
   const fired = Date.UTC(2026, 9, 5, 20, 0, 0);
   const h = diaryHarness({
     diary: { quietCarry: 0.5, hungerBoost: 0.5 },
-    data: { diary: { g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 } } },
+    data: {
+      diary: {
+        g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 },
+      },
+    },
   });
   const { logs } = await withCapturedLogs(() => h.diary.tick());
   const plan = h.store.state.data.diary.g1;
@@ -788,7 +1026,9 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
 
   const quiet = diaryHarness({
     diary: { quietCarry: 0.5, hungerBoost: 0.5 },
-    data: { diary: { g1: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 } } },
+    data: {
+      diary: { g1: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 } },
+    },
   });
   await quiet.diary.tick();
   assert.deepEqual(quiet.store.state.data.diary.g1.hunger, [2]);
@@ -826,7 +1066,10 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(calls.length, 1, 'once per channel and process');
 
   const kept = [];
-  const full = diaryHarness({ posts: [{ at: 1, kind: 'status', gist: 'x' }], backfill: async (args) => kept.push(args) });
+  const full = diaryHarness({
+    posts: [{ at: 1, kind: 'status', gist: 'x' }],
+    backfill: async (args) => kept.push(args),
+  });
   full.setNow(SLOT + MINUTE_MS);
   await full.diary.tick();
   assert.equal(kept.length, 0, 'a history already there is not backfilled');
@@ -902,9 +1145,23 @@ test('stop: no tick after stop', async () => {
 });
 
 test('status: the channel, the day plan, the counts of today and the history size', async () => {
-  const h = diaryHarness({ posts: [{}, {}], data: { diaryDay: '2026-10-06', diaryPosts: 1, diaryPicturesDay: '2026-10-06', diaryPictures: 1 } });
+  const h = diaryHarness({
+    posts: [{}, {}],
+    data: { diaryDay: '2026-10-06', diaryPosts: 1, diaryPicturesDay: '2026-10-06', diaryPictures: 1 },
+  });
   await h.diary.tick();
-  assert.deepEqual(h.diary.status(), { channelId: 'd1', day: '2026-10-06', slots: [SLOT], done: [], quiet: false, hunger: [0], quietStreak: 0, posts: 1, pictures: 1, history: 2 });
+  assert.deepEqual(h.diary.status(), {
+    channelId: 'd1',
+    day: '2026-10-06',
+    slots: [SLOT],
+    done: [],
+    quiet: false,
+    hunger: [0],
+    quietStreak: 0,
+    posts: 1,
+    pictures: 1,
+    history: 2,
+  });
 });
 
 /** A turn runner that is busy until `release()`: `waitIdle` resolves then, `isAnyBusy` follows it. */

@@ -57,9 +57,14 @@ const stamp = (at) => (filled(at) ? at : new Date().toISOString());
 /** The node id of a typed row: `<kind>:<row id>` (never parsed: the row id is kept in `graph_nodes.row_id`). */
 export const graphNodeId = (kind, rowId) => `${kind}:${rowId}`;
 /** The semantic key of an edge: `<predicate>:<src>:<dst>[:<evidence>]`. */
-export const projectionKey = (predicate, src, dst, evidence = null) => [predicate, src, dst, ...(filled(evidence) ? [evidence] : [])].join(':');
+export const projectionKey = (predicate, src, dst, evidence = null) =>
+  [predicate, src, dst, ...(filled(evidence) ? [evidence] : [])].join(':');
 /** The id of an edge: 32 hex digits of SHA-256 over the edge's tuple (unambiguous, whatever the ids hold). */
-const edgeIdOf = (predicate, src, dst, evidence) => `edge:${createHash('sha256').update(canonicalKey(predicate, [src, dst, filled(evidence) ? evidence : null])).digest('hex').slice(0, 32)}`;
+const edgeIdOf = (predicate, src, dst, evidence) =>
+  `edge:${createHash('sha256')
+    .update(canonicalKey(predicate, [src, dst, filled(evidence) ? evidence : null]))
+    .digest('hex')
+    .slice(0, 32)}`;
 
 /** The graph settings of this moment (`graph` in the live config). */
 export function graphSettings(config) {
@@ -74,7 +79,8 @@ const caches = new WeakMap();
 function cacheOf(db) {
   let cache = caches.get(db);
   if (!cache) {
-    const has = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'graph_edges'").get() !== undefined;
+    const has =
+      db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'graph_edges'").get() !== undefined;
     cache = { has, statements: new Map() };
     caches.set(db, cache);
   }
@@ -108,7 +114,11 @@ function usableAudience(db, id) {
     const place = one(db, 'SELECT iface FROM places WHERE id = ?', parts.place_id);
     if (!place || !filled(place.iface)) return usableAudience(db, AUD_INTERNAL);
     prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(place.iface);
-    prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(value, place.iface, parts.place_id);
+    prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(
+      value,
+      place.iface,
+      parts.place_id
+    );
   }
   return value;
 }
@@ -118,7 +128,8 @@ export function placeAudience(place) {
   if (!place) return AUD_INTERNAL;
   if (place.conversation === 'dm') return dmAudienceId(place.id);
   if (place.conversation === 'group' && filled(place.iface)) return groupAudienceId(place.iface);
-  if (place.conversation == null && CONTAINERS.has(place.kind) && filled(place.iface)) return groupAudienceId(place.iface);
+  if (place.conversation == null && CONTAINERS.has(place.kind) && filled(place.iface))
+    return groupAudienceId(place.iface);
   return AUD_INTERNAL;
 }
 
@@ -135,8 +146,23 @@ const timeOf = (spec, row) => {
 // Each returns { nodes: [{ id, kind, row_id, created_at }], own: [{ node, audience }], edges: [edge] } for one unit id.
 // An edge: { predicate, src: [kind, row id], dst: [kind, row id], audience, evidence, from, to, recorded, retired }.
 
-const node = (kind, row) => ({ id: graphNodeId(kind, row[NODE_KINDS[kind].key]), kind, row_id: row[NODE_KINDS[kind].key], created_at: timeOf(NODE_KINDS[kind], row) });
-const edge = (predicate, src, dst, fields) => ({ predicate, src, dst, evidence: null, from: null, to: null, recorded: EPOCH, retired: null, ...fields });
+const node = (kind, row) => ({
+  id: graphNodeId(kind, row[NODE_KINDS[kind].key]),
+  kind,
+  row_id: row[NODE_KINDS[kind].key],
+  created_at: timeOf(NODE_KINDS[kind], row),
+});
+const edge = (predicate, src, dst, fields) => ({
+  predicate,
+  src,
+  dst,
+  evidence: null,
+  from: null,
+  to: null,
+  recorded: EPOCH,
+  retired: null,
+  ...fields,
+});
 const recordedOf = (...values) => values.find(filled) ?? EPOCH;
 const empty = () => ({ nodes: [], own: [], edges: [] });
 
@@ -153,8 +179,12 @@ function linkEdge(db, predicate, link, src, dst, fallback, retiredWith) {
   if (link.state !== 'verified' && link.state !== 'revoked') return null;
   const retired = link.state === 'revoked' ? recordedOf(link.valid_to_at, link.recorded_at) : (retiredWith ?? null);
   return edge(predicate, src, dst, {
-    audience: linkAudience(db, link, fallback), evidence: link.evidence_id ?? null, from: link.valid_from_at ?? null, to: link.valid_to_at ?? null,
-    recorded: recordedOf(link.recorded_at), retired,
+    audience: linkAudience(db, link, fallback),
+    evidence: link.evidence_id ?? null,
+    from: link.valid_from_at ?? null,
+    to: link.valid_to_at ?? null,
+    recorded: recordedOf(link.recorded_at),
+    retired,
   });
 }
 
@@ -178,7 +208,15 @@ const PRODUCERS = {
     const fallback = row && filled(row.iface) ? groupAudienceId(row.iface) : AUD_INTERNAL;
     for (const link of all(db, 'SELECT * FROM account_person_links WHERE account_id = ? ORDER BY id', id)) {
       const person = one(db, 'SELECT retired_at FROM people WHERE id = ?', link.person_id);
-      const made = linkEdge(db, 'account_of', link, ['account', id], ['person', link.person_id], fallback, row?.retired_at ?? person?.retired_at ?? null);
+      const made = linkEdge(
+        db,
+        'account_of',
+        link,
+        ['account', id],
+        ['person', link.person_id],
+        fallback,
+        row?.retired_at ?? person?.retired_at ?? null
+      );
       if (made) out.edges.push(made);
     }
     return out;
@@ -187,7 +225,10 @@ const PRODUCERS = {
     const out = empty();
     const row = one(db, 'SELECT id, scope_place_id, first_seen_at, recorded_at FROM participants WHERE id = ?', id);
     if (row) out.nodes.push(node('participant', row));
-    const scope = row && filled(row.scope_place_id) ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.scope_place_id) : null;
+    const scope =
+      row && filled(row.scope_place_id)
+        ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.scope_place_id)
+        : null;
     const fallback = scope ? placeAudience(scope) : AUD_INTERNAL;
     for (const link of all(db, 'SELECT * FROM participant_links WHERE participant_id = ? ORDER BY id', id)) {
       const dst = filled(link.account_id) ? ['account', link.account_id] : ['person', link.person_id];
@@ -203,8 +244,22 @@ const PRODUCERS = {
     out.nodes.push(node('place', row));
     const audience = placeAudience(row);
     const recorded = recordedOf(row.seen_from_at);
-    if (filled(row.parent_id)) out.edges.push(edge('contained_in', ['place', id], ['place', row.parent_id], { audience, recorded, retired: row.retired_at ?? null }));
-    if (filled(row.continues_place_id)) out.edges.push(edge('continues', ['place', id], ['place', row.continues_place_id], { audience, recorded, retired: row.retired_at ?? null }));
+    if (filled(row.parent_id))
+      out.edges.push(
+        edge('contained_in', ['place', id], ['place', row.parent_id], {
+          audience,
+          recorded,
+          retired: row.retired_at ?? null,
+        })
+      );
+    if (filled(row.continues_place_id))
+      out.edges.push(
+        edge('continues', ['place', id], ['place', row.continues_place_id], {
+          audience,
+          recorded,
+          retired: row.retired_at ?? null,
+        })
+      );
     return out;
   },
   memberships(db, id) {
@@ -212,10 +267,20 @@ const PRODUCERS = {
     const row = one(db, 'SELECT * FROM memberships WHERE id = ?', id);
     if (!row) return out;
     out.nodes.push(node('membership', row));
-    const place = filled(row.place_id) ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.place_id) : null;
-    const fields = { audience: placeAudience(place), from: row.valid_from_at ?? null, to: row.valid_to_at ?? null, recorded: recordedOf(row.valid_from_at), retired: row.retired_at ?? null };
-    if (filled(row.account_id)) out.edges.push(edge('has_membership', ['account', row.account_id], ['membership', id], fields));
-    if (filled(row.place_id)) out.edges.push(edge('membership_in', ['membership', id], ['place', row.place_id], fields));
+    const place = filled(row.place_id)
+      ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.place_id)
+      : null;
+    const fields = {
+      audience: placeAudience(place),
+      from: row.valid_from_at ?? null,
+      to: row.valid_to_at ?? null,
+      recorded: recordedOf(row.valid_from_at),
+      retired: row.retired_at ?? null,
+    };
+    if (filled(row.account_id))
+      out.edges.push(edge('has_membership', ['account', row.account_id], ['membership', id], fields));
+    if (filled(row.place_id))
+      out.edges.push(edge('membership_in', ['membership', id], ['place', row.place_id], fields));
     return out;
   },
   sources(db, id) {
@@ -235,8 +300,18 @@ const PRODUCERS = {
     if (filled(row.place_id)) out.edges.push(edge('located_in', ['source', id], ['place', row.place_id], fields));
     // Schema v9 follows v8: the relations table is there.
     const marks = RELATION_EDGES.map(() => '?').join(', ');
-    for (const relation of all(db, `SELECT predicate, target_source_id, recorded_at FROM source_relations WHERE source_id = ? AND target_source_id IS NOT NULL AND predicate IN (${marks}) ORDER BY id`, id, ...RELATION_EDGES)) {
-      out.edges.push(edge(relation.predicate, ['source', id], ['source', relation.target_source_id], { ...fields, recorded: recordedOf(relation.recorded_at, fields.recorded) }));
+    for (const relation of all(
+      db,
+      `SELECT predicate, target_source_id, recorded_at FROM source_relations WHERE source_id = ? AND target_source_id IS NOT NULL AND predicate IN (${marks}) ORDER BY id`,
+      id,
+      ...RELATION_EDGES
+    )) {
+      out.edges.push(
+        edge(relation.predicate, ['source', id], ['source', relation.target_source_id], {
+          ...fields,
+          recorded: recordedOf(relation.recorded_at, fields.recorded),
+        })
+      );
     }
     return out;
   },
@@ -251,9 +326,16 @@ const PRODUCERS = {
       const recorded = recordedOf(row.created_at, row.first_seen_at);
       const subject = aboutTarget(row.subject_kind, row.subject_id);
       if (subject) out.edges.push(edge('about', ['claim', id], subject, { audience, recorded, retired: claimRetired }));
-      if (filled(row.superseded_by)) out.edges.push(edge('supersedes', ['claim', row.superseded_by], ['claim', id], { audience, recorded, retired: claimRetired }));
+      if (filled(row.superseded_by))
+        out.edges.push(
+          edge('supersedes', ['claim', row.superseded_by], ['claim', id], { audience, recorded, retired: claimRetired })
+        );
     }
-    const versions = all(db, "SELECT * FROM claim_versions WHERE claim_id = ? ORDER BY COALESCE(recorded_at, ''), rowid", id);
+    const versions = all(
+      db,
+      "SELECT * FROM claim_versions WHERE claim_id = ? ORDER BY COALESCE(recorded_at, ''), rowid",
+      id
+    );
     let previous = null;
     for (const version of versions) {
       const retired = version.retired_at ?? claimRetired;
@@ -262,15 +344,35 @@ const PRODUCERS = {
       const recorded = recordedOf(version.recorded_at);
       out.edges.push(edge('version_of', ['claim_version', version.id], ['claim', id], { audience, recorded, retired }));
       if (!version.retired_at) {
-        if (previous) out.edges.push(edge('supersedes', ['claim_version', version.id], ['claim_version', previous.id], { audience, recorded, retired }));
+        if (previous)
+          out.edges.push(
+            edge('supersedes', ['claim_version', version.id], ['claim_version', previous.id], {
+              audience,
+              recorded,
+              retired,
+            })
+          );
         previous = version;
       }
-      for (const link of all(db, 'SELECT source_id FROM claim_version_sources WHERE version_id = ? ORDER BY source_id', version.id)) {
-        out.edges.push(edge('derived_from', ['claim_version', version.id], ['source', link.source_id], { audience, evidence: link.source_id, recorded, retired }));
+      for (const link of all(
+        db,
+        'SELECT source_id FROM claim_version_sources WHERE version_id = ? ORDER BY source_id',
+        version.id
+      )) {
+        out.edges.push(
+          edge('derived_from', ['claim_version', version.id], ['source', link.source_id], {
+            audience,
+            evidence: link.source_id,
+            recorded,
+            retired,
+          })
+        );
       }
     }
     const recorded = row ? recordedOf(row.created_at, row.first_seen_at) : EPOCH;
-    out.edges.push(...linkEdges(db, 'claim_sources', 'claim_id', id, ['claim', id], { audience, recorded, claimRetired }));
+    out.edges.push(
+      ...linkEdges(db, 'claim_sources', 'claim_id', id, ['claim', id], { audience, recorded, claimRetired })
+    );
     return out;
   },
   descriptions(db, id) {
@@ -285,14 +387,27 @@ const PRODUCERS = {
       if (subject) out.edges.push(edge('about', ['description', id], subject, { audience, retired: parentRetired }));
     }
     let previous = null;
-    for (const version of all(db, "SELECT * FROM description_versions WHERE description_id = ? ORDER BY COALESCE(written_at, ''), rowid", id)) {
+    for (const version of all(
+      db,
+      "SELECT * FROM description_versions WHERE description_id = ? ORDER BY COALESCE(written_at, ''), rowid",
+      id
+    )) {
       const retired = version.retired_at ?? parentRetired;
       out.nodes.push(node('description_version', version));
       if (!retired) out.own.push({ node: graphNodeId('description_version', version.id), audience });
       const recorded = recordedOf(version.written_at);
-      out.edges.push(edge('version_of', ['description_version', version.id], ['description', id], { audience, recorded, retired }));
+      out.edges.push(
+        edge('version_of', ['description_version', version.id], ['description', id], { audience, recorded, retired })
+      );
       if (!version.retired_at) {
-        if (previous) out.edges.push(edge('supersedes', ['description_version', version.id], ['description_version', previous.id], { audience, recorded, retired }));
+        if (previous)
+          out.edges.push(
+            edge('supersedes', ['description_version', version.id], ['description_version', previous.id], {
+              audience,
+              recorded,
+              retired,
+            })
+          );
         previous = version;
       }
     }
@@ -307,10 +422,22 @@ const PRODUCERS = {
     if (row) {
       out.nodes.push(node('episode', row));
       if (!parentRetired) out.own.push({ node: graphNodeId('episode', id), audience });
-      if (filled(row.subject_id)) out.edges.push(edge('about', ['episode', id], ['person', row.subject_id], { audience, recorded, retired: parentRetired }));
-      if (filled(row.place_id)) out.edges.push(edge('about', ['episode', id], ['place', row.place_id], { audience, recorded, retired: parentRetired }));
+      if (filled(row.subject_id))
+        out.edges.push(
+          edge('about', ['episode', id], ['person', row.subject_id], { audience, recorded, retired: parentRetired })
+        );
+      if (filled(row.place_id))
+        out.edges.push(
+          edge('about', ['episode', id], ['place', row.place_id], { audience, recorded, retired: parentRetired })
+        );
     }
-    out.edges.push(...linkEdges(db, 'episode_sources', 'episode_id', id, ['episode', id], { audience, recorded, claimRetired: parentRetired }));
+    out.edges.push(
+      ...linkEdges(db, 'episode_sources', 'episode_id', id, ['episode', id], {
+        audience,
+        recorded,
+        claimRetired: parentRetired,
+      })
+    );
     return out;
   },
   diary(db, id) {
@@ -335,9 +462,18 @@ const PRODUCERS = {
     const retired = row.retired_at ?? null;
     if (!retired) out.own.push({ node: graphNodeId('publication', id), audience });
     const recorded = recordedOf(row.sent_at, row.created_at);
-    if (row.row_kind === 'diary' && filled(row.row_id)) out.edges.push(edge('published_as', ['diary', row.row_id], ['publication', id], { audience, recorded, retired }));
+    if (row.row_kind === 'diary' && filled(row.row_id))
+      out.edges.push(edge('published_as', ['diary', row.row_id], ['publication', id], { audience, recorded, retired }));
     if (row.status === 'sent') {
-      for (const source of receiptSources(db, row.receipts)) out.edges.push(edge('publication_source', ['publication', id], ['source', source], { audience, evidence: source, recorded, retired }));
+      for (const source of receiptSources(db, row.receipts))
+        out.edges.push(
+          edge('publication_source', ['publication', id], ['source', source], {
+            audience,
+            evidence: source,
+            recorded,
+            retired,
+          })
+        );
     }
     return out;
   },
@@ -353,7 +489,10 @@ const PRODUCERS = {
  */
 function publicationAudience(db, row) {
   if (row.status !== 'sent') return AUD_INTERNAL;
-  if (filled(row.destination_place_id)) return placeAudience(one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.destination_place_id));
+  if (filled(row.destination_place_id))
+    return placeAudience(
+      one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.destination_place_id)
+    );
   if (row.row_kind === 'diary' && filled(row.row_id)) {
     const entry = one(db, 'SELECT audience_id FROM diary WHERE id = ?', row.row_id);
     if (entry && filled(entry.audience_id)) return entry.audience_id;
@@ -364,12 +503,22 @@ function publicationAudience(db, row) {
 /** The stored lines a publication's receipts name (`[{ authority, kind, key }]`): the first stored revision of each. */
 function receiptSources(db, receipts) {
   let list;
-  try { list = JSON.parse(receipts ?? '[]'); } catch { list = []; }
+  try {
+    list = JSON.parse(receipts ?? '[]');
+  } catch {
+    list = [];
+  }
   const out = [];
   for (const receipt of Array.isArray(list) ? list : []) {
     if (!receipt || !filled(receipt.authority) || !filled(receipt.kind) || !filled(receipt.key)) continue;
-    const found = one(db, `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = 1
-      AND kind IN ('said', 'seen') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`, receipt.authority, receipt.kind, receipt.key);
+    const found = one(
+      db,
+      `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = 1
+      AND kind IN ('said', 'seen') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`,
+      receipt.authority,
+      receipt.kind,
+      receipt.key
+    );
     if (found && !out.includes(found.id)) out.push(found.id);
   }
   return out;
@@ -380,8 +529,16 @@ function ownOnly(table, kind) {
   return (db, id) => {
     const row = one(db, `SELECT * FROM ${quote(table)} WHERE id = ?`, id);
     if (!row) return empty();
-    const audience = NODE_KINDS[kind].internal ? AUD_INTERNAL : (filled(row.audience_id) ? row.audience_id : AUD_INTERNAL);
-    return { nodes: [node(kind, row)], own: row.retired_at ? [] : [{ node: graphNodeId(kind, id), audience }], edges: [] };
+    const audience = NODE_KINDS[kind].internal
+      ? AUD_INTERNAL
+      : filled(row.audience_id)
+        ? row.audience_id
+        : AUD_INTERNAL;
+    return {
+      nodes: [node(kind, row)],
+      own: row.retired_at ? [] : [{ node: graphNodeId(kind, id), audience }],
+      edges: [],
+    };
   };
 }
 
@@ -396,11 +553,18 @@ function aboutTarget(kind, id) {
 /** derived_from edges of a claim's or an episode's links, one per source (a live link wins over a retired one). */
 function linkEdges(db, table, column, id, src, { audience, recorded, claimRetired }) {
   const bySource = new Map();
-  for (const link of all(db, `SELECT source_id, retired_at FROM ${quote(table)} WHERE ${quote(column)} = ? AND source_id IS NOT NULL ORDER BY rowid`, id)) {
+  for (const link of all(
+    db,
+    `SELECT source_id, retired_at FROM ${quote(table)} WHERE ${quote(column)} = ? AND source_id IS NOT NULL ORDER BY rowid`,
+    id
+  )) {
     const retired = link.retired_at ?? claimRetired ?? null;
     const known = bySource.get(link.source_id);
     if (known && known.retired === null) continue;
-    bySource.set(link.source_id, edge('derived_from', src, ['source', link.source_id], { audience, evidence: link.source_id, recorded, retired }));
+    bySource.set(
+      link.source_id,
+      edge('derived_from', src, ['source', link.source_id], { audience, evidence: link.source_id, recorded, retired })
+    );
   }
   return [...bySource.values()];
 }
@@ -413,11 +577,20 @@ const ownerKeyOf = (table, id) => `${table}:${id}`;
 function writeUnit(db, table, id, at) {
   const produced = PRODUCERS[table](db, id);
   const owner = ownerKeyOf(table, id);
-  const upsertNode = prepared(db, `INSERT INTO graph_nodes (id, kind, row_id, created_at) VALUES (?, ?, ?, ?)
+  const upsertNode = prepared(
+    db,
+    `INSERT INTO graph_nodes (id, kind, row_id, created_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, row_id = excluded.row_id, created_at = excluded.created_at
-    WHERE graph_nodes.created_at IS NOT excluded.created_at OR graph_nodes.row_id IS NOT excluded.row_id`);
-  const placeholder = prepared(db, 'INSERT OR IGNORE INTO graph_nodes (id, kind, row_id, created_at) VALUES (?, ?, ?, ?)');
-  const witness = prepared(db, 'INSERT OR IGNORE INTO node_access (node_id, audience_id, evidence_id) VALUES (?, ?, ?)');
+    WHERE graph_nodes.created_at IS NOT excluded.created_at OR graph_nodes.row_id IS NOT excluded.row_id`
+  );
+  const placeholder = prepared(
+    db,
+    'INSERT OR IGNORE INTO graph_nodes (id, kind, row_id, created_at) VALUES (?, ?, ?, ?)'
+  );
+  const witness = prepared(
+    db,
+    'INSERT OR IGNORE INTO node_access (node_id, audience_id, evidence_id) VALUES (?, ?, ?)'
+  );
   const unwitness = prepared(db, 'DELETE FROM node_access WHERE evidence_id = ?');
   for (const n of produced.nodes) {
     upsertNode.run(n.id, n.kind, String(n.row_id), n.created_at);
@@ -426,15 +599,21 @@ function writeUnit(db, table, id, at) {
   }
   for (const w of produced.own) witness.run(w.node, usableAudience(db, w.audience), w.node);
   const keys = new Set();
-  const upsertEdge = prepared(db, `INSERT INTO graph_edges (id, src, predicate, dst, audience_id, evidence_id, valid_from_at, valid_to_at, recorded_at, retired_at, projection_key, owner_key)
+  const upsertEdge = prepared(
+    db,
+    `INSERT INTO graph_edges (id, src, predicate, dst, audience_id, evidence_id, valid_from_at, valid_to_at, recorded_at, retired_at, projection_key, owner_key)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET audience_id = excluded.audience_id, evidence_id = excluded.evidence_id, valid_from_at = excluded.valid_from_at,
-      valid_to_at = excluded.valid_to_at, recorded_at = excluded.recorded_at, retired_at = excluded.retired_at, owner_key = excluded.owner_key`);
+      valid_to_at = excluded.valid_to_at, recorded_at = excluded.recorded_at, retired_at = excluded.retired_at, owner_key = excluded.owner_key`
+  );
   for (const e of produced.edges) {
     const src = graphNodeId(e.src[0], e.src[1]);
     const dst = graphNodeId(e.dst[0], e.dst[1]);
     // The evidence is part of the key only when it is not one of the edge's own ends (a line's own edges, a link to it).
-    const evidence = (e.src[0] === 'source' && e.evidence === e.src[1]) || (e.dst[0] === 'source' && e.evidence === e.dst[1]) ? null : e.evidence;
+    const evidence =
+      (e.src[0] === 'source' && e.evidence === e.src[1]) || (e.dst[0] === 'source' && e.evidence === e.dst[1])
+        ? null
+        : e.evidence;
     const key = projectionKey(e.predicate, src, dst, evidence);
     if (keys.has(key)) continue;
     keys.add(key);
@@ -442,7 +621,20 @@ function writeUnit(db, table, id, at) {
     placeholder.run(dst, e.dst[0], String(e.dst[1]), EPOCH);
     const audience = usableAudience(db, e.audience);
     const edgeId = edgeIdOf(e.predicate, src, dst, evidence);
-    upsertEdge.run(edgeId, src, e.predicate, dst, audience, e.evidence ?? null, e.from ?? null, e.to ?? null, e.recorded ?? EPOCH, e.retired ?? null, key, owner);
+    upsertEdge.run(
+      edgeId,
+      src,
+      e.predicate,
+      dst,
+      audience,
+      e.evidence ?? null,
+      e.from ?? null,
+      e.to ?? null,
+      e.recorded ?? EPOCH,
+      e.retired ?? null,
+      key,
+      owner
+    );
     unwitness.run(edgeId);
     if (!e.retired) {
       witness.run(src, audience, edgeId);
@@ -450,7 +642,11 @@ function writeUnit(db, table, id, at) {
     }
   }
   let retired = 0;
-  for (const stale of all(db, 'SELECT id, projection_key FROM graph_edges WHERE owner_key = ? AND retired_at IS NULL', owner)) {
+  for (const stale of all(
+    db,
+    'SELECT id, projection_key FROM graph_edges WHERE owner_key = ? AND retired_at IS NULL',
+    owner
+  )) {
     if (keys.has(stale.projection_key)) continue;
     prepared(db, 'UPDATE graph_edges SET retired_at = ? WHERE id = ?').run(stamp(at), stale.id);
     unwitness.run(stale.id);
@@ -467,16 +663,21 @@ function unitsOfRow(db, table, row) {
     if (!filled(row.id)) return [];
     const out = [[table, row.id]];
     // A person's retirement retires the links to it: their accounts are projected again.
-    if (table === 'people') for (const link of all(db, 'SELECT DISTINCT account_id FROM account_person_links WHERE person_id = ?', row.id)) out.push(['accounts', link.account_id]);
+    if (table === 'people')
+      for (const link of all(db, 'SELECT DISTINCT account_id FROM account_person_links WHERE person_id = ?', row.id))
+        out.push(['accounts', link.account_id]);
     return out;
   }
   const [parent, column] = unit;
   if (table === 'claim_version_sources') {
-    const version = filled(row.version_id) ? one(db, 'SELECT claim_id FROM claim_versions WHERE id = ?', row.version_id) : null;
+    const version = filled(row.version_id)
+      ? one(db, 'SELECT claim_id FROM claim_versions WHERE id = ?', row.version_id)
+      : null;
     return filled(version?.claim_id) ? [['claims', version.claim_id]] : [];
   }
   let id = row[column];
-  if (!filled(id) && filled(row.id) && table !== 'source_relations') id = one(db, `SELECT ${quote(column)} AS v FROM ${quote(table)} WHERE id = ?`, row.id)?.v;
+  if (!filled(id) && filled(row.id) && table !== 'source_relations')
+    id = one(db, `SELECT ${quote(column)} AS v FROM ${quote(table)} WHERE id = ?`, row.id)?.v;
   return filled(id) ? [[parent, id]] : [];
 }
 
@@ -503,8 +704,14 @@ export function projectRow(handle, table, row, { at, log = engineLog } = {}) {
     } catch (error) {
       db.exec('ROLLBACK TO graph_unit');
       db.exec('RELEASE graph_unit');
-      prepared(db, 'INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run(PENDING_KEY, JSON.stringify({ unit: 0, after: null }));
-      log?.warn?.('memory graph: unit not projected, projection pending', { table: unit, code: error?.code ?? error?.name ?? 'ERROR' });
+      prepared(db, 'INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run(
+        PENDING_KEY,
+        JSON.stringify({ unit: 0, after: null })
+      );
+      log?.warn?.('memory graph: unit not projected, projection pending', {
+        table: unit,
+        code: error?.code ?? error?.name ?? 'ERROR',
+      });
     }
   }
   return count;
@@ -521,8 +728,13 @@ function unitIds(db, table, after, limit) {
     episodes: ['SELECT id FROM episodes', 'SELECT episode_id FROM episode_sources'],
     diary: ['SELECT id FROM diary'],
   }[table] ?? [`SELECT id FROM ${quote(table)}`];
-  return db.prepare(`SELECT v AS id FROM (${sources.map((sql) => sql.replace(/^SELECT (\S+)/, 'SELECT $1 AS v')).join(' UNION ')})
-    WHERE v IS NOT NULL AND (? IS NULL OR v > ?) ORDER BY v LIMIT ?`).all(after, after, limit).map((r) => String(r.id));
+  return db
+    .prepare(
+      `SELECT v AS id FROM (${sources.map((sql) => sql.replace(/^SELECT (\S+)/, 'SELECT $1 AS v')).join(' UNION ')})
+    WHERE v IS NOT NULL AND (? IS NULL OR v > ?) ORDER BY v LIMIT ?`
+    )
+    .all(after, after, limit)
+    .map((r) => String(r.id));
 }
 
 /**
@@ -531,7 +743,10 @@ function unitIds(db, table, after, limit) {
  * @param {object} handle  an `openMemoryDb` handle (the writer)
  * @param {{ tables?: string[], sliceUnits?: number, at?: string, clock?: () => number }} [opts]
  */
-export function reproject(handle, { tables = UNIT_ORDER, sliceUnits = SLICE_UNITS, at, clock = () => performance.now() } = {}) {
+export function reproject(
+  handle,
+  { tables = UNIT_ORDER, sliceUnits = SLICE_UNITS, at, clock = () => performance.now() } = {}
+) {
   const db = dbOf(handle);
   const transaction = handle.transaction ?? ((fn) => fn());
   const started = clock();
@@ -565,7 +780,10 @@ export function reproject(handle, { tables = UNIT_ORDER, sliceUnits = SLICE_UNIT
  * @param {object} handle  an `openMemoryDb` handle (the writer)
  * @param {{ sliceUnits?: number, maxSlices?: number, at?: string, clock?: () => number }} [opts]
  */
-export function projectPending(handle, { sliceUnits = SLICE_UNITS, maxSlices = Infinity, at, clock = () => performance.now() } = {}) {
+export function projectPending(
+  handle,
+  { sliceUnits = SLICE_UNITS, maxSlices = Infinity, at, clock = () => performance.now() } = {}
+) {
   const db = dbOf(handle);
   const transaction = handle.transaction ?? ((fn) => fn());
   const started = clock();
@@ -573,7 +791,11 @@ export function projectPending(handle, { sliceUnits = SLICE_UNITS, maxSlices = I
   const read = () => {
     const value = one(db, 'SELECT value FROM meta WHERE key = ?', PENDING_KEY)?.value;
     if (value === undefined || value === null) return null;
-    try { return JSON.parse(value); } catch { return { unit: 0, after: null }; }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return { unit: 0, after: null };
+    }
   };
   let units = 0;
   let slices = 0;
@@ -589,8 +811,12 @@ export function projectPending(handle, { sliceUnits = SLICE_UNITS, maxSlices = I
     const ids = unitIds(db, table, state.after ?? null, sliceUnits);
     transaction(() => {
       for (const id of ids) writeUnit(db, table, id, at);
-      const next = ids.length < sliceUnits ? { unit: index + 1, after: null } : { unit: index, after: ids[ids.length - 1] };
-      prepared(db, 'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(PENDING_KEY, JSON.stringify(next));
+      const next =
+        ids.length < sliceUnits ? { unit: index + 1, after: null } : { unit: index, after: ids[ids.length - 1] };
+      prepared(
+        db,
+        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      ).run(PENDING_KEY, JSON.stringify(next));
     });
     units += ids.length;
     state = read();
@@ -599,7 +825,8 @@ export function projectPending(handle, { sliceUnits = SLICE_UNITS, maxSlices = I
 }
 
 /** Whether a projection is pending (the v9 migration's, not yet done). */
-export const graphPending = (handle) => cacheOf(dbOf(handle)).has && one(dbOf(handle), 'SELECT 1 AS ok FROM meta WHERE key = ?', PENDING_KEY) !== undefined;
+export const graphPending = (handle) =>
+  cacheOf(dbOf(handle)).has && one(dbOf(handle), 'SELECT 1 AS ok FROM meta WHERE key = ?', PENDING_KEY) !== undefined;
 
 /** Drops every derived graph row and projects everything again; returns reproject's counts. */
 export function rebuildGraph(handle, opts = {}) {
@@ -637,7 +864,11 @@ function filterOf(ctx) {
  * @returns {{ rows: Array<{ node: string, kind: string, rowId: string, depth: number, via: string|null, predicate: string|null, parent: string|null }>,
  *   truncated: boolean, reason: 'depth'|'rows'|null, next: number|null }}
  */
-export function walk(db, ctx, { from, predicates = null, direction = 'out', maxDepth, maxRows, after = 0, config = null } = {}) {
+export function walk(
+  db,
+  ctx,
+  { from, predicates = null, direction = 'out', maxDepth, maxRows, after = 0, config = null } = {}
+) {
   const filter = filterOf(ctx);
   const settings = graphSettings(config);
   const depth = Number.isInteger(maxDepth) && maxDepth >= 0 ? maxDepth : settings.maxDepth;
@@ -645,11 +876,20 @@ export function walk(db, ctx, { from, predicates = null, direction = 'out', maxD
   const skip = Number.isInteger(after) && after > 0 ? after : 0;
   const starts = [...new Set((Array.isArray(from) ? from : [from]).filter(filled))];
   if (starts.length === 0 || !cacheOf(db).has) return { rows: [], truncated: false, reason: null, next: null };
-  const predicateSql = Array.isArray(predicates) && predicates.length > 0 ? `AND e.predicate IN (${predicates.map(() => '?').join(', ')})` : '';
+  const predicateSql =
+    Array.isArray(predicates) && predicates.length > 0
+      ? `AND e.predicate IN (${predicates.map(() => '?').join(', ')})`
+      : '';
   const predicateParams = Array.isArray(predicates) && predicates.length > 0 ? predicates : [];
-  const hop = direction === 'in' ? { join: 'e.dst = r.node', next: 'e.src' }
-    : direction === 'both' ? { join: 'e.rowid IN (SELECT rowid FROM graph_edges WHERE src = r.node UNION ALL SELECT rowid FROM graph_edges WHERE dst = r.node)', next: 'CASE WHEN e.src = r.node THEN e.dst ELSE e.src END' }
-      : { join: 'e.src = r.node', next: 'e.dst' };
+  const hop =
+    direction === 'in'
+      ? { join: 'e.dst = r.node', next: 'e.src' }
+      : direction === 'both'
+        ? {
+            join: 'e.rowid IN (SELECT rowid FROM graph_edges WHERE src = r.node UNION ALL SELECT rowid FROM graph_edges WHERE dst = r.node)',
+            next: 'CASE WHEN e.src = r.node THEN e.dst ELSE e.src END',
+          }
+        : { join: 'e.src = r.node', next: 'e.dst' };
   const sql = `WITH RECURSIVE r(node, depth, path, via, predicate, parent) AS (
       SELECT n.id, 0, char(31) || n.id || char(31), NULL, NULL, NULL FROM graph_nodes n
        WHERE n.id IN (${starts.map(() => '?').join(', ')}) AND ${filter.node('n.id')}
@@ -665,26 +905,45 @@ export function walk(db, ctx, { from, predicates = null, direction = 'out', maxD
       FROM r JOIN graph_nodes n ON n.id = r.node ORDER BY r.depth, r.node, r.path`;
   // The recursion runs one level past maxDepth: a row there says the walk stopped at the depth cap.
   const limit = skip + cap + 1;
-  const found = db.prepare(sql).all(...starts, ...filter.nodeParams, depth, ...predicateParams, ...filter.edgeParams, ...filter.nodeParams, limit);
+  const found = db
+    .prepare(sql)
+    .all(...starts, ...filter.nodeParams, depth, ...predicateParams, ...filter.edgeParams, ...filter.nodeParams, limit);
   const shallow = found.filter((row) => row.depth <= depth);
   const deeper = found.some((row) => row.depth > depth);
   let truncated = false;
   let reason = null;
   let next = null;
   let page = shallow.slice(skip, skip + cap);
-  if (shallow.length > skip + cap) { truncated = true; reason = 'rows'; next = skip + cap; } else if (deeper) { truncated = true; reason = 'depth'; }
+  if (shallow.length > skip + cap) {
+    truncated = true;
+    reason = 'rows';
+    next = skip + cap;
+  } else if (deeper) {
+    truncated = true;
+    reason = 'depth';
+  }
   const seen = new Set();
   page = page.filter((row) => (seen.has(row.node) ? false : (seen.add(row.node), true)));
   return {
-    rows: page.map((row) => ({ node: row.node, kind: row.kind, rowId: row.row_id, depth: row.depth, via: row.via ?? null, predicate: row.predicate ?? null, parent: row.parent ?? null })),
-    truncated, reason, next,
+    rows: page.map((row) => ({
+      node: row.node,
+      kind: row.kind,
+      rowId: row.row_id,
+      depth: row.depth,
+      via: row.via ?? null,
+      predicate: row.predicate ?? null,
+      parent: row.parent ?? null,
+    })),
+    truncated,
+    reason,
+    next,
   };
 }
 
 /** The later of two ISO times, null meaning unbounded (open start). */
-const laterOf = (a, b) => (a == null ? b ?? null : b == null ? a : (a > b ? a : b));
+const laterOf = (a, b) => (a == null ? (b ?? null) : b == null ? a : a > b ? a : b);
 /** The earlier of two ISO times, null meaning unbounded (open end). */
-const earlierOf = (a, b) => (a == null ? b ?? null : b == null ? a : (a < b ? a : b));
+const earlierOf = (a, b) => (a == null ? (b ?? null) : b == null ? a : a < b ? a : b);
 
 /**
  * Everything a person said anywhere: the sources authored by an account verified for the person at the source's time
@@ -696,7 +955,14 @@ export function saidBy(db, ctx, personId, { maxRows, after = 0, config = null } 
   const cap = Number.isInteger(maxRows) && maxRows > 0 ? maxRows : settings.maxRows;
   const skip = Number.isInteger(after) && after > 0 ? after : 0;
   const person = graphNodeId('person', personId);
-  const identities = walk(db, ctx, { from: person, predicates: ['account_of', 'participant_of'], direction: 'in', maxDepth: 2, maxRows: settings.maxRows, config });
+  const identities = walk(db, ctx, {
+    from: person,
+    predicates: ['account_of', 'participant_of'],
+    direction: 'in',
+    maxDepth: 2,
+    maxRows: settings.maxRows,
+    config,
+  });
   if (identities.rows.length === 0) return { rows: [], truncated: false, reason: null, next: null };
   const windowOf = prepared(db, 'SELECT valid_from_at, valid_to_at FROM graph_edges WHERE id = ?');
   const byNode = new Map(identities.rows.map((row) => [row.node, row]));
@@ -711,16 +977,22 @@ export function saidBy(db, ctx, personId, { maxRows, after = 0, config = null } 
     return { n: row.node, f: from, t: to };
   });
   const filter = filterOf(ctx);
-  const rows = db.prepare(`WITH ids AS (SELECT json_extract(value, '$.n') AS node, json_extract(value, '$.f') AS f, json_extract(value, '$.t') AS t FROM json_each(?))
+  const rows = db
+    .prepare(
+      `WITH ids AS (SELECT json_extract(value, '$.n') AS node, json_extract(value, '$.f') AS f, json_extract(value, '$.t') AS t FROM json_each(?))
     SELECT DISTINCT e.src AS node, n.row_id AS row_id, s.occurred_at AS occurred_at, ids.node AS via
       FROM ids JOIN graph_edges e ON e.dst = ids.node AND e.predicate = 'authored_by'
       JOIN graph_nodes n ON n.id = e.src JOIN sources s ON s.id = n.row_id
      WHERE e.retired_at IS NULL AND ${filter.edge('e')} AND ${filter.node('e.src')}
        AND (ids.f IS NULL OR s.occurred_at >= ids.f) AND (ids.t IS NULL OR s.occurred_at < ids.t)
-     ORDER BY s.occurred_at, e.src LIMIT ? OFFSET ?`).all(JSON.stringify(ids), ...filter.edgeParams, ...filter.nodeParams, cap + 1, skip);
+     ORDER BY s.occurred_at, e.src LIMIT ? OFFSET ?`
+    )
+    .all(JSON.stringify(ids), ...filter.edgeParams, ...filter.nodeParams, cap + 1, skip);
   const truncated = rows.length > cap || identities.truncated;
   return {
-    rows: rows.slice(0, cap).map((row) => ({ node: row.node, rowId: row.row_id, occurredAt: row.occurred_at, via: row.via })),
+    rows: rows
+      .slice(0, cap)
+      .map((row) => ({ node: row.node, rowId: row.row_id, occurredAt: row.occurred_at, via: row.via })),
     truncated,
     reason: rows.length > cap ? 'rows' : identities.reason,
     next: rows.length > cap ? skip + cap : null,
@@ -731,7 +1003,14 @@ const sourcesOnly = (result) => ({ ...result, rows: result.rows.filter((row) => 
 
 /** What happened in a place: the sources located in it and in every place it contains (down to the depth cap). */
 export function inPlace(db, ctx, placeId, opts = {}) {
-  return sourcesOnly(walk(db, ctx, { ...opts, from: graphNodeId('place', placeId), predicates: ['contained_in', 'located_in'], direction: 'in' }));
+  return sourcesOnly(
+    walk(db, ctx, {
+      ...opts,
+      from: graphNodeId('place', placeId),
+      predicates: ['contained_in', 'located_in'],
+      direction: 'in',
+    })
+  );
 }
 
 /** Who replied to a line: the sources that reply to it, and the replies to those (down to the depth cap). */
@@ -747,4 +1026,3 @@ export function continuationsOf(db, ctx, placeId, opts = {}) {
   const result = walk(db, ctx, { ...opts, from: start, predicates: ['continues'], direction: 'in' });
   return { ...result, rows: result.rows.filter((row) => row.node !== start) };
 }
-
