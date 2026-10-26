@@ -137,11 +137,17 @@ function discordHarness({ operations = null } = {}) {
 // ---------------------------------------------------------------------------
 // The shared suite.
 
+/** @typedef {import('../src/protocol/adapter.ts').Adapter} Adapter */
+/** @typedef {import('../src/protocol/adapter.ts').MessageRef} MessageRef */
+/** @typedef {{ port: Adapter, view(ref: MessageRef): { text: string } | null, effects(): number }} Harness */
+
 for (const [name, make] of [
   ['fake', fakeHarness],
   ['discord', discordHarness],
 ]) {
   const room = (port) => ({ iface: port.iface, conversationId: ROOM });
+  // The same harness `make` builds, typed for the split tests (the pair of harnesses is a union the checker cannot call).
+  const build = /** @type {() => Harness} */ (/** @type {unknown} */ (make));
 
   test(`port contract (${name}): send answers ok with the new message's reference`, async () => {
     const { port, view } = make();
@@ -267,27 +273,28 @@ for (const [name, make] of [
 
   // Before PR 2 a send over the limit was refused as `text-too-long`. The adapter now splits it into parts that
   // join to the text, so the refusal is gone for `send`; only an edit, which cannot grow into several messages, keeps it.
-  test(`port contract (${name}): a send over the limit is posted as parts that join to the text`, async () => {
-    const h = make();
+  test(`port contract (${String(name)}): a send over the limit is posted as parts that join to the text`, async () => {
+    const h = build();
     const limit = h.port.capabilities().maxChars;
     const text = 'α'.repeat(limit + 1);
     const before = h.effects();
-    const delivery = await h.port.send(room(h.port), { text });
+    const delivery = await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text });
     assert.equal(delivery.status, 'ok');
     assert.equal(delivery.parts.length, 2);
     assert.equal(h.effects(), before + 2);
-    const posted = delivery.parts.map((ref) => h.view(ref).text);
+    const posted = delivery.parts.map((ref) => h.view(ref)?.text ?? '');
     assert.ok(posted.every((part) => Array.from(part).length <= limit));
     assert.equal(posted.join(''), text);
     assert.deepEqual(delivery.ref, delivery.parts[0], 'ref is the first part');
   });
 
-  test(`port contract (${name}): an edit over the limit is still refused as text-too-long`, async () => {
-    const h = make();
-    const own = (await h.port.send(room(h.port), { text: 'μένει' })).ref;
+  test(`port contract (${String(name)}): an edit over the limit is still refused as text-too-long`, async () => {
+    const h = build();
+    const own = (await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text: 'μένει' })).ref;
+    assert.ok(own);
     const result = await h.port.edit(own, { text: 'α'.repeat(h.port.capabilities().maxChars + 1) });
-    assert.deepEqual([result.status, result.error.code], ['failed', 'text-too-long']);
-    assert.equal(h.view(own).text, 'μένει');
+    assert.deepEqual([result.status, result.error?.code], ['failed', 'text-too-long']);
+    assert.equal(h.view(own)?.text, 'μένει');
   });
 
   test(`port contract (${name}): no operation throws on malformed arguments`, async () => {
@@ -344,25 +351,26 @@ test('discord adapter: a text over the limit posts one message per part, replyin
   const replyTo = { iface: 'discord', conversationId: ROOM, messageId: 'target-1' };
   const delivery = await h.port.send({ iface: 'discord', conversationId: ROOM }, { text, replyTo });
   assert.equal(delivery.status, 'ok');
-  assert.equal(h.payloads.length, 2, 'one channel.send per part');
+  const payloads = /** @type {Array<{ content?: string, reply?: { messageReference: string } }>} */ (h.payloads);
+  assert.equal(payloads.length, 2, 'one channel.send per part');
   assert.deepEqual(
     delivery.parts.map((ref) => ref.messageId),
     ['d1', 'd2']
   );
   assert.deepEqual(delivery.ref, delivery.parts[0]);
-  assert.equal(h.payloads[0].reply?.messageReference, 'target-1');
-  assert.equal(h.payloads[1].reply, undefined, 'the second part does not reply');
-  assert.equal(h.payloads.map((payload) => payload.content).join(''), text);
+  assert.equal(payloads[0]?.reply?.messageReference, 'target-1');
+  assert.equal(payloads[1]?.reply, undefined, 'the second part does not reply');
+  assert.equal(payloads.map((payload) => payload.content).join(''), text);
 });
 
 test('discord adapter: a failure on the second part is unknown and keeps the first part', async () => {
   let calls = 0;
   const held = {
     id: 'c9',
-    send: async () => {
+    send: () => {
       calls += 1;
-      if (calls === 2) throw Object.assign(new Error('Internal Server Error'), { status: 500 });
-      return { id: `x${calls}`, createdTimestamp: 42 };
+      if (calls === 2) return Promise.reject(Object.assign(new Error('Internal Server Error'), { status: 500 }));
+      return Promise.resolve({ id: `x${calls}`, createdTimestamp: 42 });
     },
   };
   const port = createDiscordAdapter({
@@ -384,7 +392,7 @@ test('discord adapter: a failure on the second part is unknown and keeps the fir
 test('discord adapter: an unknown channel fails without a send', async () => {
   const h = discordHarness();
   const result = await h.port.send({ iface: 'discord', conversationId: 'gone' }, { text: 'α' });
-  assert.deepEqual([result.status, result.error.code], ['failed', 'http-404']);
+  assert.deepEqual([result.status, result.error?.code], ['failed', 'http-404']);
   assert.equal(h.payloads.length, 0);
 });
 
@@ -509,7 +517,7 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
 test("fake adapter: a well-formed action keeps the port's own refusal codes", async () => {
   const h = fakeHarness();
   const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
-  assert.equal(foreign.error.code, 'foreign-reference');
+  assert.equal(foreign.error?.code, 'foreign-reference');
   const emptyEmoji = await h.port.react(h.foreign(), '');
   assert.equal(emptyEmoji.error.code, 'invalid-emoji');
 });

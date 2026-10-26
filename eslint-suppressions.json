@@ -5495,16 +5495,16 @@
   },
   "tests/interface-contract.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 64
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 52
+      "count": 49
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 130
+      "count": 124
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 10
@@ -7999,13 +7999,13 @@
       "count": 76
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 387
+      "count": 385
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 277
+      "count": 273
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1143
+      "count": 1137
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 209
