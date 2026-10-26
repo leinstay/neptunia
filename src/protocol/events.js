@@ -1,4 +1,4 @@
-// The inbound half of the protocol: what an interface tells the core. Eight kinds, each a plain
+// The inbound half of the protocol: what an interface tells the core. Twelve kinds, each a plain
 // serialisable object -- no platform object survives into it, every id is an opaque string the
 // adapter alone knows how to build -- with `kind`, `iface` (the adapter's namespace), `at` (ms
 // since the epoch), `id` (an opaque event id for dedup) and, for what happens in a conversation,
@@ -18,6 +18,14 @@ export const COMMAND_REQUESTED = 'command.requested';
 export const MEMBERSHIP_CHANGED = 'membership.changed';
 /** A member's voice state changed (joined, left or moved a voice conversation, muted, ...). */
 export const VOICE_CHANGED = 'voice.changed';
+/** A member's presence changed: their status or what they are doing. */
+export const PRESENCE_CHANGED = 'presence.changed';
+/** Everyone's voice state and presence at one moment, sent to seed or replace what the core holds. */
+export const PRESENCE_SNAPSHOT = 'presence.snapshot';
+/** A conversation was created, updated or deleted. */
+export const CONVERSATION_CHANGED = 'conversation.changed';
+/** The interface lost its connection to the platform, or got it back. */
+export const CONNECTION_CHANGED = 'connection.changed';
 /** The core's own clock. */
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
@@ -35,6 +43,10 @@ export const EVENT_KINDS = Object.freeze([
   MEMBERSHIP_CHANGED,
   VOICE_CHANGED,
   INNER_WAKE,
+  PRESENCE_CHANGED,
+  PRESENCE_SNAPSHOT,
+  CONVERSATION_CHANGED,
+  CONNECTION_CHANGED,
 ]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
@@ -55,6 +67,18 @@ export const CHAT_TYPES = Object.freeze(['dm', 'group', 'channel', 'thread']);
 /** What happened to a member (`membership.changed`). */
 export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
 
+/** What a member is doing on the platform (`presence.changed`). */
+export const PRESENCE_STATUSES = Object.freeze(['online', 'idle', 'dnd', 'offline', 'unknown']);
+
+/** The kinds of activity a presence lists. */
+export const ACTIVITY_KINDS = Object.freeze(['playing', 'streaming', 'listening', 'watching', 'competing', 'other']);
+
+/** What happened to a conversation (`conversation.changed`). */
+export const CONVERSATION_CHANGES = Object.freeze(['created', 'updated', 'deleted']);
+
+/** The states of an interface's connection (`connection.changed`). */
+export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
+
 /**
  * Where an event happened. `guildId`: the community the conversation belongs to (none for a
  * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
@@ -67,8 +91,14 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  */
 
 /**
+ * A member's picture: `hash` identifies it, `url` is where to fetch it; either is null when unknown.
+ * @typedef {{ hash: string|null, url: string|null }} Avatar
+ */
+
+/**
  * Who wrote a message: `self` is the persona's own member, `bot` another automated one.
- * @typedef {{ id: string, name: string|null, self: boolean, bot: boolean }} Author
+ * `avatar` (optional): the hash and the address of their picture, each null when unknown.
+ * @typedef {{ id: string, name: string|null, self: boolean, bot: boolean, avatar?: Avatar }} Author
  */
 
 /**
@@ -135,15 +165,56 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  * `membership.changed`: `change` says what happened to the member `userId` of the community
  * `guildId`; `member` is who they are now (absent when they left and the adapter no longer knows).
  * @typedef {{ kind: 'membership.changed', iface: string, at: number, id: string, guildId: string,
- *   userId: string, change: 'joined'|'left'|'updated', member?: { id: string, name: string|null, bot: boolean } }} MembershipChanged
+ *   userId: string, change: 'joined'|'left'|'updated', member?: { id: string, name: string|null, bot: boolean, avatar?: Avatar } }} MembershipChanged
  */
 
 /**
  * `voice.changed`: `conversationId` is the voice conversation the member is in now (null: none),
  * `previousId` the one they were in (null: none); the flags are what the adapter knows.
+ * `name` (optional): the name people see for the member, null when unknown; `camera` (optional): whether their camera is on.
  * @typedef {{ kind: 'voice.changed', iface: string, at: number, id: string, guildId: string, userId: string,
- *   conversationId: string|null, previousId: string|null, muted?: boolean, deafened?: boolean,
- *   streaming?: boolean }} VoiceChanged
+ *   name?: string|null, conversationId: string|null, previousId: string|null, muted?: boolean, deafened?: boolean,
+ *   streaming?: boolean, camera?: boolean }} VoiceChanged
+ */
+
+/**
+ * One thing a member is doing: its `kind`, `name`, and the `details` and `state` lines the platform shows (empty when none).
+ * @typedef {{ kind: 'playing'|'streaming'|'listening'|'watching'|'competing'|'other', name: string, details: string,
+ *   state: string }} Activity
+ */
+
+/**
+ * A member's presence: `name` is what people see for them, null when unknown.
+ * @typedef {{ userId: string, name: string|null, status: 'online'|'idle'|'dnd'|'offline'|'unknown',
+ *   activities: Activity[] }} PresenceState
+ */
+
+/**
+ * A member's voice state as a snapshot lists it: the fields of `voice.changed` without the envelope.
+ * @typedef {Omit<VoiceChanged, 'kind'|'iface'|'at'|'id'>} VoiceState
+ */
+
+/**
+ * `presence.changed`: one member's presence now.
+ * @typedef {{ kind: 'presence.changed', iface: string, at: number, id: string } & PresenceState} PresenceChanged
+ */
+
+/**
+ * `presence.snapshot`: every voice state and presence the interface knows at `at`. It replaces what the core holds.
+ * @typedef {{ kind: 'presence.snapshot', iface: string, at: number, id: string, voice: VoiceState[],
+ *   presence: PresenceState[] }} PresenceSnapshot
+ */
+
+/**
+ * `conversation.changed`: `conversation` as it is now (as it was, for a deletion).
+ * @typedef {{ kind: 'conversation.changed', iface: string, at: number, id: string, conversation: Conversation,
+ *   change: 'created'|'updated'|'deleted' }} ConversationChanged
+ */
+
+/**
+ * `connection.changed`: the interface's link to its platform dropped (`lost`) or came back (`resumed`).
+ * @typedef {{ kind: 'connection.changed', iface: string, at: number, id: string,
+ *   state: 'lost'|'resumed' }} ConnectionChanged
  */
 
 /**
@@ -168,5 +239,5 @@ export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
  */
 
 /**
- * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged|InnerWake} InboundEvent
+ * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged|InnerWake|PresenceChanged|PresenceSnapshot|ConversationChanged|ConnectionChanged} InboundEvent
  */

@@ -10,7 +10,12 @@
 
 import { ACTIONS, CAPABILITIES, COMMAND_RESULT } from './actions.js';
 import {
+  ACTIVITY_KINDS,
   CHAT_TYPES,
+  CONNECTION_CHANGED,
+  CONNECTION_STATES,
+  CONVERSATION_CHANGED,
+  CONVERSATION_CHANGES,
   COMMAND_REQUESTED,
   CONVERSATION_CHAT_TYPES,
   CONVERSATION_KINDS,
@@ -20,6 +25,9 @@ import {
   MEMBERSHIP_CHANGES,
   MEMBERSHIP_CHANGED,
   MESSAGE_RECEIVED,
+  PRESENCE_CHANGED,
+  PRESENCE_SNAPSHOT,
+  PRESENCE_STATUSES,
   REACTION_CHANGED,
   SCHEDULER_TICK,
   TASK_COMPLETED,
@@ -36,6 +44,24 @@ class Refusal {
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/**
+ * Reads `value` as a record, after `need(value, field, isObject)` has accepted it.
+ * @param {unknown} value
+ * @returns {Record<string, unknown>}
+ */
+const asRecord = (value) => /** @type {Record<string, unknown>} */ (value);
+/** @type {(value: unknown) => boolean} */
+const isBoolean = (value) => typeof value === 'boolean';
+/** @type {(value: unknown) => boolean} */
+const isString = (value) => typeof value === 'string';
+/** @type {(value: unknown) => boolean} */
+const isIdOrNull = (value) => value === null || isId(value);
+/**
+ * A check for a string from `list`.
+ * @param {readonly string[]} list
+ * @returns {(value: unknown) => boolean}
+ */
+const isOneOf = (list) => (value) => typeof value === 'string' && list.includes(value);
 const isId = (value) => typeof value === 'string' && value !== '';
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 const isNullableString = (value) => value === null || typeof value === 'string';
@@ -53,6 +79,31 @@ function need(value, field, check, { required = true, problem = 'type' } = {}) {
 function needIds(value, field) {
   need(value, field, Array.isArray);
   value.forEach((id, index) => need(id, `${field}.${index}`, isId));
+}
+
+/**
+ * Throws a Refusal unless `value` is an array; runs `check(entry, path)` on each entry, `path` being `field.index`.
+ * @param {unknown} value
+ * @param {string} field
+ * @param {(entry: unknown, path: string) => void} check
+ */
+function eachEntry(value, field, check) {
+  need(value, field, Array.isArray);
+  /** @type {unknown[]} */ (value).forEach((entry, index) => check(entry, `${field}.${index}`));
+}
+
+/**
+ * Throws a Refusal unless the `avatar` of `owner` (when present) is `{ hash, url }`, each a string or null.
+ * @param {unknown} owner an object already checked
+ * @param {string} field
+ */
+function checkAvatar(owner, field) {
+  const avatar = asRecord(owner).avatar;
+  need(avatar, field, isObject, { required: false });
+  if (avatar === undefined) return;
+  const { hash, url } = asRecord(avatar);
+  need(hash, `${field}.hash`, isNullableString);
+  need(url, `${field}.url`, isNullableString);
 }
 
 /** Runs `check` and turns its refusal into a result; any other error is a refusal too, never a throw. */
@@ -91,6 +142,7 @@ function checkMessage(message) {
   need(message.author.name, 'message.author.name', isNullableString);
   need(message.author.self, 'message.author.self', (value) => typeof value === 'boolean');
   need(message.author.bot, 'message.author.bot', (value) => typeof value === 'boolean');
+  checkAvatar(message.author, 'message.author.avatar');
   need(message.content, 'message.content', (value) => typeof value === 'string');
   need(message.at, 'message.at', isFiniteNumber);
   for (const key of ['replyToId', 'replyPingUserId'])
@@ -187,15 +239,77 @@ function checkMembershipChanged(event) {
     need(event.member.id, 'member.id', isId);
     need(event.member.name, 'member.name', isNullableString);
     need(event.member.bot, 'member.bot', (value) => typeof value === 'boolean');
+    checkAvatar(event.member, 'member.avatar');
   }
 }
 
-function checkVoiceChanged(event) {
-  need(event.guildId, 'guildId', isId);
-  need(event.userId, 'userId', isId);
-  for (const key of ['conversationId', 'previousId']) need(event[key], key, (value) => value === null || isId(value));
-  for (const flag of ['muted', 'deafened', 'streaming'])
-    need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
+/**
+ * The fields of a voice state, on `voice.changed` itself (`prefix` empty) or on an entry of a snapshot.
+ * @param {unknown} event an object already checked
+ * @param {string} prefix
+ */
+function checkVoiceState(event, prefix) {
+  const state = asRecord(event);
+  need(state.guildId, `${prefix}guildId`, isId);
+  need(state.userId, `${prefix}userId`, isId);
+  need(state.name, `${prefix}name`, isNullableString, { required: false });
+  for (const key of ['conversationId', 'previousId']) need(state[key], `${prefix}${key}`, isIdOrNull);
+  for (const flag of ['muted', 'deafened', 'streaming', 'camera'])
+    need(state[flag], `${prefix}${flag}`, isBoolean, { required: false });
+}
+
+/**
+ * @param {unknown} activity
+ * @param {string} path
+ */
+function checkActivity(activity, path) {
+  need(activity, path, isObject);
+  const fields = asRecord(activity);
+  need(fields.kind, `${path}.kind`, isOneOf(ACTIVITY_KINDS), { problem: 'unknown' });
+  for (const key of ['name', 'details', 'state']) need(fields[key], `${path}.${key}`, isString);
+}
+
+/**
+ * The fields of a presence, on `presence.changed` itself (`prefix` empty) or on an entry of a snapshot.
+ * @param {unknown} event an object already checked
+ * @param {string} prefix
+ */
+function checkPresenceState(event, prefix) {
+  const state = asRecord(event);
+  need(state.userId, `${prefix}userId`, isId);
+  need(state.name, `${prefix}name`, isNullableString);
+  need(state.status, `${prefix}status`, isOneOf(PRESENCE_STATUSES), { problem: 'unknown' });
+  eachEntry(state.activities, `${prefix}activities`, checkActivity);
+}
+
+/**
+ * @param {unknown} event
+ * @param {string} field
+ * @param {(entry: unknown, prefix: string) => void} check
+ */
+function checkEntries(event, field, check) {
+  eachEntry(asRecord(event)[field], field, (entry, path) => {
+    need(entry, path, isObject);
+    check(entry, `${path}.`);
+  });
+}
+
+/** @param {unknown} event */
+function checkPresenceSnapshot(event) {
+  checkEntries(event, 'voice', checkVoiceState);
+  checkEntries(event, 'presence', checkPresenceState);
+}
+
+/** @param {unknown} event */
+function checkConversationChanged(event) {
+  const { conversation, change } = asRecord(event);
+  checkConversation(conversation);
+  need(change, 'change', isOneOf(CONVERSATION_CHANGES), { problem: 'unknown' });
+}
+
+/** @param {unknown} event */
+function checkConnectionChanged(event) {
+  need(asRecord(event).state, 'state', isOneOf(CONNECTION_STATES), { problem: 'unknown' });
 }
 
 const EVENT_CHECKS = {
@@ -205,8 +319,12 @@ const EVENT_CHECKS = {
   [SCHEDULER_TICK]: () => {},
   [TASK_COMPLETED]: checkTaskCompleted,
   [MEMBERSHIP_CHANGED]: checkMembershipChanged,
-  [VOICE_CHANGED]: checkVoiceChanged,
+  [VOICE_CHANGED]: (event) => checkVoiceState(event, ''),
   [INNER_WAKE]: checkInnerWake,
+  [PRESENCE_CHANGED]: (event) => checkPresenceState(event, ''),
+  [PRESENCE_SNAPSHOT]: checkPresenceSnapshot,
+  [CONVERSATION_CHANGED]: checkConversationChanged,
+  [CONNECTION_CHANGED]: checkConnectionChanged,
 };
 
 /**

@@ -24,7 +24,7 @@ A conversation has:
 | `parentId` | The conversation a thread belongs to (absent or null otherwise) |
 | `partnerId` | The other person of a one-to-one chat (optional) |
 
-The eight event kinds:
+The twelve event kinds:
 
 | Kind | Source | What happens |
 |---|---|---|
@@ -32,7 +32,11 @@ The eight event kinds:
 | `reaction.changed` | adapter | A reaction put on or taken off a message. Carries the emoji, the member who reacted, and `added` (true for put on, false for taken off). A clear (`cleared: 'emoji'` or `'all'`) removes many at once. |
 | `command.requested` | adapter | An owner command from the chat surface. Carries the command `name`, its `args`, the `requester` and a `replyRef` token the core uses to send the answer back. |
 | `membership.changed` | adapter | A member joined, left or was updated in a community. |
-| `voice.changed` | adapter | A member's voice state changed (joined, left, moved, muted, deafened, streaming). |
+| `voice.changed` | adapter | A member's voice state changed (joined, left, moved, muted, deafened, streaming, camera). Carries the member's `name` when the adapter knows it. |
+| `presence.changed` | adapter | A member's presence changed. Carries `userId`, `name` (null when unknown), a `status` (`online`, `idle`, `dnd`, `offline` or `unknown`) and the `activities` list, each with a `kind` (`playing`, `streaming`, `listening`, `watching`, `competing` or `other`), a `name`, `details` and `state`. |
+| `presence.snapshot` | adapter | Every voice state and presence the adapter knows at one moment, as `voice` (the fields of `voice.changed` without the envelope) and `presence` (the fields of `presence.changed` without the envelope). |
+| `conversation.changed` | adapter | A conversation was created, updated or deleted. Carries the `conversation` and a `change` of `created`, `updated` or `deleted`. |
+| `connection.changed` | adapter | The adapter lost its link to the platform (`state: 'lost'`) or got it back (`'resumed'`). |
 | `scheduler.tick` | core | The engine's own clock tick (`at` only). |
 | `task.completed` | core | One of the persona's errands ended, with a `taskId`, `status` and `result`. |
 | `inner.wake` | core | The inner-life scheduler found something due (an intention, a review, a heartbeat, an errand deadline). See [inner life](inner-life.md). |
@@ -44,7 +48,7 @@ A message looks like this:
 | Field | What |
 |---|---|
 | `id` | The message's id |
-| `author` | `{ id, name, self, bot }`. `self` is true for the persona's own messages; `bot` for another automated account. |
+| `author` | `{ id, name, self, bot }` and an optional `avatar`. `self` is true for the persona's own messages; `bot` for another automated account. `avatar` is `{ hash, url }`, each a string or null; `membership.changed` carries the same record on its `member`. |
 | `content` | The text as people read it (mentions written as names) |
 | `at` | When it was written (ms since epoch) |
 | `replyToId` | The message it replies to, or null |
